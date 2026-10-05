@@ -346,6 +346,38 @@ describe('RoomAgent', () => {
     keeper.leave()
   })
 
+  it('the keeper hands a newcomer the epochs the room has left as well as the current one', async () => {
+    const relay = new SimRelay({ replay: true })
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0 })
+    const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
+    const carol = await RoomAgent.join({ link: keeper.url, name: 'Carol', transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+    await keeper.remove(bob.participant)
+    await settle()
+    await ada.chat.send('in epoch 1')
+    await keeper.remove(carol.participant)
+    await settle()
+    bob.leave()
+    carol.leave()
+    expect(keeper.session.epoch).toBe(2)
+
+    // Dave holds no copy of either rekey, so he asks the keeper: its grant
+    // carries epoch 1 too, and he reads what was said there.
+    const daveIdentity = localIdentity(generateSecretKey())
+    keeper.session.letIn(daveIdentity.pubkey)
+    const dave = await RoomAgent.join({ link: keeper.url, name: 'Dave', identity: daveIdentity, transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+    expect(dave.session.epoch).toBe(2)
+    const epochOne = (agent: RoomAgent) => agent.session.pastSecrets().find((e) => e.epoch === 1)
+    expect(epochOne(dave)?.secret).toEqual(epochOne(keeper)?.secret)
+    expect(epochOne(dave)?.leftAt).toBe(epochOne(keeper)?.leftAt)
+    expect(dave.chat.messages().map((m) => m.text)).toContain('in epoch 1')
+    dave.leave()
+    ada.leave()
+    keeper.leave()
+  })
+
   it('reopens a rekeyed room in the same epoch, still refusing the removed', async () => {
     const relay = new SimRelay({ replay: true })
     const bobIdentity = localIdentity(generateSecretKey())

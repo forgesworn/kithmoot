@@ -1,17 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { PresenceLedger, RoomWatch } from './room-watch.js'
+import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
+import { PresenceLedger, RoomWatch, type WatchedRekey } from './room-watch.js'
 import { deriveRoom } from '../../src/room.js'
 import { createDeviceCredential } from '../../src/credential.js'
 import { localIdentity } from '../../src/identity.js'
 import { encodeRosterEvent } from '../../src/roster.js'
 import { encodeChatEvent } from '../../src/chat.js'
-import { deriveEpoch } from '../../src/epoch.js'
+import { deriveEpoch, encodeRekeyEvent, generateEpochSecret, type RoomEpoch } from '../../src/epoch.js'
+import { generateSealKey } from '../../src/seal.js'
 import { CONTROL_CHANNEL, encodeControl } from '../../src/control.js'
 import { renameRoomOp } from '../../src/room-name.js'
 import { issueKindredProof } from '../../src/access.js'
 import { PRESENCE_TTL_SECONDS } from '../../src/session.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
+import { KINDS } from '../../src/kinds.js'
+import type { Filter } from 'nostr-tools/filter'
 import type { DeviceCredential, KindredProof, RosterEntry } from '../../src/types.js'
 
 const NOW = 1_800_000_000
@@ -267,5 +270,179 @@ describe('RoomWatch', () => {
     expect(quiet.roomName()).toBeUndefined()
     watch.close()
     quiet.close()
+  })
+
+  describe('following rekeys', () => {
+    const secret = new Uint8Array(32).fill(31)
+    const { roomId, roomKey } = deriveRoom(secret)
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const deviceSk = generateSecretKey()
+    const device = getPublicKey(deviceSk)
+    const keysOf = (e: RoomEpoch) => deriveEpoch(e)
+    const zero = { epoch: 0, id: roomId, key: roomKey }
+    const rekey = (from: { epoch: number; id: string; key: Uint8Array }, next: RoomEpoch, opts: { recipients?: Parameters<typeof encodeRekeyEvent>[0]['recipients']; removed?: string[]; closed?: boolean; scheduled?: boolean; sk?: Uint8Array; at?: number } = {}) =>
+      encodeRekeyEvent({
+        roomId,
+        authoritySk: opts.sk ?? authoritySk,
+        current: from,
+        next,
+        recipients: opts.recipients ?? [device],
+        removed: opts.removed ?? [],
+        ...(opts.closed ? { closed: true } : {}),
+        ...(opts.scheduled ? { scheduled: true } : {}),
+        commit: true,
+        now: opts.at ?? NOW - 10,
+      })
+
+    it('follows a rekey with this device\u2019s copy: reads the new epoch, keeps reading the one left, and says so', async () => {
+      const relay = new SimRelay()
+      const moved: WatchedRekey[] = []
+      let changes = 0
+      const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m), onChange: () => changes++ })
+      const ada = await member(roomId, 'Ada')
+      const transport = new SimTransport(relay)
+      const message = (text: string, sentAt: number) => ({ id: `${text}-${sentAt}`, participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text, sentAt })
+      await transport.publish(encodeChatEvent(message('before', NOW - 20), { roomId, roomKey, deviceSk: ada.deviceSk }))
+
+      const one = { epoch: 1, secret: generateEpochSecret() }
+      await transport.publish(rekey(zero, one, { scheduled: true }))
+      expect(watch.epoch).toBe(1)
+      expect(moved).toHaveLength(1)
+      expect(moved[0]!.epoch).toEqual(one)
+      expect(moved[0]!.left).toEqual(zero)
+      expect(moved[0]!.notice).toMatchObject({ epoch: 1, scheduled: true, at: NOW - 10 })
+      expect(changes).toBeGreaterThan(0)
+
+      // The new epoch is read; the one left still is, for a late message.
+      const under = { id: keysOf(one).id, key: keysOf(one).key }
+      await transport.publish(encodeChatEvent(message('after', NOW - 5), { roomId, roomKey, deviceSk: ada.deviceSk, epoch: under }))
+      await transport.publish(encodeChatEvent(message('late', NOW - 15), { roomId, roomKey, deviceSk: ada.deviceSk }))
+      expect(watch.messages().map((m) => m.text)).toEqual(['before', 'late', 'after'])
+      // Presence is read there too, and no longer under epoch 0.
+      await transport.publish(encodeRosterEvent(ada.heartbeat(NOW), { roomId, roomKey, deviceSk: ada.deviceSk, epoch: under }))
+      expect(watch.present().map((p) => p.name)).toEqual(['Ada'])
+      watch.close()
+    })
+
+    it('catches up through several replayed rekeys, the later ones sealed to its seal key', async () => {
+      const relay = new SimRelay({ replay: true })
+      const seal = generateSealKey()
+      const participantSk = generateSecretKey()
+      const credential = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId, expiresAt: NOW + 3600, seal: seal.pubkey })
+      const one = { epoch: 1, secret: generateEpochSecret() }
+      const two = { epoch: 2, secret: generateEpochSecret() }
+      const three = { epoch: 3, secret: generateEpochSecret() }
+      const transport = new SimTransport(relay)
+      // Out of order, as relays deliver.
+      await transport.publish(rekey(keysOf(two), three, { recipients: [{ device, credential }], at: NOW - 3 }))
+      await transport.publish(rekey(zero, one, { at: NOW - 9 }))
+      await transport.publish(rekey(keysOf(one), two, { recipients: [{ device, credential }], at: NOW - 6 }))
+      const moved: WatchedRekey[] = []
+      const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, deviceSk, sealSks: () => [seal.secretKey], now: () => NOW, onEpoch: (m) => moved.push(m) })
+      expect(watch.epoch).toBe(3)
+      expect(moved.map((m) => [m.left.epoch, m.epoch.epoch, m.notice.at])).toEqual([[0, 1, NOW - 9], [1, 2, NOW - 6], [2, 3, NOW - 3]])
+      watch.close()
+
+      // Without the seal key it opens the first, and stops at the second.
+      const without = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, deviceSk, now: () => NOW })
+      expect(without.epoch).toBe(1)
+      without.close()
+    })
+
+    it('starts from the epoch it was given, and reads the epochs kept before it', async () => {
+      const relay = new SimRelay({ replay: true })
+      const one = { epoch: 1, secret: generateEpochSecret() }
+      const two = { epoch: 2, secret: generateEpochSecret() }
+      const ada = await member(roomId, 'Ada')
+      const transport = new SimTransport(relay)
+      const message = (text: string, sentAt: number) => ({ id: `${text}-${sentAt}`, participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text, sentAt })
+      await transport.publish(encodeChatEvent(message('in epoch 1', NOW - 20), { roomId, roomKey, deviceSk: ada.deviceSk, epoch: keysOf(one) }))
+      await transport.publish(rekey(keysOf(one), two))
+      const moved: WatchedRekey[] = []
+      const watch = new RoomWatch({
+        transport: new SimTransport(relay),
+        roomId,
+        roomKey,
+        authority,
+        deviceSk,
+        epoch: keysOf(one),
+        pastEpochs: [{ leftAt: NOW - 30 }],
+        now: () => NOW,
+        onEpoch: (m) => moved.push(m),
+      })
+      expect(watch.epoch).toBe(2)
+      expect(moved.map((m) => m.left.epoch)).toEqual([1])
+      expect(watch.messages().map((m) => m.text)).toEqual(['in epoch 1'])
+      watch.close()
+    })
+
+    it('asks for its roster and the authority\u2019s rekeys in one REQ, and opens it again once per rekey followed', async () => {
+      const relay = new SimRelay()
+      const reqs: Filter[][] = []
+      class Counting extends SimTransport {
+        override subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void {
+          reqs.push(filters)
+          return super.subscribe(filters, onEvent, onEose)
+        }
+      }
+      const kindsOf = (filters: Filter[]) => filters.flatMap((f) => f.kinds ?? [])
+      const roomReqs = () => reqs.filter((filters) => kindsOf(filters).includes(KINDS.ROSTER))
+      const watch = new RoomWatch({ transport: new Counting(relay), roomId, roomKey, authority, deviceSk, now: () => NOW })
+      // Chat, control, and the room: never a REQ of its own for rekeys.
+      expect(reqs).toHaveLength(3)
+      expect(reqs.filter((filters) => kindsOf(filters).includes(KINDS.ROOM_REKEY))).toEqual(roomReqs())
+      expect(roomReqs()).toEqual([[
+        { kinds: [KINDS.ROSTER], '#d': [roomId] },
+        { kinds: [KINDS.ROOM_REKEY], '#d': [roomId], authors: [authority] },
+      ]])
+
+      const one = { epoch: 1, secret: generateEpochSecret() }
+      await new SimTransport(relay).publish(rekey(zero, one))
+      expect(watch.epoch).toBe(1)
+      // Opened again once, under the new epoch, still carrying the rekeys.
+      expect(roomReqs()).toHaveLength(2)
+      expect(roomReqs()[1]).toEqual([
+        { kinds: [KINDS.ROSTER], '#d': [keysOf(one).id] },
+        { kinds: [KINDS.ROOM_REKEY], '#d': [roomId], authors: [authority] },
+      ])
+      watch.close()
+
+      // A watch that cannot open a copy asks for the roster alone.
+      reqs.length = 0
+      const keyless = new RoomWatch({ transport: new Counting(relay), roomId, roomKey, authority, now: () => NOW })
+      expect(roomReqs()).toEqual([[{ kinds: [KINDS.ROSTER], '#d': [roomId] }]])
+      keyless.close()
+    })
+
+    it('stays where it is when the rekey has no copy for it: removed, closed, or signed by somebody else', async () => {
+      const relay = new SimRelay({ replay: true })
+      const transport = new SimTransport(relay)
+      const someone = getPublicKey(generateSecretKey())
+      const one = { epoch: 1, secret: generateEpochSecret() }
+      const removing = rekey(zero, one, { recipients: [someone], removed: [getPublicKey(generateSecretKey())] })
+      await transport.publish(removing)
+      const moved: WatchedRekey[] = []
+      const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m) })
+      expect(watch.epoch).toBe(0)
+
+      // Closing seals the secret to nobody.
+      const closedRelay = new SimRelay({ replay: true })
+      await new SimTransport(closedRelay).publish(rekey(zero, one, { recipients: [], closed: true }))
+      const closed = new RoomWatch({ transport: new SimTransport(closedRelay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m) })
+      expect(closed.epoch).toBe(0)
+
+      // Signed by a key that is not the room's authority.
+      const forgedRelay = new SimRelay({ replay: true })
+      await new SimTransport(forgedRelay).publish(rekey(zero, one, { sk: generateSecretKey() }))
+      const forged = new RoomWatch({ transport: new SimTransport(forgedRelay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m) })
+      expect(forged.epoch).toBe(0)
+
+      // And with no device key it does not follow at all.
+      const keyless = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, now: () => NOW })
+      expect(keyless.epoch).toBe(0)
+      expect(moved).toEqual([])
+      for (const w of [watch, closed, forged, keyless]) w.close()
+    })
   })
 })

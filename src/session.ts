@@ -31,11 +31,12 @@ import {
   decodeRekeyEvent,
   deriveEpoch,
   encodeRekeyEvent,
+  epochsInWindow,
   generateEpochSecret,
   peekRekeyEvent,
   requestRoomEpoch,
 } from './epoch.js'
-import type { EpochKeys, EpochRefusal, RekeyNotice, RoomEpoch } from './epoch.js'
+import type { EpochKeys, EpochRefusal, LeftEpoch, RekeyNotice, RoomEpoch } from './epoch.js'
 import { MAX_MEMBER_EPOCH_CHAIN, hostMemberEpochDesk, memberEpochSource } from './member-epoch.js'
 import type { MemberEpochSource } from './member-epoch.js'
 import type { RelayTransport } from './relay-pool.js'
@@ -302,6 +303,17 @@ export interface RoomSessionBaseOptions {
    * `epoch.ts`.
    */
   epoch?: RoomEpoch
+  /**
+   * The epochs the room has left that this device goes on reading, with
+   * their secrets and when the room left each: what it kept from its last
+   * visit (`pastSecrets`), so it reads the last month of the room without
+   * replaying every rekey from epoch 0, and without stalling on one sealed
+   * to a seal key it has since dropped. Read only with `epoch`; anything
+   * at or above it, or outside the history window (`epochsInWindow`), is
+   * dropped. Epoch 0's entry stands for the room as the link gives it: its
+   * secret is the room secret, whatever the entry says.
+   */
+  pastEpochs?: readonly LeftEpoch[]
   /**
    * The room's authority: the root inviter pubkey pinned in the link. A
    * rekey signed by it is followed, and a request for the current epoch is
@@ -702,6 +714,10 @@ export class RoomSession {
   /** The epochs this session has left, most recent last, which its logs
    *  go on reading for a while. See `ChatLog.rekey`. */
   #pastEpochs: PastEpoch[] = []
+  /** When the room left each epoch this session has left, as heard, handed
+   *  over or kept from a last visit: what `pastSecrets` says where no
+   *  rekey out of the epoch is held to say it. */
+  readonly #leftAt = new Map<number, number>()
   readonly #gaps: EpochGap[] = []
   readonly #conflicts: EpochConflict[] = []
   #unsubRekey?: () => void
@@ -744,6 +760,7 @@ export class RoomSession {
     opts.transport.rekey?.(this.#epoch.key.slice())
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.#nowMs = opts.now ? undefined : Date.now
+    if (this.#epochSecret.epoch > 0) this.#seedPast(opts.pastEpochs ?? [])
     this.device = getPublicKey(opts.deviceSk)
     this.sid = sanitiseSid(opts.sid) ?? newSid()
     this.#name = sanitiseDisplayName(opts.name)
@@ -1173,6 +1190,30 @@ export class RoomSession {
     return this.#rekeyEvents.get(epoch)?.created_at
   }
 
+  /**
+   * The epochs this session has left and still reads, with their secrets
+   * and when the room left each: those inside the history window
+   * (`epochsInWindow`), newest first, at most `MAX_HISTORY_EPOCHS`. When
+   * the room left an epoch is the rekey out of it this session holds,
+   * else what a grant or `pastEpochs` said. Epoch 0 is among them while it
+   * is in the window, with the room secret, which an authority's grant
+   * never carries (`hostRoomEpoch` leaves it out). What a keeper's desk
+   * hands every device it brings up to date, and what a device keeps to
+   * open the room again as `pastEpochs`.
+   */
+  pastSecrets(): LeftEpoch[] {
+    const current = this.#epoch.epoch
+    const left: LeftEpoch[] = []
+    const leftAt = (epoch: number) => this.rekeyedAt(epoch + 1) ?? this.#leftAt.get(epoch)
+    const zero = leftAt(0)
+    if (current > 0 && zero !== undefined) left.push({ epoch: 0, secret: this.#opts.secret.slice(), leftAt: zero })
+    for (const [epoch, secret] of this.#secrets) {
+      const at = epoch < current ? leftAt(epoch) : undefined
+      if (at !== undefined) left.push({ epoch, secret: secret.slice(), leftAt: at })
+    }
+    return epochsInWindow(left, this.#now())
+  }
+
   /** True once the room's authority closed it. */
   get closed(): boolean {
     return this.#closed
@@ -1528,6 +1569,29 @@ export class RoomSession {
     }
   }
 
+  /** Take up what was kept from a last visit (`pastEpochs`): the window's
+   *  secrets for the member desk and `pastSecrets`, and its streams for
+   *  the logs to go on reading. */
+  #seedPast(past: readonly LeftEpoch[]): void {
+    const usable = past.filter((e) =>
+      typeof e === 'object' && e !== null && e.epoch < this.#epochSecret.epoch &&
+      (e.epoch === 0 || (e.secret instanceof Uint8Array && e.secret.length === 32)))
+    const kept = epochsInWindow(usable, this.#now())
+    for (const e of kept) {
+      if (e.epoch > 0) this.#keepSecret(e)
+      this.#leftAt.set(e.epoch, e.leftAt)
+    }
+    this.#pastEpochs = kept
+      .slice(0, MAX_PAST_EPOCHS)
+      .sort((a, b) => a.leftAt - b.leftAt)
+      .map((e) => ({ ...(e.epoch > 0 ? { root: this.#rootOf(e) } : {}), leftAt: e.leftAt }))
+  }
+
+  #rootOf(epoch: RoomEpoch): EpochRoot {
+    const keys = deriveEpoch(epoch)
+    return { id: keys.id, key: keys.key }
+  }
+
   #keepSecret(epoch: RoomEpoch): void {
     this.#secrets.set(epoch.epoch, epoch.secret.slice())
     for (const n of [...this.#secrets.keys()]) if (n <= epoch.epoch - MAX_MEMBER_EPOCH_CHAIN) this.#secrets.delete(n)
@@ -1611,21 +1675,36 @@ export class RoomSession {
    * members who were kept are kept too, and their media with them; one that
    * never restates itself under the new key lapses on the ordinary timeout.
    */
-  #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly RoomEpoch[] = []): void {
+  #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly (RoomEpoch & { leftAt?: number })[] = []): void {
     if (notice.members) this.#members = new Set(notice.members)
     const from = this.#epoch.epoch
     const left = this.#epochRoot()
-    // The epochs a member's grant carried between this one and `next`,
-    // each proven by the authority's rekey after it: read from now on like
-    // any epoch this session left, and kept so this device's member desk
-    // can hand them on in turn.
+    // When the room left each epoch: the authority's rekey out of it when
+    // this session holds it, else what the grant said, else the notice's
+    // time. A catch-up's notice is stamped when it was answered, which can
+    // be days after the room moved on.
+    const leftAt = (epoch: number, said?: number) => this.rekeyedAt(epoch + 1) ?? said ?? notice.at
+    const fromLeftAt = leftAt(from, passed.find((e) => e.epoch === from)?.leftAt)
+    this.#leftAt.set(from, fromLeftAt)
+    // The epochs a grant carried between this one and `next`: a member's,
+    // each proven by the authority's rekey after it, or the authority's
+    // own window. Read from now on like any epoch this session left, and
+    // kept so this device's member desk can hand them on in turn.
     const between = passed.filter((e) => e.epoch > from && e.epoch < next.epoch).sort((a, b) => a.epoch - b.epoch)
-    for (const e of between) this.#keepSecret(e)
-    const crossed = between.map((e) => { const keys = deriveEpoch(e); return { id: keys.id, key: keys.key } })
+    const crossed = between.map((e) => {
+      this.#keepSecret(e)
+      const at = leftAt(e.epoch, e.leftAt)
+      this.#leftAt.set(e.epoch, at)
+      return { root: this.#rootOf(e), leftAt: at }
+    })
+    for (const n of [...this.#leftAt.keys()]) if (n <= next.epoch - MAX_MEMBER_EPOCH_CHAIN) this.#leftAt.delete(n)
+    // No time bound here: the logs drop whatever was left before the
+    // retention window (`ChatLog.rekey`), as `pastSecrets` does by the
+    // history window.
     this.#pastEpochs = [
       ...this.#pastEpochs,
-      { ...(left ? { root: left } : {}), leftAt: notice.at },
-      ...crossed.map((root) => ({ root, leftAt: notice.at })),
+      { ...(left ? { root: left } : {}), leftAt: fromLeftAt },
+      ...crossed,
     ].slice(-MAX_PAST_EPOCHS)
     for (const epoch of this.#followed.keys()) if (epoch < next.epoch - 64) this.#followed.delete(epoch)
     this.#epochSecret = next
@@ -1662,8 +1741,8 @@ export class RoomSession {
       )
     }
     const root = this.#epochRoot()!
-    this.#chat?.rekey(root, { leftAt: notice.at, crossed })
-    for (const log of this.#channels.values()) log.rekey(root, { leftAt: notice.at, crossed })
+    this.#chat?.rekey(root, { leftAt: fromLeftAt, crossed })
+    for (const log of this.#channels.values()) log.rekey(root, { leftAt: fromLeftAt, crossed })
     this.#assignments?.rekey(root)
     const gap = next.epoch > from + 1 + between.length ? { from, to: next.epoch, at: this.#now() } : undefined
     if (gap) this.#gaps.push(gap)

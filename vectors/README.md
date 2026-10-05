@@ -20,6 +20,8 @@ payloads for NIP-44).
 | `verify-member-epoch.test.ts` | Checks `member-epoch-vectors.json` against `src/`'s re-exports of the kit. |
 | `seal-vectors.json` | Seal keys (the `seal` tag in a device credential, and rekeys and epoch grants sealed to it), copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
 | `verify-seal.test.ts` | Checks `seal-vectors.json` against `src/`'s re-exports of the kit. |
+| `schedule-vectors.json` | Scheduled rekeys (the quiet marker), the authority's grant carrying the history window, and `epochsInWindow`, copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
+| `verify-schedule.test.ts` | Checks `schedule-vectors.json` against `src/`'s re-exports of the kit. |
 
 ## What the vectors pin - and what they don't
 
@@ -139,6 +141,7 @@ directly, with no reimplementation involved.
 | `readPosition` | a participant's read positions per room: the derived `d` tag, the record, its refusals, and the merge | `src/read-position.ts` |
 | `callBell` | the kind-1464 bell a closed phone waits for: the daily `d` tag, a start and an end, and the six ways a reader refuses one | `src/call-bell.ts` |
 | `roomName` | a member renaming the room for everybody: a `name` op on the `control` channel under epoch 0 and epoch 1, a carried copy, a hostile name sanitised, six refusals, the order (newest `at`, then `id`, then name), and the cut for renames read under an epoch the room has left | `src/room-name.ts`, `src/control.ts` |
+| `chatHistory` | the history window applied to a room's chat: which `#d` streams a log reads (the current epoch and the left epochs `epochsInWindow` keeps, at most sixteen) in at most six filters, and a message from either side of a scheduled rekey both read; an epoch left before the window not asked for | `src/chat.ts`, `src/epoch.ts` |
 
 **A note on scope:** the brief for stage 1 described the join URL as
 carrying "secret + relays + ICE list". The join URL does not carry an ICE

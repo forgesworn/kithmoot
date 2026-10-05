@@ -57,6 +57,7 @@ import {
   forgetOwnCredentials,
   isPairedSecondary,
   loadCredentialFor,
+  loadDeviceKeyFor,
   loadKeptAdmission,
   loadOwnCredentialFor,
   loadOwnSealKeysFor,
@@ -66,6 +67,7 @@ import {
   type SavedRoomAdmission,
   memoryDeviceStore,
 } from './device-store.js'
+import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, loadKeptRoomEpoch, loadWatchedEpoch, pastRootsOf, storeKeptRoomEpoch } from './room-epoch-store.js'
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { endLapsedConferences, forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
@@ -75,7 +77,7 @@ import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivi
 import { arrangeRooms, loadPins, setPinned } from './room-pins.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
-import { RoomWatch } from './room-watch.js'
+import { RoomWatch, type WatchedRekey } from './room-watch.js'
 import { BrowserRoomArchiveStorage, RoomArchive, deleteRoomArchive, reseedRelays, type ReseedTarget } from './room-archive.js'
 import { PresenceAnnouncements } from './presence-announcements.js'
 import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
@@ -6591,35 +6593,42 @@ function adoptWatchedRoomName(roomId: string, record: RoomNameRecord): void {
 }
 
 // The epoch each room was in when this device was last inside it, with its
-// keys, so the rooms list reads the room - its chat, who is there, its name -
-// where it is now rather than where it began. Kept beside the room secret
-// this device already holds, and forgotten with the room (`clearRoomLocally`
-// drops every key naming it). A watch cannot follow a rekey by itself;
-// opening the room does, and writes the new epoch here.
+// secret, and the window's left epochs with theirs (app/src/room-epoch-store.ts):
+// so opening the room starts where it is now, reading its last month, and the
+// rooms list reads the room - its chat, who is there, its name - there too
+// rather than where it began. The list follows a rekey by itself, with this
+// device's own copy (`keepWatchedRekey`); opening the room writes the epoch
+// here too. Forgotten with the room (`forgetLocally`, and `clearRoomLocally`
+// drops every key naming it).
 
-const ROOM_EPOCH_PREFIX = 'kithmoot.room-epoch.v1.'
-
+/** The epoch the rooms list reads a room under. */
 function loadRoomEpoch(roomId: string): (EpochRoot & { epoch: number }) | undefined {
-  try {
-    const raw = JSON.parse(localStorage.getItem(ROOM_EPOCH_PREFIX + roomId) ?? 'null') as { epoch?: unknown; id?: unknown; key?: unknown } | null
-    if (!raw || !Number.isSafeInteger(raw.epoch) || (raw.epoch as number) < 1) return undefined
-    if (typeof raw.id !== 'string' || !/^[0-9a-f]{64}$/.test(raw.id) || typeof raw.key !== 'string' || !/^[0-9a-f]{64}$/.test(raw.key)) return undefined
-    return { epoch: raw.epoch as number, id: raw.id, key: hexToBytes(raw.key) }
-  } catch { return undefined }
+  return loadWatchedEpoch(deviceStore, roomId)
 }
 
-/** Write down the epoch `s` is in, when it is later than the one held, and
+/** Write down the epoch `s` is in, and what it keeps of the epochs before,
+ *  unless this device already holds a later one; and when the epoch is new,
  *  have the rooms list read the room there from now on. */
 function rememberRoomEpoch(s: RoomSession): void {
-  const keys = s.epochKeys()
-  if (keys.epoch < 1 || (loadRoomEpoch(s.roomId)?.epoch ?? 0) >= keys.epoch) return
+  const current = s.currentEpoch()
+  if (current.epoch < 1) return
+  const before = loadRoomEpoch(s.roomId)?.epoch ?? 0
   try {
-    localStorage.setItem(ROOM_EPOCH_PREFIX + s.roomId, JSON.stringify({ epoch: keys.epoch, id: keys.id, key: bytesToHex(keys.key) }))
+    storeKeptRoomEpoch(deviceStore, s.roomId, { epoch: current, past: s.pastSecrets(), removed: [...s.removed], members: s.memberList() }, nowSeconds())
   } catch { return /* The list reads the room where it began; opening it still works. */ }
-  if (!roomWatches.has(s.roomId)) return
+  if (before >= current.epoch || !roomWatches.has(s.roomId)) return
   stopWatching(s.roomId)
   const known = knownRoom(roomStore(), s.roomId)
   if (known) watchKnownRoom(known)
+}
+
+/** A rekey the rooms list followed in a room not open here. Written down
+ *  only: the watch has already moved itself, so it is not restarted. */
+function keepWatchedRekey(roomId: string, roomSecret: Uint8Array, moved: WatchedRekey): void {
+  if (session?.roomId === roomId) return
+  try {
+    keepFollowedRekey(deviceStore, roomId, { roomSecret, left: moved.left.epoch, next: moved.epoch, notice: moved.notice }, nowSeconds())
+  } catch { /* Followed again from the epoch held, on the next look at the list. */ }
 }
 
 /** Follow `s`'s shared name, once per session; on a session already
@@ -6868,8 +6877,10 @@ function onEpochChange(notice: RekeyNotice): void {
     if (!notice.closed) scheduleRoomNameCarry(s, 3_000, 12_000)
   }
   // Joining replays old rekeys; a state grant includes everyone ever
-  // removed. Neither is a new event to announce in this visit's chat.
-  if ($('roomArea').hidden || notice.catchUp) return
+  // removed. Neither is a new event to announce in this visit's chat. Nor
+  // is a scheduled turn of the key: nobody was removed, and a line every
+  // week would say only that a week had passed.
+  if ($('roomArea').hidden || notice.catchUp || notice.scheduled) return
   const by = notice.by ? ` by ${personLabel(notice.by)}` : ''
   for (const p of notice.removed) addSystemLine(`${personLabel(p)} was removed${by}.`, notice.at)
   addSystemLine(
@@ -10742,6 +10753,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // slot 0, the device it paired slot 1; each draws from its own half of
     // the member's drop keys, so no key is used twice. See src/quiet.ts.
     const sessionRoomId = deriveRoom(roomSecret).roomId
+    // Where this device last left the room, so the session opens there and
+    // reads the last month, rather than replaying every rekey from epoch 0
+    // and stalling at one sealed to a seal key since dropped.
+    const kept = loadKeptRoomEpoch(deviceStore, sessionRoomId)
+    const keptEpoch = kept ? { epoch: kept.epoch, pastEpochs: kept.past } : {}
     quietTransport = isQuietPolicy(roomPolicy)
       ? quietRoomTransport(pool, {
           policy: roomPolicy!,
@@ -10787,6 +10803,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
+          ...keptEpoch,
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
@@ -10846,6 +10863,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
+          ...keptEpoch,
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
@@ -10872,6 +10890,12 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           },
           onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
+    // Who the room removed and who it knows, as kept: a session that opens
+    // past the rekeys that said so would otherwise not know until the next.
+    if (kept) {
+      s.forgetParticipants(kept.removed)
+      s.rememberMembers(kept.members)
+    }
     session = s
     created = s
     sessionConnections.set(s, ownConnections)
@@ -11258,6 +11282,13 @@ function watchKnownRoom(room: KnownRoom): void {
     direct: () => dmPeerOf(room) !== undefined,
   })
   const epoch = loadRoomEpoch(roomId)
+  // The epochs before it, when what this device kept says where the room is.
+  const kept = loadKeptRoomEpoch(deviceStore, roomId)
+  const pastEpochs = kept && epoch && kept.epoch.epoch === epoch.epoch ? pastRootsOf(kept) : []
+  // This device's copy of a rekey opens with its key for the room and the
+  // seal keys its credentials named there, as the session's does.
+  const authority = link.invitation?.inviter
+  const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId)
   let named: RoomNameRecord | undefined
   const followName = (): void => {
     const name = watch.roomName()
@@ -11272,6 +11303,17 @@ function watchKnownRoom(room: KnownRoom): void {
     policy: link.policy,
     quiet: isQuietPolicy(link.policy),
     ...(epoch ? { epoch } : {}),
+    ...(pastEpochs.length ? { pastEpochs } : {}),
+    // Following the authority's rekeys, so a room not opened since its key
+    // turned still shows what is said in it. A device the rekey left out
+    // (removed, or the room closed) has no copy, and the room reads quiet
+    // here until it is opened, as before.
+    ...(authority && deviceSk ? {
+      authority,
+      deviceSk,
+      sealSks: () => loadOwnSealKeysFor(deviceStore, roomId).reverse(),
+      onEpoch: (moved: WatchedRekey) => keepWatchedRekey(roomId, secret, moved),
+    } : {}),
     onChange: () => {
       // The name first, so the redraw below shows it.
       followName()
@@ -12646,18 +12688,19 @@ function forgetLocally(roomId: string): void {
   forgetRoom(deviceStore, roomId)
   // A pin names the room too, and a forgotten room is not one to name.
   setPinned(localStorage, roomId, false)
-  // Its keys go with it: the device key, and the newest epoch's key the list
-  // read it under. The archive's records go too where this device can still
-  // name them: the room's rekeys, and its main chat in epoch 0 and in that
-  // newest epoch, read before its key goes. Named channels, and the main chat
-  // of epochs in between, stay as ciphertext nothing here opens any more.
-  const epoch = loadRoomEpoch(roomId)
+  // Its keys go with it: the device key, and the epochs the list read it
+  // under and a session opened it in. The archive's records go too where
+  // this device can still name them: the room's rekeys, and its main chat in
+  // epoch 0 and in every epoch those records name, read before their keys
+  // go. Named channels, and the main chat of epochs before the window, stay
+  // as ciphertext nothing here opens any more.
+  const epochIds = keptEpochIds(deviceStore, roomId)
   deviceStore.remove(DEVICE_PREFIX + roomId)
   browserDeviceStore(sessionStorage).remove(DEVICE_PREFIX + roomId)
-  try { localStorage.removeItem(ROOM_EPOCH_PREFIX + roomId) } catch { /* Storage unavailable: nothing is held there. */ }
+  try { forgetRoomEpoch(deviceStore, roomId) } catch { /* Storage unavailable: nothing is held there. */ }
   const archive = roomArchive
   if (archive) {
-    const streams = [{ kind: KINDS.CHAT, d: roomId }, { kind: KINDS.ROOM_REKEY, d: roomId }, ...(epoch ? [{ kind: KINDS.CHAT, d: epoch.id }] : [])]
+    const streams = [{ kind: KINDS.CHAT, d: roomId }, { kind: KINDS.ROOM_REKEY, d: roomId }, ...epochIds.map(d => ({ kind: KINDS.CHAT, d }))]
     void Promise.all(streams.map(stream => archive.forget(stream))).catch(error => console.warn('room archive could not forget a room', error))
   }
   renderRooms()

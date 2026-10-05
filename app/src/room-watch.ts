@@ -17,7 +17,8 @@
  * made while the room is closed here still reaches the list.
  *
  * A watch reads the epoch the room was in when this device was last inside
- * it: see `RoomWatchOptions.epoch`.
+ * it, and follows the authority's rekeys from there with its own copy of
+ * each: see `RoomWatchOptions.epoch` and `RoomWatchOptions.onEpoch`.
  *
  * The chat is the library's own `ChatLog`, opened without a credential, so
  * what counts as a message is decided in exactly one place. The roster is
@@ -34,7 +35,8 @@ import { dmPeer } from '../../src/dm.js'
 import { KINDS } from '../../src/kinds.js'
 import { decodeRosterEvent } from '../../src/roster.js'
 import { evaluateAccess } from '../../src/access.js'
-import { ChatLog, type ChatMessage, type EpochRoot } from '../../src/chat.js'
+import { ChatLog, type ChatMessage, type EpochRoot, type PastEpoch } from '../../src/chat.js'
+import { decodeRekeyEvent, deriveEpoch, peekRekeyEvent, type EpochKeys, type RekeyNotice, type RoomEpoch } from '../../src/epoch.js'
 import { CONTROL_CHANNEL } from '../../src/control.js'
 import { RoomNameBook, roomNameFromMessage, type RoomNameRecord } from '../../src/room-name.js'
 import { HEARTBEAT_INTERVAL_MS, PRESENCE_TTL_SECONDS } from '../../src/session.js'
@@ -149,10 +151,39 @@ export interface RoomWatchOptions {
   quiet?: boolean
   /** The epoch the room was in when this device was last inside it, and
    *  its keys: omit for epoch 0. Chat, presence and the name are read
-   *  under it. A rekey since then is not followed - a watch holds no
-   *  device key to open one with - so a room that has moved on reads
-   *  quiet here until it is opened again, which catches it up. */
+   *  under it, and a rekey is followed from it: see `onEpoch`. */
   epoch?: EpochRoot & { epoch: number }
+  /** Epochs the room had left by `epoch` that the chat goes on reading, as
+   *  a session's log does. */
+  pastEpochs?: readonly PastEpoch[]
+  /** The room's authority, the root inviter pinned in its link. With
+   *  `deviceSk`, the watch follows the authority's rekeys. */
+  authority?: string
+  /** This device's key for the room: what the authority seals this
+   *  device's copy of a rekey to when its credential names no seal key.
+   *  Used only to open one; a watch signs nothing. */
+  deviceSk?: Uint8Array
+  /** The seal key secrets this device's credentials have named in the
+   *  room, tried before the device key. Asked at each rekey. */
+  sealSks?: () => readonly Uint8Array[]
+  /**
+   * The watch followed a rekey into the next epoch, with this device's own
+   * copy of it: chat, presence and the name are read there from now on,
+   * and the epoch it left goes on being read for a while. A rekey with no
+   * copy for this device - it was removed, the room was closed, or it was
+   * not in the room when the authority rekeyed - is not followed, and the
+   * room reads quiet here until it is opened again, as it always has.
+   */
+  onEpoch?: (moved: WatchedRekey) => void
+}
+
+/** A rekey a watch followed. */
+export interface WatchedRekey {
+  /** The epoch the watch moved to, with its secret. */
+  epoch: RoomEpoch
+  /** The epoch it left. Epoch 0's `id` and `key` are the room's own. */
+  left: EpochKeys
+  notice: RekeyNotice
 }
 
 export class RoomWatch {
@@ -164,12 +195,30 @@ export class RoomWatch {
   readonly #names = new RoomNameBook()
   readonly #namesSeen = new Set<string>()
   readonly #presence = new PresenceLedger()
-  readonly #unsubRoster: () => void
+  /** The roster, and the authority's rekeys when this watch follows them:
+   *  one REQ, since rooms on the same relays share a connection and relays
+   *  cap the subscriptions one may hold. */
+  #unsubRoom: () => void = () => {}
+  /** Set while that REQ is being opened: a relay may replay into it before
+   *  `subscribe` returns, and a rekey followed then would open the next
+   *  one before this one is held. */
+  #subscribing = false
+  /** Set while rekeys are being followed, so one replayed by the REQ a
+   *  follow opens waits its turn and the epochs are reported in order. */
+  #draining = false
+  /** The epoch read now: `opts.epoch` until a rekey is followed. */
+  #epoch: (EpochRoot & { epoch: number }) | undefined
+  /** Rekeys heard ahead of this epoch, by epoch, until each can be read. */
+  readonly #pendingRekeys = new Map<number, Event>()
+  /** When the room left each epoch this watch followed it out of. */
+  readonly #rekeyedAt = new Map<number, number>()
+  #closed = false
 
   constructor(opts: RoomWatchOptions) {
     this.#opts = opts
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.#startedAt = this.#now()
+    this.#epoch = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : undefined
     const epoch = this.#epochRoot()
     if (!opts.quiet) {
       const log = (channel?: string) => new ChatLog({
@@ -180,6 +229,7 @@ export class RoomWatch {
         now: this.#now,
         ...(channel ? { channel } : {}),
         ...(epoch ? { epoch } : {}),
+        ...(!channel && opts.pastEpochs?.length ? { pastEpochs: opts.pastEpochs } : {}),
       })
       this.#chat = log()
       this.#chat.onChange(() => opts.onChange?.())
@@ -187,10 +237,33 @@ export class RoomWatch {
       this.#control.onChange((messages) => this.#readNames(messages))
       this.#readNames(this.#control.messages(), false)
     }
-    this.#unsubRoster = opts.transport.subscribe(
-      [{ kinds: [KINDS.ROSTER], '#d': [epoch?.id ?? opts.roomId] }],
-      (event) => this.#ingest(event),
-    )
+    this.#watchRoom()
+  }
+
+  /** (Re)open the room's REQ under the epoch read now: its roster, and the
+   *  authority's rekeys when this watch can open its copy of one. Replayed
+   *  rekeys at or below this epoch are ignored. */
+  #watchRoom(): void {
+    const { authority, deviceSk, roomId } = this.#opts
+    const follows = authority !== undefined && deviceSk !== undefined
+    this.#unsubRoom()
+    this.#subscribing = true
+    try {
+      this.#unsubRoom = this.#opts.transport.subscribe(
+        [
+          { kinds: [KINDS.ROSTER], '#d': [this.#epoch?.id ?? roomId] },
+          ...(follows ? [{ kinds: [KINDS.ROOM_REKEY], '#d': [roomId], authors: [authority] }] : []),
+        ],
+        (event) => {
+          if (event.kind === KINDS.ROOM_REKEY) {
+            if (follows) this.#ingestRekey(event)
+          } else this.#ingest(event)
+        },
+      )
+    } finally {
+      this.#subscribing = false
+    }
+    this.#drainRekeys()
   }
 
   /** The key this watch reads the room with. */
@@ -201,7 +274,12 @@ export class RoomWatch {
   /** The room's shared name as this watch has read it, or undefined when
    *  it has read no rename. Undefined for a quiet room. */
   roomName(): RoomNameRecord | undefined {
-    return this.#names.current(this.#opts.epoch?.epoch ?? 0)
+    return this.#names.current(this.#epoch?.epoch ?? 0, { rekeyedAt: (epoch) => this.#rekeyedAt.get(epoch) })
+  }
+
+  /** The epoch this watch reads the room in now. */
+  get epoch(): number {
+    return this.#epoch?.epoch ?? 0
   }
 
   /** Whether this watch reads the chat at all. False for a quiet room. */
@@ -252,15 +330,79 @@ export class RoomWatch {
   }
 
   close(): void {
-    this.#unsubRoster()
+    this.#closed = true
+    this.#unsubRoom()
     this.#chat?.close()
     this.#control?.close()
   }
 
   /** What the codecs are told: nothing in epoch 0, as a session does. */
   #epochRoot(): EpochRoot | undefined {
-    const e = this.#opts.epoch
-    return e && e.epoch > 0 ? { id: e.id, key: e.key } : undefined
+    const e = this.#epoch
+    return e ? { id: e.id, key: e.key } : undefined
+  }
+
+  /** A rekey by the authority: kept until the epoch it leaves is this one,
+   *  then followed if it holds a copy for this device. */
+  #ingestRekey(event: Event): void {
+    if (this.#closed) return
+    const epoch = peekRekeyEvent(event, { roomId: this.#opts.roomId, authority: this.#opts.authority! })
+    if (epoch === null || epoch <= this.epoch || this.#pendingRekeys.has(epoch)) return
+    this.#pendingRekeys.set(epoch, event)
+    if (!this.#subscribing) this.#drainRekeys()
+  }
+
+  #drainRekeys(): void {
+    if (this.#draining || this.#closed || !this.#opts.authority || !this.#opts.deviceSk) return
+    this.#draining = true
+    try {
+      this.#drainPending()
+    } finally {
+      this.#draining = false
+    }
+  }
+
+  #drainPending(): void {
+    for (;;) {
+      const left: EpochKeys = this.#epoch ?? { epoch: 0, id: this.#opts.roomId, key: this.#opts.roomKey }
+      const next = this.#pendingRekeys.get(left.epoch + 1)
+      if (!next) return
+      const notice = decodeRekeyEvent(next, {
+        roomId: this.#opts.roomId,
+        authority: this.#opts.authority!,
+        current: left,
+        deviceSk: this.#opts.deviceSk!,
+        sealSks: this.#opts.sealSks?.(),
+      })
+      // Removed, closed, or not in the room when it rekeyed: no copy, and
+      // the watch stays where it is. Left pending, so a later ingest does
+      // not try it again; opening the room is what finds out.
+      if (!notice?.secret || notice.closed) return
+      this.#pendingRekeys.delete(left.epoch + 1)
+      this.#follow(left, { epoch: notice.epoch, secret: notice.secret }, notice)
+    }
+  }
+
+  /** Read the room in `next` from now on, and go on reading `left` for a
+   *  while, as a session's logs do. */
+  #follow(left: EpochKeys, next: RoomEpoch, notice: RekeyNotice): void {
+    const keys = deriveEpoch(next)
+    this.#epoch = { epoch: keys.epoch, id: keys.id, key: keys.key }
+    this.#rekeyedAt.set(next.epoch, notice.at)
+    const root = { id: keys.id, key: keys.key }
+    this.#chat?.rekey(root, { leftAt: notice.at })
+    this.#control?.rekey(root, { leftAt: notice.at })
+    this.#watchRoom()
+    try {
+      this.#opts.onEpoch?.({ epoch: { epoch: next.epoch, secret: next.secret.slice() }, left, notice })
+    } catch {
+      // A caller's problem, not the watch's.
+    }
+    try {
+      this.#opts.onChange?.()
+    } catch {
+      // A caller's render() is not allowed to close the watch.
+    }
   }
 
   /** File the renames among `messages`; say so when one is new, except
@@ -271,7 +413,7 @@ export class RoomWatch {
       if (this.#namesSeen.has(message.id)) continue
       this.#namesSeen.add(message.id)
       const record = roomNameFromMessage(message)
-      if (record && this.#names.add(record, this.#opts.epoch?.epoch ?? 0)) added = true
+      if (record && this.#names.add(record, this.epoch)) added = true
     }
     if (!added || !announce) return
     try {

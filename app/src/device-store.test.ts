@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import {
+  loadDeviceKeyFor,
+  DEVICE_PREFIX,
   DEVICE_KEY_MAX_AGE_SECONDS,
   KEPT_ADMISSION_PREFIX,
   KEPT_ADMISSION_TTL_SECONDS,
@@ -65,6 +67,16 @@ describe('per-room device keys', () => {
     const aFresh = deviceKeyFor(store, ROOM_A, muchLater, generateSecretKey)
     expect(getPublicKey(bStill)).toBe(getPublicKey(b))
     expect(getPublicKey(aFresh)).not.toBe(getPublicKey(old))
+  })
+
+  it('reads a room\u2019s key without using it: nothing minted, its age left alone', () => {
+    const store = memoryDeviceStore()
+    expect(loadDeviceKeyFor(store, ROOM_A)).toBeUndefined()
+    expect(store.keys()).toEqual([])
+    const key = deviceKeyFor(store, ROOM_A, NOW, generateSecretKey)
+    const before = store.get(DEVICE_PREFIX + ROOM_A)
+    expect(getPublicKey(loadDeviceKeyFor(store, ROOM_A)!)).toBe(getPublicKey(key))
+    expect(store.get(DEVICE_PREFIX + ROOM_A)).toBe(before)
   })
 
   it('keeps credentials per room too, so one room pairing cannot be handed to another', () => {

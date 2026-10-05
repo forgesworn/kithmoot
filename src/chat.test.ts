@@ -347,43 +347,84 @@ describe('ChatLog', () => {
     await expect(log.send('closed')).rejects.toThrow('closed')
   })
 
-  it('goes on reading at most MAX_PAST_EPOCHS left epochs, none left before the retention window', async () => {
+  it('goes on reading at most MAX_PAST_EPOCHS left epochs, none left before the retention window, in at most six filters', async () => {
     const f = await fixture()
     const sim = new SimTransport(new SimRelay())
-    // The streams read, by subscription: a log holds one at a time, so a
+    // The filters read, by subscription: a log holds one at a time, so a
     // relay sees one REQ for it however many epochs it reads.
-    const subs = new Set<string[]>()
+    const subs = new Set<string[][]>()
     const transport: RelayTransport = {
       publish: (event) => sim.publish(event),
       subscribe: (filters, onEvent, onEose) => {
-        const streams = filters.map((f) => (f['#d'] as string[])[0]!)
+        const streams = filters.map((f) => f['#d'] as string[])
         subs.add(streams)
         const off = sim.subscribe(filters, onEvent, onEose)
         return () => { subs.delete(streams); off() }
       },
       close: () => sim.close(),
     }
-    const opened = () => {
+    const filters = () => {
       expect(subs.size).toBeLessThanOrEqual(1)
-      return new Set([...subs].flat())
+      return [...subs][0] ?? []
     }
+    const opened = () => new Set(filters().flat())
     const log = new ChatLog({ ...f, transport, now: () => NOW })
     const epoch0 = log.stream
-    const roots = Array.from({ length: MAX_PAST_EPOCHS + 1 }, (_, i) => ({ id: String(i + 1).repeat(64).slice(0, 64), key: new Uint8Array(32).fill(40 + i) }))
-    roots.forEach((root, i) => log.rekey(root, { leftAt: NOW - 100 + i }))
-    // The current epoch and the four most recently left; epoch 0 has gone.
+    const roots = Array.from({ length: MAX_PAST_EPOCHS + 1 }, (_, i) => ({ id: (i + 1).toString(16).padStart(64, '0'), key: new Uint8Array(32).fill(40 + i) }))
+    const streams = [epoch0]
+    roots.forEach((root, i) => {
+      log.rekey(root, { leftAt: NOW - 100 + i })
+      streams.push(log.stream)
+    })
+    // The current epoch and the sixteen most recently left; epoch 0 has gone.
+    expect(MAX_PAST_EPOCHS).toBe(16)
     expect(opened().size).toBe(1 + MAX_PAST_EPOCHS)
     expect(opened().has(epoch0)).toBe(false)
-    expect(opened().has(log.stream)).toBe(true)
+    // The current epoch first, then the four left last, a filter each,
+    // newest first; the other twelve share one.
+    const newestFirst = [...streams].reverse()
+    expect(filters()).toHaveLength(6)
+    expect(filters().slice(0, 5)).toEqual(newestFirst.slice(0, 5).map((d) => [d]))
+    expect(new Set(filters()[5])).toEqual(new Set(newestFirst.slice(5, 1 + MAX_PAST_EPOCHS)))
 
     // An epoch left before the retention window is not read at all.
     const left = log.stream
     log.rekey({ id: 'f'.repeat(64), key: new Uint8Array(32).fill(99) }, { leftAt: NOW - CHAT_RETENTION_SECONDS - 1 })
     expect(opened().has(left)).toBe(false)
     expect(opened().size).toBe(1 + MAX_PAST_EPOCHS)
+    expect(filters()).toHaveLength(6)
 
     log.close()
     expect(subs.size).toBe(0)
+  })
+
+  it('reads an old left epoch through the shared filter, and gives each recent one a filter of its own', async () => {
+    const f = await fixture()
+    const relay = new SimRelay({ replay: true })
+    const filters: string[][][] = []
+    const sim = new SimTransport(relay)
+    const transport: RelayTransport = {
+      publish: (event) => sim.publish(event),
+      subscribe: (fs, onEvent, onEose) => { filters.push(fs.map((x) => x['#d'] as string[])); return sim.subscribe(fs, onEvent, onEose) },
+      close: () => sim.close(),
+    }
+    const roots = Array.from({ length: 8 }, (_, i) => ({ id: (i + 1).toString(16).padStart(64, 'a'), key: new Uint8Array(32).fill(60 + i) }))
+    // Something said in epoch 1, which a log in epoch 8 reads as its
+    // seventh most recently left: through the shared filter.
+    await sim.publish(encodeChatEvent({ ...f.msg, id: 'old', text: 'said a while back', sentAt: NOW - 50 }, { roomId: f.roomId, roomKey: f.roomKey, deviceSk: f.deviceSk, epoch: roots[0]! }))
+    const log = new ChatLog({
+      ...f,
+      transport,
+      now: () => NOW,
+      epoch: roots[7]!,
+      pastEpochs: roots.slice(0, 7).map((root, i) => ({ root, leftAt: NOW - 40 + i })),
+    })
+    const last = filters.at(-1)!
+    // The current epoch, the four left last, and the three before those.
+    expect(last).toHaveLength(6)
+    expect(last.at(-1)).toHaveLength(3)
+    await expect.poll(() => log.messages().map((m) => m.text)).toEqual(['said a while back'])
+    log.close()
   })
 
   it('send() publishes a message that shows up in messages()', async () => {

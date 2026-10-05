@@ -671,6 +671,9 @@ export class RoomAgent {
             // a release that predates the admission proof.
             known: (participant) => session.knows(participant) || admins.has(participant.toLowerCase()),
             members: () => session.memberList(),
+            // The room's last month, so a newcomer, or a device back after
+            // several rekeys, reads it as a member who stayed does.
+            past: () => session.pastSecrets(),
             // Sealed by the newest credential the roster has shown for the
             // device, so a copied device heals (see seal.ts).
             credentialFor: (device) => session.credentialFor(device),

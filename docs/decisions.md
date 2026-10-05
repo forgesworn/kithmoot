@@ -1831,7 +1831,9 @@ never a cryptographic boundary, only one this client chose not to cross;
 the answer is the same as before, to replace the link, and the Remove
 dialogue already says so. Left epochs are held in memory, rebuilt on
 opening from the rekeys the device has kept, and not written down on their
-own.
+own. (Since phase 2a's readers, 5 October, the web writes down the history
+window's secrets and opens the room from them, and reads up to 16 left
+epochs within 30 days: `docs/2026-10-05-phase-2a-plan.md`.)
 
 The Android client followed the same day (kithmoot-android #126): it reads
 up to four left epochs, refuses a removed member's late message on them,

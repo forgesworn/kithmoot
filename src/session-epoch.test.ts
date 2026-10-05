@@ -3,7 +3,7 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { RoomSession } from './session.js'
 import { localIdentity } from './identity.js'
-import { encodeRekeyEvent, generateEpochSecret, hostRoomEpoch } from './epoch.js'
+import { HISTORY_WINDOW_SECONDS, encodeRekeyEvent, generateEpochSecret, hostRoomEpoch } from './epoch.js'
 import type { RekeyNotice } from './epoch.js'
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
@@ -480,5 +480,113 @@ describe('room epochs', () => {
     // Neither side is abandoned on arrival order: Alice stays where she was.
     expect(alice.epoch).toBe(1)
     expect(alice.epochKeys().key).toEqual(keeper.epochKeys().key)
+  })
+})
+
+describe('scheduled rekeys and the history window', () => {
+  it('a scheduled rekey moves a member on, and its notice says it was scheduled', async () => {
+    const relay = new SimRelay()
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const notices: RekeyNotice[] = []
+    const alice = member(relay, 'Alice', authority, { onEpoch: (n) => notices.push(n) })
+    await alice.join([], {})
+    await settle()
+    // What a keeper on a schedule publishes: nobody removed, marked.
+    await new SimTransport(relay).publish(encodeRekeyEvent({
+      roomId: alice.roomId,
+      authoritySk,
+      current: alice.epochKeys(),
+      next: { epoch: 1, secret: generateEpochSecret() },
+      recipients: [alice.device],
+      removed: [],
+      commit: true,
+      scheduled: true,
+      now: NOW,
+    }))
+    await settle()
+    expect(alice.epoch).toBe(1)
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatchObject({ epoch: 1, removed: [], closed: false, scheduled: true })
+    expect(notices[0]!.catchUp).toBeUndefined()
+  })
+
+  it('the authority hands a device the window, a newcomer reads it, and a device reopened with what it kept needs no replay', async () => {
+    const relay = new SimRelay({ replay: true })
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    let t = NOW
+    const clock = () => t
+    const keeper = member(relay, 'Keeper', authority, { now: clock })
+    const alice = member(relay, 'Alice', authority, { now: clock })
+    await keeper.join([], {})
+    await alice.join([], {})
+    await settle()
+    await alice.chat.send('in epoch 0')
+    for (const epoch of [1, 2, 3]) {
+      // Steps inside the presence window, so the keeper still seals to Alice.
+      t = NOW + epoch * 10
+      await keeper.rekey({ authoritySk })
+      await settle()
+      await alice.chat.send(`in epoch ${epoch}`)
+    }
+    await settle()
+    expect(alice.epoch).toBe(3)
+
+    // Each epoch left, newest first, from when the room left it; epoch 0
+    // with the room secret.
+    const left = (s: RoomSession) => s.pastSecrets().map((e) => [e.epoch, e.leftAt])
+    expect(left(keeper)).toEqual([[2, NOW + 30], [1, NOW + 20], [0, NOW + 10]])
+    expect(left(alice)).toEqual(left(keeper))
+    expect(keeper.pastSecrets().at(-1)!.secret).toEqual(SECRET)
+    expect(alice.pastSecrets().map((e) => e.secret)).toEqual(keeper.pastSecrets().map((e) => e.secret))
+
+    // The relays have let every rekey go. A newcomer, told the room is at
+    // epoch 3, asks the authority, whose grant carries the window: the
+    // epochs between arrive with when the room left each.
+    for (let i = relay.published.length - 1; i >= 0; i--) if (relay.published[i]!.kind === KINDS.ROOM_REKEY) relay.published.splice(i, 1)
+    const desk = hostRoomEpoch({
+      transport: new SimTransport(relay),
+      roomId: keeper.roomId,
+      authoritySk,
+      roomKey: deriveRoom(SECRET).roomKey,
+      current: () => keeper.currentEpoch(),
+      removed: () => keeper.removed,
+      past: () => keeper.pastSecrets(),
+      now: clock,
+    })
+    t = NOW + 40
+    const dave = member(relay, 'Dave', authority, { now: clock, expectedEpoch: 3 })
+    await dave.join([], {})
+    await settle()
+    expect(dave.epoch).toBe(3)
+    expect(dave.chat.messages().map((m) => m.text).sort()).toEqual(['in epoch 0', 'in epoch 1', 'in epoch 2', 'in epoch 3'])
+    // Epochs 1 and 2 as the authority said; epoch 0, which no grant
+    // carries, from when Dave left it.
+    expect(left(dave)).toEqual([[2, NOW + 30], [1, NOW + 20], [0, NOW + 40]])
+    expect(dave.epochGaps()).toEqual([])
+    desk.close()
+
+    // Alice opens the room again with what she kept: in epoch 3 at once,
+    // with no rekey on any relay, no seal key and nobody to ask, and
+    // reading all four epochs.
+    const again = member(relay, 'Alice', authority, { now: clock, epoch: alice.currentEpoch(), pastEpochs: alice.pastSecrets() })
+    expect(again.epoch).toBe(3)
+    expect(left(again)).toEqual(left(alice))
+    await again.join([], {})
+    await settle()
+    expect(again.epoch).toBe(3)
+    expect(again.awaitingEpoch).toBe(false)
+    expect(again.chat.messages().map((m) => m.text).sort()).toEqual(['in epoch 0', 'in epoch 1', 'in epoch 2', 'in epoch 3'])
+
+    // A month on, what has left the window is not taken up, and nothing at
+    // or above the epoch it opens in is.
+    t = NOW + 15 + HISTORY_WINDOW_SECONDS
+    const later = member(relay, 'Alice', authority, {
+      now: clock,
+      epoch: alice.currentEpoch(),
+      pastEpochs: [...alice.pastSecrets(), { epoch: 3, secret: generateEpochSecret(), leftAt: t }],
+    })
+    expect(left(later)).toEqual([[2, NOW + 30], [1, NOW + 20]])
   })
 })
