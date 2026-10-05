@@ -12,6 +12,7 @@ import { mentionPattern, mentionedNames, segmentMentions } from './mention-rende
 import { buildMentionCandidates, resolveDraftMentions } from './mention-candidates.js'
 import { playZenChime, startCallRing, stopCallRing, unlockZenChime } from './zen-chime.js'
 import { IncomingCallTracker } from './incoming-call.js'
+import { callToDeclare } from './call-declare.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
 import { dockSummary, switchIntent } from './call-dock.js'
@@ -3895,6 +3896,14 @@ function renderWakeLockNote(): void {
 let leftCall = false
 
 /**
+ * The person has asked for this device to be on a call - pressed Join, or
+ * switched a microphone, camera or share on - and has not pressed Leave
+ * since. The only thing that lets `publishActiveTracks` start a call rather
+ * than join the one that is on: see `callToDeclare`.
+ */
+let callWanted = false
+
+/**
  * Leave was pressed and has not finished.
  *
  * Set before anything is torn down and cleared only once the panes have
@@ -4036,7 +4045,10 @@ async function joinCall(): Promise<void> {
   if (!await consentToRecordedCall() || session !== s || s.call) return
   const existing = s.calls()[0]
   leftCall = false
-  await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
+  callWanted = true
+  const id = existing?.id ?? newCallId()
+  callTimeline.record('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join`)
+  await s.setCall({ id, since: nowSeconds() })
   publishActiveTracks()
   setCallOpen(true)
   void callWakeLock.acquire()
@@ -4103,6 +4115,11 @@ async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
     speakingMonitor.retain([...remoteAudios.keys()])
     remoteVolume.retain([...remoteAudios.keys()])
     leftCall = true
+    callWanted = false
+    // A microphone or camera still opening lands after this, and a track
+    // live with no call is exactly what `publishActiveTracks` puts back on
+    // one. Moving the generation on makes it stop itself when it lands.
+    ++callGeneration
     if (reason === 'preempted') {
       if (s) await s.farewellCall()
     } else {
@@ -4234,6 +4251,9 @@ function renderCallState(views: ParticipantView[]): void {
     .sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0) || a.participant.localeCompare(b.participant))[0]
   const incoming = current && starter ? { id: current.id, caller: starter.participant } : undefined
   const callChange = incomingCallTracker.update(incoming, mediaMe() || currentParticipant(), mineOn)
+  if (callChange && callChange.type !== 'stop') {
+    callTimeline.record('call-ring', callChange.call.caller, `${callChange.type === 'ring' ? 'rang for' : 'kept quiet, just on a call:'} ${callChange.call.id.slice(0, 8)}`)
+  }
   if (callChange?.type === 'stop') stopCallRing()
   else if (callChange?.type === 'ring') {
     const settings = notifySettings(deviceStore)
@@ -4716,6 +4736,7 @@ async function toggleMic(): Promise<void> {
   const generation = callGeneration
   if (switchingRoom) return
   if (!micTrack && (meetingRefuses() || !await consentToRecordedCall())) return
+  if (!micTrack) callWanted = true
   if ([...pendingMedia].some(pipeline => pipeline instanceof MicPipeline)) return
   // An ended output cannot be unmuted. A deliberate press reopens capture.
   if (micTrack?.readyState === 'ended') {
@@ -4784,6 +4805,7 @@ async function toggleCamera(): Promise<void> {
   const generation = callGeneration
   if (switchingRoom) return
   if (!camera && (meetingRefuses() || !await consentToRecordedCall())) return
+  if (!camera) callWanted = true
   if ([...pendingMedia].some(pipeline => pipeline instanceof CameraPipeline)) return
   if (camera) {
     camera.stop()
@@ -5074,6 +5096,7 @@ async function toggleScreen(area = false): Promise<void> {
   if (switchingRoom) return
   if (screenStarting) return
   if (!screenTrack && (meetingRefuses() || !await consentToRecordedCall())) return
+  if (!screenTrack) callWanted = true
   if (screenTrack) {
     desktopShareArea.stop()
     shareMarksOverlay.close()
@@ -5466,8 +5489,12 @@ function publishActiveTracks(): void {
   s?.publishTracks(activeTracks(), { audience })
   s?.advertise(currentAdverts(), currentClaims()).catch(() => {})
   if (s && !s.call && activeTracks().length > 0) {
+    const visible = s.calls()[0]?.id
+    const id = callToDeclare(visible, callWanted, newCallId)
+    callTimeline.record('call-declared', undefined, !id ? 'none visible, none started' : `${id === visible ? 'joined' : 'started'} ${id.slice(0, 8)} with media`)
+    if (!id) return
     leftCall = false
-    s.setCall({ id: s.calls()[0]?.id ?? newCallId(), since: nowSeconds() }).catch(() => {})
+    s.setCall({ id, since: nowSeconds() }).catch(() => {})
   }
 }
 
@@ -12251,6 +12278,7 @@ function tearDownCallMedia(): void {
   for (const box of tileBoxes.values()) box.remove()
   tileBoxes.clear()
   leftCall = false
+  callWanted = false
 }
 
 /** Stop the room completely before any other room can own the controls. */
