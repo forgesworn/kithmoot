@@ -95,8 +95,12 @@ test('the front page lists every room this device has been in, with what is new 
     const benchRow = page.locator('#roomList .roomRow', { has: page.locator('.roomName', { hasText: 'Bench' }) })
     // Read with the creator's key, which this device holds: nothing new in
     // either, and nobody has been heard from.
-    await expect(townHallRow.locator('.roomPreview')).toHaveText('No messages yet')
-    await expect(benchRow.locator('.roomPreview')).toHaveText('No messages yet')
+    // An empty room is one line; the row's description still says why.
+    await expect(townHallRow.locator('.roomPreview')).toHaveCount(0)
+    await expect(townHallRow.locator('.sr-only')).toContainText('No messages yet')
+    // An empty room is one line; the row's description still says why.
+    await expect(benchRow.locator('.roomPreview')).toHaveCount(0)
+    await expect(benchRow.locator('.sr-only')).toContainText('No messages yet')
     await expect(townHallRow.locator('.unread')).toHaveCount(0)
     await expect(townHallRow.locator('.here')).toHaveCount(0)
 
@@ -120,7 +124,9 @@ test('the front page lists every room this device has been in, with what is new 
     await expect(townHallRow.locator('.roomPreview')).toHaveText('Ada: hello town hall')
     await expect(townHallRow.locator('.here')).toHaveText('1 here')
     await expect(townHallRow.locator('.here')).toHaveAttribute('aria-label', '1 person here')
-    await expect(benchRow.locator('.roomPreview')).toHaveText('No messages yet')
+    // An empty room is one line; the row's description still says why.
+    await expect(benchRow.locator('.roomPreview')).toHaveCount(0)
+    await expect(benchRow.locator('.sr-only')).toContainText('No messages yet')
 
     // Opening a saved room now joins it directly. Seeing the message is
     // reading it, and the list says so on the way back.

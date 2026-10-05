@@ -21,6 +21,7 @@
     </aside>
     <header>
       <h1 class="app-brand"><img src="/pwa-192x192.png" width="28" height="28" alt="" />KithMoot</h1>
+      <button id="headerSignIn" type="button" class="quiet" hidden>Sign in</button>
       <button id="openAppSettings" type="button" class="quiet" aria-haspopup="dialog" aria-controls="appSettings" hidden>Settings</button>
     </header>
 
@@ -603,9 +604,21 @@
       </section>
 
       <section id="rooms" hidden>
-        <div class="roomsHead">
+        <!-- One toolbar: the heading, search growing into the space, then
+             Projects, an invite link and New room. See
+             docs/2026-10-05-room-list-sections.md. -->
+        <div id="roomsHead" class="roomsHead">
           <h2 id="roomsHeading">Rooms</h2>
-          <button id="newRoom" type="button" aria-expanded="false" aria-controls="createRoomForm">New room</button>
+          <div id="homeRoomSearch" class="roomSearchRow" hidden>
+            <label for="homeRoomQuery" class="sr-only">Find a room</label>
+            <input id="homeRoomQuery" type="search" placeholder="Find a room" autocomplete="off" spellcheck="false" />
+            <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
+          </div>
+          <div class="roomsHeadActions">
+            <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects" hidden>Projects</button>
+            <button id="homeOpenLink" type="button" class="quiet" aria-controls="openLink" aria-expanded="false" hidden>Open invite link</button>
+            <button id="newRoom" type="button" class="primary" aria-expanded="false" aria-controls="createRoomForm">New room</button>
+          </div>
         </div>
         <!-- A Nostr account used here whose signer is not in this tab. Its
              rooms are not listed, and nothing may act for it until it is
@@ -613,12 +626,6 @@
         <div id="accountReconnect" class="accountReconnect" role="status" hidden>
           <p id="accountReconnectText" class="note"></p>
           <button id="accountReconnectButton" type="button" class="primary">Reconnect</button>
-        </div>
-        <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects" hidden>Projects</button>
-        <div id="homeRoomSearch" class="roomSearchRow" hidden>
-          <label for="homeRoomQuery">Find a room</label>
-          <input id="homeRoomQuery" type="search" placeholder="Find a room" autocomplete="off" spellcheck="false" />
-          <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
         </div>
         <p id="homeRoomResults" class="note" role="status" hidden></p>
         <p id="roomsEmpty" class="note" hidden></p>

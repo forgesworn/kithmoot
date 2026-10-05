@@ -69,6 +69,7 @@ import {
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { endLapsedConferences, forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { FOLDABLE, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
 import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { arrangeRooms, loadPins, setPinned } from './room-pins.js'
@@ -11332,6 +11333,30 @@ function hideRoomsList(): void {
 /** The order the list last drew in, held while focus or the pointer is
  *  inside it (spec section 7: "rows never reorder under the user"). */
 let lastRoomOrder: string[] | undefined
+/** The section each room was drawn in, held with the order: reading a room
+ *  moves it from Unread to Recent, which is a reorder like any other. */
+let lastRoomSections: Map<string, RoomSection> | undefined
+const FOLD_PREFIX = 'kithmoot.home.fold.'
+
+function sectionFolded(section: RoomSection): boolean {
+  if (!FOLDABLE[section]) return false
+  try { return localStorage.getItem(FOLD_PREFIX + section) !== 'open' } catch { return true }
+}
+
+function setSectionFolded(section: RoomSection, folded: boolean): void {
+  try { localStorage.setItem(FOLD_PREFIX + section, folded ? 'closed' : 'open') } catch { /* Folding still works for this visit. */ }
+}
+
+function roomIsEnded(room: KnownRoom): boolean {
+  return room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())
+}
+
+/** Unread messages from people in a room the list is watching. */
+function roomUnreadPeople(room: KnownRoom): number {
+  const watched = roomWatches.get(room.roomId)
+  if (!watched || !watched.watch.readsChat) return 0
+  return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName()).people
+}
 
 function renderRooms(): void {
   // A conference room ends by the clock, with no event to say so. The list
@@ -11352,17 +11377,30 @@ function renderRooms(): void {
   const project = ($('homeProject') as HTMLSelectElement).value
   const matched = rooms.filter(room => matchesRoom(room, query, project))
   const activityOf = (room: KnownRoom): number => activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? [])
-  const sorted = sortByActivity(matched, activityOf)
+  const pins = loadPins(localStorage)
+  const pinned = (room: KnownRoom) => pins.has(room.roomId)
+  const sorted = pinnedFirst(sortByActivity(matched, activityOf), pinned)
   const list = $('roomList')
   const held = list.contains(document.activeElement) || list.matches(':hover')
   let filtered = sorted
+  const now = nowSeconds()
+  const freshSection = (room: KnownRoom): RoomSection =>
+    sectionOf({ pinned: pinned(room), ended: roomIsEnded(room), unread: roomUnreadPeople(room), activity: activityOf(room) }, now)
+  let sectionFor = freshSection
   if (held && lastRoomOrder) {
     const byId = new Map(sorted.map(room => [room.roomId, room]))
     const inOrder = lastRoomOrder.map(id => byId.get(id)).filter((room): room is KnownRoom => room !== undefined)
     const seen = new Set(inOrder.map(room => room.roomId))
     filtered = [...inOrder, ...sorted.filter(room => !seen.has(room.roomId))]
+    const kept = lastRoomSections
+    if (kept) sectionFor = room => kept.get(room.roomId) ?? freshSection(room)
   } else {
     lastRoomOrder = sorted.map(room => room.roomId)
+    lastRoomSections = undefined
+  }
+  const groups = groupRooms(filtered, sectionFor, !!query)
+  if (groups && !(held && lastRoomSections)) {
+    lastRoomSections = new Map(groups.flatMap(group => group.rooms.map(room => [room.roomId, group.section] as const)))
   }
   $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
   // The filter only earns its place once there is something to filter by;
@@ -11386,7 +11424,14 @@ function renderRooms(): void {
   $('rooms').hidden = !returning
   renderHomeSyncStatus()
   $('accountReconnect').hidden = !accountDisconnected()
-  $('homeSignIn').hidden = !!nostrSession || restoring
+  $('homeSignIn').hidden = !!nostrSession || restoring || returning
+  // A returning list keeps its rooms at the top: signing in and opening an
+  // invite are one tap away there, not under the last room.
+  $('headerSignIn').hidden = !!nostrSession || restoring || !returning
+  $('homeOpenLink').hidden = !returning
+  if (returning && $('openLink').parentElement !== $('rooms')) $('roomsHead').after($('openLink'))
+  if (!returning && $('openLink').parentElement !== $('homeFoot')) $('homeFoot').prepend($('openLink'))
+  $('homeOpenLink').setAttribute('aria-expanded', String(($('openLink') as HTMLDetailsElement).open))
   list.hidden = restoring
   $('roomsEmpty').textContent = restoring ? 'Loading your rooms…' : ''
   $('roomsEmpty').hidden = !restoring
@@ -11423,7 +11468,12 @@ function renderRooms(): void {
     return
   }
   list.innerHTML = ''
-  for (const room of filtered) list.append(roomRow(room))
+  if (!groups) for (const room of filtered) list.append(roomRow(room))
+  else for (const group of groups) {
+    const folded = sectionFolded(group.section)
+    list.append(sectionHead(group.section, group.rooms.length, folded))
+    if (!folded) for (const room of group.rooms) list.append(roomRow(room))
+  }
   if (focusedRoom && action) {
     const row = Array.from(list.children).find(row => (row as HTMLElement).dataset.room === focusedRoom)
     const replacement = row?.querySelector<HTMLElement>(`[data-action="${action}"]`)
@@ -11480,6 +11530,20 @@ interface RoomRowState {
   description: string
 }
 
+const NO_MESSAGES = 'No messages yet'
+/** A drawing pin, in the text's own colour: an emoji pin is red in every theme. */
+function pinIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('fill', 'currentColor')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z')
+  svg.append(path)
+  return svg
+}
+
 function roomRowState(room: KnownRoom): RoomRowState {
   const time = formatActivityTime(activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? []))
   if (room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) {
@@ -11505,7 +11569,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
   const latest = messages.reduce<ChatMessage | undefined>((best, m) => (!best || m.sentAt > best.sentAt ? m : best), undefined)
   const nameOf = (participant: string): string =>
     shownAs(participant, messages.find((m) => m.participant === participant)?.name).name ?? shortKey(participant)
-  const preview = (latest && previewLine(latest, self, nameOf)) ?? 'No messages yet'
+  const preview = (latest && previewLine(latest, self, nameOf)) ?? NO_MESSAGES
 
   const split = watched.watch.unread(room.readAt, self, joiningName())
   const unreadVisible = split.people > 0 ? String(split.people) : undefined
@@ -11517,6 +11581,29 @@ function roomRowState(room: KnownRoom): RoomRowState {
 
   const description = [unreadSpoken, preview, time, presence?.spoken].filter(Boolean).join('. ')
   return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, description }
+}
+
+/** A section's heading row: a plain heading, or a fold button for the
+ *  sections a person can put away. Not a `.open` button, so the arrow keys
+ *  still walk rooms only. */
+function sectionHead(section: RoomSection, count: number, folded: boolean): HTMLLIElement {
+  const row = document.createElement('li')
+  row.className = 'roomSection'
+  row.dataset.section = section
+  const heading = document.createElement('h3')
+  if (FOLDABLE[section]) {
+    const fold = document.createElement('button')
+    fold.type = 'button'
+    fold.className = 'sectionFold'
+    fold.dataset.section = section
+    fold.setAttribute('aria-expanded', String(!folded))
+    fold.textContent = sectionHeading(section, count, folded)
+    heading.append(fold)
+  } else {
+    heading.textContent = sectionHeading(section, count, false)
+  }
+  row.append(heading)
+  return row
 }
 
 /** One row of the rooms list: the whole name and preview area is a single
@@ -11541,19 +11628,42 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   open.setAttribute('aria-describedby', descId)
   open.addEventListener('click', () => openKnownRoom(room))
 
+  const ended = roomIsEnded(room)
+  const pinned = loadPins(localStorage).has(room.roomId)
+  if (state.unreadCount > 0) row.classList.add('hasUnread')
+  const avatar = document.createElement('span')
+  avatar.className = 'roomAvatar'
+  avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(room.roomId))
+  avatar.setAttribute('aria-hidden', 'true')
+  avatar.textContent = avatarInitial(label)
+  const text = document.createElement('span')
+  text.className = 'roomText'
   const name = document.createElement('span')
   name.className = 'roomName'
   name.textContent = label
-  const preview = document.createElement('span')
-  preview.className = 'roomPreview'
-  preview.textContent = state.preview
-  open.append(name, preview)
+  text.append(name)
+  // An empty room is one line: "No messages yet" under every quiet room was
+  // most of what a long list said. The description below still says it.
+  if (state.preview !== NO_MESSAGES) {
+    const preview = document.createElement('span')
+    preview.className = 'roomPreview'
+    preview.textContent = state.preview
+    text.append(preview)
+  }
+  open.append(avatar, text)
 
   const aside = document.createElement('div')
   aside.className = 'roomAside'
   const time = document.createElement('span')
   time.className = 'roomTime'
-  time.textContent = state.time
+  if (pinned) {
+    const pin = document.createElement('span')
+    pin.className = 'roomPin'
+    pin.setAttribute('aria-hidden', 'true')
+    pin.append(pinIcon())
+    time.append(pin)
+  }
+  time.append(state.time)
   aside.append(time)
   if (state.unreadVisible) {
     const pill = document.createElement('span')
@@ -11576,7 +11686,7 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   const description = document.createElement('span')
   description.id = descId
   description.className = 'sr-only'
-  description.textContent = state.description
+  description.textContent = pinned ? `Pinned. ${state.description}` : state.description
 
   row.append(open, aside, ...roomRowMenu(room, label))
   row.append(description)
@@ -11617,6 +11727,17 @@ function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDi
     return button
   }
 
+  const pinned = loadPins(localStorage).has(room.roomId)
+  const pin = item(pinned ? 'Unpin' : 'Pin', () => {
+    setPinned(localStorage, room.roomId, !pinned)
+    // The row moves; focus goes with it, to its ⋯ button.
+    lastRoomOrder = undefined
+    lastRoomSections = undefined
+    renderRooms()
+    $('roomList').querySelector<HTMLElement>(`[data-room="${room.roomId}"] .rowMenu`)?.focus({ preventScroll: false })
+  })
+  pin.dataset.action = 'pin'
+  menu.append(pin)
   menu.append(item('Copy invite link', () => {
     navigator.clipboard.writeText(room.link)
       .then(() => setStatus('Invite link copied.'))
@@ -12523,6 +12644,8 @@ function forgetLocally(roomId: string): void {
   forgetOwnCredentials(deviceStore, roomId)
   forgetQuietState(deviceStore, roomId)
   forgetRoom(deviceStore, roomId)
+  // A pin names the room too, and a forgotten room is not one to name.
+  setPinned(localStorage, roomId, false)
   // Its keys go with it: the device key, and the newest epoch's key the list
   // read it under. The archive's records go too where this device can still
   // name them: the room's rekeys, and its main chat in epoch 0 and in that
@@ -13582,6 +13705,23 @@ $('roomEnds').addEventListener('change', () => {
 })
 $('homeSignIn').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
+})
+$('headerSignIn').addEventListener('click', () => {
+  signInWithNostr().catch((err) => setStatus(describeError(err)))
+})
+$('homeOpenLink').addEventListener('click', () => {
+  const details = $('openLink') as HTMLDetailsElement
+  details.open = !details.open
+  $('homeOpenLink').setAttribute('aria-expanded', String(details.open))
+  if (details.open) ($('url') as HTMLInputElement).focus()
+})
+$('roomList').addEventListener('click', (event) => {
+  const fold = (event.target as HTMLElement).closest<HTMLButtonElement>('.sectionFold')
+  if (!fold) return
+  const section = fold.dataset.section as RoomSection
+  setSectionFolded(section, fold.getAttribute('aria-expanded') === 'true')
+  renderRooms()
+  $('roomList').querySelector<HTMLElement>(`.sectionFold[data-section="${section}"]`)?.focus()
 })
 // ArrowUp/ArrowDown/Home/End move focus between rows' open buttons, the
 // same shape as the chat log's own message navigation.
