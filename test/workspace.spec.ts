@@ -5,6 +5,9 @@ import { CONTROL_CHANNEL, decodeControl, encodeControl } from '../src/control.js
 import { localIdentity } from '../src/identity.js'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
+import { createRoomInvitation } from '../src/invitation.js'
+import type { DeviceCredential } from '../src/types.js'
+import { encodeRekeyEvent, generateEpochSecret } from '../src/epoch.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
 
@@ -578,6 +581,99 @@ test('keyboard readers navigate messages, reply through actions and retain focus
   } finally { writer.leave(); await context.close() }
 })
 
+/** What a keeper on a schedule will publish: a rekey that removes nobody,
+ *  marked scheduled, sealed to `devices` by the newest credential the
+ *  keeper holds for each. The keeper itself follows it as any member does. */
+async function scheduledRekey(keeper: RoomAgent, authoritySk: Uint8Array, devices: { device: string; credential?: DeviceCredential }[], baseURL: string): Promise<void> {
+  const s = keeper.session
+  const event = encodeRekeyEvent({
+    roomId: s.roomId,
+    authoritySk,
+    current: s.epochKeys(),
+    next: { epoch: s.epoch + 1, secret: generateEpochSecret() },
+    recipients: [...devices, { device: s.device, credential: s.credentialFor(s.device) }],
+    removed: [],
+    commit: true,
+    members: s.memberList(),
+    scheduled: true,
+    now: Math.floor(Date.now() / 1000),
+  })
+  const transport = agentRelaysFor(baseURL).transport(agentRelaysFor(baseURL).relays)
+  try { await transport.publish(event) } finally { transport.close() }
+}
+
+test('a scheduled rekey moves a room on without a word, and the rail follows it in a room not on screen', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  // The installed window's bridge, as far as this needs it: its presence is
+  // what keeps every room watched while one is on screen.
+  await context.addInitScript(() => {
+    const known: Record<string, unknown> = { updateState: async () => ({ phase: 'disabled' }), installUpdate: async () => false }
+    Object.assign(window, { kithmootDesktop: new Proxy(known, {
+      get: (target, key) => key in target ? target[key as string]
+        : String(key).startsWith('supports') || key === 'shareAreaMode' ? undefined
+        : String(key).startsWith('on') ? () => () => {} : () => undefined,
+    }) })
+  })
+  // The keeper's authority key, held here so this test can turn the key
+  // over on its behalf, as a scheduled keeper will.
+  const host = createRoomInvitation(true)
+  const state = { secret: generateRoomSecret(), inviterSk: host.inviterSk, bearer: host.invitation.bearer, persistent: true as const }
+  const here = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', ...agentRelaysFor(baseURL!), agent: false })
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Planning room', ...agentRelaysFor(baseURL!), agent: false, state })
+  try {
+    await join(page, withRelays(here.url, [relay]))
+    await page.evaluate(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), {
+      roomId: keeper.session.roomId, name: 'Planning room', link: withRelays(keeper.url, [relay]), openedAt: 1, readAt: 0,
+    })
+    const rail = page.locator('#workspaceRooms')
+    const planning = rail.locator('.workspaceRoom', { has: page.getByRole('button', { name: 'Planning room', exact: true }) })
+    await reenter(page, withRelays(here.url, [relay]))
+    // In the planning room once, as a device is before the room is on its
+    // rail: it holds a device key for the room from then on, and the
+    // keeper has seen its credential.
+    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Planning room')
+    await keeper.chat.send('Before the key turned.')
+    await expect(page.locator('#chatLog')).toContainText('Before the key turned.')
+    await expect.poll(() => keeper.session.participants().some(view => view.name === 'Ada')).toBe(true)
+    const pageDevice = keeper.session.participants().find(view => view.name === 'Ada')!.devices[0]!
+    const credential = keeper.session.credentialFor(pageDevice)
+    await page.getByRole('button', { name: 'Reading room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Reading room')
+    await expect(planning.locator('.unread')).toHaveCount(0)
+
+    // The key turns while the planning room is not on screen, and the
+    // keeper speaks under the new one: the rail hears it.
+    await scheduledRekey(keeper, host.inviterSk, [{ device: pageDevice, credential }], baseURL!)
+    await expect.poll(() => keeper.session.epoch).toBe(1)
+    await keeper.chat.send('After the key turned.')
+    await expect(planning.locator('.unread:not(.agent)')).toHaveText('1', { timeout: 30_000 })
+    // And it was written down with its secret, so opening the room starts
+    // in epoch 1 rather than replaying from epoch 0.
+    expect(await page.evaluate(id => JSON.parse(localStorage.getItem('kithmoot.room-epoch.v2.' + id) ?? 'null')?.epoch, keeper.session.roomId)).toBe(1)
+
+    // Opening it: both sides of the turn are there, the lock says it has
+    // changed, and nothing in the chat says so.
+    const notices = page.locator('#chatLog > .system:not(.intro)')
+    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Planning room')
+    await expect(page.locator('#chatLog')).toContainText('Before the key turned.')
+    await expect(page.locator('#chatLog')).toContainText('After the key turned.')
+    await expect(notices.filter({ hasText: 'moved to epoch' })).toHaveCount(0)
+
+    // A turn while the room is on screen moves it on just as quietly.
+    await scheduledRekey(keeper, host.inviterSk, [{ device: pageDevice, credential: keeper.session.credentialFor(pageDevice) }], baseURL!)
+    await expect.poll(() => keeper.session.epoch).toBe(2)
+    await keeper.chat.send('Two turns on.')
+    await expect(page.locator('#chatLog')).toContainText('Two turns on.')
+    await page.locator('#roomMenu').click()
+    await expect(page.locator('#roomLockState')).toContainText('changed 2 times')
+    await page.locator('#roomSheetClose').click()
+    await expect(notices.filter({ hasText: 'moved to epoch' })).toHaveCount(0)
+    await expect(notices.filter({ hasText: 'was removed' })).toHaveCount(0)
+  } finally { here.leave(); keeper.leave(); await context.close() }
+})
+
 test('rooms can be forgotten from the sidebar and the switcher, but not the one on screen', async ({ browser, baseURL }) => {
   const { context, page, rooms } = await setup(browser, baseURL!)
   try {
@@ -586,15 +682,16 @@ test('rooms can be forgotten from the sidebar and the switcher, but not the one 
     await expect(sidebar.getByRole('button', { name: 'Forget Town hall', exact: true })).toHaveCount(0)
     // Its keys as this device would hold them: forgetting takes them too.
     const planning = rooms[2]!.roomId
-    const keysOf = (roomId: string) => page.evaluate(id => ['kithmoot.device.', 'kithmoot.room-epoch.v1.'].map(prefix => localStorage.getItem(prefix + id)), roomId)
+    const keysOf = (roomId: string) => page.evaluate(id => ['kithmoot.device.', 'kithmoot.room-epoch.v1.', 'kithmoot.room-epoch.v2.'].map(prefix => localStorage.getItem(prefix + id)), roomId)
     await page.evaluate(id => {
       localStorage.setItem('kithmoot.device.' + id, JSON.stringify({ sk: '11'.repeat(32), at: Math.floor(Date.now() / 1000) }))
       localStorage.setItem('kithmoot.room-epoch.v1.' + id, JSON.stringify({ epoch: 2, id: '22'.repeat(32), key: '33'.repeat(32) }))
+      localStorage.setItem('kithmoot.room-epoch.v2.' + id, JSON.stringify({ epoch: 2, secret: '44'.repeat(32), past: [{ epoch: 1, secret: '55'.repeat(32), leftAt: Math.floor(Date.now() / 1000) }], removed: [], members: [] }))
     }, planning)
     await sidebar.getByRole('button', { name: 'Forget Release planning', exact: true }).click()
     await page.getByRole('button', { name: 'Forget room', exact: true }).click()
     await expect(sidebar.getByRole('button', { name: 'Release planning', exact: true })).toHaveCount(0)
-    expect(await keysOf(planning)).toEqual([null, null])
+    expect(await keysOf(planning)).toEqual([null, null, null])
     expect((await keysOf(rooms[0]!.roomId))[0]).not.toBeNull()
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await page.keyboard.press('Control+k')

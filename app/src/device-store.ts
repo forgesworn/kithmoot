@@ -119,6 +119,14 @@ export function deviceKeyFor(
   return sk
 }
 
+/** This device's key for one room when it holds one, without using it:
+ *  its age is left alone and nothing is minted. What the rooms list opens
+ *  its copy of a rekey with, which is not using the room. */
+export function loadDeviceKeyFor(store: DeviceStore, roomId: string): Uint8Array | undefined {
+  const existing = readDeviceKey(store, roomId)
+  return existing ? hexToBytes(existing.sk) : undefined
+}
+
 export function loadCredentialFor(store: DeviceStore, roomId: string): DeviceCredential | undefined {
   const raw = store.get(CREDENTIAL_PREFIX + roomId)
   if (!raw) return undefined

@@ -411,7 +411,7 @@ describe('ChatLog', () => {
     const roots = Array.from({ length: 8 }, (_, i) => ({ id: (i + 1).toString(16).padStart(64, 'a'), key: new Uint8Array(32).fill(60 + i) }))
     // Something said in epoch 1, which a log in epoch 8 reads as its
     // seventh most recently left: through the shared filter.
-    await sim.publish(encodeChatEvent({ ...f.msg, id: 'old', text: 'said a while back', sentAt: NOW - 50 }, { roomId: f.roomId, roomKey: f.roomKey, deviceSk: f.deviceSk, epoch: roots[0]!, now: () => NOW }))
+    await sim.publish(encodeChatEvent({ ...f.msg, id: 'old', text: 'said a while back', sentAt: NOW - 50 }, { roomId: f.roomId, roomKey: f.roomKey, deviceSk: f.deviceSk, epoch: roots[0]! }))
     const log = new ChatLog({
       ...f,
       transport,
