@@ -10,7 +10,7 @@ it('labels the actual granted method without turning it into a local word compar
   expect(contactCheckView(granted, peer, { status: 'unknown' })).toMatchObject({ label: 'Signet checked', title: expect.stringContaining('No dated check record') })
 })
 it('withdraws stale, revoked and missing granted claims without confusing local observations', () => {
-  for (const status of ['stale', 'revoked', 'waiting', 'disconnected'] as const) {
+  for (const status of ['stale', 'lapsed', 'revoked', 'waiting', 'disconnected'] as const) {
     const granted = { ...view(), status }
     expect(contactCheckView(granted, peer, { status: 'unknown' }).label).toBe('not checked')
     expect(contactCheckView(granted, peer, { status: 'verified', verifiedAt: 1800000000 }).label).toBe('checked here')
