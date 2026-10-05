@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { NostrRelayPool } from './relay-pool.js'
+import { relayDials } from './relay-dial-gate.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays, type FakeRelayServer } from '../test/fake-socket.js'
 
 // The failures public relays were seen to have in September 2026, one at a
@@ -159,6 +160,24 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
       await vi.advanceTimersByTimeAsync(10)
       expect(bad.attempts).toBe(before + 1)
     } finally { writer.close(); reader.close() }
+  })
+
+  it('does not kill its own dial to a failing relay when a publish is held back from it', async () => {
+    // With one dial at a time per relay, a pool's publish is often turned
+    // away while that same pool's subscription has the dial under way.
+    // Treating that as a dead socket and closing the relay cancelled the
+    // dial at birth, over and over: a joiner whose relay withheld OKs for a
+    // while never reached it again once it recovered.
+    relayDials.failed('wss://bad.test/')
+    await vi.advanceTimersByTimeAsync(1_100)
+    bad.stallConnections = true
+    pool = new NostrRelayPool([GOOD, BAD])
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await vi.advanceTimersByTimeAsync(10)
+    expect(bad.stalled.size).toBe(1)
+    pool.publish(evt()).catch(() => {})
+    await vi.advanceTimersByTimeAsync(1_100)
+    expect(bad.stalled.size).toBe(1)
   })
 
   it('closes the sockets it gives up on against a host that never answers', async () => {

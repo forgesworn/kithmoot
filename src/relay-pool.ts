@@ -401,11 +401,16 @@ export class NostrRelayPool implements RelayTransport {
         if (!timedOut || Date.now() - start >= PUBLISH_RETRY_BUDGET_MS || generation !== this.#generation || this.#closed) throw error
         // A socket that swallowed the send without ever answering is worth
         // more suspicion than a slow one: reopen it rather than hammer the
-        // same half-open connection again.
-        if (generation === this.#generation) this.#mark(url, { state: 'disconnected' })
-        this.#pool.close([url])
-        this.#attempted.set(url, Date.now())
-        for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
+        // same half-open connection again. One held back by the dial gate
+        // had no socket of its own to blame, and closing the relay then
+        // would kill the dial this pool's subscriptions may have under way,
+        // which is the one dial the gate lets through.
+        if (!heldBack) {
+          if (generation === this.#generation) this.#mark(url, { state: 'disconnected' })
+          this.#pool.close([url])
+          this.#attempted.set(url, Date.now())
+          for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
+        }
         // Wait out the relay's dial backoff too, so the retry is not spent
         // being turned away by it, but never past the retry budget.
         const backoff = Math.min(this.#dials.retryAt(url) - Date.now(), start + PUBLISH_RETRY_BUDGET_MS - Date.now())
