@@ -70,7 +70,7 @@ step 6). Each change, both ways:
 
 | Change | New writer, old reader | Old writer, new reader |
 |---|---|---|
-| `"scheduled": true` in a 1462 body | Ignored. Web and desktop up to 0.1.53 post "The room moved to epoch N."; Android up to 0.6.57 shows "Secure room update complete." Neither breaks | No marker, so the rekey is announced as before |
+| `"scheduled": true` in a 1462 body | Ignored. Web before these readers and desktop up to 0.1.54 post "The room moved to epoch N."; Android up to 0.6.58 shows "Secure room update complete." Neither breaks | No marker, so the rekey is announced as before |
 | `passed` in a 20469 grant | Ignored: the current epoch only, as from any grant before (`epoch-grant-window-old-reader`) | No `passed`: the current epoch only, as before |
 | Window of 16 left epochs, 30 days | An old client reads 4 left epochs. On a weekly schedule that is still about a month; removals shorten it | Unchanged |
 | Chat filters folded past the fifth | A relay sees one REQ with at most six filters, the last with several `#d` values, which NIP-01 allows | Unchanged |
@@ -81,8 +81,9 @@ step 6). Each change, both ways:
   from `RoomSession.pastSecrets`). Until it rekeys on a schedule that is
   epochs left by removals only.
 - Old watches and Android background listeners going quiet after a rekey is
-  why the cadence starts off: once desktop 0.1.54 and Android 0.6.58 are out,
-  a scheduled rekey reaches a room nobody has open as well.
+  why the cadence starts off: once the desktop release after 0.1.54 and an
+  Android release with these readers (after 0.6.58) are out, a scheduled
+  rekey reaches a room nobody has open as well.
 - The schedule vectors (`vectors/schedule-vectors.json`) are copied from
   fold-kit and checked by `vectors/verify-schedule.test.ts`; the `chatHistory`
   group in `vectors/kithmoot-vectors.json` pins what a log reads across a

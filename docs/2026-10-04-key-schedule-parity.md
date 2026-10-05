@@ -131,7 +131,8 @@ first and claims no forward secrecy. Its readers are done: the marker, the
 time-bound history rule, the window in the authority's grant, the web keeping
 its window's secrets (2b's item 3, brought forward), and watches that follow
 rekeys. What is left is the keeper's cadence (the plan's step 6), off by
-default until desktop 0.1.54 and Android 0.6.58 are in the field.
+default until a desktop release after 0.1.54 and an Android release with
+the readers (after 0.6.58) are in the field.
 
 **2b, forward secrecy:** a one-time sender key for 1462 and 20469, seal keys
 on Android and secondaries, the web keeping its window's secrets instead of
@@ -202,7 +203,7 @@ this changes in the plan" takes precedence where they differ.
 - **Quiet in the room.** The web client posts "The room moved to epoch N"
   on every rekey (`app/src/main.ts`, the rekey notice). Done: a scheduled
   rekey carries `"scheduled": true` in its encrypted body, and the web says
-  nothing of it; Android follows in 0.6.58.
+  nothing of it; Android follows with its own readers (the plan's step 3).
 - **Vectors.** `scheduledRekey` (an empty `removed` list, members carried,
   the chain unbroken, the scheduled marker), a newcomer grant carrying the
   window, and a chat history case across a scheduled rekey. Done: fold-kit's

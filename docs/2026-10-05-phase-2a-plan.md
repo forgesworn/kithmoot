@@ -5,7 +5,9 @@ Status: written 2026-10-05 against kithmoot `0824ea7`, fold-kit 0.7.0
 those revisions. Step 1 shipped as fold-kit 0.8.0 and step 2 as kithmoot's
 readers; the owner chose option (a) for the first finding below on
 5 October. Part of the key schedule parity plan
-(`docs/2026-10-04-key-schedule-parity.md`).
+(`docs/2026-10-04-key-schedule-parity.md`). The release numbers below are the
+ones expected when it was written: desktop 0.1.54 and Android 0.6.58 shipped
+before these readers, so the readers go out in the releases after them.
 
 2a makes no forward-secrecy claim and erases nothing. `MAX_MEMBER_EPOCH_CHAIN`
 stays at 32.
