@@ -3975,6 +3975,15 @@ function renderCallTabNotice(): void {
 // actually moving". Both feed `collectDiagnostics` below; see
 // app/src/call-timeline.ts for what they will and will not record.
 const callTimeline = new CallTimeline()
+
+/** Which call this device said it was on, and why a call rang or did not.
+ *  To the timeline for a pasted report, and to the console as well: the
+ *  timeline keeps ten minutes, and a ring nobody can explain is usually
+ *  asked about later than that. Short ids only, as the timeline takes. */
+function logCall(kind: 'call-declared' | 'call-ring', who: string | undefined, detail: string): void {
+  callTimeline.record(kind, who, detail)
+  console.info(`[kithmoot] ${kind}${who ? ` ${who.slice(0, 8)}` : ''}: ${detail}`)
+}
 const pairHealthSampler = new PairHealthSampler()
 
 /**
@@ -4047,7 +4056,7 @@ async function joinCall(): Promise<void> {
   leftCall = false
   callWanted = true
   const id = existing?.id ?? newCallId()
-  callTimeline.record('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join`)
+  logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join`)
   await s.setCall({ id, since: nowSeconds() })
   publishActiveTracks()
   setCallOpen(true)
@@ -4252,7 +4261,7 @@ function renderCallState(views: ParticipantView[]): void {
   const incoming = current && starter ? { id: current.id, caller: starter.participant } : undefined
   const callChange = incomingCallTracker.update(incoming, mediaMe() || currentParticipant(), mineOn)
   if (callChange && callChange.type !== 'stop') {
-    callTimeline.record('call-ring', callChange.call.caller, `${callChange.type === 'ring' ? 'rang for' : 'kept quiet, just on a call:'} ${callChange.call.id.slice(0, 8)}`)
+    logCall('call-ring', callChange.call.caller, `${callChange.type === 'ring' ? 'rang for' : 'kept quiet, just on a call:'} ${callChange.call.id.slice(0, 8)}`)
   }
   if (callChange?.type === 'stop') stopCallRing()
   else if (callChange?.type === 'ring') {
@@ -5491,7 +5500,7 @@ function publishActiveTracks(): void {
   if (s && !s.call && activeTracks().length > 0) {
     const visible = s.calls()[0]?.id
     const id = callToDeclare(visible, callWanted, newCallId)
-    callTimeline.record('call-declared', undefined, !id ? 'none visible, none started' : `${id === visible ? 'joined' : 'started'} ${id.slice(0, 8)} with media`)
+    logCall('call-declared', undefined, !id ? 'none visible, none started' : `${id === visible ? 'joined' : 'started'} ${id.slice(0, 8)} with media`)
     if (!id) return
     leftCall = false
     s.setCall({ id, since: nowSeconds() }).catch(() => {})
