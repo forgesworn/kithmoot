@@ -968,6 +968,107 @@ async function provisionRendezvousForThisBrowser(): Promise<void> {
 
 $('provisionRendezvous').addEventListener('click', () => { void provisionRendezvousForThisBrowser() })
 
+function adoptRestoredSession(account: SignetSession): void {
+  nostrSession = account
+  rememberAccount(account)
+  startRoomBookmarks(account)
+  profiles.want([account.pubkey])
+  renderIdentity()
+  renderNudgeChoice()
+}
+
+/** signet-login keeps a bunker's URI and client key when a restore fails,
+ *  so the same signer can be asked again without pairing afresh. */
+function storedBunkerSession(): boolean {
+  try {
+    return localStorage.getItem('signet:login.method') === 'bunker' && !!localStorage.getItem('signet:login.bunkerUri')
+  } catch { return false }
+}
+
+let bunkerRetry: Promise<boolean> | undefined
+let bunkerRetryAt = 0
+let bunkerRetryTimer: ReturnType<typeof setTimeout> | undefined
+let bunkerRetryDelay = 0
+/** The stored bunker answered as somebody other than the account expected:
+ *  asking it again will not change that. */
+let bunkerRetryForeign = false
+const BUNKER_RETRY_MIN_MS = 30_000
+const BUNKER_RETRY_MAX_MS = 5 * 60_000
+
+/**
+ * Ask the stored bunker again, without the sign-in picker.
+ *
+ * The bunker is restored once, when the page loads. A signer that was asleep
+ * or offline at that moment left the account disconnected for as long as the
+ * page stayed open, and Reconnect opened the picker, which pairs a new
+ * signer rather than asking the old one again: rebooting the signer did
+ * nothing, and only restarting KithMoot brought it back. This is what a
+ * restart did, done in place.
+ *
+ * Only for the account this tab expects. In a room that account may be
+ * speaking on its pass already, and the same account's signer coming back
+ * is what that pass waits for; a different one would be changing who you
+ * are mid-room, which only an explicit sign-in may do.
+ */
+function retryStoredBunker(): Promise<boolean> {
+  if (bunkerRetry) return bunkerRetry
+  if (!accountDisconnected() || loginBusy || bunkerRetryForeign || !storedBunkerSession()) return Promise.resolve(false)
+  // A room entered as a visitor, or as a paired device, stays that.
+  if ((session || joining) && session?.participant !== expectedAccount) return Promise.resolve(false)
+  const generation = identityGeneration
+  bunkerRetryAt = Date.now()
+  bunkerRetry = restoreSession()
+    .then(async (restored) => {
+      if (!restored) return false
+      const current = generation === identityGeneration && !nostrSession && !loginBusy
+        && (!(session || joining) || session?.participant === expectedAccount)
+      if (restored.pubkey !== expectedAccount) bunkerRetryForeign = true
+      if (!current || !restored.signer.capabilities.canSignEvents || restored.pubkey !== expectedAccount) {
+        await restored.signer.close().catch(() => {})
+        return false
+      }
+      relayConnections.clearAuthentication()
+      adoptRestoredSession(restored)
+      return true
+    })
+    .catch(() => false)
+    .finally(() => { bunkerRetry = undefined })
+  return bunkerRetry
+}
+
+/** Keep asking, gently, while the account is disconnected: on the way back
+ *  online, to the window, to the tab, and on a backing-off timer. */
+function scheduleBunkerRetry(): void {
+  clearTimeout(bunkerRetryTimer)
+  bunkerRetryTimer = undefined
+  if (!accountDisconnected() || bunkerRetryForeign || !storedBunkerSession()) { bunkerRetryDelay = 0; return }
+  bunkerRetryDelay = Math.min(bunkerRetryDelay ? bunkerRetryDelay * 2 : BUNKER_RETRY_MIN_MS, BUNKER_RETRY_MAX_MS)
+  bunkerRetryTimer = setTimeout(() => { void retryStoredBunkerNow() }, bunkerRetryDelay)
+}
+
+async function retryStoredBunkerNow(): Promise<void> {
+  if (await retryStoredBunker()) bunkerRetryDelay = 0
+  scheduleBunkerRetry()
+}
+
+function retryStoredBunkerSoon(): void {
+  if (bunkerRetry || Date.now() - bunkerRetryAt < 10_000) return
+  if (document.visibilityState !== 'visible' || !accountDisconnected()) return
+  void retryStoredBunkerNow()
+}
+
+/** Reconnect: the stored signer first, then the picker if it still does not
+ *  answer, so a person can always sign in some other way. */
+async function reconnectNostr(): Promise<void> {
+  if (storedBunkerSession() && accountDisconnected()) {
+    setStatus('Reconnecting to your signer…', 'progress')
+    if (await retryStoredBunker()) { setStatus('Reconnected to your signer.', 'done'); return }
+    if (!accountDisconnected()) { setStatus(''); return }
+    setStatus('Your signer did not answer. Check it is on and online, or sign in another way.')
+  }
+  await signInWithNostr()
+}
+
 async function signInWithNostr(): Promise<void> {
   contextPanel.close()
   if (loginBusy) return
@@ -13373,11 +13474,14 @@ $('displayName').addEventListener('input', (event) => {
 })
 
 $('accountReconnectButton').addEventListener('click', () => {
-  signInWithNostr().catch((err) => setStatus(describeError(err)))
+  reconnectNostr().catch((err) => setStatus(describeError(err)))
 })
 $('joinNostr').addEventListener('click', () => {
-  signInWithNostr().catch((err) => setStatus(describeError(err)))
+  (needsAccountReconnect() ? reconnectNostr() : signInWithNostr()).catch((err) => setStatus(describeError(err)))
 })
+window.addEventListener('online', retryStoredBunkerSoon)
+window.addEventListener('focus', retryStoredBunkerSoon)
+document.addEventListener('visibilitychange', retryStoredBunkerSoon)
 
 $('signIn').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
@@ -15328,21 +15432,18 @@ const identityReady = restoreSessionWithExtensionGrace()
       }
       return
     }
-    nostrSession = session
-    rememberAccount(session)
-    startRoomBookmarks(session)
-    profiles.want([session.pubkey])
-    renderIdentity()
-    renderNudgeChoice()
+    adoptRestoredSession(session)
   })
   .catch(() => {
     // No stored session, or a signer that is not answering today. Either
-    // way this page still works: type a name and join.
+    // way this page still works: type a name and join. A bunker that did
+    // not answer is tried again by retryStoredBunker.
   })
   .finally(() => {
     identityRestoring = false
     renderIdentity()
     if (rememberAfterRestore) rememberCurrentRoom()
+    scheduleBunkerRetry()
   })
 
 // Only an explicit switch or safe update in this tab skips the door. A normal invitation
