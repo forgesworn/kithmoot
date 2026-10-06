@@ -1,6 +1,7 @@
 # Key schedule: next steps after phase 2a
 
-Status: written 2026-10-06, once phase 2a was in the field. 2a's readers are
+Status: written 2026-10-06, once phase 2a was in the field. Zapstore has
+0.6.60 since the same day. 2a's readers are
 in desktop 0.1.55, Android 0.6.60 and the web. The keeper's cadence is
 built (#250) and on for KithMoot's own keepers, `founders` and `moot`, every
 seven days (#251). The plan this follows is
@@ -58,15 +59,15 @@ Each has a recommendation. Nothing in 2b starts until decision 7 is taken.
   the next release that changes the keeper anyway, once 13 Oct's rekeys
   have gone cleanly. Anybody else running a keeper gets healing without
   knowing to ask, and `--rekey-every 0` still turns it off.
-- **New: should a Remove sent while the keeper is away wait for it?** The
-  keeper drops a control request sent more than ten seconds before it
-  started (`#handleControl`, `src/agent.ts`). So a Remove pressed while it
-  is down does nothing, and the app has already said "Asked the keeper to
-  remove…". *Recommended:* yes, and keep it narrow. On start, act on
-  `remove` requests from the last 24 hours that an admin signed and that
-  no later rekey has already covered. Also make the app say when the
-  keeper is not in the room, so the request is not silently lost. `close`
-  and `channel` stay live-only.
+- **Done 2026-10-06: a Remove sent while the keeper is away waits for it.**
+  The keeper used to drop a control request sent more than ten seconds
+  before it started (`#handleControl`, `src/agent.ts`), so a Remove pressed
+  while it was down did nothing after the app had said "Asked the keeper to
+  remove…". Now a keeper acts on an admin's `remove` from up to a day before
+  it started (`REMOVE_REPLAY_SECONDS`). Removing is idempotent and never
+  undone, so a request already acted on does nothing. The web app says when
+  the keeper is not in the room: a Remove says it will wait, and Close is
+  not sent, since `close` and `channel` stay live-only.
 
 ## 3. Phase 2b: forward secrecy
 
@@ -112,7 +113,7 @@ Its window is the history window.
 
 ## 5. Operational
 
-- **Zapstore 0.6.60** needs the owner at the signer.
+- **Zapstore 0.6.60** went out on 2026-10-06.
 - **Moving a room between boxes** with `--state-from` puts its state in two
   files, which the lock cannot see. With the cadence on, stop the old
   keeper before starting the new one, or each turns the key its own way

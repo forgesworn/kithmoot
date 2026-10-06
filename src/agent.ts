@@ -149,6 +149,12 @@ export interface KeptDevice {
  *  the check reads. Then hourly (`REKEY_CHECK_INTERVAL_MS`). */
 const REKEY_FIRST_CHECK_MS = 60_000
 
+/** How far back a keeper that has just started acts on an admin's Remove.
+ *  An admin can press Remove while the keeper is down - a deploy, a reboot -
+ *  and the app has already said it asked. Removing is idempotent and never
+ *  undone, so acting late on a request still standing is safe. */
+const REMOVE_REPLAY_SECONDS = 24 * 60 * 60
+
 /** How this agent takes part in a quiet room, when the link says the room
  *  is one. Omit it and the agent posts as the identity's own device, slot
  *  0, and keeps its used counters for this process only. See `quiet.ts`. */
@@ -987,8 +993,11 @@ export class RoomAgent {
       return
     }
     // Replayed history: a request from before this agent opened its ears
-    // was for one that is gone, and was acted on then or not at all.
-    if (m.sentAt < openedAt - 10) return
+    // was for one that is gone, and was acted on then or not at all. The
+    // exception is a keeper's Remove, which waits a day for it: a request
+    // already acted on finds the participant gone and does nothing.
+    const waits = control.op === 'remove' && this.#keeper !== undefined && m.sentAt >= openedAt - REMOVE_REPLAY_SECONDS
+    if (m.sentAt < openedAt - 10 && !waits) return
     if (m.participant === this.participant) return
     switch (control.op) {
       case 'approval':

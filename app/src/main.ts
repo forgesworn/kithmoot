@@ -7660,7 +7660,11 @@ function renderHost(): void {
     remove.title = 'Move the room to a new key this person is not given.'
     remove.addEventListener('click', async () => {
       if (!await confirmRoomAction({ title: `Remove ${label}?`, message: 'The room will move to a new key that this person is not given. What they already read stays theirs. If they still have the invite link they can come back under a new name; replace the link as well when that matters.', confirmLabel: 'Remove from room', danger: true })) return
-      sendHostControl({ op: 'remove', participant: view.participant }, `Asked the keeper to remove ${label}.`)
+      // The keeper acts on a Remove up to a day after it was sent, so one
+      // pressed while it is away (a restart, a deploy) waits for it.
+      sendHostControl({ op: 'remove', participant: view.participant }, keeperHere()
+        ? `Asked the keeper to remove ${label}.`
+        : `Asked the keeper to remove ${label}. It is not in the room just now; it will act when it is back, if that is within a day.`)
     })
     row.append(mute, remove)
     list.append(row)
@@ -7669,8 +7673,18 @@ function renderHost(): void {
 
 $('closeRoom').addEventListener('click', async () => {
   if (!await confirmRoomAction({ title: 'Close this room for everybody?', message: 'The invite link will stop working and the agent keeping the room open will leave.', confirmLabel: 'Close room', danger: true })) return
+  // Closing is live only: a keeper that is away never hears it.
+  if (!keeperHere()) {
+    setStatus('The keeper is not in the room just now, so the room cannot be closed. Try again when it is back.')
+    return
+  }
   sendHostControl({ op: 'close' }, 'Asked the keeper to close the room.')
 })
+
+/** Whether the room's keeper is on the roster now, as far as this device can tell. */
+function keeperHere(): boolean {
+  return keeperParticipant !== undefined && session !== undefined && session.participants().some((v) => v.participant === keeperParticipant)
+}
 
 function ingestControl(messages: ChatMessage[]): void {
   let changed = false
