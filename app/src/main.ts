@@ -26,7 +26,7 @@ import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { PendingSends } from './pending-sends.js'
+import { PendingSends, type PendingSend } from './pending-sends.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { signerLabel } from './signer-label.js'
 import { ChatScroll } from './chat-scroll.js'
@@ -291,18 +291,38 @@ const pendingSends = new PendingSends({
   active: () => session ? currentRoomId() : undefined,
 })
 const outbox = new Outbox(document.getElementById('outbox')!, pendingSends, () => currentRoomId(), () =>
-  quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
+  quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…',
+  item => editPending(item), item => item.channel === (currentChannel ?? 'Chat') && channelAvailable(currentChannel))
+
+/** Take an unsent message back into the message box. Only offered while
+ *  nothing of it has reached a relay, so the old copy leaves no trace: it
+ *  is dropped, and sending again signs a new one. */
+async function editPending(item: PendingSend): Promise<void> {
+  const input = $('chatInput') as HTMLTextAreaElement
+  if (input.value.trim() && !await confirmRoomAction({ title: 'Replace what you are writing?', message: 'The unsent message goes back into the message box in place of what is there now.', confirmLabel: 'Replace' })) return
+  if (!pendingSends.take(item.id)) {
+    setStatus('That message is already on its way, so it can no longer be edited here.')
+    return
+  }
+  input.value = item.text
+  const draft = captureDraft()
+  draftChanged(draft)
+  growComposer(input)
+  input.focus()
+  input.setSelectionRange(input.value.length, input.value.length)
+}
 window.addEventListener('online', () => pendingSends.wake())
 
 /** Queue a prepared message in the conversation it was written in. `durable`
  *  keeps it across a reload: only ordinary main-chat messages, which can be
  *  sent again from the room's own keys alone. */
-function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; publish?: () => Promise<void> } = {}): void {
+function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; editable?: boolean; publish?: () => Promise<void> } = {}): void {
   const roomId = currentRoomId()
   if (!roomId) throw new Error('Open a room to send a message.')
   pendingSends.add({
     id: prepared.message.id, roomId, channel, text: prepared.message.text, files: opts.files ?? [],
     event: prepared.event, publish: opts.publish ?? prepared.publish, durable: opts.durable ?? false,
+    ...(opts.editable ? { editable: true } : {}),
   })
 }
 function slotWords(): string {
@@ -14956,7 +14976,13 @@ $('chatForm').addEventListener('submit', (event) => {
   // somebody picks another.
   // Kept across a reload when it is an ordinary main-chat message in a room
   // that is not quiet: a quiet room keeps its own queue.
-  queueSend(prepared, currentChannel ?? 'Chat', { files: attachments.map(a => a.name ?? 'Encrypted file'), durable: currentChannel === undefined && !quietTransport })
+  // Edit takes back only what it can put back as it was: a plain new
+  // message, not a reply, an edit or one carrying files.
+  queueSend(prepared, currentChannel ?? 'Chat', {
+    files: attachments.map(a => a.name ?? 'Encrypted file'),
+    durable: currentChannel === undefined && !quietTransport,
+    editable: !attachments.length && !sendOpts.replaces && !sendOpts.replyTo,
+  })
   chatScroll.latest()
   if (currentChannel === undefined && asksForMinutes(typed)) acknowledgeMinutesRequest()
 })

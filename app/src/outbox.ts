@@ -1,5 +1,5 @@
 import { confirmAction } from './confirm-action.js'
-import type { PendingSend, PendingSends } from './pending-sends.js'
+import { neverLeft, type PendingSend, type PendingSends } from './pending-sends.js'
 
 /**
  * Shows this device's unsent messages at the foot of the conversation, as
@@ -13,8 +13,11 @@ export class Outbox {
   /** `sending` is what a row says while its publish is in flight: a relay
    *  takes an ordinary message in a moment, a quiet room's at its next slot,
    *  and the row should say which it is waiting for. */
+  /** `edit` takes a message back into the message box; `canEdit` says
+   *  whether that box is the one for the message's conversation. */
   constructor(root: HTMLElement, private readonly queue: PendingSends, private readonly room: () => string | undefined,
-    private readonly sending: () => string = () => 'Sending…') {
+    private readonly sending: () => string = () => 'Sending…',
+    private readonly edit?: (item: PendingSend) => void | Promise<void>, private readonly canEdit: (item: PendingSend) => boolean = () => false) {
     this.#root = root
   }
 
@@ -61,9 +64,15 @@ export class Outbox {
     if (!item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && item.publish) {
       actions.append(this.#button('Retry', 'retry', () => this.queue.retry(item.id)))
     }
+    // Edit and Delete only where nothing has left this device, so neither
+    // leaves a trace. One that may have arrived can only leave this list.
+    if (this.edit && item.editable && neverLeft(item) && this.canEdit(item)) {
+      actions.append(this.#button('Edit', 'edit', () => this.edit!(item)))
+    }
     if (!item.acknowledged && item.state !== 'sending') {
-      actions.append(this.#button('Remove', 'remove', async () => {
-        if (await confirmAction({ ...this.#removal(item), confirmLabel: 'Remove message', danger: true, isCurrent: () => row.isConnected })) this.queue.dismiss(item.id)
+      const clean = neverLeft(item)
+      actions.append(this.#button(clean ? 'Delete' : 'Remove from list', 'remove', async () => {
+        if (await confirmAction({ ...this.#removal(item), confirmLabel: clean ? 'Delete message' : 'Remove from list', danger: true, isCurrent: () => row.isConnected })) this.queue.dismiss(item.id)
       }))
     }
     if (actions.childElementCount) row.append(actions)
@@ -84,12 +93,12 @@ export class Outbox {
 
   /** What removing a row can promise depends on whether it ever left. */
   #removal(item: PendingSend): { title: string; message: string } {
-    if (item.state === 'unknown') return {
-      title: 'Remove this message?',
-      message: 'A relay may have received it even if its acknowledgement did not arrive. Removing it only takes it off this list.',
+    if (!neverLeft(item)) return {
+      title: 'Remove this message from the list?',
+      message: 'A relay may have received it even if its acknowledgement did not arrive, so people may still see it. Removing it only takes it off this list.',
     }
     return {
-      title: 'Remove this unsent message?',
+      title: 'Delete this unsent message?',
       message: 'It has not reached any relay, so nobody will see it.',
     }
   }

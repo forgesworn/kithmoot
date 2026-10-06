@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Event } from 'nostr-tools/pure'
 import { memoryDeviceStore } from './device-store.js'
-import { PendingSends, stateAfter, RETRY_SECONDS, ECHO_GRACE_MS, CONNECT_POLL_MS, type PendingSend } from './pending-sends.js'
+import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, ECHO_GRACE_MS, CONNECT_POLL_MS, type PendingSend } from './pending-sends.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
 
 const ROOM = 'a'.repeat(64)
@@ -136,6 +136,29 @@ describe('unsent messages', () => {
     await flush()
     expect(fresh).toHaveBeenCalledOnce()
     expect(closed).not.toHaveBeenCalled()
+  })
+
+  it('gives back only a message nothing of which has left the device', async () => {
+    const h = harness(false)
+    add(h.pending, 'offline', async () => {})
+    expect(neverLeft(h.pending.items(ROOM)[0]!)).toBe(true)
+    expect(h.pending.take('offline')?.text).toBe('text offline')
+    expect(h.pending.items(ROOM)).toEqual([])
+    h.state.connected = true
+    const unanswered = add(h.pending, 'unanswered', vi.fn().mockRejectedValue(new Error('no relay could be reached in time')))
+    const refused = add(h.pending, 'refused', vi.fn().mockRejectedValue(new Error('every relay rejected the event')))
+    await flush()
+    expect(unanswered.state).toBe('unknown')
+    expect(h.pending.take('unanswered')).toBeUndefined()
+    expect(h.pending.take('refused')).toBe(refused)
+  })
+
+  it('remembers across a reload which messages Edit can take back', () => {
+    const h = harness(false)
+    h.pending.add({ id: 'plain', roomId: ROOM, channel: 'Chat', text: 't', files: [], event: event('plain'), publish: async () => {}, durable: true, editable: true })
+    add(h.pending, 'reply', async () => {})
+    const next = new PendingSends({ store: h.store, connected: () => false })
+    expect(next.restore(ROOM).map(item => [item.id, item.editable === true])).toEqual([['plain', true], ['reply', false]])
   })
 
   it('lists each room on its own', () => {

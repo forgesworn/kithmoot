@@ -107,8 +107,10 @@ test('a message written with no relay reachable waits as pending, survives a rel
     const row = page.locator('#outbox .pendingMsg')
     await expect(row).toContainText('Written on a train')
     await expect(row).toContainText('Pending: will send when you are connected.')
-    // Nothing has left the page, so removing it would promise nobody sees it.
-    await expect(row.getByRole('button', { name: 'Remove' })).toBeVisible()
+    // Nothing has left the page, so it can be edited, or deleted with the
+    // promise that nobody sees it.
+    await expect(row.getByRole('button', { name: 'Delete' })).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Edit' })).toBeVisible()
     expect(chatEvents).toEqual([])
     blocked = false
     await page.reload()
@@ -118,6 +120,56 @@ test('a message written with no relay reachable waits as pending, survives a rel
     await expect(page.locator('#outbox')).toBeHidden()
     await expect(page.locator('#chatLog .msg', { hasText: 'Written on a train' })).toHaveCount(1)
     expect(chatEvents.length).toBeGreaterThanOrEqual(1)
+    expect(new Set(chatEvents).size).toBe(1)
+  } finally { await context.close() }
+})
+
+test('an unsent message can be edited or deleted before it leaves, without a trace', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!)
+  const relay = testRelay(baseURL!)
+  const secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const chatEvents: string[] = []
+  const live = new Set<{ close: () => void }>()
+  let blocked = false
+  await context.routeWebSocket(relay, ws => {
+    if (blocked) { ws.close(); return }
+    live.add(ws)
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) chatEvents.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage()
+    await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    blocked = true
+    for (const ws of live) ws.close()
+    live.clear()
+    await page.locator('#chatInput').fill('Meet at the wrong place')
+    await page.locator('#chatInput').press('Enter')
+    const row = page.locator('#outbox .pendingMsg')
+    await expect(row).toContainText('Pending')
+    await row.getByRole('button', { name: 'Edit' }).click()
+    await expect(page.locator('#chatInput')).toHaveValue('Meet at the wrong place')
+    await expect(page.locator('#outbox')).toBeHidden()
+    await page.locator('#chatInput').fill('Meet at the station')
+    await page.locator('#chatInput').press('Enter')
+    await page.locator('#chatInput').fill('Never mind')
+    await page.locator('#chatInput').press('Enter')
+    const second = page.locator('#outbox .pendingMsg', { hasText: 'Never mind' })
+    await second.getByRole('button', { name: 'Delete' }).click()
+    await page.getByRole('button', { name: 'Delete message' }).click()
+    await expect(second).toHaveCount(0)
+    expect(chatEvents).toEqual([])
+    blocked = false
+    await expect(page.locator('#chatLog')).toContainText('Meet at the station')
+    await expect(page.locator('#outbox')).toBeHidden()
+    await expect(page.locator('#chatLog')).not.toContainText('Meet at the wrong place')
+    await expect(page.locator('#chatLog')).not.toContainText('Never mind')
     expect(new Set(chatEvents).size).toBe(1)
   } finally { await context.close() }
 })
