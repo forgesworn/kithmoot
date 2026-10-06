@@ -161,6 +161,34 @@ describe('unsent messages', () => {
     expect(next.restore(ROOM).map(item => [item.id, item.editable === true])).toEqual([['plain', true], ['reply', false]])
   })
 
+  it('holds a message for the chosen moment, takes it back unsent, or sends it now', async () => {
+    const h = harness()
+    const held = vi.fn(async () => {})
+    h.pending.add({ id: 'held', roomId: ROOM, channel: 'Chat', text: 'oops', files: [], event: event('held'), publish: held, durable: true, editable: true }, 5_000)
+    expect(h.pending.items(ROOM)[0]!.state).toBe('holding')
+    expect(h.pending.holding).toBe(true)
+    await h.advance(4_000)
+    expect(held).not.toHaveBeenCalled()
+    expect(h.pending.take('held')?.text).toBe('oops')
+    await h.advance(2_000)
+    expect(held).not.toHaveBeenCalled()
+    const now = vi.fn(async () => {})
+    h.pending.add({ id: 'now', roomId: ROOM, channel: 'Chat', text: 't', files: [], event: event('now'), publish: now, durable: true }, 10_000)
+    h.pending.retry('now')
+    await flush()
+    expect(now).toHaveBeenCalledOnce()
+  })
+
+  it('sends a held message once its moment has passed, and after a reload during it', async () => {
+    const h = harness()
+    const publish = vi.fn(async () => {})
+    h.pending.add({ id: 'held', roomId: ROOM, channel: 'Chat', text: 't', files: [], event: event('held'), publish, durable: true }, 5_000)
+    const next = new PendingSends({ store: h.store, connected: () => true })
+    expect(next.restore(ROOM)[0]!.state).toBe('waiting')
+    await h.advance(5_000)
+    expect(publish).toHaveBeenCalledOnce()
+  })
+
   it('lists each room on its own', () => {
     const h = harness(false)
     add(h.pending, 'one', async () => {})

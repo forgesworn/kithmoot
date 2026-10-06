@@ -174,6 +174,41 @@ test('an unsent message can be edited or deleted before it leaves, without a tra
   } finally { await context.close() }
 })
 
+test('a chosen wait before sending gives a moment to undo, and Send now skips it', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.send-delay', '10'))
+  const relay = testRelay(baseURL!)
+  const secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const chatEvents: string[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) chatEvents.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage()
+    await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    await page.locator('#chatInput').fill('Said in haste')
+    await page.locator('#chatInput').press('Enter')
+    const row = page.locator('#outbox .pendingMsg')
+    await expect(row).toContainText(/Sending in \d+ s/)
+    await row.getByRole('button', { name: 'Undo' }).click()
+    await expect(page.locator('#chatInput')).toHaveValue('Said in haste')
+    await expect(page.locator('#outbox')).toBeHidden()
+    await page.locator('#chatInput').fill('Said with care')
+    await page.locator('#chatInput').press('Enter')
+    await page.locator('#outbox .pendingMsg').getByRole('button', { name: 'Send now' }).click()
+    await expect(page.locator('#chatLog')).toContainText('Said with care')
+    await expect(page.locator('#chatLog')).not.toContainText('Said in haste')
+    expect(new Set(chatEvents).size).toBe(1)
+  } finally { await context.close() }
+})
+
 test('incoming chat preserves the reading position and offers a way to the latest messages', async ({ browser, baseURL }) => {
   const a = await contextFor(browser, baseURL!)
   const b = await contextFor(browser, baseURL!)

@@ -7,6 +7,8 @@
  * matter beyond what the row says, because they decide what a later edit
  * or deletion can honestly promise:
  *
+ * - `holding`: within the person's chosen moment to take it back after
+ *   pressing Send. Nothing has left this device.
  * - `waiting`: never offered to a relay. No connection, or a retry not yet
  *   due after a refusal. Nothing has left this device.
  * - `sending`: offered to the relays, no answer yet.
@@ -27,7 +29,7 @@ import type { Event } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
 
-export type PendingState = 'waiting' | 'sending' | 'refused' | 'unknown' | 'moved'
+export type PendingState = 'holding' | 'waiting' | 'sending' | 'refused' | 'unknown' | 'moved'
 
 export interface PendingSend {
   /** The message's own id, which is how it is recognised when it arrives. */
@@ -50,6 +52,8 @@ export interface PendingSend {
   attempts: number
   /** When the next automatic attempt is due, in milliseconds. */
   retryAt?: number
+  /** While `holding`: when it goes, in milliseconds. */
+  holdUntil?: number
   /** A relay acknowledged it; it leaves once the chat shows it. */
   acknowledged?: boolean
 }
@@ -99,7 +103,7 @@ interface Kept { id: string; channel: string; text: string; files: string[]; eve
 /** States in which nothing of the message has reached any relay, so taking
  *  it back leaves no trace. */
 export function neverLeft(item: PendingSend): boolean {
-  return !item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'moved')
+  return !item.acknowledged && (item.state === 'holding' || item.state === 'waiting' || item.state === 'refused' || item.state === 'moved')
 }
 
 export class PendingSends {
@@ -121,13 +125,29 @@ export class PendingSends {
 
   get pending(): boolean { return this.#items.size > 0 }
 
-  /** Queue a prepared message and send it as soon as a relay can be reached. */
-  add(item: Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged'>): void {
-    const added: PendingSend = { ...item, state: 'waiting', attempts: 0 }
+  /** Queue a prepared message and send it as soon as a relay can be reached,
+   *  or, given `holdMs`, once that moment to take it back has passed. */
+  add(item: Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil'>, holdMs = 0): void {
+    const added: PendingSend = { ...item, state: holdMs > 0 ? 'holding' : 'waiting', attempts: 0 }
+    if (holdMs > 0) added.holdUntil = this.#opts.now() + holdMs
     this.#items.set(item.id, added)
     this.#persist(item.roomId)
     this.#opts.onChange()
-    void this.#attempt(added)
+    if (holdMs > 0) this.#schedule(() => this.#release(added), holdMs)
+    else void this.#attempt(added)
+  }
+
+  /** Whether any message is in its moment to be taken back. */
+  get holding(): boolean { return [...this.#items.values()].some(item => item.state === 'holding') }
+
+  /** The hold is over: it goes like any other message. */
+  #release(item: PendingSend): void {
+    if (this.#items.get(item.id) !== item || item.state !== 'holding') return
+    item.state = 'waiting'
+    item.holdUntil = undefined
+    this.#persist(item.roomId)
+    this.#opts.onChange()
+    void this.#attempt(item)
   }
 
   /** Messages now in the chat: their rows have done their job. */
@@ -151,9 +171,10 @@ export class PendingSends {
     }
   }
 
-  /** Send one again now, whatever its back-off says. */
+  /** Send one again now, whatever its back-off or hold says. */
   retry(id: string): void {
     const item = this.#items.get(id)
+    if (item?.state === 'holding') { item.holdUntil = this.#opts.now(); this.#release(item); return }
     if (!item || item.state === 'sending' || item.state === 'moved' || !item.publish) return
     item.retryAt = undefined
     void this.#attempt(item, true)
@@ -221,7 +242,7 @@ export class PendingSends {
   }
 
   async #attempt(item: PendingSend, asked = false): Promise<void> {
-    if (!item.publish || item.state === 'sending' || item.state === 'moved' || this.#items.get(item.id) !== item || !this.#here(item)) return
+    if (!item.publish || item.state === 'holding' || item.state === 'sending' || item.state === 'moved' || this.#items.get(item.id) !== item || !this.#here(item)) return
     // Not offered while nothing can be reached: it stays cleanly unsent,
     // and is tried when a relay is back. An explicit retry tries anyway.
     if (!asked && !this.#opts.connected()) {
@@ -269,7 +290,7 @@ export class PendingSends {
 
   #persist(roomId: string): void {
     const kept: Kept[] = this.items(roomId).filter(item => item.durable)
-      .map(({ id, channel, text, files, event, state, editable }) => ({ id, channel, text, files, event, state: state === 'sending' ? 'unknown' : state, ...(editable ? { editable } : {}) }))
+      .map(({ id, channel, text, files, event, state, editable }) => ({ id, channel, text, files, event, state: state === 'sending' ? 'unknown' : state === 'holding' ? 'waiting' : state, ...(editable ? { editable } : {}) }))
       .slice(-MAX_KEPT)
     try {
       if (kept.length) this.#opts.store.set(PREFIX + roomId, JSON.stringify(kept))

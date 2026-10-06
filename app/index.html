@@ -733,6 +733,18 @@
           <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Off mutes it unless you override the room. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
           <p class="note">These settings currently apply while KithMoot is open. Closed-app push uses the keeper’s separate room settings.</p>
         </details>
+        <!-- A moment to take a message back after pressing Send. Off unless
+             asked for: a delay on every message changes how chat feels. -->
+        <div id="sendDelaySettings">
+          <h4>Sending</h4>
+          <label for="sendDelay">Wait before sending</label>
+          <select id="sendDelay">
+            <option value="0">Off</option>
+            <option value="5">5 seconds</option>
+            <option value="10">10 seconds</option>
+          </select>
+          <p class="note">Time to undo or edit a message after you press Send. Until then it stays on this device and nobody can see it. Saved on this device.</p>
+        </div>
       </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's
