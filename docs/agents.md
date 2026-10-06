@@ -134,6 +134,38 @@ set, so a restart reopens the room in the same epoch, still refusing the
 same people; a file written before epochs reads as epoch 0 with nobody
 removed. A closed room is not reopened: delete the state to make a new one.
 
+**Scheduled rekeys.** `--rekey-every <days>` (or `KITHMOOT_REKEY_EVERY`;
+`RoomAgent.create({ rekeyEverySeconds })` from code) turns the room's key
+over on a schedule. It is 0, off, by default in this release: apps older
+than desktop 0.1.55 and Android 0.6.60 announce each rekey in the room. The
+keeper checks a minute after it joins and then hourly (`rekeyIfDue()` does
+one check from code), and rekeys when the room has been at one epoch for
+the period plus a jitter of up to six hours (a hash of the epoch's id, so
+it needs no state), and somebody other than the keeper has said something
+since, in the main chat or any named channel (`src/rekey-schedule.ts`). The
+rekey removes nobody and is marked `scheduled`, so apps move on without a
+line in the chat. It is sealed to the roster and to every other device the
+keeper has seen in the last 30 days, online first and then the most
+recently seen, cut to what fits in a 64 KiB event; a device that misses a
+copy asks the keeper's desk, as any device that was away always has. A
+keeper that was down rekeys once when it is back, if one is overdue, and
+never makes up the weeks it missed. The state file keeps when the current
+epoch began, the epochs the room left in the last month with their secrets
+(so the desk still hands a newcomer the room's last month after a restart)
+and the devices seen in that month. A room still at epoch 0 starts its
+clock the first time the keeper checks, so its first scheduled rekey is a
+full period after the cadence is turned on. Only a keeper rekeys on a
+schedule: it is the room's only authority desk, so a browser that rekeyed
+would leave every device that was away waiting for another member.
+
+`--state <file>` also takes `<file>.lock` while the keeper runs, so two
+keepers cannot share one state file and rekey the room two ways. A second
+one refuses to start and names the process that holds it. A lock left by a
+keeper that was killed outright is taken over when that process is no
+longer running on this host, or the machine has rebooted since; one from
+another host, or one an unrelated process has since inherited the id of,
+is deleted by hand (`src/node/state-lock.ts`).
+
 A keeper also publishes the room's descriptor when it is told what to put in
 it: `--forwarder <json|file>` (or `KITHMOOT_FORWARDER`) takes the line a
 `kithmoot-forwarder` prints, and the keeper publishes it at start, after
@@ -521,7 +553,16 @@ in a loop and is woken by the next message on the conversations it named.
   is readable by a person, a pairing link is refused; a keeper removes a
   member on an admin's signed request and not on anybody else's, a removed
   participant presenting the link again is refused the epoch, a rekeyed
-  room reopens from state in the same epoch, an admin closes the room.
+  room reopens from state in the same epoch, an admin closes the room; a
+  keeper with a cadence rekeys once when due and quietly, not when only it
+  has spoken, not with the cadence off, seals to an offline device seen
+  within 30 days and not to an older or removed one, keeps its clock and
+  devices across a restart, and hands a newcomer the epochs it has left.
+- `src/rekey-schedule.test.ts`: the due check, the jitter, the recipient
+  order and the 64 KiB cut. `src/keeper-state.test.ts`: the phase 2a fields
+  round-trip, are ignored by an older reader, and are dropped one by one
+  when malformed. `src/node/state-lock.test.ts`: one keeper per state file,
+  and when a lock left behind is taken over.
 - `src/epoch.test.ts` and `src/session-epoch.test.ts`: the rekey event
   (seal, unseal, tamper, wrong recipient, replay of an older epoch), the
   derivation per epoch, the epoch desk, and two clients where one is

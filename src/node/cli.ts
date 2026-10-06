@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
@@ -35,6 +35,7 @@ import type { NudgeStore } from './nudge.js'
 import { NostrRelayPool } from '../relay-pool.js'
 import { validateAssignmentActions } from '../assignments.js'
 import { STDIO_PROTOCOL } from './stdio-protocol.js'
+import { acquireStateLock, StateLockHeldError } from './state-lock.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -136,6 +137,11 @@ Options
   --call-ends-after <min>  (scribe) minutes without media before the call is over; default 3
   --room-name <name>       (create) what the room is called; rides in the link
   --nudge                  (create) DM members who asked, when they miss messages
+  --rekey-every <days>     (create) Turn the room's key over every <days> days (plus
+                           up to six hours), when somebody other than the keeper
+                           has said something since the last turn. 0, the default,
+                           is off. Old app releases show each turn as a line in
+                           the room, so leave it off until members have updated.
   --quiet                  No log lines on stderr
 
 Every option can also come from the environment, for a systemd unit's
@@ -145,13 +151,24 @@ separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
 KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
 KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
 KITHMOOT_FORWARDER (JSON, or a file path), KITHMOOT_LINK, KITHMOOT_ROOM_NAME,
-KITHMOOT_NUDGE (1 to turn it on). A flag
+KITHMOOT_NUDGE (1 to turn it on), KITHMOOT_REKEY_EVERY (days). A flag
 wins over the environment. With --state, the room link is also written
 beside the state file as <state>.link, readable by the keeper's user only.
 
+A keeper with --state holds <state>.lock while it runs, so two keepers
+cannot share one state file (each would rekey the room its own way). The
+lock names the process and host; a second keeper refuses to start and says
+which process holds it. A lock left by a keeper that was killed is taken
+over when that process is no longer running on this host, or the machine
+has rebooted since. A lock from another host is never taken over: delete it
+by hand once you are sure no keeper is running there.
+
 A keeper records the room's epoch, who has been removed and who asked to be
 nudged in its state, so a restart reopens the same room in the same epoch,
-keeps refusing the same people and keeps nudging the ones who asked. A
+keeps refusing the same people and keeps nudging the ones who asked. It also
+records when the epoch began, the room's last month of epoch secrets (so a
+newcomer is still handed them after a restart) and the devices seen in that
+month (which a scheduled rekey is also sealed to). A
 closed room is not reopened: delete the state to make a new one. After a
 removal a v1 link that carried the room secret is dead, and the keeper
 prints the current link again.
@@ -237,6 +254,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       'call-ends-after': { type: 'string' },
       'room-name': { type: 'string' },
       nudge: { type: 'boolean', default: false },
+      'rekey-every': { type: 'string' },
       'owner-proof': { type: 'string' },
       'expect-pubkey': { type: 'string' },
       'forbid-pubkey': { type: 'string', multiple: true },
@@ -299,7 +317,21 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const statePath = values.state ?? env('STATE')
   const roomName = values['room-name'] ?? env('ROOM_NAME')
   const nudge = values.nudge || envFlag('NUDGE')
+  const rekeyEveryDays = rekeyEvery(values['rekey-every'] ?? env('REKEY_EVERY'))
   const log = common.quiet ? () => {} : (line: string) => process.stderr.write(`[kithmoot-agent] ${line}\n`)
+
+  // One keeper per state file, taken before anything else is read or
+  // written: two would each rekey the room their own way. Released on any
+  // exit short of being killed; see state-lock.ts for a lock left behind.
+  if (command === 'create' && statePath) {
+    try {
+      const lock = acquireStateLock(statePath)
+      process.once('exit', () => lock.release())
+    } catch (err) {
+      if (err instanceof StateLockHeldError) fail(err.message)
+      throw err
+    }
+  }
 
   const participantSk = await participantKey(common, log)
   const identity = localIdentity(participantSk)
@@ -339,6 +371,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       owner,
       admins,
       forwarders,
+      rekeyEverySeconds: Math.round(rekeyEveryDays * 86_400),
       onState: statePath ? (next) => saveKeeperState(statePath, next) : undefined,
     })
     if (statePath) {
@@ -356,10 +389,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (admins.length) log(`admins: ${admins.map((a) => a.slice(0, 8)).join(', ')}`)
     else log('no admins: only this process can remove a member or close the room')
     for (const f of forwarders) log(`forwarder: ${f.url}${f.pubkey ? ` (${f.pubkey.slice(0, 8)})` : ''}${f.label ? ` ${f.label}` : ''}, in the room descriptor`)
+    log(
+      rekeyEveryDays > 0
+        ? `scheduled rekeys: every ${rekeyEveryDays} day${rekeyEveryDays === 1 ? '' : 's'} (plus up to six hours), when somebody has spoken since the last`
+        : 'scheduled rekeys: off (--rekey-every <days> to turn them on)',
+    )
     agent.onEpoch((notice) => {
       const who = notice.removed.map((p) => p.slice(0, 8)).join(', ')
       log(
-        `epoch ${notice.epoch}${who ? `: removed ${who}` : ''}${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}` +
+        `epoch ${notice.epoch}${notice.scheduled ? ' (scheduled)' : ''}${who ? `: removed ${who}` : ''}${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}` +
           (statePath ? `. link written to ${statePath}.link` : `. link: ${agent.url}`),
       )
     })
@@ -416,6 +454,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   } else if (nudge) {
     log('--nudge only means something to a keeper (create); ignored')
   }
+  if (rekeyEveryDays > 0 && command !== 'create') log('--rekey-every only means something to a keeper (create); ignored')
 
   if (common.listen) {
     const transcriber: Transcriber = common.fakeTranscriber
@@ -663,9 +702,32 @@ async function loadKeeperState(path: string): Promise<KeeperState | undefined> {
   }
 }
 
+/** Keeper state writes, one at a time and in the order asked for. */
+let keeperStateWrites: Promise<void> = Promise.resolve()
+let keeperStateTmp = 0
+
+/**
+ * Write the state to a temporary file beside it and rename that over it, so
+ * a keeper killed mid-write leaves the last good state rather than a
+ * truncated file holding the room's secret, which a restart could not read.
+ * It is written hourly once a cadence is on, and can hold a thousand
+ * credentials.
+ */
 async function saveKeeperState(path: string, state: KeeperState): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, serialiseKeeperState(state), { mode: 0o600 })
+  const json = serialiseKeeperState(state)
+  const write = keeperStateWrites.then(async () => {
+    await mkdir(dirname(path), { recursive: true })
+    const tmp = `${path}.${process.pid}.${++keeperStateTmp}.tmp`
+    try {
+      await writeFile(tmp, json, { mode: 0o600 })
+      await rename(tmp, path)
+    } catch (err) {
+      await rm(tmp, { force: true }).catch(() => {})
+      throw err
+    }
+  })
+  keeperStateWrites = write.catch(() => {})
+  return write
 }
 
 /** Who asked to be nudged, kept in the keeper's own state - the same
@@ -832,6 +894,15 @@ function iceFactoryOptions(
 ): WeriftFactoryOptions {
   if (!isDefaultIceUrls(iceUrls)) return { iceUrls, turn }
   return { refresh: { resolve: () => resolveNodeIceServers({ origin }) } }
+}
+
+/** `--rekey-every <days>`: a number of days, zero (off) by default. */
+function rekeyEvery(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return 0
+  const days = Number(raw)
+  if (!Number.isFinite(days) || days < 0) fail(`--rekey-every must be a number of days, 0 or more; got ${raw}`)
+  if (days > 0 && days * 86_400 < 3_600) fail('--rekey-every must be at least an hour (about 0.042 days), or 0 for off')
+  return days
 }
 
 function fail(message: string): never {

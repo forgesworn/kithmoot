@@ -4,7 +4,8 @@ Status: written 2026-10-05 against kithmoot `0824ea7`, fold-kit 0.7.0
 (`7040e22`) and kithmoot-android 0.6.57 (`0b035c9`). Line numbers refer to
 those revisions. Step 1 shipped as fold-kit 0.8.0 and step 2 as kithmoot's
 readers; the owner chose option (a) for the first finding below on
-5 October. Part of the key schedule parity plan
+5 October. Step 6, the keeper's cadence, is built with the cadence off by
+default; see its "As built" note. Part of the key schedule parity plan
 (`docs/2026-10-04-key-schedule-parity.md`). The release numbers below are the
 ones expected when it was written: desktop 0.1.54 and Android 0.6.58 shipped
 before these readers, so the readers go out in the releases after them.
@@ -381,6 +382,73 @@ on one state file.
 - `agent.test.ts`: with a fake clock the keeper rekeys once; the web notice
   stays silent; a newcomer's grant carries the window.
 - Optional e2e: no "moved to epoch" line.
+
+**As built** (kithmoot #250), where step 6 differs from
+the text above or settles what it left open:
+
+- **Which releases step 7 waits on.** The readers went out in desktop
+  0.1.55 and Android 0.6.60 (0.1.54 and 0.6.58 shipped before them), and
+  the web deploy that went with Android 0.6.60.
+
+- **No fold-kit change.** fold-kit 0.8.0's `EncodeRekeyOptions.scheduled`
+  was all the wire needed. `RoomSession.rekey({ scheduled: true })` refuses
+  a removal or a close itself, before fold-kit would, and sets
+  `scheduled: true` on the notice it returns, so the keeper's own
+  `onEpoch` and its log line see it too.
+- **Who a scheduled rekey is sealed to.** The roster, then every other
+  device seen within `HISTORY_WINDOW_SECONDS`, most recently seen first
+  (`RoomSession.recentCredentials`). A removed participant's devices are
+  filtered out of the window's list, however recently they were seen. Only a
+  scheduled rekey reaches beyond the roster: one for a removal is sealed to
+  the roster alone, as before, since finding 1 decided (a) for scheduled
+  rekeys and a removal's cost was not weighed.
+- **When a device was seen** is the newest stamp on a roster entry heard
+  from it (`updatedAt`, never later than now), tracked beside
+  `#newestCredentials` and evicted with it. Not the credential's own
+  `created_at`, which some remote signers restamp, and not the moment it
+  was heard, which would make a relay's replay of a month-old heartbeat
+  look fresh. The keeper's own device is never in the list.
+- **The cut.** `capRecipients` measures the relay frame `["EVENT", event]`
+  against 64 KiB and drops from the back, re-encoding until it fits. When
+  even no copies would fit (a member list too long for one event), nothing
+  is cut: that is phase 4's rekey split.
+- **Keeper state** stays version 2, so an older keeper still reads it.
+  `past` is written newest first, epoch 0 without a secret (it is the room
+  secret); `devices` holds each credential as the signed event. The three
+  new fields are read leniently: a malformed field, or a malformed entry in
+  one, is dropped and the rest is kept, while the fields from before keep
+  their strict checks. A restored credential is checked as it was when
+  issued (signed, for this room, naming the device), not for having lapsed
+  since, which a device away for a fortnight's has.
+- **`epochAt` when nothing says.** Not only epoch 0: a keeper reopened at an
+  epoch above 0 from state written before `epochAt`, with no rekey into it
+  replayed, also starts the clock at its first check. Either way the first
+  scheduled rekey is at least one period after the cadence is turned on.
+- **When it checks.** A minute after joining rather than at once, so the
+  relays have replayed the month of chat the check reads, then hourly; each
+  hourly check also writes the state, so the devices seen since survive a
+  restart. `RoomAgent.rekeyIfDue()` is the check, callable from code.
+  Speech is any message with `sentAt > epochAt` from anybody but the keeper,
+  across the main chat and every named channel; the control channel does not
+  count (every arrival sends `catalogue?` there).
+- **Not racing.** Besides a pending rekey above its epoch (the new
+  `RoomSession.behind`), the check also skips while the session is waiting
+  for an epoch (`awaitingEpoch`).
+- **The lock** is `<state>.lock`, created with `O_EXCL`, holding the pid,
+  the host and the Linux boot id, removed on any exit short of SIGKILL
+  (`src/node/state-lock.ts`). A lock left behind is taken over when the boot
+  id differs, the pid is not running on this host, or it names this very pid
+  without this process holding it (a container whose keeper is always pid
+  1); an unreadable one only once it is a minute old. A lock from another
+  host is never taken over. `--rekey-every` below an hour is refused.
+- **The state file is written atomically** (a temporary file, then a
+  rename), since it is now written hourly and can hold a thousand
+  credentials: a keeper killed mid-write would otherwise leave a truncated
+  file holding the room's secret, which a restart cannot read.
+- **e2e.** `test/workspace.spec.ts`'s scheduled-rekey test now turns the key
+  through `RoomSession.rekey({ scheduled: true })` rather than a hand-built
+  event, after checking the page's device has left the keeper's roster: the
+  page's copy is there only because of option (a).
 
 ### Step 7: turn the cadence on
 

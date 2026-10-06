@@ -792,6 +792,43 @@ closed room's state says so and is not reopened: move
 removal, `sudo cat /var/lib/kithmoot-keeper/<room>/room.json.link` still
 prints the link: it is the same link, and it still admits people; what
 changed is the key behind it.
+
+### Scheduled rekeys (off by default)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `KITHMOOT_REKEY_EVERY` | `0` (off) | Days between scheduled rekeys, the same as `--rekey-every`. |
+
+A keeper can turn its room's key over on a schedule, so a device copied
+once stops reading the room within a bounded time (phase 2a of
+`docs/2026-10-04-key-schedule-parity.md`). With `KITHMOOT_REKEY_EVERY=7` it
+checks hourly and rekeys once the room has been at one epoch for seven days
+plus up to six hours of jitter, and only if somebody other than the keeper
+has said something since. Nobody is removed, and the rekey says so, so
+current apps move on without a line in the chat. It is sealed to every
+device the keeper has seen in the last 30 days, online or not, so a room
+nobody has open still follows it from the rooms list and Android's
+background listeners. A keeper that was down rekeys once when it is back,
+if one is overdue, and never makes up the weeks it missed.
+
+Leave it off until members are on desktop 0.1.55 and Android 0.6.60 or
+later, the first releases with the readers: older apps announce every
+rekey in the room and their background listeners go quiet after one. The state file also gains, still as version
+2, when the current epoch began, the last month's epoch secrets and the
+devices seen in that month; an older keeper reads the same file and ignores
+them.
+
+Each keeper holds `room.json.lock` beside its state while it runs, so two
+keepers cannot share one state file: a second refuses to start and names
+the process holding it. A lock left by a keeper that was killed outright is
+taken over on the next start when that process is no longer running on the
+box, or the box has rebooted since. One the box cannot account for (it
+names another host, or an unrelated process that has since been given the
+same id) has to be deleted by hand once you are sure no keeper is running
+on that state. Moving a room between boxes with `--state-from` puts its
+state in two files, which the lock cannot see: with a cadence on, stop the
+old keeper before the new one starts, or each will turn the key its own way.
+
 ### Pointing the keeper's room at a forwarder
 
 The descriptor that names a room's forwarders is an ephemeral event under

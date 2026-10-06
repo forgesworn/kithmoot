@@ -33,6 +33,7 @@ import {
   encodeRekeyEvent,
   epochsInWindow,
   generateEpochSecret,
+  HISTORY_WINDOW_SECONDS,
   peekRekeyEvent,
   requestRoomEpoch,
 } from './epoch.js'
@@ -41,6 +42,7 @@ import { MAX_MEMBER_EPOCH_CHAIN, hostMemberEpochDesk, memberEpochSource } from '
 import type { MemberEpochSource } from './member-epoch.js'
 import type { RelayTransport } from './relay-pool.js'
 import { verificationWords } from './verification.js'
+import { capRecipients, orderRecipients } from './rekey-schedule.js'
 import type {
   AgentOwnership,
   AssistOffer,
@@ -622,6 +624,10 @@ export class RoomSession {
    * sealed to back onto the seal key they copied.
    */
   readonly #newestCredentials = new Map<string, DeviceCredential>()
+  /** When each device in `#newestCredentials` was last seen, in unix
+   *  seconds: the newest stamp on a roster entry heard from it, never later
+   *  than now. What a scheduled rekey's window is measured by. */
+  readonly #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
   /**
@@ -860,7 +866,60 @@ export class RoomSession {
     if (newest === held) return
     this.#newestCredentials.delete(device)
     this.#newestCredentials.set(device, newest)
-    if (this.#newestCredentials.size > MAX_NEWEST_CREDENTIALS) this.#newestCredentials.delete(this.#newestCredentials.keys().next().value!)
+    if (this.#newestCredentials.size > MAX_NEWEST_CREDENTIALS) {
+      const oldest = this.#newestCredentials.keys().next().value!
+      this.#newestCredentials.delete(oldest)
+      this.#deviceSeen.delete(oldest)
+    }
+  }
+
+  /** Remember when a device was last seen, if later than what is held.
+   *  Only for a device whose credential is held. */
+  #noteSeen(raw: string, at: number): void {
+    const device = normaliseHex(raw)
+    if (!this.#newestCredentials.has(device) || !Number.isFinite(at)) return
+    const seen = Math.min(Math.floor(at), this.#now())
+    const held = this.#deviceSeen.get(device)
+    if (held === undefined || seen > held) this.#deviceSeen.set(device, seen)
+  }
+
+  /**
+   * Every other device seen within the history window
+   * (`HISTORY_WINDOW_SECONDS`), with the newest credential held for it, who
+   * it speaks for and when it was last seen, most recently seen first.
+   * Online or not, removed or not: a keeper persists this so a restart
+   * still knows the devices a scheduled rekey is sealed to, and filters the
+   * removed itself.
+   */
+  recentCredentials(now: number = this.#now()): { device: string; participant: string; credential: DeviceCredential; seen: number }[] {
+    const out: { device: string; participant: string; credential: DeviceCredential; seen: number }[] = []
+    for (const [device, credential] of this.#newestCredentials) {
+      if (device === this.device) continue
+      const seen = this.#deviceSeen.get(device)
+      if (seen === undefined || seen < now - HISTORY_WINDOW_SECONDS) continue
+      out.push({ device, participant: normaliseHex(credential.pubkey), credential, seen })
+    }
+    return out.sort((a, b) => b.seen - a.seen)
+  }
+
+  /**
+   * Take up the devices a keeper kept (`recentCredentials`) from before a
+   * restart. Each credential is checked as it was when issued - signed,
+   * for this room, naming the device - and not for having lapsed since,
+   * which a device away for a fortnight's has. Anything that fails is
+   * dropped. Only ever moves a device's credential forward.
+   */
+  rememberCredentials(devices: readonly { device: string; credential: DeviceCredential; seen: number }[]): void {
+    for (const d of devices) {
+      try {
+        const verdict = verifyDeviceCredential(d.credential, { roomId: this.roomId, now: d.credential.created_at, acceptPerson: true })
+        if (!verdict.ok || verdict.device !== normaliseHex(d.device)) continue
+        this.#noteCredential(d.device, d.credential)
+        this.#noteSeen(d.device, d.seen)
+      } catch {
+        // A malformed entry is not a device.
+      }
+    }
   }
 
   /**
@@ -1341,6 +1400,13 @@ export class RoomSession {
     if (this.#refusedWhileJoining) throw new EpochRefusedError(this.#refusedWhileJoining)
   }
 
+  /** Whether a rekey has been heard for an epoch past this one, which this
+   *  session has not yet followed. An authority does not rekey while it is:
+   *  it would be signing a second rekey for an epoch already taken. */
+  get behind(): boolean {
+    return this.#behind()
+  }
+
   /** Whether a rekey has been heard for an epoch past this one. */
   #behind(): boolean {
     for (const epoch of this.#pendingRekeys.keys()) if (epoch > this.#epoch.epoch) return true
@@ -1773,33 +1839,51 @@ export class RoomSession {
    * in the roster now - offline, or arriving later - asks the authority for
    * it and is answered on proof of who they are, see `hostRoomEpoch`.
    * `closed` seals it to nobody: the room ends here.
+   *
+   * `scheduled` is a turn of the key that removes nobody (phase 2a): it
+   * says so in the body, so clients let it pass quietly, and it is also
+   * sealed to every device seen within the history window that is not in
+   * the roster now, so a room nobody has open still follows it from its
+   * watches and background listeners. Online devices first, then the most
+   * recently seen, cut to what fits in one event (`capRecipients`).
+   * Refused with a removal or a close.
    */
-  async rekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean }): Promise<RekeyNotice> {
+  async rekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean; scheduled?: boolean }): Promise<RekeyNotice> {
     if (!this.#self) throw new Error('join the room before rekeying it')
     if (this.#closed) throw new Error('this room has been closed')
     const authority = getPublicKey(opts.authoritySk)
     if (this.#opts.authority && !hexEquals(authority, this.#opts.authority)) throw new Error('only the room authority can rekey it')
     const removed = [...new Set((opts.removed ?? []).map(normaliseHex))].sort()
+    const scheduled = opts.scheduled === true
+    if (scheduled && (removed.length > 0 || opts.closed)) throw new Error('a scheduled rekey removes nobody and does not close the room')
     const next: RoomEpoch = { epoch: this.#epoch.epoch + 1, secret: generateEpochSecret() }
     // Deduplicated: a device with two tabs of this room open is two roster
     // entries and still exactly one copy, sealed by the newest credential
     // seen for that device (see `seal.ts`).
-    const recipients = [...new Set(
+    const online = [...new Set(
       [...this.#entries.values()]
         .filter((e) => e.device !== this.device && !removed.includes(e.participant) && !this.#removed.has(e.participant))
         .map((e) => e.device),
     )].map((device) => ({ device, credential: this.credentialFor(device) }))
     const now = this.#now()
+    // A removed participant's devices are never among the window's, however
+    // recently they were seen.
+    const recipients = scheduled
+      ? orderRecipients(online, this.recentCredentials(now)
+        .filter((d) => d.device !== this.device && !this.#removed.has(d.participant))
+        .map((d) => ({ device: d.device, credential: d.credential, seen: d.seen })))
+      : online
     const members = this.memberList().filter((p) => !removed.includes(p))
-    const event = encodeRekeyEvent({
+    const encode = (sealedTo: readonly { device: string; credential?: DeviceCredential }[]) => encodeRekeyEvent({
       roomId: this.roomId,
       authoritySk: opts.authoritySk,
       current: this.#epoch,
       next,
-      recipients,
+      recipients: sealedTo,
       removed,
       by: opts.by,
       closed: opts.closed,
+      ...(scheduled ? { scheduled: true } : {}),
       // The epoch commitment: lets any current member hand this epoch on to
       // a device that missed the rekey, and that device check it, while
       // this authority is offline. See `member-epoch.ts`.
@@ -1811,6 +1895,9 @@ export class RoomSession {
       now,
       expiresAt: this.#opts.endsAt,
     })
+    // Only a scheduled rekey is cut: one for a removal is sealed to the
+    // roster alone, as it always was.
+    const event = scheduled ? capRecipients(recipients, encode).event : encode(recipients)
     // Known before it is published, so a relay's copy coming back while the
     // publish is still out is recognised as this device's own rekey and not
     // taken for one sealed to somebody else.
@@ -1831,6 +1918,7 @@ export class RoomSession {
       members,
       ...(opts.by !== undefined ? { by: normaliseHex(opts.by) } : {}),
       closed: opts.closed === true,
+      ...(scheduled ? { scheduled: true as const } : {}),
       secret: next.secret,
       at: now,
     }
@@ -2515,6 +2603,7 @@ export class RoomSession {
     // credential it carries is still a signed fact about its device, and
     // only a newer one is kept.
     this.#noteCredential(entry.device, entry.credential)
+    this.#noteSeen(entry.device, entry.updatedAt)
 
     // The presence identity, which is the device key only for an entry that
     // names no page session - see `presenceKey`. Two tabs of one browser

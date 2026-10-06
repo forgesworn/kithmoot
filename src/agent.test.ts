@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { nip44 } from 'nostr-tools'
 import { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL } from './agent.js'
+import { REKEY_JITTER_SECONDS } from './rekey-schedule.js'
 import type { KeeperState } from './agent.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { CONTROL_CHANNEL, decodeControl, encodeControl } from './control.js'
@@ -556,5 +558,256 @@ describe('private conversations', () => {
 
     off()
     ada.leave(); agent.leave(); keeper.leave()
+  })
+})
+
+describe('scheduled rekeys (phase 2a)', () => {
+  const DAY = 86_400
+  const WEEK = 7 * DAY
+  /** Past any epoch's due time: the period and the whole jitter range. */
+  const OVERDUE = WEEK + REKEY_JITTER_SECONDS
+
+  /** The devices a rekey carries a copy for, read with the key of the
+   *  epoch it leaves. */
+  function sealedTo(rekey: { content: string }, roomSecret: Uint8Array): string[] {
+    const body = JSON.parse(nip44.v2.decrypt(rekey.content, deriveEpoch({ epoch: 0, secret: roomSecret }).key)) as { keys: Record<string, string> }
+    return Object.keys(body.keys).sort()
+  }
+
+  function rekeysIn(relay: SimRelay) {
+    return relay.published.filter((e) => e.kind === KINDS.ROOM_REKEY)
+  }
+
+  it('the keeper rekeys exactly once when due, quietly, removing nobody', async () => {
+    const relay = new SimRelay({ replay: true })
+    let t = Math.floor(Date.now() / 1000)
+    const now = () => t
+    let state: KeeperState | undefined
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, rekeyEverySeconds: WEEK, onState: (s) => void (state = s) })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    expect(keeper.rekeyEverySeconds).toBe(WEEK)
+    // Epoch 0 has no time of its own: the first check starts the clock.
+    expect(await keeper.rekeyIfDue()).toBeUndefined()
+    expect(state?.epochAt).toBe(t)
+    t += 1
+    await ada.chat.send('hello')
+    await settleUntil(() => keeper.chat.messages().length > 0)
+    t += WEEK - 10
+    expect(await keeper.rekeyIfDue()).toBeUndefined()
+
+    const heard: RekeyNotice[] = []
+    ada.onEpoch((n) => heard.push(n))
+    t += OVERDUE
+    const notice = await keeper.rekeyIfDue()
+    expect(notice).toMatchObject({ epoch: 1, removed: [], closed: false, scheduled: true })
+    await settleUntil(() => ada.session.epoch === 1)
+    expect(ada.session.epoch).toBe(1)
+    // What the web's notice line keys on: scheduled, nobody removed.
+    expect(heard).toHaveLength(1)
+    expect(heard[0]).toMatchObject({ epoch: 1, removed: [], closed: false, scheduled: true })
+    const evidence = readRekeyEvidence(rekeysIn(relay)[0]!, { roomId: keeper.roomId, authority: keeper.link.invitation!.inviter, previous: deriveEpoch({ epoch: 0, secret: state!.secret }) })
+    expect(evidence).toMatchObject({ epoch: 1, removed: [], closed: false, scheduled: true })
+    expect(evidence?.members).toContain(ada.participant)
+
+    // Once: the new epoch starts the clock again, and missed weeks are not
+    // made up.
+    expect(await keeper.rekeyIfDue()).toBeUndefined()
+    t += 10 * WEEK
+    expect(await keeper.rekeyIfDue()).toBeUndefined()
+    expect(rekeysIn(relay)).toHaveLength(1)
+    expect(state?.epoch).toBe(1)
+    expect(state?.epochAt).toBe(notice!.at)
+    expect(state?.past?.map((e) => e.epoch)).toEqual([0])
+    ada.leave()
+    keeper.leave()
+  })
+
+  it('does not rekey when nobody but the keeper has spoken', async () => {
+    const relay = new SimRelay({ replay: true })
+    let t = Math.floor(Date.now() / 1000)
+    const now = () => t
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, rekeyEverySeconds: WEEK })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    await keeper.rekeyIfDue()
+    t += 1
+    await keeper.chat.send('anybody here?')
+    await settle()
+    t += 3 * OVERDUE
+    expect(await keeper.rekeyIfDue()).toBeUndefined()
+    expect(keeper.session.epoch).toBe(0)
+    expect(rekeysIn(relay)).toHaveLength(0)
+    ada.leave()
+    keeper.leave()
+  })
+
+  it('does not rekey with the cadence off, which is the default', async () => {
+    const relay = new SimRelay({ replay: true })
+    let t = Math.floor(Date.now() / 1000)
+    const now = () => t
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    expect(keeper.rekeyEverySeconds).toBe(0)
+    expect(await keeper.rekeyIfDue()).toBeUndefined()
+    t += 1
+    await ada.chat.send('hello')
+    await settle()
+    t += 3 * OVERDUE
+    expect(await keeper.rekeyIfDue()).toBeUndefined()
+    expect(keeper.session.epoch).toBe(0)
+    expect(rekeysIn(relay)).toHaveLength(0)
+    expect(keeper.keeperState?.epochAt).toBeUndefined()
+    // A joiner is no keeper, whatever it is asked.
+    expect(await ada.rekeyIfDue()).toBeUndefined()
+    ada.leave()
+    keeper.leave()
+  })
+
+  it('seals to a device seen within the window though it is offline, and not to one seen before it', async () => {
+    const relay = new SimRelay({ replay: true })
+    const t0 = Math.floor(Date.now() / 1000)
+    let t = t0
+    const now = () => t
+    let state: KeeperState | undefined
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, rekeyEverySeconds: WEEK, onState: (s) => void (state = s) })
+    await keeper.rekeyIfDue()
+    const bobSk = generateSecretKey()
+    const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', deviceSk: bobSk, transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    await bob.leave()
+    await settle()
+
+    t = t0 + 25 * DAY
+    const adaSk = generateSecretKey()
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', deviceSk: adaSk, transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    await ada.chat.send('still here')
+    await settleUntil(() => keeper.chat.messages().length > 0)
+    await ada.leave()
+    await settle()
+
+    t = t0 + 31 * DAY
+    const carolSk = generateSecretKey()
+    const carol = await RoomAgent.join({ link: keeper.url, name: 'Carol', deviceSk: carolSk, transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    expect(keeper.roster().map((v) => v.name)).not.toContain('Ada')
+
+    const notice = await keeper.rekeyIfDue()
+    expect(notice?.scheduled).toBe(true)
+    const devices = sealedTo(rekeysIn(relay)[0]!, state!.secret)
+    // Carol is here; Ada was here six days ago; Bob was last seen 31 days
+    // ago, outside the window; the keeper holds the secret already.
+    expect(devices).toEqual([getPublicKey(adaSk), getPublicKey(carolSk)].sort())
+    expect(devices).not.toContain(getPublicKey(bobSk))
+    expect(devices).not.toContain(keeper.device)
+    // And the keeper wrote down who it saw, for a restart.
+    expect(state?.devices?.map((d) => d.device).sort()).toEqual([getPublicKey(adaSk), getPublicKey(carolSk)].sort())
+    carol.leave()
+    keeper.leave()
+  })
+
+  it('never seals to a removed participant’s device, however recently it was seen', async () => {
+    const relay = new SimRelay({ replay: true })
+    let t = Math.floor(Date.now() / 1000)
+    const now = () => t
+    let state: KeeperState | undefined
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, rekeyEverySeconds: WEEK, onState: (s) => void (state = s) })
+    const adaSk = generateSecretKey()
+    const bobSk = generateSecretKey()
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', deviceSk: adaSk, transport: transportFor(relay), announceJitterMs: 0, now })
+    const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', deviceSk: bobSk, transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    await keeper.remove(bob.participant)
+    await settle()
+    await bob.leave()
+    await keeper.rekeyIfDue()
+    t += 1
+    await ada.chat.send('hello')
+    await settleUntil(() => keeper.chat.messages().length > 0)
+    await ada.leave()
+    await settle()
+    t += OVERDUE
+    expect((await keeper.rekeyIfDue())?.scheduled).toBe(true)
+    const scheduled = rekeysIn(relay).at(-1)!
+    const body = JSON.parse(nip44.v2.decrypt(scheduled.content, deriveEpoch(state!.past!.find((e) => e.epoch === 1)!).key)) as { keys: Record<string, string> }
+    expect(Object.keys(body.keys)).toEqual([getPublicKey(adaSk)])
+    expect(state?.devices?.map((d) => d.device)).toEqual([getPublicKey(adaSk)])
+    keeper.leave()
+  })
+
+  it('a restarted keeper keeps its clock, seals to the devices it saw before, and rekeys once if overdue', async () => {
+    const relay = new SimRelay({ replay: true })
+    const t0 = Math.floor(Date.now() / 1000)
+    let t = t0
+    const now = () => t
+    let state: KeeperState | undefined
+    const first = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, rekeyEverySeconds: WEEK, onState: (s) => void (state = s) })
+    await first.rekeyIfDue()
+    const adaSk = generateSecretKey()
+    const ada = await RoomAgent.join({ link: first.url, name: 'Ada', deviceSk: adaSk, transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    t += 1
+    await ada.chat.send('hello')
+    await settleUntil(() => first.chat.messages().length > 0)
+    await ada.leave()
+    await settle()
+    await first.rekeyIfDue()
+    await first.leave()
+    expect(state?.epochAt).toBe(t0)
+    expect(state?.devices?.map((d) => d.device)).toEqual([getPublicKey(adaSk)])
+
+    // Three weeks away: one rekey when it is back, not three.
+    t = t0 + 3 * WEEK
+    const again = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, rekeyEverySeconds: WEEK, state, onState: (s) => void (state = s) })
+    await settleUntil(() => again.chat.messages().length > 0)
+    expect((await again.rekeyIfDue())?.scheduled).toBe(true)
+    expect(await again.rekeyIfDue()).toBeUndefined()
+    expect(rekeysIn(relay)).toHaveLength(1)
+    expect(sealedTo(rekeysIn(relay)[0]!, state!.secret)).toEqual([getPublicKey(adaSk)])
+    again.leave()
+  })
+
+  it('a newcomer’s grant carries the epochs the cadence has left', async () => {
+    const relay = new SimRelay({ replay: true })
+    let t = Math.floor(Date.now() / 1000)
+    const now = () => t
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, rekeyEverySeconds: WEEK })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    await keeper.rekeyIfDue()
+    t += 1
+    await ada.chat.send('in epoch 0')
+    await settle()
+    t += OVERDUE
+    await keeper.rekeyIfDue()
+    await settleUntil(() => ada.session.epoch === 1)
+    // A week on, Ada's credential has lapsed on this clock (a real device
+    // renews it while open), so somebody who has just arrived speaks.
+    t += 1
+    const bea = await RoomAgent.join({ link: keeper.url, name: 'Bea', transport: transportFor(relay), announceJitterMs: 0, now })
+    await settle()
+    expect(bea.session.epoch).toBe(1)
+    await bea.chat.send('in epoch 1')
+    await settleUntil(() => keeper.chat.messages().length > 1)
+    t += OVERDUE
+    await keeper.rekeyIfDue()
+    await settleUntil(() => bea.session.epoch === 2)
+    expect(keeper.session.epoch).toBe(2)
+
+    // Dave holds no copy of either rekey, so the keeper's desk brings him
+    // in, with the epoch the room left last week.
+    const dave = await RoomAgent.join({ link: keeper.url, name: 'Dave', transport: transportFor(relay), announceJitterMs: 0, now })
+    await settleUntil(() => dave.chat.messages().some((m) => m.text === 'in epoch 1'))
+    expect(dave.session.epoch).toBe(2)
+    const epochOne = (agent: RoomAgent) => agent.session.pastSecrets().find((e) => e.epoch === 1)
+    expect(epochOne(dave)?.secret).toEqual(epochOne(keeper)?.secret)
+    expect(epochOne(dave)?.leftAt).toBe(epochOne(keeper)?.leftAt)
+    expect(dave.chat.messages().map((m) => m.text)).toContain('in epoch 1')
+    dave.leave()
+    bea.leave()
+    ada.leave()
+    keeper.leave()
   })
 })

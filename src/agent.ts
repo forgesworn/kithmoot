@@ -20,8 +20,10 @@ import type { InvitationDelegation } from './invitation.js'
 import { localIdentity } from './identity.js'
 import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret, deriveRoom } from './room.js'
-import { canonicalAdmins, canonicalChannels, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
-import type { RekeyNotice, RoomEpoch } from './epoch.js'
+import { canonicalAdmins, canonicalChannels, deriveEpoch, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
+import type { LeftEpoch, RekeyNotice, RoomEpoch } from './epoch.js'
+import { REKEY_CHECK_INTERVAL_MS, rekeyDue } from './rekey-schedule.js'
+import type { DeviceCredential } from './types.js'
 import { CONTROL_CHANNEL, DEFAULT_APPROVAL_OPTIONS, decodeControl, encodeControl, type ControlMessage } from './control.js'
 import { normaliseHex } from './hex.js'
 import { randomBytes } from '@noble/hashes/utils'
@@ -117,7 +119,35 @@ export interface KeeperState {
    *  re-signs the invitation with the same end, tags what it publishes, and
    *  refuses to reopen the room once it has passed. */
   endsAt?: number
+  /** When the current epoch began, in unix seconds: the rekey into it, or,
+   *  for a room that has never been rekeyed (or whose state predates this
+   *  field), the first time a keeper with a cadence looked. What a
+   *  scheduled rekey is timed from (`rekey-schedule.ts`). Phase 2a. */
+  epochAt?: number
+  /** The epochs the room has left within the history window, with their
+   *  secrets and when the room left each, newest first: handed back to the
+   *  session on a restart, so the keeper's desk goes on handing a newcomer
+   *  the room's last month (`RoomSession.pastSecrets`). Phase 2a. */
+  past?: LeftEpoch[]
+  /** The newest credential of every device seen within the history
+   *  window, and when each was last seen: what a scheduled rekey is also
+   *  sealed to, so a device nobody has open still follows it. Kept so a
+   *  restart does not forget the devices that were away. Phase 2a. */
+  devices?: KeptDevice[]
 }
+
+/** A device a keeper remembers: its newest credential, and when it was
+ *  last seen, unix seconds. */
+export interface KeptDevice {
+  device: string
+  credential: DeviceCredential
+  seen: number
+}
+
+/** How long after joining a keeper with a cadence first checks whether a
+ *  rekey is due: long enough for the relays to replay the month of chat
+ *  the check reads. Then hourly (`REKEY_CHECK_INTERVAL_MS`). */
+const REKEY_FIRST_CHECK_MS = 60_000
 
 /** How this agent takes part in a quiet room, when the link says the room
  *  is one. Omit it and the agent posts as the identity's own device, slot
@@ -251,6 +281,14 @@ export interface CreateRoomOptions extends CommonAgentOptions {
    *  and on close. A keeper that ignores this reopens in the wrong epoch. */
   onState?: (state: KeeperState) => void | Promise<void>
   /**
+   * Turn the room's key over on a schedule, every this many seconds plus a
+   * jitter of up to six hours, when somebody other than the keeper has said
+   * something since the last turn (phase 2a, `rekey-schedule.ts`). Zero,
+   * the default, is off. A keeper that was away rekeys once when it is back,
+   * if one is overdue, and never makes up the turns it missed.
+   */
+  rekeyEverySeconds?: number
+  /**
    * Forwarders this room may promote to, published in its descriptor by
    * the keeper: at start, after every rekey (the descriptor rides the
    * epoch key), and whenever a device arrives, because the descriptor is
@@ -381,6 +419,12 @@ export class RoomAgent {
   #controlUnsub?: () => void
   #keeper?: KeeperState
   readonly #onState?: (state: KeeperState) => void | Promise<void>
+  /** The scheduled cadence, seconds. Zero is off. */
+  readonly #rekeyEvery: number
+  #rekeyFirstTimer?: ReturnType<typeof setTimeout>
+  #rekeyTimer?: ReturnType<typeof setInterval>
+  /** Set while a scheduled check is running, so two never overlap. */
+  #rekeyChecking = false
   readonly #epochListeners = new Set<(notice: RekeyNotice) => void>()
   readonly #closedListeners = new Set<(notice: { epoch: number; by?: string }) => void>()
   readonly #removedListeners = new Set<(notice: { epoch: number; by?: string }) => void>()
@@ -401,7 +445,9 @@ export class RoomAgent {
     owner?: AgentOwnership
     onState?: (state: KeeperState) => void | Promise<void>
     forwarders?: ForwarderRef[]
+    rekeyEverySeconds?: number
   }) {
+    this.#rekeyEvery = fields.rekeyEverySeconds ?? 0
     this.#forwarders = fields.forwarders ?? []
     this.session = fields.session
     this.link = fields.link
@@ -535,6 +581,7 @@ export class RoomAgent {
       removed: state.removed,
       admins: canonicalAdmins(opts.admins ?? []),
       forwarders,
+      rekeyEverySeconds: opts.rekeyEverySeconds,
     })
   }
 
@@ -557,6 +604,7 @@ export class RoomAgent {
       policy?: RoomPolicy
       onState?: (state: KeeperState) => void | Promise<void>
       forwarders?: ForwarderRef[]
+      rekeyEverySeconds?: number
     },
   ): Promise<RoomAgent> {
     const identity = opts.identity ?? localIdentity(generateSecretKey())
@@ -584,6 +632,9 @@ export class RoomAgent {
       timing: opts.timing,
       announceJitterMs: opts.announceJitterMs,
       epoch: opts.epoch,
+      // The room's last month, as the keeper kept it, so its desk goes on
+      // handing it to newcomers after a restart.
+      ...(opts.keeper?.past?.length ? { pastEpochs: opts.keeper.past } : {}),
       endsAt: opts.endsAt ?? opts.keeper?.endsAt,
       authority: opts.link.invitation?.inviter,
       // A keeper is the authority: it holds the epoch and waits for nobody.
@@ -614,6 +665,7 @@ export class RoomAgent {
       owner: opts.owner,
       onState: opts.onState,
       forwarders: opts.forwarders,
+      rekeyEverySeconds: opts.rekeyEverySeconds,
     })
     // A keeper reopening a room remembers who it removed before the roster
     // can tell it anything. Marked on the session by way of the first
@@ -621,6 +673,9 @@ export class RoomAgent {
     if (opts.keeper && opts.removed?.length) agent.session.forgetParticipants(opts.removed)
     // And who it knew, so a member away since the restart is still one.
     if (opts.keeper?.members?.length) agent.session.rememberMembers(opts.keeper.members)
+    // And the devices it had seen, so a scheduled rekey is still sealed to
+    // the ones that have been away since.
+    if (opts.keeper?.devices?.length) agent.session.rememberCredentials(opts.keeper.devices)
     if (opts.keeper) agent.#keepMembers()
 
     try {
@@ -696,7 +751,78 @@ export class RoomAgent {
     }
     agent.#openControl()
     if (opts.keeper && agent.#forwarders.length) agent.#keepDescribing()
+    if (opts.keeper) agent.#keepRekeying()
     return agent
+  }
+
+  // -------------------------------------------------------------------------
+  // The keeper's cadence: scheduled rekeys (phase 2a)
+  // -------------------------------------------------------------------------
+
+  /** Check once shortly after joining, then every hour. Only a keeper with
+   *  a cadence, in a room that is open. */
+  #keepRekeying(): void {
+    if (!this.#keeper || !(this.#rekeyEvery > 0) || this.session.closed || this.#left) return
+    // Open every named channel's log now, so its month of history is in by
+    // the first check: speech there counts as much as in the main chat.
+    for (const name of this.#channels) this.session.channel(name)
+    const check = (): void => {
+      this.rekeyIfDue()
+        // Hourly, the devices seen since are written down too, so a restart
+        // still knows the ones that have since gone away.
+        .then((notice) => (notice ? undefined : this.#persist()))
+        .catch(() => {})
+    }
+    const first = setTimeout(() => {
+      this.#rekeyFirstTimer = undefined
+      check()
+    }, REKEY_FIRST_CHECK_MS)
+    ;(first as unknown as { unref?: () => void }).unref?.()
+    this.#rekeyFirstTimer = first
+    const timer = setInterval(check, REKEY_CHECK_INTERVAL_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#rekeyTimer = timer
+  }
+
+  /**
+   * Turn the room's key over if a scheduled rekey is due: the room has been
+   * at its epoch for the cadence plus its jitter, and somebody other than
+   * this keeper has said something, in the main chat or any named channel,
+   * since the epoch began. Resolves with the rekey, or undefined when none
+   * was due or this is no keeper with a cadence. What the hourly check
+   * calls; callable directly.
+   *
+   * A room whose epoch began before this keeper knew when (epoch 0, or
+   * state from before `epochAt`) starts the clock now, so its first
+   * scheduled rekey is at least one period away. Nothing is signed while
+   * the session is behind the room or waiting for an epoch, which could
+   * only race a rekey already made.
+   */
+  async rekeyIfDue(): Promise<RekeyNotice | undefined> {
+    const keeper = this.#keeper
+    if (!keeper || this.#left || this.session.closed || !(this.#rekeyEvery > 0) || this.#rekeyChecking) return undefined
+    this.#rekeyChecking = true
+    try {
+      const now = this.#now()
+      const current = this.session.currentEpoch()
+      const epochAt = this.session.rekeyedAt(current.epoch) ?? ((keeper.epoch ?? 0) === current.epoch ? keeper.epochAt : undefined)
+      if (epochAt === undefined) {
+        this.#keeper = { ...keeper, epoch: current.epoch, epochAt: now }
+        await this.#persist()
+        return undefined
+      }
+      const messages = [this.session.chat, ...[...this.#channels].map((name) => this.session.channel(name))].flatMap((log) => log.messages())
+      if (!rekeyDue({ now, epochAt, periodSeconds: this.#rekeyEvery, epochId: deriveEpoch(current).id, keeper: this.participant, messages })) return undefined
+      if (this.session.behind || this.session.awaitingEpoch) return undefined
+      return await this.session.rekey({ authoritySk: keeper.inviterSk, scheduled: true })
+    } finally {
+      this.#rekeyChecking = false
+    }
+  }
+
+  /** The keeper's cadence in seconds; zero when it has none. */
+  get rekeyEverySeconds(): number {
+    return this.#keeper ? this.#rekeyEvery : 0
   }
 
   // -------------------------------------------------------------------------
@@ -1153,6 +1279,15 @@ export class RoomAgent {
     const keeper = this.#keeper
     if (!keeper) return
     const current = this.session.currentEpoch()
+    // When this epoch began: the rekey into it, as held; else, in the epoch
+    // the keeper already knew, what it kept; else, just moved, now.
+    const sameEpoch = (keeper.epoch ?? 0) === current.epoch
+    const epochAt = this.session.rekeyedAt(current.epoch) ?? (sameEpoch ? keeper.epochAt : this.#now())
+    const past = this.session.pastSecrets()
+    const removed = this.session.removed
+    const devices: KeptDevice[] = this.session.recentCredentials()
+      .filter((d) => !removed.has(d.participant))
+      .map(({ device, credential, seen }) => ({ device, credential, seen }))
     const next: KeeperState = {
       secret: keeper.secret,
       inviterSk: keeper.inviterSk,
@@ -1166,6 +1301,9 @@ export class RoomAgent {
       ...(keeper.nudge?.length ? { nudge: keeper.nudge } : {}),
       ...(this.#channels.size ? { channels: canonicalChannels([...this.#channels]) } : {}),
       ...(keeper.endsAt !== undefined ? { endsAt: keeper.endsAt } : {}),
+      ...(epochAt !== undefined ? { epochAt } : {}),
+      ...(past.length ? { past } : {}),
+      ...(devices.length ? { devices } : {}),
     }
     this.#keeper = next
     await this.#onState?.(next)
@@ -1330,6 +1468,10 @@ export class RoomAgent {
     this.#membersUnsub = undefined
     if (this.#describeTimer !== undefined) clearTimeout(this.#describeTimer)
     this.#describeTimer = undefined
+    if (this.#rekeyFirstTimer !== undefined) clearTimeout(this.#rekeyFirstTimer)
+    this.#rekeyFirstTimer = undefined
+    if (this.#rekeyTimer !== undefined) clearInterval(this.#rekeyTimer)
+    this.#rekeyTimer = undefined
     for (const [id, open] of this.#approvals) {
       clearTimeout(open.timer)
       open.resolve({ id, verdict: 'expired', at: this.#now(), expired: true })

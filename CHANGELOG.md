@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A keeper can turn its room's key over on a schedule, off by default.**
+  `kithmoot-agent create --rekey-every <days>` (`KITHMOOT_REKEY_EVERY`,
+  `RoomAgent.create({ rekeyEverySeconds })`) rekeys once the room has been
+  at one epoch for the period plus up to six hours of jitter, and somebody
+  other than the keeper has spoken since (`src/rekey-schedule.ts`,
+  `RoomAgent.rekeyIfDue`). The rekey removes nobody and is marked
+  `scheduled` (`RoomSession.rekey({ scheduled: true })`), and is sealed to
+  every device seen within 30 days as well as the roster, cut to 64 KiB.
+  Keeper state gains `epochAt`, `past` and `devices`, still version 2, and
+  read leniently. `--state` now takes `<state>.lock`, so two keepers cannot
+  share one state file. Phase 2a, step 6.
 - **A member can bring a device up to date while the room's authority is
   offline.** Bump `@forgesworn/fold-kit` to 0.5.0 (member epoch catch-up).
   A device that missed a rekey now asks the room's current members as well
