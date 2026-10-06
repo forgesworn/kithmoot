@@ -353,6 +353,29 @@ describe('private Nostr room bookmarks', () => {
       b.library.close()
     })
 
+    it('does not send a copy a newer save has replaced', async () => {
+      const a = harness()
+      const first = room('First'), second = room('Before')
+      a.library.save(first); a.library.save(second)
+      await saved(a, 2)
+      a.library.close()
+      let release!: () => void
+      const gate = new Promise<void>(resolve => { release = resolve })
+      const b = harness(a.identity, a.store)
+      vi.mocked(b.relay.publish).mockImplementation(async event => { await gate; b.events.push(event) })
+      b.incoming(a.events[0]); b.incoming(a.events[1])
+      b.eose()
+      // The first copy is on its way when the second room is renamed.
+      b.library.save({ ...second, name: 'After' })
+      release()
+      await saved(b, 2)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(b.events.map(event => event.id)).toContain(a.events[0]!.id)
+      expect(b.events.map(event => event.id)).not.toContain(a.events[1]!.id)
+      expect(b.events).toHaveLength(2)
+      b.library.close()
+    })
+
     it('does nothing after a lookup that found no records at all', async () => {
       const a = harness()
       a.library.save(room())
