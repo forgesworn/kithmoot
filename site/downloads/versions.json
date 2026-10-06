@@ -5,6 +5,15 @@
       "published": "2026-10-05",
       "files": [
         {
+          "os": "mac",
+          "arch": "arm64",
+          "kind": "app",
+          "filename": "KithMoot-0.1.55-mac-arm64.zip",
+          "url": "/apk/desktop/0.1.55/KithMoot-0.1.55-mac-arm64.zip",
+          "bytes": 136458676,
+          "sha256": "528cf9d3b316fc2dbc9a42ea0e173321b50a7aaed43896769b184bb33ef59208"
+        },
+        {
           "os": "windows",
           "arch": "x64",
           "kind": "portable",
