@@ -44,6 +44,9 @@ export interface PendingSend {
   publish?: () => Promise<void>
   /** Whether this row is kept across a reload. */
   durable: boolean
+  /** A plain new message, which Edit can put back in the message box as it
+   *  was. A reply, an edit, a reaction or a message with files is not. */
+  editable?: boolean
   attempts: number
   /** When the next automatic attempt is due, in milliseconds. */
   retryAt?: number
@@ -91,7 +94,13 @@ export function stateAfter(error: unknown): PendingState {
   return 'unknown'
 }
 
-interface Kept { id: string; channel: string; text: string; files: string[]; event: Event; state: PendingState }
+interface Kept { id: string; channel: string; text: string; files: string[]; event: Event; state: PendingState; editable?: boolean }
+
+/** States in which nothing of the message has reached any relay, so taking
+ *  it back leaves no trace. */
+export function neverLeft(item: PendingSend): boolean {
+  return !item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'moved')
+}
 
 export class PendingSends {
   readonly #items = new Map<string, PendingSend>()
@@ -161,6 +170,14 @@ export class PendingSends {
     return item
   }
 
+  /** Take back a message nothing of which has left this device, to be
+   *  written again. Undefined when it may already be on a relay. */
+  take(id: string): PendingSend | undefined {
+    const item = this.#items.get(id)
+    if (!item || !neverLeft(item)) return undefined
+    return this.dismiss(id)
+  }
+
   /** Let go of a room's kept messages held in memory, so the room's next
    *  opening restores them with a way to publish through its new session.
    *  One on its way out stays to learn how that ended. */
@@ -178,7 +195,7 @@ export class PendingSends {
     for (const k of Array.isArray(kept) ? kept : []) {
       if (!k || typeof k.id !== 'string' || !k.event || this.#items.has(k.id)) continue
       const state: PendingState = k.state === 'moved' ? 'moved' : k.state === 'refused' ? 'refused' : k.state === 'unknown' ? 'unknown' : 'waiting'
-      const item: PendingSend = { id: k.id, roomId, channel: k.channel, text: k.text, files: Array.isArray(k.files) ? k.files : [], event: k.event, state, durable: true, attempts: 0 }
+      const item: PendingSend = { id: k.id, roomId, channel: k.channel, text: k.text, files: Array.isArray(k.files) ? k.files : [], event: k.event, state, durable: true, attempts: 0, ...(k.editable === true ? { editable: true } : {}) }
       this.#items.set(k.id, item)
       restored.push(item)
     }
@@ -252,7 +269,7 @@ export class PendingSends {
 
   #persist(roomId: string): void {
     const kept: Kept[] = this.items(roomId).filter(item => item.durable)
-      .map(({ id, channel, text, files, event, state }) => ({ id, channel, text, files, event, state: state === 'sending' ? 'unknown' : state }))
+      .map(({ id, channel, text, files, event, state, editable }) => ({ id, channel, text, files, event, state: state === 'sending' ? 'unknown' : state, ...(editable ? { editable } : {}) }))
       .slice(-MAX_KEPT)
     try {
       if (kept.length) this.#opts.store.set(PREFIX + roomId, JSON.stringify(kept))
