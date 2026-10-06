@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.55",
+  "currentRelease": "0.1.56",
   "releases": [
     {
-      "version": "0.1.55",
+      "version": "0.1.56",
       "updateTo": {
-        "version": "0.1.55",
-        "pub_date": "2026-10-06T06:00:00Z",
-        "notes": "A room you have not opened for a while keeps showing new messages in the rooms list after its key changes, and opening it reads its last month straight away rather than working through every key change since it began. KithMoot now holds one connection to each relay where it used to open several. A call only starts when you press to join or switch on your mic, camera or screen, so phones no longer ring again just after a call ends.",
-        "name": "0.1.55",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.55/KithMoot-0.1.55-mac-arm64.zip",
-        "sha256": "528cf9d3b316fc2dbc9a42ea0e173321b50a7aaed43896769b184bb33ef59208",
-        "size": 136458676
+        "version": "0.1.56",
+        "pub_date": "2026-10-06T18:00:00Z",
+        "notes": "Rooms saved to your account now reach all your devices. When a relay has lost a room you saved, KithMoot puts it back, so a room opened on one computer shows on your others, and a change left waiting for a relay clears once one has it. The rooms list says how many rooms your account holds once it has caught up.",
+        "name": "0.1.56",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.56/KithMoot-0.1.56-mac-arm64.zip",
+        "sha256": "75aa1ef46a6a5226872ef1b11a070dae60999d2702e1c7f41d0930c666964c5a",
+        "size": 137813561
       }
     }
   ]
