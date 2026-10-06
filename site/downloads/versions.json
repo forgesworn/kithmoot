@@ -2472,6 +2472,21 @@
   ],
   "android": [
     {
+      "version": "0.6.61",
+      "published": "2026-10-06",
+      "files": [
+        {
+          "os": "android",
+          "arch": "any",
+          "kind": "production",
+          "filename": "kithmoot-0.6.61-production.apk",
+          "url": "/apk/kithmoot-0.6.61-production.apk",
+          "bytes": 38465086,
+          "sha256": "bbbeab49bb3bc8e001f4c3eae07e20a1e6a613b0b43b363736080570f46412f6"
+        }
+      ]
+    },
+    {
       "version": "0.6.60",
       "published": "2026-10-06",
       "files": [
