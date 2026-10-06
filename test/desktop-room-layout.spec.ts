@@ -691,3 +691,45 @@ test('an update notice in a room leaves the composer in the window', async ({ br
     await context.close()
   }
 })
+
+/**
+ * A rail with more rooms than the window is tall scrolls inside itself.
+ *
+ * It used to be sized by its contents: past a dozen or so rooms the grid
+ * row grew taller than the window, the room beside it stretched to match,
+ * and the composer and the rail's own All rooms button went off the bottom
+ * where nobody could reach them.
+ */
+test('a long list of rooms scrolls in the rail and leaves the composer in the window', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  const a = await newDeviceContext(browser, baseURL!)
+  try {
+    const page = await a.newPage()
+    await page.setViewportSize({ width: 1440, height: 860 })
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    // Thirty rows of the rail's own markup: joining thirty real rooms costs
+    // minutes and proves nothing more about how the column is sized.
+    await page.evaluate(() => {
+      const row = document.querySelector('#workspaceRooms .workspaceRoom')!
+      for (let i = 0; i < 30; i++) row.parentElement!.append(row.cloneNode(true))
+    })
+    for (const size of [{ width: 1440, height: 860 }, { width: 1100, height: 600 }]) {
+      await page.setViewportSize(size)
+      await page.waitForTimeout(200)
+      const label = `${size.width}x${size.height}, thirty rooms in the rail`
+      await expect(page.locator('#chatInput'), `${label}: the composer`).toBeInViewport({ ratio: 1 })
+      const rail = await boxOf(page.locator('#workspaceNav'))
+      expect(rail.y + rail.height, `${label}: the rail must stop at the window's edge`).toBeLessThanOrEqual(size.height)
+      expect(await page.evaluate(() => document.documentElement.scrollHeight), `${label}: nothing may run off the bottom of the window`).toBeLessThanOrEqual(size.height)
+      // Still reachable, by scrolling the rail rather than the window.
+      await page.locator('#workspaceHome').scrollIntoViewIfNeeded()
+      await expect(page.locator('#workspaceHome'), `${label}: All rooms`).toBeInViewport({ ratio: 1 })
+      await expect(page.locator('#chatInput'), `${label}: the composer, after scrolling the rail`).toBeInViewport({ ratio: 1 })
+    }
+  } finally {
+    await a.close()
+  }
+})
