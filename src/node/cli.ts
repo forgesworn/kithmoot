@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
@@ -702,9 +702,32 @@ async function loadKeeperState(path: string): Promise<KeeperState | undefined> {
   }
 }
 
+/** Keeper state writes, one at a time and in the order asked for. */
+let keeperStateWrites: Promise<void> = Promise.resolve()
+let keeperStateTmp = 0
+
+/**
+ * Write the state to a temporary file beside it and rename that over it, so
+ * a keeper killed mid-write leaves the last good state rather than a
+ * truncated file holding the room's secret, which a restart could not read.
+ * It is written hourly once a cadence is on, and can hold a thousand
+ * credentials.
+ */
 async function saveKeeperState(path: string, state: KeeperState): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, serialiseKeeperState(state), { mode: 0o600 })
+  const json = serialiseKeeperState(state)
+  const write = keeperStateWrites.then(async () => {
+    await mkdir(dirname(path), { recursive: true })
+    const tmp = `${path}.${process.pid}.${++keeperStateTmp}.tmp`
+    try {
+      await writeFile(tmp, json, { mode: 0o600 })
+      await rename(tmp, path)
+    } catch (err) {
+      await rm(tmp, { force: true }).catch(() => {})
+      throw err
+    }
+  })
+  keeperStateWrites = write.catch(() => {})
+  return write
 }
 
 /** Who asked to be nudged, kept in the keeper's own state - the same
