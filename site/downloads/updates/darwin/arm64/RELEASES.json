@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.54",
+  "currentRelease": "0.1.55",
   "releases": [
     {
-      "version": "0.1.54",
+      "version": "0.1.55",
       "updateTo": {
-        "version": "0.1.54",
-        "pub_date": "2026-10-05T09:00:00Z",
-        "notes": "The rooms list is easier to scan when you have a lot of rooms: it is grouped into Pinned, Unread, Recent and Older, with ended rooms at the end, and Older and Ended fold away behind a count. Pin a room from its menu to keep it at the top. Rows are tighter, each room has a coloured initial, and search, Projects, Open invite link and New room share one toolbar. An update notice in a room no longer pushes the message box out of the window. When your signer was asleep as KithMoot opened, Reconnect now asks it again, and KithMoot tries again by itself when it comes back online, rather than needing a restart.",
-        "name": "0.1.54",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.54/KithMoot-0.1.54-mac-arm64.zip",
-        "sha256": "6eb17e51443d7607fb5b6dd67d947c4701c60dcdf07568691dc6b8548357161e",
-        "size": 136456343
+        "version": "0.1.55",
+        "pub_date": "2026-10-06T06:00:00Z",
+        "notes": "A room you have not opened for a while keeps showing new messages in the rooms list after its key changes, and opening it reads its last month straight away rather than working through every key change since it began. KithMoot now holds one connection to each relay where it used to open several. A call only starts when you press to join or switch on your mic, camera or screen, so phones no longer ring again just after a call ends.",
+        "name": "0.1.55",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.55/KithMoot-0.1.55-mac-arm64.zip",
+        "sha256": "528cf9d3b316fc2dbc9a42ea0e173321b50a7aaed43896769b184bb33ef59208",
+        "size": 136458676
       }
     }
   ]
