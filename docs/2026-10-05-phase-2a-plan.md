@@ -383,7 +383,7 @@ on one state file.
   stays silent; a newcomer's grant carries the window.
 - Optional e2e: no "moved to epoch" line.
 
-**As built** (kithmoot, the keeper cadence PR), where step 6 differs from
+**As built** (kithmoot #250), where step 6 differs from
 the text above or settles what it left open:
 
 - **Which releases step 7 waits on.** The readers went out in desktop
