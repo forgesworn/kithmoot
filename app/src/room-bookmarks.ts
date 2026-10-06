@@ -45,7 +45,10 @@ function validAdmission(value: unknown, roomId: string): RecordAdmission | undef
   if (typeof secret !== 'string' || !SECRET_HEX.test(secret)) return undefined
   try { return deriveRoom(hexToBytes(secret)).roomId === roomId ? { secret } : undefined } catch { return undefined }
 }
-interface RecordEntry extends RecordValue { d: string; id: string }
+/** `event` is the signed copy, kept so a record a relay has lost can be put
+ *  back exactly as it was, without the signer. Absent on older caches. It
+ *  costs about a kilobyte a room in this browser's storage. */
+interface RecordEntry extends RecordValue { d: string; id: string; event?: Event }
 interface Pending { value: RecordValue; d: string; event?: Event }
 
 /** Match NIP-01 replacement: whole seconds, then the lowest event id. */
@@ -90,6 +93,18 @@ export class RoomBookmarks {
   #refusals = 0
   #active = 0
   #queued: Array<() => void> = []
+  /** The newest copy of each record, by `d`, that any relay returned in the
+   *  current lookup, in whole seconds. A pool passes on only the first copy
+   *  of an event, so this says a record is somewhere, never where. */
+  #seen = new Map<string, number>()
+  /** Records already put back this session, by `d`, so a relay that keeps
+   *  refusing one is not sent it again on every reconnect. */
+  #repaired = new Set<string>()
+  /** The next lookup's end puts back lost records even when it found none:
+   *  an explicit retry is the person asking for exactly that. */
+  #forceRepair = false
+  /** Records the current repair is putting back. */
+  #repairing = 0
   constructor(
     private store: DeviceStore,
     private signer: SignetSigner,
@@ -116,14 +131,17 @@ export class RoomBookmarks {
     }
     this.status(this.#pending.size ? 'Some room changes are not synced. Retry when your signer and relays are available.' : 'Looking for your encrypted room bookmarks. Relay availability determines what can be restored.')
     this.#off?.()
+    this.#seen.clear()
     const armed = this.#reports
     this.#off = this.relay.subscribe([{ kinds: [KIND], authors: [this.signer.pubkey], '#l': [APP] }], event => {
       void this.receive(event)
     }, () => {
+      if (this.#closed) return
+      if (this.#repair()) return
       // The end of a lookup is not news once a save started after it has
       // reported: a reconnecting relay can take seconds to answer, and this
       // weaker message would hide the confirmation the person waited for.
-      if (!this.#closed && !this.#pending.size && this.#reports === armed) this.status('Relay lookup finished. Your signer may still be decrypting; unreachable relays cannot restore bookmarks.')
+      if (!this.#pending.size && this.#reports === armed) this.status(this.#upToDate())
     })
   }
 
@@ -133,9 +151,15 @@ export class RoomBookmarks {
         !event.tags.some(t => t[0] === 'l' && t[1] === APP)) return
     const d = event.tags.find(t => t[0] === 'd')?.[1]
     if (!d || !/^kithmoot\.rooms\.v1\.[0-9a-f-]{36}$/.test(d)) return
+    this.#seen.set(d, Math.max(this.#seen.get(d) ?? 0, event.created_at))
     // Returning on the same browser does not need another signer prompt
     // for an event already decrypted into this account's local cache.
-    if ([...this.#records.values()].some(record => record.id === event.id)) return
+    const cached = [...this.#records.values()].find(record => record.id === event.id)
+    if (cached) {
+      // An older cache learns the signed copy, so it can be put back later.
+      if (!cached.event) { cached.event = event; this.#persist(cached.roomId) }
+      return
+    }
     if (this.#decrypting.has(event.id) || this.#undecryptable.has(event.id)) return
     this.#decrypting.add(event.id)
     try {
@@ -151,12 +175,14 @@ export class RoomBookmarks {
       }
       const admission = value.room ? validAdmission(value.admission, value.roomId) : undefined
       if (admission) value.admission = admission; else delete value.admission
-      const incoming = { ...value, d, id: event.id }
+      const incoming: RecordEntry = { ...value, d, id: event.id, event }
       const previous = this.#records.get(value.roomId)
       if (previous && !newer(incoming, previous)) return
       const pending = this.#pending.get(value.roomId)
       this.#records.set(value.roomId, incoming)
-      if (pending && (pending.event ? newer(incoming, { at: pending.value.at, id: pending.event.id })
+      // A relay returning the very event still pending means it arrived after
+      // the publish gave up waiting: it is no longer pending.
+      if (pending && (pending.event ? pending.event.id === event.id || newer(incoming, { at: pending.value.at, id: pending.event.id })
         : Math.floor(value.at / 1000) > Math.floor(pending.value.at / 1000))) this.#pending.delete(value.roomId)
       if (!this.#pending.has(value.roomId)) this.#apply(value)
       if (value.room && admission) try { this.admissions?.adopt(value.room, admission.secret) } catch { /* The room still lists; only the way back in goes unwritten. */ }
@@ -254,6 +280,62 @@ export class RoomBookmarks {
     void this.retry()
   }
 
+  /**
+   * Put back this account's records the relays have lost, once a session.
+   * Relays drop events, and devices read different relays: a room left on
+   * one relay never reaches a device that does not read it, and nothing else
+   * would send it again, because the device holding it counts it published.
+   *
+   * A record no relay returned at its latest is queued again and counted in
+   * what the person is told. Every other record with a signed copy is sent
+   * again quietly: the pool passes on one copy of an event, so nothing here
+   * says which relays still hold it, and publishing goes to all of them.
+   * A signed copy goes back exactly as it was, so a tombstone and the room it
+   * removed keep their order and a removal cannot be undone. An older cache
+   * without one is signed again at its own time, for the same reason.
+   *
+   * A lookup that found nothing at all may only mean no relay answered, so
+   * it repairs nothing unless the person asked. A relay that never keeps
+   * these is sent them again at the next sign-in. True when records were
+   * queued, so their outcome is what gets reported.
+   */
+  #repair(): boolean {
+    const force = this.#forceRepair
+    this.#forceRepair = false
+    if (!this.signer.nip44 || (!this.#seen.size && !force)) return false
+    let count = 0
+    const resend: Event[] = []
+    for (const [roomId, record] of this.#records) {
+      if (this.#pending.has(roomId) || this.#repaired.has(record.d)) continue
+      this.#repaired.add(record.d)
+      const { d: _d, id: _id, event, ...value } = record
+      if ((this.#seen.get(record.d) ?? -1) >= Math.floor(record.at / 1000)) {
+        if (event) resend.push(event)
+        continue
+      }
+      this.#pending.set(roomId, { value, d: record.d, ...(event ? { event } : {}) })
+      this.#persist(roomId)
+      count++
+    }
+    void (async () => {
+      // One at a time: a burst is what relays rate-limit.
+      for (const event of resend) {
+        if (this.#closed) return
+        await this.relay.publish(event).catch(() => { /* Another relay, or the next sign-in. */ })
+      }
+    })()
+    if (!count) return false
+    this.#repairing += count
+    void this.retry()
+    return true
+  }
+
+  /** How many rooms this account keeps, for the end of a lookup. */
+  #upToDate(): string {
+    const rooms = [...this.#records.values()].filter(record => record.room).length
+    return `Up to date: ${rooms === 1 ? '1 room' : `${rooms} rooms`} on your account.`
+  }
+
   /** Report how a queued change ended. Later than any lookup already armed. */
   #report(message: string): void {
     this.#reports++
@@ -272,9 +354,12 @@ export class RoomBookmarks {
   async retry(): Promise<void> {
     if (this.#closed || this.#busy) return
     if (!this.#pending.size) {
-      // An explicit retry is the person saying the signer has changed.
+      // An explicit retry is the person saying the signer has changed, or
+      // asking for rooms another device cannot see to be sent again.
       this.#undecryptable.clear()
       this.#refusals = 0
+      this.#repaired.clear()
+      this.#forceRepair = true
       this.start()
       return
     }
@@ -302,14 +387,19 @@ export class RoomBookmarks {
         await this.relay.publish(pending.event)
         if (this.#closed) return
         const latest = this.#records.get(roomId)
-        const published = { ...pending.value, d: pending.d, id: pending.event.id }
-        if (!latest || newer(published, latest)) this.#records.set(roomId, published)
+        const published: RecordEntry = { ...pending.value, d: pending.d, id: pending.event.id, event: pending.event }
+        // A record put back unchanged, or re-signed at its own time, replaces
+        // the copy it restores.
+        if (!latest || newer(published, latest) || (latest.d === published.d && Math.floor(latest.at / 1000) === Math.floor(published.at / 1000))) this.#records.set(roomId, published)
         if (this.#pending.get(roomId) === pending) this.#pending.delete(roomId)
         if (!this.#pending.has(roomId)) this.#apply(this.#records.get(roomId)!)
         this.#persist(roomId)
         this.changed()
       }
-      if (!this.#closed) this.#report('Room bookmarks accepted by a relay, encrypted to your Nostr key. Sign in with the same key on another device to find them.')
+      if (!this.#closed) this.#report(this.#repairing
+        ? `Put back ${this.#repairing === 1 ? '1 room change' : `${this.#repairing} room changes`} your relays had lost. ${this.#upToDate()}`
+        : 'Room bookmarks accepted by a relay, encrypted to your Nostr key. Sign in with the same key on another device to find them.')
+      this.#repairing = 0
     } catch {
       if (!this.#closed) this.#report('Saved in this browser, but sync was not confirmed. Retry room sync when your signer and relays are available.')
     } finally { this.#busy = false }
