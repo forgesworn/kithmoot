@@ -230,6 +230,15 @@ html[data-desktop] .railUnreadAgent {
   color: var(--agent);
 }
 @media (min-width: 1100px) and (min-height: 541px) {
+  /* A long list of rooms scrolls inside the rail. Sized by its contents,
+     the rail made the grid row taller than the window, the room beside it
+     stretched to match, and the composer and the rail's own last button
+     went off the bottom. `contain: size` keeps the rail out of the row's
+     sizing, so the room alone decides it and the rail stretches to fit;
+     the body scrolls rather than the rail, whose drag line sits outside
+     its edge and would be clipped by an overflow there. */
+  html[data-desktop] main:has(#roomArea:not([hidden])) > #workspaceNav:not([hidden]) { contain: size; min-height: 0; }
+  html[data-desktop] main:has(#roomArea:not([hidden])) #workspaceRailBody { flex: 1 1 0; min-height: 0; overflow-y: auto; }
   html[data-desktop][data-rail="collapsed"] { --rail-w: 3.5rem; }
   html[data-desktop][data-rail="collapsed"] main:has(#roomArea:not([hidden])) { grid-template-columns: 3.5rem minmax(0, 1fr); }
   html[data-desktop][data-rail="collapsed"] #workspaceRailBody { display: none; }
