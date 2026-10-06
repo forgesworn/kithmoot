@@ -811,9 +811,12 @@ nobody has open still follows it from the rooms list and Android's
 background listeners. A keeper that was down rekeys once when it is back,
 if one is overdue, and never makes up the weeks it missed.
 
-Leave it off until members are on desktop 0.1.55 and Android 0.6.60 or
+Turn it on once members are on desktop 0.1.55 and Android 0.6.60 or
 later, the first releases with the readers: older apps announce every
-rekey in the room and their background listeners go quiet after one. The state file also gains, still as version
+rekey in the room and their background listeners go quiet after one.
+KithMoot's own keepers run with `KITHMOOT_REKEY_EVERY=7` since 2026-10-06.
+`keeper-install.sh` writes the env file only when it is missing, so the
+line survives later deploys. The state file also gains, still as version
 2, when the current epoch began, the last month's epoch secrets and the
 devices seen in that month; an older keeper reads the same file and ignores
 them.

@@ -456,6 +456,17 @@ Once desktop 0.1.54 and Android 0.6.58 are out in the field, release a keeper
 that defaults to 7 days, and update the parity doc and the Remove dialogue
 copy ("if the keeper is away, the rekey happens when it is next online").
 
+**As built (2026-10-06).** The readers shipped in desktop 0.1.55 and Android
+0.6.60, not 0.1.54 and 0.6.58. The cadence is on for KithMoot's own keepers,
+`founders` and `moot`, through `KITHMOOT_REKEY_EVERY=7` in each env file
+(`keeper-install.sh` writes that file only when it is missing, so it
+survives deploys); the default stays 0, so a keeper somebody else runs
+changes only when they turn it on. The Remove dialogue is unchanged: the
+proposed line is not true. The keeper drops a control request sent more
+than ten seconds before it started (`#handleControl` in `src/agent.ts`), so
+a Remove sent while it is away is never acted on, and the dialogue's
+existing words ("Asked the keeper to remove…") claim nothing more.
+
 ## Risks
 
 - **Old clients:**

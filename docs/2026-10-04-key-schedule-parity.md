@@ -5,8 +5,8 @@ Status: proposed 2026-10-04. Phase 1 shipped 2026-10-04 (fold-kit 0.7.0,
 (`docs/2026-10-05-erasure-audit.md`), and it splits phase 2 in two: healing
 (2a) and forward secrecy (2b). 2a's readers shipped 2026-10-05 (fold-kit
 0.8.0 and this repository; the plan is `docs/2026-10-05-phase-2a-plan.md`);
-its keeper cadence is built, and off by default until the readers are in
-the field (`--rekey-every`). Phases 3 and 4 are not started. Eight
+its keeper cadence is built and off by default (`--rekey-every`), and
+KithMoot's own keepers have run it weekly since 2026-10-06. Phases 3 and 4 are not started. Eight
 owner decisions are listed at the end. Each has a recommended answer except
 the seventh, the eighth is decided, and the work so far follows them.
 
@@ -132,9 +132,11 @@ first and claims no forward secrecy. Its readers are done: the marker, the
 time-bound history rule, the window in the authority's grant, the web keeping
 its window's secrets (2b's item 3, brought forward), and watches that follow
 rekeys. The keeper's cadence (the plan's step 6) is built too, behind
-`kithmoot-agent create --rekey-every <days>`, which defaults to 0 (off)
-until the releases carrying the readers, desktop 0.1.55 and Android 0.6.60,
-are in the field. Turning it on by default is the plan's step 7.
+`kithmoot-agent create --rekey-every <days>`, which defaults to 0 (off).
+KithMoot's own keepers (`founders` and `moot`) have run it every seven days
+since 2026-10-06, once the releases carrying the readers, desktop 0.1.55 and
+Android 0.6.60, were out; other keepers turn it on themselves (the plan's
+step 7).
 
 **2b, forward secrecy:** a one-time sender key for 1462 and 20469, seal keys
 on Android and secondaries, the web keeping its window's secrets instead of
