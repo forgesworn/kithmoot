@@ -26,6 +26,7 @@ import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
+import { PendingSends } from './pending-sends.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { signerLabel } from './signer-label.js'
 import { ChatScroll } from './chat-scroll.js'
@@ -201,6 +202,8 @@ import {
   signerSelfCrypt,
   type ResolvedMessage,
   type SendOptions,
+  type PreparedSend,
+  CONVERSATION_MOVED,
   type PeerCrypt,
   decodeChatEvent,
   isQuietPolicy,
@@ -279,8 +282,29 @@ import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 
-const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
+/** This device's unsent messages, kept across a reload for ordinary chat,
+ *  and sent as soon as a relay will take them. See pending-sends.ts. */
+const pendingSends = new PendingSends({
+  store: browserDeviceStore(localStorage),
+  connected: () => navigator.onLine !== false && (!sessionTransport || sessionTransport.health().some(relay => relay.state === 'connected')),
+  onChange: () => { outbox.render(); refreshRoomNavigation() },
+  active: () => session ? currentRoomId() : undefined,
+})
+const outbox = new Outbox(document.getElementById('outbox')!, pendingSends, () => currentRoomId(), () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
+window.addEventListener('online', () => pendingSends.wake())
+
+/** Queue a prepared message in the conversation it was written in. `durable`
+ *  keeps it across a reload: only ordinary main-chat messages, which can be
+ *  sent again from the room's own keys alone. */
+function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; publish?: () => Promise<void> } = {}): void {
+  const roomId = currentRoomId()
+  if (!roomId) throw new Error('Open a room to send a message.')
+  pendingSends.add({
+    id: prepared.message.id, roomId, channel, text: prepared.message.text, files: opts.files ?? [],
+    event: prepared.event, publish: opts.publish ?? prepared.publish, durable: opts.durable ?? false,
+  })
+}
 function slotWords(): string {
   return QUIET_SLOT >= 60 ? `${Math.ceil(QUIET_SLOT / 60)} minutes` : `${QUIET_SLOT} seconds`
 }
@@ -1827,11 +1851,11 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
     const invite = await sealInvite(room.link, { to: peer.participant, room: room.roomId, crypt })
     const text = 'Invited you to a room.'
     if (session !== s || contactIsBlocked(peer.participant)) throw new Error('The room or contact permission changed.')
-    const send = s.chat.prepareSend(text, { invite })
-    outbox.send(text, 'Chat', async () => {
+    const prepared = s.chat.prepare(text, { invite })
+    queueSend(prepared, 'Chat', { publish: async () => {
       if (session !== s || contactIsBlocked(peer.participant)) throw new Error('This room invitation is no longer allowed.')
-      await send()
-    })
+      await prepared.publish()
+    } })
     noteInvited(room.roomId, peer.participant)
     addSystemLine(`You invited ${who} to ${knownRoomLabel(room)}.`)
     setStatus(`${who} is invited to ${knownRoomLabel(room)}. They will find it in their rooms.`, 'done')
@@ -2117,9 +2141,32 @@ function requeueQuiet(s: RoomSession): void {
       addSystemLine('A message you wrote before this page reloaded was not sent: the room changed its key while it waited. Write it again if it still applies.')
       continue
     }
-    outbox.send(msg.text, 'Chat', () => transport.publish(event))
+    pendingSends.add({ id: msg.id, roomId, channel: 'Chat', text: msg.text, files: [], event, publish: () => transport.publish(event), durable: false })
   }
   persistQuiet()
+}
+/** Send again what a reload left unsent in this room's main chat. Each goes
+ *  as the event it was, so a relay that already took it keeps one copy; one
+ *  written under a key the room has since left is said so, not sent. */
+function resumePending(s: RoomSession): void {
+  const roomId = currentRoomId()
+  const transport = sessionTransport
+  if (!roomId || quietTransport || !transport) return
+  // Anything held from this room's last session publishes through that
+  // session's closed chat: restore it through this one instead.
+  pendingSends.release(roomId)
+  const restored = pendingSends.restore(roomId)
+  if (!restored.length) { outbox.render(); return }
+  const root = s.epochKeys()
+  const { roomKey } = deriveRoom(roomSecret)
+  for (const item of restored) {
+    const msg = decodeChatEvent(item.event, { roomId, roomKey, now: nowSeconds(), policy: roomPolicy, ...(root.epoch > 0 ? { epoch: { id: root.id, key: root.key } } : {}) })
+    if (!msg || msg.id !== item.id) { pendingSends.strand(item.id); continue }
+    pendingSends.resume(item.id, async () => {
+      if (session !== s || s.epochKeys().epoch !== root.epoch) throw new Error(CONVERSATION_MOVED)
+      await transport.publish(item.event)
+    })
+  }
 }
 let meParticipant = ''
 let myDeviceId = ''
@@ -6352,11 +6399,11 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
     const text = inviteText()
     if (session !== s || contactIsBlocked(peer)) throw new Error('The room or contact permission changed.')
-    const send = s.chat.prepareSend(text, { invite })
-    outbox.send(text, 'Chat', async () => {
+    const prepared = s.chat.prepare(text, { invite })
+    queueSend(prepared, 'Chat', { publish: async () => {
       if (session !== s || contactIsBlocked(peer)) throw new Error('This room invitation is no longer allowed.')
-      await send()
-    })
+      await prepared.publish()
+    } })
     const room = rememberRoom(roomStore(), { roomId, link, openedAt: nowSeconds(), ...(peerName ? { name: peerName } : {}) })
     bookmarks?.save(room)
     addSystemLine(`You started a ${quiet ? 'quiet' : 'private'} conversation with ${who}.`, nowSeconds(), room)
@@ -8104,6 +8151,9 @@ const QUIET_MEANING = `Quiet room. Messages ride the gift-wrap stream as dead dr
 const QUIET_READ_ONLY = 'This device reads and cannot post: two devices per person can, the one holding the identity and the one it paired.'
 
 function renderChat(messages: ChatMessage[]): void {
+  // A message on screen no longer needs its pending row.
+  if (pendingSends.pending) pendingSends.arrived(messages.map(message => message.id))
+  outbox.render()
   renderLaneNote()
   // Minutes are written in paragraphs with their line breaks doing the
   // structural work, so the one log has to know which conversation it is
@@ -9298,7 +9348,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       try {
         const reaction = toggleReaction(chat.messages(), original, meParticipant, emoji)
         const text = reactionText(reaction)
-        outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { reaction }))
+        queueSend(chat.prepare(text, { reaction }), currentChannel ?? 'Chat')
         if (reaction.active) {
           const current = Array.from(log.querySelectorAll<HTMLElement>('[data-message-id]'))
             .find(row => row.dataset.messageId === original.id && row.dataset.messageAuthor === original.participant)
@@ -11012,6 +11062,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       }
     }
     requeueQuiet(s)
+    resumePending(s)
     // A reply draft reads its original message from the new session. Its
     // logs must exist before restoring that context.
     selectRoomDrafts()
@@ -14850,7 +14901,7 @@ async function retractMessage(original: ChatMessage): Promise<void> {
   if (!await confirmRoomAction({ title: 'Retract this message?', message: 'It will be marked retracted. People who already received it may still have a copy.', confirmLabel: 'Retract message', danger: true })) return
   try {
     const text = retractionText()
-    outbox.send(text, channel ?? 'Chat', chat.prepareSend(text, { retracts: original.id }))
+    queueSend(chat.prepare(text, { retracts: original.id }), channel ?? 'Chat')
   } catch (err) {
     setStatus(describeError(err))
   }
@@ -14884,9 +14935,9 @@ $('chatForm').addEventListener('submit', (event) => {
   if (mentions.length) sendOpts.mentions = mentions
   if (draft.editing) sendOpts.replaces = draft.editing.id
   else if (draft.replyTo) sendOpts.replyTo = draft.replyTo
-  let publish: () => Promise<void>
+  let prepared: PreparedSend
   try {
-    publish = log.prepareSend(text, sendOpts)
+    prepared = log.prepare(text, sendOpts)
   } catch (err) {
     setStatus(describeError(err))
     return
@@ -14903,7 +14954,9 @@ $('chatForm').addEventListener('submit', (event) => {
   setComposing({})
   // Into whichever conversation is on screen, which is the main chat until
   // somebody picks another.
-  outbox.send(text, currentChannel ?? 'Chat', publish, attachments.map(a => a.name ?? 'Encrypted file'))
+  // Kept across a reload when it is an ordinary main-chat message in a room
+  // that is not quiet: a quiet room keeps its own queue.
+  queueSend(prepared, currentChannel ?? 'Chat', { files: attachments.map(a => a.name ?? 'Encrypted file'), durable: currentChannel === undefined && !quietTransport })
   chatScroll.latest()
   if (currentChannel === undefined && asksForMinutes(typed)) acknowledgeMinutesRequest()
 })

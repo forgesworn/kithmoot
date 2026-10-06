@@ -24,7 +24,7 @@ async function join(page: Page, url: string, name: string): Promise<void> {
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
-test('a lost acknowledgement retains the message and retries the same event in its original conversation', async ({ browser, baseURL }) => {
+test('a lost acknowledgement keeps the message until it shows, and never sends it twice', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!)
   const relay = testRelay(baseURL!)
   const secret = generateRoomSecret()
@@ -58,24 +58,67 @@ test('a lost acknowledgement retains the message and retries the same event in i
     reject = true
     await page.locator('#chatInput').fill('Please keep this message')
     await page.locator('#chatInput').press('Enter')
-    // M6: the relay's own words ("acknowledgement lost after delivery") stay
-    // in the console for a bug report; the row reads the plain instruction.
-    await expect(page.locator('#outbox')).toContainText('Could not reach the network')
-    await expect(page.locator('#outbox')).toContainText('Please keep this message')
-    await expect(page.locator('#chatLog .msg')).toHaveCount(1)
+    // The row stands for the message until the message itself is on screen.
+    // Here the relay kept it and only its acknowledgement was lost, so it
+    // arrives, the row goes, and nothing is sent twice.
+    await expect(page.locator('#chatLog')).toContainText('Please keep this message')
+    await expect(page.locator('#outbox')).toBeHidden()
     await goToConversation(page, 'Agents')
     await page.locator('#chatInput').fill('A separate draft')
-    // Count the retry, then allow its acknowledgement through.
-    reject = false
-    // The first retry can still be observed through the same frame handler.
-    await page.locator('#outbox').getByRole('button', { name: 'Retry', exact: true }).click()
-    await expect(page.locator('#outbox')).toBeHidden()
-    await expect(page.locator('#chatInput')).toHaveValue('A separate draft')
     await expect(page.locator('#chatLog')).not.toContainText('Please keep this message')
     await goToConversation(page, 'Chat')
     await expect(page.locator('#chatLog .msg')).toHaveCount(1)
+    await goToConversation(page, 'Agents')
+    await expect(page.locator('#chatInput')).toHaveValue('A separate draft')
     expect(firstId).toBeTruthy()
-    expect(sent).toEqual([firstId, firstId])
+    // Any automatic retry before the message showed is the same event.
+    expect(new Set(sent)).toEqual(new Set([firstId]))
+  } finally { await context.close() }
+})
+
+test('a message written with no relay reachable waits as pending, survives a reload and is sent once', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!)
+  const relay = testRelay(baseURL!)
+  const secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const chatEvents: string[] = []
+  const live = new Set<{ close: () => void }>()
+  let blocked = false
+  await context.routeWebSocket(relay, ws => {
+    if (blocked) { ws.close(); return }
+    live.add(ws)
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) chatEvents.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage()
+    const url = encodeJoinUrl(baseURL!, secret, [relay])
+    await join(page, url, 'Ada')
+    blocked = true
+    for (const ws of live) ws.close()
+    live.clear()
+    await page.locator('#chatInput').fill('Written on a train')
+    await page.locator('#chatInput').press('Enter')
+    const row = page.locator('#outbox .pendingMsg')
+    await expect(row).toContainText('Written on a train')
+    await expect(row).toContainText('Pending: will send when you are connected.')
+    // Nothing has left the page, so removing it would promise nobody sees it.
+    await expect(row.getByRole('button', { name: 'Remove' })).toBeVisible()
+    expect(chatEvents).toEqual([])
+    blocked = false
+    await page.reload()
+    if (await page.locator('#join').isVisible()) await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#chatLog')).toContainText('Written on a train')
+    await expect(page.locator('#outbox')).toBeHidden()
+    await expect(page.locator('#chatLog .msg', { hasText: 'Written on a train' })).toHaveCount(1)
+    expect(chatEvents.length).toBeGreaterThanOrEqual(1)
+    expect(new Set(chatEvents).size).toBe(1)
   } finally { await context.close() }
 })
 
