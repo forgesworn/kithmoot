@@ -2871,20 +2871,28 @@ label.note {
 #updateNotice strong, #updateNotice span { display: block; }
 #updateNotice span { font-size: .85rem; }
 #updateApp { flex: 0 1 auto; margin: 0; background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+/* Unsent messages sit at the foot of the conversation as this person's own,
+   greyed until a relay has them, each saying what it waits for. */
 #outbox {
-  max-height: 25vh;
+  max-height: 30vh;
   overflow-y: auto;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  padding: .25rem .5rem;
 }
-.outboxItem {
-  padding: .5rem;
-  border: 1px solid currentColor;
-  border-radius: .5rem;
-  margin: .25rem 0;
-  overflow-wrap: anywhere;
-}
-.outboxItem p { margin: .25rem 0; white-space: pre-wrap; }
-.outboxItem button { margin-right: .5rem; }
+#outbox .pendingMsg { max-width: min(42rem, 85%); display: flex; flex-direction: column; }
+#outbox .pendingMsg .bubble { opacity: .7; border-style: dashed; }
+#outbox .pendingMsg[data-state="sent"] .bubble { opacity: 1; border-style: solid; }
+#outbox .pendingMsg[data-state="refused"] .bubble,
+#outbox .pendingMsg[data-state="unknown"] .bubble,
+#outbox .pendingMsg[data-state="moved"] .bubble { border-color: var(--danger, currentColor); }
+#outbox .pendingText { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#outbox .pendingFiles { margin: .2rem 0 0; font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }
+#outbox .pendingStatus { margin: .15rem .4rem 0; font-size: .8rem; color: var(--muted); text-align: right; }
+#outbox .pendingActions { display: flex; gap: .4rem; justify-content: flex-end; margin: .2rem .25rem 0; }
+#outbox .pendingActions button { font-size: .8rem; padding: .15rem .55rem; }
 #chatViewport { position: relative; display: flex; min-width: 0; }
 #chatViewport > #chatLog { flex: 1 1 0; min-width: 0; min-height: 0; height: auto; scroll-padding-bottom: 4rem; }
 #newMessages {

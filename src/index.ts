@@ -300,6 +300,7 @@ export {
   MAX_ATTACHMENT_URL_LENGTH,
   MAX_ATTACHMENT_NAME_LENGTH,
   normaliseAttachment,
+  CONVERSATION_MOVED,
 } from './chat.js'
 export { archiveTag, compareArchived, olderThan, reseedCandidates, MAX_RESEED_EVENTS } from './archive.js'
 export type { EventArchive, ArchiveQuery, ArchiveCursor, ArchiveMeta } from './archive.js'
@@ -313,6 +314,7 @@ export type {
   EncodeChatOptions,
   DecodeChatOptions,
   SendOptions,
+  PreparedSend,
 } from './chat.js'
 export {
   decryptEnvelope,

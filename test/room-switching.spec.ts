@@ -335,14 +335,16 @@ test('a pending acknowledgement holds switching and releases the open picker whe
       const upstream = ws.connectToServer()
       ws.onMessage(raw => {
         const frame = JSON.parse(String(raw))
-        if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sentId ??= frame[1].id
+        // The relay holds the message itself, not only its acknowledgement:
+        // one that passed it on would show it in the chat, and a message on
+        // screen no longer holds anything up.
+        if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId) && (sentId ??= frame[1].id) === frame[1].id) {
+          acknowledge = () => upstream.send(raw)
+          return
+        }
         upstream.send(raw)
       })
-      upstream.onMessage(raw => {
-        const frame = JSON.parse(String(raw))
-        if (frame[0] === 'OK' && frame[1] === sentId) acknowledge = () => ws.send(raw)
-        else ws.send(raw)
-      })
+      upstream.onMessage(raw => ws.send(raw))
     })
   })
   try {

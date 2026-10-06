@@ -709,6 +709,18 @@ export interface ChatLogOptions {
 }
 
 /** What `send` may say beyond the text. */
+/** What `ChatLog.prepare` hands back: the message as it will read, the
+ *  signed event that carries it, and the one publish that sends it. */
+export interface PreparedSend {
+  message: ChatMessage
+  event: Event
+  publish: () => Promise<void>
+}
+
+/** Why a prepared message was not published: its conversation closed or
+ *  moved to a new key before it went. Never reaches a relay. */
+export const CONVERSATION_MOVED = 'This conversation has closed or changed its key. Copy your message into the current conversation to send it.'
+
 export interface SendOptions {
   reaction?: ChatReaction
   /** Mark the message a transcript of `speaker`'s words. See
@@ -1030,6 +1042,13 @@ export class ChatLog {
    * event, including after an acknowledgement was lost. A room or channel
    * that has closed or changed its key must not publish the old event. */
   prepareSend(text: string, sendOpts: SendOptions = {}): () => Promise<void> {
+    return this.prepare(text, sendOpts).publish
+  }
+
+  /** `prepareSend`, with the message and the signed event it will publish,
+   *  for a caller that keeps an unsent message (to show it, or to send it
+   *  again after a reload). */
+  prepare(text: string, sendOpts: SendOptions = {}): PreparedSend {
     if (this.#closed) throw new Error('this conversation has closed')
     const credential = this.#credential
     const deviceSk = this.#opts.deviceSk
@@ -1118,14 +1137,14 @@ export class ChatLog {
       expiresAt: this.#opts.expiresAt,
     })
     const epoch = this.#epoch
-    return async () => {
+    return { message: msg, event, publish: async () => {
       if (this.#closed || this.#epoch !== epoch) {
-        throw new Error('This conversation has closed or changed its key. Copy your message into the current conversation to send it.')
+        throw new Error(CONVERSATION_MOVED)
       }
       await this.#opts.transport.publish(event)
       // Kept once a relay has it, whether or not a relay echoes it back.
       this.#opts.archive?.keep(event, this.#archiveMeta())
-    }
+    } }
   }
 
   /**
