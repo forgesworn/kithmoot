@@ -312,18 +312,31 @@ async function editPending(item: PendingSend): Promise<void> {
   input.setSelectionRange(input.value.length, input.value.length)
 }
 window.addEventListener('online', () => pendingSends.wake())
+// The countdown on a held message, redrawn only while one is held.
+setInterval(() => { if (pendingSends.holding) outbox.render() }, 1000)
+
+/** Seconds a typed message waits before it goes, for a moment to take it
+ *  back. Per device, off unless chosen. */
+const SEND_DELAY_KEY = 'kithmoot.send-delay'
+const SEND_DELAYS = [0, 5, 10]
+function sendDelaySeconds(): number {
+  try {
+    const value = Number(localStorage.getItem(SEND_DELAY_KEY))
+    return SEND_DELAYS.includes(value) ? value : 0
+  } catch { return 0 }
+}
 
 /** Queue a prepared message in the conversation it was written in. `durable`
  *  keeps it across a reload: only ordinary main-chat messages, which can be
  *  sent again from the room's own keys alone. */
-function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; editable?: boolean; publish?: () => Promise<void> } = {}): void {
+function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; editable?: boolean; holdSeconds?: number; publish?: () => Promise<void> } = {}): void {
   const roomId = currentRoomId()
   if (!roomId) throw new Error('Open a room to send a message.')
   pendingSends.add({
     id: prepared.message.id, roomId, channel, text: prepared.message.text, files: opts.files ?? [],
     event: prepared.event, publish: opts.publish ?? prepared.publish, durable: opts.durable ?? false,
     ...(opts.editable ? { editable: true } : {}),
-  })
+  }, (opts.holdSeconds ?? 0) * 1000)
 }
 function slotWords(): string {
   return QUIET_SLOT >= 60 ? `${Math.ceil(QUIET_SLOT / 60)} minutes` : `${QUIET_SLOT} seconds`
@@ -13725,6 +13738,13 @@ $('toggleNotify').addEventListener('click', () => {
 })
 $('notificationScope').addEventListener('change', renderNotificationScopes)
 $('notificationScope').addEventListener('focus', renderNotificationScopes)
+{
+  const delay = $('sendDelay') as HTMLSelectElement
+  delay.value = String(sendDelaySeconds())
+  delay.addEventListener('change', () => {
+    try { localStorage.setItem(SEND_DELAY_KEY, String(SEND_DELAYS.includes(Number(delay.value)) ? Number(delay.value) : 0)) } catch { /* Kept for this visit only. */ }
+  })
+}
 $('notificationMode').addEventListener('change', () => {
   setNotificationMode(deviceStore, nostrSession?.pubkey, selectedNotificationScope(), ($('notificationMode') as HTMLSelectElement).value as NotificationMode)
   renderNotificationScopes()
@@ -14982,6 +15002,7 @@ $('chatForm').addEventListener('submit', (event) => {
     files: attachments.map(a => a.name ?? 'Encrypted file'),
     durable: currentChannel === undefined && !quietTransport,
     editable: !attachments.length && !sendOpts.replaces && !sendOpts.replyTo,
+    holdSeconds: sendDelaySeconds(),
   })
   chatScroll.latest()
   if (currentChannel === undefined && asksForMinutes(typed)) acknowledgeMinutesRequest()

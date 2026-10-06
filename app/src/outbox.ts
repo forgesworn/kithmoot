@@ -56,11 +56,22 @@ export class Outbox {
     }
     const status = document.createElement('p')
     status.className = 'pendingStatus'
-    status.setAttribute('role', 'status')
+    // A countdown read out every second would drown everything else.
+    if (item.state !== 'holding') status.setAttribute('role', 'status')
     status.textContent = this.#status(item)
     row.append(bubble, status)
     const actions = document.createElement('div')
     actions.className = 'pendingActions'
+    if (item.state === 'holding') {
+      // Undo takes it back as it was: into the message box when it can go
+      // back there, otherwise simply not sent.
+      actions.append(this.#button('Undo', 'undo', () => {
+        if (this.edit && item.editable && this.canEdit(item)) return this.edit(item)
+        this.queue.take(item.id)
+      }), this.#button('Send now', 'send-now', () => this.queue.retry(item.id)))
+      row.append(actions)
+      return row
+    }
     if (!item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && item.publish) {
       actions.append(this.#button('Retry', 'retry', () => this.queue.retry(item.id)))
     }
@@ -83,6 +94,10 @@ export class Outbox {
     if (item.acknowledged) return 'Sent'
     const where = item.channel === 'Chat' ? '' : ` in ${item.channel}`
     switch (item.state) {
+      case 'holding': {
+        const seconds = Math.max(1, Math.ceil(((item.holdUntil ?? Date.now()) - Date.now()) / 1000))
+        return `Sending in ${seconds} s${where}`
+      }
       case 'sending': return this.sending()
       case 'waiting': return item.attempts ? `Pending${where}: will send when a relay answers.` : `Pending${where}: will send when you are connected.`
       case 'refused': return `Not sent${where}: the relays turned it down. Trying again shortly.`
