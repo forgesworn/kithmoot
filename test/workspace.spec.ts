@@ -6,8 +6,6 @@ import { localIdentity } from '../src/identity.js'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { createRoomInvitation } from '../src/invitation.js'
-import type { DeviceCredential } from '../src/types.js'
-import { encodeRekeyEvent, generateEpochSecret } from '../src/epoch.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
 
@@ -581,27 +579,6 @@ test('keyboard readers navigate messages, reply through actions and retain focus
   } finally { writer.leave(); await context.close() }
 })
 
-/** What a keeper on a schedule will publish: a rekey that removes nobody,
- *  marked scheduled, sealed to `devices` by the newest credential the
- *  keeper holds for each. The keeper itself follows it as any member does. */
-async function scheduledRekey(keeper: RoomAgent, authoritySk: Uint8Array, devices: { device: string; credential?: DeviceCredential }[], baseURL: string): Promise<void> {
-  const s = keeper.session
-  const event = encodeRekeyEvent({
-    roomId: s.roomId,
-    authoritySk,
-    current: s.epochKeys(),
-    next: { epoch: s.epoch + 1, secret: generateEpochSecret() },
-    recipients: [...devices, { device: s.device, credential: s.credentialFor(s.device) }],
-    removed: [],
-    commit: true,
-    members: s.memberList(),
-    scheduled: true,
-    now: Math.floor(Date.now() / 1000),
-  })
-  const transport = agentRelaysFor(baseURL).transport(agentRelaysFor(baseURL).relays)
-  try { await transport.publish(event) } finally { transport.close() }
-}
-
 test('a scheduled rekey moves a room on without a word, and the rail follows it in a room not on screen', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
   // The installed window's bridge, as far as this needs it: its presence is
@@ -615,7 +592,8 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     }) })
   })
   // The keeper's authority key, held here so this test can turn the key
-  // over on its behalf, as a scheduled keeper will.
+  // over when it likes, by the keeper's own scheduled path rather than
+  // waiting a week for its cadence.
   const host = createRoomInvitation(true)
   const state = { secret: generateRoomSecret(), inviterSk: host.inviterSk, bearer: host.invitation.bearer, persistent: true as const }
   const here = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', ...agentRelaysFor(baseURL!), agent: false })
@@ -637,15 +615,18 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     await expect(page.locator('#chatLog')).toContainText('Before the key turned.')
     await expect.poll(() => keeper.session.participants().some(view => view.name === 'Ada')).toBe(true)
     const pageDevice = keeper.session.participants().find(view => view.name === 'Ada')!.devices[0]!
-    const credential = keeper.session.credentialFor(pageDevice)
     await page.getByRole('button', { name: 'Reading room', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Reading room')
     await expect(planning.locator('.unread')).toHaveCount(0)
 
     // The key turns while the planning room is not on screen, and the
-    // keeper speaks under the new one: the rail hears it.
-    await scheduledRekey(keeper, host.inviterSk, [{ device: pageDevice, credential }], baseURL!)
-    await expect.poll(() => keeper.session.epoch).toBe(1)
+    // keeper speaks under the new one: the rail hears it. The page's device
+    // has left the planning room's roster by now, so its copy is there only
+    // because the keeper seals a scheduled rekey to every device it has
+    // seen within the history window.
+    await expect.poll(() => keeper.session.participants().some(view => view.devices.includes(pageDevice))).toBe(false)
+    await keeper.session.rekey({ authoritySk: host.inviterSk, scheduled: true })
+    expect(keeper.session.epoch).toBe(1)
     await keeper.chat.send('After the key turned.')
     await expect(planning.locator('.unread:not(.agent)')).toHaveText('1', { timeout: 30_000 })
     // And it was written down with its secret, so opening the room starts
@@ -662,8 +643,8 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     await expect(notices.filter({ hasText: 'moved to epoch' })).toHaveCount(0)
 
     // A turn while the room is on screen moves it on just as quietly.
-    await scheduledRekey(keeper, host.inviterSk, [{ device: pageDevice, credential: keeper.session.credentialFor(pageDevice) }], baseURL!)
-    await expect.poll(() => keeper.session.epoch).toBe(2)
+    await keeper.session.rekey({ authoritySk: host.inviterSk, scheduled: true })
+    expect(keeper.session.epoch).toBe(2)
     await keeper.chat.send('Two turns on.')
     await expect(page.locator('#chatLog')).toContainText('Two turns on.')
     await page.locator('#roomMenu').click()
