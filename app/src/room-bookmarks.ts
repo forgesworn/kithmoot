@@ -321,6 +321,9 @@ export class RoomBookmarks {
       // One at a time: a burst is what relays rate-limit.
       for (const event of resend) {
         if (this.#closed) return
+        // A record changed since the lookup has had its newer copy sent.
+        const record = [...this.#records.values()].find(record => record.id === event.id)
+        if (!record || this.#pending.has(record.roomId)) continue
         await this.relay.publish(event).catch(() => { /* Another relay, or the next sign-in. */ })
       }
     })()
