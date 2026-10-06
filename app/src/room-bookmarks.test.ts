@@ -277,9 +277,120 @@ describe('private Nostr room bookmarks', () => {
     a.library.save(room())
     await vi.waitFor(() => expect(a.status).toHaveBeenLastCalledWith(expect.stringContaining('accepted by a relay')))
     await a.library.retry()
+    a.incoming(a.events[0])
     a.eose()
-    expect(a.status).toHaveBeenLastCalledWith(expect.stringContaining('Relay lookup finished'))
+    expect(a.status).toHaveBeenLastCalledWith('Up to date: 1 room on your account.')
     a.library.close()
+  })
+
+  describe('putting back records the relays lost', () => {
+    it('sends the exact signed copy again when a retry finds it missing, without the signer', async () => {
+      const a = harness()
+      a.library.save(room())
+      await saved(a)
+      const signs = vi.mocked(a.identity.signEvent).mock.calls.length
+      await a.library.retry()
+      a.eose()
+      await saved(a, 2)
+      expect(a.events[1]).toEqual(a.events[0])
+      expect(vi.mocked(a.identity.signEvent).mock.calls.length).toBe(signs)
+      await vi.waitFor(() => expect(a.status).toHaveBeenLastCalledWith('Put back 1 room change your relays had lost. Up to date: 1 room on your account.'))
+      a.library.close()
+    })
+
+    it('puts back only what a later session finds missing, tombstones included', async () => {
+      const a = harness()
+      const kept = room('Kept'), lost = room('Lost'), gone = room('Gone')
+      a.library.save(kept); a.library.save(lost); a.library.save(gone)
+      await saved(a, 3)
+      a.library.remove(gone.roomId)
+      await saved(a, 4)
+      a.library.close()
+      const b = harness(a.identity, a.store)
+      b.incoming(a.events[0])
+      // The relay still holds the room, not its removal.
+      b.incoming(a.events[2])
+      b.eose()
+      // The lost room and the lost removal, then the kept room sent again
+      // for any relay that dropped it.
+      await saved(b, 3)
+      expect(b.events.map(event => event.id).sort()).toEqual([a.events[0]!.id, a.events[1]!.id, a.events[3]!.id].sort())
+      expect(vi.mocked(b.identity.signEvent).mock.calls.length).toBe(4)
+      await vi.waitFor(() => expect(b.status).toHaveBeenLastCalledWith('Put back 2 room changes your relays had lost. Up to date: 2 rooms on your account.'))
+      b.library.close()
+    })
+
+    it('sends a record still on a relay again, quietly and only once a session', async () => {
+      const a = harness()
+      a.library.save(room())
+      await saved(a)
+      a.library.close()
+      const b = harness(a.identity, a.store)
+      b.incoming(a.events[0])
+      b.eose()
+      await saved(b, 1)
+      expect(b.events[0]!.id).toBe(a.events[0]!.id)
+      await vi.waitFor(() => expect(b.status).toHaveBeenLastCalledWith('Up to date: 1 room on your account.'))
+      b.library.start()
+      b.incoming(a.events[0])
+      b.eose()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(b.events).toHaveLength(1)
+      b.library.close()
+    })
+
+    it('clears a change left pending once a relay returns it', async () => {
+      const a = harness()
+      vi.mocked(a.relay.publish).mockImplementationOnce(async event => { a.events.push(event); throw new Error('no relay could be reached in time') })
+      a.library.save(room())
+      await vi.waitFor(() => expect(a.status).toHaveBeenLastCalledWith(expect.stringContaining('not confirmed')))
+      await a.library.receive(a.events[0]!)
+      a.library.close()
+      // The next sign-in has nothing left to send: the relay already had it.
+      const b = harness(a.identity, a.store)
+      expect(b.status).toHaveBeenCalledWith(expect.stringContaining('Looking for your encrypted room bookmarks'))
+      expect(b.status).not.toHaveBeenCalledWith(expect.stringContaining('not synced'))
+      b.library.close()
+    })
+
+    it('does nothing after a lookup that found no records at all', async () => {
+      const a = harness()
+      a.library.save(room())
+      await saved(a)
+      a.library.close()
+      const b = harness(a.identity, a.store)
+      b.eose()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(b.events).toEqual([])
+      b.library.close()
+    })
+
+    it('signs an older cached record again at its own time', async () => {
+      const a = harness()
+      const lost = room('Lost')
+      a.library.save(room('Kept')); a.library.save(lost)
+      await saved(a, 2)
+      a.library.close()
+      // A cache written before records kept their signed copy.
+      for (const key of a.store.keys().filter(key => key.startsWith('kithmoot.bookmarks.'))) {
+        const saved = JSON.parse(a.store.get(key)!)
+        delete saved.record.event
+        a.store.set(key, JSON.stringify(saved))
+      }
+      const b = harness(a.identity, a.store)
+      b.incoming(a.events[0])
+      b.eose()
+      await saved(b, 2)
+      // The kept room learned its signed copy from the relay and goes back
+      // unchanged; the lost one is signed again at its own time.
+      expect(b.events.map(event => event.id)).toContain(a.events[0]!.id)
+      const resigned = b.events.find(event => event.id !== a.events[0]!.id)!
+      expect(resigned.id).not.toBe(a.events[1]!.id)
+      expect(resigned.created_at).toBe(a.events[1]!.created_at)
+      expect(resigned.tags).toEqual(a.events[1]!.tags)
+      expect(JSON.parse(await b.identity.nip44!.decrypt(b.identity.pubkey, resigned.content)).room.name).toBe('Lost')
+      b.library.close()
+    })
   })
 
   it('never publishes plaintext when the signer cannot encrypt', async () => {
