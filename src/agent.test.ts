@@ -411,6 +411,55 @@ describe('RoomAgent', () => {
     again.leave()
   })
 
+  it('a Remove sent while the keeper is down is acted on when it starts again, for a day', async () => {
+    const relay = new SimRelay({ replay: true })
+    const admin = localIdentity(generateSecretKey())
+    const bobIdentity = localIdentity(generateSecretKey())
+    const first = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, admins: [admin.pubkey] })
+    const state = first.keeperState
+    // Ada's clock is an hour behind, so her Remove reads as an hour old:
+    // well past the ten seconds a live request is given.
+    const anHourAgo = () => Math.floor(Date.now() / 1000) - 60 * 60
+    const ada = await RoomAgent.join({ link: first.url, name: 'Ada', identity: admin, transport: transportFor(relay), announceJitterMs: 0, now: anHourAgo })
+    const bob = await RoomAgent.join({ link: first.url, name: 'Bob', identity: bobIdentity, transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+    await first.leave()
+
+    // The keeper is down - a deploy, a reboot - when Ada presses Remove.
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'remove', participant: bob.participant }))
+    await settle()
+    expect(ada.session.epoch).toBe(0)
+
+    // More than a day later, the request has lapsed: a keeper back now leaves Bob be.
+    const late = Math.floor(Date.now() / 1000) + 25 * 60 * 60
+    const lapsed = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, admins: [admin.pubkey], now: () => late, state })
+    await settle()
+    expect(lapsed.session.epoch).toBe(0)
+    await lapsed.leave()
+
+    // Back within the day, it acts on it, and in Ada's name.
+    let bobTold: { epoch: number; by?: string } | undefined
+    bob.onRemoved((n) => (bobTold = n))
+    let after: KeeperState | undefined
+    const again = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, admins: [admin.pubkey], state, onState: (s) => void (after = s) })
+    await settleUntil(() => again.session.epoch === 1)
+    expect(again.session.epoch).toBe(1)
+    expect(again.session.removed.has(bobIdentity.pubkey)).toBe(true)
+    await settleUntil(() => bobTold !== undefined)
+    expect(bobTold).toEqual({ epoch: 1, by: admin.pubkey })
+
+    // And a second restart does not turn the key again for the same request.
+    await again.leave()
+    expect(after?.removed).toEqual([bobIdentity.pubkey])
+    const third = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, admins: [admin.pubkey], state: after })
+    await settle()
+    await settle()
+    expect(third.session.epoch).toBe(1)
+    third.leave()
+    bob.leave()
+    ada.leave()
+  }, 30_000)
+
   it('after a removal, the keeper asks its admins about a newcomer, and only an admin\u2019s yes lets them in (#207)', async () => {
     const relay = new SimRelay({ replay: true })
     const admin = localIdentity(generateSecretKey())
