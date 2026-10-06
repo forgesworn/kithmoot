@@ -6,7 +6,9 @@ Status: proposed 2026-10-04. Phase 1 shipped 2026-10-04 (fold-kit 0.7.0,
 (2a) and forward secrecy (2b). 2a's readers shipped 2026-10-05 (fold-kit
 0.8.0 and this repository; the plan is `docs/2026-10-05-phase-2a-plan.md`);
 its keeper cadence is built and off by default (`--rekey-every`), and
-KithMoot's own keepers have run it weekly since 2026-10-06. Phases 3 and 4 are not started. Eight
+KithMoot's own keepers have run it weekly since 2026-10-06. What comes
+next is in `docs/2026-10-06-key-schedule-next-steps.md`. Phases 3 and 4
+are not started. Eight
 owner decisions are listed at the end. Each has a recommended answer except
 the seventh, the eighth is decided, and the work so far follows them.
 
@@ -157,6 +159,13 @@ this changes in the plan" takes precedence where they differ.
   other member to come online. So the healing claim holds for keeper rooms.
   If the keeper is away, the rekey happens when it is next online, and the
   doc and the Remove dialogue say so.
+  **Corrected 2026-10-06:** true of a scheduled rekey (a keeper that was
+  down rekeys once when it is back, if one is overdue; `deploy/README.md`),
+  not of a removal. The keeper drops a control request sent before it
+  started (`#handleControl`, `src/agent.ts`), so a Remove pressed while it
+  is away is never acted on, and the Remove dialogue does not claim
+  otherwise. Whether it should wait is an open question in
+  `docs/2026-10-06-key-schedule-next-steps.md`.
 - **Rooms nobody has open (owner decision, 2026-10-05: option (a)).** A
   rekey seals copies only to the devices in the roster, and the rooms list,
   Android's background delivery and its call listener read a room under the
