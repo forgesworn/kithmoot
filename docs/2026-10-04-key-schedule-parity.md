@@ -133,9 +133,8 @@ time-bound history rule, the window in the authority's grant, the web keeping
 its window's secrets (2b's item 3, brought forward), and watches that follow
 rekeys. The keeper's cadence (the plan's step 6) is built too, behind
 `kithmoot-agent create --rekey-every <days>`, which defaults to 0 (off)
-until a desktop release after 0.1.54 and an Android release with the
-readers (after 0.6.58) are in the field. Turning it on by default is the
-plan's step 7.
+until the releases carrying the readers, desktop 0.1.55 and Android 0.6.60,
+are in the field. Turning it on by default is the plan's step 7.
 
 **2b, forward secrecy:** a one-time sender key for 1462 and 20469, seal keys
 on Android and secondaries, the web keeping its window's secrets instead of

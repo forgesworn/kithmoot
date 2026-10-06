@@ -137,7 +137,7 @@ removed. A closed room is not reopened: delete the state to make a new one.
 **Scheduled rekeys.** `--rekey-every <days>` (or `KITHMOOT_REKEY_EVERY`;
 `RoomAgent.create({ rekeyEverySeconds })` from code) turns the room's key
 over on a schedule. It is 0, off, by default in this release: apps older
-than desktop 0.1.54 and Android 0.6.58 announce each rekey in the room. The
+than desktop 0.1.55 and Android 0.6.60 announce each rekey in the room. The
 keeper checks a minute after it joins and then hourly (`rekeyIfDue()` does
 one check from code), and rekeys when the room has been at one epoch for
 the period plus a jitter of up to six hours (a hash of the epoch's id, so

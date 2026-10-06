@@ -383,8 +383,12 @@ on one state file.
   stays silent; a newcomer's grant carries the window.
 - Optional e2e: no "moved to epoch" line.
 
-**As built** (kithmoot, branch `feat/keeper-scheduled-rekeys`), where step 6
-differs from the text above or settles what it left open:
+**As built** (kithmoot, the keeper cadence PR), where step 6 differs from
+the text above or settles what it left open:
+
+- **Which releases step 7 waits on.** The readers went out in desktop
+  0.1.55 and Android 0.6.60 (0.1.54 and 0.6.58 shipped before them), and
+  the web deploy that went with Android 0.6.60.
 
 - **No fold-kit change.** fold-kit 0.8.0's `EncodeRekeyOptions.scheduled`
   was all the wire needed. `RoomSession.rekey({ scheduled: true })` refuses
@@ -437,6 +441,10 @@ differs from the text above or settles what it left open:
   without this process holding it (a container whose keeper is always pid
   1); an unreadable one only once it is a minute old. A lock from another
   host is never taken over. `--rekey-every` below an hour is refused.
+- **The state file is written atomically** (a temporary file, then a
+  rename), since it is now written hourly and can hold a thousand
+  credentials: a keeper killed mid-write would otherwise leave a truncated
+  file holding the room's secret, which a restart cannot read.
 - **e2e.** `test/workspace.spec.ts`'s scheduled-rekey test now turns the key
   through `RoomSession.rekey({ scheduled: true })` rather than a hand-built
   event, after checking the page's device has left the keeper's roster: the
