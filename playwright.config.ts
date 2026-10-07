@@ -80,7 +80,7 @@ export default defineConfig({
   // importantly, goes dark again on mute - an analyser that is never pulled
   // reports silence for ever with nothing in the console, so this feature
   // can fail by simply never happening.
-  testMatch: ['notification-settings.spec.ts', 'knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'room-relays.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'conference-rooms.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'screen-share-audio.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'no-google-ice.spec.ts', 'safari-ice.spec.ts', 'volume.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'camera-effects-no-phone-home.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'speaking-quiet-device.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'room-name.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'open-in-app.spec.ts', 'site.spec.ts', 'forget-this-browser.spec.ts', 'sign-out-clears-bunker-key.spec.ts', 'room-list-sections.spec.ts', 'bunker-reconnect.spec.ts', 'wake-lock.spec.ts', 'call-stability.spec.ts', 'call-dock.spec.ts', 'mute-badge.spec.ts', 'meeting.spec.ts', 'desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'call-bell.spec.ts', 'shortcuts.spec.ts', 'call-prefs.spec.ts', 'mobile-landscape.spec.ts', 'bad-relays.spec.ts'],
+  testMatch: ['notification-settings.spec.ts', 'knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'room-relays.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'conference-rooms.spec.ts', 'self-destruct.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'screen-share-audio.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'no-google-ice.spec.ts', 'safari-ice.spec.ts', 'volume.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'camera-effects-no-phone-home.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'speaking-quiet-device.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'room-name.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'open-in-app.spec.ts', 'site.spec.ts', 'forget-this-browser.spec.ts', 'sign-out-clears-bunker-key.spec.ts', 'room-list-sections.spec.ts', 'bunker-reconnect.spec.ts', 'wake-lock.spec.ts', 'call-stability.spec.ts', 'call-dock.spec.ts', 'mute-badge.spec.ts', 'meeting.spec.ts', 'desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'call-bell.spec.ts', 'shortcuts.spec.ts', 'call-prefs.spec.ts', 'mobile-landscape.spec.ts', 'bad-relays.spec.ts'],
   // Public relays take a few seconds to round-trip a roster event, and the
   // join-last case waits on three of those in sequence: A's entry, B's, and
   // then A and B answering C's arrival. The stage-1 live test used similar
@@ -174,7 +174,7 @@ export default defineConfig({
       // rather than quietly skipping - a layout spec that skips is exactly
       // how the last two attempts at this "passed".
       name: 'chromium-desktop',
-      testMatch: ['desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'rail-divider.spec.ts'],
+      testMatch: ['desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'rail-divider.spec.ts', 'self-destruct.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: process.env.E2E_DESKTOP_BASE_URL ?? `https://localhost:${appPort + 1}/j/`,
@@ -207,7 +207,7 @@ export default defineConfig({
         // A quiet room's slot is five minutes in a real build; the suite's
         // browsers cannot wait that long for a message, so the acceptance
         // build shortens it. The variable can only shorten, see main.ts.
-        command: `VITE_QUIET_SLOT_SECONDS=8 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
+        command: `VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
         url: `https://localhost:${appPort}/j/`,
         ignoreHTTPSErrors: true,
         // Never reused unless asked. Several checkouts of this repo run the
@@ -229,7 +229,7 @@ export default defineConfig({
         // by side without either clobbering the other. Costs one extra build
         // per fresh run; E2E_REUSE=1 means you pay it once locally. Sits one
         // port above the app server so E2E_PORT moves both together.
-        command: `VITE_DESKTOP=true VITE_QUIET_SLOT_SECONDS=8 npm run build && VITE_DESKTOP=true E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort + 1} --strictPort`,
+        command: `VITE_DESKTOP=true VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && VITE_DESKTOP=true E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort + 1} --strictPort`,
         url: `https://localhost:${appPort + 1}/j/`,
         ignoreHTTPSErrors: true,
         reuseExistingServer: process.env.E2E_REUSE === '1',
