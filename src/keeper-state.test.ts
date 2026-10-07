@@ -29,6 +29,19 @@ describe('keeper state', () => {
     }
   })
 
+  it('keeps a self-destructing room\'s flag, written only for one', () => {
+    const state = { secret, inviterSk, bearer, persistent: true as const, endsAt: 1_800_086_400, destruct: true as const }
+    const back = parseKeeperState(serialiseKeeperState(state))
+    expect(back.destruct).toBe(true)
+    expect(back.endsAt).toBe(1_800_086_400)
+    expect(JSON.parse(serialiseKeeperState({ secret, inviterSk, bearer }))).not.toHaveProperty('destruct')
+    expect(parseKeeperState(serialiseKeeperState({ secret, inviterSk, bearer })).destruct).toBeUndefined()
+    // Only the literal true counts, so a hand-edited file cannot half-set it.
+    const edited = JSON.parse(serialiseKeeperState(state)) as Record<string, unknown>
+    edited.destruct = 'yes'
+    expect(parseKeeperState(JSON.stringify(edited)).destruct).toBeUndefined()
+  })
+
   it('reads a version 1 file as epoch 0 with nobody removed', () => {
     const v1 = JSON.stringify({ v: 1, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer) })
     expect(parseKeeperState(v1)).toEqual({ secret, inviterSk, bearer, epoch: 0, removed: [] })
