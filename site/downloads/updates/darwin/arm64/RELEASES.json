@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.57",
+  "currentRelease": "0.1.58",
   "releases": [
     {
-      "version": "0.1.57",
+      "version": "0.1.58",
       "updateTo": {
-        "version": "0.1.57",
-        "pub_date": "2026-10-07T08:00:00Z",
-        "notes": "Messages still waiting for a connection show in the chat as pending, and you can edit or delete one before it leaves. An optional short wait before sending lets you take a message back. A long rooms list now scrolls in the side rail instead of pushing the message box off the window, and opening a room you have to be let into says you are waiting, with a way back.",
-        "name": "0.1.57",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.57/KithMoot-0.1.57-mac-arm64.zip",
-        "sha256": "ae18f580732fae0167b73de2e340a3004882ea96d70e85637f977cb948483b0b",
-        "size": 137816675
+        "version": "0.1.58",
+        "pub_date": "2026-10-07T18:00:00Z",
+        "notes": "A room can now self-destruct. When it ends, or when whoever runs it chooses Self-destruct now, each member's KithMoot deletes the room from that device, asks the relays to delete the messages it sent, and asks the file server to delete the files it shared. A countdown in green, amber and red shows how long is left. Someone could still have kept a copy, and some relays ignore deletion requests.",
+        "name": "0.1.58",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.58/KithMoot-0.1.58-mac-arm64.zip",
+        "sha256": "a1c9f2c2c9bbb4cdea876bc5cb29b21efeff7829a282729a1f380258ab7fb5bd",
+        "size": 137824516
       }
     }
   ]
