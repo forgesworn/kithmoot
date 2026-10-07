@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
-import { RoomAgent } from '../agent.js'
+import { RoomAgent, DEFAULT_RELAYS } from '../agent.js'
 import type { KeeperState } from '../agent.js'
 import { parseKeeperState, serialiseKeeperState } from '../keeper-state.js'
 import { parseForwarderRef } from '../descriptor.js'
@@ -17,6 +17,9 @@ import { localPeerCrypt, openInvite } from '../dm.js'
 import { ContextFileStore } from './context-store.js'
 import { checkIdentity, npubOrHex } from './identity-guard.js'
 import { parseRoomLink } from '../link.js'
+import { deriveRoom } from '../room.js'
+import { KINDS } from '../kinds.js'
+import { requireRoomEnds } from '../expiration.js'
 import { AgentRuntime } from './runtime.js'
 import type { Persona } from './runtime.js'
 import { AnthropicBrain, OllamaBrain, StdioBrain } from './brains.js'
@@ -33,6 +36,9 @@ import { Scribe } from './scribe.js'
 import { Nudger, nip17Sender } from './nudge.js'
 import type { NudgeStore } from './nudge.js'
 import { NostrRelayPool } from '../relay-pool.js'
+import { deleteSignedEvents } from '../self-destruct.js'
+import { destructDeviceKey, removeRoomFiles, selfDestructOnce } from './self-destruct.js'
+import type { RoomFiles } from './self-destruct.js'
 import { validateAssignmentActions } from '../assignments.js'
 import { STDIO_PROTOCOL } from './stdio-protocol.js'
 import { acquireStateLock, StateLockHeldError } from './state-lock.js'
@@ -48,6 +54,10 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
       admits newcomers for as long as it runs; --state persists the room across
       restarts. This is what a room that stays open for days wants. --admin
       names who may remove members, mute them or close the room from the app.
+      --ends <time> makes it a conference room that ends then (unix seconds or an
+      ISO date, within 30 days). --destruct makes it self-destruct: at its end, or
+      when it is closed, every member's agent deletes what it wrote on the relays
+      and every file it kept for the room, and the keeper does the same.
       --room-name puts a name on the link; --nudge lets members who signed in
       with a Nostr key ask to be DM'd (NIP-17, from this keeper's key, over the
       room's relays) when there are new messages and they are not in the room.
@@ -151,7 +161,7 @@ separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
 KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
 KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
 KITHMOOT_FORWARDER (JSON, or a file path), KITHMOOT_LINK, KITHMOOT_ROOM_NAME,
-KITHMOOT_NUDGE (1 to turn it on), KITHMOOT_REKEY_EVERY (days). A flag
+KITHMOOT_NUDGE (1 to turn it on), KITHMOOT_DESTRUCT (1 to turn it on), KITHMOOT_REKEY_EVERY (days). A flag
 wins over the environment. With --state, the room link is also written
 beside the state file as <state>.link, readable by the keeper's user only.
 
@@ -253,6 +263,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       catalogue: { type: 'string' },
       'call-ends-after': { type: 'string' },
       'room-name': { type: 'string' },
+      ends: { type: 'string' },
+      destruct: { type: 'boolean', default: false },
       nudge: { type: 'boolean', default: false },
       'rekey-every': { type: 'string' },
       'owner-proof': { type: 'string' },
@@ -323,9 +335,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   // One keeper per state file, taken before anything else is read or
   // written: two would each rekey the room their own way. Released on any
   // exit short of being killed; see state-lock.ts for a lock left behind.
+  let lockRelease: (() => void) | undefined
   if (command === 'create' && statePath) {
     try {
       const lock = acquireStateLock(statePath)
+      lockRelease = () => lock.release()
       process.once('exit', () => lock.release())
     } catch (err) {
       if (err instanceof StateLockHeldError) fail(err.message)
@@ -351,16 +365,48 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const persona = await loadPersona(common)
   const turn = common.turnCredential ? splitCredential(common.turnCredential) : undefined
 
+  // Everything this process keeps for a room, so a self-destructing room can
+  // take it with it. A shared --memory directory loses its log.jsonl whole.
+  const keptFiles = (room?: { roomId: string }): RoomFiles => ({
+    files: [
+      ...(command === 'create' && statePath ? [statePath, `${statePath}.link`, `${statePath}.lock`] : []),
+      ...(command === 'join' && statePath ? [join(statePath, 'private.json')] : []),
+      ...(common.memory ? [join(common.memory, 'log.jsonl')] : []),
+      ...(values.context ? [values.context, `${values.context}.lock`] : []),
+    ],
+    dirs: room ? [join(common.memory ?? join(homedir(), '.kithmoot', 'agents', identity.pubkey), 'assignments', room.roomId)] : [],
+  })
+
+  // Cleared when a self-destructing room is being wiped, so no late state
+  // write brings the file back.
+  let keeperWrites = true
   let agent: RoomAgent
   if (command === 'create') {
     if (!base) fail('--base is required: where the app is served, e.g. https://kithmoot.forgesworn.dev/j/')
-    const state = statePath ? await loadKeeperState(statePath) : undefined
+    let state = statePath ? await loadKeeperState(statePath) : undefined
+    const destruct = values.destruct || envFlag('DESTRUCT') || state?.destruct === true
+    if (destruct && state && !state.destruct) state = { ...state, destruct: true }
+    // A room that self-destructed while this keeper was down: the end passed
+    // or an admin closed it. Nothing joins; what it kept is asked off the
+    // relays and thrown away, and the keeper does not start.
+    if (state?.destruct && (state.closed || (state.endsAt !== undefined && Math.floor(Date.now() / 1000) >= state.endsAt))) {
+      await wipeStaleKeeper(state, { statePath: statePath!, relays: common.relays.length ? common.relays : [...DEFAULT_RELAYS], identitySk: participantSk, files: keptFiles({ roomId: deriveRoom(state.secret).roomId }), log })
+      lockRelease?.()
+      fail(`${statePath}: this room self-destructed; what this keeper kept for it is gone`)
+    }
     if (state?.closed) fail(`${statePath}: this room was closed. Delete the state file to make a new one.`)
     const admins = [...(values.admin ?? []), ...envList('ADMINS')].map(adminPubkey)
     const forwarders = await forwarderRefs([...(values.forwarder ?? []), ...(env('FORWARDER') ? [env('FORWARDER')!] : [])])
     const factory = common.listen ? await createWeriftFactory(iceFactoryOptions(common.ice, new URL(base).origin, turn)) : undefined
+    const endsAt = values.ends !== undefined ? roomEnd(values.ends) : undefined
     agent = await RoomAgent.create({
       base,
+      ...(endsAt !== undefined ? { endsAt } : {}),
+      ...(destruct ? { destruct: true } : {}),
+      // A room that self-destructs is kept by one device key however often
+      // this keeper restarts, so every restart can still ask for everything
+      // it ever signed to be deleted.
+      ...(destruct ? { deviceKeyForRoom: (roomId: string) => destructDeviceKey(participantSk, roomId) } : {}),
       roomName,
       name: common.name,
       identity,
@@ -372,10 +418,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       admins,
       forwarders,
       rekeyEverySeconds: Math.round(rekeyEveryDays * 86_400),
-      onState: statePath ? (next) => saveKeeperState(statePath, next) : undefined,
+      onState: statePath ? (next) => (keeperWrites ? saveKeeperState(statePath, next) : undefined) : undefined,
     })
     if (statePath) {
-      if (!state && agent.keeperState) await saveKeeperState(statePath, agent.keeperState)
+      if ((!state || (destruct && !state.destruct)) && agent.keeperState) await saveKeeperState(statePath, agent.keeperState)
       // The link beside the state, so an operator can `cat` it rather than
       // dig it out of a log. Same mode as the state: it is a capability.
       await writeFile(`${statePath}.link`, agent.url + '\n', { mode: 0o600 })
@@ -408,14 +454,24 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     const iceUrls = common.ice.length ? common.ice : parsed.iceUrls
     const factory = common.listen ? await createWeriftFactory(iceFactoryOptions(iceUrls, new URL(link).origin, turn)) : undefined
     log('joining…')
-    agent = await RoomAgent.join({
-      link,
-      name: common.name,
-      identity,
-      relays: common.relays.length ? common.relays : undefined,
-      factory,
-      owner,
-    })
+    try {
+      agent = await RoomAgent.join({
+        link,
+        name: common.name,
+        identity,
+        relays: common.relays.length ? common.relays : undefined,
+        factory,
+        owner,
+      })
+    } catch (err) {
+      // A self-destructing room that is already over: nothing to join, and
+      // whatever this agent kept for it from before goes.
+      if ((err as { destruct?: boolean }).destruct === true) {
+        await removeRoomFiles(keptFiles())
+        fail('this room self-destructed; what this agent kept for it is gone')
+      }
+      throw err
+    }
     log(`joined room ${agent.roomId.slice(0, 8)} as ${agent.participant.slice(0, 8)}${agent.hosting ? ', answering the link' : ''}${agent.session.epoch ? `, epoch ${agent.session.epoch}` : ''}`)
     agent.onEpoch((notice) => {
       const who = notice.removed.map((p) => p.slice(0, 8)).join(', ')
@@ -523,6 +579,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     }
   }
 
+  let hostStop: (() => Promise<void>) | undefined
   const stop = () => {
     log('leaving')
     nudger?.stop()
@@ -537,6 +594,24 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
+  // A room that self-destructs: when it ends (its time, or its keeper closing
+  // it with the flag) this agent deletes what it signed, forgets the room's
+  // files and exits. The keeper closes the room itself at its end.
+  const selfDestruct = selfDestructOnce({
+    agent,
+    log,
+    stop: async () => {
+      keeperWrites = false
+      nudger?.stop()
+      nudgePool?.close()
+      await Promise.all([runtime.close(), ...[...privateRooms.values()].map((r) => r.close()), hostStop?.()])
+      await keeperStateFlush()
+    },
+    files: () => keptFiles(agent),
+    done: () => lockRelease?.(),
+  })
+  const destructAndExit = (why: string) => { void selfDestruct(why).finally(() => process.exit(0)) }
+  agent.onEnded(() => destructAndExit('its end has come'))
   // Removed, or the room closed under this agent: there is nothing left to
   // be in. A keeper closing its own room ends the same way, and its state
   // file already says closed, so a supervisor's restart makes no new room.
@@ -546,6 +621,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     stop()
   })
   agent.onClosed((notice) => {
+    if (notice.destruct || agent.destruct) {
+      log(`the room was closed${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}`)
+      destructAndExit('closed')
+      return
+    }
     log(`the room was closed${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}`)
     stop()
   })
@@ -583,6 +663,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     })
     await host.start()
     log(`hosting ${catalogue.map((c) => c.name).join(', ')}`)
+    hostStop = () => host.stop()
     process.once('SIGINT', () => void host.stop())
     process.once('SIGTERM', () => void host.stop())
     return
@@ -607,6 +688,41 @@ async function readPrivateRooms(file: string): Promise<Record<string, { link: st
 async function writePrivateRooms(file: string, rooms: Record<string, { link: string; from: string; name?: string }>): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, JSON.stringify({ rooms }, null, 2) + '\n', { mode: 0o600 })
+}
+
+/** `--ends`: unix seconds or a date, within what a room may last. */
+function roomEnd(text: string): number {
+  const seconds = /^\d+$/.test(text.trim()) ? Number(text) : Math.floor(Date.parse(text) / 1000)
+  try {
+    return requireRoomEnds(seconds, Math.floor(Date.now() / 1000))
+  } catch (err) {
+    return fail(`--ends: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/** Wait for every keeper state write asked for so far. */
+const keeperStateFlush = (): Promise<void> => keeperStateWrites.catch(() => {})
+
+/** A self-destructing room found over at start-up: the keeper's device key
+ *  is derived, so what it signed in earlier runs can still be asked for. */
+async function wipeStaleKeeper(
+  state: KeeperState,
+  opts: { statePath: string; relays: string[]; identitySk: Uint8Array; files: RoomFiles; log: (line: string) => void },
+): Promise<void> {
+  const pool = new NostrRelayPool(opts.relays)
+  try {
+    const report = await deleteSignedEvents({
+      transport: pool,
+      keys: [{ sk: destructDeviceKey(opts.identitySk, deriveRoom(state.secret).roomId) }, { sk: state.inviterSk, kinds: [KINDS.GROUP_INVITATION] }],
+      now: () => Math.floor(Date.now() / 1000),
+      timeoutMs: 15_000,
+    })
+    opts.log(`room self-destructed while this keeper was down: asked the relays to delete ${report.requested} of ${report.found} events`)
+  } finally {
+    pool.close()
+  }
+  const left = await removeRoomFiles(opts.files)
+  if (left.length) opts.log(`could not remove ${left.length} file${left.length === 1 ? '' : 's'}: delete them by hand`)
 }
 
 function makeBrain(common: Common, log: (line: string) => void): Brain | undefined {
