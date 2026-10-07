@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.56",
+  "currentRelease": "0.1.57",
   "releases": [
     {
-      "version": "0.1.56",
+      "version": "0.1.57",
       "updateTo": {
-        "version": "0.1.56",
-        "pub_date": "2026-10-06T18:00:00Z",
-        "notes": "Rooms saved to your account now reach all your devices. When a relay has lost a room you saved, KithMoot puts it back, so a room opened on one computer shows on your others, and a change left waiting for a relay clears once one has it. The rooms list says how many rooms your account holds once it has caught up.",
-        "name": "0.1.56",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.56/KithMoot-0.1.56-mac-arm64.zip",
-        "sha256": "75aa1ef46a6a5226872ef1b11a070dae60999d2702e1c7f41d0930c666964c5a",
-        "size": 137813561
+        "version": "0.1.57",
+        "pub_date": "2026-10-07T08:00:00Z",
+        "notes": "Messages still waiting for a connection show in the chat as pending, and you can edit or delete one before it leaves. An optional short wait before sending lets you take a message back. A long rooms list now scrolls in the side rail instead of pushing the message box off the window, and opening a room you have to be let into says you are waiting, with a way back.",
+        "name": "0.1.57",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.57/KithMoot-0.1.57-mac-arm64.zip",
+        "sha256": "ae18f580732fae0167b73de2e340a3004882ea96d70e85637f977cb948483b0b",
+        "size": 137816675
       }
     }
   ]
