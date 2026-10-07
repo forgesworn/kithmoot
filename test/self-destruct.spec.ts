@@ -450,6 +450,15 @@ test('the desktop rail shows the countdown beside the room', async ({ browser, b
     const row = page.locator('.workspaceRoom').filter({ hasText: 'Railed' })
     await expect(row.locator('.fusePill')).toHaveAttribute('data-stage', 'green')
     await expect(row.locator('.fusePill .fuseSpoken')).toContainText('Self-destructs in')
+    // The countdown sits on its own line under the name, so a narrow rail
+    // never squeezes the name to a letter a line beside it.
+    for (const width of [undefined, 200]) {
+      if (width) await page.locator('#workspaceNav').evaluate((el, w) => { el.style.width = `${w}px`; el.style.minWidth = `${w}px`; el.style.maxWidth = `${w}px` }, width)
+      const name = (await row.locator('.workspaceRoomLink').boundingBox())!
+      const pill = (await row.locator('.fusePill').boundingBox())!
+      expect(pill.y, `rail ${width ?? 'default'}px: the countdown is under the name`).toBeGreaterThanOrEqual(name.y + name.height - 8)
+      expect(name.height, `rail ${width ?? 'default'}px: the name is one line`).toBeLessThan(48)
+    }
   } finally {
     await context.close()
   }
