@@ -57,7 +57,25 @@ const subscriptions = new Map()
  * real streamed request instead of a Playwright route mock trying to inspect
  * a body WebKit deliberately does not expose to automation. */
 const blobs = new Map()
+/** hash -> the pubkey whose authorisation uploaded it: the one key a BUD-02
+ *  delete is honoured for, as blossom-server-ts honours it. */
+const owners = new Map()
 const MAX_BLOB_BYTES = 270 * 1024 * 1024
+
+/** A kind 24242 authorisation from an `Authorization: Nostr <base64>`
+ *  header, if it is one, signed and unexpired; undefined otherwise. */
+function blossomAuth(req) {
+  const header = req.headers.authorization
+  if (typeof header !== 'string' || !header.startsWith('Nostr ')) return undefined
+  try {
+    const event = JSON.parse(Buffer.from(header.slice('Nostr '.length), 'base64').toString('utf8'))
+    const expiration = Number(event.tags?.find((t) => t[0] === 'expiration')?.[1])
+    if (event.kind !== 24242 || !(expiration > Date.now() / 1000) || !verifyEvent(event)) return undefined
+    return event
+  } catch {
+    return undefined
+  }
+}
 
 const http = createServer((req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
@@ -82,6 +100,8 @@ const http = createServer((req, res) => {
         return
       }
       blobs.set(hash, bytes)
+      const auth = blossomAuth(req)
+      if (auth && !owners.has(hash)) owners.set(hash, auth.pubkey)
       const origin = typeof req.headers.origin === 'string' ? req.headers.origin : 'https://localhost:4173'
       res.writeHead(201, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ sha256: hash, size: bytes.length, url: `${origin}/blossom/${hash}` }))
@@ -91,7 +111,29 @@ const http = createServer((req, res) => {
     })
     return
   }
-  if (req.method === 'GET' && url.pathname.startsWith('/blossom/')) {
+  // BUD-02, as blossom-server-ts 5.2.0 answers it: a `t` delete
+  // authorisation naming the hash, 404 for a blob it does not hold, and 200
+  // otherwise, removing the blob only for the key that uploaded it.
+  if (req.method === 'DELETE' && url.pathname.startsWith('/blossom/')) {
+    const hash = url.pathname.slice('/blossom/'.length)
+    const auth = blossomAuth(req)
+    const tag = (name) => auth?.tags.find((t) => t[0] === name)?.[1]
+    if (!auth || tag('t') !== 'delete' || !auth.tags.some((t) => t[0] === 'x' && t[1] === hash)) {
+      res.writeHead(401, { 'x-reason': 'Missing or incorrect auth' }).end()
+      return
+    }
+    if (!blobs.has(hash)) {
+      res.writeHead(404).end()
+      return
+    }
+    if (owners.get(hash) === auth.pubkey) {
+      blobs.delete(hash)
+      owners.delete(hash)
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end('{"message":"Deleted"}')
+    return
+  }
+  if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname.startsWith('/blossom/')) {
     const hash = url.pathname.slice('/blossom/'.length)
     const bytes = blobs.get(hash)
     if (!bytes) {
