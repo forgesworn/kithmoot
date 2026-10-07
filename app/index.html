@@ -387,6 +387,11 @@
              status; the log's own aria-live is not set. Filled in by
              `renderLog` in app/src/main.ts. -->
         <p id="chatArrivals" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+        <!-- A self-destructing room's countdown: its stage changes are said
+             here, once each, never its ticks. The final minute's banner
+             below ticks, so it is hidden from screen readers. -->
+        <p id="fuseAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div id="fuseBanner" class="fuseBanner" aria-hidden="true" hidden></div>
         <div id="chatViewport">
           <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
@@ -663,6 +668,18 @@
             <option value="7">After 7 days</option>
           </select>
           <p id="roomEndsHint" class="note" hidden>A conference room. On that date its link stops working and its messages are wiped from relays that honour expiry.</p>
+        </div>
+        <!-- What happens to a dated room's content when it ends: it
+             self-destructs by default (owner decision D1). Shown only when
+             Ends is not Never; a room with no end can still be made to
+             self-destruct from its details (D5). -->
+        <div id="roomWhenEndsRow" class="roomEndsRow" hidden>
+          <label id="roomWhenEndsLabel" for="roomWhenEnds">When it ends</label>
+          <select id="roomWhenEnds" aria-describedby="roomWhenEndsHint">
+            <option value="destruct" selected>Self-destruct</option>
+            <option value="keep">Keep it read-only</option>
+          </select>
+          <p id="roomWhenEndsHint" class="note" hidden></p>
         </div>
         <div class="setupButtons">
           <button id="create" type="submit" class="primary">Start a room</button>
@@ -1071,6 +1088,8 @@
           <button type="submit" id="roomRenameSave">Rename for everyone</button>
         </form>
         <p id="roomLockState" class="note" hidden></p>
+        <!-- A self-destructing room says once what that can and cannot do. -->
+        <p id="roomDestructState" class="note" hidden></p>
         <p id="quietState" class="note" hidden></p>
 
         <h3 class="sheetHead">Conversations</h3>
@@ -1202,6 +1221,9 @@
           <!-- Only in the browser holding a browser room's authority. A room
                with a keeper is closed through the keeper instead. -->
           <button id="endRoom" type="button" class="danger" hidden>End room for everyone</button>
+          <!-- The same authority, ending the room so it self-destructs on
+               every member's device. Any room it holds, dated or not (D5). -->
+          <button id="selfDestructNow" type="button" class="danger" hidden>Self-destruct now</button>
           <p id="endRoomNote" class="note" hidden>
             Ending takes everyone out and stops every invite link working.
             People keep what they already received.

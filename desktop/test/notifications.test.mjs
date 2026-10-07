@@ -52,3 +52,21 @@ test('badge is refreshed after the OS shows a banner, using current unread state
   notice.emit('show')
   assert.deepEqual(badges, [5, 0])
 })
+
+test('a self-destructed room takes only its own banners with it', () => {
+  const closed = []
+  const notices = new DesktopNotices({ supported: () => true, create: options => {
+    const notice = new EventEmitter()
+    notice.show = () => {}
+    notice.close = () => { closed.push(options.title); notice.emit('close') }
+    return notice
+  } })
+  const a = 'a'.repeat(64), b = 'b'.repeat(64)
+  assert.equal(notices.show({ ...content, title: 'A', roomId: a, tag: `kithmoot:${a}:chat` }), true)
+  assert.equal(notices.show({ ...content, title: 'B', roomId: b, tag: `kithmoot:${b}:chat` }), true)
+  notices.clearRoom('not a room')
+  notices.clearRoom(a)
+  assert.deepEqual(closed, ['A'])
+  // The room's rate limit goes with it.
+  assert.equal(notices.show({ ...content, title: 'A', roomId: a, tag: `kithmoot:${a}:chat` }), true)
+})

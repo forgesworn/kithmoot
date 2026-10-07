@@ -22,6 +22,9 @@ import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret, deriveRoom } from './room.js'
 import { canonicalAdmins, canonicalChannels, deriveEpoch, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
 import type { LeftEpoch, RekeyNotice, RoomEpoch } from './epoch.js'
+import { deleteSignedEvents } from './self-destruct.js'
+import type { DeletionKey, DeletionReport } from './self-destruct.js'
+import { KINDS } from './kinds.js'
 import { REKEY_CHECK_INTERVAL_MS, rekeyDue } from './rekey-schedule.js'
 import type { DeviceCredential } from './types.js'
 import { CONTROL_CHANNEL, DEFAULT_APPROVAL_OPTIONS, decodeControl, encodeControl, type ControlMessage } from './control.js'
@@ -119,6 +122,10 @@ export interface KeeperState {
    *  re-signs the invitation with the same end, tags what it publishes, and
    *  refuses to reopen the room once it has passed. */
   endsAt?: number
+  /** The room self-destructs: at its end, or when its keeper closes it, every
+   *  device deletes what it wrote and forgets the room. Sticky: once a keeper
+   *  has said so, every copy of its state does. */
+  destruct?: true
   /** When the current epoch began, in unix seconds: the rekey into it, or,
    *  for a room that has never been rekeyed (or whose state predates this
    *  field), the first time a keeper with a cadence looked. What a
@@ -275,6 +282,10 @@ export interface CreateRoomOptions extends CommonAgentOptions {
    *  seconds: after now and no more than 30 days on. Ignored when `state`
    *  is given, which carries its own. */
   endsAt?: number
+  /** Make the room self-destruct: at its end, or when it is closed, every
+   *  device deletes what it wrote and forgets the room. Sticky: it is kept in
+   *  the keeper's state, and a state that already says so keeps saying it. */
+  destruct?: boolean
   /**
    * Participants who may act on the room through the control channel:
    * remove a member, close the room, ask somebody to mute. The keeper
@@ -432,7 +443,13 @@ export class RoomAgent {
   /** Set while a scheduled check is running, so two never overlap. */
   #rekeyChecking = false
   readonly #epochListeners = new Set<(notice: RekeyNotice) => void>()
-  readonly #closedListeners = new Set<(notice: { epoch: number; by?: string }) => void>()
+  readonly #closedListeners = new Set<(notice: { epoch: number; by?: string; destruct?: true }) => void>()
+  readonly #endedListeners = new Set<() => void>()
+  #destruct = false
+  #endTimer?: ReturnType<typeof setTimeout>
+  readonly #deviceSk: Uint8Array
+  readonly #makeTransport: (relays: string[]) => RelayTransport
+  #leaving?: Promise<void>
   readonly #removedListeners = new Set<(notice: { epoch: number; by?: string }) => void>()
   #left = false
 
@@ -452,7 +469,13 @@ export class RoomAgent {
     onState?: (state: KeeperState) => void | Promise<void>
     forwarders?: ForwarderRef[]
     rekeyEverySeconds?: number
+    destruct?: boolean
+    deviceSk: Uint8Array
+    makeTransport: (relays: string[]) => RelayTransport
   }) {
+    this.#destruct = fields.destruct === true
+    this.#deviceSk = fields.deviceSk
+    this.#makeTransport = fields.makeTransport
     this.#rekeyEvery = fields.rekeyEverySeconds ?? 0
     this.#forwarders = fields.forwarders ?? []
     this.session = fields.session
@@ -488,6 +511,7 @@ export class RoomAgent {
     let authority: { inviterSk: Uint8Array; delegation: InvitationDelegation[] } | undefined
     let expectedEpoch: number | undefined
     let endsAt: number | undefined
+    let destruct = false
     // Settled before asking, so the request can say who is asking: the host
     // that lets this agent in then knows it, and hands it the room's key even
     // after a removal (#207). A room-scoped identity is known only once the
@@ -506,9 +530,14 @@ export class RoomAgent {
           })
         secret = admission.secret
         if ('endsAt' in admission && admission.endsAt !== undefined) {
-          if (now() >= admission.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
+          if (now() >= admission.endsAt) {
+            // Said on the error, so a process that kept files for the room
+            // knows it is to throw them away.
+            throw Object.assign(new Error(CONFERENCE_ENDED_MESSAGE), 'destruct' in admission && admission.destruct ? { destruct: true as const } : {})
+          }
           endsAt = admission.endsAt
         }
+        if ('destruct' in admission && admission.destruct === true) destruct = true
         if ('delegate' in admission) authority = { inviterSk: admission.delegate.delegateSk, delegation: admission.delegate.chain }
         expectedEpoch = admission.epoch
         // The relays the room's inviter signed beat the link's unsigned hints.
@@ -534,6 +563,7 @@ export class RoomAgent {
       authority: opts.hostInvitation === false ? undefined : authority,
       expectedEpoch,
       endsAt,
+      destruct,
     })
   }
 
@@ -552,7 +582,10 @@ export class RoomAgent {
       state = { secret: generateRoomSecret(), inviterSk: host.inviterSk, bearer: host.invitation.bearer, persistent: true }
       if (opts.endsAt !== undefined) state.endsAt = requireRoomEnds(opts.endsAt, now())
     }
-    if (state.endsAt !== undefined && now() >= state.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
+    if (opts.destruct && !state.destruct) state = { ...state, destruct: true }
+    if (state.endsAt !== undefined && now() >= state.endsAt) {
+      throw Object.assign(new Error(CONFERENCE_ENDED_MESSAGE), state.destruct ? { destruct: true as const } : {})
+    }
     const epochNumber = state.epoch ?? 0
     state = {
       ...state,
@@ -578,6 +611,7 @@ export class RoomAgent {
       url,
       room,
       own: relays,
+      deviceSk: opts.deviceKeyForRoom?.(deriveRoom(state.secret).roomId) ?? opts.deviceSk,
       secret: state.secret,
       makeTransport,
       now,
@@ -603,6 +637,7 @@ export class RoomAgent {
       authority?: { inviterSk: Uint8Array; delegation: InvitationDelegation[] }
       expectedEpoch?: number
       endsAt?: number
+      destruct?: boolean
       keeper?: KeeperState
       epoch?: RoomEpoch
       removed?: string[]
@@ -614,6 +649,8 @@ export class RoomAgent {
     },
   ): Promise<RoomAgent> {
     const identity = opts.identity ?? localIdentity(generateSecretKey())
+    const deviceSk = opts.deviceSk ?? generateSecretKey()
+    const destruct = opts.destruct === true || opts.keeper?.destruct === true
     const pool = agentRelayPool(opts.room, opts.own)
     const plain = opts.makeTransport(pool)
     // A quiet room's chat rides in drops; the session tells the wrapper
@@ -626,7 +663,7 @@ export class RoomAgent {
       transport,
       secret: opts.secret,
       identity,
-      deviceSk: opts.deviceSk ?? generateSecretKey(),
+      deviceSk,
       factory: opts.factory,
       policy: opts.link.policy,
       proof: opts.proof,
@@ -653,7 +690,11 @@ export class RoomAgent {
         if (agent) agent.#emit(agent.#removedListeners, notice)
       },
       onClosed: (notice) => {
-        if (agent) agent.#emit(agent.#closedListeners, notice)
+        if (agent) {
+          // A closing rekey that says so makes this a room that self-destructs.
+          if (notice.destruct) agent.#destruct = true
+          agent.#emit(agent.#closedListeners, notice)
+        }
       },
     })
     agent = new RoomAgent({
@@ -672,6 +713,9 @@ export class RoomAgent {
       onState: opts.onState,
       forwarders: opts.forwarders,
       rekeyEverySeconds: opts.rekeyEverySeconds,
+      destruct,
+      deviceSk,
+      makeTransport: opts.makeTransport,
     })
     // A keeper reopening a room remembers who it removed before the roster
     // can tell it anything. Marked on the session by way of the first
@@ -686,7 +730,7 @@ export class RoomAgent {
 
     try {
       if (opts.keeper?.persistent && opts.link.invitation) {
-        await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now(), endsAt: opts.keeper.endsAt, relays: opts.room.length ? opts.room : undefined }))
+        await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now(), endsAt: opts.keeper.endsAt, relays: opts.room.length ? opts.room : undefined, ...(destruct ? { destruct: true } : {}) }))
       }
       await session.join(opts.tracks ?? [], opts.claims ?? {})
     } catch (err) {
@@ -758,6 +802,7 @@ export class RoomAgent {
     agent.#openControl()
     if (opts.keeper && agent.#forwarders.length) agent.#keepDescribing()
     if (opts.keeper) agent.#keepRekeying()
+    agent.#keepEnd(opts.endsAt ?? opts.keeper?.endsAt)
     return agent
   }
 
@@ -1310,6 +1355,7 @@ export class RoomAgent {
       ...(keeper.nudge?.length ? { nudge: keeper.nudge } : {}),
       ...(this.#channels.size ? { channels: canonicalChannels([...this.#channels]) } : {}),
       ...(keeper.endsAt !== undefined ? { endsAt: keeper.endsAt } : {}),
+      ...(keeper.destruct ? { destruct: true as const } : {}),
       ...(epochAt !== undefined ? { epochAt } : {}),
       ...(past.length ? { past } : {}),
       ...(devices.length ? { devices } : {}),
@@ -1354,12 +1400,16 @@ export class RoomAgent {
    * Close the room: a final epoch with nobody kept, the link retired, the
    * desk shut, and this agent gone. The state is marked closed first, so a
    * process restarted by its supervisor does not reopen what was closed.
+   * With `destruct`, or in a room that already self-destructs, the closing
+   * rekey says so, and every member deletes what it wrote and forgets the room.
    */
-  async closeRoom(by?: string): Promise<void> {
+  async closeRoom(by?: string, opts: { destruct?: boolean } = {}): Promise<void> {
     const keeper = this.#keeper
     if (!keeper) throw new Error('only the keeper can close the room')
     if (this.#left || this.session.closed) return
-    this.#keeper = { ...keeper, closed: true }
+    const destruct = opts.destruct === true || this.#destruct
+    if (destruct) this.#destruct = true
+    this.#keeper = { ...keeper, closed: true, ...(destruct ? { destruct: true as const } : {}) }
     await this.#onState?.({ ...this.#keeper, epoch: this.session.epoch, removed: [...this.session.removed].sort(), ...(this.session.epoch > 0 ? { epochSecret: this.session.currentEpoch().secret } : {}) })
     if (this.link.invitation) {
       try {
@@ -1372,7 +1422,7 @@ export class RoomAgent {
       }
     }
     this.#stopHosting()
-    await this.session.rekey({ authoritySk: keeper.inviterSk, closed: true, by })
+    await this.session.rekey({ authoritySk: keeper.inviterSk, closed: true, by, ...(destruct ? { destruct: true } : {}) })
     await this.leave()
   }
 
@@ -1383,9 +1433,67 @@ export class RoomAgent {
   }
 
   /** The room was closed by its authority. A joiner should leave. */
-  onClosed(cb: (notice: { epoch: number; by?: string }) => void): () => void {
+  onClosed(cb: (notice: { epoch: number; by?: string; destruct?: true }) => void): () => void {
     this.#closedListeners.add(cb)
     return () => this.#closedListeners.delete(cb)
+  }
+
+  /** A self-destructing room's end has come, by its time. A keeper has
+   *  closed it by then; every other agent is to forget it. Never fires for a
+   *  room that does not self-destruct. */
+  onEnded(cb: () => void): () => void {
+    this.#endedListeners.add(cb)
+    return () => this.#endedListeners.delete(cb)
+  }
+
+  /** Whether the room self-destructs: at its end, or when it is closed. True
+   *  from the keeper's state or the invitation this agent joined with, and
+   *  from a closing rekey that said so. */
+  get destruct(): boolean {
+    return this.#destruct
+  }
+
+  /**
+   * Ask the room's relays to delete what this agent signed (NIP-09), after
+   * leaving the room. A keeper also asks for the room's group invitations
+   * to go; the closing rekey and the link's retirement stay, so a member who
+   * was away still learns the room ended. Best effort and bounded: a relay
+   * may decline, and what a member already copied is theirs. Only what this
+   * run's device key signed can be asked for.
+   */
+  async deleteOwnEvents(opts: { timeoutMs?: number } = {}): Promise<DeletionReport> {
+    await this.leave()
+    const keys: DeletionKey[] = [{ sk: this.#deviceSk }]
+    if (this.#keeper) keys.push({ sk: this.#keeper.inviterSk, kinds: [KINDS.GROUP_INVITATION] })
+    const transport = this.#makeTransport(this.#pool)
+    try {
+      return await deleteSignedEvents({ transport, keys, now: this.#now, timeoutMs: opts.timeoutMs })
+    } finally {
+      transport.close()
+    }
+  }
+
+  /** At the end of a self-destructing room: a keeper closes it, with the
+   *  flag, and everybody is told. */
+  #keepEnd(endsAt: number | undefined): void {
+    if (!this.#destruct || endsAt === undefined) return
+    const tick = (): void => {
+      this.#endTimer = undefined
+      if (this.#left) return
+      const wait = (endsAt - this.#now()) * 1000
+      if (wait > 0) {
+        // setTimeout's longest wait is about 24.8 days; a room can last 30.
+        const timer = setTimeout(tick, Math.min(wait, 2 ** 31 - 1))
+        timer.unref?.()
+        this.#endTimer = timer
+        return
+      }
+      void (async () => {
+        if (this.#keeper && !this.session.closed) await this.closeRoom(undefined, { destruct: true }).catch(() => {})
+        this.#emit(this.#endedListeners, undefined)
+      })()
+    }
+    tick()
   }
 
   /** This participant was removed. A joiner should leave. */
@@ -1466,9 +1574,15 @@ export class RoomAgent {
 
   /** Say goodbye and close everything, hosting included. Resolves once
    *  the farewell has gone out; a process should await it before exiting. */
-  async leave(): Promise<void> {
-    if (this.#left) return
+  leave(): Promise<void> {
+    this.#leaving ??= this.#leave()
+    return this.#leaving
+  }
+
+  async #leave(): Promise<void> {
     this.#left = true
+    if (this.#endTimer !== undefined) clearTimeout(this.#endTimer)
+    this.#endTimer = undefined
     this.#controlUnsub?.()
     this.#controlUnsub = undefined
     this.#rosterUnsub?.()

@@ -67,6 +67,78 @@ seconds, rides in the 1463 body as `ends` and on the event as a NIP-40
   invitation left to hand out, so a late newcomer is told the invitation is
   not available rather than the date.
 
+## Self-destructing rooms
+
+A group can be made to self-destruct: when it ends, every member's device
+deletes what it wrote there and forgets the room. The creation form asks
+**When it ends: Self-destruct / Keep it read-only** for a room with an end,
+defaulting to Self-destruct. A room with no end is made to self-destruct
+from its details, with Self-destruct now. The flag rides inside the encrypted 1463
+body and the encrypted closing rekey (`destruct`, fold-kit 0.9.0), never on
+the outside of an event and never in the plain-JSON retirement. See
+[protocol.md](protocol.md#room-links-and-admission).
+
+- **Kept on the device.** The saved room, the kept and tab admissions, the
+  creator's record and the account's bookmark carry `destruct`, so a device
+  that was offline at the end acts on it the next time it starts. Once set
+  it is never taken back. The room's admission is kept past its end, and its
+  device key past the usual 30 days unused, until the room has been tidied
+  away and its deletions sent.
+- **At the end.** By the room's timer while it is open, at the next launch
+  (`destructDue`), when the closing rekey says so (in the room, in a docked
+  call, or in a room the list or the desktop rail is watching), or when
+  another of the person's devices tombstones the bookmark, the device runs the
+  tidy-up below without asking. Each room is tried once per run; a failure is
+  tried again by the list's timer and at the next launch. One tab per room
+  runs it (Web Locks); the others leave.
+- **What the tidy-up does,** in this order: delete the link-key records when
+  this device made the room; leave in every tab; NIP-09 delete this device's
+  own events; tombstone the account's bookmark and delete its read position;
+  wipe locally (every key naming the room or its invitation, the room's
+  entries inside shared records such as the relay map, its pins and
+  projects, its shown notifications, and the archive streams this device can
+  name: the main chat and rekeys, the main chat of every kept epoch, and the
+  known channels in each); then leave a tombstone row in the rooms list, "A
+  room self-destructed · Fri 9 Oct, 15:43", naming no room, until dismissed or
+  seven days pass. A named channel whose name this device never learned stays
+  in the archive as ciphertext nothing here opens.
+- **Self-destruct now.** The browser holding the room's authority can make
+  any room self-destruct from Room details, behind a confirmation naming the
+  room. It retires the link, closes with `destruct` in the rekey, then tidies
+  away its own copy. "End room for everyone" in a room flagged at creation
+  self-destructs it too. Any member keeps Leave and tidy up for themselves.
+- **A device that missed the close.** A device offline at the close learns of
+  it from the authority's refusal (`refused: 'closed'`), which carries no
+  flag. A room flagged on its invitation is covered by the stored flag. For a
+  room flagged only at its closure, the app reads the stored closing rekey off
+  the room's relays and decodes it with the device's current epoch key: when
+  the authority refuses a joining session, when a room's door finds its link
+  retired, and, through the rooms list's watch, whenever the list is open. That
+  works only when the device was at most one epoch behind and a relay still
+  holds the rekey (a dated room's rekey expires at the room's end under
+  NIP-40). If it cannot be read, the room simply ends: nothing is wiped.
+- **The countdown.** A pill in the room header, the rooms list row and the
+  desktop rail row: green, then amber from the smaller of a day and a quarter
+  of the room's lifetime, red from the smaller of an hour and a twentieth,
+  with a live clock; a banner across the chat in the last minute, pulsing
+  unless reduced motion is on. Every stage has words and a fuse icon; screen
+  readers hear stage changes, not ticks. A room that keeps its read-only copy
+  shows the same pill in grey, "Ends in …". The lifetime is counted from when
+  this device made the room, or first knew it, so a late joiner's colours
+  change a little early. One heads-up goes out at the start of red through
+  the person's notification settings; a pending message that cannot leave
+  before the end reads "Will not be sent: the room is self-destructing".
+- **What it cannot do,** said at creation and in Room details: "Someone could
+  still have kept a copy, and some relays ignore deletion requests." Each
+  device can delete only what it signed, so full deletion needs every
+  member's device to come back once. An older client in the room ends it the
+  old way and deletes nothing. Blob deletion (BUD-02) and Android parity are
+  later phases. `kithmoot-agent` enforces the same for itself; see
+  [agents.md](agents.md).
+- **Test builds.** `VITE_TEST_ROOM_END_SECONDS` offers an end that many
+  seconds away on the creation form, for the acceptance suite; a real build
+  never sets it.
+
 ## The room's own relays
 
 The relays a group is made on are its meeting place. They ride in the 1463
@@ -189,6 +261,12 @@ fresh browser contexts against a real test WebSocket relay: everyone leaves,
 a new member joins two days later, persisted browsers return four days
 later, an old link is retired, a meeting is converted, publication fails, a
 creator ends a room for everyone, and ends and tidies up in one action.
+`test/self-destruct.spec.ts` watches a 90-second room self-destruct on two
+devices, one of them away at the end, and checks what was asked to be deleted,
+that nothing in storage names the room, the countdown's stages and the
+tombstone row; it also covers Self-destruct now and a dated room that keeps
+its copy. `app/src/self-destruct.test.ts` checks the stage arithmetic, the
+stored flag and the storage scrub.
 `app/src/room-tidy-up.test.ts` checks the deletion order, `e` and `a` naming,
 the kept retirement and the refusal while a tab does not answer.
 Browser time is advanced for the days-later cases; this is automated evidence,

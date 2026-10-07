@@ -18,7 +18,7 @@ import { hexToBytes } from '@noble/hashes/utils'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import { memoryDeviceStore, type DeviceStore } from './device-store.js'
-import { ROOM_PREFIX, rememberRoom, forgetRoom, type KnownRoom } from './rooms-store.js'
+import { ROOM_PREFIX, rememberRoom, forgetRoom, knownRoom, type KnownRoom } from './rooms-store.js'
 import { deriveRoom } from '../../src/room.js'
 
 const APP = 'kithmoot.rooms.v1'
@@ -37,6 +37,11 @@ interface RecordValue { roomId: string; at: number; room?: KnownRoom; admission?
 export interface BookmarkAdmissions {
   current(room: KnownRoom): string | undefined
   adopt(room: KnownRoom, secret: string): void
+  /** A self-destructing room is about to go from the account's list,
+   *  because another of the person's devices tidied it away. This device
+   *  still has its own events in the room to delete, so it is handed the
+   *  room first. */
+  forgetting?(room: KnownRoom): void
 }
 const SECRET_HEX = /^[0-9a-f]{64}$/
 /** An admission is kept only when the secret it names is the room's own. */
@@ -221,7 +226,8 @@ export class RoomBookmarks {
     // Keep the secret a record already carries when this device has none of
     // its own: a save from a device that lacks it must not drop it.
     const secret = this.admissions?.current(room) ?? previous?.admission?.secret
-    if (previous?.room?.link === room.link && previous.room.name === room.name && previous.admission?.secret === secret) return
+    if (previous?.room?.link === room.link && previous.room.name === room.name && previous.admission?.secret === secret
+      && previous.room.endsAt === room.endsAt && !!previous.room.destruct === !!room.destruct) return
     this.#queue({ roomId: room.roomId, at: Date.now(), room, ...(secret ? { admission: { secret } } : {}) })
   }
 
@@ -265,8 +271,10 @@ export class RoomBookmarks {
     if (value.room) {
       // A conference room's end travels too, so the list on another device
       // shows the room ended without having to open it.
-      const { roomId, link, name, openedAt, endsAt } = value.room
-      value.room = { roomId, link, name, openedAt, readAt: 0, ...(endsAt !== undefined ? { endsAt } : {}) }
+      // So does self-destruct, so a device that never opened the room still
+      // tidies it away at the end.
+      const { roomId, link, name, openedAt, endsAt, destruct, startsAt } = value.room
+      value.room = { roomId, link, name, openedAt, readAt: 0, ...(endsAt !== undefined ? { endsAt } : {}), ...(destruct ? { destruct } : {}), ...(startsAt !== undefined ? { startsAt } : {}) }
     }
     // Addressable-event replacement is ordered in whole seconds. A later
     // edit must not lose to the earlier event's id when both happen in one.
@@ -346,8 +354,10 @@ export class RoomBookmarks {
   }
 
   #apply(value: RecordValue): void {
-    if (value.room) rememberRoom(this.rooms, value.room)
-    else forgetRoom(this.rooms, value.roomId)
+    if (value.room) { rememberRoom(this.rooms, value.room); return }
+    const held = knownRoom(this.rooms, value.roomId)
+    if (held?.destruct) try { this.admissions?.forgetting?.(held) } catch { /* The room still goes from the list. */ }
+    forgetRoom(this.rooms, value.roomId)
   }
 
   #persist(roomId: string): void {

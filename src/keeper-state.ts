@@ -42,6 +42,9 @@ export interface StoredKeeperState {
   members?: string[]
   /** A conference room's end, unix seconds. Written only for one. */
   ends?: number
+  /** The room self-destructs at its end: every device deletes what it wrote
+   *  and forgets the room. Written only for one. */
+  destruct?: true
   /** The room's named channels. Written only when there are any; without
    *  them a restarted keeper announced an empty list and every client took
    *  the room's channels off screen. */
@@ -153,6 +156,7 @@ export function parseKeeperState(json: string): KeeperState {
     if (!isRoomEnds(stored.ends)) throw new Error('keeper state: ends is not a time')
     state.endsAt = stored.ends
   }
+  if (stored.destruct === true) state.destruct = true
   if (stored.nudge !== undefined) {
     if (!Array.isArray(stored.nudge) || !stored.nudge.every((p) => typeof p === 'string' && HEX64.test(p))) {
       throw new Error('keeper state: nudge is not a list of pubkeys')
@@ -199,6 +203,7 @@ export function serialiseKeeperState(state: KeeperState): string {
   if (state.persistent) stored.persistent = true
   if (state.closed) stored.closed = true
   if (state.endsAt !== undefined) stored.ends = state.endsAt
+  if (state.destruct) stored.destruct = true
   if (state.nudge?.length) stored.nudge = [...new Set(state.nudge.map(normaliseHex))].sort()
   if (state.members?.length) stored.members = [...new Set(state.members.map(normaliseHex))].sort()
   if (state.channels?.length) stored.channels = canonicalChannels(state.channels)

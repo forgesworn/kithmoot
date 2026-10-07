@@ -51,6 +51,20 @@
   --bubble-mine-border: #3d7f9e;
   --system-ink: #b9b3a6;
 
+  /* The self-destruct countdown: a fill and its ink per stage, then the
+     final minute's banner. Each ink is at least 4.5:1 on its fill in both
+     themes (checked by hand with the WCAG formula; see the commit). */
+  --fuse-green: #12301c;
+  --on-fuse-green: #8ee3ab;
+  --fuse-amber: #3b2a06;
+  --on-fuse-amber: #ffcf6e;
+  --fuse-red: #4a1212;
+  --on-fuse-red: #ffb0aa;
+  --fuse-neutral: #24262b;
+  --on-fuse-neutral: #c9c4b8;
+  --fuse-banner: #7a1712;
+  --on-fuse-banner: #ffffff;
+
   /* A picture is letterboxed against black in either theme: that is what a
      video is shown against, not a property of the page around it. */
   --video-bg: #000;
@@ -100,6 +114,18 @@
     --bubble: #ffffff;
     --bubble-mine-border: #7fb6cf;
     --system-ink: #6a655b;
+
+    /* Amber on a pale ground needs a dark ink, not an amber one. */
+    --fuse-green: #dff2e5;
+    --on-fuse-green: #145a2c;
+    --fuse-amber: #fbedc8;
+    --on-fuse-amber: #5c3b00;
+    --fuse-red: #fadedb;
+    --on-fuse-red: #8a1a16;
+    --fuse-neutral: #ebe7de;
+    --on-fuse-neutral: #4a463e;
+    --fuse-banner: #9c2420;
+    --on-fuse-banner: #ffffff;
   }
 }
 
@@ -110,6 +136,10 @@
    same way light already sits on top of dark, rather than a third theme. */
 @media (prefers-contrast: more) {
   :root {
+    --on-fuse-green: #b5f0c9;
+    --on-fuse-amber: #ffe2a6;
+    --on-fuse-red: #ffd0cc;
+    --on-fuse-neutral: #e6e2d8;
     --border: #565b63;
     --control-border: #7a7f87;
     --field-border: #9aa0a8;
@@ -119,6 +149,10 @@
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: light) {
   :root {
+    --on-fuse-green: #0b3d1c;
+    --on-fuse-amber: #3f2800;
+    --on-fuse-red: #640f0c;
+    --on-fuse-neutral: #2e2b26;
     --border: #8f8a7c;
     --control-border: #6d675b;
     --field-border: #55504a;
@@ -517,6 +551,65 @@ details#appConnections button { display: block; }
   font-size: 0.85rem;
   color: var(--accent);
 }
+
+/* The self-destruct countdown pill: words and a fuse, never colour alone.
+   Green, amber and red for a room that self-destructs; grey for one that
+   ends and keeps a read-only copy. */
+.fusePill {
+  display: inline-flex;
+  align-items: center;
+  gap: .3em;
+  max-width: 100%;
+  padding: .05em .55em;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: .8rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: var(--fuse-neutral);
+  color: var(--on-fuse-neutral);
+}
+.fusePill .fuseIcon { flex: 0 0 auto; }
+.fusePill .fuseText { overflow: hidden; text-overflow: ellipsis; }
+.fusePill[data-stage='green'] { background: var(--fuse-green); color: var(--on-fuse-green); }
+.fusePill[data-stage='amber'] { background: var(--fuse-amber); color: var(--on-fuse-amber); }
+.fusePill[data-stage='red'],
+.fusePill[data-stage='final'],
+.fusePill[data-stage='gone'] { background: var(--fuse-red); color: var(--on-fuse-red); }
+.roomIdentity .roomEndsLine.fusePill { display: inline-flex; width: auto; font-size: .78rem; }
+.roomText .fusePill { margin-top: .2rem; align-self: flex-start; }
+.workspaceRoom .fusePill { flex: 0 1 auto; min-width: 0; font-size: .72rem; }
+
+/* The final minute, across the chat. A slow pulse, unless the reader asked
+   for less motion. */
+.fuseBanner {
+  margin: .4rem .6rem;
+  padding: .6rem .9rem;
+  border-radius: 8px;
+  background: var(--fuse-banner);
+  color: var(--on-fuse-banner);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  animation: fusePulse 2s ease-in-out infinite;
+}
+@keyframes fusePulse { 50% { opacity: .82; } }
+@media (prefers-reduced-motion: reduce) {
+  .fuseBanner { animation: none; }
+}
+
+/* A room that self-destructed: one greyed line, naming no room. */
+.tombstoneRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  padding: .5rem .8rem;
+  color: var(--muted);
+  font-style: italic;
+}
+.tombstoneRow button { margin: 0; min-height: 44px; font-style: normal; }
+.pendingMsg[data-state='doomed'] .pendingStatus { color: var(--danger); }
 
 /* Faces and voices, hidden by `render` in app/src/main.ts unless somebody
    in the room is offering one. */
@@ -3031,8 +3124,8 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
    explanation under them only once a date is chosen. */
 .roomEndsRow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .2rem 0 .6rem; }
 #createRoomForm .roomEndsRow label { margin: 0; }
-.roomEndsRow select { flex: 0 1 auto; min-height: 44px; }
-#roomEndsHint { flex-basis: 100%; margin: 0; max-width: 60ch; }
+.roomEndsRow select { flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 44px; }
+#roomEndsHint, #roomWhenEndsHint { flex-basis: 100%; margin: 0; max-width: 60ch; }
 .setupButtons { display: flex; align-items: center; gap: .75rem; margin-top: .8rem; }
 .setupButtons button { margin: 0; }
 /* Cancel only makes sense once returning to a list it can cancel back to;

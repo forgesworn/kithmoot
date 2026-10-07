@@ -281,6 +281,24 @@ describe('room epochs', () => {
     await expect(keeper.rekey({ authoritySk })).rejects.toThrow(/closed/)
   })
 
+  it('a closing rekey that self-destructs tells every member so, and an open rekey cannot', async () => {
+    const relay = new SimRelay()
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const heard: { epoch: number; by?: string; destruct?: true }[] = []
+    const keeper = member(relay, 'Keeper', authority, { onClosed: (n) => heard.push(n) })
+    const alice = member(relay, 'Alice', authority, { onClosed: (n) => heard.push(n) })
+    await keeper.join([], {})
+    await alice.join([], {})
+    await settle()
+    await expect(keeper.rekey({ authoritySk, removed: [], destruct: true })).rejects.toThrow(/closing/)
+    const notice = await keeper.rekey({ authoritySk, closed: true, destruct: true })
+    await settle()
+    expect(notice.destruct).toBe(true)
+    expect(alice.closed).toBe(true)
+    expect(heard).toEqual([{ epoch: 1, destruct: true }, { epoch: 1, destruct: true }])
+  })
+
   it('a reopened keeper refuses the participants it removed before the roster says a word', async () => {
     const relay = new SimRelay()
     const authoritySk = generateSecretKey()

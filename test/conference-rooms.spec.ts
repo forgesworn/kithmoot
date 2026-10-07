@@ -57,6 +57,9 @@ test('a conference room ends in a day: it says so, tags what it sends, shows a Q
     await expect(page.locator('#roomEndsRow')).toBeVisible()
     await page.locator('#roomEnds').selectOption('1')
     await expect(page.locator('#roomEndsHint')).toBeVisible()
+    // A conference room that keeps its read-only copy, as before
+    // self-destruct; a dated room self-destructs unless this is chosen.
+    await page.locator('#roomWhenEnds').selectOption('keep')
     const madeAt = Math.floor(Date.now() / 1000)
     await page.locator('#create').click()
     await expect(page.locator('#join')).toBeVisible()
@@ -77,8 +80,11 @@ test('a conference room ends in a day: it says so, tags what it sends, shows a Q
     await expect(page.locator('#chatLog')).toContainText('Welcome to the workshop')
 
     // The end, in the room's header.
+    // A neutral countdown pill, its date in its title.
     await expect(page.locator('#roomEndsLine')).toBeVisible()
-    await expect(page.locator('#roomEndsLine')).toHaveText(`Ends ${formatConferenceEnd(ends)}`)
+    await expect(page.locator('#roomEndsLine')).toHaveAttribute('data-stage', 'neutral')
+    await expect(page.locator('#roomEndsLine .fuseText')).toHaveText(/^Ends in 23 h \d+ m$/)
+    await expect(page.locator('#roomEndsLine')).toHaveAttribute('title', `Ends ${formatConferenceEnd(ends)}`)
 
     // One tap to a QR big enough to scan across a table, with the end beside it.
     await page.locator('#inviteQr').click()

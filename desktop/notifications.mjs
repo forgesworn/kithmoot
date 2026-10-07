@@ -32,5 +32,12 @@ export class DesktopNotices {
     notice.on('failed', forget)
     try { notice.show(); return true } catch { forget(); return false }
   }
+  /** Close every banner for one room: tags are `kithmoot:<roomId>:<channel>`. */
+  clearRoom(roomId) {
+    if (typeof roomId !== 'string' || !/^[a-f0-9]{64}$/.test(roomId)) return
+    const prefix = `kithmoot:${roomId}:`
+    for (const [tag, notice] of [...this.#active]) if (tag.startsWith(prefix)) { notice.close(); this.#active.delete(tag) }
+    for (const tag of [...this.#last.keys()]) if (tag.startsWith(prefix)) this.#last.delete(tag)
+  }
   clear() { for (const notice of this.#active.values()) notice.close(); this.#active.clear(); this.#last.clear() }
 }

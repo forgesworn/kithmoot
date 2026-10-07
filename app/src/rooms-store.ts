@@ -51,6 +51,16 @@ export interface KnownRoom {
   /** A conference room's end, unix seconds: when it ends by itself. See
    *  `endLapsedConferences`. */
   endsAt?: number
+  /** The room self-destructs when it ends, by its time or by its authority
+   *  closing it: every device deletes what it wrote and forgets the room.
+   *  Kept so a device offline at the end still does so when it next starts.
+   *  Never taken back once set. See `self-destruct.ts`. */
+  destruct?: true
+  /** Unix seconds this device first knew the room, or when it was made, for
+   *  scaling the countdown to the room's lifetime. Only for a room with an
+   *  end. A late joiner's lifetime is shorter than the room's: close enough
+   *  for choosing colours. */
+  startsAt?: number
 }
 
 /** What a visit to a room says about it. */
@@ -64,6 +74,10 @@ export interface RoomVisit {
   openedAt: number
   /** A conference room's end, when the visit learned one. */
   endsAt?: number
+  /** The room self-destructs, when the visit learned so. */
+  destruct?: boolean
+  /** When the room was made, when the visit knows. */
+  startsAt?: number
 }
 
 const ROOM_ID = /^[0-9a-f]{64}$/
@@ -88,6 +102,8 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
     if (typeof parsed.keep === 'boolean') room.keep = parsed.keep
     if (typeof parsed.endedAt === 'number' && Number.isFinite(parsed.endedAt)) room.endedAt = parsed.endedAt
     if (isRoomEnds(parsed.endsAt)) room.endsAt = parsed.endsAt
+    if (parsed.destruct === true) room.destruct = true
+    if (typeof parsed.startsAt === 'number' && Number.isFinite(parsed.startsAt)) room.startsAt = parsed.startsAt
     // Sanitised on the way out of storage as well as on the way in, because
     // a stored value is only as trustworthy as whatever wrote it.
     const name = sanitiseDisplayName(parsed.name)
@@ -151,8 +167,29 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   // rotated link ends when the room does.
   const endsAt = isRoomEnds(visit.endsAt) ? visit.endsAt : existing?.endsAt
   if (endsAt !== undefined) room.endsAt = endsAt
+  // Self-destruct sticks: a visit that did not learn it never clears it.
+  if (visit.destruct === true || existing?.destruct) room.destruct = true
+  const startsAt = existing?.startsAt ?? (typeof visit.startsAt === 'number' && Number.isFinite(visit.startsAt) ? visit.startsAt : undefined)
+  if (startsAt !== undefined) room.startsAt = startsAt
+  else if (endsAt !== undefined) room.startsAt = visit.openedAt
   writeRoom(store, room)
   return room
+}
+
+/** Note that a room self-destructs, learned after it was written down (its
+ *  closing rekey said so). False when the room is not one this device has
+ *  written down. */
+export function markDestruct(store: DeviceStore, roomId: string): boolean {
+  const room = knownRoom(store, roomId)
+  if (!room) return false
+  if (!room.destruct) writeRoom(store, { ...room, destruct: true })
+  return true
+}
+
+/** The self-destructing rooms whose end has come, by date or by closure,
+ *  and which this device has not yet tidied away. */
+export function destructDue(store: DeviceStore, now: number): KnownRoom[] {
+  return knownRooms(store).filter(room => room.destruct && (room.endedAt !== undefined || (room.endsAt !== undefined && now >= room.endsAt)))
 }
 
 /** Mark ended every conference room whose end has come, as of its end, so
@@ -175,7 +212,10 @@ export function markEnded(store: DeviceStore, roomId: string, at: number): boole
   const room = knownRoom(store, roomId)
   if (!room) return false
   const { keep: _kept, ...rest } = room
-  forgetKeptFor(store, room.link)
+  // A room that self-destructs keeps its admission until it has been
+  // tidied away: the tidy-up needs the room's key to find what to delete,
+  // and removes the admission itself once it has.
+  if (!room.destruct) forgetKeptFor(store, room.link)
   writeRoom(store, { ...rest, endedAt: room.endedAt ?? at })
   return true
 }

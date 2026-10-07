@@ -202,6 +202,26 @@ export class RelayConnections {
     return changed || stored
   }
 
+  /** Forget everything held for one room: its own relays, the relays its
+   *  authority added, and this device's saved choice and snapshot for it.
+   *  For a room that self-destructed, so nothing here names it any more. */
+  forgetRoom(roomId: string): void {
+    if (!/^[a-f0-9]{64}$/.test(roomId)) return
+    const scopes = [`room:${roomId}`, `inherited:${roomId}`]
+    if (scopes.some(scope => scope in this.#saved)) {
+      const next = { ...this.#saved }
+      for (const scope of scopes) delete next[scope]
+      this.#saved = next
+      try { this.storage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* Nothing more is held there. */ }
+    }
+    if (roomId in this.#fixed) {
+      const { [roomId]: _gone, ...rest } = this.#fixed
+      this.#fixed = rest
+      try { this.storage.setItem(ROOM_RELAYS_KEY, JSON.stringify(rest)) } catch { /* Nothing more is held there. */ }
+    }
+    this.#added.delete(roomId)
+  }
+
   /** The room's own relays for a `room:<id>` scope; none for any other. */
   roomRelaysFor(scope: string): string[] { return this.#roomRelayUrls(scope) }
   #roomRelayUrls(scope: string): string[] {

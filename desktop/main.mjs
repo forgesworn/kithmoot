@@ -353,6 +353,11 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame) return
       notices.show(content)
     })
+    // A room that self-destructed takes its banners with it.
+    ipcMain.on('desktop:notify-clear-room', (event, roomId) => {
+      if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame) return
+      notices.clearRoom(roomId)
+    })
     ipcMain.on('desktop:call-state', (event, active) => {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || typeof active !== 'boolean') return
       callActive = active

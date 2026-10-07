@@ -143,8 +143,22 @@ NOT join it and SHOULD tell a newcomer the date it ended. A re-signed
 invitation keeps the same `ends`, and none is re-signed after it. A 1461
 retirement of such a room carries the same `expiration` tag.
 
-**Room relays.** The body MAY also carry `relays`, after `ends` (key order
-`v, room, secret, ends, relays`): the relays the room was made on, fixed
+**Self-destruct.** The body MAY also carry `destruct: true`, after `ends`
+and before `relays` (key order `v, room, secret, ends, destruct, relays`): when
+the room ends, by its `ends` or by its authority closing it, every member's
+device deletes what it signed for the room (NIP-09) and forgets the room. A
+reader MUST reject the invitation when `destruct` is present and not `true`.
+`destruct` without `ends` is valid. When two valid copies disagree, the flag
+sticks: any valid copy that says it makes the room self-destruct. The closing
+rekey (1462, `closed: true`) MAY carry the same flag inside its encrypted body,
+after `closed`; it is believed only beside `closed`. It is never written on
+the outside of an event, and a client SHOULD NOT add it to the plain-JSON 1461
+retirement either, although fold-kit can. A reader that predates the field
+ignores it and ends the room the old way. See fold-kit's
+`docs/room-destruct.md` and [persistent-groups.md](persistent-groups.md#self-destructing-rooms).
+
+**Room relays.** The body MAY also carry `relays`, after `ends` and
+`destruct` (key order `v, room, secret, ends, destruct, relays`): the relays the room was made on, fixed
 then and never changed. When present it MUST be an array of one to eight
 distinct strings, each a safe relay URL (`wss://`, or `ws://` on loopback
 only) already in canonical form - nostr-tools' `normalizeURL`, so
