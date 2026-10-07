@@ -38,7 +38,7 @@ import {
   requestRoomEpoch,
 } from './epoch.js'
 import type { EpochKeys, EpochRefusal, LeftEpoch, RekeyNotice, RoomEpoch } from './epoch.js'
-import { MAX_MEMBER_EPOCH_CHAIN, hostMemberEpochDesk, memberEpochSource } from './member-epoch.js'
+import { MAX_MEMBER_EPOCH_CHAIN, hostMemberEpochDesk, memberEpochSource, readRekeyEvidence } from './member-epoch.js'
 import type { MemberEpochSource } from './member-epoch.js'
 import type { RelayTransport } from './relay-pool.js'
 import { verificationWords } from './verification.js'
@@ -380,8 +380,12 @@ export interface RoomSessionBaseOptions {
    *  is, which is an epoch nobody else is in any more; the caller should
    *  leave. */
   onRemoved?: (notice: { epoch: number; by?: string }) => void
-  /** Called when the room was closed by its authority. As above. */
-  onClosed?: (notice: { epoch: number; by?: string }) => void
+  /** The room was closed by its authority. `destruct` is set when the
+   *  closing rekey said the room self-destructs (fold-kit 0.9.0): every
+   *  device deletes what it wrote and forgets the room. A close learned
+   *  from the authority's refusal rather than the rekey carries no flag;
+   *  then only a closing rekey already held is read for it. */
+  onClosed?: (notice: { epoch: number; by?: string; destruct?: true }) => void
   /**
    * A conference room's end, in unix seconds: the `ends` its group
    * invitation carries (`PersistentRoomAdmission.endsAt`). Every event this
@@ -1467,7 +1471,7 @@ export class RoomSession {
         this.#closeMemberDesk()
         this.#setAwaitingEpoch(false)
         if (!this.#unsub) this.#refusedWhileJoining = 'closed'
-        this.#opts.onClosed?.({ epoch: notice.epoch, by: notice.by })
+        this.#opts.onClosed?.({ epoch: notice.epoch, by: notice.by, ...(notice.destruct ? { destruct: true as const } : {}) })
         return false
       }
       if (!notice.secret) {
@@ -1727,7 +1731,13 @@ export class RoomSession {
     this.#setAwaitingEpoch(false)
     if (why === 'closed') {
       this.#closed = true
-      this.#opts.onClosed?.({ epoch: this.#epoch.epoch })
+      // The authority's refusal carries no self-destruct flag. The closing
+      // rekey does, and a relay may already have handed it over sealed to
+      // this epoch (with no copy for this device, so it was left pending):
+      // read the flag off that when it is here.
+      const closing = this.#pendingRekeys.get(this.#epoch.epoch + 1)
+      const evidence = closing ? readRekeyEvidence(closing, { roomId: this.roomId, authority: this.#opts.authority!, previous: this.#epoch }) : null
+      this.#opts.onClosed?.({ epoch: this.#epoch.epoch, ...(evidence?.destruct ? { destruct: true as const } : {}) })
     } else {
       this.#removed.add(this.participant)
       this.#opts.onRemoved?.({ epoch: this.#epoch.epoch })
@@ -1848,7 +1858,7 @@ export class RoomSession {
    * recently seen, cut to what fits in one event (`capRecipients`).
    * Refused with a removal or a close.
    */
-  async rekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean; scheduled?: boolean }): Promise<RekeyNotice> {
+  async rekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean; destruct?: boolean; scheduled?: boolean }): Promise<RekeyNotice> {
     if (!this.#self) throw new Error('join the room before rekeying it')
     if (this.#closed) throw new Error('this room has been closed')
     const authority = getPublicKey(opts.authoritySk)
@@ -1856,6 +1866,8 @@ export class RoomSession {
     const removed = [...new Set((opts.removed ?? []).map(normaliseHex))].sort()
     const scheduled = opts.scheduled === true
     if (scheduled && (removed.length > 0 || opts.closed)) throw new Error('a scheduled rekey removes nobody and does not close the room')
+    if (opts.destruct && !opts.closed) throw new Error('only a closing rekey can self-destruct the room')
+    const destruct = opts.closed === true && opts.destruct === true
     const next: RoomEpoch = { epoch: this.#epoch.epoch + 1, secret: generateEpochSecret() }
     // Deduplicated: a device with two tabs of this room open is two roster
     // entries and still exactly one copy, sealed by the newest credential
@@ -1883,6 +1895,7 @@ export class RoomSession {
       removed,
       by: opts.by,
       closed: opts.closed,
+      ...(destruct ? { destruct: true } : {}),
       ...(scheduled ? { scheduled: true } : {}),
       // The epoch commitment: lets any current member hand this epoch on to
       // a device that missed the rekey, and that device check it, while
@@ -1918,6 +1931,7 @@ export class RoomSession {
       members,
       ...(opts.by !== undefined ? { by: normaliseHex(opts.by) } : {}),
       closed: opts.closed === true,
+      ...(destruct ? { destruct: true as const } : {}),
       ...(scheduled ? { scheduled: true as const } : {}),
       secret: next.secret,
       at: now,
@@ -1927,7 +1941,7 @@ export class RoomSession {
       this.#closeMemberDesk()
       try {
         this.#opts.onEpoch?.(notice)
-        this.#opts.onClosed?.({ epoch: next.epoch, by: notice.by })
+        this.#opts.onClosed?.({ epoch: next.epoch, by: notice.by, ...(destruct ? { destruct: true as const } : {}) })
       } catch {
         // A caller's problem, not the room's.
       }
