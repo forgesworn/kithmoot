@@ -991,6 +991,17 @@ async function uploadEnvelopeBody(
   return checkDescriptor(parsed, origin, hash, size)
 }
 
+/** What is wrong with a blob URL said to be on `origin` and named by
+ *  `hash`: on another origin (or carrying a query or fragment), or with a
+ *  last path segment that is not the hash, an optional short extension
+ *  allowed. Undefined when it is right. */
+function blobUrlProblem(url: URL, origin: string, hash: string): 'origin' | 'leaf' | undefined {
+  if (url.origin !== origin || url.search || url.hash || url.username || url.password) return 'origin'
+  const leaf = url.pathname.split('/').filter(Boolean).at(-1) ?? ''
+  if (!new RegExp(`^${hash}(?:\\.[a-z0-9]{1,10})?$`).test(leaf)) return 'leaf'
+  return undefined
+}
+
 function checkDescriptor(value: unknown, origin: string, hash: string, size: number): BlossomDescriptor {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('The server did not answer with a blob descriptor.')
@@ -1007,14 +1018,135 @@ function checkDescriptor(value: unknown, origin: string, hash: string, size: num
   } catch {
     throw new Error('The server did not say where the blob is.')
   }
-  if (url.origin !== origin || url.search || url.hash) throw new Error('The server put the blob somewhere other than itself.')
-  const leaf = url.pathname.split('/').filter(Boolean).at(-1) ?? ''
-  if (!new RegExp(`^${hash}(?:\\.[a-z0-9]{1,10})?$`).test(leaf)) {
-    throw new Error('The server did not address the blob by its hash.')
-  }
+  const problem = blobUrlProblem(url, origin, hash)
+  if (problem === 'origin') throw new Error('The server put the blob somewhere other than itself.')
+  if (problem === 'leaf') throw new Error('The server did not address the blob by its hash.')
   const out: BlossomDescriptor = { url: url.toString(), sha256: hash, size }
   if (typeof d.type === 'string' && d.type.length <= 255 && !CONTROLS.test(d.type)) out.type = d.type.toLowerCase()
   return out
+}
+
+// ---------------------------------------------------------------------------
+// The Blossom delete (BUD-02)
+// ---------------------------------------------------------------------------
+
+/** How long a delete authorisation sent at once is good for. */
+export const DELETE_AUTHORISATION_LIFETIME_SECONDS = 60
+
+/**
+ * Where to send a BUD-02 delete for a blob this device put on a Blossom
+ * server, or undefined when the URL is not one to send it to: not https,
+ * not on one of `origins`, carrying a query or fragment, or not named by
+ * `sha256` in its last segment. The same checks an upload's descriptor is
+ * held to. The delete goes to the URL with its leaf the bare hash, which
+ * is what BUD-02 names (`DELETE /<sha256>`), under the same base path the
+ * blob is served from.
+ */
+export function blobDeleteUrl(blobUrl: string, sha256: string, origins: Iterable<string>): string | undefined {
+  const hash = sha256.toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(hash)) return undefined
+  let url: URL
+  try { url = new URL(blobUrl) } catch { return undefined }
+  if (url.protocol !== 'https:') return undefined
+  const allowed = new Set<string>()
+  for (const origin of origins) { try { allowed.add(normaliseBlossomServer(origin)) } catch { /* Not an origin. */ } }
+  if (!allowed.has(url.origin) || blobUrlProblem(url, url.origin, hash)) return undefined
+  const segments = url.pathname.replace(/\/+$/, '').split('/')
+  segments[segments.length - 1] = hash
+  return `${url.origin}${segments.join('/')}`
+}
+
+/**
+ * The unsigned kind-24242 event that authorises deleting one blob from one
+ * host (BUD-02: `t` delete, the hash in `x`). `lifetime` is how long it
+ * stays good: a minute when it is sent at once, longer when it is kept to
+ * be sent again later, so that nothing more than this one permission
+ * outlives the key that signed it.
+ */
+export function buildDeleteAuthorisation(
+  sha256: string,
+  server: string,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+  lifetime: number = DELETE_AUTHORISATION_LIFETIME_SECONDS,
+): EventTemplate {
+  const hash = sha256.toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('The blob hash must be 64 hex characters.')
+  if (!Number.isSafeInteger(lifetime) || lifetime <= 0) throw new Error('The authorisation lifetime must be a positive number of seconds.')
+  const hostname = new URL(normaliseBlossomServer(server)).hostname.toLowerCase()
+  const createdAt = Math.max(0, nowSeconds - 1)
+  return {
+    kind: BLOSSOM_AUTH_KIND,
+    created_at: createdAt,
+    tags: [
+      ['t', 'delete'],
+      ['expiration', String(createdAt + lifetime)],
+      ['server', hostname],
+      ['x', hash],
+    ],
+    content: `Delete blob ${hash}`,
+  }
+}
+
+/** Is `event` a signed delete authorisation for `sha256`, still good at `now`? */
+export function isDeleteAuthorisation(event: Event, sha256: string, nowSeconds: number): boolean {
+  const tag = (name: string) => event.tags.find(t => t[0] === name)?.[1]
+  const expiration = Number(tag('expiration'))
+  return event.kind === BLOSSOM_AUTH_KIND && tag('t') === 'delete' && tag('x') === sha256.toLowerCase()
+    && Number.isFinite(expiration) && expiration > nowSeconds && verifyEventUncached(event)
+}
+
+/**
+ * What became of a delete: `deleted` when the server no longer serves the
+ * blob, `kept` when it answered but still serves it (it ignores deletes,
+ * the key was not the uploader's, or the endpoint is not open), `failed`
+ * when it could not be asked or answered with an error.
+ */
+export type BlobDeleteOutcome =
+  | { status: 'deleted' }
+  | { status: 'kept'; detail: string }
+  | { status: 'failed'; detail: string }
+
+export interface DeleteBlobOptions {
+  /** Injectable, for tests and for a runtime with its own fetch. */
+  fetch?: typeof fetch
+  signal?: AbortSignal
+}
+
+/**
+ * Ask a Blossom server to delete a blob (BUD-02: `DELETE /<sha256>` with a
+ * signed `t` delete authorisation), then look (`HEAD`) to see whether it is
+ * still served. A 200 from a delete is not proof: a server answers it to a
+ * key that does not own the blob and keeps the bytes, and a front end that
+ * does not pass deletes through may answer 404 to every one. Only the blob
+ * no longer being served is `deleted`.
+ *
+ * `deleteUrl` comes from `blobDeleteUrl`; the authorisation is signed by
+ * the caller, by the key that signed the upload.
+ */
+export async function deleteBlob(deleteUrl: string, authorisation: Event, opts: DeleteBlobOptions = {}): Promise<BlobDeleteOutcome> {
+  const doFetch = opts.fetch ?? globalThis.fetch
+  const host = (() => { try { return new URL(deleteUrl).hostname } catch { return deleteUrl } })()
+  const common = { credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', redirect: 'error', signal: opts.signal } as const
+  let response: Response
+  try {
+    response = await doFetch(deleteUrl, { ...common, method: 'DELETE', headers: { Authorization: encodeBlossomAuthorisation(authorisation) } })
+  } catch {
+    return { status: 'failed', detail: `Could not reach ${host}.` }
+  }
+  if (response.status !== 200 && response.status !== 204 && response.status !== 404) {
+    const reason = safeReason(response.headers.get('X-Reason'))
+    return { status: 'failed', detail: `${host} answered ${response.status}${reason ? `: ${reason}` : ''}.` }
+  }
+  let check: Response
+  try {
+    check = await doFetch(deleteUrl, { ...common, method: 'HEAD' })
+  } catch {
+    // It answered the delete and then could not be reached: taken at its word.
+    return { status: 'deleted' }
+  }
+  if (check.status === 404 || check.status === 410) return { status: 'deleted' }
+  if (check.ok) return { status: 'kept', detail: `${host} still serves the file.` }
+  return { status: 'failed', detail: `${host} answered ${check.status} when asked whether the file is gone.` }
 }
 
 /**

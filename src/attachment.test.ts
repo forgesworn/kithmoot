@@ -28,6 +28,11 @@ import {
   ENVELOPE_SCHEME,
   MAX_UPLOAD_SOURCE_BYTES,
   UPLOAD_AUTHORISATION_LIFETIME_SECONDS,
+  blobDeleteUrl,
+  buildDeleteAuthorisation,
+  deleteBlob,
+  isDeleteAuthorisation,
+  DELETE_AUTHORISATION_LIFETIME_SECONDS,
   type BlossomDescriptor,
 } from './attachment.js'
 import { normaliseAttachment, type ChatAttachment } from './chat.js'
@@ -873,5 +878,103 @@ describe('the whole drop, end to end', () => {
     const seen = JSON.stringify(event) + (blossom.mock.calls[0]?.[1] as RequestInit).headers
     expect(seen).not.toContain(sealed.key)
     expect(seen).not.toContain('whiteboard')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Deleting (BUD-02)
+// ---------------------------------------------------------------------------
+
+describe('deleting a blob this device uploaded', () => {
+  const sk = generateSecretKey()
+  const hash = 'ab'.repeat(32)
+  const now = 1_800_000_000
+
+  it('signs a short-lived t=delete authorisation naming the hash and the host', () => {
+    const template = buildDeleteAuthorisation(hash.toUpperCase(), 'https://Files.Example', now)
+    const event = finalizeEvent(template, sk)
+    const tag = (n: string) => event.tags.filter(t => t[0] === n).map(t => t[1])
+    expect(event.kind).toBe(24242)
+    expect(tag('t')).toEqual(['delete'])
+    expect(tag('x')).toEqual([hash])
+    expect(tag('server')).toEqual(['files.example'])
+    expect(event.created_at).toBe(now - 1)
+    expect(Number(tag('expiration')[0]) - event.created_at).toBe(DELETE_AUTHORISATION_LIFETIME_SECONDS)
+    expect(isDeleteAuthorisation(event, hash, now)).toBe(true)
+    // Expired, for another blob, an upload, or tampered with: not one.
+    expect(isDeleteAuthorisation(event, hash, now + DELETE_AUTHORISATION_LIFETIME_SECONDS)).toBe(false)
+    expect(isDeleteAuthorisation(event, 'cd'.repeat(32), now)).toBe(false)
+    expect(isDeleteAuthorisation(finalizeEvent(buildUploadAuthorisation(hash, 'https://files.example', now), sk), hash, now)).toBe(false)
+    expect(isDeleteAuthorisation({ ...event, content: 'other' }, hash, now)).toBe(false)
+  })
+
+  it('keeps a longer authorisation good for the lifetime asked, and refuses a bad hash or lifetime', () => {
+    const event = finalizeEvent(buildDeleteAuthorisation(hash, 'https://files.example', now, 7 * 86_400), sk)
+    expect(isDeleteAuthorisation(event, hash, now + 7 * 86_400 - 2)).toBe(true)
+    expect(() => buildDeleteAuthorisation('xyz', 'https://files.example', now)).toThrow(/64 hex/)
+    expect(() => buildDeleteAuthorisation(hash, 'https://files.example', now, 0)).toThrow(/lifetime/)
+    expect(() => buildDeleteAuthorisation(hash, 'http://files.example', now)).toThrow(/https/)
+  })
+
+  it('sends a delete only to an allowed https origin, for a URL whose leaf is the hash', () => {
+    const origins = ['https://files.example']
+    expect(blobDeleteUrl(`https://files.example/blossom/${hash}`, hash, origins)).toBe(`https://files.example/blossom/${hash}`)
+    expect(blobDeleteUrl(`https://files.example/${hash}.bin`, hash.toUpperCase(), origins)).toBe(`https://files.example/${hash}`)
+    expect(blobDeleteUrl(`https://files.example/blossom/${hash}/`, hash, origins)).toBe(`https://files.example/blossom/${hash}`)
+    // Another origin, a lookalike, plain http, a query, a fragment, credentials.
+    expect(blobDeleteUrl(`https://elsewhere.example/${hash}`, hash, origins)).toBeUndefined()
+    expect(blobDeleteUrl(`https://files.example.evil/${hash}`, hash, origins)).toBeUndefined()
+    expect(blobDeleteUrl(`http://files.example/${hash}`, hash, ['http://files.example', ...origins])).toBeUndefined()
+    expect(blobDeleteUrl(`https://files.example/${hash}?x=1`, hash, origins)).toBeUndefined()
+    expect(blobDeleteUrl(`https://files.example/${hash}#x`, hash, origins)).toBeUndefined()
+    expect(blobDeleteUrl(`https://u:p@files.example/${hash}`, hash, origins)).toBeUndefined()
+    // A leaf that is not this hash, or a hash that is not one.
+    expect(blobDeleteUrl(`https://files.example/${'cd'.repeat(32)}`, hash, origins)).toBeUndefined()
+    expect(blobDeleteUrl(`https://files.example/${hash}/other`, hash, origins)).toBeUndefined()
+    expect(blobDeleteUrl(`https://files.example/x${hash}`, hash, origins)).toBeUndefined()
+    expect(blobDeleteUrl(`https://files.example/${hash}`, 'nothex', origins)).toBeUndefined()
+    expect(blobDeleteUrl('not a url', hash, origins)).toBeUndefined()
+    // No allowed origin at all, or one that is not an origin.
+    expect(blobDeleteUrl(`https://files.example/${hash}`, hash, [])).toBeUndefined()
+    expect(blobDeleteUrl(`https://files.example/${hash}`, hash, ['https://files.example/path'])).toBeUndefined()
+  })
+
+  const url = `https://files.example/blossom/${hash}`
+  const auth = finalizeEvent(buildDeleteAuthorisation(hash, 'https://files.example', now), sk)
+  const server = (deleteStatus: number | Error, headStatus: number | Error = 404, headers: Record<string, string> = {}) =>
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      const status = init?.method === 'DELETE' ? deleteStatus : headStatus
+      if (status instanceof Error) throw status
+      return new Response(null, { status, headers })
+    })
+
+  it('DELETEs with the authorisation, then checks with HEAD that the blob is gone', async () => {
+    const fetch = server(200)
+    expect(await deleteBlob(url, auth, { fetch: fetch as never })).toEqual({ status: 'deleted' })
+    const [deleteCall, headCall] = fetch.mock.calls
+    expect(deleteCall?.[0]).toBe(url)
+    expect(deleteCall?.[1]?.method).toBe('DELETE')
+    expect(deleteCall?.[1]?.credentials).toBe('omit')
+    const header = (deleteCall?.[1]?.headers as Record<string, string>).Authorization!
+    expect(JSON.parse(Buffer.from(header.slice('Nostr '.length), 'base64').toString('utf8'))).toEqual(JSON.parse(JSON.stringify(auth)))
+    expect(headCall?.[1]?.method).toBe('HEAD')
+    expect((headCall?.[1] as RequestInit).headers).toBeUndefined()
+  })
+
+  it('takes a 404 as done only when the blob is not served afterwards', async () => {
+    expect(await deleteBlob(url, auth, { fetch: server(404, 404) as never })).toEqual({ status: 'deleted' })
+    // A front end that answers every DELETE 404, or a server that says 200 to
+    // a key that does not own the blob: the bytes are still there.
+    expect(await deleteBlob(url, auth, { fetch: server(404, 200) as never })).toEqual({ status: 'kept', detail: 'files.example still serves the file.' })
+    expect((await deleteBlob(url, auth, { fetch: server(200, 200) as never })).status).toBe('kept')
+  })
+
+  it('reports an unreachable server or an error as failed, never thrown', async () => {
+    expect(await deleteBlob(url, auth, { fetch: server(new TypeError('offline')) as never })).toEqual({ status: 'failed', detail: 'Could not reach files.example.' })
+    expect(await deleteBlob(url, auth, { fetch: server(401, 404, { 'X-Reason': 'Auth missing hash' }) as never })).toEqual({ status: 'failed', detail: 'files.example answered 401: Auth missing hash.' })
+    expect((await deleteBlob(url, auth, { fetch: server(503) as never })).status).toBe('failed')
+    expect((await deleteBlob(url, auth, { fetch: server(200, 502) as never })).status).toBe('failed')
+    // Answered the delete, then could not be reached to check: taken at its word.
+    expect(await deleteBlob(url, auth, { fetch: server(200, new TypeError('offline')) as never })).toEqual({ status: 'deleted' })
   })
 })
