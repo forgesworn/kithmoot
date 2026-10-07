@@ -3186,6 +3186,7 @@ async function roomFromLocation(): Promise<boolean> {
           : 'Your request has been sent. Someone already in the room needs to let you in.'
         $('arrivalLead').hidden = false
         setStatus(invitation.persistent ? 'Getting you in…' : 'Asking to be let in…', 'progress')
+        if (!invitation.persistent) showDoorWhileSwitching()
         const transport = configuredPool(relays)
         try {
           // A temporary room's link is answered by a person, who may have
@@ -12304,6 +12305,21 @@ function disarmStopOpening(): void {
   clearTimeout(stopOpeningTimer)
   stopOpeningTimer = undefined
   $('stopOpening').hidden = true
+}
+
+/** A switch from the rail that turns into asking to be let in: this device
+ *  holds no key for the room, so somebody inside has to answer, and that can
+ *  take minutes. The desktop's "Opening…" line over the old room hid the
+ *  door saying so, and the way back with it, for the whole wait; the person
+ *  saw a room that never opened. The door is shown instead, with its Stop at
+ *  once, since this wait is on a person and not on the network. */
+function showDoorWhileSwitching(): void {
+  if (!switchingRoom || import.meta.env.VITE_DESKTOP !== 'true') return
+  delete document.documentElement.dataset.roomSwitching
+  $('roomSwitchProgress').hidden = true
+  $('roomArea').removeAttribute('aria-busy')
+  $('roomArea').hidden = true
+  $('stopOpening').hidden = false
 }
 
 /** The door while a room you already know is opening: its name and a

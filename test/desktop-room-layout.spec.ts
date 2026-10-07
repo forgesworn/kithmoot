@@ -4,7 +4,8 @@ import { test, expect, type Locator, type Page } from '@playwright/test'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
-import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, remoteAudioCount, turnOnMedia, TEST_RELAY_WS } from './browser.js'
+import { testRelaysFor } from './relays.js'
+import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, openNewRoomForm, remoteAudioCount, turnOnMedia, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Two screens on the stage, faces beside them, and a chat that slides.
@@ -731,5 +732,69 @@ test('a long list of rooms scrolls in the rail and leaves the composer in the wi
     }
   } finally {
     await a.close()
+  }
+})
+
+test('switching from the rail to a room that has to let you in shows the door, not a room that never opens', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  test.setTimeout(240_000)
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const host = await a.newPage()
+    await host.setViewportSize({ width: 1440, height: 860 })
+    const relays = testRelaysFor(baseURL!)
+    if (relays) await host.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
+    await host.goto(baseURL!)
+    await openNewRoomForm(host)
+    await host.locator('#roomName').fill('Asked in')
+    await host.locator('#roomAsk').check()
+    await host.locator('#create').click()
+    const share = host.locator('#shareUrl')
+    await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
+    const link = await share.inputValue()
+    await host.locator('#displayName').fill('Ada')
+    await host.locator('#join').click()
+    await expect(host.locator('#roomArea')).toBeVisible()
+
+    // Rowan is let in once, then sits in a room of their own.
+    const rowan = await b.newPage()
+    await rowan.setViewportSize({ width: 1440, height: 860 })
+    await rowan.addInitScript(() => localStorage.setItem('kithmoot.name', 'Rowan'))
+    await rowan.goto(link)
+    const card = host.locator('#approvals .approvalCard.knock')
+    await expect(card).toContainText('Rowan wants to join', { timeout: 60_000 })
+    await card.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(rowan.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await rowan.locator('#join').click()
+    await expect(rowan.locator('#roomArea')).toBeVisible()
+    const own = await createRoom(rowan, baseURL!)
+    await open(rowan, own, 'Rowan')
+    await rowan.locator('#join').click()
+    await expect(rowan.locator('#chatInput')).toBeVisible()
+
+    // A room that reached this device without its key, as one saved to the
+    // account from another device does: the temporary admission stays where
+    // it was granted. Opening it means asking again.
+    await rowan.evaluate(() => {
+      for (const store of [localStorage, sessionStorage]) {
+        for (const key of Object.keys(store)) if (key.startsWith('kithmoot.admission-kept.v1.') || key.startsWith('kithmoot.admission.v1.')) store.removeItem(key)
+      }
+    })
+    await rowan.locator('.workspaceRoomLink', { hasText: 'Asked in' }).click()
+    await expect(rowan.locator('#arrivalTitle')).toHaveText('Waiting to be admitted', { timeout: 30_000 })
+    await expect(rowan.locator('#arrivalTitle')).toBeVisible()
+    await expect(rowan.locator('#status')).toContainText('Asking to be let in')
+    await expect(rowan.locator('#stopOpening')).toBeVisible()
+    await expect(rowan.locator('#roomSwitchProgress')).toBeHidden()
+
+    // Let in, the switch carries on into the room.
+    const again = host.locator('#approvals .approvalCard.knock')
+    await expect(again).toContainText('Rowan wants to join', { timeout: 60_000 })
+    await again.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(rowan.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
+    await expect(rowan.locator('.workspaceRoomLink[aria-current="true"]')).toHaveText('Asked in')
+  } finally {
+    await a.close()
+    await b.close()
   }
 })
