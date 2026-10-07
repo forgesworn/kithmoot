@@ -15070,10 +15070,16 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
             closeAllDrafts()
             await closeRoomSession()
           },
-          clearLocal: () => clearRoomLocally(context, true),
+          // The row that says a room went is written with the wipe, not
+          // after the relay check that follows it: a tab closed or reloaded
+          // during that check would otherwise lose it, and the room would
+          // vanish from the list without a word.
+          clearLocal: () => {
+            clearRoomLocally(context, true)
+            addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
+          },
         })
         if (report.refused) throw new Error(report.refused)
-        addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
         console.info(`room self-destructed: ${report.steps.map(step => `${step.id}${step.skipped ? ' (skipped)' : ''}`).join(', ')}; ${report.remaining.length} relay record groups still found`)
       } finally {
         --roomOperation
