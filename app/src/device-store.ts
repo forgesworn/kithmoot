@@ -92,11 +92,16 @@ function readDeviceKey(store: DeviceStore, roomId: string): StoredDeviceKey | un
   }
 }
 
-/** Forget every room key that has not been used within the age limit. */
-function pruneDeviceKeys(store: DeviceStore, now: number): void {
+/** Forget every room key that has not been used within the age limit, but
+ *  never one `retain` asks to keep: a self-destructing room's key stays until
+ *  the room has self-destructed and its deletions have been sent, which may
+ *  be long after the device last used it. */
+function pruneDeviceKeys(store: DeviceStore, now: number, retain?: (roomId: string) => boolean): void {
   for (const key of store.keys()) {
     if (!key.startsWith(DEVICE_PREFIX)) continue
-    const stored = readDeviceKey(store, key.slice(DEVICE_PREFIX.length))
+    const roomId = key.slice(DEVICE_PREFIX.length)
+    const stored = readDeviceKey(store, roomId)
+    if (stored && retain?.(roomId)) continue
     if (!stored || stored.at + DEVICE_KEY_MAX_AGE_SECONDS <= now) store.remove(key)
   }
 }
@@ -111,8 +116,9 @@ export function deviceKeyFor(
   roomId: string,
   now: number,
   generate: () => Uint8Array,
+  retain?: (roomId: string) => boolean,
 ): Uint8Array {
-  pruneDeviceKeys(store, now)
+  pruneDeviceKeys(store, now, retain)
   const existing = readDeviceKey(store, roomId)
   const sk = existing ? hexToBytes(existing.sk) : generate()
   store.set(DEVICE_PREFIX + roomId, JSON.stringify({ sk: bytesToHex(sk), at: now } satisfies StoredDeviceKey))
@@ -236,6 +242,8 @@ interface StoredKeptAdmission {
   epoch?: number
   /** A conference room's end, unix seconds. See `PersistentRoomAdmission.endsAt`. */
   ends?: number
+  /** The room self-destructs. See `PersistentRoomAdmission.destruct`. */
+  destruct?: true
   /** Unix seconds it was kept, or last kept again. */
   createdAt: number
 }
@@ -252,6 +260,7 @@ export function storeKeptAdmission(store: DeviceStore, invitationId: string, adm
       : { persistent: true as const }),
     ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
     ...('endsAt' in admission && admission.endsAt !== undefined ? { ends: admission.endsAt } : {}),
+    ...('destruct' in admission && admission.destruct ? { destruct: true as const } : {}),
     createdAt: now,
   }
   store.set(KEPT_ADMISSION_PREFIX + invitationId, JSON.stringify(value))
@@ -279,7 +288,9 @@ export function loadKeptAdmission(store: DeviceStore, invitationId: string, now:
     if (value.persistent === true) {
       if (value.epoch !== 0 || value.delegateSk !== undefined || value.delegation !== undefined) throw new Error('invalid group membership')
       if (value.ends !== undefined && !isRoomEnds(value.ends)) throw new Error('invalid conference end')
-      return value.ends === undefined ? { secret, persistent: true, epoch: 0 } : { secret, persistent: true, epoch: 0, endsAt: value.ends }
+      const group: PersistentRoomAdmission = value.ends === undefined ? { secret, persistent: true, epoch: 0 } : { secret, persistent: true, epoch: 0, endsAt: value.ends }
+      if (value.destruct === true) group.destruct = true
+      return group
     }
     if (typeof value.delegateSk !== 'string' || !Array.isArray(value.delegation)) throw new Error('invalid delegation')
     const delegateSk = hexToBytes(value.delegateSk)
