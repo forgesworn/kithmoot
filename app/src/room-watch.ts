@@ -175,6 +175,10 @@ export interface RoomWatchOptions {
    * room reads quiet here until it is opened again, as it always has.
    */
   onEpoch?: (moved: WatchedRekey) => void
+  /** The authority closed the room: its closing rekey, readable from the
+   *  epoch this watch is at, says so (and whether the room self-destructs).
+   *  Told once. */
+  onClosed?: (notice: RekeyNotice) => void
 }
 
 /** A rekey a watch followed. */
@@ -213,6 +217,7 @@ export class RoomWatch {
   /** When the room left each epoch this watch followed it out of. */
   readonly #rekeyedAt = new Map<number, number>()
   #closed = false
+  #closedTold = false
 
   constructor(opts: RoomWatchOptions) {
     this.#opts = opts
@@ -377,6 +382,10 @@ export class RoomWatch {
       // Removed, closed, or not in the room when it rekeyed: no copy, and
       // the watch stays where it is. Left pending, so a later ingest does
       // not try it again; opening the room is what finds out.
+      if (notice?.closed && !this.#closedTold) {
+        this.#closedTold = true
+        try { this.#opts.onClosed?.(notice) } catch { /* A caller's problem, not the watch's. */ }
+      }
       if (!notice?.secret || notice.closed) return
       this.#pendingRekeys.delete(left.epoch + 1)
       this.#follow(left, { epoch: notice.epoch, secret: notice.secret }, notice)

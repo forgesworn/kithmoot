@@ -17,7 +17,10 @@ export class Outbox {
    *  whether that box is the one for the message's conversation. */
   constructor(root: HTMLElement, private readonly queue: PendingSends, private readonly room: () => string | undefined,
     private readonly sending: () => string = () => 'Sending…',
-    private readonly edit?: (item: PendingSend) => void | Promise<void>, private readonly canEdit: (item: PendingSend) => boolean = () => false) {
+    private readonly edit?: (item: PendingSend) => void | Promise<void>, private readonly canEdit: (item: PendingSend) => boolean = () => false,
+    /** A message that cannot leave before its room self-destructs, and
+     *  what its row says then. */
+    private readonly doomed: (item: PendingSend) => boolean = () => false, private readonly doomedText = 'Will not be sent') {
     this.#root = root
   }
 
@@ -58,8 +61,11 @@ export class Outbox {
     status.className = 'pendingStatus'
     // A countdown read out every second would drown everything else.
     if (item.state !== 'holding') status.setAttribute('role', 'status')
-    status.textContent = this.#status(item)
+    const doomed = this.doomed(item)
+    status.textContent = doomed ? this.doomedText : this.#status(item)
+    if (doomed) row.dataset.state = 'doomed'
     row.append(bubble, status)
+    if (doomed) return row
     const actions = document.createElement('div')
     actions.className = 'pendingActions'
     if (item.state === 'holding') {

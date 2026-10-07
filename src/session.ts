@@ -383,9 +383,10 @@ export interface RoomSessionBaseOptions {
   /** The room was closed by its authority. `destruct` is set when the
    *  closing rekey said the room self-destructs (fold-kit 0.9.0): every
    *  device deletes what it wrote and forgets the room. A close learned
-   *  from the authority's refusal rather than the rekey carries no flag;
-   *  then only a closing rekey already held is read for it. */
-  onClosed?: (notice: { epoch: number; by?: string; destruct?: true }) => void
+   *  from the authority's refusal rather than the rekey says `refused` and
+   *  carries the flag only when a closing rekey already held says so; a
+   *  caller may look for that rekey on the relays itself. */
+  onClosed?: (notice: { epoch: number; by?: string; destruct?: true; refused?: true }) => void
   /**
    * A conference room's end, in unix seconds: the `ends` its group
    * invitation carries (`PersistentRoomAdmission.endsAt`). Every event this
@@ -1737,7 +1738,7 @@ export class RoomSession {
       // read the flag off that when it is here.
       const closing = this.#pendingRekeys.get(this.#epoch.epoch + 1)
       const evidence = closing ? readRekeyEvidence(closing, { roomId: this.roomId, authority: this.#opts.authority!, previous: this.#epoch }) : null
-      this.#opts.onClosed?.({ epoch: this.#epoch.epoch, ...(evidence?.destruct ? { destruct: true as const } : {}) })
+      this.#opts.onClosed?.({ epoch: this.#epoch.epoch, refused: true, ...(evidence?.destruct ? { destruct: true as const } : {}) })
     } else {
       this.#removed.add(this.participant)
       this.#opts.onRemoved?.({ epoch: this.#epoch.epoch })

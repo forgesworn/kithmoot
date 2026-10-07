@@ -29,6 +29,8 @@ declare global {
       onUpdateState(listener: (state: { phase: string; version?: string; message?: string; unverified?: boolean }) => void): () => void
       setUnread(count: number): void
       notify(content: { title: string; body: string; tag: string; roomId: string; silent: boolean }): void
+      /** Close every banner this window put up for one room. Absent before desktop 0.1.58. */
+      clearRoomNotices?(roomId: string): void
       onOpenRoom(listener: (roomId: string) => void): () => void
     }
   }
