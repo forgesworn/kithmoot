@@ -557,6 +557,13 @@ program writes about the room outside kithmoot-agent's own files, such as
 notes, transcripts, logs or a model provider's history, is outside its reach:
 it must not keep any of it past the end, and kithmoot-agent cannot make it.
 
+Files. kithmoot-agent shares no files into a room's chat, so it has no
+uploads of its own to delete at the end; the browser app deletes the files
+each device shared there. A `--context` collection uploaded with
+`context_upload` is signed with a fresh throwaway key per upload, by design,
+so nothing can delete it later: do not upload a self-destructing room's
+context to a server.
+
 ## Running it
 
 ```bash
