@@ -669,15 +669,15 @@
           </select>
           <p id="roomEndsHint" class="note" hidden>A conference room. On that date its link stops working and its messages are wiped from relays that honour expiry.</p>
         </div>
-        <!-- What happens to the room's content when it ends: by its date, or
-             when whoever started it ends it. Self-destruct is the default
-             for a room with a date (owner decision D1); a room with none
-             keeps today's behaviour unless chosen. -->
-        <div id="roomWhenEndsRow" class="roomEndsRow">
-          <label id="roomWhenEndsLabel" for="roomWhenEnds">If it is ended</label>
+        <!-- What happens to a dated room's content when it ends: it
+             self-destructs by default (owner decision D1). Shown only when
+             Ends is not Never; a room with no end can still be made to
+             self-destruct from its details (D5). -->
+        <div id="roomWhenEndsRow" class="roomEndsRow" hidden>
+          <label id="roomWhenEndsLabel" for="roomWhenEnds">When it ends</label>
           <select id="roomWhenEnds" aria-describedby="roomWhenEndsHint">
-            <option value="keep" selected>Keep it read-only</option>
-            <option value="destruct">Self-destruct</option>
+            <option value="destruct" selected>Self-destruct</option>
+            <option value="keep">Keep it read-only</option>
           </select>
           <p id="roomWhenEndsHint" class="note" hidden></p>
         </div>

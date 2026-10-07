@@ -3124,8 +3124,8 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
    explanation under them only once a date is chosen. */
 .roomEndsRow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .2rem 0 .6rem; }
 #createRoomForm .roomEndsRow label { margin: 0; }
-.roomEndsRow select { flex: 0 1 auto; min-height: 44px; }
-#roomEndsHint { flex-basis: 100%; margin: 0; max-width: 60ch; }
+.roomEndsRow select { flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 44px; }
+#roomEndsHint, #roomWhenEndsHint { flex-basis: 100%; margin: 0; max-width: 60ch; }
 .setupButtons { display: flex; align-items: center; gap: .75rem; margin-top: .8rem; }
 .setupButtons button { margin: 0; }
 /* Cancel only makes sense once returning to a list it can cancel back to;

@@ -118,6 +118,7 @@ import {
   deriveEpoch,
   readRekeyEvidence,
   type PersistentRoomAdmission,
+  type EpochKeys,
   encodeInvitationRetirement,
   ROOM_ENDED_MESSAGE,
   withExpiration,
@@ -3823,7 +3824,7 @@ async function startNewRoom(): Promise<void> {
     : endsChoice === 'test' && TEST_ROOM_END_SECONDS ? nowSeconds() + TEST_ROOM_END_SECONDS
       : conferenceEndsAt(Number(endsChoice), nowSeconds())
   // Self-destruct is a property of a group: by its date, or when ended.
-  const destruct = persistent && ($('roomWhenEnds') as HTMLSelectElement).value === 'destruct'
+  const destruct = persistent && endsAt !== undefined && ($('roomWhenEnds') as HTMLSelectElement).value === 'destruct'
   const secret = generateRoomSecret()
   const created = createRoomInvitation(persistent)
   setKnock(deriveRoom(secret).roomId, ask)
@@ -14026,7 +14027,7 @@ $('roomAsk').addEventListener('change', () => {
   $('roomAskHint').hidden = !ask
   // Only a group room can be a conference room, or self-destruct.
   $('roomEndsRow').hidden = ask
-  $('roomWhenEndsRow').hidden = ask
+  renderWhenEnds()
 })
 // A test build may offer an end minutes away, for the acceptance suite;
 // a real build never does.
@@ -14036,25 +14037,23 @@ if (TEST_ROOM_END_SECONDS) {
   option.textContent = `After ${TEST_ROOM_END_SECONDS} seconds (test build)`
   $('roomEnds').append(option)
 }
-/** Whether the person chose "When it ends" themselves: until they do, it
- *  follows the end (self-destruct for a dated room, D1). */
-let whenEndsChosen = false
+/** "When it ends", offered only for a room with an end, as the design has
+ *  it: self-destruct by default (D1). A room with no end can still be made
+ *  to self-destruct, by Self-destruct now in its details (D5). */
 function renderWhenEnds(): void {
   const dated = ($('roomEnds') as HTMLSelectElement).value !== '0'
-  $('roomWhenEndsLabel').textContent = dated ? 'When it ends' : 'If it is ended'
+  const ask = ($('roomAsk') as HTMLInputElement).checked
+  $('roomWhenEndsRow').hidden = !dated || ask
   const select = $('roomWhenEnds') as HTMLSelectElement
-  if (!whenEndsChosen) select.value = dated ? 'destruct' : 'keep'
   const hint = $('roomWhenEndsHint')
-  hint.textContent = select.value === 'destruct'
-    ? (dated ? '' : 'It self-destructs if you end it for everyone. ') + DESTRUCT_PROMISE
-    : ''
+  hint.textContent = select.value === 'destruct' ? DESTRUCT_PROMISE : ''
   hint.hidden = select.value !== 'destruct'
 }
 $('roomEnds').addEventListener('change', () => {
   $('roomEndsHint').hidden = ($('roomEnds') as HTMLSelectElement).value === '0'
   renderWhenEnds()
 })
-$('roomWhenEnds').addEventListener('change', () => { whenEndsChosen = true; renderWhenEnds() })
+$('roomWhenEnds').addEventListener('change', renderWhenEnds)
 renderWhenEnds()
 $('homeSignIn').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
@@ -14244,14 +14243,16 @@ function markLinkEnded(href: string): void {
     if (!invitation) return
     id = deriveInvitationId(invitation)
   } catch { return }
+  const found = new Map<string, KnownRoom>()
   for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) {
     for (const room of knownRooms(store)) {
       try {
         const saved = parseRoomLink(room.link).invitation
-        if (saved && deriveInvitationId(saved) === id) markEnded(store, room.roomId, nowSeconds())
+        if (saved && deriveInvitationId(saved) === id && !found.has(room.roomId)) found.set(room.roomId, room)
       } catch { /* A link that does not parse names no room. */ }
     }
   }
+  for (const room of found.values()) void learnDestructAtDoor(room)
 }
 
 /** The room's authority closed it: this browser, a keeper, or the browser
@@ -14274,9 +14275,10 @@ function roomWasClosed(notice: { by?: string; destruct?: true; refused?: true })
   // rekey may still say the room self-destructs.
   if (s && notice.refused && sessionAuthority) {
     const roomId = s.roomId, secret = roomSecret
-    void closingRekeyDestructs(s, sessionAuthority, [...relays]).catch(() => false).then(destructs => {
-      if (session !== s) return
-      if (!destructs) { leaveWithNotice('This room was ended by the person who started it.'); return }
+    void closingRekeyDestructs(s.roomId, sessionAuthority, s.epochKeys(), [...relays]).catch(() => false).then(destructs => {
+      // A join that was refused may have given up on the session meanwhile:
+      // the room is still tidied away if it self-destructs.
+      if (!destructs) { if (session === s) leaveWithNotice('This room was ended by the person who started it.'); return }
       destructSecrets.set(roomId, secret)
       markRoomDestruct(roomId)
       void runDueDestructs()
@@ -15034,7 +15036,9 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
       const reader = new NostrHistoryRelayReader()
       const writer = new NostrPublicDeletionRelayWriter()
       const account = context.account
-      tidyUpRunning = true
+      // Only the room on screen: a room tidied away in the background must
+      // not stop the one in front of the person hearing that it closed.
+      if (here) tidyUpRunning = true
       ++roomOperation
       try {
         const report = await runTidyUp({
@@ -15073,7 +15077,7 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
         console.info(`room self-destructed: ${report.steps.map(step => `${step.id}${step.skipped ? ' (skipped)' : ''}`).join(', ')}; ${report.remaining.length} relay record groups still found`)
       } finally {
         --roomOperation
-        tidyUpRunning = false
+        if (here) tidyUpRunning = false
       }
     })
     // Another tab holds the room's lock and is tidying it; this one only leaves.
@@ -15096,15 +15100,35 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
  *  current epoch key, so it is found only when the device was one epoch
  *  behind at most, and only while relays keep it (a conference room's rekey
  *  lapses at the room's end under NIP-40). Not found: the room just ends. */
-async function closingRekeyDestructs(s: RoomSession, authority: string, roomRelays: readonly string[]): Promise<boolean> {
-  const previous = s.epochKeys()
+async function closingRekeyDestructs(roomId: string, authority: string, previous: EpochKeys, roomRelays: readonly string[]): Promise<boolean> {
   const reader = new NostrHistoryRelayReader()
-  const filter = { kinds: [KINDS.ROOM_REKEY], authors: [authority], '#d': [s.roomId], limit: 50 }
+  const filter = { kinds: [KINDS.ROOM_REKEY], authors: [authority], '#d': [roomId], limit: 50 }
   const results = await Promise.all(roomRelays.map(relay => Promise.race([
     reader.read(relay, filter).then(result => result.events).catch(() => [] as NostrEvent[]),
     new Promise<NostrEvent[]>(resolve => setTimeout(() => resolve([]), 5_000)),
   ])))
-  return results.flat().some(event => readRekeyEvidence(event, { roomId: s.roomId, authority, previous })?.destruct === true)
+  return results.flat().some(event => readRekeyEvidence(event, { roomId, authority, previous })?.destruct === true)
+}
+
+/** A saved room found ended at its door (its link retired): before it is
+ *  marked ended, which drops its admission, see whether its closing rekey
+ *  said it self-destructs, read with what this device kept of the room. */
+async function learnDestructAtDoor(room: KnownRoom): Promise<void> {
+  const roomId = room.roomId
+  let link: RoomLink
+  try { link = parseRoomLink(room.link) } catch { return }
+  const secret = secretForKnownRoom(link)
+  if (!roomIsDestruct(roomId) && secret && link.invitation) {
+    const kept = loadKeptRoomEpoch(deviceStore, roomId)
+    const previous: EpochKeys = kept && kept.epoch.epoch > 0 ? deriveEpoch(kept.epoch) : { epoch: 0, id: roomId, key: deriveRoom(secret).roomKey }
+    const relays = relayConnections.configuration(`room:${roomId}`, link.relays).filter(relay => relay.read).map(relay => relay.url)
+    if (await closingRekeyDestructs(roomId, link.invitation.inviter, previous, relays).catch(() => false)) {
+      destructSecrets.set(roomId, secret)
+      markRoomDestruct(roomId)
+    }
+  }
+  for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, roomId, nowSeconds())
+  if (roomIsDestruct(roomId)) await runDueDestructs()
 }
 
 /** A docked call's room was closed under it: written down, and tidied
@@ -16303,7 +16327,7 @@ function showArrivalFailure(err: unknown): void {
   }
   $('addCardArrival').hidden = true
   const conference = reason.startsWith(CONFERENCE_ENDED_PREFIX)
-  const ended = reason === ROOM_ENDED_MESSAGE || conference
+  const ended = reason === ROOM_ENDED_MESSAGE || reason === SELF_DESTRUCTED_MESSAGE || conference
   const retired = ended || reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
   if (ended) markLinkEnded(location.href)

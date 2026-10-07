@@ -72,8 +72,8 @@ seconds, rides in the 1463 body as `ends` and on the event as a NIP-40
 A group can be made to self-destruct: when it ends, every member's device
 deletes what it wrote there and forgets the room. The creation form asks
 **When it ends: Self-destruct / Keep it read-only** for a room with an end,
-defaulting to Self-destruct, and **If it is ended** for a room with none,
-defaulting to Keep it read-only. The flag rides inside the encrypted 1463
+defaulting to Self-destruct. A room with no end is made to self-destruct
+from its details, with Self-destruct now. The flag rides inside the encrypted 1463
 body and the encrypted closing rekey (`destruct`, fold-kit 0.9.0), never on
 the outside of an event and never in the plain-JSON retirement. See
 [protocol.md](protocol.md#room-links-and-admission).
@@ -111,7 +111,9 @@ the outside of an event and never in the plain-JSON retirement. See
   it from the authority's refusal (`refused: 'closed'`), which carries no
   flag. A room flagged on its invitation is covered by the stored flag. For a
   room flagged only at its closure, the app reads the stored closing rekey off
-  the room's relays and decodes it with the device's current epoch key. That
+  the room's relays and decodes it with the device's current epoch key: when
+  the authority refuses a joining session, when a room's door finds its link
+  retired, and, through the rooms list's watch, whenever the list is open. That
   works only when the device was at most one epoch behind and a relay still
   holds the rekey (a dated room's rekey expires at the room's end under
   NIP-40). If it cannot be read, the room simply ends: nothing is wiped.

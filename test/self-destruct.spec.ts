@@ -190,9 +190,8 @@ test('the authority makes a room with no end self-destruct now: both devices tid
     await page.goto(baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Planning')
-    // No end: the choice reads "If it is ended", and keeps a copy unless chosen.
-    await expect(page.locator('#roomWhenEndsLabel')).toHaveText('If it is ended')
-    await expect(page.locator('#roomWhenEnds')).toHaveValue('keep')
+    // No end: no choice at creation; Self-destruct now is the way (D5).
+    await expect(page.locator('#roomWhenEndsRow')).toBeHidden()
     await page.locator('#create').click()
     await expect(page.locator('#join')).toBeVisible()
     const link = await page.locator('#shareUrl').inputValue()
@@ -236,6 +235,65 @@ test('the authority makes a room with no end self-destruct now: both devices tid
     for (const context of contexts) await context.close().catch(() => {})
   }
 })
+
+for (const [flagged, path] of [[true, 'rooms list'], [false, 'rooms list'], [false, 'room link']] as const) {
+  test(`a member away when the room is made to self-destruct tidies it away from the ${path} (${flagged ? 'flagged at creation' : 'flagged only at closure'})`, async ({ browser, baseURL }, info) => {
+    test.skip(info.project.name === 'chromium-desktop', 'one browser project is enough')
+    test.setTimeout(150_000)
+    const contexts: BrowserContext[] = []
+    try {
+      const owner = await device(browser, baseURL!); contexts.push(owner)
+      const page = await owner.newPage()
+      await page.goto(baseURL!)
+      await openNewRoomForm(page)
+      await page.locator('#roomName').fill('Away')
+      // Flagged at creation: a week-long room that self-destructs. Not: a
+      // room with no end, made to self-destruct only by its closing rekey.
+      if (flagged) await page.locator('#roomEnds').selectOption('7')
+      await page.locator('#create').click()
+      await expect(page.locator('#join')).toBeVisible()
+      const link = await page.locator('#shareUrl').inputValue()
+      await page.locator('#displayName').fill('Host')
+      await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible()
+      const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
+
+      const away = await device(browser, baseURL!); contexts.push(away)
+      let other = await away.newPage()
+      const awaySent = recordPublished(other)
+      await enter(other, link, 'Member')
+      await other.locator('#chatInput').fill('Said before going away')
+      await other.locator('#chatInput').press('Enter')
+      await expect(page.locator('#chatLog')).toContainText('Said before going away')
+      const memberChat = awaySent.find(e => e.kind === 1460)!
+      // Away: the tab closed, with the rooms list's watch closed too.
+      await other.goto('about:blank')
+      await other.close()
+
+      await openRoomDetails(page)
+      await page.locator('#selfDestructNow').click()
+      await page.locator('#actionConfirm').click()
+      await expect(page.locator('#status')).toContainText('This room self-destructed.', { timeout: 45_000 })
+
+      other = await away.newPage()
+      recordPublished(other, awaySent)
+      // Back on the rooms list, or at the room's own link: a kept member's
+      // door offers Join, and joining finds the closing rekey.
+      if (path === 'rooms list') await other.goto(baseURL!)
+      else {
+        await openRoomUrl(other, link)
+        await expect(other.locator('#join, #arrivalTitle:has-text("ended")').first()).toBeVisible()
+        if (await other.locator('#join').isVisible()) await other.locator('#join').click()
+      }
+      await expect.poll(() => deletionsAsked(awaySent).has(memberChat.id), { timeout: 45_000 }).toBe(true)
+      await expect.poll(() => traces(other, [roomId]), { timeout: 30_000 }).toEqual([])
+      await other.goto(baseURL!)
+      await expect(other.locator('#roomList .tombstoneRow')).toHaveCount(1)
+    } finally {
+      for (const context of contexts) await context.close().catch(() => {})
+    }
+  })
+}
 
 test('a dated room that keeps a read-only copy counts down in grey and is not wiped', async ({ browser, baseURL }, info) => {
   test.skip(info.project.name === 'chromium-desktop', 'one browser project is enough')
