@@ -125,8 +125,9 @@ export function headsUpText(roomLabel: string, remaining: number): string {
 export const WILL_NOT_BE_SENT = 'Will not be sent: the room is self-destructing'
 
 /** Said once, at creation and in the room details, and never more. */
-export const DESTRUCT_PROMISE = 'When this room self-destructs, KithMoot deletes it from every member’s devices and asks the relays to delete its messages. '
-  + 'Someone could still have kept a copy, and some relays ignore deletion requests.'
+export const DESTRUCT_PROMISE = 'When this room self-destructs, KithMoot deletes it from every member’s devices, asks the relays to delete its messages, '
+  + 'and asks the file server to delete the files each device shared. '
+  + 'Someone could still have kept a copy, and some relays and file servers ignore deletion requests.'
 
 // ---------------------------------------------------------------------------
 // Tombstone rows

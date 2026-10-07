@@ -25,8 +25,9 @@ import type { Filter } from 'nostr-tools/filter'
 import type { HistoryReadResult } from '../../src/history-import.js'
 import type { PublicDeletionRelayOutcome } from './public-deletion-relay-writer.js'
 import { KINDS } from '../../src/kinds.js'
+import type { FileDeletionReport } from './blob-deletion.js'
 
-export type TidyStepId = 'end' | 'invitations' | 'retirement' | 'tabs' | 'device' | 'bookmark' | 'account' | 'local' | 'check'
+export type TidyStepId = 'end' | 'invitations' | 'retirement' | 'tabs' | 'device' | 'files' | 'bookmark' | 'account' | 'local' | 'check'
 
 export interface TidyStep { id: TidyStepId; label: string }
 
@@ -41,6 +42,8 @@ export interface TidyStepReport {
   unread: string[]
   /** Why the step did not run, when it did not. */
   skipped?: string
+  /** The files step's own report: what the file server was asked. */
+  files?: FileDeletionReport
 }
 
 export interface TidyRemaining { what: string; relay: string; count: number }
@@ -58,6 +61,7 @@ export const TIDY_UP_LIMITS = [
   'Other members’ messages and roster entries are theirs, and stay.',
   'Anything a member, a relay or anybody else already copied stays with them.',
   'A relay that accepts a deletion request may still keep a copy.',
+  'Files other members shared are theirs. Anyone who opened a file may have kept it, and a file server may ignore a deletion.',
 ]
 
 export interface TidyUpDeps {
@@ -82,6 +86,10 @@ export interface TidyUpDeps {
     forgetBookmark: () => Promise<string | undefined>
     deleteTombstone: boolean
   }
+  /** Ask the file server to delete the files this device shared in the
+   *  room. Given the events the device step found, whose own file
+   *  announcements name uploads made before this device kept a record. */
+  files?: (deviceEvents: readonly Event[]) => Promise<FileDeletionReport>
   /** End the room for everyone first, when this browser can and was asked to. */
   endRoom?: () => Promise<void>
   /** Ask every other tab in this room to leave. False when one did not. */
@@ -102,7 +110,7 @@ export interface TidyUpDeps {
 const QUERY_LIMIT = 1000
 const IDS_PER_REQUEST = 300
 
-export function tidyUpSteps(opts: { creator: boolean; account: boolean; deleteTombstone: boolean; end?: boolean }): TidyStep[] {
+export function tidyUpSteps(opts: { creator: boolean; account: boolean; deleteTombstone: boolean; end?: boolean; files?: boolean }): TidyStep[] {
   const steps: TidyStep[] = []
   if (opts.end) steps.push({ id: 'end', label: 'End the room for everyone and retire its link' })
   if (opts.creator) {
@@ -110,7 +118,8 @@ export function tidyUpSteps(opts: { creator: boolean; account: boolean; deleteTo
     steps.push({ id: 'retirement', label: 'Delete the link’s retirement notice, only if no relay still holds an invitation' })
   }
   steps.push({ id: 'tabs', label: 'Leave the room in every tab of this browser' })
-  steps.push({ id: 'device', label: 'Delete this device’s chat, files and roster entries for the room' })
+  steps.push({ id: 'device', label: 'Delete this device’s chat, file announcements and roster entries for the room' })
+  if (opts.files) steps.push({ id: 'files', label: 'Ask the file server to delete the files this device shared in the room' })
   if (opts.account) {
     steps.push({ id: 'bookmark', label: 'Forget the room on your Nostr account with a signed tombstone' })
     steps.push({ id: 'account', label: opts.deleteTombstone
@@ -199,7 +208,7 @@ const secretSigner = (sk: Uint8Array) => async (template: EventTemplate) => fina
 
 export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
   const steps: TidyStepReport[] = []
-  const labels = new Map(tidyUpSteps({ creator: !!deps.inviter, account: !!deps.account, deleteTombstone: !!deps.account?.deleteTombstone, end: !!deps.endRoom }).map(step => [step.id, step.label]))
+  const labels = new Map(tidyUpSteps({ creator: !!deps.inviter, account: !!deps.account, deleteTombstone: !!deps.account?.deleteTombstone, end: !!deps.endRoom, files: !!deps.files }).map(step => [step.id, step.label]))
   const record = (report: Omit<TidyStepReport, 'label'>) => {
     const full = { ...report, label: labels.get(report.id) ?? report.id }
     steps.push(full)
@@ -252,6 +261,17 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
   const device = await gather(deps, deps.roomRelays, { authors: [devicePub] })
   record({ id: 'device', found: device.events.length, unread: device.unread,
     answers: await requestDeletion(deps, deps.roomRelays, device.events, secretSigner(deps.device.sk)) })
+
+  // After the relays are asked, before the wipe: the record of what this
+  // device uploaded goes with the room. A delete that does not go through
+  // is kept for another try by `deps.files` itself, not by holding the wipe.
+  if (deps.files) {
+    let files: FileDeletionReport | undefined
+    try { files = await deps.files(device.events) } catch (error) {
+      record({ id: 'files', found: 0, answers: [], unread: [], skipped: `The file server was not asked: ${error instanceof Error ? error.message : String(error)}` })
+    }
+    if (files) record({ id: 'files', found: files.found, answers: [], unread: [], files })
+  }
 
   let tombstoneD: string | undefined
   if (deps.account) {
