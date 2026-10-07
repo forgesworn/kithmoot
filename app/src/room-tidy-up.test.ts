@@ -88,6 +88,37 @@ describe('leave and tidy up', () => {
       .toEqual(['tabs', 'device', 'local', 'check'])
   })
 
+  it('asks the file server after the device’s deletions and before the wipe, with the device’s events', async () => {
+    expect(tidyUpSteps({ creator: false, account: true, deleteTombstone: false, files: true }).map(s => s.id))
+      .toEqual(['tabs', 'device', 'files', 'bookmark', 'account', 'local', 'check'])
+    const { r, deps, order, deviceSk } = setup()
+    const announced = signed(deviceSk, 1063, [['url', `https://files.example/${'ab'.repeat(32)}`], ['x', 'ab'.repeat(32)]])
+    for (const relay of ROOM_RELAYS) r.put(relay, announced)
+    let given: readonly Event[] = []
+    deps.files = async events => {
+      order.push('files')
+      // The device's NIP-09 request has already gone.
+      expect(r.published.some(p => p.event.pubkey === getPublicKey(deviceSk) && p.event.kind === 5)).toBe(true)
+      given = events
+      return { found: 1, deleted: 1, refused: 0, pending: 0, details: [] }
+    }
+    const report = await runTidyUp(deps)
+    expect(order).toEqual(['tabs', 'here', 'files', 'bookmark', 'local'])
+    expect(given.map(e => e.id)).toContain(announced.id)
+    const files = report.steps.find(s => s.id === 'files')!
+    expect(files.found).toBe(1)
+    expect(files.files?.deleted).toBe(1)
+    expect(files.label).toBe('Ask the file server to delete the files this device shared in the room')
+  })
+
+  it('still wipes when the file step throws, and says the server was not asked', async () => {
+    const { deps, order } = setup()
+    deps.files = async () => { throw new Error('no device key') }
+    const report = await runTidyUp(deps)
+    expect(order).toContain('local')
+    expect(report.steps.find(s => s.id === 'files')?.skipped).toBe('The file server was not asked: no device key')
+  })
+
   it('deletes in order while the keys exist, names addressable records by e and a, and finds nothing of theirs afterwards', async () => {
     const { r, deps, order, inviterSk, deviceSk, accountSk, otherSk } = setup()
     const report = await runTidyUp(deps)

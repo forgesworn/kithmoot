@@ -233,6 +233,7 @@ import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes } from './
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { NostrPublicDeletionRelayWriter } from './public-deletion-relay-writer.js'
 import { runTidyUp, tidyUpSteps, TIDY_UP_LIMITS, type TidyStepReport, type TidyUpReport } from './room-tidy-up.js'
+import { BLOB_DELETE_RETRY_SECONDS, deleteUploads, forgetRoomUploads, recordUpload, retryPendingBlobDeletes, roomUploads, uploadsFromEvents, type FileDeletionReport } from './blob-deletion.js'
 import { RoomTabs } from './room-tabs.js'
 import { readPositionId } from '../../src/read-position.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
@@ -764,6 +765,20 @@ const deviceStore = browserDeviceStore(localStorage)
 forgetLegacyStorage(deviceStore)
 
 const nowSeconds = () => Math.floor(Date.now() / 1000)
+
+/** Deletes the file server did not carry out when a room was tidied away,
+ *  tried again at launch and then at most hourly while the app stays open
+ *  (the rooms list's timer), for a week. See app/src/blob-deletion.ts.
+ *  Declared up here: the rooms list may be drawn before the rest of this
+ *  module has run. */
+let fileDeletesTriedAt = 0
+function retryFileDeletes(): void {
+  const now = Date.now()
+  if (now - fileDeletesTriedAt < 3_600_000) return
+  fileDeletesTriedAt = now
+  void retryPendingBlobDeletes(deviceStore, nowSeconds).catch(error => console.warn('file deletes not retried', error))
+}
+retryFileDeletes()
 let identityRestoring = true
 let rememberAfterRestore = false
 let identityGeneration = 0
@@ -11631,6 +11646,7 @@ function renderRooms(): void {
   }
   // And a self-destructing one is tidied away, here as at launch.
   if (!destructRun && dueDestructRooms().some(room => !destructing.has(room.roomId))) void runDueDestructs()
+  retryFileDeletes()
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (!roomsListShown) return
@@ -12964,6 +12980,7 @@ function forgetLocally(roomId: string): void {
   forgetOwnCredentials(deviceStore, roomId)
   forgetQuietState(deviceStore, roomId)
   forgetRoom(deviceStore, roomId)
+  forgetRoomUploads(deviceStore, roomId)
   // A pin names the room too, and a forgotten room is not one to name.
   setPinned(localStorage, roomId, false)
   // Its keys go with it: the device key, and the epochs the list read it
@@ -14589,7 +14606,7 @@ function renderTidyUpPlan(): void {
   $('tidyUpEndRow').hidden = !context.canEnd
   const list = $('tidyUpSteps')
   const results = new Map([...list.querySelectorAll<HTMLElement>('li')].map(li => [li.dataset.step, li.querySelector('.tidyResult')]))
-  list.replaceChildren(...tidyUpSteps({ creator: !!context.inviterSk, account: !!context.account, deleteTombstone, end }).map(step => {
+  list.replaceChildren(...tidyUpSteps({ creator: !!context.inviterSk, account: !!context.account, deleteTombstone, end, files: true }).map(step => {
     const li = document.createElement('li')
     li.dataset.step = step.id
     li.textContent = step.label
@@ -14602,6 +14619,7 @@ function renderTidyUpPlan(): void {
 
 function describeTidyStep(report: TidyStepReport): string {
   if (report.skipped) return report.skipped
+  if (report.files) return describeFileStep(report.files)
   const parts: string[] = []
   if (['invitations', 'retirement', 'device', 'account'].includes(report.id)) parts.push(report.found === 0 ? 'Nothing found to delete.' : `Found ${report.found}.`)
   for (const answer of report.answers) parts.push(`${answer.relay}: ${answer.status}${answer.detail ? ` (${answer.detail})` : ''}.`)
@@ -14610,13 +14628,22 @@ function describeTidyStep(report: TidyStepReport): string {
   return parts.join(' ') || 'Done.'
 }
 
+function describeFileStep(files: FileDeletionReport): string {
+  if (files.found === 0) return 'No files from this device found to delete.'
+  const parts = [`Deleted ${files.deleted} of ${files.found}.`]
+  if (files.refused) parts.push(`${files.refused} not on a file server this app uploads to, so not asked.`)
+  for (const line of files.details) parts.push(`${line}`)
+  if (files.pending) parts.push(`This device asks again each time it starts, for ${Math.round(BLOB_DELETE_RETRY_SECONDS / 86_400)} days.`)
+  return parts.join(' ')
+}
+
 function showTidyStep(report: TidyStepReport): void {
   const li = $('tidyUpSteps').querySelector<HTMLElement>(`li[data-step="${report.id}"]`)
   if (!li) return
   li.querySelector('.tidyResult')?.remove()
   const result = document.createElement('span')
   result.className = 'tidyResult'
-  result.dataset.status = report.skipped ? 'skipped' : report.answers.some(a => a.status !== 'accepted') ? 'partial' : 'done'
+  result.dataset.status = report.skipped ? 'skipped' : report.answers.some(a => a.status !== 'accepted') || (report.files && report.files.deleted < report.files.found) ? 'partial' : 'done'
   result.textContent = describeTidyStep(report)
   li.append(result)
 }
@@ -14638,6 +14665,23 @@ function showTidyReport(report: TidyUpReport): void {
       list.append(li)
     }
     results.append(list)
+  }
+}
+
+/** The tidy-up's file step for a room: delete every file this device
+ *  recorded uploading there, and those its own announcements name, from a
+ *  server this app uploads to. See app/src/blob-deletion.ts. */
+function deleteRoomFiles(context: TidyUpContext): (deviceEvents: readonly NostrEvent[]) => Promise<FileDeletionReport> {
+  return async deviceEvents => {
+    const recorded = roomUploads(deviceStore, context.roomId)
+    const origins = [blossomServer(), ...recorded.map(blob => { try { return new URL(blob.url).origin } catch { return '' } })].filter(Boolean)
+    return deleteUploads({
+      blobs: [...recorded, ...uploadsFromEvents(deviceEvents, getPublicKey(context.deviceSk))],
+      origins,
+      sk: context.deviceSk,
+      now: nowSeconds,
+      store: deviceStore,
+    })
   }
 }
 
@@ -14711,6 +14755,7 @@ async function runRoomTidyUp(): Promise<void> {
       publish: (to, event) => writer.publish(to, event),
       ...(context.invitation && context.inviterSk ? { inviter: { sk: context.inviterSk, invitationId: deriveInvitationId(context.invitation) } } : {}),
       device: { sk: context.deviceSk },
+      files: deleteRoomFiles(context),
       ...(end ? { endRoom: endRoomForEveryone } : {}),
       ...(account ? { account: {
         pubkey: account.pubkey,
@@ -15049,6 +15094,7 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
           publish: (to, event) => writer.publish(to, event),
           ...(context.invitation && context.inviterSk ? { inviter: { sk: context.inviterSk, invitationId: deriveInvitationId(context.invitation) } } : {}),
           device: { sk: context.deviceSk },
+          files: deleteRoomFiles(context),
           ...(endRoom ? { endRoom } : {}),
           ...(account ? { account: {
             pubkey: account.pubkey,
@@ -15934,6 +15980,8 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   requireFileStorage(server)
   const origin = normaliseBlossomServer(server)
   const deviceSk = deviceKey()
+  // Fixed with the key: the room whose tidy-up deletes this upload.
+  const uploadRoomId = currentRoomId()!
 
   dropProgress(draft, 'Encrypting', file)
   // Let the line above paint before the main thread is busy sealing.
@@ -15954,6 +16002,10 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   } finally {
     await sealed.dispose?.()
   }
+  // Written down at once, before anything below can give up on it: a blob
+  // left on the server by a room that changed mid-upload is still this
+  // device's to delete when the room is tidied away.
+  recordUpload(deviceStore, uploadRoomId, descriptor)
 
   signal.throwIfAborted()
   // The room this upload was for is gone, replaced or rekeyed: another

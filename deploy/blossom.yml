@@ -41,7 +41,18 @@ storage:
   backend: local
   local:
     dir: "${BLOSSOM_STATE}/blobs"
-  removeWhenNoOwners: false
+  # A blob is held under the key that uploaded it (its owner). A BUD-02
+  # delete from that key removes the owner; with this on, a blob left with
+  # no owner is removed too, bytes and all. Without it the delete only
+  # forgets the owner and the bytes stay until the expiry below. KithMoot
+  # uploads have one owner each: every upload is a fresh envelope under a
+  # fresh key, so no two uploads share a hash, and the one key is the room
+  # device key that sent it, which also sends the delete when the room
+  # self-destructs or is tidied up. A delete from any other key is answered
+  # 200 and changes nothing. The nightly prune also drops the database rows
+  # of any blob with no owner; with uploads requiring auth, and deletes
+  # reaching the server only from this change on, there are none.
+  removeWhenNoOwners: true
   # The one rule is also the allowlist of media types: a blob matching no
   # rule is refused. The expiration counts from the last fetch, not from
   # the upload, so a file a room keeps opening stays, and one nobody has

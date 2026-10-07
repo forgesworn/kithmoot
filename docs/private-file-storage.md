@@ -23,6 +23,20 @@ An owned hostname or signed upload alone does not establish private reads.
   Already staged attachments are not silently removed. No remote migration,
   deletion, relay change or CLI/MCP policy change is part of this patch.
 
+## Deleting what this device uploaded
+
+A device can delete the files it shared in a room, and only those, when the
+room self-destructs or is left with "Leave and tidy up": BUD-02 `DELETE`
+with a kind-24242 `t` delete authorisation signed by the room's device key,
+which signed the upload. Deletes go only to the server this browser is set
+to upload to, or one its own upload record names, at a URL whose last segment
+is the hash. Success means the server no longer serves the blob (checked
+with HEAD), not a 200. A delete that does not go through is kept for seven
+days, signed in advance so no key outlives the room, and retried at launch.
+Turning uploads off is still not deletion, and nothing here deletes other
+members' files. Details: `app/src/blob-deletion.ts` and
+[persistent-groups.md](persistent-groups.md#self-destructing-rooms).
+
 ## Remaining Bothy gate — not implemented by this patch
 
 1. Pair a box and bind its storage endpoint to verified owner/device authority.

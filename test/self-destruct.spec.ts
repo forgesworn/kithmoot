@@ -1,6 +1,6 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm, openRoomDetails } from './browser.js'
+import { test, expect, request as playwrightRequest, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { verifyEvent, type Event } from 'nostr-tools/pure'
+import { allowTestFileStorage, openNewRoomForm, openRoomDetails, TEST_RELAY_HTTP } from './browser.js'
 import { openRoomUrl } from './relays.js'
 import { parseRoomLink } from '../src/link.js'
 import { deriveInvitationId } from '../src/invitation.js'
@@ -78,6 +78,65 @@ async function archived(page: Page): Promise<number> {
   }))
 }
 
+interface BlobCall { method: string; hash: string; auth?: Event; status?: number }
+
+/** Every Blossom upload and delete a page sends, with its authorisation
+ *  decoded and the hash it names (from the upload's answer, or the URL). */
+function recordBlossom(page: Page, calls: BlobCall[] = []): BlobCall[] {
+  page.on('requestfinished', async req => {
+    const url = new URL(req.url())
+    const upload = req.method() === 'PUT' && url.pathname === '/upload'
+    const blob = req.method() === 'DELETE' && url.pathname.startsWith('/blossom/')
+    if (!upload && !blob) return
+    const header = req.headers()['authorization']
+    const auth = header?.startsWith('Nostr ') ? JSON.parse(Buffer.from(header.slice('Nostr '.length), 'base64').toString('utf8')) as Event : undefined
+    const response = await req.response()
+    const hash = upload ? (await response?.json().catch(() => ({})) as { sha256?: string }).sha256 ?? '' : url.pathname.slice('/blossom/'.length)
+    calls.push({ method: req.method(), hash, ...(auth ? { auth } : {}), ...(response ? { status: response.status() } : {}) })
+  })
+  page.on('requestfailed', req => {
+    const url = new URL(req.url())
+    if (req.method() === 'DELETE' && url.pathname.startsWith('/blossom/')) calls.push({ method: 'DELETE', hash: url.pathname.slice('/blossom/'.length) })
+  })
+  return calls
+}
+
+/** Share a file into the room's chat from this page. */
+async function shareFile(page: Page, baseURL: string, name: string) {
+  await allowTestFileStorage(page, new URL(baseURL).origin)
+  await page.locator('#attachFile').setInputFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(`${name} contents`) })
+  await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
+  await page.locator('#chatForm button[type=submit]').click()
+  await expect(page.locator('#chatLog .attachment').filter({ hasText: name })).toBeVisible()
+}
+
+/** Whether the test Blossom store still serves a blob, asked from outside
+ *  the browser. */
+async function stored(hash: string): Promise<boolean> {
+  const api = await playwrightRequest.newContext()
+  try { return (await api.get(`${TEST_RELAY_HTTP}/blossom/${hash}`)).status() === 200 } finally { await api.dispose() }
+}
+
+/** Each upload this page made was asked to be deleted, with a valid BUD-02
+ *  authorisation from the key that uploaded it, and the bytes are gone. */
+async function expectOwnUploadsDeleted(calls: BlobCall[]) {
+  const uploads = calls.filter(c => c.method === 'PUT' && c.hash)
+  expect(uploads.length).toBeGreaterThan(0)
+  for (const upload of uploads) {
+    await expect.poll(() => calls.some(c => c.method === 'DELETE' && c.hash === upload.hash && c.status === 200), { timeout: 30_000 }).toBe(true)
+    const del = calls.find(c => c.method === 'DELETE' && c.hash === upload.hash && c.status === 200)!
+    expect(verifyEvent(del.auth!)).toBe(true)
+    expect(del.auth!.kind).toBe(24242)
+    expect(del.auth!.tags).toContainEqual(['t', 'delete'])
+    expect(del.auth!.tags).toContainEqual(['x', upload.hash])
+    expect(del.auth!.pubkey).toBe(upload.auth!.pubkey)
+    expect(await stored(upload.hash)).toBe(false)
+  }
+  // Nobody else's file was asked for.
+  const own = new Set(uploads.map(u => u.hash))
+  expect(calls.filter(c => c.method === 'DELETE').every(c => own.has(c.hash))).toBe(true)
+}
+
 /** Every event id a kind 5 this page sent asked to delete. */
 function deletionsAsked(sent: Event[]): Set<string> {
   return new Set(sent.filter(e => e.kind === 5).flatMap(e => e.tags.filter(t => t[0] === 'e').map(t => t[1]!)))
@@ -120,6 +179,8 @@ test('a room self-destructs at its end on every device, including one that was a
     await page.locator('#chatInput').fill('Burn after reading')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('Burn after reading')
+    const hostBlobs = recordBlossom(page)
+    await shareFile(page, baseURL!, 'burn.txt')
 
     // A second device joins, speaks, then goes away before the end with
     // everything it keeps still on disk.
@@ -151,6 +212,8 @@ test('a room self-destructs at its end on every device, including one that was a
     const asked = deletionsAsked(sent)
     const chat = sent.find(e => e.kind === 1460 && e.pubkey === hostDevice)!
     expect(asked.has(chat.id)).toBe(true)
+    // The file it shared, deleted from the file server by the key that put it there.
+    await expectOwnUploadsDeleted(hostBlobs)
     // The tombstone row, naming no room, and nothing left that does.
     await expect(page.locator('#roomList .tombstoneRow')).toHaveCount(1)
     await expect(page.locator('#roomList .tombstoneRow')).toContainText('A room self-destructed ·')
@@ -201,13 +264,19 @@ test('the authority makes a room with no end self-destruct now: both devices tid
     await expect(page.locator('#roomEndsLine')).toBeHidden()
     const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
 
+    const hostBlobs = recordBlossom(page)
+    await shareFile(page, baseURL!, 'host-notes.txt')
+
     const member = await device(browser, baseURL!); contexts.push(member)
     const other = await member.newPage()
     const memberSent = recordPublished(other)
+    const memberBlobs = recordBlossom(other)
     await enter(other, link, 'Member')
     await other.locator('#chatInput').fill('Member here')
     await other.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('Member here')
+    await shareFile(other, baseURL!, 'member-notes.txt')
+    await expect(page.locator('#chatLog .attachment').filter({ hasText: 'member-notes.txt' })).toBeVisible()
     await openRoomDetails(other)
     await expect(other.locator('#selfDestructNow')).toBeHidden()
     await other.locator('#roomSheetClose').click()
@@ -216,6 +285,7 @@ test('the authority makes a room with no end self-destruct now: both devices tid
     await page.locator('#selfDestructNow').click()
     const dialog = page.getByRole('alertdialog')
     await expect(dialog).toContainText('Self-destruct Planning now?')
+    await expect(dialog).toContainText('asks the file server to delete the files each device shared')
     await expect(dialog).toContainText('This cannot be undone.')
     await page.locator('#actionConfirm').click()
 
@@ -231,6 +301,11 @@ test('the authority makes a room with no end self-destruct now: both devices tid
     const memberDevice = memberSent.find(e => e.kind === 1460)!.pubkey
     const memberChat = memberSent.find(e => e.kind === 1460 && e.pubkey === memberDevice)!
     await expect.poll(() => deletionsAsked(memberSent).has(memberChat.id), { timeout: 30_000 }).toBe(true)
+    // Each device deleted the file it shared from the file server, and
+    // only that: the other's is the other's to delete.
+    await expectOwnUploadsDeleted(hostBlobs)
+    await expectOwnUploadsDeleted(memberBlobs)
+    for (const who of [page, other]) expect(await who.evaluate(() => localStorage.getItem('kithmoot.blob-deletes.v1'))).toBeNull()
   } finally {
     for (const context of contexts) await context.close().catch(() => {})
   }
@@ -375,6 +450,61 @@ test('the desktop rail shows the countdown beside the room', async ({ browser, b
     const row = page.locator('.workspaceRoom').filter({ hasText: 'Railed' })
     await expect(row.locator('.fusePill')).toHaveAttribute('data-stage', 'green')
     await expect(row.locator('.fusePill .fuseSpoken')).toContainText('Self-destructs in')
+  } finally {
+    await context.close()
+  }
+})
+
+test('Leave and tidy up deletes the files this device shared, and tries again at the next launch when the server was down', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name === 'chromium-desktop', 'one browser project is enough')
+  test.setTimeout(120_000)
+  const context = await device(browser, baseURL!)
+  try {
+    const page = await context.newPage()
+    const blobs = recordBlossom(page)
+    await page.goto(baseURL!)
+    await openNewRoomForm(page)
+    await page.locator('#roomName').fill('Files')
+    await page.locator('#create').click()
+    await page.locator('#displayName').fill('Host')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
+    await shareFile(page, baseURL!, 'first.txt')
+    await shareFile(page, baseURL!, 'second.txt')
+    const uploads = blobs.filter(c => c.method === 'PUT')
+    expect(uploads).toHaveLength(2)
+    // What this device keeps: where each file is, under the room; no name.
+    const record = await page.evaluate(roomId => localStorage.getItem(`kithmoot.uploads.v1.${roomId}`), roomId)
+    expect(record).toContain(uploads[0]!.hash)
+    expect(record).not.toContain('first.txt')
+
+    // The file server is down for the tidy-up.
+    await context.route(url => url.pathname.startsWith('/blossom/'), route => route.request().method() === 'DELETE' ? route.abort('connectionrefused') : route.fallback())
+    await openRoomDetails(page)
+    await page.locator('#tidyUpRoom').click()
+    await expect(page.locator('#tidyUpLead')).toContainText('ask the file server to delete the files this device shared')
+    await expect(page.locator('#tidyUpSteps li[data-step="files"]')).toContainText('Ask the file server to delete the files this device shared in the room')
+    await expect(page.locator('#tidyUpLimits')).toContainText('Files other members shared are theirs')
+    await page.locator('#tidyUpRun').click()
+    await expect(page.locator('#tidyUpDone')).toBeVisible({ timeout: 60_000 })
+    const step = page.locator('#tidyUpSteps li[data-step="files"] .tidyResult')
+    await expect(step).toContainText('Deleted 0 of 2.')
+    await expect(step).toContainText('asks again each time it starts, for 7 days')
+    for (const upload of uploads) expect(await stored(upload.hash)).toBe(true)
+    // The room is wiped all the same; the deletes kept name no room.
+    await expect.poll(() => page.evaluate(roomId => Object.keys(localStorage).filter(key => key.includes(roomId)), roomId)).toEqual([])
+    const pending = await page.evaluate(() => localStorage.getItem('kithmoot.blob-deletes.v1'))
+    expect(pending).toBeTruthy()
+    expect(pending).not.toContain(roomId)
+    await page.locator('#tidyUpDone').click()
+
+    // The next launch, with the server back: both deleted.
+    await context.unrouteAll()
+    await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+    await page.goto(baseURL!)
+    await expectOwnUploadsDeleted(blobs)
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('kithmoot.blob-deletes.v1'))).toBeNull()
   } finally {
     await context.close()
   }

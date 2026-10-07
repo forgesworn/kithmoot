@@ -93,7 +93,8 @@ the outside of an event and never in the plain-JSON retirement. See
   runs it (Web Locks); the others leave.
 - **What the tidy-up does,** in this order: delete the link-key records when
   this device made the room; leave in every tab; NIP-09 delete this device's
-  own events; tombstone the account's bookmark and delete its read position;
+  own events; ask the file server to delete the files this device shared
+  (below); tombstone the account's bookmark and delete its read position;
   wipe locally (every key naming the room or its invitation, the room's
   entries inside shared records such as the relay map, its pins and
   projects, its shown notifications, and the archive streams this device can
@@ -102,6 +103,26 @@ the outside of an event and never in the plain-JSON retirement. See
   room self-destructed · Fri 9 Oct, 15:43", naming no room, until dismissed or
   seven days pass. A named channel whose name this device never learned stays
   in the archive as ciphertext nothing here opens.
+- **Files.** Each file this device shared in the room is deleted from the
+  Blossom server it went to, with a BUD-02 `t` delete authorisation signed by
+  the room's device key, the key that signed the upload. Only that device can
+  delete it, and only its own files. It knows them from a record written as
+  each upload lands (`kithmoot.uploads.v1.<room>`: URL and hash, no name or
+  key, wiped with the room) and, for uploads made before that record existed,
+  from its own kind 1063 announcements found by the device step. Those exist
+  only in a room that is not quiet, and a dated room's lapse at its end under
+  NIP-40, so older files are found only in a room with no end or one tidied
+  up before its end. A delete goes only to the server this device is set to
+  upload to, or one its own record names, at a URL whose last segment is the
+  hash. After each delete the app asks (HEAD) whether the file is still
+  served, because a server answers 200 to a key that does not own the blob.
+  One that cannot be reached, answers with an error, or still serves the file
+  does not hold up the wipe: the delete is signed again to stay good for
+  seven days and kept under `kithmoot.blob-deletes.v1`, which names no room,
+  and sent again at each launch and hourly while the app is open until it
+  works or the week is over. After that the server's own expiry is the
+  backstop (90 days from the last fetch on the KithMoot server). Leave and
+  tidy up does the same for any room.
 - **Self-destruct now.** The browser holding the room's authority can make
   any room self-destruct from Room details, behind a confirmation naming the
   room. It retires the link, closes with `destruct` in the rekey, then tidies
@@ -129,11 +150,12 @@ the outside of an event and never in the plain-JSON retirement. See
   the person's notification settings; a pending message that cannot leave
   before the end reads "Will not be sent: the room is self-destructing".
 - **What it cannot do,** said at creation and in Room details: "Someone could
-  still have kept a copy, and some relays ignore deletion requests." Each
-  device can delete only what it signed, so full deletion needs every
-  member's device to come back once. An older client in the room ends it the
-  old way and deletes nothing. Blob deletion (BUD-02) and Android parity are
-  later phases. `kithmoot-agent` enforces the same for itself; see
+  still have kept a copy, and some relays and file servers ignore deletion
+  requests." Each device can delete only what it signed, so full deletion
+  needs every member's device to come back once; that goes for files too.
+  Anyone who opened a file may have kept it. An older client in the room ends
+  it the old way and deletes nothing. Android shares no files, so has none to
+  delete; its parity for the rest is a later phase. `kithmoot-agent` enforces the same for itself; see
   [agents.md](agents.md).
 - **Test builds.** `VITE_TEST_ROOM_END_SECONDS` offers an end that many
   seconds away on the creation form, for the acceptance suite; a real build
@@ -265,7 +287,12 @@ creator ends a room for everyone, and ends and tidies up in one action.
 devices, one of them away at the end, and checks what was asked to be deleted,
 that nothing in storage names the room, the countdown's stages and the
 tombstone row; it also covers Self-destruct now and a dated room that keeps
-its copy. `app/src/self-destruct.test.ts` checks the stage arithmetic, the
+its copy. In both the end and Self-destruct now, each device's shared file is
+deleted from the test Blossom server (`test/ws-relay.mjs`, which honours
+BUD-02 only for the uploading key) with a valid authorisation from that key;
+a Leave and tidy up with the server down keeps the deletes, names no room, and
+sends them at the next launch. `app/src/blob-deletion.test.ts` and
+`src/attachment.test.ts` cover the record, the retry and the delete client. `app/src/self-destruct.test.ts` checks the stage arithmetic, the
 stored flag and the storage scrub.
 `app/src/room-tidy-up.test.ts` checks the deletion order, `e` and `a` naming,
 the kept retirement and the refusal while a tab does not answer.
