@@ -941,15 +941,15 @@ place, so the cap is what bounds that too.
 
 **Caddy.** Two `handle` blocks in `Caddyfile.kithmoot`, beside `/turn`:
 `/upload` (PUT and HEAD, the cap, proxied to `127.0.0.1:8092`) and
-`/blossom/<sha256>` (GET and HEAD, the prefix stripped, proxied to the
-same). The service is told in `BLOSSOM_PUBLIC_URL` that its blobs live
+`/blossom/<sha256>` (GET, HEAD and DELETE, the prefix stripped, proxied to
+the same). The service is told in `BLOSSOM_PUBLIC_URL` that its blobs live
 under `https://kithmoot.forgesworn.dev/blossom/`, so the descriptor it
 answers an upload with names that, and the app checks the origin is its
 own and the leaf is the hash before it trusts it. The upload is at the
 root because the app takes an origin and nothing more for a Blossom server,
 and BUD-01 puts the upload at `/upload` under it. Nothing else of the
-server's is exposed: list, delete, mirror, the admin page and the landing
-page answer on loopback only. The deploy script does not touch Caddy; put
+server's is exposed: list, mirror, the admin page and the landing page
+answer on loopback only. The deploy script does not touch Caddy; put
 the two handles in the vhost, `caddy validate`, reload.
 
 **What the box learns, and who may use it.** An encrypted blob, its size,
@@ -964,6 +964,22 @@ the expiry, and one accepted media type,
 image or a video is refused, so the box is not a general file host and
 nothing on it can be hot-linked as media; the worst anyone can do is fill
 20 GiB with sealed bytes nobody can open, and wait 90 days.
+
+**Who can delete.** Only the key that uploaded a blob: a BUD-02
+`DELETE /blossom/<sha256>` carrying a signed kind-24242 authorisation with
+`t` delete, the hash in `x`, and an expiration still to come. The app sends
+one from the room's device key when a room self-destructs or is left with
+"Leave and tidy up", for the files that device shared and no others; that
+key names nobody, so the box learns only that the uploader asked. A delete
+from any other key is answered 200 and changes nothing. `blossom.yml` has
+`removeWhenNoOwners: true`, so the uploader's delete removes the bytes, not
+just the owner record: every KithMoot upload is a fresh envelope under a
+fresh key, so each blob has exactly one owner. A delete the box does not
+carry out (down, or not yet deployed with this) is kept by the device,
+signed for a week, and tried again at each launch; after that the 90-day
+expiry is the backstop. To check by hand:
+`curl -s -o /dev/null -w '%{http_code}' -X DELETE http://127.0.0.1:8092/<sha256>`
+prints 401 (no authorisation) when the route is up.
 
 The unit fences the socket to loopback (`IPAddressAllow=localhost`), because
 5.2.0 takes a port and no host and listens on every interface; the firewall

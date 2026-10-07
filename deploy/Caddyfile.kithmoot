@@ -140,10 +140,15 @@ kithmoot.forgesworn.dev {
 	# (It does not pre-check the Content-Length, so an over-cap upload costs
 	# 270 MiB of transfer before it is refused; the app never sends one.)
 	# Only PUT and HEAD (BUD-06's preflight) reach the service at
-	# /upload, and only GET and HEAD reach a hash-shaped path under /blossom/;
-	# OPTIONS on both so a Blossom client on another origin can preflight. A
-	# DELETE, a list, a mirror, the admin page or the landing page falls
-	# through to the file server and its 404.
+	# /upload, and only GET, HEAD and DELETE reach a hash-shaped path under
+	# /blossom/, the prefix stripped as for a fetch; OPTIONS on both so a
+	# Blossom client on another origin can preflight. The DELETE is BUD-02's:
+	# the service honours it only with a signed `t` delete authorisation from
+	# the key that uploaded the blob (a room's device key, which names
+	# nobody), and with `removeWhenNoOwners` in blossom.yml the bytes go with
+	# it. Any other key is answered 200 and nothing changes. A list, a
+	# mirror, the admin page or the landing page falls through to the file
+	# server and its 404.
 	@blossomUpload {
 		path /upload
 		method PUT HEAD OPTIONS
@@ -156,7 +161,7 @@ kithmoot.forgesworn.dev {
 	}
 	@blossomBlob {
 		path_regexp ^/blossom/[0-9a-f]{64}(\.[a-z0-9]{1,10})?$
-		method GET HEAD OPTIONS
+		method GET HEAD DELETE OPTIONS
 	}
 	handle @blossomBlob {
 		uri strip_prefix /blossom
