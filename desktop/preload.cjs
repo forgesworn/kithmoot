@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
     if (Number.isSafeInteger(count) && count >= 0) ipcRenderer.send('desktop:unread', count)
   },
   notify(content) { ipcRenderer.send('desktop:notify', content) },
+  clearRoomNotices(roomId) { if (typeof roomId === 'string') ipcRenderer.send('desktop:notify-clear-room', roomId) },
   onOpenRoom(listener) {
     const handler = (_event, roomId) => listener(roomId)
     ipcRenderer.on('desktop:open-room', handler)
