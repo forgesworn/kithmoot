@@ -11207,7 +11207,12 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // What lands while this tab is in the background is worth a
     // notification, if the person asked for them. Followed from now, so
     // the history the log replays on open is never news.
-    if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
+    if (window.kithmootDesktop) {
+      // A room first watched before we joined had no device/seal keys.
+      // Rebuild its watch now so it follows rekeys after we switch away.
+      stopWatching(s.roomId)
+      for (const room of knownRooms(roomStore())) watchKnownRoom(room)
+    }
     const joinedRoomId = currentRoomId() ?? s.roomId
     const roomLabelNow = () => currentRoomLabel()
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey, s.endsAt)
