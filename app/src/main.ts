@@ -1,3 +1,8 @@
+import { MediaPicker } from './media-picker.js'
+import { downloadCatalogueImage } from './media-catalogue.js'
+import { unlockCultPack } from './nostr-packs.js'
+import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
+import { isCultEmoji } from '../../src/custom-emoji.js'
 import { BrowserLinkPanel } from './browser-link-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
@@ -424,7 +429,19 @@ const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
   paint: (canvas, id) => shareViewer.areaOverlay(canvas, id),
 })
 const drawingNoticeGate = new DrawingNoticeGate()
-const emojiPicker = new EmojiPicker()
+let packGrant: { pubkey: string; until: number } | undefined
+const mediaPicker = new MediaPicker()
+const emojiPicker = new EmojiPicker({
+  available: () => !!nostrSession && packGrant?.pubkey === nostrSession.pubkey && packGrant.until > Date.now(),
+  unlock: async () => {
+    const actor = nostrSession
+    if (!actor) throw new Error('Connect your Nostr signer to unlock member packs.')
+    const granted = await unlockCultPack({ pubkey: actor.pubkey, signEvent: unsigned => actor.signer.signEvent(unsigned) })
+    if (nostrSession !== actor) throw new Error('The account changed. Try again.')
+    packGrant = granted ? { pubkey: actor.pubkey, until: Date.now() + 10 * 60_000 } : undefined
+    return granted
+  },
+})
 window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); shareMarksOverlay.close() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
@@ -1207,6 +1224,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
+  packGrant = undefined
   await browserLinkPanel.stop()
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
@@ -8954,6 +8972,7 @@ function renderComposer(): void {
   $('chatForm').hidden = readOnly
   ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
   ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
+  ;($('mediaToggle') as HTMLButtonElement).disabled = readOnly || closed
   if (readOnly || closed) emojiPicker.close()
   ;($('attachToggle') as HTMLButtonElement).disabled = closed
   ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job) || Boolean(draft.pendingFiles?.length)
@@ -9429,6 +9448,8 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       text.replaceChildren()
       const shown = long && !expandedMessages.has(expansionKey) ? m.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : m.text
       appendWithMentions(text, shown, mentionsFor(m), mine ? new Set<string>() : namesOfMine)
+      paintCustomEmoji(text)
+      if (isCultEmoji(shown.trim())) text.classList.add('cultSticker')
     }
     paintText()
     bubble.append(text)
@@ -9514,10 +9535,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
         )
-        messageActions.open(anchor, reactionsOnly ? [] : actions, REACTION_EMOJIS.map(emoji => {
-          const mineToo = reactions.get(emoji)!.some(entry => entry.reaction!.active && entry.participant === meParticipant)
+        messageActions.open(anchor, reactionsOnly ? [] : actions, REACTION_EMOJIS.map<MessageAction>(emoji => {
+          const mineToo = reactions.get(emoji)?.some(entry => entry.reaction!.active && entry.participant === meParticipant)
           return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
-        }))
+        }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => emojiPicker.open(anchor, react) }]))
       }
       more.addEventListener('click', () => openActions(more))
       const addReaction = document.createElement('button')
@@ -9538,12 +9559,12 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     }
     const reactionBar = document.createElement('div'); reactionBar.className = 'messageReactions'
     reactionBar.setAttribute('aria-label', 'Message reactions')
-    for (const emoji of REACTION_EMOJIS) {
-      const entries = reactions.get(emoji)!.filter(entry => entry.reaction!.active)
+    for (const [emoji, updates] of reactions) {
+      const entries = updates.filter(entry => entry.reaction!.active)
       if (!entries.length) continue
       const button = document.createElement('button'); button.type = 'button'
       const mineToo = entries.some(entry => entry.participant === meParticipant)
-      button.textContent = `${emoji} ${entries.length}`
+      button.append(emojiGlyph(emoji), document.createTextNode(` ${entries.length}`))
       button.dataset.focusKey = `reaction-${emoji}`
       button.setAttribute('aria-pressed', String(mineToo))
       button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction, ${entries.length}`)
@@ -9558,7 +9579,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const details = document.createElement('span')
       details.className = 'reactionDetails'
       details.popover = 'manual'
-      details.id = `reaction-details-${original.participant}-${original.id}-${REACTION_EMOJIS.indexOf(emoji)}`
+      details.id = `reaction-details-${original.participant}-${original.id}-${encodeURIComponent(emoji)}`
       details.setAttribute('role', 'tooltip')
       const heading = document.createElement('strong')
       heading.textContent = `${emoji} Reactions`
@@ -15591,6 +15612,21 @@ function acknowledgeMinutesRequest(): void {
           'Minutes are written by an agent somebody brings in, and the Agents tab says who is here.',
   )
 }
+
+$('mediaToggle').addEventListener('click', () => {
+  const input = $('chatInput') as HTMLTextAreaElement
+  if (input.readOnly) return
+  const generation = roomGeneration, channel = currentChannel
+  mediaPicker.open($('mediaToggle'), async (item, signal) => {
+    const file = await downloadCatalogueImage(item, signal)
+    if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) throw new Error('The conversation changed. Open the picker again.')
+    const credit = `${item.credit}\n${item.source}`
+    if (input.value.length + credit.length + 1 > MAX_CHAT_TEXT_LENGTH) throw new Error('Shorten your message before adding this file’s credit.')
+    input.value += (input.value ? '\n' : '') + credit
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await shareDroppedFiles([file])
+  })
+})
 
 $('emojiToggle').addEventListener('click', () => {
   const input = $('chatInput') as HTMLTextAreaElement

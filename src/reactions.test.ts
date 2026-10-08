@@ -15,6 +15,15 @@ async function fixture() {
 }
 
 describe('encrypted reactions', () => {
+  it('supports full emoji sequences while refusing arbitrary text and markup', async () => {
+    const { target } = await fixture()
+    for (const emoji of ['🫶🏽', '🏴‍☠️', '🇬🇧', '🦄', '💯']) {
+      const reaction = toggleReaction([], target, target.participant, emoji)
+      expect(normaliseReaction(reaction)?.emoji).toBe(emoji)
+      expect(reactionsFor([{ ...target, id: 'vote', reaction }], target).get(emoji)).toHaveLength(1)
+    }
+    for (const emoji of ['hello', '<img>', '👍👍', '\u202e👍']) expect(() => toggleReaction([], target, target.participant, emoji)).toThrow()
+  })
   it('authenticates the reacting sender and refuses replay into a different room or channel', async () => {
     const { roomId, roomKey, deviceSk, target } = await fixture()
     const reaction = toggleReaction([], target, target.participant, '❤️')
