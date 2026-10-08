@@ -5,13 +5,16 @@ import {finalizeEvent,getPublicKey,generateSecretKey} from 'nostr-tools/pure'
 import {encodeJoinUrl,generateRoomSecret,deriveRoom,deriveChannel} from '@forgesworn/fold-kit'
 import {createHash} from 'node:crypto'
 import {createServer} from 'node:http'
-import {readFileSync,existsSync} from 'node:fs'
+import {readFileSync,existsSync,mkdtempSync,cpSync,rmSync} from 'node:fs'
+import {tmpdir} from 'node:os'
 import {resolve,extname} from 'node:path'
 import assert from 'node:assert/strict'
 
 const control=process.env.LINK_BOTHY_CONTROL, linkRelay=process.env.LINK_TEST_RELAY
 if(!control || new URL(control).hostname!=='127.0.0.1' || !linkRelay?.startsWith('wss://')) throw new Error('Set loopback Bothy control and WebPKI Link relay.')
-const root=resolve('app/dist'), server=createServer((req,res)=>{
+const root=mkdtempSync(resolve(tmpdir(),'kithmoot-room-'))
+cpSync(resolve('app/dist'),root,{recursive:true})
+const server=createServer((req,res)=>{
   const pathname=new URL(req.url,'http://localhost').pathname
   const file=resolve(root,pathname.replace(/^\/j\//,'') || 'index.html')
   if(!file.startsWith(root+'/') || !existsSync(file)){res.writeHead(404);res.end();return}
@@ -19,7 +22,8 @@ const root=resolve('app/dist'), server=createServer((req,res)=>{
   res.setHeader('Content-Type',mime[extname(file)]??'application/octet-stream');res.end(readFileSync(file))
 })
 await new Promise(r=>server.listen(0,'127.0.0.1',r))
-const app=`http://127.0.0.1:${server.address().port}/j/`, publicRelay='ws://127.0.0.1:7777'
+const app=`http://127.0.0.1:${server.address().port}/j/`, publicRelay=process.env.LINK_PUBLIC_RELAY ?? 'ws://127.0.0.1:7777'
+if(new URL(publicRelay).hostname!=='127.0.0.1' || new URL(publicRelay).protocol!=='ws:')throw new Error('Public fixture relay must be loopback.')
 const browser=await chromium.launch({args:[`--host-resolver-rules=MAP ${new URL(linkRelay).hostname} 127.0.0.1`]})
 const ownerKey=new Uint8Array(createHash('sha256').update('kithmoot-g5-fixture-signer-v2:alice').digest()), guestKey=generateSecretKey()
 const secret=generateRoomSecret(), room=deriveRoom(secret), url=encodeJoinUrl(app,secret,[publicRelay])
@@ -108,7 +112,8 @@ try{
   await guest.page.locator('#chatInput').fill('Refused after keeper withdrawal');await guest.page.locator('#chatInput').press('Enter')
   await guest.page.locator('#outbox').filter({hasText:'Refused after keeper withdrawal'}).waitFor()
   await guest.page.locator('#outbox').getByRole('button',{name:'Retry',exact:true}).first().click()
-  await guest.page.locator('#outbox .pendingStatus').filter({hasText:'Not sent'}).waitFor({timeout:60000})
+  await guest.page.locator('#bothyRoomConnection').filter({hasText:'Relay refused this authentication key'}).waitFor({timeout:60000})
+  assert(await guest.page.locator('#outbox').getByText('Refused after keeper withdrawal',{exact:true}).isVisible())
   assert.equal(counters.after,0)
   assert.deepEqual(errors,[])
   await guest.page.screenshot({path:'/tmp/vennel-room-refused.png'})
@@ -116,4 +121,4 @@ try{
 }catch(error){
   for(let i=0;i<pages.length;i++){await pages[i].screenshot({path:`/tmp/vennel-room-failed-${i}.png`}).catch(()=>{});console.error('page',i,await pages[i].locator('#bothyRoomStatus').textContent().catch(()=>''),await pages[i].locator('#status').textContent().catch(()=>''),await pages[i].locator('#bothyRoomConnection').textContent().catch(()=>''))}
   console.error('page errors',errors);throw error
-}finally{ownerKey.fill(0);guestKey.fill(0);for(const c of contexts)await c.close();await browser.close();await new Promise(r=>server.close(r))}
+}finally{ownerKey.fill(0);guestKey.fill(0);for(const c of contexts)await c.close();await browser.close();await new Promise(r=>server.close(r));rmSync(root,{recursive:true,force:true})}

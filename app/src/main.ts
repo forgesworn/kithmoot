@@ -13706,6 +13706,11 @@ const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoom
       if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed during activation.')
       return encodeRosterEvent({ participant: account.pubkey, device, credential, tracks: [], claims: {}, updatedAt: nowSeconds(), left: true }, { roomId: room, roomKey, deviceSk })
     },
+    leave: async () => {
+      if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed. Reopen the saved room to continue.')
+      await closeRoomSession({ backgroundFarewell: true })
+      roomUsesBothy = false
+    },
     resume: async () => {
       if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed. Reopen the saved room to resume.')
       if (!session) await startSession()

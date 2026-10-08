@@ -7,6 +7,7 @@ export interface RoomPanelContext extends Omit<RoomActivationInput, 'box' | 'gue
   label: string
   devices: { persona: string; device: string; label: string }[]
   resume: () => Promise<void>
+  leave: () => Promise<void>
 }
 /** The route decision is explicit, separate from pairing and from account
  * discovery. The keeper signs only the displayed current device scopes. */
@@ -34,6 +35,7 @@ export class BrowserRoomPanel {
       return 'Bothy confirmed renewed room grants and readiness.'
     }) }
     this.el('bothyRoomWithdraw').onclick = () => { void this.run(async context => {
+      await context.leave()
       await this.activation.withdraw(context.room)
       return 'The local room selection was withdrawn. Keeper-issued grants were confirmed withdrawn where this account held them; a guest cannot revoke the keeper’s grant. Reopen the room to use its public relays.'
     }) }
