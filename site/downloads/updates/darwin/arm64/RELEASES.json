@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.58",
+  "currentRelease": "0.1.59",
   "releases": [
     {
-      "version": "0.1.58",
+      "version": "0.1.59",
       "updateTo": {
-        "version": "0.1.58",
-        "pub_date": "2026-10-07T18:00:00Z",
-        "notes": "A room can now self-destruct. When it ends, or when whoever runs it chooses Self-destruct now, each member's KithMoot deletes the room from that device, asks the relays to delete the messages it sent, and asks the file server to delete the files it shared. A countdown in green, amber and red shows how long is left. Someone could still have kept a copy, and some relays ignore deletion requests.",
-        "name": "0.1.58",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.58/KithMoot-0.1.58-mac-arm64.zip",
-        "sha256": "a1c9f2c2c9bbb4cdea876bc5cb29b21efeff7829a282729a1f380258ab7fb5bd",
-        "size": 137824516
+        "version": "0.1.59",
+        "pub_date": "2026-10-08T01:00:00Z",
+        "notes": "A room's countdown in the side rail now sits on its own line under the room's name, so a narrow rail no longer squeezes the name.",
+        "name": "0.1.59",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.59/KithMoot-0.1.59-mac-arm64.zip",
+        "sha256": "84063d66d4fc7061af889ef971fd3351c4d47e49595da60be7984806a5e36d69",
+        "size": 137825592
       }
     }
   ]
