@@ -3391,8 +3391,8 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .emojiPicker input { width: 100%; }
 .emojiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr)); gap: .35rem; margin: 1rem 0; }
 .emojiGrid button { min-height: 3rem; padding: .35rem; font-size: 1.5rem; }
-.messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .25rem; }
-.messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: transparent; border: 1px solid var(--border); border-radius: 2rem; font-size: .95rem; }
+.messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: -.65rem; padding-inline: .45rem; position: relative; z-index: 1; }
+.messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: var(--bg); border: 1px solid var(--border); border-radius: 2rem; font-size: .95rem; }
 .messageReactions button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
 
 .shareViewerContent { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
@@ -4722,3 +4722,29 @@ html[data-call-docked] #mobileCall { display: none !important; }
 .roomDuration { border: 0; padding: 0; margin: .75rem 0; display: grid; gap: .4rem; }
 .roomDuration label { display: flex; justify-content: space-between; }
 .roomDuration input[type=range] { width: 100%; min-height: 44px; padding: 0; accent-color: var(--accent); }
+
+/* Local pack artwork: no recipient-side catalogue or membership requests. */
+.cultEmoji { display: inline-flex; position: relative; width: 1.8em; height: 1.8em; vertical-align: middle; }
+.cultEmoji img { width: 100%; height: 100%; }
+.cultEmoji > span { position: absolute; right: -.2em; bottom: -.2em; font-size: .7em; }
+.cultSticker .cultEmoji { width: 7rem; height: 7rem; font-size: 3rem; }
+.cultEmoji[class~="600_spin"] { animation: cult-spin 3s linear infinite; }
+.cultEmoji[class~="600_rainbow"] { animation: cult-rainbow 4s linear infinite; }
+@keyframes cult-spin { to { transform: rotate(360deg); } }
+@keyframes cult-rainbow { to { filter: hue-rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cultEmoji { animation: none !important; } }
+
+.mediaPicker { width: min(38rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
+.mediaPicker form { display: flex; flex-wrap: wrap; gap: .5rem; }
+.mediaPicker input { min-width: 0; flex: 1; }
+.mediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: .5rem; }
+.mediaGrid button { display: flex; flex-direction: column; padding: .5rem; text-align: left; overflow-wrap: anywhere; min-width: 0; }
+.mediaGrid img { width: 100%; height: 7rem; object-fit: contain; }
+.mediaGrid small { font-size: .75rem; color: var(--muted); }
+
+.messagePerson { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .35rem; min-height: 2.75rem; padding: 0 .2rem; border: 0; background: transparent; color: inherit; text-align: start; }
+.messagePerson:hover .name, .messagePerson:focus-visible .name { text-decoration: underline; }
+.participantCard { max-width: min(30rem, calc(100vw - 2rem)); }
+.participantCard p { overflow-wrap: anywhere; }
+.participantCard > .avatar { width: 4rem; height: 4rem; border-radius: 50%; object-fit: cover; }
+.participantCard button { margin: .3rem; min-height: 2.75rem; }

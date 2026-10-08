@@ -1,14 +1,8 @@
 import type { ChatMessage } from './chat.js'
+import { isReactionEmoji } from './emoji-catalog.js'
 import { compareMessages } from './message-order.js'
 
-// Nine choices, in the order they are offered, and the order is the one a
-// person has learned: 💯 was added at the end rather than beside 👍, so that
-// nobody's thumb lands on a different reaction than it did yesterday.
-//
-// This list is also the allow-list `normaliseReaction` checks, which makes
-// adding to it a compatibility event in one direction: a client that has
-// not updated drops a 💯 it is sent rather than showing an unknown mark.
-// Adding is therefore safe and removing never is.
+// Keep the quick palette stable; the full picker uses the Unicode catalogue.
 export const REACTION_EMOJIS = ['👍', '❤️', '🤦', '😂', '🎉', '👀', '🙏', '😢', '💯'] as const
 export interface ChatReaction {
   messageId: string
@@ -26,7 +20,7 @@ export function normaliseReaction(value: unknown): ChatReaction | null {
   const r = value as ChatReaction
   if (typeof r.messageId !== 'string' || !r.messageId.length || r.messageId.length > 128 ||
       typeof r.participant !== 'string' || !/^[0-9a-fA-F]{64}$/.test(r.participant) ||
-      !(REACTION_EMOJIS as readonly unknown[]).includes(r.emoji) || typeof r.active !== 'boolean' ||
+      !isReactionEmoji(r.emoji) || typeof r.active !== 'boolean' ||
       !Number.isSafeInteger(r.revision) || r.revision < 1 || r.revision > 2_147_483_647) return null
   if (r.receipt !== undefined && r.receipt !== 'received') return null
   return { messageId: r.messageId, participant: r.participant.toLowerCase(), emoji: r.emoji, active: r.active, revision: r.revision, ...(r.receipt ? { receipt: r.receipt } : {}) }
@@ -44,7 +38,12 @@ export function reactionsFor(messages: readonly ChatMessage[], target: Pick<Chat
         (r.revision === old.reaction!.revision && compareMessages(m, old) > 0)) latest.set(key, m)
   }
   const result = new Map<string, ChatMessage[]>()
-  for (const emoji of REACTION_EMOJIS) result.set(emoji, [...latest.values()].filter(m => m.reaction!.emoji === emoji))
+  for (const emoji of REACTION_EMOJIS) result.set(emoji, [])
+  for (const m of latest.values()) {
+    const emoji = m.reaction!.emoji
+    if (!result.has(emoji)) result.set(emoji, [])
+    result.get(emoji)!.push(m)
+  }
   return result
 }
 
