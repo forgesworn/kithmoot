@@ -4,10 +4,9 @@ import { startBrowserLink } from './browser-link-runtime.js'
 /** Pairing is explicit. Merely opening Settings does not load WASM or dial.
  * This panel establishes the carrier; room activation has its own grant gate. */
 export class BrowserLinkPanel {
-  readonly link = new BrowserLink(startBrowserLink)
   #generation = 0
   #busy = false
-  constructor(private account: () => string | undefined, private root: Document = document) {
+  constructor(private account: () => string | undefined, private root: Document = document, readonly link = new BrowserLink(startBrowserLink), private canForget: () => Promise<boolean> = async () => true) {
     this.button('bothyConnect').addEventListener('click', () => { void this.#run(async () => {
       const account = this.account(); if (!account) throw new Error('Sign in before connecting Bothy.')
       const text = this.input('bothyRelays').value.trim()
@@ -17,10 +16,11 @@ export class BrowserLinkPanel {
     this.button('bothyPair').addEventListener('click', () => { void this.#run(async () => {
       const input = this.input('bothyCode'), code = input.value.trim(); input.value = ''
       await this.link.pair(code)
-      return 'Bothy paired and saved on this browser. Room routing is not enabled yet.'
+      return 'Bothy paired and saved on this browser. Choose Bothy for a room from that room’s settings to activate routing.'
     }) })
     this.button('bothyStop').addEventListener('click', () => { void this.stop() })
     this.button('bothyForget').addEventListener('click', () => { void this.#run(async () => {
+      if (!await this.canForget()) throw new Error('Withdraw every saved Bothy room permission before forgetting this pairing.')
       await this.link.forget()
       return 'Pairing forgotten on this browser. Remove the paired device on Bothy to revoke it there.'
     }) })

@@ -1,3 +1,10 @@
+import { BrowserLink } from './browser-link.js'
+import { startBrowserLink } from './browser-link-runtime.js'
+import { BrowserRoomRoutes } from './browser-room-routes.js'
+import { BrowserRoomActivation } from './browser-room-activation.js'
+import { BrowserRoomPanel } from './browser-room-panel.js'
+import { encodeRosterEvent } from '../../src/roster.js'
+import type { ManagedRelayPool } from './browser-room-pool.js'
 import { BrowserLinkPanel } from './browser-link-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
@@ -104,7 +111,6 @@ import { participantVerification, rememberVerified, scopedVerificationStore } fr
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
-  NostrRelayPool,
   normaliseRelayConfig,
   generateRoomSecret,
   deriveRoom,
@@ -520,10 +526,22 @@ const relayStorage = {
 // grant no message-relay ownership; explicit keeper-confirmed marks remain.
 let boxDiscovery: BoxDiscovery | undefined
 const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, url => boxDiscovery?.circleRelays().has(url) ?? false)
+const browserLink = new BrowserLink(startBrowserLink)
+let roomUsesBothy = false
+const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserLink, async room => {
+  if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
+  if (session?.roomId === room && !roomUsesBothy) {
+    captureDraft()
+    await closeRoomSession({ backgroundFarewell: true })
+    setStatus('This room’s public connections were closed for a Bothy transition. Reopen it after activation finishes.')
+  }
+})
+relayConnections.routeRooms((room, make) => browserRoomRoutes.pool(room, make))
+
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
 let roomRelayScope = 'default'
-function configuredPool(urls: string[]): NostrRelayPool {
-  return relayConnections.pool(urls === RELAYS ? 'default' : roomRelayScope, urls === RELAYS ? [] : urls === relays ? roomRelayConfig : urls)
+function configuredPool(urls: string[]): ManagedRelayPool {
+  return relayConnections.pool(roomRelayScope, urls === relays ? roomRelayConfig : urls)
 }
 
 // A socket opened while the tab was in the background - or while it still
@@ -1058,6 +1076,7 @@ $('provisionRendezvous').addEventListener('click', () => { void provisionRendezv
 
 function adoptRestoredSession(account: SignetSession): void {
   nostrSession = account
+  browserRoomRoutes.resume()
   rememberAccount(account)
   startRoomBookmarks(account)
   profiles.want([account.pubkey])
@@ -1192,10 +1211,12 @@ async function signInWithNostr(): Promise<void> {
   // back as somebody else, with none of the rooms saved under the first.
   // Say so, once, rather than leaving a person to work out why their rooms
   // are gone.
+  browserRoomRoutes.pause()
   await browserLinkPanel.stop()
   const previous = expectedAccount
   relayConnections.clearAuthentication()
   nostrSession = account
+  browserRoomRoutes.resume()
   rememberAccount(account)
   startRoomBookmarks(account)
   profiles.want([account.pubkey])
@@ -1207,6 +1228,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
+  browserRoomRoutes.pause()
   await browserLinkPanel.stop()
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
@@ -1227,6 +1249,7 @@ async function signOutOfNostr(): Promise<void> {
   readSync?.close()
   readSync = undefined
   nostrSession = undefined
+  browserRoomRoutes.resume()
   // Each one speaks for the account in a room; a session under another
   // identity would refuse them anyway, but they should not outlive it here.
   try { forgetOwnCredentials(deviceStore) } catch { /* storage may be unavailable */ }
@@ -1260,6 +1283,7 @@ async function signOutOfNostr(): Promise<void> {
  * are removed one room at a time with Forget room, same as today.
  */
 async function forgetThisBrowser(): Promise<void> {
+  if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
   if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
   if (!await confirmRoomAction({
     title: 'Forget this browser?',
@@ -1295,6 +1319,7 @@ async function forgetThisBrowser(): Promise<void> {
   readSync?.close()
   readSync = undefined
   nostrSession = undefined
+  browserRoomRoutes.resume()
   // clearPersistentClientKey: true, same as sign-out - a browser that is
   // being forgotten entirely must not keep the one thing plain sign-out
   // by itself leaves behind (see signOutOfNostr and clearPersistentClientKey
@@ -1633,7 +1658,7 @@ let invitationAuthoritySk: Uint8Array | undefined
 let invitationLinkRelays: string[] = []
 let invitationDelegation: InvitationDelegation[] = []
 let invitationHost: { close(): void } | undefined
-let invitationTransport: NostrRelayPool | undefined
+let invitationTransport: ManagedRelayPool | undefined
 /**
  * The epoch the responder that admitted this browser said the room is at.
  * A hint for the session, which asks the room's authority before it says
@@ -2037,7 +2062,7 @@ function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array
 async function admitFromGroupInvitation(
   invitation: RoomInvitation,
   linkRelays: string[],
-  transport: NostrRelayPool,
+  transport: ManagedRelayPool,
   onWider: (relays: string[]) => void,
 ): Promise<Awaited<ReturnType<typeof requestPersistentRoomAdmission>>> {
   try {
@@ -2157,7 +2182,7 @@ let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
  */
 interface DockedCall {
   session: RoomSession
-  transport: NostrRelayPool | undefined
+  transport: ManagedRelayPool | undefined
   quiet: QuietRoomTransport | undefined
   iceRefreshTimer: ReturnType<typeof setInterval> | undefined
   room: KnownRoom
@@ -2191,7 +2216,7 @@ let callGeneration = 0
 const sessionConnections = new WeakMap<RoomSession, Set<string>>()
 /** The relay pool the session publishes through, for a file dropped into
  *  the chat to announce itself on. Set and cleared with `session`. */
-let sessionTransport: NostrRelayPool | undefined
+let sessionTransport: ManagedRelayPool | undefined
 /** The quiet wrapper over `sessionTransport` when the room is a quiet one.
  *  Chat rides through it in drops; see src/quiet.ts. */
 let quietTransport: QuietRoomTransport | undefined
@@ -4194,6 +4219,7 @@ $('callTabNoticeTake').addEventListener('click', () => {
 /** Start a call, or join the one that is on. The same act: say which call
  *  this device is on. Nothing is switched on by joining; the controls are. */
 async function joinCall(): Promise<void> {
+  if (roomUsesBothy) throw new Error('Calls and media are unavailable on this text-only Bothy route.')
   // One call at a time: the room on screen beside a docked call is for
   // reading and writing only.
   if (docked()) return
@@ -4825,7 +4851,7 @@ async function publishGroupInvitation(
  *  in the background. Closing at the first ack aborted the other relays'
  *  writes, which left a group invitation on a single relay: a member or
  *  agent that later used only another of the room's relays could not join. */
-function closeWhenSettled(pool: NostrRelayPool): void {
+function closeWhenSettled(pool: ManagedRelayPool): void {
   void pool.settled().finally(() => pool.close())
 }
 
@@ -4912,6 +4938,7 @@ function adoptMicTrack(): void {
 }
 
 async function toggleMic(): Promise<void> {
+  if (roomUsesBothy) throw new Error('Microphone sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (!micTrack && (meetingRefuses() || !await consentToRecordedCall())) return
@@ -4981,6 +5008,7 @@ async function toggleMic(): Promise<void> {
 }
 
 async function toggleCamera(): Promise<void> {
+  if (roomUsesBothy) throw new Error('Camera sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (!camera && (meetingRefuses() || !await consentToRecordedCall())) return
@@ -5271,6 +5299,7 @@ interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
 
 let screenStarting = false
 async function toggleScreen(area = false): Promise<void> {
+  if (roomUsesBothy) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (screenStarting) return
@@ -8337,7 +8366,7 @@ $('chatLog').addEventListener('scroll', () => pageBackFromArchive(), { passive: 
  * written to. See `reseedRelays`.
  */
 const RESEED_DELAY_MS = 5_000
-function scheduleReseed(s: RoomSession, pool: NostrRelayPool, quiet: boolean, authority: string | undefined): void {
+function scheduleReseed(s: RoomSession, pool: ManagedRelayPool, quiet: boolean, authority: string | undefined): void {
   const archive = roomArchive
   if (!archive) return
   const alive = (): boolean => !pool.closed && (session === s || dockedCall?.session === s)
@@ -8519,6 +8548,7 @@ function selectChannel(name: string | undefined): void {
 }
 
 function channelAvailable(name: string | undefined): boolean {
+  if (roomUsesBothy) return name === undefined
   return name === undefined || [AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL].includes(name) || channels.includes(name)
 }
 
@@ -10841,7 +10871,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   const requestedMedia = entryMediaChoice()
   // Beside a docked call this room is for reading and writing: it never
   // carries this device's microphone, camera or relaying.
-  const chatOnly = docked()
+  let chatOnly = docked()
   joining = true
   if (!retry) armStopOpening()
   const deadline = retry?.deadline ?? Date.now() + 20_000
@@ -10856,6 +10886,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   let retrying = false
 
   try {
+    roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
+    chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
     // even though the account UI subsequently says we are signed in.
@@ -10940,7 +10972,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         })
         .catch(() => {})
     }
-    if (!relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
+    if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
     const ownConnections = new Set<string>()
     const factory: PeerFactory = (context?: PeerContext) => {
       const configuration = relayOnly
@@ -10976,6 +11008,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // relays, through the sockets the room already has open - in an
     // ordinary room only; a quiet room sends no such announcement. See
     // `shareDroppedFile`.
+    if (roomUsesBothy) {
+      if (!nostrSession) throw new Error('Reconnect this room’s account before resuming its Bothy route.')
+      await browserLink.resume(nostrSession.pubkey)
+      browserRoomRoutes.changed()
+    }
     const pool = configuredPool(relays)
     sessionTransport = pool
     const poolCreatedAt = Date.now()
@@ -11019,7 +11056,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           secret: roomSecret,
           credential,
           deviceSk,
-          factory,
+          factory: roomUsesBothy ? undefined : factory,
           policy: roomPolicy,
           name,
           // Off unless the kill switch says otherwise, and a pair uses it
@@ -11079,7 +11116,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
             try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted, sealSk) } catch { /* storage may be unavailable */ }
           },
           deviceSk,
-          factory,
+          factory: roomUsesBothy ? undefined : factory,
           policy: roomPolicy,
           name,
           // Off unless the kill switch says otherwise, and a pair uses it
@@ -11463,7 +11500,7 @@ $('chatLog').addEventListener('scroll', () => {
 // gets the key back.
 // ---------------------------------------------------------------------------
 
-const roomWatches = new Map<string, { pool: NostrRelayPool; watch: RoomWatch }>()
+const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
 let roomsTimer: ReturnType<typeof setInterval> | undefined
 /** Whether the list is what is on screen. Nothing below draws, or keeps a
  *  relay open, when it is not. */
@@ -12946,6 +12983,7 @@ function restoreRoomUi(ui: RoomUiState): void {
 }
 
 async function forgetKnownRoom(room: KnownRoom): Promise<void> {
+  if (await browserRoomRoutes.selected(room.roomId)) throw new Error('Withdraw this room’s Bothy permissions before forgetting it.')
   // Saved under an account whose signer is not here: a local forget would
   // look done and the bookmark would come back at the next sign-in.
   if (disconnectedAccountRooms().some(saved => saved.roomId === room.roomId)) {
@@ -13643,7 +13681,48 @@ function openProfileSettings(from: HTMLElement): void {
   $('lookupProfiles').focus()
 }
 $('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
-const browserLinkPanel = new BrowserLinkPanel(() => nostrSession?.pubkey)
+const browserLinkPanel = new BrowserLinkPanel(() => nostrSession?.pubkey, document, browserLink,
+  async () => !(await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired'))
+const browserRoomActivation = new BrowserRoomActivation(() => nostrSession?.signer, browserLink, browserRoomRoutes.store, browserRoomRoutes.barrier)
+const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoomRoutes, browserLink, async () => {
+  const s = session, account = nostrSession
+  const room = currentRoomId()
+  if (!account || !room) throw new Error('Open this room with its signed-in account before changing Bothy routing.')
+  if (s && s.participant !== account.pubkey) throw new Error('Join this room as your signed-in account first.')
+  if (hasUnsentWork() || switchingBlocked() || onCall() || docked()) throw new Error('Finish pending work and leave calls before changing this room’s route.')
+  if (isQuietPolicy(roomPolicy) || (s?.epoch ?? loadRoomEpoch(room)?.epoch ?? 0) !== 0) throw new Error('This activation journey currently supports text rooms before their first rekey. Later epochs need separately granted scopes.')
+  const deviceSk = loadDeviceKeyFor(deviceStore, room) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), room)
+  const credential = s?.credential ?? loadOwnCredentialFor(deviceStore, room, nowSeconds())
+  if (!deviceSk || !credential || credential.pubkey !== account.pubkey) throw new Error('Join the room once with this account to establish its device credential.')
+  const { roomKey } = deriveRoom(roomSecret)
+  const device = getPublicKey(deviceSk)
+  const devices = (s?.participants() ?? []).flatMap(p => p.devices.filter(d => d !== device).map(d => ({ persona: p.participant, device: d, label: p.name ?? p.participant.slice(0, 12) + '…' })))
+  return {
+    account: account.pubkey, room, device, scopes: [room, deriveChannel(room, roomKey, CONTROL_CHANNEL).id],
+    aliases: roomInvitationCapability ? [`lookup:${deriveInvitationId(roomInvitationCapability)}`] : [],
+    label: knownRoom(roomStore(), room) ? knownRoomLabel(knownRoom(roomStore(), room)!) : 'Current room',
+    devices,
+    readiness: async () => {
+      if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed during activation.')
+      return encodeRosterEvent({ participant: account.pubkey, device, credential, tracks: [], claims: {}, updatedAt: nowSeconds(), left: true }, { roomId: room, roomKey, deviceSk })
+    },
+    resume: async () => {
+      if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed. Reopen the saved room to resume.')
+      if (!session) await startSession()
+      roomUsesBothy = !!await browserRoomRoutes.selected(room)
+      setStatus('Bothy text route selected. Calls, media and ungranted channels are unavailable.', 'done')
+    },
+  }
+})
+setInterval(() => {
+  const line = $('bothyRoomConnection')
+  line.hidden = !roomUsesBothy || !session
+  if (line.hidden) return
+  const health = sessionTransport?.health() ?? []
+  line.textContent = health.find(h => h.lastError)?.lastError ?? (health.some(h => h.state === 'connected') ? 'Text over Bothy. Calls and media are unavailable.' : 'Bothy is unavailable. Messages stay held on this route.')
+}, 1000)
+$('bothyCurrentRoom').addEventListener('click', () => { ($('bothySettings') as HTMLDialogElement).close(); void browserRoomPanel.open() })
+$('roomBothySettings').addEventListener('click', () => { closeRoomSheet(); void browserRoomPanel.open() })
 $('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => browserLinkPanel.open()))
 window.addEventListener('pagehide', () => { void browserLinkPanel.stop() })
 
@@ -14155,7 +14234,7 @@ $('arrivalHome').addEventListener('click', async () => {
 // One pairing host at a time. Open while the link is on screen; closing it
 // retires the code, which is the only thing that link is good for.
 let pairingHost: { close(): void } | undefined
-let pairingTransport: NostrRelayPool | undefined
+let pairingTransport: ManagedRelayPool | undefined
 
 $('addDevice').addEventListener('click', () => {
   try {
@@ -14744,6 +14823,7 @@ function sweepRoomArchive(roomId: string, roomKey: Uint8Array | undefined): void
 async function runRoomTidyUp(): Promise<void> {
   const context = tidyUpContext
   if (!context || tidyUpRunning) return
+  if (await browserRoomRoutes.selected(context.roomId)) { setStatus('Withdraw this room’s Bothy permissions before public cleanup.'); return }
   tidyUpRunning = true
   const deleteTombstone = ($('tidyUpTombstone') as HTMLInputElement).checked
   const end = context.canEnd && ($('tidyUpEnd') as HTMLInputElement).checked
@@ -16124,6 +16204,7 @@ async function sendLongText(draft: ConversationDraft, fullText: string): Promise
 /** Files from a drop or the file input, one after another, stopping at the
  *  first that fails so the reason is the last thing on the line. */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
+  if (roomUsesBothy) throw new Error('File sharing is unavailable on this text-only Bothy route.')
   const draft = captureDraft()
   if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const list = Array.from(files ?? [])

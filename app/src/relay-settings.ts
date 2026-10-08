@@ -4,6 +4,7 @@ import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
 import { isInvitationRelays } from '../../src/persistent-invitation.js'
 import { withRoomRelays } from '../../src/room-relays.js'
 
+import type { ManagedRelayPool } from './browser-room-pool.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
 
 const STORAGE_KEY = 'kithmoot.relays.v1'
@@ -48,6 +49,11 @@ export interface FixedRoomRelays { c: string[]; signed: boolean }
  * list: see `setRoomRelays`.
  */
 export class RelayConnections {
+  #roomRouter?: (room: string, make: () => NostrRelayPool) => ManagedRelayPool
+  routeRooms(router: (room: string, make: () => NostrRelayPool) => ManagedRelayPool): void {
+    if (this.#pools.size) throw new Error('Room routing must be installed before opening pools.')
+    this.#roomRouter = router
+  }
   #saved: Record<string, RelayConfig[]> = {}
   #fixed: Record<string, FixedRoomRelays> = {}
   /** The relays each room's authority added, by room id: held for this
@@ -260,7 +266,12 @@ export class RelayConnections {
    *  the rooms list watching it). What comes back is the caller's own hold
    *  on it: `close()` ends that caller's subscriptions, and the pool closes
    *  once nobody holds it. Everything else is the shared pool's. */
-  pool(scope: string, hints: RelayHints = []): NostrRelayPool {
+  pool(scope: string, hints: RelayHints = []): ManagedRelayPool {
+    const room = /^(?:room|lookup):([a-f0-9]{64})$/.exec(scope)?.[1]
+    if (room && this.#roomRouter) return this.#roomRouter(room, () => this.#publicPool(scope, hints))
+    return this.#publicPool(scope, hints)
+  }
+  #publicPool(scope: string, hints: RelayHints): NostrRelayPool {
     this.#prune()
     const key = poolKey(scope, hints)
     let pool = this.#shared.get(key)

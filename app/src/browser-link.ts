@@ -75,6 +75,16 @@ export class BrowserLink {
     }
   }
   boxes(): PairedBox[] { return this.#state?.routes.map(r => ({ routeId: r.routeId, eventUrl: linkEventUrl(r.card) })) ?? [] }
+  /** Listing saved routes does not start the endpoint or reveal secrets. */
+  async pairedBoxes(account: string): Promise<PairedBox[]> {
+    if (!/^[0-9a-f]{64}$/.test(account)) throw new Error('Choose a signing account first.')
+    const state = await this.vault.read()
+    try {
+      if (!state) return []
+      if (state.account !== account) throw new Error('This browser’s Bothy pairing belongs to another account.')
+      return state.routes.map(r => ({ routeId: r.routeId, eventUrl: linkEventUrl(r.card) }))
+    } finally { if (state) wipeLinkState(state) }
+  }
 
   /** Explicit local forgetting, never a claim of server-side revocation. */
   async forget(): Promise<void> {

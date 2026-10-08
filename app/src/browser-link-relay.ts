@@ -67,6 +67,7 @@ export class BrowserLinkRelay implements RelayTransport {
   #serial = 0
   #backoff = 1000
   #authFailed = false
+  #failure?: string
   #generation = 0
   readonly #Base: typeof WebSocket
   constructor(link: Pick<BrowserLink, 'openSocket'>, readonly box: PairedBox, identity: ParticipantIdentity, private scope: LinkRoomScope) {
@@ -74,9 +75,10 @@ export class BrowserLinkRelay implements RelayTransport {
     this.scope = { room: scope.room, kinds: [...scope.kinds] }
     const grant = { pubkey: identity.pubkey, sign: identity.signEvent.bind(identity) }
     this.#Base = authenticatedWebSocket(linkWebSocket(link, box), () => grant, () => !this.#closed && !this.#authFailed,
-      () => { this.#authFailed = true }, 30_000)
+      (_url, reason) => { this.#failure = reason; this.#authFailed = !reason.includes('timed out') }, 30_000)
   }
   describe() { return [{ url: this.box.eventUrl, read: true, write: true, circle: true }] }
+  health() { return this.describe().map(r => ({ ...r, state: this.#closed ? 'closed' as const : this.#socket?.readyState === 1 ? 'connected' as const : 'disconnected' as const, lastError: this.#failure })) }
   async publish(event: Event): Promise<void> {
     const rooms = event.tags.filter(t => t[0] === 'd')
     if (!this.scope.kinds.includes(event.kind) || rooms.length !== 1 || rooms[0].length !== 2 || rooms[0][1] !== this.scope.room || !this.#verify(event)) throw new Error('Event is outside this Bothy room scope.')
@@ -113,6 +115,7 @@ export class BrowserLinkRelay implements RelayTransport {
       socket.onopen = () => {
         if (generation !== this.#generation || this.#closed) { socket.close(); return }
         clearTimeout(timer)
+        this.#failure = undefined
         for (const [id, request] of this.#requests) this.#send(id, request)
         resolve()
       }
@@ -134,7 +137,8 @@ export class BrowserLinkRelay implements RelayTransport {
           if (!Array.isArray(f)) return
           if (f[0] === 'OK' && f.length === 4 && typeof f[2] === 'boolean') {
             if (f[2] && this.#writes.has(f[1])) this.#backoff = 1000
-            this.#writes.get(f[1])?.finish(f[2] ? undefined : new Error('Bothy refused publication.'))
+            if (!f[2] && this.#writes.has(f[1])) this.#failure = 'Bothy refused this message. Its room grant may have expired or been withdrawn.'
+            this.#writes.get(f[1])?.finish(f[2] ? undefined : new Error('every relay rejected the event: Bothy refused publication.'))
           }
           const request = this.#requests.get(f[1]); if (!request) return
           if (f[0] === 'EVENT' && f.length === 3 && this.#verify(f[2]) && matchFilters(request.filters, f[2]) && !request.seen.has(f[2].id)) {

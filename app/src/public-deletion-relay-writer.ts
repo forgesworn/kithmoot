@@ -9,6 +9,7 @@
 import type { Event } from 'nostr-tools/pure'
 import { normaliseRelayConfig } from '../../src/relay-pool.js'
 import { verifyEventUncached } from '../../src/verify.js'
+import { publicRoomOperation } from './public-room-operation.js'
 
 export type PublicDeletionRelayOutcome = {
   relay: string
@@ -33,17 +34,22 @@ export class NostrPublicDeletionRelayWriter {
   #publish(relay: string, event: Event): Promise<PublicDeletionRelayOutcome> {
     return new Promise(resolve => {
       let socket: WebSocket | undefined
+      let release: (() => Promise<void>) | undefined
       let finished = false
       const finish = (outcome: PublicDeletionRelayOutcome) => {
         if (finished) return
         finished = true
         clearTimeout(timer)
         try { socket?.close() } catch { /* The acknowledgement is already recorded. */ }
+        void release?.()
         resolve(outcome)
       }
       const unknown = (detail: string) => finish({ relay, status: 'unknown', detail })
       const timer = setTimeout(() => finish({ relay, status: 'timed-out', detail: 'no OK acknowledgement before deadline' }), this.timeoutMs)
-      try {
+      void (async () => { try {
+        const permission = publicRoomOperation(() => unknown('room routing changed'))
+        if (permission) release = await permission
+        if (finished) { await release?.(); return }
         socket = this.socket(relay)
         socket.onopen = () => {
           try { socket!.send(JSON.stringify(['EVENT', event])) }
@@ -59,7 +65,7 @@ export class NostrPublicDeletionRelayWriter {
             finish({ relay, status: frame[2] ? 'accepted' : 'refused', ...(frame[3] ? { detail: frame[3].slice(0, 400) } : {}) })
           } catch { /* A malformed frame cannot change an unknown result into acceptance. */ }
         }
-      } catch { unknown('relay connection could not be opened') }
+      } catch { unknown('relay connection could not be opened') } })()
     })
   }
 }
