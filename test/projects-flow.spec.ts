@@ -101,3 +101,18 @@ test('project creation stays discoverable and explains an incompatible signer', 
     await expect(page.locator('#projectEditor')).not.toBeVisible()
   } finally { await context.close() }
 })
+
+
+test('a first-time visitor can find New project and sign in from its panel', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+  try {
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await expect(page.locator('#homeNewProject')).toBeVisible()
+    await page.locator('#homeNewProject').click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
+    await expect(page.locator('#sharedProjectsStatus')).toContainText('Sign in')
+    await expect(page.locator('#sharedProjectsSignIn')).toBeVisible()
+    await expect(page.locator('#sharedProjectNew')).toBeDisabled()
+  } finally { await context.close() }
+})

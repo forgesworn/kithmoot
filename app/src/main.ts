@@ -11710,6 +11710,12 @@ function renderRooms(): void {
   $('home').dataset.state = returning ? 'returning' : 'cold'
   $('home').setAttribute('aria-labelledby', returning ? 'roomsHeading' : 'homeHeading')
   $('rooms').hidden = !returning
+  // First-time visitors need the same route into Projects and its sign-in help.
+  const projectActions = returning ? $('homeOpenLink').parentElement! : $('homeFoot')
+  for (const id of ['homeSharedProjects', 'homeNewProject']) if ($(id).parentElement !== projectActions) {
+    if (returning) projectActions.insertBefore($(id), $('homeOpenLink'))
+    else projectActions.append($(id))
+  }
   renderHomeSyncStatus()
   $('accountReconnect').hidden = !accountDisconnected()
   $('homeSignIn').hidden = !!nostrSession || restoring || returning
