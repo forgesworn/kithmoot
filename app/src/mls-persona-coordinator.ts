@@ -38,6 +38,69 @@ export class BrowserPersonaCoordinator {
 
   status(persona: string, current: () => boolean = () => true): Promise<CoordinationResult<void>> { return this.transact(persona, async () => undefined, current) }
 
+  /** Explicit local replacement. This destroys MLS object keys, not the
+   * witness's registration. A known retiring duty keeps only its outer-sealed
+   * writer/state/route until a fresh signed retired receipt ends it. */
+  async clear(persona: string, current: () => boolean): Promise<CoordinationHold | CoordinationFence> {
+    if (!current()) return pending('stale')
+    const wasm = await this.engine()
+    const outcome = await this.store.withPersona<CoordinationHold | CoordinationFence>(persona, async store => {
+      if (!current()) return pending('stale')
+      let file: PersonaSnapshot | undefined
+      try { file = await store.read(true) } catch (error) {
+        if (!broken(error)) throw error
+        const marker = await store.fence((error as PersonaStorageError).code)
+        // An unreadable outer key has already lost the writer. Preserve the
+        // exact subject for explicit keeper recovery; never enrol implicitly.
+        // Malformed but readable state may still contain a retiring duty.
+        // Keep it for repair; it is not evidence that the writer key is lost.
+        if ((error as PersonaStorageError).code !== 'invalid') await store.erase(await store.revision())
+        return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
+      }
+      if (!file) return pending('not-enrolled')
+      if (file.data.coordinator === null) {
+        await store.fence('cleared')
+        await store.supersede(file.revision, null)
+        return pending('not-enrolled')
+      }
+      const platform = makePlatform(wasm)
+      let core: Coordinator | undefined
+      try {
+        core = openCore(wasm, platform, file)
+        return await new CoordinationRun(wasm, core, store, file, this.channels).clear()
+      } finally { core?.free(); platform.free() }
+    })
+    return current() ? outcome : pending('stale')
+  }
+
+  /** The keeper's explicit exact-subject assertion, not cryptographic proof.
+   * It cannot release a retained retiring duty. A healthy installation must
+   * first be cleared/fenced; old subject/installation ids remain tombstoned. */
+  async keeperConfirmsRetired(persona: string, subject: string, current: () => boolean): Promise<boolean> {
+    if (!/^[0-9a-f]{64}$/.test(subject) || !current()) return false
+    const wasm = await this.engine()
+    const confirmed = await this.store.withPersona(persona, async store => {
+      if (!current()) return false
+      const marker = await store.marker()
+      if (marker?.state === 'superseded') return marker.retired.some(t => t.subject === subject)
+      if (marker?.state !== 'fenced' || marker.subject !== subject) return false
+      let file: PersonaSnapshot | undefined
+      try { file = await store.read(true) } catch (error) {
+        if (!(error instanceof PersonaStorageError) || !['seal-lost', 'missing-record'].includes(error.code)) throw error
+      }
+      if (file?.data.coordinator) {
+        const platform = makePlatform(wasm)
+        let core: Coordinator | undefined
+        try { core = openCore(wasm, platform, file); if (core.retiring()) return false }
+        finally { core?.free(); platform.free() }
+      }
+      if (!current()) return false
+      await store.supersede(await store.revision(), subject)
+      return true
+    })
+    return current() && confirmed
+  }
+
   /** `change` may compute provisional state and effects, but must not publish,
    * acknowledge an engine step or display new plaintext. Only an active result
    * authorises its returned value and exact session marks. All secret buffers
@@ -50,7 +113,7 @@ export class BrowserPersonaCoordinator {
     const outcome = await this.store.withPersona<CoordinationResult<T>>(persona, async store => {
       if (!current()) return pending('stale')
       let file: PersonaSnapshot | undefined
-      try { file = await store.read() } catch (error) {
+      try { file = await store.read(true) } catch (error) {
         if (!broken(error)) throw error
         const marker = await store.fence(error instanceof PersonaStorageError ? error.code : 'invalid')
         return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
@@ -61,10 +124,10 @@ export class BrowserPersonaCoordinator {
       }
       // These placeholder signing/DH ids are never used by the coordinator;
       // this Platform instance supplies only its CSPRNG, not a room identity.
-      const platform = new wasm.Platform(new Uint8Array(32), new Uint8Array(32), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+      const platform = makePlatform(wasm)
       let core: Coordinator | undefined
       try {
-        try { core = wasm.openCoordinator(platform, hexToBytes(file.data.coordinator), personaManifest(file.data.active, wasm.coordinatorObjectHash), file.data.staged === null ? undefined : personaManifest(file.data.staged, wasm.coordinatorObjectHash)) }
+        try { core = openCore(wasm, platform, file) }
         catch (error) {
           if (code(error) !== 'CoordinatorMalformed') throw error
           const marker = await store.fence('invalid-coordinator')
@@ -98,10 +161,10 @@ export class BrowserPersonaCoordinator {
 class CoordinationRun {
   constructor(private readonly wasm: Engine, private readonly core: Coordinator, private readonly store: LockedPersonaStore,
     public file: PersonaSnapshot, private readonly channels: PersonaWitnessChannels) {}
-  async #persist(state: Uint8Array = this.core.state(), active = this.file.data.active, staged = this.file.data.staged): Promise<void> {
+  async #persist(state: Uint8Array = this.core.state(), active = this.file.data.active, staged = this.file.data.staged, cleared = this.file.data.cleared): Promise<void> {
     const coordinator = bytesToHex(state)
-    if (coordinator === this.file.data.coordinator && active === this.file.data.active && staged === this.file.data.staged) return
-    this.file = await this.store.write(this.file.revision, { ...this.file.data, coordinator, active, staged }, this.file.marker)
+    if (coordinator === this.file.data.coordinator && active === this.file.data.active && staged === this.file.data.staged && cleared === this.file.data.cleared) return
+    this.file = await this.store.write(this.file.revision, { ...this.file.data, coordinator, active, staged, cleared }, this.file.marker)
   }
   async #exchange(method: 'read' | 'advance', request: Uint8Array): Promise<WitnessAnswer> {
     const seed = hexToBytes(this.file.data.writerSeed)
@@ -114,19 +177,43 @@ class CoordinationRun {
     finally { seed.fill(0) }
   }
   async reconcile(): Promise<CoordinationHold | CoordinationFence | undefined> {
-    await this.#persist() // open() can itself fence altered durable objects.
+    // A crash between the durable clear intent and key destruction cannot
+    // leave a healthy-looking old file usable after reopen.
+    if (this.file.marker.reason === 'cleared' && !this.file.data.cleared) return this.clear()
+    // open() can itself fence altered durable objects. If a missing key also
+    // prevents sealing that state, its independently retained marker fences.
+    try { await this.#persist() } catch (error) { if (!broken(error)) throw error; return this.fence((error as PersonaStorageError).code) }
     if (this.file.marker.state === 'fenced' || this.core.fenced() || this.file.data.cleared) {
       if (this.file.data.cleared && !this.core.fenced()) { this.core.installationReplaced(); await this.#persist() }
       await this.#retiring()
+      if (this.file.data.cleared && !this.core.retiring()) {
+        await this.store.supersede(this.file.revision, this.file.marker.subject)
+        return pending('not-enrolled')
+      }
       return this.fence(this.file.marker.reason ?? this.core.fenced() ?? 'installation-replaced')
     }
     // Key presence alone cannot detect a substituted CryptoKey. Open every
     // named object and discard its plaintext before authorising new mutations.
-    try { await this.#checkSeals(this.file.data.active); if (this.file.data.staged) await this.#checkSeals(this.file.data.staged) }
+    try { if (!await this.store.hasInnerKey()) throw new PersonaStorageError('seal-lost'); await this.#checkSeals(this.file.data.active); if (this.file.data.staged) await this.#checkSeals(this.file.data.staged) }
     catch (error) { if (!broken(error)) throw error; return this.fence((error as PersonaStorageError).code) }
     const decision: Decision = this.core.onRead(await this.#exchange('read', this.core.read()))
     await this.#persist()
     return this.#act(decision)
+  }
+  async clear(): Promise<CoordinationHold | CoordinationFence> {
+    this.file.marker = await this.store.fence('cleared')
+    this.core.installationReplaced()
+    if (!this.core.retiring()) {
+      await this.store.erase(this.file.revision)
+      return { state: 'fenced', reason: this.file.marker.reason!, subject: this.file.marker.subject, retiring: false }
+    }
+    await this.#persist(this.core.state(), { vault: [], sessions: [] }, null, true)
+    await this.#retiring()
+    if (!this.core.retiring()) {
+      await this.store.supersede(this.file.revision, this.file.marker.subject)
+      return pending('not-enrolled')
+    }
+    return this.fence(this.file.marker.reason ?? 'cleared')
   }
   async #checkSeals(objects: PersonaObjects): Promise<void> {
     for (const record of objects.vault) (await this.store.openObject(this.file.data.installation, record.id, record.sealed)).fill(0)
@@ -260,6 +347,10 @@ class Transaction implements PersonaTransaction {
   async dispose(): Promise<void> { this.#open = false; await Promise.allSettled(this.#pending); for (const plain of this.#plaintext) plain.fill(0); this.#plaintext.clear() }
 }
 function same(a: Uint8Array, b: Uint8Array): boolean { return a.length === b.length && a.every((v, i) => v === b[i]) }
+function makePlatform(wasm: Engine) { return new wasm.Platform(new Uint8Array(32), new Uint8Array(32), { fill: n => crypto.getRandomValues(new Uint8Array(n)) }) }
+function openCore(wasm: Engine, platform: ReturnType<typeof makePlatform>, file: PersonaSnapshot): Coordinator {
+  return wasm.openCoordinator(platform, hexToBytes(file.data.coordinator!), personaManifest(file.data.active, wasm.coordinatorObjectHash), file.data.staged === null ? undefined : personaManifest(file.data.staged, wasm.coordinatorObjectHash))
+}
 function sameObjects(a: PersonaObjects, b: PersonaObjects): boolean {
   const vault = new Map(b.vault.map(v => [v.id, v.sealed]))
   const sessions = new Map(b.sessions.map(s => [s.id, s]))

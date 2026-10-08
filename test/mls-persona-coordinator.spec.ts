@@ -149,3 +149,78 @@ test('an account context that is already obsolete sends no witness request', asy
   expect(f.witness.reads).toBe(0); expect(f.witness.advances).toBe(0)
   expect(await local(f.page)).toEqual({ active: [], staged: null, fence: null })
 })
+test('clearing a healthy persona erases keys but requires exact-subject keeper confirmation before enrolment', async ({ context }) => {
+  const f = await fixture(context)
+  await f.page.evaluate('M.commit(8, 1)')
+  const before = await f.page.evaluate('M.replacementState()') as any
+  expect(await f.page.evaluate(subject => (window as any).M.confirmRetired(subject), f.ids.subject)).toBe(false)
+  expect(await f.page.evaluate('M.clear()')).toEqual({ state: 'fenced', reason: 'cleared', subject: f.ids.subject, retiring: false, injected: false })
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: false, innerKey: false, marker: 'fenced', reason: 'cleared' })
+  expect((await f.page.evaluate('M.prepareFresh()') as any).error).toBeTruthy()
+  expect(await f.page.evaluate('M.confirmRetired("00".repeat(32))')).toBe(false)
+  expect(await f.page.evaluate(subject => (window as any).M.confirmRetired(subject), f.ids.subject)).toBe(true)
+  await f.page.reload()
+  expect(await f.page.evaluate(subject => (window as any).M.confirmRetired(subject), f.ids.subject)).toBe(true)
+  const next = await f.page.evaluate('M.prepareFresh()') as any
+  expect(next.state).toBe('prepared'); expect(next.installation).not.toBe(before.installation)
+  expect(next.retired).toContainEqual({ installation: before.installation, subject: f.ids.subject })
+  expect(await f.page.evaluate('M.discardTombstones()')).toBe('conflict')
+  expect(f.witness.retired).toBe(false) // A keeper assertion is not a signed proof.
+})
+for (const fault of ['after-intent', 'abort-erasure']) test(`an interrupted healthy clear at ${fault} finishes key destruction on reopening`, async ({ context }) => {
+  const f = await fixture(context)
+  await f.page.evaluate('M.commit(8, 1)')
+  const failure = await f.page.evaluate(fault => (window as any).M.clear(fault), fault)
+  expect(failure.injected).toBe(true); expect(failure.error).toBeTruthy()
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: true, innerKey: true, marker: 'fenced', reason: 'cleared' })
+  await f.page.reload()
+  expect(await f.page.evaluate('M.status()')).toEqual({ state: 'fenced', reason: 'cleared', subject: f.ids.subject, retiring: false })
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: false, innerKey: false })
+})
+for (const loseKey of [false, true]) test(`clear preserves a retiring duty across offline reload, missing inner key: ${loseKey}`, async ({ context }) => {
+  const f = await fixture(context), initial = f.witness.digest.slice()
+  await f.page.evaluate('M.commit(8, 1)')
+  const before = await f.page.evaluate('M.replacementState()') as any
+  f.witness.seq = 0n; f.witness.digest = initial
+  expect((await f.page.evaluate('M.status()') as any).retiring).toBe(true)
+  if (loseKey) await f.page.evaluate('M.damage("inner-key")')
+  expect(await f.page.evaluate(subject => (window as any).M.confirmRetired(subject), f.ids.subject)).toBe(false)
+  f.witness.offline = true
+  expect(await f.page.evaluate('M.clear()')).toEqual({ state: 'fenced', reason: 'witness-behind', subject: f.ids.subject, retiring: true, injected: false })
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: true, innerKey: false, cleared: true, active: 0, staged: null })
+  await f.page.reload()
+  expect((await f.page.evaluate('M.status()') as any).retiring).toBe(true)
+  expect(await f.page.evaluate(subject => (window as any).M.confirmRetired(subject), f.ids.subject)).toBe(false)
+  expect((await f.page.evaluate('M.prepareFresh()') as any).error).toBeTruthy()
+  f.witness.offline = false
+  expect(await f.page.evaluate('M.status()')).toEqual({ state: 'pending', reason: 'not-enrolled', refused: false })
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: false, innerKey: false, marker: 'superseded', retired: [{ installation: before.installation, subject: f.ids.subject }] })
+  expect((await f.page.evaluate('M.prepareFresh()') as any).state).toBe('prepared')
+})
+for (const fault of ['abort-key-destruction', 'after-key-destruction']) test(`retiring clear at ${fault} keeps state and key deletion atomic`, async ({ context }) => {
+  const f = await fixture(context), initial = f.witness.digest.slice()
+  await f.page.evaluate('M.commit(8, 1)'); f.witness.seq = 0n; f.witness.digest = initial
+  await f.page.evaluate('M.status()'); f.witness.offline = true
+  const failed = await f.page.evaluate(fault => (window as any).M.clear(fault), fault)
+  expect(failed.injected).toBe(true); expect(failed.error).toBeTruthy()
+  const committed = fault === 'after-key-destruction'
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: true, innerKey: !committed, cleared: committed, active: committed ? 0 : 1 })
+  await f.page.reload(); expect((await f.page.evaluate('M.status()') as any).retiring).toBe(true)
+  if (!committed) await f.page.evaluate('M.clear()')
+  f.witness.offline = false
+  expect(await f.page.evaluate('M.status()')).toEqual({ state: 'pending', reason: 'not-enrolled', refused: false })
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: false, innerKey: false, marker: 'superseded' })
+})
+test('an unregistered prepared installation can be cleared and its ids remain tombstoned', async ({ context }) => {
+  const f = await fixture(context)
+  expect(await f.page.evaluate('M.unregistered()')).toEqual({ cleared: { state: 'pending', reason: 'not-enrolled', refused: false }, changed: true, tombstone: true })
+})
+test('clear does not erase a readable newer-format container that may retain a retirement duty', async ({ context }) => {
+  const f = await fixture(context), initial = f.witness.digest.slice()
+  await f.page.evaluate('M.commit(8, 1)'); f.witness.seq = 0n; f.witness.digest = initial
+  await f.page.evaluate('M.status()'); await f.page.evaluate('M.damage("newer-format")')
+  expect((await f.page.evaluate('M.clear()') as any).state).toBe('fenced')
+  expect(await f.page.evaluate('M.replacementState()')).toMatchObject({ row: true, innerKey: true, unreadable: true, marker: 'fenced' })
+  expect(await f.page.evaluate(subject => (window as any).M.confirmRetired(subject).then(() => 'unexpected-success', (e: Error) => e.message), f.ids.subject)).toBe('MLS persona storage: invalid')
+  expect((await f.page.evaluate('M.prepareFresh()') as any).error).toBeTruthy()
+})

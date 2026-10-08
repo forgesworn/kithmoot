@@ -39,7 +39,7 @@ export interface PersonaMarker {
 }
 export interface PersonaSnapshot { revision: string; data: PersonaData; marker: PersonaMarker }
 interface SealedPersona { revision: string; sealed: ArrayBuffer }
-interface Keys { outer: CryptoKey; inner: CryptoKey }
+interface Keys { outer: CryptoKey; inner?: CryptoKey }
 export class PersonaStorageError extends Error {
   constructor(readonly code: 'unavailable' | 'seal-lost' | 'missing-record' | 'conflict' | 'invalid' | 'closed') {
     super(`MLS persona storage: ${code}`)
@@ -85,18 +85,21 @@ function validate(data: PersonaData, marker: PersonaMarker, persona: string): vo
   if (data.coordinator !== null) bytes(data.coordinator)
   objects(data.active)
   if (data.staged !== null) { requireValue(data.coordinator !== null); objects(data.staged) }
+  if (data.cleared) requireValue(data.coordinator !== null && data.active.vault.length === 0 && data.active.sessions.length === 0 && data.staged === null)
   if (data.witnessRoute !== null) {
     const route = data.witnessRoute
     requireValue(route && /^[A-Za-z0-9._:-]{1,128}$/.test(route.routeId) && HEX32.test(route.pairedRouteSecret))
     bytes(route.card, 64 * 1024); uint(route.cardSerial); uint(route.cardVerifiedAt)
   }
   validateMarker(marker)
+  requireValue(marker.state !== 'superseded')
   requireValue(marker.installation === data.installation)
 }
 function validateMarker(marker: PersonaMarker): void {
   requireValue(marker?.version === 1 && ['prepared', 'genesis', 'fenced', 'superseded'].includes(marker.state) && HEX32.test(marker.installation))
   for (const field of [marker.subject, marker.writer, marker.digest]) requireValue(field === null || HEX32.test(field))
   requireValue(marker.reason === null || (typeof marker.reason === 'string' && marker.reason.length <= 128))
+  if (marker.state === 'fenced') requireValue(typeof marker.reason === 'string' && marker.reason.length > 0)
   requireValue(Array.isArray(marker.retired) && marker.retired.length <= 64)
   for (const t of marker.retired) requireValue(HEX32.test(t.installation) && (t.subject === null || HEX32.test(t.subject)))
 }
@@ -171,19 +174,24 @@ export class LockedPersonaStore {
     const [r, m, k] = await Promise.all([row, marker, keys, done])
     return { row: r, marker: m, keys: k }
   }
-  read(): Promise<PersonaSnapshot | undefined> {
+  /** allowMissingInner is for the coordinator's retiring/clear path only.
+   * Before any ordinary mutation it must separately check the inner key and
+   * authenticate the named objects. The outer record is always authenticated. */
+  read(allowMissingInner = false): Promise<PersonaSnapshot | undefined> {
     return this.#run(async () => {
       const { row, marker, keys } = await this.#rows()
       if (!row) {
+        if (marker?.state === 'superseded' && !keys) { validateMarker(marker); return undefined }
         if (marker || keys) throw new PersonaStorageError('missing-record')
         return undefined
       }
       if (!marker) throw new PersonaStorageError('missing-record')
-      if (!keys?.outer || !keys.inner) throw new PersonaStorageError('seal-lost')
+      if (!keys?.outer) throw new PersonaStorageError('seal-lost')
       const plain = await open(this.crypto, keys.outer, this.#outerAad(row.revision), new Uint8Array(row.sealed), MAX_CONTAINER)
       try {
         const data: PersonaData = JSON.parse(decoder.decode(plain))
         validate(data, marker, this.persona)
+        if (!data.cleared && !keys.inner && !allowMissingInner) throw new PersonaStorageError('seal-lost')
         return { revision: row.revision, data, marker }
       } catch (error) {
         if (error instanceof PersonaStorageError) throw error
@@ -194,6 +202,7 @@ export class LockedPersonaStore {
   marker(): Promise<PersonaMarker | undefined> {
     return this.#run(async () => { const m = (await this.#rows()).marker; if (m) validateMarker(m); return m })
   }
+  hasInnerKey(): Promise<boolean> { return this.#run(async () => !!(await this.#rows()).keys?.inner) }
   /** A terminal local fence survives later restoration of a missing key or
    * object. The first reason and subject are kept for explicit retirement.
    * If the marker itself is absent/corrupt, fail rather than minting an id. */
@@ -216,8 +225,13 @@ export class LockedPersonaStore {
   }
   create(): Promise<PersonaSnapshot> {
     return this.#run(async () => {
+      const previous = await this.#rows()
+      if (previous.row || previous.keys) throw new PersonaStorageError('conflict')
+      if (previous.marker) { validateMarker(previous.marker); if (previous.marker.state !== 'superseded') throw new PersonaStorageError('conflict') }
       const data: PersonaData = { version: 1, persona: this.persona, installation: this.#random(), writerSeed: this.#random(), witnessRoute: null, coordinator: null, active: empty(), staged: null, cleared: false }
-      const marker: PersonaMarker = { version: 1, state: 'prepared', subject: null, installation: data.installation, writer: null, digest: null, reason: null, retired: [] }
+      const retired = previous.marker?.retired ?? []
+      if (retired.some(t => t.installation === data.installation)) throw new PersonaStorageError('conflict')
+      const marker: PersonaMarker = { version: 1, state: 'prepared', subject: null, installation: data.installation, writer: null, digest: null, reason: null, retired }
       const make = () => this.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
       const keys = { outer: await make(), inner: await make() }
       return this.#save(null, data, marker, keys)
@@ -232,7 +246,7 @@ export class LockedPersonaStore {
     return this.#run(async () => {
       const { row, keys, marker: previous } = await this.#rows()
       if (!row || row.revision !== expected) throw new PersonaStorageError('conflict')
-      if (!keys?.outer || !keys.inner) throw new PersonaStorageError('seal-lost')
+      if (!keys?.outer || (!copy.data.cleared && !keys.inner)) throw new PersonaStorageError('seal-lost')
       if (!previous || previous.installation !== copy.data.installation) throw new PersonaStorageError('conflict')
       return this.#save(expected, copy.data, copy.marker, keys)
     })
@@ -253,16 +267,58 @@ export class LockedPersonaStore {
         // fence() can commit while an asynchronous outer seal is pending.
         // Checking only the persona revision would let that old seal un-fence it.
         if (previous.result?.state === 'fenced' && (marker.state !== 'fenced' || marker.reason !== previous.result.reason)) { conflict = true; tx.abort(); return }
+        // Ordinary writes never discard retirement history or rewrite an
+        // enrolled subject. Only supersede() may change those lifecycle facts.
+        if (previous.result && (JSON.stringify(previous.result.retired) !== JSON.stringify(marker.retired) ||
+          (['genesis', 'fenced'].includes(previous.result.state) && ['subject', 'writer', 'digest'].some(key => previous.result[key] !== marker[key as 'subject' | 'writer' | 'digest'])))) { conflict = true; tx.abort(); return }
         if (expected === null) {
-          // add() refuses leftover markers/keys even when the row was deleted.
+          // Only an explicit supersession permits replacing a retained marker.
+          if (previous.result && (previous.result.state !== 'superseded' || JSON.stringify(previous.result.retired) !== JSON.stringify(marker.retired))) { conflict = true; tx.abort(); return }
           tx.objectStore('keys').add(keys, this.name)
-          tx.objectStore('markers').add(marker, this.name)
-        } else tx.objectStore('markers').put(marker, this.name)
+        } else if (data.cleared) {
+          // Key destruction and the retiring-only file are one transaction.
+          tx.objectStore('keys').put({ outer: keys.outer }, this.name)
+        }
+        tx.objectStore('markers').put(marker, this.name)
         tx.objectStore('personas').put({ revision, sealed: sealed.buffer }, this.name)
       }
     }
     try { await done } catch (error) { if (conflict) throw new PersonaStorageError('conflict'); throw error }
     return { revision, data, marker }
+  }
+  /** Remove the old file and both keys atomically, retaining its fence. A
+   * successful local erase is never a claim that the witness retired it. */
+  erase(expected: string | null): Promise<void> { return this.#remove(expected, false).then(() => undefined) }
+  /** Called only after the coordinator's signed retirement or the keeper's
+   * explicit exact-subject confirmation. The coordinator rejects a live duty. */
+  supersede(expected: string | null, subject: string | null): Promise<PersonaMarker> { return this.#remove(expected, true, subject) }
+  /** A damaged seal can still be erased after an explicit clear. Its opaque
+   * revision participates in the same CAS; this exposes no secret metadata. */
+  revision(): Promise<string | null> { return this.#run(async () => (await this.#rows()).row?.revision ?? null) }
+  #remove(expected: string | null, supersede: boolean, subject?: string | null): Promise<PersonaMarker> {
+    return this.#run(async () => {
+      const tx = this.db.transaction(['personas', 'markers', 'keys'], 'readwrite'), done = complete(tx)
+      let result: PersonaMarker | undefined, failure: unknown
+      const row = tx.objectStore('personas').get(this.name)
+      row.onsuccess = () => {
+        if ((row.result?.revision ?? null) !== expected) { failure = new PersonaStorageError('conflict'); tx.abort(); return }
+        const marker = tx.objectStore('markers').get(this.name)
+        marker.onsuccess = () => {
+          try {
+            validateMarker(marker.result)
+            const previous: PersonaMarker = marker.result
+            if (previous.state !== 'fenced' || (supersede && previous.subject !== subject)) throw new PersonaStorageError('conflict')
+            const retired = [...previous.retired.filter(t => t.installation !== previous.installation), { subject: previous.subject, installation: previous.installation }].slice(-64)
+            result = supersede ? { ...previous, state: 'superseded', reason: null, writer: null, digest: null, retired } : previous
+            tx.objectStore('personas').delete(this.name)
+            tx.objectStore('keys').delete(this.name)
+            tx.objectStore('markers').put(result, this.name)
+          } catch (error) { failure = error; tx.abort() }
+        }
+      }
+      try { await done } catch (error) { throw failure ?? error }
+      return result!
+    })
   }
   sealObject(installation: string, record: string, plain: Uint8Array): Promise<string> {
     return this.#object('seal', installation, record, undefined, plain)

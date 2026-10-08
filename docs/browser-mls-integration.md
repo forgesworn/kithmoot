@@ -73,13 +73,33 @@ to rooms or enabled in the app. Ordinary Bothy text routing remains separate.
   real Bothy W01–W12, physical-device tests or room acceptance.
   All 81 browser cases pass across Chromium, Firefox and WebKit; the 44
   existing vault/witness unit tests, typecheck and production build also pass.
+- Explicit clear and replacement now follow Android's approved retirement
+  boundary. Clearing a healthy enrolment atomically erases its file and keys,
+  retaining a fence and exact subject until the keeper confirms that subject
+  retired. That confirmation is the keeper's assertion, not a signed proof,
+  and cannot override a known retiring duty. An unregistered preparation can
+  be discarded without witness traffic, while retaining its installation id.
+- Clearing an installation with a retiring duty atomically removes all active
+  and staged objects and destroys the inner key, retaining only the outer-sealed
+  writer, route and coordinator state. It works even when the inner key was
+  already lost. Reopen continues that duty offline or online. Only after
+  replacement and a fresh signed retired receipt does it delete the remaining
+  keys and retain the subject/installation tombstone. No fresh preparation is
+  allowed before that point. A readable but unsupported container format is
+  kept for recovery rather than treated as proof that the writer key is lost.
+- Replacement acceptance adds interrupted clear intent, transaction abort
+  during erasure or key destruction, a restart after key destruction, offline
+  retirement/reconnection, lost inner keys, exact-subject confirmation,
+  re-preparation with fresh ids, immutable tombstones and unsupported formats.
+  These remain fixture tests using real browser storage and the pinned engine.
+  The expanded suite passes all 108 cases across Chromium, Firefox and WebKit;
+  all 3,373 unit tests, typecheck and the production build pass as well.
 
 ## Remaining integration and acceptance
 
-1. Finish explicit clear/replacement and retirement confirmation, including
-   inner-key destruction, retaining the writer's retiring duty across a clear,
-   and keeping tombstones before allowing a fresh enrolment. Stage/promotion,
-   reconciliation and persistent fences are implemented; replacement is not.
+1. Integrate the implemented coordinator, clear/replacement and retirement
+   operations into explicit persona enrolment and account lifecycle controls.
+   No browser MLS controls or room use are enabled by these primitives alone.
 2. Move all typed vault mutations, consent, credentials and journals under the
    coordinator. Add the contracted typed box-request signer. Keep account
    generations, cross-tab invalidation and retired-key tombstones enforced.

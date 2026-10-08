@@ -98,11 +98,32 @@ export async function restoreProfile(only?: string) {
     })
   } finally { to.close(); backup.close() }
 }
-export async function damage(kind: 'stage' | 'record' | 'inner-key') {
+export async function damage(kind: 'stage' | 'record' | 'inner-key' | 'newer-format') {
   if (kind === 'stage') {
     const store = new BrowserMlsPersonaStore(dbName)
     try { await store.withPersona(persona, async s => { const f = (await s.read())!; f.data.staged = null; await s.write(f.revision, f.data, f.marker) }) }
     finally { await store.close() }
+    return
+  }
+  if (kind === 'newer-format') {
+    // A correctly sealed container from an unsupported future format must
+    // not be mistaken for a destroyed writer key and erased during clear.
+    const storage = await db()
+    try {
+      const saved = await new Promise<{ name: IDBValidKey; row: any; key: CryptoKey }>((resolve, reject) => {
+        const tx = storage.transaction(['personas', 'keys'], 'readonly'), cursor = tx.objectStore('personas').openCursor()
+        let value: { name: IDBValidKey; row: any; key: CryptoKey }
+        cursor.onsuccess = () => { const c = cursor.result!; const key = tx.objectStore('keys').get(c.key); key.onsuccess = () => { value = { name: c.key, row: c.value, key: key.result.outer } } }
+        tx.oncomplete = () => resolve(value); tx.onabort = () => reject(tx.error)
+      })
+      const aad = new TextEncoder().encode(JSON.stringify(['kithmoot.mls-persona', 1, persona, saved.row.revision])), sealed = new Uint8Array(saved.row.sealed)
+      const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.slice(1, 13), additionalData: aad }, saved.key, sealed.slice(13)))
+      const value = JSON.parse(new TextDecoder().decode(plain)); plain.fill(0); value.version = 999
+      const input = new TextEncoder().encode(JSON.stringify(value)), nonce = crypto.getRandomValues(new Uint8Array(12))
+      const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, saved.key, input)); input.fill(0)
+      const output = new Uint8Array(13 + cipher.length); output[0] = 1; output.set(nonce, 1); output.set(cipher, 13)
+      await new Promise<void>((resolve, reject) => { const tx = storage.transaction('personas', 'readwrite'); tx.objectStore('personas').put({ ...saved.row, sealed: output.buffer }, saved.name); tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error) })
+    } finally { storage.close() }
     return
   }
   const storage = await db()
@@ -135,4 +156,67 @@ export async function concurrentSteps() {
     await Promise.all([second, third])
     return 'effect:3'
   }, () => true)))
+}
+export async function clear(fault?: 'after-intent' | 'abort-key-destruction' | 'after-key-destruction' | 'abort-erasure') {
+  const fence = LockedPersonaStore.prototype.fence, write = LockedPersonaStore.prototype.write, put = IDBObjectStore.prototype.put, remove = IDBObjectStore.prototype.delete
+  let injected = false
+  LockedPersonaStore.prototype.fence = async function (...args) {
+    const result = await fence.apply(this, args)
+    if (fault === 'after-intent' && !injected) { injected = true; throw new Error('fixture interrupted after clear intent') }
+    return result
+  }
+  LockedPersonaStore.prototype.write = async function (...args) {
+    const result = await write.apply(this, args)
+    if (fault === 'after-key-destruction' && result.data.cleared && !injected) { injected = true; throw new Error('fixture interrupted after key destruction') }
+    return result
+  }
+  IDBObjectStore.prototype.put = function (...args: Parameters<typeof put>) {
+    const result = put.apply(this, args)
+    if (fault === 'abort-key-destruction' && this.name === 'keys' && !injected) { injected = true; this.transaction.abort() }
+    return result
+  }
+  IDBObjectStore.prototype.delete = function (...args: Parameters<typeof remove>) {
+    const result = remove.apply(this, args)
+    if (fault === 'abort-erasure' && this.name === 'keys' && !injected) { injected = true; this.transaction.abort() }
+    return result
+  }
+  try { return { ...await withHost(h => h.clear(persona, () => true)), injected } }
+  catch (e) { return { error: (e as Error).message, injected } }
+  finally { LockedPersonaStore.prototype.fence = fence; LockedPersonaStore.prototype.write = write; IDBObjectStore.prototype.put = put; IDBObjectStore.prototype.delete = remove }
+}
+export async function confirmRetired(subject: string) { return await withHost(h => h.keeperConfirmsRetired(persona, subject, () => true)) }
+export async function replacementState() {
+  const store = new BrowserMlsPersonaStore(dbName)
+  try { return await store.withPersona(persona, async s => {
+    let file, unreadable = false
+    try { file = await s.read(true) } catch { unreadable = true }
+    const marker = await s.marker()
+    return { innerKey: await s.hasInnerKey(), row: await s.revision() !== null, unreadable, cleared: file?.data.cleared ?? null,
+      active: file?.data.active.sessions.length ?? null, staged: file?.data.staged?.sessions.length ?? null,
+      marker: marker?.state, reason: marker?.reason, installation: marker?.installation, retired: marker?.retired }
+  }) } finally { await store.close() }
+}
+export async function prepareFresh() {
+  const store = new BrowserMlsPersonaStore(dbName)
+  try { return await store.withPersona(persona, async s => { const f = await s.create(); return { installation: f.data.installation, state: f.marker.state, retired: f.marker.retired } }) }
+  catch (e) { return { error: (e as Error).message } }
+  finally { await store.close() }
+}
+export async function discardTombstones() {
+  const store = new BrowserMlsPersonaStore(dbName)
+  try { return await store.withPersona(persona, async s => {
+    const f = (await s.read())!
+    try { await s.write(f.revision, f.data, { ...f.marker, retired: [] }); return 'unexpected-success' } catch (e) { return (e as { code: string }).code }
+  }) } finally { await store.close() }
+}
+export async function unregistered() {
+  const store = new BrowserMlsPersonaStore('mls-prepared-only-test')
+  const host = new BrowserPersonaCoordinator(store, async () => { throw new Error('Unregistered persona sent witness traffic') })
+  try {
+    const old = await store.withPersona(persona, s => s.create())
+    const cleared = await host.clear(persona, () => true)
+    const fresh = await store.withPersona(persona, s => s.create())
+    return { cleared, changed: old.data.installation !== fresh.data.installation && old.data.writerSeed !== fresh.data.writerSeed,
+      tombstone: fresh.marker.retired.some(t => t.installation === old.data.installation && t.subject === null) }
+  } finally { await store.close() }
 }
