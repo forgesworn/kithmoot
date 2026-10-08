@@ -20,12 +20,34 @@ to rooms or enabled in the app. Ordinary Bothy text routing remains separate.
   candidate after a lost response, fence a restored copy and hold while the
   fixture witness is unavailable. This is adapter evidence with a disposable
   signing witness, not real-box integration or browser room acceptance.
+- `mls-persona-store.ts` supplies one sealed, versioned persona container with
+  active and staged vault/session ciphertext, coordinator bytes, writer seed
+  and witness route. A Web Lock spans the caller's witness trip; each atomic
+  IndexedDB write also compares an opaque revision. No transaction spans
+  cryptography or network I/O. No local-mutex fallback is allowed. Browser
+  transaction completion is the weaker durability boundary, not native fsync.
+- The storage schema uses non-extractable outer/inner AES keys and HMAC record
+  names. An unsealed, bounded marker prevents a missing record from becoming
+  an implicit new persona; missing naming/seal keys and bad tags fail closed.
+  Inner AAD binds persona, installation, record or session and generation.
+  Unchanged inner ciphertext stays identical across stage/promotion. The
+  manifest is recomputed from actual ciphertext through the Rust object hash.
+  Limits are 64 vault records, 1,024 sessions, 8 MiB per sealed object and
+  64 MiB per container including both active and staged sets; quota failures
+  abort the transaction without exposing the candidate.
+- Browser storage acceptance covers reload/promotion, stale and simultaneous
+  writes, forced transaction abort, two-tab lock ownership, non-extractable
+  keys, missing data/keys and ciphertext corruption. All 24 coordinator and
+  storage cases pass across Chromium, Firefox and WebKit, including the real
+  Rust coordinator refusing a changed object under its saved manifest. This remains a storage
+  primitive: callers must not release plaintext or network effects merely
+  because a local write succeeded.
 
 ## Remaining integration and acceptance
 
-1. One sealed, versioned persona state under Web Locks and IndexedDB revision
-   CAS. Recompute manifests from actual durable vault/session objects. Stage
-   and promote atomically; preserve uncertain candidates and retiring duties.
+1. Connect the shared coordinator to the sealed persona store. Stage and
+   promote only through its verified witness decisions; preserve uncertain
+   candidates, persistent fences, retiring duties and explicit replacement.
 2. Move all typed vault mutations, consent, credentials and journals under the
    coordinator. Add the contracted typed box-request signer. Keep account
    generations, cross-tab invalidation and retired-key tombstones enforced.
