@@ -147,6 +147,10 @@ jobs:
       - name: Install browsers
         run: npx playwright install --with-deps ${{ matrix.browsers }}
 
+      - name: MLS vault cross-tab regression tests
+        if: matrix.name == 'chromium rest' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2'
+        run: npm run test:vault -- --project=${{ matrix.project }}
+
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.
       - name: Acceptance tests

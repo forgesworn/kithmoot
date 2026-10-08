@@ -138,6 +138,65 @@ test('S24: a write waits while another tab holds the vault lock', async ({ brows
   await context.close()
 })
 
+for (const change of ['clear', 'replace'] as const) {
+  for (const decision of ['approve', 'deny'] as const) {
+    test(`K2: ${change} in another tab fences pending ${decision} and an earlier reply`, async ({ browser }) => {
+      const context = await browser.newContext()
+      await serve(context)
+      const a = await open(context)
+      const b = await open(context)
+      const secret = await a.evaluate(() => V.bytesToHex(V.generateSecretKey()))
+      await a.evaluate(`(${setup})('${secret}')`)
+      await b.evaluate(`(${setup})('${secret}')`)
+      const requests = await a.evaluate(async () => {
+        const now = Math.floor(Date.now() / 1000)
+        const enrolled = await t.vault.enrol(t.ctx(), t.identity, now + 86_400)
+        if (!enrolled.ok) throw new Error(enrolled.refusal)
+        return [0, 1].map(() => {
+          const body = V.encodeUnsignedBinding({
+            leafId: V.randomBytes(32), signatureKey: V.randomBytes(32), credential: t.signed[0],
+            device: enrolled.value.device, expiresAt: now + 3600, homeBox: V.randomBytes(32),
+          })
+          return { v: 1, operation: V.bytesToHex(V.randomBytes(32)), body: V.base64Encode(body), digest: V.bytesToHex(V.bindingDigest(body)), expires_at: now + 300 }
+        })
+      })
+      await b.evaluate(async requests => {
+        t.oldContext = t.ctx()
+        t.earlier = await t.vault.signLeafBindingV1(t.oldContext, requests[0], async () => 'approve')
+        if (!t.earlier.ok) throw new Error(t.earlier.refusal)
+        t.pending = t.vault.signLeafBindingV1(t.oldContext, requests[1], () => new Promise(resolve => { t.decide = resolve }))
+      }, requests)
+      await b.waitForFunction(() => !!t.decide)
+      await a.evaluate(async change => {
+        if (change === 'clear') await t.vault.clear(t.persona)
+        else {
+          const result = await t.vault.enrol(t.ctx(), t.identity, Math.floor(Date.now() / 1000) + 86_400, { replace: true })
+          if (!result.ok) throw new Error(result.refusal)
+        }
+      }, change)
+      // No delayed storage-event callback is needed to reject an old reply.
+      expect(await b.evaluate(request => t.vault.acceptSignReply(request, t.earlier.value), requests[0])).toEqual({ ok: false, refusal: 'stale' })
+      const records = (page: Page) => page.evaluate(() => new Promise<string>((resolve, reject) => {
+        const open = indexedDB.open('kithmoot-mls-vault-v1')
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const db = open.result
+          const get = db.transaction('records').objectStore('records').getAll()
+          get.onsuccess = () => { db.close(); resolve(JSON.stringify(get.result.map(r => [r.name, Array.from(new Uint8Array(r.ciphertext))]))) }
+          get.onerror = () => reject(get.error)
+        }
+      }))
+      const before = await records(a)
+      expect(await b.evaluate(async decision => { t.decide(decision); return await t.pending }, decision)).toEqual({ ok: false, refusal: 'stale' })
+      expect(await records(a)).toBe(before) // Neither policy nor denial journal is resurrected.
+      expect(await b.evaluate(async () => t.vault.device(t.oldContext))).toEqual({ ok: false, refusal: 'stale' })
+      const fresh = await b.evaluate(async () => t.vault.device(t.ctx()))
+      expect(fresh.ok).toBe(change === 'replace')
+      await context.close()
+    })
+  }
+}
+
 test('a corrupt record refuses rather than falling back', async ({ browser }) => {
   const context = await browser.newContext()
   await serve(context)
