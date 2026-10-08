@@ -56,13 +56,19 @@ in the manifest and update the runtime source version. No CDN is used.
   Chromium, Firefox and WebKit. CI runs these alongside the MLS vault checks.
 - `LINK_BOTHY_CONTROL=http://127.0.0.1:… LINK_TEST_RELAY=wss://… node
   test/browser-link-live.mjs`: Vennel's claimed G5 Bothy fixture and real Link
-  relay. It uses disposable deterministic fixture signers, not user accounts.
+  relay. It uses a disposable fixture keeper and a fresh guest signer, not user accounts.
   Pairing, authenticated event roundtrip, a scoped guest grant and revocation,
   bare witness-route refusal, and resume after a Bothy restart are asserted.
   The native-WebSocket frame monitor has a positive control before measuring
   zero Nostr `REQ`/`EVENT` frames during both participants' carrier traffic.
   Only booleans, counts and status numbers are printed; no capability, route
   secret, key or message content enters a receipt.
+- `LINK_TEST_APP=https://localhost:…/j/` with the same fixture variables and
+  `node test/browser-link-app-live.mjs` drives the built app's visible extension
+  sign-in, Settings pairing, code clearing, close and reload/resume controls.
+  Ordinary profile/account WebSockets are blocked in this local UI test. The
+  local Vite certificate is accepted by its test context; the carrier test
+  above separately retains normal TLS checks.
 
 The live test serves a real loopback page: intercepted synthetic test origins
 trigger Chromium's local-network access checks when their WebSockets reach a
