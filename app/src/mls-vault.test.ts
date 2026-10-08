@@ -16,6 +16,9 @@ const NOW = 1_793_577_600
 const PRINCIPAL = 'https://kithmoot.forgesworn.dev'
 
 class MemoryStorage implements MlsVaultStorage {
+  epoch = 0
+  revision() { return this.epoch ? String(this.epoch) : '' }
+  invalidate() { this.epoch++ }
   stored: { seal: CryptoKey; name: CryptoKey } | undefined
   records = new Map<string, SealedRecord>()
   async keys() { return this.stored }
@@ -95,6 +98,32 @@ describe('enrolment and storage', () => {
     expect(await vault.enrol(ctx, alice, NOW + 3600)).toEqual({ ok: false, refusal: 'unauthorised' })
     const replaced = await vault.enrol(ctx, alice, NOW + 3600, { replace: true })
     expect(replaced.ok && replaced.value.device !== device).toBe(true)
+  })
+
+  it('does not overwrite a device enrolled while the identity signer was pending', async () => {
+    const store = new MemoryStorage()
+    const locks = localLocks()
+    const first = new MlsVault(store, { crypto: webcrypto as unknown as Crypto, locks, now: () => NOW })
+    const second = new MlsVault(store, { crypto: webcrypto as unknown as Crypto, locks, now: () => NOW })
+    let arrived = 0
+    let release!: () => void
+    const both = new Promise<void>(resolve => { release = resolve })
+    const identity = { pubkey: alice.pubkey, signEvent: async (event: EventTemplate) => {
+      if (++arrived === 2) release()
+      await both
+      return alice.signEvent(event)
+    } }
+    const results = await Promise.all([first, second].map(v => v.enrol(v.context(PRINCIPAL, alice.pubkey), identity, NOW + 3600)))
+    expect(results.filter(r => r.ok)).toHaveLength(1)
+    expect(results.filter(r => !r.ok)).toEqual([{ ok: false, refusal: 'unauthorised' }])
+  })
+
+  it('does not replace or clear records if the cross-tab signal cannot be written', async () => {
+    const before = new Map(storage.records)
+    storage.invalidate = () => { throw new Error('signal unavailable') }
+    await expect(vault.enrol(ctx, alice, NOW + 3600, { replace: true })).rejects.toThrow('signal unavailable')
+    await expect(vault.clear(alice.pubkey)).rejects.toThrow('signal unavailable')
+    expect(storage.records).toEqual(before)
   })
 
   it('refuses enrolment for another persona than the signer', async () => {
@@ -280,12 +309,51 @@ describe('rendezvousEcdhV1', () => {
     expect(await vault.rendezvousEcdhV1(ctx, ecdh({ peer: ownRz }), child(alice.pubkey))).toEqual({ ok: false, refusal: 'malformed' })
   })
 
+  it('E06: a cross-tab revision change fences ECDH replies', async () => {
+    const req = ecdh()
+    const result = await vault.rendezvousEcdhV1(ctx, req, child(alice.pubkey))
+    if (!result.ok) throw new Error(result.refusal)
+    storage.invalidate()
+    expect(vault.acceptEcdhReply(req, result.value)).toEqual({ ok: false, refusal: 'stale' })
+    expect(await vault.rendezvousEcdhV1(ctx, req, child(alice.pubkey))).toEqual({ ok: false, refusal: 'stale' })
+  })
+
   it('E06: a reply from a previous vault generation is stale', async () => {
     const req = ecdh()
     const result = await vault.rendezvousEcdhV1(ctx, req, child(alice.pubkey))
     if (!result.ok) throw new Error(result.refusal)
     vault.bump()
     expect(vault.acceptEcdhReply(req, result.value)).toEqual({ ok: false, refusal: 'stale' })
+  })
+})
+
+describe('device replacement fencing', () => {
+  for (const change of ['clear', 'replace'] as const) {
+    for (const decision of ['approve', 'deny'] as const) {
+      it(`re-reads the device under the lock after ${change}, even without the invalidation signal (${decision})`, async () => {
+        // Defence in depth: deliberately suppress the cross-tab signal.
+        storage.invalidate = () => undefined
+        const other = new MlsVault(storage, { crypto: webcrypto as unknown as Crypto, locks: localLocks(), now: () => NOW })
+        const result = await vault.signLeafBindingV1(ctx, request(), async () => {
+          if (change === 'clear') await other.clear(alice.pubkey)
+          else expect((await other.enrol(other.context(PRINCIPAL, alice.pubkey), alice, NOW + 3600, { replace: true })).ok).toBe(true)
+          return decision
+        })
+        expect(result).toEqual({ ok: false, refusal: 'stale' })
+        // Clear leaves only the installation, replacement only that and device.
+        expect(storage.records.size).toBe(change === 'clear' ? 1 : 2)
+      })
+    }
+  }
+
+  it('replacement invalidates the old context and returned signature in the same instance', async () => {
+    const req = request()
+    const signed = await vault.signLeafBindingV1(ctx, req, approve)
+    if (!signed.ok) throw new Error(signed.refusal)
+    expect((await vault.enrol(ctx, alice, NOW + 3600, { replace: true })).ok).toBe(true)
+    expect(await vault.device(ctx)).toEqual({ ok: false, refusal: 'stale' })
+    expect(vault.acceptSignReply(req, signed.value)).toEqual({ ok: false, refusal: 'stale' })
+    expect((await vault.device(vault.context(PRINCIPAL, alice.pubkey))).ok).toBe(true)
   })
 })
 

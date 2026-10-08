@@ -13,7 +13,9 @@
  * under a second non-extractable key, so the database holds no persona in the
  * clear, and every record's AEAD metadata binds persona, installation,
  * purpose and record version. Every mutation runs under one Web Lock, so two
- * tabs never write at once.
+ * tabs never write at once. A random, vault-wide localStorage revision
+ * invalidates pending contexts and replies synchronously across tabs on
+ * clear/replacement; it contains no persona, device or key material.
  *
  * Interim limits until P3-03: the clock is the browser's, and the decision
  * journal is not witnessed, so restoring an older IndexedDB rolls it back.
@@ -40,12 +42,13 @@ export type VaultResult<T> = { ok: true; value: T } | { ok: false; refusal: Vaul
 /**
  * Who is asking, taken from the authenticated app, never from a request:
  * the app principal, the selected persona (identity public key) and the
- * vault generation the operation started under.
+ * local generation and cross-tab revision the operation started under.
  */
 export interface VaultContext {
   readonly principal: string
   readonly persona: string
   readonly generation: number
+  readonly revision: string
 }
 
 export interface SignLeafBindingRequest {
@@ -123,6 +126,11 @@ export interface SealedRecord {
 }
 
 export interface MlsVaultStorage {
+  /** Synchronous cross-tab invalidation, also checked when accepting a reply.
+   * The opaque revision carries no persona or key material. Fail closed if
+   * it cannot be read or changed; invalidate only under the vault lock. */
+  revision(): string
+  invalidate(): void
   keys(): Promise<{ seal: CryptoKey; name: CryptoKey } | undefined>
   saveKeys(keys: { seal: CryptoKey; name: CryptoKey }): Promise<void>
   get(name: string): Promise<SealedRecord | undefined>
@@ -154,6 +162,7 @@ interface PersonCredentialEvent {
 }
 
 interface JournalEntry {
+  revision?: string
   /** The vault generation it was decided under: a retry from another
    * generation is stale, never a replay (S25, E06). */
   generation: number
@@ -187,7 +196,7 @@ export interface MlsVaultOptions {
 }
 
 /** The replies this vault made, and the generation each was made under. */
-const made = new WeakMap<object, { vault: MlsVault; generation: number; request: string }>()
+const made = new WeakMap<object, { vault: MlsVault; generation: number; revision: string; request: string }>()
 
 export class MlsVault {
   #bumps = 0
@@ -217,7 +226,7 @@ export class MlsVault {
 
   /** The context for an operation by `persona` under app `principal`. */
   context(principal: string, persona: string): VaultContext {
-    return Object.freeze({ principal, persona, generation: this.#generation })
+    return Object.freeze({ principal, persona, generation: this.#generation, revision: this.storage.revision() })
   }
 
   /**
@@ -226,7 +235,7 @@ export class MlsVault {
    */
   bump(): void { this.#bumps = (this.#bumps + 1) % 2 ** 20 }
 
-  #current(ctx: VaultContext): boolean { return ctx.generation >= 0 && ctx.generation === this.#generation }
+  #current(ctx: VaultContext): boolean { return ctx.generation >= 0 && ctx.generation === this.#generation && ctx.revision === this.storage.revision() }
 
   /** Keys and installation exist before any locked section uses them:
    * making them takes the lock, which a locked section must not re-take. */
@@ -242,6 +251,7 @@ export class MlsVault {
    * a person credential naming it, checks that credential against the
    * engine's rules and seals both. An earlier device for the persona is
    * replaced only with `replace`: a new device is a new leaf (§6.1).
+   * Replacement advances the shared revision; callers need a fresh context.
    */
   async enrol(ctx: VaultContext, identity: ParticipantIdentity, expiresAt: number, options: { replace?: boolean } = {}): Promise<VaultResult<EnrolledDevice>> {
     await this.#ready()
@@ -268,6 +278,12 @@ export class MlsVault {
       }
       return await this.#locked(async () => {
         if (!this.#current(ctx)) return refuse('stale')
+        const existing = await this.#open<DeviceRecord>('device', ctx.persona)
+        if (existing) existing.scalar = ''
+        if (existing && !options.replace) return refuse('unauthorised')
+        if (options.replace) {
+          this.storage.invalidate()
+        }
         await this.#seal('device', ctx.persona, record)
         return { ok: true, value: { persona: ctx.persona, device, credentialId: credential.id, credentialExpiresAt: credential.expiresAt } }
       })
@@ -281,6 +297,7 @@ export class MlsVault {
     const record = await this.#open<DeviceRecord>('device', ctx.persona)
     if (!record) return refuse('unauthorised')
     record.scalar = ''
+    if (!this.#current(ctx)) return refuse('stale')
     return { ok: true, value: { persona: record.persona, device: record.device, credentialId: record.credentialId, credentialExpiresAt: record.credentialExpiresAt } }
   }
 
@@ -291,6 +308,7 @@ export class MlsVault {
     if (!this.#current(ctx)) return refuse('stale')
     if (!scopeShape(scope) || scope.persona !== ctx.persona || scope.principal !== ctx.principal) return refuse('malformed')
     return await this.#locked(async () => {
+      if (!this.#current(ctx)) return refuse('stale')
       const policy = await this.#policy(ctx.persona)
       if (!policy.approved.some(s => sameScope(s, scope))) policy.approved.push({ ...scope })
       await this.#seal('policy', ctx.persona, policy)
@@ -303,6 +321,7 @@ export class MlsVault {
     await this.#ready()
     if (!this.#current(ctx)) return refuse('stale')
     return await this.#locked(async () => {
+      if (!this.#current(ctx)) return refuse('stale')
       const policy = await this.#policy(ctx.persona)
       policy.approved = policy.approved.filter(s => !sameScope(s, scope))
       await this.#seal('policy', ctx.persona, policy)
@@ -316,6 +335,7 @@ export class MlsVault {
     if (!this.#current(ctx)) return refuse('stale')
     if (!HEX64.test(credentialId)) return refuse('malformed')
     return await this.#locked(async () => {
+      if (!this.#current(ctx)) return refuse('stale')
       const policy = await this.#policy(ctx.persona)
       if (!policy.revoked.includes(credentialId)) policy.revoked.push(credentialId)
       await this.#seal('policy', ctx.persona, policy)
@@ -339,12 +359,13 @@ export class MlsVault {
     if (!body) return refuse('malformed')
     const bodyHash = bytesToHex(sha256(body))
     const device = await this.#open<DeviceRecord>('device', ctx.persona)
+    if (device) device.scalar = '' // Never retain a scalar across consent.
     if (!this.#current(ctx)) return refuse('stale')
     if (!device) return refuse('unauthorised')
     try {
       // An identical retry replays its decision; a changed one is refused.
       const earlier = await this.#journalEntry(ctx, device.device, req.operation)
-      if (earlier) return await this.#replay(ctx, req, bodyHash, earlier, device)
+      if (earlier) return await this.#withDevice(ctx, device, current => this.#replay(ctx, req, bodyHash, earlier, current))
 
       if (bytesToHex(bindingDigest(body)) !== req.digest) return refuse('malformed')
       const checked = this.#check(body, ctx, device, await this.#policy(ctx.persona), now)
@@ -358,18 +379,18 @@ export class MlsVault {
         try { decision = await consent({ ...scope }) } catch { decision = 'deny' }
         if (!this.#current(ctx)) return refuse('stale')
         if (decision !== 'approve') {
-          return await this.#locked(async () => {
+          return await this.#withDevice(ctx, device, async device => {
             if (!this.#current(ctx)) return refuse('stale')
             const raced = await this.#journalEntry(ctx, device.device, req.operation)
             if (raced) return await this.#replay(ctx, req, bodyHash, raced, device)
-            const recorded = await this.#record(ctx, { generation: ctx.generation, principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest, deadline: req.expires_at, outcome: { ok: false, refusal: 'denied' } })
+            const recorded = await this.#record(ctx, { generation: ctx.generation, revision: ctx.revision, principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest, deadline: req.expires_at, outcome: { ok: false, refusal: 'denied' } })
             return recorded.ok ? refuse('denied') : recorded
           })
         }
         approved = true
       }
 
-      return await this.#locked(async () => {
+      return await this.#withDevice(ctx, device, async device => {
         if (!this.#current(ctx)) return refuse('stale')
         const raced = await this.#journalEntry(ctx, device.device, req.operation)
         if (raced) return await this.#replay(ctx, req, bodyHash, raced, device)
@@ -390,13 +411,27 @@ export class MlsVault {
         } finally { scalar.fill(0) }
         if (!schnorr.verify(signature, hexToBytes(req.digest), hexToBytes(device.device))) return refuse('malformed')
         const recorded = await this.#record(ctx, {
-          generation: ctx.generation, principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest,
+          generation: ctx.generation, revision: ctx.revision, principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest,
           deadline: req.expires_at, outcome: { ok: true, signature: bytesToHex(signature), homeBox: scope.homeBox },
         })
         if (!recorded.ok) return recorded
         return { ok: true, value: this.#signReply(ctx, req, device.device, bytesToHex(signature)) }
       })
     } finally { device.scalar = '' }
+  }
+
+  /** Re-read under the same lock as clear/replacement. The signal fences
+   * contexts and replies; this comparison also protects the signing key. */
+  async #withDevice<T>(ctx: VaultContext, expected: DeviceRecord, work: (device: DeviceRecord) => Promise<VaultResult<T>>): Promise<VaultResult<T>> {
+    return await this.#locked(async () => {
+      if (!this.#current(ctx)) return refuse('stale')
+      const current = await this.#open<DeviceRecord>('device', ctx.persona)
+      if (!current) return refuse('stale')
+      try {
+        if (!this.#current(ctx) || current.device !== expected.device || current.credentialId !== expected.credentialId) return refuse('stale')
+        return await work(current)
+      } finally { current.scalar = '' }
+    })
   }
 
   /** The body's checks, mapped to refusals; returns the approved home box. */
@@ -417,7 +452,7 @@ export class MlsVault {
 
   async #replay(ctx: VaultContext, req: SignLeafBindingRequest, bodyHash: string, entry: JournalEntry, device: DeviceRecord): Promise<VaultResult<SignLeafBindingReply>> {
     if (entry.bodyHash !== bodyHash || entry.digest !== req.digest || entry.deadline !== req.expires_at || entry.principal !== ctx.principal) return refuse('replay')
-    if (entry.generation !== ctx.generation) return refuse('stale')
+    if (entry.generation !== ctx.generation || (entry.revision ?? '') !== ctx.revision) return refuse('stale')
     if (!entry.outcome.ok) return refuse(entry.outcome.refusal)
     // A cached success is rechecked: still unexpired, still approved, still
     // not revoked (S22).
@@ -436,7 +471,7 @@ export class MlsVault {
 
   #signReply(ctx: VaultContext, req: SignLeafBindingRequest, device: string, signature: string): SignLeafBindingReply {
     const reply = Object.freeze({ v: 1 as const, operation: req.operation, digest: req.digest, device, signature })
-    made.set(reply, { vault: this, generation: ctx.generation, request: requestKey(req) })
+    made.set(reply, { vault: this, generation: ctx.generation, revision: ctx.revision, request: requestKey(req) })
     return reply
   }
 
@@ -448,7 +483,7 @@ export class MlsVault {
   acceptSignReply(request: SignLeafBindingRequest, reply: unknown): VaultResult<SignLeafBindingReply> {
     const origin = typeof reply === 'object' && reply !== null ? made.get(reply) : undefined
     if (!origin || origin.vault !== this) return refuse('unauthorised')
-    if (origin.generation !== this.#generation) return refuse('stale')
+    if (origin.generation !== this.#generation || origin.revision !== this.storage.revision()) return refuse('stale')
     if (origin.request !== requestKey(request)) return refuse('replay')
     const r = reply as SignLeafBindingReply
     if (!schnorr.verify(hexToBytes(r.signature), hexToBytes(request.digest), hexToBytes(r.device))) return refuse('unauthorised')
@@ -488,7 +523,7 @@ export class MlsVault {
       try {
         if (shared.every(b => b === 0)) return refuse('malformed')
         const reply = Object.freeze({ v: 1 as const, operation: req.operation, peer_rz: req.peer_rz, own_rz: own, shared_x: bytesToHex(shared) })
-        made.set(reply, { vault: this, generation: ctx.generation, request: ecdhKey(req) })
+        made.set(reply, { vault: this, generation: ctx.generation, revision: ctx.revision, request: ecdhKey(req) })
         return { ok: true, value: reply }
       } finally { shared.fill(0) }
     } finally { stored.wipe() }
@@ -499,19 +534,19 @@ export class MlsVault {
   acceptEcdhReply(request: RendezvousEcdhRequest, reply: unknown): VaultResult<RendezvousEcdhReply> {
     const origin = typeof reply === 'object' && reply !== null ? made.get(reply) : undefined
     if (!origin || origin.vault !== this) return refuse('unauthorised')
-    if (origin.generation !== this.#generation) return refuse('stale')
+    if (origin.generation !== this.#generation || origin.revision !== this.storage.revision()) return refuse('stale')
     if (origin.request !== ecdhKey(request)) return refuse('replay')
     return { ok: true, value: reply as RendezvousEcdhReply }
   }
 
   // ---- clearing ----
 
-  /** Removes the persona's device, journal and policy, and makes every
-   * pending operation stale. */
+  /** Removes the persona's device, journal and policy. Once it takes the
+   * lock, every earlier context and reply in every tab is stale. */
   async clear(persona: string): Promise<void> {
     await this.#ready()
-    this.bump()
     await this.#locked(async () => {
+      this.storage.invalidate()
       for (const purpose of ['device', 'journal', 'policy'] as const) await this.storage.remove(await this.#name(purpose, persona))
     })
   }
@@ -720,9 +755,13 @@ export function localLocks(): VaultLocks {
  * sealed records under HMAC names. */
 export class BrowserMlsVaultStorage implements MlsVaultStorage {
   #db: Promise<IDBDatabase> | undefined
-  constructor(private readonly dbName = 'kithmoot-mls-vault-v1', private readonly factory: IDBFactory = globalThis.indexedDB) {
+  constructor(private readonly dbName = 'kithmoot-mls-vault-v1', private readonly factory: IDBFactory = globalThis.indexedDB, private readonly signals: Storage = globalThis.localStorage) {
     if (!factory) throw new Error('This browser does not provide encrypted MLS vault storage.')
   }
+  // Read synchronously instead of awaiting a BroadcastChannel/storage event:
+  // a suspended tab must fence its old replies before it handles that event.
+  revision(): string { return this.signals.getItem(`${this.dbName}.revision`) ?? '' }
+  invalidate(): void { this.signals.setItem(`${this.dbName}.revision`, globalThis.crypto.randomUUID()) }
   async keys(): Promise<{ seal: CryptoKey; name: CryptoKey } | undefined> {
     const value = await request((await this.#transaction('keys', 'readonly')).objectStore('keys').get('vault'))
     return value?.seal && value?.name ? { seal: value.seal, name: value.name } : undefined
