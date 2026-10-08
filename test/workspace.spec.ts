@@ -628,6 +628,7 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     await keeper.session.rekey({ authoritySk: host.inviterSk, scheduled: true })
     expect(keeper.session.epoch).toBe(1)
     await keeper.chat.send('After the key turned.')
+    await expect.poll(() => page.evaluate(id => JSON.parse(localStorage.getItem('kithmoot.room-epoch.v2.' + id) ?? 'null')?.epoch, keeper.session.roomId)).toBe(1)
     await expect(planning.locator('.unread:not(.agent)')).toHaveText('1', { timeout: 30_000 })
     // And it was written down with its secret, so opening the room starts
     // in epoch 1 rather than replaying from epoch 0.

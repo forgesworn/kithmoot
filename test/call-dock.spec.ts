@@ -66,6 +66,14 @@ test('a call carries on while its member chats in another room, and comes back w
     await expect(pageB.locator('#room .participant')).toHaveCount(2)
     await expect(pageB.locator('#chatLog')).not.toContainText('Ada left.')
 
+    // The brand takes the member home through the same dock, without a reload.
+    await pageA.setViewportSize({ width: 1440, height: 1000 })
+    await pageA.locator('#workspaceBrandHome').click()
+    await expect(pageA.locator('#home')).toBeVisible()
+    await expect(pageA.locator('#callDock')).toBeVisible()
+    await keepsHearing(pageB, 'Bo')
+    await keepsHearing(pageA, 'Ada')
+
     // Back, to the room as it was left, with what was said meanwhile.
     await pageA.locator('#callDockBack').click()
     await expect(pageA.locator('#roomTitle')).toContainText('Room ')

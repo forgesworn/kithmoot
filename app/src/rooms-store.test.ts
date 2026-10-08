@@ -103,6 +103,22 @@ describe('the rooms this device has been in', () => {
     expect(knownRoom(store, ROOM_A)?.readAt).toBe(NOW + 10)
   })
 
+  it('retains the messages seen in one second across visits and ignores older reads', () => {
+    const store = memoryDeviceStore()
+    const link = invitationLink()
+    rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW })
+    markRead(store, ROOM_A, NOW, ['first'])
+    markRead(store, ROOM_A, NOW, ['second', 'first'])
+    markRead(store, ROOM_A, NOW - 1, ['older'])
+    rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW + 2 })
+    expect(knownRoom(store, ROOM_A)?.readIds).toEqual(['first', 'second'])
+    markRead(store, ROOM_A, NOW + 1, ['next'])
+    expect(knownRoom(store, ROOM_A)?.readIds).toEqual(['next'])
+    markRead(store, ROOM_A, NOW + 2)
+    expect(knownRoom(store, ROOM_A)?.readIds).toBeUndefined()
+    expect(markRead(store, ROOM_A, NOW + 3, ['x'.repeat(129)])).toBe(false)
+  })
+
   it('counts what is newer than the room was read to, as people', () => {
     const messages = [msg(NOW - 10), msg(NOW), msg(NOW + 1), msg(NOW + 2)]
     expect(unreadCount(messages, 0, SELF)).toEqual({ people: 4, agents: 0 })

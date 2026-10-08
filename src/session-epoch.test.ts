@@ -70,6 +70,39 @@ class LaggyTransport extends SimTransport {
 }
 
 describe('room epochs', () => {
+  it('joins after rekey replay completes without the fixed settling delay', async () => {
+    const relay = new SimRelay({ replay: true })
+    const authority = getPublicKey(generateSecretKey())
+    const room = member(relay, 'Returning', authority, { epochSettleMs: 10_000 })
+    try {
+      await Promise.race([
+        room.join([], {}),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('replay completion did not release joining')), 1_000).unref()),
+      ])
+      expect(room.participants().some(p => p.name === 'Returning')).toBe(true)
+    } finally { await room.leave() }
+  })
+
+  it('keeps the settling budget when a transport cannot confirm replay completion', async () => {
+    const relay = new SimRelay()
+    class SilentReplay extends SimTransport {
+      override subscribe(filters: Filter[], onEvent: (event: Event) => void): () => void {
+        return super.subscribe(filters, onEvent)
+      }
+    }
+    const room = member(relay, 'Returning', getPublicKey(generateSecretKey()), {
+      transport: new SilentReplay(relay), epochSettleMs: 60,
+    })
+    let joined = false
+    try {
+      const opening = room.join([], {}).then(() => { joined = true })
+      await new Promise(resolve => setTimeout(resolve, 5))
+      expect(joined).toBe(false)
+      await opening
+      expect(joined).toBe(true)
+    } finally { await room.leave() }
+  })
+
   it('a rekey removes one member: the other still reads the chat, the removed one cannot, and history stays', async () => {
     const relay = new SimRelay()
     const authoritySk = generateSecretKey()
@@ -214,7 +247,7 @@ describe('room epochs', () => {
     // pubkey: told nothing about the epoch, she reads the replayed rekey,
     // cannot open it, asks, and lands in epoch 1.
     const caughtUp: RekeyNotice[] = []
-    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, onEpoch: notice => caughtUp.push(notice) })
+    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, epochSettleMs: 10_000, onEpoch: notice => caughtUp.push(notice) })
     await carol.join([], {})
     await settle()
     expect(carol.epoch).toBe(1)

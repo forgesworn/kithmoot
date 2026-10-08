@@ -136,6 +136,22 @@ describe('RoomWatch', () => {
     watch.close()
   })
 
+  it('counts a later message in the same second until that message was actually read', async () => {
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(10))
+    const relay = new SimRelay()
+    const transport = new SimTransport(relay)
+    const watch = new RoomWatch({ transport, roomId, roomKey, now: () => NOW })
+    const ada = await member(roomId, 'Ada')
+    const send = (id: string) => transport.publish(encodeChatEvent({ id, participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text: id, sentAt: NOW }, { roomId, roomKey, deviceSk: ada.deviceSk }))
+    await send('seen')
+    await send('arrived-after-switching')
+    const observer = 'f'.repeat(64)
+    expect(watch.unread(NOW, observer, undefined, ['seen'])).toEqual({ people: 1, agents: 0 })
+    expect(watch.unread(NOW, observer, undefined, ['seen', 'arrived-after-switching'])).toEqual({ people: 0, agents: 0 })
+    expect(watch.unread(NOW, observer)).toEqual({ people: 0, agents: 0 })
+    watch.close()
+  })
+
   it('splits people from agents, and knows the viewer by name even though a watch never joins the roster', async () => {
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(12))
     const relay = new SimRelay()

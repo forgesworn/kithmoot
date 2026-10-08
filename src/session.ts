@@ -968,16 +968,19 @@ export class RoomSession {
     // them connect, until the rekey was noticed. So the roster is not
     // subscribed, and nothing is published, until this has settled.
     if (this.#opts.authority) {
+      let replayComplete!: () => void
+      const replayed = new Promise<void>(resolve => { replayComplete = resolve })
       this.#unsubRekey = this.#opts.transport.subscribe(
         [{ kinds: [KINDS.ROOM_REKEY], '#d': [this.roomId], authors: [this.#opts.authority] }],
         (event) => this.#ingestRekey(event),
+        replayComplete,
       )
       try {
         // The rekeys this device kept, through the same door as a relay's:
         // a relay that forgot them cannot put this device back in epoch 0.
         const kept = await this.#opts.archive?.read({ kind: KINDS.ROOM_REKEY, d: this.roomId, limit: 1_000 }).catch(() => [])
         for (const event of kept ?? []) this.#ingestRekey(event)
-        await this.#settleEpoch()
+        await this.#settleEpoch(replayed)
       } catch (err) {
         this.#unsubRekey?.()
         this.#unsubRekey = undefined
@@ -1381,13 +1384,16 @@ export class RoomSession {
    * same instruction to ask. Told the room is where this device is, or
    * behind it, say nothing and get on.
    */
-  async #settleEpoch(): Promise<void> {
+  async #settleEpoch(replayed: Promise<void>): Promise<void> {
     const expected = this.#opts.expectedEpoch
     if (expected === undefined) {
       const settle = this.#opts.epochSettleMs ?? DEFAULT_EPOCH_SETTLE_MS
       if (settle > 0) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, settle)
+          // The transport reports completion after all read relays replay.
+          // Missing or silent relays retain the existing bounded wait.
+          void replayed.then(() => { clearTimeout(timer); resolve() })
           ;(timer as unknown as { unref?: () => void }).unref?.()
         })
       }

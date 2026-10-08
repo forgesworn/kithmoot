@@ -41,6 +41,8 @@ export interface KnownRoom {
   /** `sentAt` of the newest chat message this device has been shown. Zero
    *  until it has been shown any, so everything in the room is new. */
   readAt: number
+  /** Messages actually seen at readAt; absent on older devices. */
+  readIds?: string[]
   /** The person chose to keep this room's admission on this device, so the
    *  list and notifications can read it with no tab open on it. Off unless
    *  they did. */
@@ -99,6 +101,7 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
       openedAt: parsed.openedAt,
       readAt: typeof parsed.readAt === 'number' && Number.isFinite(parsed.readAt) ? parsed.readAt : 0,
     }
+    if (Array.isArray(parsed.readIds) && parsed.readIds.length <= 2048 && parsed.readIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= 128)) room.readIds = [...new Set(parsed.readIds)]
     if (typeof parsed.keep === 'boolean') room.keep = parsed.keep
     if (typeof parsed.endedAt === 'number' && Number.isFinite(parsed.endedAt)) room.endedAt = parsed.endedAt
     if (isRoomEnds(parsed.endsAt)) room.endsAt = parsed.endsAt
@@ -158,6 +161,7 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
     openedAt: visit.openedAt,
     readAt: existing?.readAt ?? 0,
   }
+  if (existing?.readIds !== undefined) room.readIds = existing.readIds
   const name = sanitiseDisplayName(visit.name) ?? link.name ?? existing?.name
   if (name !== undefined) room.name = name
   if (existing?.keep !== undefined) room.keep = existing.keep
@@ -243,12 +247,17 @@ export function setKeepRoom(store: DeviceStore, roomId: string, keep: boolean): 
  * out of order cannot mark the room less read than it is. False when the
  * room is not one this device has written down.
  */
-export function markRead(store: DeviceStore, roomId: string, readAt: number): boolean {
+export function markRead(store: DeviceStore, roomId: string, readAt: number, readIds?: readonly string[]): boolean {
   if (!Number.isFinite(readAt)) return false
   const room = knownRoom(store, roomId)
   if (!room) return false
-  if (readAt <= room.readAt) return true
-  writeRoom(store, { ...room, readAt })
+  if (readAt < room.readAt) return true
+  if (readIds !== undefined && (readIds.length > 2048 || readIds.some(id => !id || id.length > 128))) return false
+  if (readAt === room.readAt && readIds === undefined) return true
+  const { readIds: previousIds, ...rest } = room
+  const ids = readIds === undefined ? undefined : [...new Set([...(readAt === room.readAt ? previousIds ?? [] : []), ...readIds])]
+  // If the bound is exceeded, retain the legacy timestamp semantics.
+  writeRoom(store, { ...rest, readAt, ...(ids && ids.length <= 2048 ? { readIds: ids } : {}) })
   return true
 }
 

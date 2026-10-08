@@ -3840,7 +3840,9 @@ async function startNewRoom(): Promise<void> {
   // Only a group can be a conference room: a meeting that asks before
   // anybody joins already ends when its people leave.
   const endsChoice = ($('roomEnds') as HTMLSelectElement).value
+  if (persistent && endsChoice === 'duration' && roomDurationSeconds() === 0) throw new Error('Choose at least one minute for the room lifetime.')
   const endsAt = !persistent ? undefined
+    : endsChoice === 'duration' ? nowSeconds() + roomDurationSeconds()
     : endsChoice === 'test' && TEST_ROOM_END_SECONDS ? nowSeconds() + TEST_ROOM_END_SECONDS
       : conferenceEndsAt(Number(endsChoice), nowSeconds())
   // Self-destruct is a property of a group: by its date, or when ended.
@@ -11205,7 +11207,12 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // What lands while this tab is in the background is worth a
     // notification, if the person asked for them. Followed from now, so
     // the history the log replays on open is never news.
-    if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
+    if (window.kithmootDesktop) {
+      // A room first watched before we joined had no device/seal keys.
+      // Rebuild its watch now so it follows rekeys after we switch away.
+      stopWatching(s.roomId)
+      for (const room of knownRooms(roomStore())) watchKnownRoom(room)
+    }
     const joinedRoomId = currentRoomId() ?? s.roomId
     const roomLabelNow = () => currentRoomLabel()
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey, s.endsAt)
@@ -11425,7 +11432,7 @@ function noteChatRead(messages: ChatMessage[]): void {
     }
   }
   if (newest > 0) {
-    markRead(roomStore(), roomId, newest)
+    markRead(roomStore(), roomId, newest, messages.filter(m => m.sentAt === newest).map(m => m.id))
     updateDesktopUnread()
     readSync?.note(roomId, { '': newestId ? { at: newest, id: newestId } : { at: newest } })
   }
@@ -11640,7 +11647,7 @@ function roomIsEnded(room: KnownRoom): boolean {
 function roomUnreadPeople(room: KnownRoom): number {
   const watched = roomWatches.get(room.roomId)
   if (!watched || !watched.watch.readsChat) return 0
-  return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName()).people
+  return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName(), room.readIds).people
 }
 
 function renderRooms(): void {
@@ -11660,6 +11667,7 @@ function renderRooms(): void {
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
   const rooms = navigationRooms()
+  profiles.want(rooms.flatMap(room => { const peer = dmPeerOf(room); return peer ? [peer] : [] }))
   const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
   fillProjectFilter('homeProject', rooms)
   const project = ($('homeProject') as HTMLSelectElement).value
@@ -11868,7 +11876,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
     shownAs(participant, messages.find((m) => m.participant === participant)?.name).name ?? shortKey(participant)
   const preview = (latest && previewLine(latest, self, nameOf)) ?? NO_MESSAGES
 
-  const split = watched.watch.unread(room.readAt, self, joiningName())
+  const split = watched.watch.unread(room.readAt, self, joiningName(), room.readIds)
   const unreadVisible = split.people > 0 ? String(split.people) : undefined
   const unreadSpoken = split.people > 0 ? `${split.people} unread` : undefined
 
@@ -11933,6 +11941,17 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(room.roomId))
   avatar.setAttribute('aria-hidden', 'true')
   avatar.textContent = avatarInitial(label)
+  const peer = dmPeerOf(room)
+  const picture = peer ? profiles.get(peer)?.picture : undefined
+  if (picture) {
+    const image = document.createElement('img')
+    image.alt = ''
+    image.loading = 'lazy'
+    image.referrerPolicy = 'no-referrer'
+    image.src = picture
+    image.addEventListener('error', () => image.remove(), { once: true })
+    avatar.append(image)
+  }
   const text = document.createElement('span')
   text.className = 'roomText'
   const name = document.createElement('span')
@@ -12318,7 +12337,7 @@ function renderWorkspace(): void {
       const watched = room.roomId === current ? undefined : roomWatches.get(room.roomId)
       if (watched?.watch.readsChat) {
         const label = knownRoomLabel(room)
-        const split = watched.watch.unread(room.readAt ?? 0, self, selfName)
+        const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
         row.classList.toggle('hasUnread', split.people > 0)
         if (split.people > 0) row.append(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
         if (split.agents > 0) row.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
@@ -13157,7 +13176,7 @@ function updateDesktopUnread(): void {
     if (session && room.roomId === currentRoomId()) continue
     const watched = roomWatches.get(room.roomId)
     if (!watched) continue
-    const split = watched.watch.unread(room.readAt ?? 0, self, selfName)
+    const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
     people += split.people
     agents += split.agents
   }
@@ -13503,6 +13522,13 @@ $('conversationNav').addEventListener('keydown', event => {
 })
 $('workspaceSwitch').addEventListener('click', openRoomSwitcher)
 $('workspaceQuery').addEventListener('input', renderWorkspace)
+function goToStartPage(): void {
+  if (roomsListShown && !pendingJoin) return
+  if (hasUnsentWork()) { openRoomSwitcher(); return }
+  $('roomSwitcherHome').click()
+}
+$('appHome').addEventListener('click', goToStartPage)
+$('workspaceBrandHome').addEventListener('click', goToStartPage)
 $('workspaceHome').addEventListener('click', () => {
   if (hasUnsentWork()) { openRoomSwitcher(); return }
   $('roomSwitcherHome').click()
@@ -14078,11 +14104,31 @@ function renderWhenEnds(): void {
   const dated = ($('roomEnds') as HTMLSelectElement).value !== '0'
   const ask = ($('roomAsk') as HTMLInputElement).checked
   $('roomWhenEndsRow').hidden = !dated || ask
+  $('roomDuration').hidden = ask || ($('roomEnds') as HTMLSelectElement).value !== 'duration'
+  renderRoomDuration()
   const select = $('roomWhenEnds') as HTMLSelectElement
   const hint = $('roomWhenEndsHint')
   hint.textContent = select.value === 'destruct' ? DESTRUCT_PROMISE : ''
   hint.hidden = select.value !== 'destruct'
 }
+function roomDurationSeconds(): number {
+  return Number(($('roomDurationDays') as HTMLInputElement).value) * 86400
+    + Number(($('roomDurationHours') as HTMLInputElement).value) * 3600
+    + Number(($('roomDurationMinutes') as HTMLInputElement).value) * 60
+}
+function renderRoomDuration(): void {
+  for (const unit of ['Days', 'Hours', 'Minutes']) $('roomDuration' + unit + 'Value').textContent = ($('roomDuration' + unit) as HTMLInputElement).value
+  const maxDays = ($('roomDurationDays') as HTMLInputElement).value === '30'
+  for (const unit of ['Hours', 'Minutes']) {
+    const input = $('roomDuration' + unit) as HTMLInputElement
+    input.disabled = maxDays
+    if (maxDays) { input.value = '0'; $('roomDuration' + unit + 'Value').textContent = '0' }
+  }
+  const seconds = roomDurationSeconds()
+  const action = ($('roomWhenEnds') as HTMLSelectElement).value === 'destruct' ? 'Self-destructs' : 'Ends'
+  $('roomDurationSummary').textContent = seconds > 0 ? `${action} ${formatConferenceEnd(nowSeconds() + seconds)} (${Math.floor(seconds / 86400)} days, ${Math.floor(seconds % 86400 / 3600)} hours, ${seconds % 3600 / 60} minutes from creation).` : 'Choose at least one minute.'
+}
+for (const unit of ['Days', 'Hours', 'Minutes']) $('roomDuration' + unit).addEventListener('input', renderRoomDuration)
 $('roomEnds').addEventListener('change', () => {
   $('roomEndsHint').hidden = ($('roomEnds') as HTMLSelectElement).value === '0'
   renderWhenEnds()
