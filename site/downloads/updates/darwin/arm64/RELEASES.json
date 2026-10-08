@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.59",
+  "currentRelease": "0.1.60",
   "releases": [
     {
-      "version": "0.1.59",
+      "version": "0.1.60",
       "updateTo": {
-        "version": "0.1.59",
-        "pub_date": "2026-10-08T01:00:00Z",
-        "notes": "A room's countdown in the side rail now sits on its own line under the room's name, so a narrow rail no longer squeezes the name.",
-        "name": "0.1.59",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.59/KithMoot-0.1.59-mac-arm64.zip",
-        "sha256": "84063d66d4fc7061af889ef971fd3351c4d47e49595da60be7984806a5e36d69",
-        "size": 137825592
+        "version": "0.1.60",
+        "pub_date": "2026-10-08T16:08:14Z",
+        "notes": "A prominent room self-destruct countdown, a burning fuse and a brief spark burst after local cleanup. Dated-room file uploads keep their exact signed authorisation.",
+        "name": "0.1.60",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.60/KithMoot-0.1.60-mac-arm64.zip",
+        "sha256": "50b702592ecd93e76847a280d1505cdfb485b9a0a92b23b1bf36dfb517675382",
+        "size": 137825894
       }
     }
   ]

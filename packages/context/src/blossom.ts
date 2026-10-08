@@ -883,6 +883,8 @@ export interface UploadEnvelopeOptions {
   /** Unix seconds. Injectable for tests. */
   now?: () => number
   signal?: AbortSignal
+  /** Optional deadline, such as a room's end. Caps the authorisation before it is signed. */
+  expiresAt?: number
 }
 
 function sameTemplate(template: EventTemplate, event: Event): boolean {
@@ -947,7 +949,12 @@ async function uploadEnvelopeBody(
   const origin = normaliseBlossomServer(server)
   const doFetch = opts.fetch ?? globalThis.fetch
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
-  const template = buildUploadAuthorisation(hash, origin, now())
+  const at = now()
+  const template = buildUploadAuthorisation(hash, origin, at)
+  if (opts.expiresAt !== undefined) {
+    if (!Number.isSafeInteger(opts.expiresAt) || opts.expiresAt <= at) throw new Error('The upload deadline has passed or is invalid.')
+    template.tags = template.tags.map(tag => tag[0] === 'expiration' ? ['expiration', String(Math.min(Number(tag[1]), opts.expiresAt!))] : tag)
+  }
   const signed = await opts.sign(template)
   if (!sameTemplate(template, signed) || !verifyEventUncached(signed)) {
     throw new Error('The signer did not sign the upload authorisation as written.')

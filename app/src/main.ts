@@ -73,7 +73,8 @@ import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, loadKeptRoomEpoch, lo
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { destructDue, endLapsedConferences, forgetRoom, knownRoom, knownRooms, markDestruct, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
-import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countdown, countdownStage, dismissTombstone, finalBannerText, headsUpText, stageAnnouncement, tombstoneText, tombstones, type CountdownStage } from './self-destruct.js'
+import { showDestructEffect } from './destruct-effect.js'
+import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countdown, countdownClock, fuseRemaining, countdownStage, dismissTombstone, finalBannerText, headsUpText, stageAnnouncement, tombstoneText, tombstones, type CountdownStage } from './self-destruct.js'
 import { scrubStore } from './storage-scrub.js'
 import { FOLDABLE, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
@@ -4668,6 +4669,7 @@ function renderRoomTitle(): void {
   }
   renderSheetRoom()
   renderDestructState()
+  tickFuses()
 }
 
 /** A conference room's end, in the invite sheet: the link stops working
@@ -14903,9 +14905,18 @@ function tickFuses(): void {
   for (const el of document.querySelectorAll<HTMLElement>('.fusePill[data-fuse-ends]')) fillFuse(el, now)
   const roomId = session ? currentRoomId() : undefined
   const banner = $('fuseBanner')
+  const hero = $('roomFuse')
+  hero.hidden = !(roomId && roomEndsAt !== undefined && roomDestruct)
   if (roomId && roomEndsAt !== undefined && roomDestruct) {
     const startsAt = roomStartsAt ?? knownRoom(roomStore(), roomId)?.startsAt
     const c = countdown({ endsAt: roomEndsAt, ...(startsAt !== undefined ? { startsAt } : {}), destruct: true, now })
+    hero.dataset.stage = c.stage
+    const remaining = fuseRemaining(roomEndsAt, startsAt, now)
+    hero.style.setProperty('--fuse-remaining', String(remaining))
+    $('roomFuseClock').textContent = countdownClock(roomEndsAt - now)
+    $('roomFuseBurn').style.width = `${remaining * 100}%`
+    $('roomFuseHint').textContent = c.stage === 'gone' ? 'Removing the room…' : c.stage === 'final' ? 'Final seconds · save anything you need now' : 'Save anything you want to keep'
+    $('roomFuseSpoken').textContent = $('roomEndsLine').querySelector('.fuseSpoken')?.textContent ?? c.spoken
     banner.hidden = c.stage !== 'final'
     if (c.stage === 'final') banner.textContent = finalBannerText(roomEndsAt - now)
   } else {
@@ -15996,7 +16007,8 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     requireFileStorage(server)
     dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
     descriptor = await uploadEnvelopeBlob(origin, sealed.envelope, sealed.sha256, {
-      sign: (t) => finalizeEvent({ ...t, tags: withExpiration(t.tags, endsAt) }, deviceSk), signal,
+      sign: (t) => finalizeEvent(t, deviceSk), signal,
+      ...(endsAt !== undefined ? { expiresAt: endsAt } : {}),
       fetch: (input, init) => { requireFileStorage(server); return fetch(input, init) },
     })
   } finally {
@@ -16355,6 +16367,7 @@ roomArrival
       if (notice) {
         sessionStorage.removeItem(NOTICE_STORAGE_KEY)
         setStatus(notice)
+        if (notice === SELF_DESTRUCTED_MESSAGE) showDestructEffect()
       }
     } catch {
       // No storage, no notice.

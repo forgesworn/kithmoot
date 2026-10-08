@@ -144,10 +144,21 @@ function deletionsAsked(sent: Event[]): Set<string> {
 
 test('a room self-destructs at its end on every device, including one that was away', async ({ browser, baseURL }, info) => {
   test.skip(info.project.name === 'chromium-desktop', 'one browser project is enough')
-  test.setTimeout(240_000)
+  test.setTimeout(360_000)
   const contexts: BrowserContext[] = []
   try {
     const owner = await device(browser, baseURL!); contexts.push(owner)
+    // Observe the short visual at insertion: slow test RPCs must not miss it.
+    await owner.addInitScript(() => {
+      new MutationObserver(records => {
+        for (const record of records) for (const node of Array.from(record.addedNodes)) {
+          if (!(node instanceof HTMLElement) || node.id !== 'destructEffect') continue
+          ;(window as unknown as { destructVisual: unknown }).destructVisual = {
+            text: node.textContent, role: node.getAttribute('role'), visible: node.getBoundingClientRect().width > 0,
+          }
+        }
+      }).observe(document, { childList: true, subtree: true })
+    })
     const page = await owner.newPage()
     const sent = recordPublished(page)
     await page.goto(baseURL!)
@@ -175,6 +186,9 @@ test('a room self-destructs at its end on every device, including one that was a
     await expect(pill.locator('.fuseText')).toContainText('Self-destructs in')
     await expect(pill.locator('.fuseSpoken')).toContainText('Self-destructs in')
     await expect(pill.locator('svg.fuseIcon')).toHaveCount(1)
+    await expect(page.locator('#roomFuse')).toBeVisible()
+    await expect(page.locator('#roomFuseClock')).toHaveText(/00:01:\d{2}/)
+    await expect(page.locator('#roomFuse')).toHaveAttribute('data-stage', 'green')
 
     await page.locator('#chatInput').fill('Burn after reading')
     await page.locator('#chatInput').press('Enter')
@@ -204,7 +218,10 @@ test('a room self-destructs at its end on every device, including one that was a
 
     // The end: the room goes, with no question asked.
     await expect(page.locator('#roomArea')).toBeHidden({ timeout: (TEST_END_SECONDS + 30) * 1000 })
-    await expect(page.locator('#status')).toContainText('This room self-destructed.')
+    await expect(page.locator('#status')).toContainText('This room self-destructed.', { timeout: 90_000 })
+    await expect.poll(() => page.evaluate(() => (window as unknown as { destructVisual: unknown }).destructVisual)).toEqual({
+      text: 'Room self-destructedThe room is gone from this device', role: 'status', visible: true,
+    })
     const hostDevice = sent.find(e => e.kind === 1460)!.pubkey
     const hostEvents = sent.filter(e => e.pubkey === hostDevice && e.kind !== 5).map(e => e.id)
     await expect.poll(() => hostEvents.filter(id => !deletionsAsked(sent).has(id)).length, { timeout: 30_000 }).toBeLessThan(hostEvents.length)
@@ -423,6 +440,11 @@ test('the countdown walks green, amber and red by the clock', async ({ browser, 
     await page.clock.setFixedTime(new Date((ends - 5 * 3600 - 12 * 60) * 1000))
     await expect(pill).toHaveAttribute('data-stage', 'amber')
     await expect(pill.locator('.fuseText')).toHaveText('Self-destructs in 5 h 12 m')
+    await expect(page.locator('#roomFuseClock')).toHaveText('05:12:00')
+    await page.screenshot({ path: 'test-results/self-destruct-countdown-phone.png' })
+    await page.setViewportSize({ width: 320, height: 640 })
+    await expect(page.locator('#roomFuse')).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await expect(pill.locator('.fuseSpoken')).toHaveText('Self-destructs in 5 hours 12 minutes')
     await expect(page.locator('#fuseAnnounce')).toHaveText('This room self-destructs in 5 hours 12 minutes.')
     await page.clock.setFixedTime(new Date((ends - 42 * 60 - 7) * 1000))
@@ -449,6 +471,8 @@ test('the desktop rail shows the countdown beside the room', async ({ browser, b
     await expect(page.locator('#roomArea')).toBeVisible()
     const row = page.locator('.workspaceRoom').filter({ hasText: 'Railed' })
     await expect(row.locator('.fusePill')).toHaveAttribute('data-stage', 'green')
+    await expect(page.locator('#roomFuse')).toBeVisible()
+    await page.screenshot({ path: 'test-results/self-destruct-countdown-desktop.png' })
     await expect(row.locator('.fusePill .fuseSpoken')).toContainText('Self-destructs in')
     // The countdown sits on its own line under the name, so a narrow rail
     // never squeezes the name to a letter a line beside it.

@@ -74,6 +74,21 @@ export function remainingSpoken(remaining: number): string {
   return plural(seconds, 'second')
 }
 
+/** A live clock for the prominent room countdown, including seconds at every stage. */
+export function countdownClock(remaining: number): string {
+  const seconds = Math.max(0, Math.ceil(remaining))
+  const days = Math.floor(seconds / 86_400)
+  const hours = Math.floor(seconds % 86_400 / 3_600)
+  const minutes = Math.floor(seconds % 3_600 / 60)
+  return `${days ? `${days}d ` : ''}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/** A late-joining device uses the warning window when the original start is unknown. */
+export function fuseRemaining(endsAt: number, startsAt: number | undefined, now: number): number {
+  const lifetime = startsAt !== undefined && startsAt < endsAt ? endsAt - startsAt : 86_400
+  return Math.min(1, Math.max(0, (endsAt - now) / lifetime))
+}
+
 export interface Countdown {
   stage: CountdownStage
   /** The pill's visible words: "Self-destructs in 5 h 12 m", "Ends in 4 days". */

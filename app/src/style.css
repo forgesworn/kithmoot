@@ -4662,3 +4662,55 @@ html[data-call-docked] #mobileCall { display: none !important; }
 .openInApp .note {
   margin: 0.5rem 0 0;
 }
+
+/* The room's burning fuse stays visible in chat and on a call, at every width. */
+.roomFuse {
+  --fuse-ink: var(--on-fuse-green);
+  --fuse-ground: var(--fuse-green);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 0 0 auto;
+  margin: .4rem .6rem .7rem;
+  padding: .8rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--fuse-ink) 55%, transparent);
+  border-radius: 14px;
+  color: var(--fuse-ink);
+  background: radial-gradient(ellipse at top left, color-mix(in srgb, var(--fuse-ink) 15%, transparent), transparent 70%), var(--fuse-ground);
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--fuse-ink) 8%, transparent);
+}
+.roomFuse[data-stage='amber'] { --fuse-ink: var(--on-fuse-amber); --fuse-ground: var(--fuse-amber); }
+.roomFuse[data-stage='red'], .roomFuse[data-stage='final'], .roomFuse[data-stage='gone'] { --fuse-ink: var(--on-fuse-red); --fuse-ground: var(--fuse-red); }
+.roomFuseDial {
+  position: relative;
+  flex: 0 0 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(currentColor calc(var(--fuse-remaining) * 1turn), color-mix(in srgb, currentColor 14%, transparent) 0);
+}
+.roomFuseDial::before { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--fuse-ground); }
+.roomFuseSpark { position: absolute; inset: 0; display: grid; place-items: center; font-size: 1.6rem; filter: drop-shadow(0 0 6px currentColor); animation: fuseGlow 3s ease-in-out infinite; }
+.roomFuseBody { display: grid; gap: .15rem; flex: 1; min-width: 0; }
+.roomFuseLabel { text-transform: uppercase; letter-spacing: .13em; font-size: .65rem; font-weight: 700; }
+.roomFuseClock { font-family: ui-monospace, monospace; font-size: clamp(1.25rem, 4vw, 1.8rem); font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.roomFuseHint { font-size: .75rem; }
+.roomFuseTrack { height: 3px; margin-top: .3rem; background: color-mix(in srgb, currentColor 15%, transparent); border-radius: 3px; }
+#roomFuseBurn { position: relative; display: block; height: 100%; border-radius: inherit; background: currentColor; }
+#roomFuseBurn::after { content: ''; position: absolute; right: -2px; top: -2px; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px 2px currentColor; }
+.roomFuse[data-stage='final'] .roomFuseSpark { animation-duration: 1.2s; }
+@keyframes fuseGlow { 50% { transform: scale(1.18) rotate(30deg); opacity: .75; } }
+.destructEffect { position: fixed; inset: 0; z-index: 10000; pointer-events: none; display: grid; place-items: center; color: #ffcf92; background: radial-gradient(ellipse at center, #321a11ef, #101114f5); animation: destructVeil 3.2s ease both; }
+.destructArt { position: absolute; top: 42%; left: 50%; width: 0; height: 0; }
+.destructRing { position: absolute; width: 110px; height: 110px; margin: -55px; border: 2px solid #ffcf92; border-radius: 50%; box-shadow: 0 0 35px #ff8a45, inset 0 0 20px #ff8a45; animation: destructRing 1.8s ease-out both; }
+.destructArt i { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #ffcf92; box-shadow: 0 0 8px #ff8a45; animation: destructSpark 1.9s var(--delay) ease-out both; }
+.destructWords { position: relative; display: grid; gap: .7rem; text-align: center; padding: 1rem; margin-top: 160px; }
+.destructWords strong { font-size: clamp(1.5rem, 5vw, 2.5rem); letter-spacing: -.02em; }
+.destructWords span { color: #f2e3d4; font-size: .9rem; }
+@keyframes destructVeil { 0% { opacity: 0; } 12%, 75% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes destructRing { 0% { transform: scale(1); opacity: 1; } 35% { transform: scale(.2); opacity: 1; } 100% { transform: scale(3); opacity: 0; } }
+@keyframes destructSpark { 0%, 15% { transform: rotate(var(--angle)) translateX(45px); opacity: 0; } 30% { opacity: 1; } 100% { transform: rotate(var(--angle)) translateX(var(--distance)); opacity: 0; } }
+@media (max-width: 380px) { .roomFuse { gap: .65rem; padding: .65rem .75rem; } .roomFuseDial { flex-basis: 44px; height: 44px; } }
+@media (prefers-reduced-motion: reduce) {
+  .roomFuseSpark, .destructEffect, .destructRing, .destructArt i { animation: none; }
+  .destructArt { display: none; }
+}
