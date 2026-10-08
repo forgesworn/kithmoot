@@ -44,6 +44,7 @@
       <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
         <div class="workspaceBrand"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</div>
         <button id="workspaceSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
+        <button id="workspaceNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor">New project</button>
         <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
         <label class="sr-only" for="workspaceQuery">Filter projects and rooms</label>
         <input id="workspaceQuery" type="search" placeholder="Filter projects and rooms" autocomplete="off" />
@@ -633,6 +634,7 @@
           </div>
           <div class="roomsHeadActions">
             <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects" hidden>Projects</button>
+            <button id="homeNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor" hidden>New project</button>
             <button id="homeOpenLink" type="button" class="quiet" aria-controls="openLink" aria-expanded="false" hidden>Open invite link</button>
             <button id="newRoom" type="button" class="primary" aria-expanded="false" aria-controls="createRoomForm">New room</button>
           </div>
@@ -897,6 +899,7 @@
       <div class="sheetBar"><h2 id="sharedProjectsTitle">Projects</h2><button id="sharedProjectsClose" type="button">Close</button></div>
       <div class="sheetBody">
         <p class="sharedProjectsLead">Your people, agents and conversations, together.</p>
+        <p id="sharedProjectRoomPrompt" role="status" hidden></p>
         <div class="sharedProjectsActions">
           <button id="sharedProjectNew" type="button" class="primary">New project</button>
           <button id="sharedProjectsSignIn" type="button">Sign in</button>
@@ -912,6 +915,7 @@
         <div class="sheetBar"><h2 id="sharedProjectEditorTitle">Create a shared project</h2><button id="sharedProjectCancel" type="button">Cancel</button></div>
         <div class="sheetBody">
           <p id="sharedProjectReview" class="note" hidden></p>
+          <p id="sharedProjectSyncStatus" class="note" role="status" hidden></p>
           <div id="sharedProjectFields">
             <label for="sharedProjectName">Project name</label>
             <input id="sharedProjectName" maxlength="64" autocomplete="off" placeholder="e.g. Bothy" />
@@ -946,13 +950,13 @@
         </div>
         <div class="sheetBody">
           <p id="projectRoomName"></p>
-          <label for="projectName">Project name</label>
+          <label for="projectName">Local group name</label>
           <input id="projectName" list="projectSuggestions" maxlength="64" placeholder="e.g. KithMoot" autocomplete="off" />
           <datalist id="projectSuggestions"></datalist>
-          <p class="note">Choose an existing project or name a new one. Leave blank to remove this room from its project.</p>
-          <p class="note">Projects organise your rooms on this browser only. They do not change who can join a room.</p>
+          <p class="note">Choose an existing local group or name a new one. Leave blank to remove this room from its group.</p>
+          <p class="note">Local groups organise rooms on this browser. Use Projects to share a project across people and devices.</p>
           <p id="projectError" class="formError" role="alert" hidden></p>
-          <button type="submit" class="primary">Save project</button>
+          <button type="submit" class="primary">Save local group</button>
         </div>
       </form>
     </dialog>

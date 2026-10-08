@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.60",
+  "currentRelease": "0.1.61",
   "releases": [
     {
-      "version": "0.1.60",
+      "version": "0.1.61",
       "updateTo": {
-        "version": "0.1.60",
-        "pub_date": "2026-10-08T16:08:14Z",
-        "notes": "A prominent room self-destruct countdown, a burning fuse and a brief spark burst after local cleanup. Dated-room file uploads keep their exact signed authorisation.",
-        "name": "0.1.60",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.60/KithMoot-0.1.60-mac-arm64.zip",
-        "sha256": "50b702592ecd93e76847a280d1505cdfb485b9a0a92b23b1bf36dfb517675382",
-        "size": 137825894
+        "version": "0.1.61",
+        "pub_date": "2026-10-08T19:46:36Z",
+        "notes": "Create projects from the home screen and add rooms to an existing shared project. Local groups have separate labels, and the editor explains pending signer or sync requirements.",
+        "name": "0.1.61",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.61/KithMoot-0.1.61-mac-arm64.zip",
+        "sha256": "308339d921496e85352bb07186654c524c2a14073ced838be133f395cb3138b6",
+        "size": 138920432
       }
     }
   ]
