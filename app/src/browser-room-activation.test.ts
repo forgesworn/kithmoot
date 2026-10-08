@@ -40,7 +40,8 @@ function fixture() {
 
 describe('durable browser room activation', () => {
   it('retains exact active and withdrawal statements before publication, then requires scoped readback', async () => {
-    const f = fixture(); await f.controller.activate(f.input)
+    const f = fixture(); await f.controller.activate({...f.input, aliases:['lookup:'+'d'.repeat(64)]})
+    expect(f.barrier.closed.mock.calls.map(c => c[0])).toContain('d'.repeat(64))
     expect(f.snapshots.map(c => c.phase)).toEqual(['installing','active'])
     expect(f.saved!.grants).toHaveLength(2)
     expect(f.barrier.closed.mock.calls.map(c => c[0])).toContain(room)

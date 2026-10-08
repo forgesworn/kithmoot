@@ -2094,6 +2094,7 @@ function stopInvitationHost(): void {
 
 function serveCurrentInvitation(): void {
   stopInvitationHost()
+  if (roomUsesBothy) return
   const invitation = roomInvitationCapability
   if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk, roomEndsAt, roomDestruct)
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
@@ -4784,6 +4785,7 @@ async function shareRoomLink(): Promise<void> {
 }
 
 async function rotateRoomInvitation(): Promise<void> {
+  if (await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)) throw new Error('New invitations are unavailable on this Bothy text route.')
   if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length !== 0) {
     throw new Error('Only the browser that opened this room can rotate its invitation.')
   }
@@ -4834,6 +4836,7 @@ async function publishGroupInvitation(
   invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[],
   { forRoom, scope, endsAt, destruct, roomRelays }: { forRoom?: string; scope?: string; endsAt?: number; destruct?: boolean; roomRelays?: string[] } = {},
 ): Promise<void> {
+  if (await browserRoomRoutes.selected(deriveRoom(secret).roomId)) throw new Error('New invitations are unavailable on this Bothy text route.')
   const pool = scope ? relayConnections.pool(scope, relayUrls) : forRoom ? relayConnections.pool(`room:${forRoom}`, relayUrls) : configuredPool(relayUrls)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -13608,6 +13611,7 @@ const inviteDialog = $('inviteDialog') as HTMLDialogElement
 /** Which button opened the invite sheet, to hand focus back to. */
 let inviteOpener: HTMLElement = $('invitePeople')
 function openInviteDialog(qrFirst: boolean): void {
+  if (roomUsesBothy) { setStatus('New invitations are unavailable on this Bothy text route.'); return }
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
   $('inviteStatus').textContent = ''
   renderInviteEnds()
@@ -14315,7 +14319,7 @@ let sessionAuthority: string | undefined
 let endingRoom = false
 
 function canEndRoom(): boolean {
-  if (!session || session.closed || keeperParticipant !== undefined) return false
+  if (roomUsesBothy || !session || session.closed || keeperParticipant !== undefined) return false
   if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length !== 0 || !sessionAuthority) return false
   return getPublicKey(invitationAuthoritySk) === sessionAuthority
 }

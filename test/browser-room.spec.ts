@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import { test, expect, type Page } from '@playwright/test'
 const origin = 'https://browser-room.kithmoot.test'
+const alias = 'e'.repeat(64)
 const room = 'a'.repeat(64), account = 'b'.repeat(64)
 const run = (page: Page, code: string) => page.evaluate(`(${code})()`)
 let bundle: string
@@ -27,25 +28,25 @@ test('durable private intent closes every public pool and never reopens it after
   const context = await browser.newContext()
   await context.route(origin+'/**', r => r.fulfill({ contentType:'text/html', body:`<script>${bundle}</script>` }))
   const a = await context.newPage(), b = await context.newPage()
-  const setup = async (page: Page, identity = account) => {
+  const setup = async (page: Page, identity = account, scope = room) => {
     await page.goto(origin)
     await run(page, `() => {
       window.vault = new R.BrowserRoomConsents();
       window.barrier = new R.BrowserRoomBarrier(navigator.locks, new BroadcastChannel('fixture'), async () => {});
       window.publicStarts=0; window.publicClosed=0; window.privateStarts=0; window.received=0;
-      window.pool=new R.BrowserRoomPool({room:'${room}',account:()=>'${identity}',store:vault,barrier,
+      window.pool=new R.BrowserRoomPool({room:'${scope}',account:()=>'${identity}',store:vault,barrier,
         publicPool:()=>{ publicStarts++; return {subscribe:(_f,receive)=>{window.oldReceive=receive;return ()=>{}},publish:async()=>{},close:()=>{publicClosed++}} },
         privatePool:async()=>{ privateStarts++; return {subscribe:()=>()=>{},publish:async()=>{},close:()=>{}} }
       });
       pool.subscribe([{kinds:[1460],'#d':['${room}']}],()=>{received++});
     }`)
   }
-  await setup(a); await setup(b)
+  await setup(a); await setup(b, account, alias)
   await expect.poll(()=>run(a,'()=>publicStarts')).toBe(1)
   await expect.poll(()=>run(b,'()=>publicStarts')).toBe(1)
   await run(a, `async () => {
     window.consent={account:'${account}',room:'${room}',device:'${'c'.repeat(64)}',box:{routeId:'route',eventUrl:'ws://${'a'.repeat(52)}/events'},
-      phase:'installing',expires:Math.floor(Date.now()/1000)+3600,grants:[],scopes:['${room}'],aliases:[]};
+      phase:'installing',expires:Math.floor(Date.now()/1000)+3600,grants:[],scopes:['${room}'],aliases:['lookup:${alias}']};
     await vault.put(consent); barrier.changed();
     await barrier.closed('${room}',async()=>{consent.phase='active';await vault.put(consent)}); barrier.changed();
   }`)
@@ -54,7 +55,7 @@ test('durable private intent closes every public pool and never reopens it after
   await run(b, '()=>oldReceive({})')
   expect(await run(b, '()=>received')).toBe(0)
   expect(await run(b, '()=>publicStarts')).toBe(1)
-  await b.reload(); await setup(b, 'd'.repeat(64))
+  await b.reload(); await setup(b, 'd'.repeat(64), alias)
   await run(b, 'async()=>{await new Promise(r=>setTimeout(r,100));}')
   expect(await run(b,'()=>({publicStarts,privateStarts})')).toEqual({publicStarts:0,privateStarts:0})
   expect(await run(b,'()=>Object.keys(localStorage)')).toEqual([])

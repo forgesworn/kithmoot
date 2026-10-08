@@ -267,7 +267,7 @@ export class RelayConnections {
    *  on it: `close()` ends that caller's subscriptions, and the pool closes
    *  once nobody holds it. Everything else is the shared pool's. */
   pool(scope: string, hints: RelayHints = []): ManagedRelayPool {
-    const room = /^(?:room|lookup):([a-f0-9]{64})$/.exec(scope)?.[1]
+    const room = /^(?:room|lookup|link):([a-f0-9]{64})$/.exec(scope)?.[1]
     if (room && this.#roomRouter) return this.#roomRouter(room, () => this.#publicPool(scope, hints))
     return this.#publicPool(scope, hints)
   }
