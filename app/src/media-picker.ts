@@ -42,7 +42,7 @@ export class MediaPicker {
     })
     const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Close media picker'; close.onclick = () => this.close()
     this.#dialog.append(title, privacy, form, this.#status, this.#grid, close); document.body.append(this.#dialog)
-    this.#dialog.addEventListener('close', () => { this.#request?.abort(); this.#request = undefined; this.#choose = undefined; this.#grid.replaceChildren(); this.#return?.focus({ preventScroll: true }) })
+    this.#dialog.addEventListener('close', () => { this.#request?.abort(); this.#request = undefined; search.disabled = false; this.#choose = undefined; this.#grid.replaceChildren(); this.#return?.focus({ preventScroll: true }) })
   }
   open(anchor: HTMLElement, choose: (item: CatalogueImage, signal: AbortSignal) => Promise<void>): void { this.#return = anchor; this.#choose = choose; this.#status.textContent = ''; this.#dialog.showModal(); this.#query.focus() }
   close(): void { this.#dialog.close() }

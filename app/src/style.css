@@ -4741,3 +4741,10 @@ html[data-call-docked] #mobileCall { display: none !important; }
 .mediaGrid button { display: flex; flex-direction: column; padding: .5rem; text-align: left; overflow-wrap: anywhere; min-width: 0; }
 .mediaGrid img { width: 100%; height: 7rem; object-fit: contain; }
 .mediaGrid small { font-size: .75rem; color: var(--muted); }
+
+.messagePerson { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .35rem; min-height: 2.75rem; padding: 0 .2rem; border: 0; background: transparent; color: inherit; text-align: start; }
+.messagePerson:hover .name, .messagePerson:focus-visible .name { text-decoration: underline; }
+.participantCard { max-width: min(30rem, calc(100vw - 2rem)); }
+.participantCard p { overflow-wrap: anywhere; }
+.participantCard > .avatar { width: 4rem; height: 4rem; border-radius: 50%; object-fit: cover; }
+.participantCard button { margin: .3rem; min-height: 2.75rem; }

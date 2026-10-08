@@ -11,8 +11,20 @@ export async function unlockCultPack(identity: ParticipantIdentity, fetcher: typ
   if (signed.pubkey !== identity.pubkey || signed.kind !== unsigned.kind || signed.created_at !== created_at || signed.content !== '' || JSON.stringify(signed.tags) !== JSON.stringify(tags) || !verifyEventUncached(signed)) throw new Error('The signer did not confirm this account.')
   const response = await fetcher(CULT_REGISTRY, { credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15_000) })
   if (!response.ok) throw new Error('The pack membership registry could not be reached. Try again.')
-  const body = await response.text()
-  if (body.length > 128_000) throw new Error('The pack membership registry is too large.')
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('The pack membership registry returned no data.')
+  const chunks: Uint8Array[] = []; let length = 0
+  try {
+    while (true) {
+      const part = await reader.read(); if (part.done) break
+      length += part.value.length
+      if (length > 128_000) throw new Error('The pack membership registry is too large.')
+      chunks.push(part.value)
+    }
+  } finally { await reader.cancel() }
+  const bytes = new Uint8Array(length); let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+  const body = new TextDecoder().decode(bytes)
   const registry: unknown = JSON.parse(body)
   const names = registry && typeof registry === 'object' && 'names' in registry ? registry.names : undefined
   if (!names || typeof names !== 'object' || Array.isArray(names)) return false

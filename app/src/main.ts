@@ -1,3 +1,4 @@
+import { ParticipantCard } from './participant-card.js'
 import { MediaPicker } from './media-picker.js'
 import { downloadCatalogueImage } from './media-catalogue.js'
 import { unlockCultPack } from './nostr-packs.js'
@@ -435,6 +436,7 @@ const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
   paint: (canvas, id) => shareViewer.areaOverlay(canvas, id),
 })
 const drawingNoticeGate = new DrawingNoticeGate()
+const participantCard = new ParticipantCard(copyMessageText)
 let packGrant: { pubkey: string; until: number } | undefined
 const mediaPicker = new MediaPicker()
 const emojiPicker = new EmojiPicker({
@@ -1245,6 +1247,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
+  participantCard.close()
   packGrant = undefined
   browserRoomRoutes.pause()
   await browserLinkPanel.stop()
@@ -9421,7 +9424,19 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     {
       const sender = document.createElement('div')
       sender.className = 'sender'
-      sender.append(identityRun(shownAs(original.participant, original.name), mine, true))
+      const shown = shownAs(original.participant, original.name)
+      const person = document.createElement('button'); person.type = 'button'; person.className = 'messagePerson'
+      person.setAttribute('aria-label', `View details for ${shown.name ?? shown.short}`)
+      person.setAttribute('aria-haspopup', 'dialog'); person.append(identityRun(shown, mine, true))
+      person.onclick = () => {
+        const current = session?.participants().find(view => view.participant === original.participant)
+        const me = meParticipant
+        const permitted = current && me && current.participant !== me && !dmPeer(roomPolicy, me) &&
+          (!current.agent || current.owner?.principal === me || admins.has(me))
+        participantCard.open(shownAs(original.participant, original.name), person,
+          permitted ? () => { void startDirectMessage(original.participant, shown.name, false) } : undefined)
+      }
+      sender.append(person)
       // The tag, in the same place and the same colour as on the roster, so
       // a bubble from a program is recognisable without reading a word.
       if (fromAgent) {
@@ -12706,6 +12721,8 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   messageActions.close(false)
   conversationSearch.reset()
   emojiPicker.close()
+  mediaPicker.close()
+  participantCard.close()
   shareViewer.close()
   floatingSharePreview.close()
   hideDrawingNotice()

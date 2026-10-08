@@ -257,3 +257,11 @@ must be dropped, a mention list over the cap, an invitation with a
 reaction beside it, a members policy that refuses a stranger, and a read
 position under the wrong key. The Android client reads every positive case
 and refuses every negative one.
+
+## Emoji, GIFs, stickers and participant details
+
+Chat sender names open a participant card with their public key in npub form, a copy button and any verified NIP-05 address already permitted by profile lookup settings. Opening the card adds no profile lookup. A current participant's card offers Message privately under the same membership rules as People.
+
+The quick reaction palette remains available; More emoji reactions opens the searchable Unicode 16 catalogue, including skin tones and flags. Reactions sit across the lower edge of the bubble with phone-sized tap targets. The composer can insert emoji or search Wikimedia Commons for licensed GIF and PNG images. Search is explicit and discloses the query/IP request. Artist, licence and source-page credit accompany catalogue files, which use the existing consent, encrypted attachment and room-expiry cleanup path.
+
+The 600 community pack uses original Sunburst artwork with local animation. Unlock Nostr packs asks the current account signer for a fresh unpublished proof, then checks the public community registry without sending the account key in a URL or header. Only the picker is gated; received stickers and reactions remain visible to everyone. This is a picker preference, not room access control.
