@@ -831,6 +831,7 @@
         <details id="appConnections">
           <summary>Connections</summary>
           <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
+          <button id="bothySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="bothySettings">Bothy connection</button>
           <button id="appProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
           <button id="dmRelaySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>Relays for private conversations</button>
           <label for="iceServers">Call servers</label>
@@ -1414,6 +1415,20 @@
       <p class="note">Show the picture and name published by each person’s Nostr key. Names are chosen by their owners.</p>
       <p class="note">This sends people’s keys to the room’s relays and to public profile relays, and loads pictures from their hosts. Nostr addresses are checked with their domains. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
       <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
+    </dialog>
+
+    <dialog id="bothySettings" class="profileSettings" aria-labelledby="bothySettingsTitle">
+      <div class="profileSettingsHeader"><h2 id="bothySettingsTitle">Bothy connection</h2><button id="bothyClose" type="button">Close</button></div>
+      <p>Pair this browser with your Bothy over Link. Your Link relay carries encrypted traffic and can observe connection timing and volume.</p>
+      <p class="note">Pairing prepares a connection. Your rooms keep their current routing until room activation is available.</p>
+      <label>Link relay addresses <input id="bothyRelays" type="text" autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
+      <p class="note">Use the relay addresses supplied by your Bothy keeper. Leave blank to resume the saved connection.</p>
+      <button id="bothyConnect" type="button">Connect or resume</button>
+      <p><label>Bothy pairing code <input id="bothyCode" type="password" autocomplete="off" spellcheck="false" maxlength="10000" placeholder="bothy:…"></label></p>
+      <button id="bothyPair" type="button">Pair Bothy</button>
+      <button id="bothyStop" type="button" class="quiet">Close connection</button>
+      <button id="bothyForget" type="button" class="quiet">Forget local pairing</button>
+      <p id="bothyStatus" class="note" role="status"></p>
     </dialog>
 
     <dialog id="relaySettings" class="profileSettings" aria-labelledby="relaySettingsTitle">
