@@ -408,6 +408,7 @@
           <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
         </div>
+        <p id="bothyRoomConnection" class="note" role="status" hidden></p>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
              into. A box on the Transcript tab invited somebody to type into
@@ -1371,6 +1372,7 @@
         <div class="toolRow">
           <button id="roomNotifications" type="button" aria-haspopup="dialog" aria-controls="notificationSettings">Notifications &amp; sound</button>
           <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
+          <button id="roomBothySettings" type="button" aria-haspopup="dialog" aria-controls="bothyRoomSettings">Bothy room routing</button>
           <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
           <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
         </div>
@@ -1436,7 +1438,7 @@
     <dialog id="bothySettings" class="profileSettings" aria-labelledby="bothySettingsTitle">
       <div class="profileSettingsHeader"><h2 id="bothySettingsTitle">Bothy connection</h2><button id="bothyClose" type="button">Close</button></div>
       <p>Pair this browser with your Bothy over Link. Your Link relay carries encrypted traffic and can observe connection timing and volume.</p>
-      <p class="note">Pairing prepares a connection. Your rooms keep their current routing until room activation is available.</p>
+      <p class="note">Pairing prepares a connection. Choose Bothy room routing in a room’s settings to activate that room separately.</p>
       <label>Link relay addresses <input id="bothyRelays" type="text" autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
       <p class="note">Use the relay addresses supplied by your Bothy keeper. Leave blank to resume the saved connection.</p>
       <button id="bothyConnect" type="button">Connect or resume</button>
@@ -1444,7 +1446,24 @@
       <button id="bothyPair" type="button">Pair Bothy</button>
       <button id="bothyStop" type="button" class="quiet">Close connection</button>
       <button id="bothyForget" type="button" class="quiet">Forget local pairing</button>
+      <button id="bothyCurrentRoom" type="button">Current room routing and recovery</button>
       <p id="bothyStatus" class="note" role="status"></p>
+    </dialog>
+
+    <dialog id="bothyRoomSettings" class="profileSettings" aria-labelledby="bothyRoomTitle" data-keep-open>
+      <div class="profileSettingsHeader"><h2 id="bothyRoomTitle">Bothy room routing</h2><button id="bothyRoomClose" type="button">Close</button></div>
+      <p id="bothyRoomLabel"></p>
+      <p>This moves this room’s text and presence to one paired Bothy. Calls, media, new invitations and ungranted channels remain unavailable on this route. Account and profile connections keep their own settings.</p>
+      <p>Update or close older KithMoot tabs first. A sleeping tab that cannot confirm closure blocks activation.</p>
+      <p class="note">Public history recovery and cleanup are paused while a Bothy room selection is saved in this browser.</p>
+      <label>Paired Bothy <select id="bothyRoomRoute"></select></label>
+      <p><label><input id="bothyRoomKeeper" type="checkbox"> I keep this Bothy: grant my device and the current devices below access for 30 days.</label></p>
+      <p id="bothyRoomDevices" class="note"></p>
+      <button id="bothyRoomActivate" type="button">Activate or resume room</button>
+      <button id="bothyRoomRenew" type="button">Renew keeper grants</button>
+      <p class="note">Withdrawing stops this selection and permits public routing again. A keeper’s retained grants must be acknowledged as withdrawn first.</p>
+      <button id="bothyRoomWithdraw" type="button" class="quiet">Withdraw and allow public routing</button>
+      <p id="bothyRoomStatus" class="note" role="status"></p>
     </dialog>
 
     <dialog id="relaySettings" class="profileSettings" aria-labelledby="relaySettingsTitle">

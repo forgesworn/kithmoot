@@ -426,3 +426,15 @@ describe('pools shared by everyone asking for the same relays', () => {
     } finally { session.close(); watch.close() }
   })
 })
+
+
+describe('central room route selection', () => {
+  it('gates room pools, invitation lookups and old-link refresh pools before constructing public transports', () => {
+    const connections = new RelayConnections(storage(), defaults), routed = vi.fn()
+    const held = { closed:false, close:()=>{} } as unknown as ReturnType<RelayConnections['pool']>
+    connections.routeRooms((id, _publicFactory) => { routed(id); return held })
+    const id = 'a'.repeat(64)
+    for (const prefix of ['room','lookup','link']) expect(connections.pool(`${prefix}:${id}`)).toBe(held)
+    expect(routed.mock.calls).toEqual([[id],[id],[id]])
+  })
+})
