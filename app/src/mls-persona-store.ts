@@ -59,7 +59,9 @@ function bytes(value: unknown, max = MAX_FIELD): asserts value is string {
 function uint(value: string, positive = false): bigint {
   requireValue(typeof value === 'string' && /^(0|[1-9][0-9]{0,19})$/.test(value))
   const n = BigInt(value)
-  requireValue(n <= 0xffffffffffffffffn && (!positive || n > 0n))
+  // The manifest's generation is a positive signed 64-bit integer; the Link
+  // route counters (positive=false) retain their full unsigned wire range.
+  requireValue(n <= (positive ? 0x7fffffffffffffffn : 0xffffffffffffffffn) && (!positive || n > 0n))
   return n
 }
 function objects(value: PersonaObjects): void {
@@ -183,11 +185,34 @@ export class LockedPersonaStore {
         const data: PersonaData = JSON.parse(decoder.decode(plain))
         validate(data, marker, this.persona)
         return { revision: row.revision, data, marker }
+      } catch (error) {
+        if (error instanceof PersonaStorageError) throw error
+        throw new PersonaStorageError('invalid')
       } finally { plain.fill(0) }
     })
   }
   marker(): Promise<PersonaMarker | undefined> {
     return this.#run(async () => { const m = (await this.#rows()).marker; if (m) validateMarker(m); return m })
+  }
+  /** A terminal local fence survives later restoration of a missing key or
+   * object. The first reason and subject are kept for explicit retirement.
+   * If the marker itself is absent/corrupt, fail rather than minting an id. */
+  fence(reason: string): Promise<PersonaMarker> {
+    return this.#run(async () => {
+      requireValue(typeof reason === 'string' && reason.length > 0 && reason.length <= 128)
+      const tx = this.db.transaction('markers', 'readwrite'), done = complete(tx)
+      let result: PersonaMarker | undefined, failure: unknown
+      const get = tx.objectStore('markers').get(this.name)
+      get.onsuccess = () => {
+        try {
+          validateMarker(get.result)
+          result = get.result.state === 'fenced' ? get.result : { ...get.result, state: 'fenced', reason }
+          tx.objectStore('markers').put(result, this.name)
+        } catch (error) { failure = error; tx.abort() }
+      }
+      try { await done } catch (error) { throw failure ?? error }
+      return result!
+    })
   }
   create(): Promise<PersonaSnapshot> {
     return this.#run(async () => {
@@ -223,12 +248,18 @@ export class LockedPersonaStore {
     const current = tx.objectStore('personas').get(this.name)
     current.onsuccess = () => {
       if ((current.result?.revision ?? null) !== expected) { conflict = true; tx.abort(); return }
-      if (expected === null) {
-        // add() refuses leftover markers/keys even when the row was deleted.
-        tx.objectStore('keys').add(keys, this.name)
-        tx.objectStore('markers').add(marker, this.name)
-      } else tx.objectStore('markers').put(marker, this.name)
-      tx.objectStore('personas').put({ revision, sealed: sealed.buffer }, this.name)
+      const previous = tx.objectStore('markers').get(this.name)
+      previous.onsuccess = () => {
+        // fence() can commit while an asynchronous outer seal is pending.
+        // Checking only the persona revision would let that old seal un-fence it.
+        if (previous.result?.state === 'fenced' && (marker.state !== 'fenced' || marker.reason !== previous.result.reason)) { conflict = true; tx.abort(); return }
+        if (expected === null) {
+          // add() refuses leftover markers/keys even when the row was deleted.
+          tx.objectStore('keys').add(keys, this.name)
+          tx.objectStore('markers').add(marker, this.name)
+        } else tx.objectStore('markers').put(marker, this.name)
+        tx.objectStore('personas').put({ revision, sealed: sealed.buffer }, this.name)
+      }
     }
     try { await done } catch (error) { if (conflict) throw new PersonaStorageError('conflict'); throw error }
     return { revision, data, marker }

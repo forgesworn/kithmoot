@@ -42,18 +42,51 @@ to rooms or enabled in the app. Ordinary Bothy text routing remains separate.
   Rust coordinator refusing a changed object under its saved manifest. This remains a storage
   primitive: callers must not release plaintext or network effects merely
   because a local write succeeded.
+- `mls-persona-coordinator.ts` now connects the shared Rust decisions to that
+  store. Every operation opens actual durable objects, checks their seals and
+  freshly reads the witness under the persona lock. It persists the exact
+  staged candidate before sending an advance, and atomically promotes it
+  before returning any effect or session mark. Lost responses retain the
+  candidate; subsequent operations reconcile it before constructing another.
+  There is no cached confirmation that can authorise a later mutation.
+- Typed transaction helpers open, seal or remove vault/session objects without
+  exposing the writer seed. Seals run in invocation order; session generations
+  increase; unchanged vault plaintext retains its exact ciphertext. Provisional
+  plaintext buffers are wiped on exit. Mutating callers supply an account
+  context check, repeated after witness work and lock-release cleanup. A stale
+  account receives no successful effect, including after a durable promotion.
+- Terminal local fences persist separately from recoverable sealed records.
+  The commit transaction refuses a fence that arrived while its outer seal was
+  being computed. Missing/corrupt state never triggers enrolment. A restored
+  witness behind the client receives the Rust retiring advance, and its duty
+  remains recorded until explicit installation replacement; a signed retired
+  reply alone does not end that duty while the old installation remains.
+- The orchestration fixture uses the real Rust WASM, WebCrypto and IndexedDB
+  with an independent disposable receipt signer in the test runner. It covers
+  interrupted stage/promotion, a transaction aborted during promotion, a lost
+  committed reply, persona database rollback (records, keys and markers), missing candidate/key/record,
+  fresh-read outage, wrong signatures, replay, refusal, retiring a witness
+  restored behind, concurrent seals and obsolete account contexts. The initial
+  retirement assertion incorrectly expected the duty to end before replacement;
+  the Rust engine retained it correctly and the assertion was repaired. These
+  reload and fault-injection cases are not full browser-process kill tests,
+  real Bothy W01–W12, physical-device tests or room acceptance.
+  All 81 browser cases pass across Chromium, Firefox and WebKit; the 44
+  existing vault/witness unit tests, typecheck and production build also pass.
 
 ## Remaining integration and acceptance
 
-1. Connect the shared coordinator to the sealed persona store. Stage and
-   promote only through its verified witness decisions; preserve uncertain
-   candidates, persistent fences, retiring duties and explicit replacement.
+1. Finish explicit clear/replacement and retirement confirmation, including
+   inner-key destruction, retaining the writer's retiring duty across a clear,
+   and keeping tombstones before allowing a fresh enrolment. Stage/promotion,
+   reconciliation and persistent fences are implemented; replacement is not.
 2. Move all typed vault mutations, consent, credentials and journals under the
    coordinator. Add the contracted typed box-request signer. Keep account
    generations, cross-tab invalidation and retired-key tombstones enforced.
 3. Explicit witness-only pairing/enrolment using a distinct persona writer
    seed; pinned witness identity; pending, fenced and retirement/replacement UI.
-   No implicit enrolment or shared app transport identity.
+   Bind enrolment/retirement display metadata to the sealed state; do not trust
+   an unsealed marker alone. No implicit enrolment or shared app transport identity.
 4. The MLS room store, driver and box client: installation checks on open and
    every reply, watched Gap mailboxes, exact witnessed generations before
    commit acknowledgement or network/plaintext release, and offline drafts.
