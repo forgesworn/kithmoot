@@ -1,5 +1,6 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
-import { BrowserMlsPersonaStore, LockedPersonaStore } from '../app/src/mls-persona-store.js'
+import { BrowserMlsPersonaStore, LockedPersonaStore, type PersonaWitnessRoute } from '../app/src/mls-persona-store.js'
+import { pairedWitnessIdentity, personaWriter } from '../app/src/mls-writer-identity.js'
 import { BrowserPersonaCoordinator, type CoordinationResult } from '../app/src/mls-persona-coordinator.js'
 import { loadMlsEngine } from '../app/src/mls-engine.js'
 import type { WitnessAnswer } from '../app/src/mls-witness-link.js'
@@ -16,19 +17,53 @@ async function withHost<T>(work: (host: BrowserPersonaCoordinator) => Promise<T>
   try { return await work(host) } finally { await store.close() }
 }
 function result<T>(value: CoordinationResult<T>) { return value.state === 'active' ? { ...value, marks: Object.fromEntries([...value.marks].map(([k, v]) => [k, String(v)])) } : value }
-export async function prepare(witness: string) {
+export async function prepare(route: PersonaWitnessRoute) {
   const wasm = await loadMlsEngine(), store = new BrowserMlsPersonaStore(dbName)
   try {
     return await store.withPersona(persona, async s => {
+      const witness = pairedWitnessIdentity(route)
       const initial = await s.create(), genesis = wasm.coordinatorGenesis(hexToBytes(subject), hexToBytes(initial.data.installation), hexToBytes(witness), [])
       initial.data.coordinator = bytesToHex(genesis.state)
-      initial.marker = { ...initial.marker, state: 'genesis', subject, writer: '89'.repeat(32), digest: bytesToHex(genesis.digest) }
+      initial.data.witnessRoute = route
+      initial.data.enrolment = { subject, writer: personaWriter(initial.data.writerSeed), witness, digest: bytesToHex(genesis.digest) }
+      initial.marker = { ...initial.marker, state: 'genesis', subject, writer: initial.data.enrolment.writer, digest: bytesToHex(genesis.digest) }
       await s.write(initial.revision, initial.data, initial.marker)
       return { digest: bytesToHex(genesis.digest), subject, session }
     })
   } finally { await store.close() }
 }
 export async function status() { return result(await withHost(h => h.status(persona))) }
+export async function channelLifetime(mode: 'commit' | 'callback-error' | 'read-error' | 'stale-close') {
+  const store = new BrowserMlsPersonaStore(dbName), events: string[] = []
+  let current = true, seedWiped = false, opened = 0, closed = 0, entered!: () => void, finish!: () => void
+  const stopping = new Promise<void>(resolve => { entered = resolve }), release = new Promise<void>(resolve => { finish = resolve })
+  const host = new BrowserPersonaCoordinator(store, async (_persona, seed) => {
+    opened++
+    const exchange = async (method: string, request: Uint8Array): Promise<WitnessAnswer> => {
+      seedWiped = seed.every(n => n === 0); events.push(method)
+      if (mode === 'read-error') throw new Error('fixture read error')
+      const reply = await window.witnessExchange(method, Array.from(request))
+      return reply.type === 'receipt' ? { type: 'receipt', bytes: new Uint8Array(reply.bytes!) } : { type: reply.type as 'unavailable' | 'refused' }
+    }
+    return { read: r => exchange('read', r), advance: r => exchange('advance', r), close: async () => {
+      events.push('closing'); entered(); await release; closed++; events.push('closed')
+      if (mode === 'stale-close') current = false
+    } }
+  })
+  try {
+    const task = host.transact(persona, async tx => {
+      if (mode === 'callback-error') throw new Error('fixture callback error')
+      await tx.putVault('01', new Uint8Array([6])); return 'effect'
+    }, () => current).then(result, e => ({ error: e.message }))
+    await stopping
+    let secondEntered = false
+    const second = store.withPersona(persona, async () => { secondEntered = true; events.push('second-writer') })
+    await new Promise(resolve => setTimeout(resolve, 30))
+    const blockedDuringClose = !secondEntered
+    finish(); const outcome = await task; await second
+    return { outcome, events, opened, closed, seedWiped, blockedDuringClose }
+  } finally { finish(); await store.close() }
+}
 export async function commit(value: number, generation: number, fault?: 'after-stage' | 'after-promotion' | 'abort-promotion' | 'stale' | 'stale-initial' | 'stale-exit') {
   const write = LockedPersonaStore.prototype.write, close = LockedPersonaStore.prototype.close, put = IDBObjectStore.prototype.put
   let writes = 0, puts = 0, injected = false, current = fault !== 'stale-initial'

@@ -94,6 +94,42 @@ to rooms or enabled in the app. Ordinary Bothy text routing remains separate.
   These remain fixture tests using real browser storage and the pinned engine.
   The expanded suite passes all 108 cases across Chromium, Firefox and WebKit;
   all 3,373 unit tests, typecheck and the production build pass as well.
+- `mls-persona-link.ts` supplies dedicated per-operation Link endpoints using
+  the persona writer, with explicitly saved relay choices. One channel serves
+  the operation's fresh read and any advance/retiring exchanges. Shutdown is
+  awaited under the persona Web Lock, including after errors and late startup;
+  no endpoint remains cached after unlock. The caller supplies its connection
+  policy and account context, and must pause the service on account/mode changes.
+  Quiet/Tor-only policy prevents startup; late replies release no effect. An
+  account change after staging now retains the candidate without dispatching
+  the advance, and a later current operation reconciles it.
+- `mls-persona-enrolment.ts` provides explicit preparation, pairing and genesis
+  operations. Preparation saves the installation and writer before pairing;
+  pairing uses a disposable dedicated endpoint and saves the returned verified
+  route only after shutdown. The keeper must supply a witness-only pairing code;
+  actual authority comes from Bothy's secret slot, not a client URI claim.
+- Genesis covers empty objects. Its subject, writer, witness and initial digest
+  are sealed with the coordinator state and atomically committed with the marker
+  before returning the keeper's enrol command. Reopening an interrupted return
+  yields that exact genesis. It does not claim witness acceptance. The signed
+  paired card is re-authenticated at its recorded verification time; the full
+  Link engine remains responsible for card/hint policy. The marker must agree
+  with sealed enrolment fields, the writer seed and the paired witness identity.
+  Enrolled route/identity metadata cannot change through an ordinary write.
+  Missing or invalid inner key handles refuse even an empty genesis.
+- The draft-only container now requires sealed enrolment metadata (null before
+  genesis) and explicit relays on a saved route. Earlier draft containers missing
+  these fields fail closed and remain retained for repair; there is no silent
+  reset or migration. No deployed application has used this persona store.
+- Enrolment/lifetime fixtures cover explicit sequencing, restart, transaction
+  abort, interruption after genesis persistence, marker substitution, changed
+  witness routes, missing/invalid key handles, late startup/shutdown, seed-copy
+  wiping and obsolete account contexts. Pairing here uses an injected Link
+  endpoint with a disposable signed card; it is not a real Bothy pairing run.
+  All 147 acceptance cases pass across Chromium, Firefox and WebKit; all
+  3,399 unit tests, typecheck and production build pass. A pre-existing unit
+  assertion matched kind digits inside random key hex; it now inspects the
+  kind field directly. The service is not yet exposed through app controls.
 
 ## Remaining integration and acceptance
 
@@ -103,10 +139,11 @@ to rooms or enabled in the app. Ordinary Bothy text routing remains separate.
 2. Move all typed vault mutations, consent, credentials and journals under the
    coordinator. Add the contracted typed box-request signer. Keep account
    generations, cross-tab invalidation and retired-key tombstones enforced.
-3. Explicit witness-only pairing/enrolment using a distinct persona writer
-   seed; pinned witness identity; pending, fenced and retirement/replacement UI.
-   Bind enrolment/retirement display metadata to the sealed state; do not trust
-   an unsealed marker alone. No implicit enrolment or shared app transport identity.
+3. Wire the implemented witness pairing/enrolment service and dedicated Link
+   lifetime to app controls, account generations and quiet/Tor-only policy.
+   Add pending, fenced and retirement/replacement UI, then prove the ceremony
+   against a real Bothy witness-only pairing slot. Enrolment commands already
+   use sealed metadata; retirement/recovery controls remain to be integrated.
 4. The MLS room store, driver and box client: installation checks on open and
    every reply, watched Gap mailboxes, exact witnessed generations before
    commit acknowledgement or network/plaintext release, and offline drafts.

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils.js'
+import { pairingFixture } from './mls-pairing-fixture.js'
 const origin = 'https://browser-mls-host.kithmoot.test'
 let bundle: string
 test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-persona-coordinator.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'M', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })
@@ -47,11 +48,21 @@ async function fixture(context: BrowserContext) {
   })
   const page = await context.newPage()
   await page.goto(origin)
-  const ids = await page.evaluate(key => (window as any).M.prepare(key), bytesToHex(ed25519.getPublicKey(key)))
+  const ids = await page.evaluate(route => (window as any).M.prepare(route), pairingFixture(key).route)
   witness.digest = new Uint8Array(hexToBytes(ids.digest))
   return { page, witness, ids }
 }
 const local = (page: Page) => page.evaluate('M.local()')
+for (const mode of ['commit', 'callback-error', 'read-error', 'stale-close'] as const) test(`holds writer ownership through channel shutdown: ${mode}`, async ({ context }) => {
+  const f = await fixture(context)
+  const value = await f.page.evaluate(mode => (window as any).M.channelLifetime(mode), mode)
+  expect(value).toMatchObject({ opened: 1, closed: 1, seedWiped: true, blockedDuringClose: true })
+  expect(value.events.slice(-3)).toEqual(['closing', 'closed', 'second-writer'])
+  if (mode === 'commit') { expect(value.events.slice(0, 2)).toEqual(['read', 'advance']); expect(value.outcome.state).toBe('active') }
+  if (mode === 'callback-error') expect(value.outcome.error).toBe('fixture callback error')
+  if (mode === 'read-error') expect(value.outcome.state).toBe('pending')
+  if (mode === 'stale-close') expect(value.outcome).toEqual({ state: 'pending', reason: 'stale', refused: false })
+})
 async function accepted(f: Fixture, generation = '1', value = 8) {
   expect(await f.page.evaluate('M.read()')).toEqual({ state: 'active', value: { vault: [value], snapshot: [value, 7], generation }, marks: { [f.ids.session]: generation }, openedWiped: true })
 }
@@ -119,7 +130,8 @@ test('a fence arriving during encryption cannot be overwritten by the delayed se
 for (const boundary of ['stale', 'stale-exit']) test(`an account context becoming obsolete at ${boundary} releases no committed effect`, async ({ context }) => {
   const f = await fixture(context)
   expect(await f.page.evaluate(boundary => (window as any).M.commit(8, 1, boundary), boundary)).toEqual({ state: 'pending', reason: 'stale', refused: false, injected: false })
-  expect(await local(f.page)).toEqual({ active: ['1'], staged: null, fence: null })
+  expect(await local(f.page)).toEqual(boundary === 'stale' ? { active: [], staged: ['1'], fence: null } : { active: ['1'], staged: null, fence: null })
+  expect(f.witness.advances).toBe(boundary === 'stale' ? 0 : 1)
   await accepted(f)
 })
 test('concurrent seal calls preserve invocation order and increasing session generation', async ({ context }) => {

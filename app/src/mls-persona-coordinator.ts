@@ -10,8 +10,9 @@ export type CoordinationFence = { state: 'fenced'; reason: string; subject: stri
 export type CoordinationResult<T> = CoordinationHold | CoordinationFence | { state: 'active'; value: T; marks: ReadonlyMap<string, bigint> }
 /** The provider must use the persona's dedicated writer, never the account's
  * ordinary Link engine. Copy the seed into the engine before returning: this
- * temporary copy is wiped. A missing route or unavailable mode yields null. */
-export type PersonaWitnessChannels = (persona: string, seed: Uint8Array, route: PersonaWitnessRoute | null) => Promise<WitnessChannel | null>
+ * temporary copy is wiped. A missing route or unavailable mode yields null.
+ * One channel lives for the operation and is closed under the persona lock. */
+export type PersonaWitnessChannels = (persona: string, seed: Uint8Array, route: PersonaWitnessRoute | null, current: () => boolean) => Promise<WitnessChannel | null>
 export interface PersonaTransaction {
   readVault(id: string): Promise<Uint8Array | undefined>
   putVault(id: string, value: Uint8Array): Promise<void>
@@ -65,10 +66,12 @@ export class BrowserPersonaCoordinator {
       }
       const platform = makePlatform(wasm)
       let core: Coordinator | undefined
+      let run: CoordinationRun | undefined
       try {
         core = openCore(wasm, platform, file)
-        return await new CoordinationRun(wasm, core, store, file, this.channels).clear()
-      } finally { core?.free(); platform.free() }
+        run = new CoordinationRun(wasm, core, store, file, this.channels, current)
+        return await run.clear()
+      } finally { try { await run?.close() } finally { core?.free(); platform.free() } }
     })
     return current() ? outcome : pending('stale')
   }
@@ -126,6 +129,7 @@ export class BrowserPersonaCoordinator {
       // this Platform instance supplies only its CSPRNG, not a room identity.
       const platform = makePlatform(wasm)
       let core: Coordinator | undefined
+      let run: CoordinationRun | undefined
       try {
         try { core = openCore(wasm, platform, file) }
         catch (error) {
@@ -133,7 +137,7 @@ export class BrowserPersonaCoordinator {
           const marker = await store.fence('invalid-coordinator')
           return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
         }
-        const run = new CoordinationRun(wasm, core, store, file, this.channels)
+        run = new CoordinationRun(wasm, core, store, file, this.channels, current)
         const ready = await run.reconcile()
         if (ready !== undefined) return ready
         if (!current()) return pending('stale')
@@ -150,31 +154,37 @@ export class BrowserPersonaCoordinator {
           if (!(error instanceof PersonaStorageError) || !['seal-lost', 'missing-record'].includes(error.code)) throw error
           return await run.fence((error as PersonaStorageError).code)
         } finally { await tx.dispose() }
-      } finally { core?.free(); platform.free() }
+      } finally { try { await run?.close() } finally { core?.free(); platform.free() } }
     })
     // Disposal and lock release both await. Recheck after those awaits too,
     // before resolving a successful reply into the app's account context.
-    return outcome.state === 'active' && !current() ? pending('stale') : outcome
+    return !current() ? pending('stale') : outcome
   }
 }
 
 class CoordinationRun {
+  #channel: WitnessChannel | null | undefined
   constructor(private readonly wasm: Engine, private readonly core: Coordinator, private readonly store: LockedPersonaStore,
-    public file: PersonaSnapshot, private readonly channels: PersonaWitnessChannels) {}
+    public file: PersonaSnapshot, private readonly channels: PersonaWitnessChannels, private readonly current: () => boolean) {}
+  async close(): Promise<void> { await this.#channel?.close?.() }
   async #persist(state: Uint8Array = this.core.state(), active = this.file.data.active, staged = this.file.data.staged, cleared = this.file.data.cleared): Promise<void> {
     const coordinator = bytesToHex(state)
     if (coordinator === this.file.data.coordinator && active === this.file.data.active && staged === this.file.data.staged && cleared === this.file.data.cleared) return
     this.file = await this.store.write(this.file.revision, { ...this.file.data, coordinator, active, staged, cleared }, this.file.marker)
   }
   async #exchange(method: 'read' | 'advance', request: Uint8Array): Promise<WitnessAnswer> {
-    const seed = hexToBytes(this.file.data.writerSeed)
+    if (!this.current()) return { type: 'unavailable' }
     try {
-      let channel: WitnessChannel | null
-      try { channel = await this.channels(this.file.data.persona, seed, structuredClone(this.file.data.witnessRoute)) }
-      finally { seed.fill(0) }
-      return channel ? await channel[method](request) : { type: 'unavailable' }
+      if (this.#channel === undefined) {
+        const seed = hexToBytes(this.file.data.writerSeed)
+        // A failed start is not retried in this operation. A late start must
+        // resolve and be shut down before this writer lock can be released.
+        this.#channel = null
+        try { this.#channel = await this.channels(this.file.data.persona, seed, structuredClone(this.file.data.witnessRoute), this.current) }
+        finally { seed.fill(0) }
+      }
+      return this.#channel && this.current() ? await this.#channel[method](request) : { type: 'unavailable' }
     } catch { return { type: 'unavailable' } }
-    finally { seed.fill(0) }
   }
   async reconcile(): Promise<CoordinationHold | CoordinationFence | undefined> {
     // A crash between the durable clear intent and key destruction cannot

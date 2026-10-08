@@ -1,5 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import type { VaultLocks } from './mls-vault.js'
+import { linkRelays } from './browser-link-pairing.js'
+import { pairedWitnessIdentity, personaWriter } from './mls-writer-identity.js'
 
 /** The coordinator covers the exact inner ciphertext, not this outer seal.
  * Session ciphertext includes the engine's outbox, evidence and replay state. */
@@ -13,6 +15,7 @@ export interface PersonaWitnessRoute {
   pairedRouteSecret: string
   cardSerial: string
   cardVerifiedAt: string
+  relayUrls: string[]
 }
 export interface PersonaData {
   version: 1
@@ -20,6 +23,7 @@ export interface PersonaData {
   installation: string
   writerSeed: string
   witnessRoute: PersonaWitnessRoute | null
+  enrolment: { subject: string; writer: string; witness: string; digest: string } | null
   coordinator: string | null
   active: PersonaObjects
   staged: PersonaObjects | null
@@ -53,6 +57,10 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
 const empty = (): PersonaObjects => ({ vault: [], sessions: [] })
 function requireValue(ok: unknown): asserts ok { if (!ok) throw new PersonaStorageError('invalid') }
+function innerKeyPresent(key: CryptoKey | undefined): boolean {
+  return !!key && key instanceof CryptoKey && key.type === 'secret' && !key.extractable &&
+    key.algorithm.name === 'AES-GCM' && (key.algorithm as AesKeyAlgorithm).length === 256 && key.usages.includes('encrypt') && key.usages.includes('decrypt')
+}
 function bytes(value: unknown, max = MAX_FIELD): asserts value is string {
   requireValue(typeof value === 'string' && value.length <= max * 2 && HEX.test(value))
 }
@@ -90,10 +98,20 @@ function validate(data: PersonaData, marker: PersonaMarker, persona: string): vo
     const route = data.witnessRoute
     requireValue(route && /^[A-Za-z0-9._:-]{1,128}$/.test(route.routeId) && HEX32.test(route.pairedRouteSecret))
     bytes(route.card, 64 * 1024); uint(route.cardSerial); uint(route.cardVerifiedAt)
+    try { requireValue(Array.isArray(route.relayUrls)); linkRelays(route.relayUrls) } catch { throw new PersonaStorageError('invalid') }
   }
   validateMarker(marker)
   requireValue(marker.state !== 'superseded')
   requireValue(marker.installation === data.installation)
+  if (data.enrolment === null) requireValue(marker.subject === null && marker.writer === null && marker.digest === null)
+  else {
+    const enrolment = data.enrolment
+    requireValue(enrolment && [enrolment.subject, enrolment.writer, enrolment.witness, enrolment.digest].every(x => typeof x === 'string' && HEX32.test(x)))
+    requireValue(data.coordinator !== null && data.witnessRoute !== null && marker.state !== 'prepared')
+    requireValue(marker.subject === enrolment.subject && marker.writer === enrolment.writer && marker.digest === enrolment.digest)
+    try { requireValue(personaWriter(data.writerSeed) === enrolment.writer && pairedWitnessIdentity(data.witnessRoute) === enrolment.witness) }
+    catch { throw new PersonaStorageError('invalid') }
+  }
 }
 function validateMarker(marker: PersonaMarker): void {
   requireValue(marker?.version === 1 && ['prepared', 'genesis', 'fenced', 'superseded'].includes(marker.state) && HEX32.test(marker.installation))
@@ -178,31 +196,32 @@ export class LockedPersonaStore {
    * Before any ordinary mutation it must separately check the inner key and
    * authenticate the named objects. The outer record is always authenticated. */
   read(allowMissingInner = false): Promise<PersonaSnapshot | undefined> {
-    return this.#run(async () => {
-      const { row, marker, keys } = await this.#rows()
-      if (!row) {
-        if (marker?.state === 'superseded' && !keys) { validateMarker(marker); return undefined }
-        if (marker || keys) throw new PersonaStorageError('missing-record')
-        return undefined
-      }
-      if (!marker) throw new PersonaStorageError('missing-record')
-      if (!keys?.outer) throw new PersonaStorageError('seal-lost')
-      const plain = await open(this.crypto, keys.outer, this.#outerAad(row.revision), new Uint8Array(row.sealed), MAX_CONTAINER)
-      try {
-        const data: PersonaData = JSON.parse(decoder.decode(plain))
-        validate(data, marker, this.persona)
-        if (!data.cleared && !keys.inner && !allowMissingInner) throw new PersonaStorageError('seal-lost')
-        return { revision: row.revision, data, marker }
-      } catch (error) {
-        if (error instanceof PersonaStorageError) throw error
-        throw new PersonaStorageError('invalid')
-      } finally { plain.fill(0) }
-    })
+    return this.#run(() => this.#read(allowMissingInner))
+  }
+  async #read(allowMissingInner: boolean): Promise<PersonaSnapshot | undefined> {
+    const { row, marker, keys } = await this.#rows()
+    if (!row) {
+      if (marker?.state === 'superseded' && !keys) { validateMarker(marker); return undefined }
+      if (marker || keys) throw new PersonaStorageError('missing-record')
+      return undefined
+    }
+    if (!marker) throw new PersonaStorageError('missing-record')
+    if (!keys?.outer) throw new PersonaStorageError('seal-lost')
+    const plain = await open(this.crypto, keys.outer, this.#outerAad(row.revision), new Uint8Array(row.sealed), MAX_CONTAINER)
+    try {
+      const data: PersonaData = JSON.parse(decoder.decode(plain))
+      validate(data, marker, this.persona)
+      if (!data.cleared && !innerKeyPresent(keys.inner) && !allowMissingInner) throw new PersonaStorageError('seal-lost')
+      return { revision: row.revision, data, marker }
+    } catch (error) {
+      if (error instanceof PersonaStorageError) throw error
+      throw new PersonaStorageError('invalid')
+    } finally { plain.fill(0) }
   }
   marker(): Promise<PersonaMarker | undefined> {
     return this.#run(async () => { const m = (await this.#rows()).marker; if (m) validateMarker(m); return m })
   }
-  hasInnerKey(): Promise<boolean> { return this.#run(async () => !!(await this.#rows()).keys?.inner) }
+  hasInnerKey(): Promise<boolean> { return this.#run(async () => innerKeyPresent((await this.#rows()).keys?.inner)) }
   /** A terminal local fence survives later restoration of a missing key or
    * object. The first reason and subject are kept for explicit retirement.
    * If the marker itself is absent/corrupt, fail rather than minting an id. */
@@ -228,7 +247,7 @@ export class LockedPersonaStore {
       const previous = await this.#rows()
       if (previous.row || previous.keys) throw new PersonaStorageError('conflict')
       if (previous.marker) { validateMarker(previous.marker); if (previous.marker.state !== 'superseded') throw new PersonaStorageError('conflict') }
-      const data: PersonaData = { version: 1, persona: this.persona, installation: this.#random(), writerSeed: this.#random(), witnessRoute: null, coordinator: null, active: empty(), staged: null, cleared: false }
+      const data: PersonaData = { version: 1, persona: this.persona, installation: this.#random(), writerSeed: this.#random(), witnessRoute: null, enrolment: null, coordinator: null, active: empty(), staged: null, cleared: false }
       const retired = previous.marker?.retired ?? []
       if (retired.some(t => t.installation === data.installation)) throw new PersonaStorageError('conflict')
       const marker: PersonaMarker = { version: 1, state: 'prepared', subject: null, installation: data.installation, writer: null, digest: null, reason: null, retired }
@@ -246,8 +265,11 @@ export class LockedPersonaStore {
     return this.#run(async () => {
       const { row, keys, marker: previous } = await this.#rows()
       if (!row || row.revision !== expected) throw new PersonaStorageError('conflict')
-      if (!keys?.outer || (!copy.data.cleared && !keys.inner)) throw new PersonaStorageError('seal-lost')
+      if (!keys?.outer || (!copy.data.cleared && !innerKeyPresent(keys.inner))) throw new PersonaStorageError('seal-lost')
       if (!previous || previous.installation !== copy.data.installation) throw new PersonaStorageError('conflict')
+      const retained = await this.#read(true)
+      if (retained?.data.enrolment && (JSON.stringify(retained.data.enrolment) !== JSON.stringify(copy.data.enrolment) ||
+        JSON.stringify(retained.data.witnessRoute) !== JSON.stringify(copy.data.witnessRoute) || retained.data.writerSeed !== copy.data.writerSeed)) throw new PersonaStorageError('conflict')
       return this.#save(expected, copy.data, copy.marker, keys)
     })
   }

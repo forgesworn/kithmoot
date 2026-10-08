@@ -6,6 +6,8 @@ export type WitnessAnswer = { type: 'receipt'; bytes: Uint8Array } | { type: 'un
 export interface WitnessChannel {
   read(request: Uint8Array): Promise<WitnessAnswer>
   advance(request: Uint8Array): Promise<WitnessAnswer>
+  /** Finish endpoint shutdown before releasing the persona's writer lock. */
+  close?(): Promise<void>
 }
 
 export function witnessAnswer(response: Pick<LinkResponse, 'status' | 'body' | 'witnessRefused'>): WitnessAnswer {
