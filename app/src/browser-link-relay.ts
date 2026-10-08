@@ -112,7 +112,7 @@ export class BrowserLinkRelay implements RelayTransport {
       const timer = setTimeout(() => socket.close(), 45_000)
       socket.onopen = () => {
         if (generation !== this.#generation || this.#closed) { socket.close(); return }
-        clearTimeout(timer); this.#backoff = 1000
+        clearTimeout(timer)
         for (const [id, request] of this.#requests) this.#send(id, request)
         resolve()
       }
@@ -132,12 +132,16 @@ export class BrowserLinkRelay implements RelayTransport {
         try {
           const f = JSON.parse(message.data)
           if (!Array.isArray(f)) return
-          if (f[0] === 'OK' && f.length === 4 && typeof f[2] === 'boolean') this.#writes.get(f[1])?.finish(f[2] ? undefined : new Error('Bothy refused publication.'))
+          if (f[0] === 'OK' && f.length === 4 && typeof f[2] === 'boolean') {
+            if (f[2] && this.#writes.has(f[1])) this.#backoff = 1000
+            this.#writes.get(f[1])?.finish(f[2] ? undefined : new Error('Bothy refused publication.'))
+          }
           const request = this.#requests.get(f[1]); if (!request) return
           if (f[0] === 'EVENT' && f.length === 3 && this.#verify(f[2]) && matchFilters(request.filters, f[2]) && !request.seen.has(f[2].id)) {
             if (request.seen.size >= 4096) request.seen.clear()
+            this.#backoff = 1000
             request.seen.add(f[2].id); request.receive(f[2], this.box.eventUrl)
-          } else if (f[0] === 'EOSE' && f.length === 2) request.eose?.()
+          } else if (f[0] === 'EOSE' && f.length === 2) { this.#backoff = 1000; request.eose?.() }
           else if (f[0] === 'CLOSED') socket.close()
         } catch { /* Malformed frames cannot acknowledge a write or finish history. */ }
       }

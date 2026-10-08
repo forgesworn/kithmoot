@@ -58,4 +58,20 @@ describe('Link relay adapter', () => {
     await Promise.resolve()
     expect(c.socket.disconnect).toHaveBeenCalledOnce();expect(opened).not.toHaveBeenCalled()
   })
+  it('backs off repeated scope refusals even when authentication succeeds', async () => {
+    vi.useFakeTimers()
+    const c=carrier(), pool=new BrowserLinkRelay(c.link,box,identity,{room,kinds:[1460]})
+    try {
+      pool.subscribe([{kinds:[1460],'#d':[room]}],()=>{})
+      await vi.advanceTimersByTimeAsync(0)
+      c.receive(['CLOSED',c.frames.find(f=>f[0]==='REQ')![1],'denied'])
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(c.link.openSocket).toHaveBeenCalledTimes(2)
+      c.receive(['CLOSED',c.frames.filter(f=>f[0]==='REQ').at(-1)![1],'denied'])
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(c.link.openSocket).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(c.link.openSocket).toHaveBeenCalledTimes(3)
+    } finally { pool.close(); vi.useRealTimers() }
+  })
 })
