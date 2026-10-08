@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.61",
+  "currentRelease": "0.1.62",
   "releases": [
     {
-      "version": "0.1.61",
+      "version": "0.1.62",
       "updateTo": {
-        "version": "0.1.61",
-        "pub_date": "2026-10-08T19:46:36Z",
-        "notes": "Create projects from the home screen and add rooms to an existing shared project. Local groups have separate labels, and the editor explains pending signer or sync requirements.",
-        "name": "0.1.61",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.61/KithMoot-0.1.61-mac-arm64.zip",
-        "sha256": "308339d921496e85352bb07186654c524c2a14073ced838be133f395cb3138b6",
-        "size": 138920432
+        "version": "0.1.62",
+        "pub_date": "2026-10-08T21:25:06Z",
+        "notes": "Private chat profile pictures, days/hours/minutes lifetime sliders, brand navigation home and faster room opening after relay replay completes.",
+        "name": "0.1.62",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.62/KithMoot-0.1.62-mac-arm64.zip",
+        "sha256": "2ca3c3711934bbadc7a158a0e11a973566526609eba5b44946af4a856b0d4f27",
+        "size": 138922180
       }
     }
   ]
