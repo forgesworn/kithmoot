@@ -3224,6 +3224,8 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   color: #fff;
   background: var(--avatar, #0e7fa3);
 }
+#roomList .roomAvatar { position: relative; overflow: hidden; }
+#roomList .roomAvatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* Eight colours, each 4.5:1 or better against its white initial. */
 #roomList .roomAvatar[data-slot='0'] { --avatar: #0e7fa3; }
 #roomList .roomAvatar[data-slot='1'] { --avatar: #7a5fc4; }
@@ -4714,3 +4716,9 @@ html[data-call-docked] #mobileCall { display: none !important; }
   .roomFuseSpark, .destructEffect, .destructRing, .destructArt i { animation: none; }
   .destructArt { display: none; }
 }
+
+.brandHome { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; padding: .25rem; margin: 0; text-align: left; cursor: pointer; }
+.brandHome:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.roomDuration { border: 0; padding: 0; margin: .75rem 0; display: grid; gap: .4rem; }
+.roomDuration label { display: flex; justify-content: space-between; }
+.roomDuration input[type=range] { width: 100%; min-height: 44px; padding: 0; accent-color: var(--accent); }

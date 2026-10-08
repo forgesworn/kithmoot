@@ -20,7 +20,7 @@
       <button id="updateApp" type="button">Update now</button>
     </aside>
     <header>
-      <h1 class="app-brand"><img src="/pwa-192x192.png" width="28" height="28" alt="" />KithMoot</h1>
+      <h1><button id="appHome" class="app-brand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="28" height="28" alt="" />KithMoot</button></h1>
       <button id="headerSignIn" type="button" class="quiet" hidden>Sign in</button>
       <button id="openAppSettings" type="button" class="quiet" aria-haspopup="dialog" aria-controls="appSettings" hidden>Settings</button>
     </header>
@@ -42,7 +42,7 @@
     <main>
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
-        <div class="workspaceBrand"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</div>
+        <button id="workspaceBrandHome" class="workspaceBrand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</button>
         <button id="workspaceSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <button id="workspaceNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor">New project</button>
         <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
@@ -679,9 +679,20 @@
             <option value="1">After 1 day</option>
             <option value="3">After 3 days</option>
             <option value="7">After 7 days</option>
+            <option value="duration">Choose a duration</option>
           </select>
           <p id="roomEndsHint" class="note" hidden>A conference room. On that date its link stops working and its messages are wiped from relays that honour expiry.</p>
         </div>
+        <fieldset id="roomDuration" class="roomDuration" hidden>
+          <legend>Room lifetime</legend>
+          <label for="roomDurationDays">Days <output id="roomDurationDaysValue">0</output></label>
+          <input id="roomDurationDays" type="range" min="0" max="30" step="1" value="0" />
+          <label for="roomDurationHours">Hours <output id="roomDurationHoursValue">2</output></label>
+          <input id="roomDurationHours" type="range" min="0" max="23" step="1" value="2" />
+          <label for="roomDurationMinutes">Minutes <output id="roomDurationMinutesValue">0</output></label>
+          <input id="roomDurationMinutes" type="range" min="0" max="59" step="1" value="0" />
+          <p id="roomDurationSummary" class="note" aria-live="polite"></p>
+        </fieldset>
         <!-- What happens to a dated room's content when it ends: it
              self-destructs by default (owner decision D1). Shown only when
              Ends is not Never; a room with no end can still be made to
@@ -1417,7 +1428,7 @@
       </div>
       <label class="profileChoice"><input id="lookupProfiles" type="checkbox" checked /> Show public profile pictures, names and Nostr addresses</label>
       <p class="note">Show the picture and name published by each person’s Nostr key. Names are chosen by their owners.</p>
-      <p class="note">This sends people’s keys to the room’s relays and to public profile relays, and loads pictures from their hosts. Nostr addresses are checked with their domains. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
+      <p class="note">This looks up people in rooms and your private chat list. It sends their keys to the room’s relays and to public profile relays, and loads pictures from their hosts. Nostr addresses are checked with their domains. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
       <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
     </dialog>
 

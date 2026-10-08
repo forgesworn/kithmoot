@@ -3840,7 +3840,9 @@ async function startNewRoom(): Promise<void> {
   // Only a group can be a conference room: a meeting that asks before
   // anybody joins already ends when its people leave.
   const endsChoice = ($('roomEnds') as HTMLSelectElement).value
+  if (persistent && endsChoice === 'duration' && roomDurationSeconds() === 0) throw new Error('Choose at least one minute for the room lifetime.')
   const endsAt = !persistent ? undefined
+    : endsChoice === 'duration' ? nowSeconds() + roomDurationSeconds()
     : endsChoice === 'test' && TEST_ROOM_END_SECONDS ? nowSeconds() + TEST_ROOM_END_SECONDS
       : conferenceEndsAt(Number(endsChoice), nowSeconds())
   // Self-destruct is a property of a group: by its date, or when ended.
@@ -11660,6 +11662,7 @@ function renderRooms(): void {
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
   const rooms = navigationRooms()
+  profiles.want(rooms.flatMap(room => { const peer = dmPeerOf(room); return peer ? [peer] : [] }))
   const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
   fillProjectFilter('homeProject', rooms)
   const project = ($('homeProject') as HTMLSelectElement).value
@@ -11933,6 +11936,17 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(room.roomId))
   avatar.setAttribute('aria-hidden', 'true')
   avatar.textContent = avatarInitial(label)
+  const peer = dmPeerOf(room)
+  const picture = peer ? profiles.get(peer)?.picture : undefined
+  if (picture) {
+    const image = document.createElement('img')
+    image.alt = ''
+    image.loading = 'lazy'
+    image.referrerPolicy = 'no-referrer'
+    image.src = picture
+    image.addEventListener('error', () => image.remove(), { once: true })
+    avatar.append(image)
+  }
   const text = document.createElement('span')
   text.className = 'roomText'
   const name = document.createElement('span')
@@ -13503,6 +13517,13 @@ $('conversationNav').addEventListener('keydown', event => {
 })
 $('workspaceSwitch').addEventListener('click', openRoomSwitcher)
 $('workspaceQuery').addEventListener('input', renderWorkspace)
+function goToStartPage(): void {
+  if (roomsListShown && !pendingJoin) return
+  if (hasUnsentWork()) { openRoomSwitcher(); return }
+  $('roomSwitcherHome').click()
+}
+$('appHome').addEventListener('click', goToStartPage)
+$('workspaceBrandHome').addEventListener('click', goToStartPage)
 $('workspaceHome').addEventListener('click', () => {
   if (hasUnsentWork()) { openRoomSwitcher(); return }
   $('roomSwitcherHome').click()
@@ -14078,11 +14099,31 @@ function renderWhenEnds(): void {
   const dated = ($('roomEnds') as HTMLSelectElement).value !== '0'
   const ask = ($('roomAsk') as HTMLInputElement).checked
   $('roomWhenEndsRow').hidden = !dated || ask
+  $('roomDuration').hidden = ask || ($('roomEnds') as HTMLSelectElement).value !== 'duration'
+  renderRoomDuration()
   const select = $('roomWhenEnds') as HTMLSelectElement
   const hint = $('roomWhenEndsHint')
   hint.textContent = select.value === 'destruct' ? DESTRUCT_PROMISE : ''
   hint.hidden = select.value !== 'destruct'
 }
+function roomDurationSeconds(): number {
+  return Number(($('roomDurationDays') as HTMLInputElement).value) * 86400
+    + Number(($('roomDurationHours') as HTMLInputElement).value) * 3600
+    + Number(($('roomDurationMinutes') as HTMLInputElement).value) * 60
+}
+function renderRoomDuration(): void {
+  for (const unit of ['Days', 'Hours', 'Minutes']) $('roomDuration' + unit + 'Value').textContent = ($('roomDuration' + unit) as HTMLInputElement).value
+  const maxDays = ($('roomDurationDays') as HTMLInputElement).value === '30'
+  for (const unit of ['Hours', 'Minutes']) {
+    const input = $('roomDuration' + unit) as HTMLInputElement
+    input.disabled = maxDays
+    if (maxDays) { input.value = '0'; $('roomDuration' + unit + 'Value').textContent = '0' }
+  }
+  const seconds = roomDurationSeconds()
+  const action = ($('roomWhenEnds') as HTMLSelectElement).value === 'destruct' ? 'Self-destructs' : 'Ends'
+  $('roomDurationSummary').textContent = seconds > 0 ? `${action} ${formatConferenceEnd(nowSeconds() + seconds)} (${Math.floor(seconds / 86400)} days, ${Math.floor(seconds % 86400 / 3600)} hours, ${seconds % 3600 / 60} minutes from creation).` : 'Choose at least one minute.'
+}
+for (const unit of ['Days', 'Hours', 'Minutes']) $('roomDuration' + unit).addEventListener('input', renderRoomDuration)
 $('roomEnds').addEventListener('change', () => {
   $('roomEndsHint').hidden = ($('roomEnds') as HTMLSelectElement).value === '0'
   renderWhenEnds()
