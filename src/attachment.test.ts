@@ -652,6 +652,17 @@ describe('uploadEnvelope', () => {
     expect(auth.created_at).toBe(now - 1)
   })
 
+  it('caps a dated room upload before exact signing and refuses a passed deadline', async () => {
+    const fetch = answering(200, descriptorFor())
+    await uploadEnvelope(server, sealed.envelope, { sign, fetch: fetch as never, now: () => now, expiresAt: now + 30 })
+    const [, init] = fetch.mock.calls[0] as [string, RequestInit]
+    const auth = wildbloomWouldAccept((init.headers as Record<string, string>).Authorization!, now)
+    expect(auth.tags.filter(tag => tag[0] === 'expiration')).toEqual([['expiration', String(now + 30)]])
+    fetch.mockClear()
+    await expect(uploadEnvelope(server, sealed.envelope, { sign, fetch: fetch as never, now: () => now, expiresAt: now })).rejects.toThrow(/deadline/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('takes a 201 and a descriptor url without an extension', async () => {
     const fetch = answering(201, descriptorFor({ url: `${server}/${sealed.sha256}` }))
     const got = await uploadEnvelope(server, sealed.envelope, { sign, fetch: fetch as never })

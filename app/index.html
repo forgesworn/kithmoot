@@ -85,6 +85,17 @@
           </button>
         </div>
 
+        <div id="roomFuse" class="roomFuse" hidden>
+          <div class="roomFuseDial" aria-hidden="true"><span class="roomFuseSpark">✦</span></div>
+          <div class="roomFuseBody" aria-hidden="true">
+            <span class="roomFuseLabel">Room self-destruct</span>
+            <strong id="roomFuseClock" class="roomFuseClock"></strong>
+            <span id="roomFuseHint" class="roomFuseHint">Save anything you want to keep</span>
+            <span class="roomFuseTrack"><span id="roomFuseBurn"></span></span>
+          </div>
+          <span id="roomFuseSpoken" class="sr-only"></span>
+        </div>
+
         <!-- A recording of this room's call is running. Shown to everybody
              for as long as the authority's signed notice stands, and kept
              up, marked unconfirmed, if the notice stops being reposted.
