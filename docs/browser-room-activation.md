@@ -34,6 +34,9 @@ public relays implicitly. Background room watches cannot take Link endpoint
 ownership from the foreground tab. Settings → Bothy connection → Current room
 routing and recovery can resume an interrupted transition. Forgetting a pairing
 or browser is blocked while a non-retired selection still needs recovery.
+The room's join screen also offers **Recover Bothy room access** whenever a
+saved route remains. Recovery therefore does not depend on joining a room
+whose unfinished grant operation deliberately holds its traffic.
 
 Public history recovery and public cleanup are conservatively paused across
 this browser while any Bothy room selection remains saved. Ordinary unrelated
@@ -56,9 +59,23 @@ public-room pools continue to use their own routing settings.
   counts exact room/control REQ and EVENT frames; the accepted private window
   must contain zero public room frames. Account traffic is separate.
 
-The live journey uses a legacy room link and fixture signers. Real-box expiry
-and stored-grant cleanup, persistent-invitation recovery, physical devices and
-all interrupted transitions around server acknowledgement still need dedicated
-acceptance. Keep Vennel P3-06 open until that evidence is recorded. A browser
-component test or local server acknowledgement is not device or production
-room-delivery evidence.
+The Vennel runner also supports these acceptance switches:
+
+- `ROOM_RECOVERY_MATRIX=1` closes the entire owner browser and reopens its
+  persisted profile before publication, after losing the first real grant OK,
+  and after all acknowledgements but before local completion. It does this for
+  installation, renewal and withdrawal, comparing the exact saved statements.
+- `ROOM_EXPIRY=1` uses a separate fixture keeper to sign short-lived replacement
+  terms over paired Link. The product's 30-day term stays unchanged. Bothy's
+  real clock expires those grants; the guest is refused, and visible renewal
+  restores delivery under the same IDs. A read-only fixture endpoint checks
+  exact room grant rows, including retained inactive revocation records.
+- `ROOM_PERSISTENT_INVITATION=1` starts with a signed persistent invitation,
+  reopens the guest in a fresh tab, and wakes the owner's room-list tab. The
+  native frame monitor includes the invitation lookup scope.
+
+Ordinary text grant expiry removes authority, not existing encrypted history.
+Signed grant rows and their expiration watermarks remain to prevent replay;
+renewal replaces the same rows. MLS custody cleanup has its own acceptance.
+These disposable local journeys do not prove physical-device or independent
+production room delivery. P3-06 remains open for those acceptance gates.
