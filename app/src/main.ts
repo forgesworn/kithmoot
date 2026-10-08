@@ -3918,6 +3918,20 @@ function renderOpenInApp(): void {
   ;($('getAndroidApp') as HTMLAnchorElement).href = ANDROID_DOWNLOAD_URL
 }
 
+function renderDoorBothyRecovery(): void {
+  const room = currentRoomId(), button = $('doorBothyRecovery')
+  button.hidden = true
+  if (!room) return
+  void browserRoomRoutes.store.all().then(consents => {
+    if (currentRoomId() !== room) return
+    button.hidden = !consents.some(c => c.room === room && c.phase !== 'retired')
+  }).catch(() => {
+    // Corrupt or unavailable consent still needs the recovery surface;
+    // joining must never become the prerequisite for inspecting its error.
+    if (currentRoomId() === room) button.hidden = false
+  })
+}
+
 /**
  * The door, and only the door.
  *
@@ -3928,6 +3942,7 @@ function renderOpenInApp(): void {
  * anything to be about. What is left is a name and a way in.
  */
 function showRoomUi(): void {
+  renderDoorBothyRecovery()
   $('openAppSettings').hidden = true
   $('home').hidden = true
   $('identity').hidden = false
@@ -13763,6 +13778,8 @@ setInterval(() => {
   const health = sessionTransport?.health() ?? []
   line.textContent = health.find(h => h.lastError)?.lastError ?? (health.some(h => h.state === 'connected') ? 'Text over Bothy. Calls and media are unavailable.' : 'Bothy is unavailable. Messages stay held on this route.')
 }, 1000)
+$('doorBothyRecovery').addEventListener('click', () => { void browserRoomPanel.open() })
+browserRoomRoutes.barrier.listen(renderDoorBothyRecovery)
 $('bothyCurrentRoom').addEventListener('click', () => { ($('bothySettings') as HTMLDialogElement).close(); void browserRoomPanel.open() })
 $('roomBothySettings').addEventListener('click', () => { closeRoomSheet(); void browserRoomPanel.open() })
 $('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => browserLinkPanel.open()))
