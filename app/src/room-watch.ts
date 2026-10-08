@@ -308,13 +308,14 @@ export class RoomWatch {
    *  otherwise go unrecognised - named `selfName` when this device knows
    *  one. A DM read off the link's own policy counts every agent message
    *  from the other side too: there is no room to address instead. */
-  unread(readAt: number, self: string, selfName?: string): UnreadSplit {
+  unread(readAt: number, self: string, selfName?: string, readIds?: readonly string[]): UnreadSplit {
     const roster = [...this.present(), { participant: self, name: selfName }]
     const direct = dmPeer(this.#opts.policy, self) !== undefined
+    const seen = readIds === undefined ? undefined : new Set(readIds)
     let people = 0
     let agents = 0
     for (const message of resolveConversation(this.messages()).byKey.values()) {
-      if (message.retracted || message.original.sentAt <= readAt) continue
+      if (message.retracted || (message.original.sentAt < readAt || (message.original.sentAt === readAt && (seen === undefined || seen.has(message.original.id))))) continue
       const cls = classifyMessage(message.original, self, roster, { direct })
       if (cls === 'person') people++
       else if (cls === 'agent') agents++

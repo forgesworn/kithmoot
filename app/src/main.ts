@@ -11432,7 +11432,7 @@ function noteChatRead(messages: ChatMessage[]): void {
     }
   }
   if (newest > 0) {
-    markRead(roomStore(), roomId, newest)
+    markRead(roomStore(), roomId, newest, messages.filter(m => m.sentAt === newest).map(m => m.id))
     updateDesktopUnread()
     readSync?.note(roomId, { '': newestId ? { at: newest, id: newestId } : { at: newest } })
   }
@@ -11647,7 +11647,7 @@ function roomIsEnded(room: KnownRoom): boolean {
 function roomUnreadPeople(room: KnownRoom): number {
   const watched = roomWatches.get(room.roomId)
   if (!watched || !watched.watch.readsChat) return 0
-  return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName()).people
+  return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName(), room.readIds).people
 }
 
 function renderRooms(): void {
@@ -11876,7 +11876,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
     shownAs(participant, messages.find((m) => m.participant === participant)?.name).name ?? shortKey(participant)
   const preview = (latest && previewLine(latest, self, nameOf)) ?? NO_MESSAGES
 
-  const split = watched.watch.unread(room.readAt, self, joiningName())
+  const split = watched.watch.unread(room.readAt, self, joiningName(), room.readIds)
   const unreadVisible = split.people > 0 ? String(split.people) : undefined
   const unreadSpoken = split.people > 0 ? `${split.people} unread` : undefined
 
@@ -12337,7 +12337,7 @@ function renderWorkspace(): void {
       const watched = room.roomId === current ? undefined : roomWatches.get(room.roomId)
       if (watched?.watch.readsChat) {
         const label = knownRoomLabel(room)
-        const split = watched.watch.unread(room.readAt ?? 0, self, selfName)
+        const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
         row.classList.toggle('hasUnread', split.people > 0)
         if (split.people > 0) row.append(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
         if (split.agents > 0) row.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
@@ -13176,7 +13176,7 @@ function updateDesktopUnread(): void {
     if (session && room.roomId === currentRoomId()) continue
     const watched = roomWatches.get(room.roomId)
     if (!watched) continue
-    const split = watched.watch.unread(room.readAt ?? 0, self, selfName)
+    const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
     people += split.people
     agents += split.agents
   }
