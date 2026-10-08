@@ -166,7 +166,7 @@ export default defineConfig({
       // avoid. Both halves are excluded together, because precaching one
       // half of a pair that is useless apart is the worst of both.
       workbox: {
-        globIgnores: ['**/mediapipe/**', '**/vision_bundle-*.js', 'notify-sw.js'],
+        globIgnores: ['**/mediapipe/**', '**/link-web/**', '**/vision_bundle-*.js', 'notify-sw.js'],
         // A click on a notification shown through the registration arrives
         // in the worker, not the page. The handler is a plain script in
         // app/public, imported into the generated worker rather than

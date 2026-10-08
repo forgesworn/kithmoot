@@ -1,3 +1,4 @@
+import { BrowserLinkPanel } from './browser-link-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
 import { ShareMarksOverlay } from './share-marks-overlay.js'
@@ -1191,6 +1192,7 @@ async function signInWithNostr(): Promise<void> {
   // back as somebody else, with none of the rooms saved under the first.
   // Say so, once, rather than leaving a person to work out why their rooms
   // are gone.
+  await browserLinkPanel.stop()
   const previous = expectedAccount
   relayConnections.clearAuthentication()
   nostrSession = account
@@ -1205,6 +1207,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
+  await browserLinkPanel.stop()
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
   // A signed-out account must not leave its device-specific rendezvous child
@@ -1273,6 +1276,7 @@ async function forgetThisBrowser(): Promise<void> {
   })) return
 
   contextPanel.close()
+  await browserLinkPanel.link.forget()
   // As above, avoid creating a vault on a browser that never held one.
   if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
   identityGeneration++
@@ -13639,6 +13643,10 @@ function openProfileSettings(from: HTMLElement): void {
   $('lookupProfiles').focus()
 }
 $('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
+const browserLinkPanel = new BrowserLinkPanel(() => nostrSession?.pubkey)
+$('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => browserLinkPanel.open()))
+window.addEventListener('pagehide', () => { void browserLinkPanel.stop() })
+
 const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   canAuthenticate: () => !!nostrSession?.signer.capabilities.canSignEvents,
   authenticate: async (scope, url) => {

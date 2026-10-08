@@ -151,6 +151,10 @@ jobs:
         if: matrix.name == 'chromium rest' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2'
         run: npm run test:vault -- --project=${{ matrix.project }}
 
+      - name: Browser Link ownership tests
+        if: matrix.name == 'chromium rest' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2'
+        run: npx playwright test -c playwright.link.config.ts --project=${{ matrix.project }}
+
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.
       - name: Acceptance tests
