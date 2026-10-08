@@ -143,7 +143,6 @@ function deletionsAsked(sent: Event[]): Set<string> {
 }
 
 test('a room self-destructs at its end on every device, including one that was away', async ({ browser, baseURL }, info) => {
-  test.skip(info.project.name === 'chromium-desktop', 'one browser project is enough')
   test.setTimeout(360_000)
   const contexts: BrowserContext[] = []
   try {
@@ -160,6 +159,7 @@ test('a room self-destructs at its end on every device, including one that was a
       }).observe(document, { childList: true, subtree: true })
     })
     const page = await owner.newPage()
+    if (info.project.name === 'chromium-desktop') await page.setViewportSize({ width: 1280, height: 800 })
     const sent = recordPublished(page)
     await page.goto(baseURL!)
     await openNewRoomForm(page)
@@ -238,6 +238,15 @@ test('a room self-destructs at its end on every device, including one that was a
     await expect(page.locator('#roomList .roomRow:not(.tombstoneRow)')).toHaveCount(0)
     await expect.poll(() => traces(page, [roomId, invitationId])).toEqual([])
     await expect.poll(() => archived(page)).toBe(0)
+
+    // A new page has no live session or in-memory cleanup state to rely on.
+    await page.close()
+    const reopened = await owner.newPage()
+    await reopened.goto(baseURL!)
+    await expect(reopened.locator('#roomList .tombstoneRow')).toHaveCount(1)
+    await expect(reopened.locator('#roomList .roomRow:not(.tombstoneRow)')).toHaveCount(0)
+    await expect.poll(() => traces(reopened, [roomId, invitationId])).toEqual([])
+    await expect.poll(() => archived(reopened)).toBe(0)
 
     // The device that was away comes back after the end and does the same
     // at launch, from what it stored.
