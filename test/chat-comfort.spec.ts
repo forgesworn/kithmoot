@@ -126,7 +126,7 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await expect(page.locator('#chatLog .msg.continuation')).toHaveCount(5)
     await expect(rows.locator('time')).toHaveCount(6)
     await expect(rows.locator('.messageReactions')).toHaveCount(0)
-    await expect(rows.getByRole('button')).toHaveCount(12)
+    await expect(rows.getByRole('button')).toHaveCount(18)
     // The same displayed name is not evidence that two senders are one person.
     sentAt++; await other.chat.send('Another Rowan, with a different key.')
     const namesake = rows.filter({ hasText: 'Another Rowan' })
@@ -158,7 +158,7 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await page.keyboard.press('Shift+Tab')
     await expect(reply).toBeFocused()
     await expect(panel.getByRole('button', { name: 'Edit this message', exact: true })).toHaveCount(0)
-    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(9)
+    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(10)
     // A hundred per cent, as a reaction and not only as something the emoji
     // picker can find - the owner asked for it on the quick choices.
     await expect(panel.getByRole('button', { name: 'Add 💯 reaction', exact: true })).toBeVisible()
@@ -264,7 +264,7 @@ test('holding an older message opens emoji choices without losing the reading po
     await page.mouse.up()
     await expect(panel).toBeVisible()
     await expect(panel.getByRole('button', { name: 'Add 👍 reaction', exact: true })).toBeFocused()
-    await expect(panel.getByRole('button')).toHaveCount(9)
+    await expect(panel.getByRole('button')).toHaveCount(10)
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
     sentAt++; await writer.chat.send('A new arrival while choosing an emoji.')
     sentAt++; await writer.chat.send('Workshop note 5: updated while choosing an emoji.', { replaces: original.id })
