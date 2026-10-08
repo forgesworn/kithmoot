@@ -579,7 +579,13 @@ details#appConnections button { display: block; }
 .fusePill[data-stage='gone'] { background: var(--fuse-red); color: var(--on-fuse-red); }
 .roomIdentity .roomEndsLine.fusePill { display: inline-flex; width: auto; font-size: .78rem; }
 .roomText .fusePill { margin-top: .2rem; align-self: flex-start; }
-.workspaceRoom .fusePill { flex: 0 1 auto; min-width: 0; font-size: .72rem; }
+/* In the rail the countdown takes a line of its own under the room's name:
+   beside it, in a narrow rail, it squeezed the name to a letter a line. The
+   zero-height item before it breaks the line; the name, the unread count and
+   the row's buttons keep the first. */
+.workspaceRoom:has(> .fusePill) { flex-wrap: wrap; }
+.workspaceRoom:has(> .fusePill)::after { content: ''; order: 1; flex-basis: 100%; height: 0; }
+.workspaceRoom .fusePill { order: 2; flex: 0 1 auto; min-width: 0; max-width: calc(100% - .6rem); margin: -.3rem 0 .25rem .6rem; font-size: .72rem; }
 
 /* The final minute, across the chat. A slow pulse, unless the reader asked
    for less motion. */
