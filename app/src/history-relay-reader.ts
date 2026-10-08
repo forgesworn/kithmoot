@@ -2,6 +2,7 @@ import { matchFilters, type Filter } from 'nostr-tools/filter'
 import type { Event } from 'nostr-tools/pure'
 import type { HistoryReadResult, HistoryRelayReader } from '../../src/history-import.js'
 import { normaliseRelayConfig } from '../../src/relay-pool.js'
+import { publicRoomOperation } from './public-room-operation.js'
 
 /** A single bounded, read-only NIP-01 query. It deliberately does not share
  * the reconnecting live-chat pool: recovery needs a final answer for each
@@ -20,6 +21,7 @@ export class NostrHistoryRelayReader {
     const id = `history-${++this.#serial}`
     return new Promise<HistoryReadResult>(resolve => {
       let socket: WebSocket | undefined
+      let release: (() => Promise<void>) | undefined
       let finished = false
       const events: Event[] = []
       const finish = (result: HistoryReadResult) => {
@@ -27,10 +29,14 @@ export class NostrHistoryRelayReader {
         finished = true
         clearTimeout(timer)
         try { socket?.close() } catch { /* A failed recovery read is still a receipt. */ }
+        void release?.()
         resolve(result)
       }
       const timer = setTimeout(() => finish({ terminal: 'timeout', events, detail: 'no EOSE before deadline' }), this.timeoutMs)
-      try {
+      void (async () => { try {
+        const permission = publicRoomOperation(() => finish({ terminal: 'unavailable', events, detail: 'room routing changed' }))
+        if (permission) release = await permission
+        if (finished) { await release?.(); return }
         socket = this.socket(url)
         socket.onopen = () => {
           try { socket!.send(JSON.stringify(['REQ', id, filter])) }
@@ -51,7 +57,7 @@ export class NostrHistoryRelayReader {
             else if (frame[0] === 'EVENT' && frame.length === 3 && events.length < limit && matchFilters([filter], frame[2] as Event)) events.push(frame[2] as Event)
           } catch { /* Bad frames neither complete a request nor gain custody. */ }
         }
-      } catch { finish({ terminal: 'unavailable', events, detail: 'relay connection could not be opened' }) }
+      } catch { finish({ terminal: 'unavailable', events, detail: 'relay connection could not be opened' }) } })()
     })
   }
 }

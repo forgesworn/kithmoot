@@ -63,12 +63,12 @@ export interface ProfileBookOptions {
   relays: () => string[]
   /** Called when a lookup changed something worth re-rendering. */
   onChange: () => void
-  transport?: (relays: string[]) => NostrRelayPool
+  transport?: (relays: string[]) => Pick<NostrRelayPool, keyof NostrRelayPool>
 }
 
 export class ProfileBook {
   readonly #opts: ProfileBookOptions
-  #pool?: NostrRelayPool
+  #pool?: Pick<NostrRelayPool, keyof NostrRelayPool>
   #unsubs = new Set<() => void>()
   /** Pubkeys we have asked about, whether or not an answer came back. */
   readonly #asked = new Set<string>()

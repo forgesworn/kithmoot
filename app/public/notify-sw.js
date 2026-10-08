@@ -21,3 +21,23 @@ self.addEventListener('notificationclick', (event) => {
     })(),
   )
 })
+
+// An old or frozen tab must never be omitted from a private-room transition.
+// No account, room identifier or route is passed through these messages.
+self.addEventListener('message', event => {
+  if (event.data !== 'kithmoot:check-room-route-tabs-v1' || !event.ports[0]) return
+  event.waitUntil((async () => {
+    try {
+      const scope = new URL(self.registration.scope)
+      const clients = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+        .filter(client => { const url = new URL(client.url); return url.origin === scope.origin && url.pathname.startsWith(scope.pathname) })
+      const results = await Promise.all(clients.map(client => new Promise(resolve => {
+        const channel = new MessageChannel()
+        const timer = setTimeout(() => { channel.port1.close(); resolve(false) }, 8000)
+        channel.port1.onmessage = reply => { clearTimeout(timer); channel.port1.close(); resolve(reply.data === 'ready') }
+        client.postMessage('kithmoot:room-route-ready-v1', [channel.port2])
+      })))
+      event.ports[0].postMessage(clients.length > 0 && results.every(Boolean))
+    } catch { event.ports[0].postMessage(false) }
+  })())
+})
