@@ -11691,11 +11691,10 @@ function renderRooms(): void {
     lastRoomSections = new Map(groups.flatMap(group => group.rooms.map(room => [room.roomId, group.section] as const)))
   }
   $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
-  // The filter only earns its place once there is something to filter by;
-  // the button to organise into projects follows the same "worth it" test
-  // as the row menu's own project item (organising()), so a signed-in
-  // person can still make their first project from an empty list.
-  $('homeSharedProjects').hidden = !organising()
+  // Project creation stays reachable before the first room or project exists.
+  // The panel explains which signer and sync support is needed to save.
+  $('homeSharedProjects').hidden = false
+  $('homeNewProject').hidden = false
   const hidden = disconnectedAccountRooms()
   // A signed-in account keeps #rooms on screen even before its first room
   // or project arrives: Projects (organising()) and the reconnect banner
@@ -12066,10 +12065,8 @@ function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDi
       .then(() => setStatus('Invite link copied.'))
       .catch((err) => setStatus(describeError(err)))
   }))
-  if (organising()) {
-    const project = item(projectOf(room) ? 'Change project' : 'Add to a project', () => openProjectEditor(room, opener))
-    menu.append(project)
-  }
+  menu.append(item('Add to a project', () => openProjectEditor(room, opener)))
+  menu.append(item(roomProject(deviceStore, nostrSession?.pubkey, room.roomId) ? 'Change local group' : 'Group on this browser', () => openLocalGroupEditor(room, opener)))
   const forget = item('Forget this room', () => forgetKnownRoom(room), true)
   forget.dataset.action = 'forget'
   menu.append(forget)
@@ -12208,9 +12205,10 @@ function projectButton(room: KnownRoom): HTMLButtonElement {
   button.type = 'button'
   button.className = 'quiet organiseRoom'
   button.dataset.action = 'project'
-  button.textContent = 'Project'
-  button.setAttribute('aria-label', `Set project for ${knownRoomLabel(room)}`)
-  button.addEventListener('click', () => openProjectEditor(room, button))
+  const shared = !!nostrSession?.signer.nip44
+  button.textContent = shared ? 'Project' : 'Local group'
+  button.setAttribute('aria-label', shared ? `Add ${knownRoomLabel(room)} to a project` : `Set local group for ${knownRoomLabel(room)}`)
+  button.addEventListener('click', () => shared ? openProjectEditor(room, button) : openLocalGroupEditor(room, button))
   return button
 }
 
@@ -12233,12 +12231,15 @@ let projectRoom: KnownRoom | undefined
 let projectReturn: HTMLElement | undefined
 let projectReturnList: HTMLElement | undefined
 function openProjectEditor(room: KnownRoom, opener: HTMLElement): void {
-  if (nostrSession?.signer.nip44) { sharedProjects.open(opener, room); return }
+  sharedProjects.open(opener, room)
+}
+
+function openLocalGroupEditor(room: KnownRoom, opener: HTMLElement): void {
   projectRoom = room
   projectReturn = opener
   projectReturnList = opener.closest<HTMLElement>('#workspaceRooms, #roomSwitcherList, #roomList') ?? undefined
   $('projectRoomName').textContent = knownRoomLabel(room)
-  ;($('projectName') as HTMLInputElement).value = projectOf(room) ?? ''
+  ;($('projectName') as HTMLInputElement).value = roomProject(deviceStore, nostrSession?.pubkey, room.roomId) ?? ''
   $('projectSuggestions').replaceChildren(...projectNames(navigationRooms()).map(name => new Option(name, name)))
   $('projectError').hidden = true
   ;($('projectEditor') as HTMLDialogElement).showModal()

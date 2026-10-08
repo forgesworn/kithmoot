@@ -30,6 +30,7 @@ export class SharedProjectsPanel {
   #projects: SharedProject[] = []
   #joined: SharedProject[] = []
   #roomProjects = new Map<string, SharedProject[]>()
+  #roomToAdd?: KnownRoom
   readonly dialog: HTMLDialogElement
   readonly editor: HTMLDialogElement
   constructor(readonly root: Document, readonly options: {
@@ -45,20 +46,26 @@ export class SharedProjectsPanel {
     this.dialog = this.el('sharedProjects') as HTMLDialogElement
     this.editor = this.el('sharedProjectEditor') as HTMLDialogElement
     for (const id of ['homeSharedProjects', 'workspaceSharedProjects', 'switcherSharedProjects']) this.el(id).addEventListener('click', () => this.open(this.el(id)))
+    for (const id of ['homeNewProject', 'workspaceNewProject']) this.el(id).addEventListener('click', () => {
+      this.open(this.el(id)); this.edit()
+    })
     this.el('sharedProjectsClose').addEventListener('click', () => this.dialog.close())
     this.el('sharedProjectsSignIn').addEventListener('click', () => { this.dialog.close(); this.options.signIn() })
     this.el('sharedProjectsRetry').addEventListener('click', () => {
       if (this.#directory && !this.#directory.snapshot().error) void this.#directory.retry()
       else if (this.#identity && this.#transport) void this.attach(this.#identity, this.#transport)
     })
-    this.el('sharedProjectNew').addEventListener('click', () => this.edit())
+    this.el('sharedProjectNew').addEventListener('click', () => this.edit(undefined, this.#roomToAdd))
     this.el('sharedProjectCancel').addEventListener('click', () => this.editor.close())
     this.el('sharedProjectForm').addEventListener('submit', event => { event.preventDefault(); void this.save() })
     this.el('sharedProjectAddPerson').addEventListener('click', () => this.addPerson())
     for (const id of ['sharedProjectName', 'sharedProjectArchived']) this.el(id).addEventListener('input', () => { this.#request = undefined })
     this.editor.addEventListener('cancel', event => { if (this.#busy) event.preventDefault() })
     this.editor.addEventListener('close', () => { if (this.dialog.open) this.el('sharedProjectNew').focus() })
-    this.dialog.addEventListener('close', () => this.#return?.isConnected && this.#return.focus({ preventScroll: true }))
+    this.dialog.addEventListener('close', () => {
+      this.#roomToAdd = undefined
+      if (this.#return?.isConnected) this.#return.focus({ preventScroll: true })
+    })
     this.render()
   }
   el(id: string): HTMLElement { const el = this.root.getElementById(id); if (!el) throw new Error(`Missing project element ${id}`); return el }
@@ -112,7 +119,7 @@ export class SharedProjectsPanel {
     this.#off?.(); this.#off = undefined
     const directory = this.#directory, release = this.#release, transport = this.#transport
     this.#directory = undefined; this.#release = undefined; this.#identity = undefined; this.#transport = undefined
-    this.#editing = undefined; this.#selectedMembers.clear(); this.#selectedRooms.clear(); this.#request = undefined; this.#busy = false
+    this.#editing = undefined; this.#selectedMembers.clear(); this.#selectedRooms.clear(); this.#request = undefined; this.#busy = false; this.#roomToAdd = undefined
     this.#status = 'Sign in with your Nostr account to share projects across people and devices.'
     ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = false
     ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
@@ -128,12 +135,9 @@ export class SharedProjectsPanel {
   }
   open(from?: HTMLElement, room?: KnownRoom): void {
     this.#return = from
+    this.#roomToAdd = room
     this.render()
     if (!this.dialog.open) this.dialog.showModal()
-    if (room && this.#directory?.snapshot().ready) {
-      const current = this.forRoom(room.roomId).find(p => p.owner === this.#identity?.pubkey)
-      this.edit(current, room)
-    }
   }
   #button(text: string, action: () => void, primary = false, key = text): HTMLButtonElement {
     const b = this.root.createElement('button'); b.type = 'button'; b.textContent = text; b.dataset.action = key; b.className = primary ? 'primary' : 'quiet'; b.addEventListener('click', action); return b
@@ -154,7 +158,16 @@ export class SharedProjectsPanel {
     for (const id of ['homeSharedProjects', 'workspaceSharedProjects', 'switcherSharedProjects']) this.el(id).textContent = invitations ? `Projects · ${invitations} invitation${invitations === 1 ? '' : 's'}` : 'Projects'
     this.el('sharedProjectsSignIn').hidden = !!this.#identity
     this.el('sharedProjectsRetry').hidden = !this.#identity || !!state?.ready && !state.pendingSends
-    ;(this.el('sharedProjectNew') as HTMLButtonElement).disabled = !state?.ready
+    ;(this.el('sharedProjectNew') as HTMLButtonElement).disabled = !this.#identity || this.#busy
+    ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = this.#busy || !state?.ready
+    const syncStatus = this.el('sharedProjectSyncStatus')
+    syncStatus.hidden = !!state?.ready
+    syncStatus.textContent = state?.error ?? 'Your project is a draft until your signer and project sync are ready. Finish connecting, then save it.'
+    const prompt = this.el('sharedProjectRoomPrompt')
+    prompt.hidden = !this.#roomToAdd
+    prompt.textContent = this.#roomToAdd ? this.persistent(this.#roomToAdd)
+      ? `Add ${sanitiseDisplayName(this.#roomToAdd.name) ?? 'this room'} to a project below, or create a new project. Its invitation will be shared with the project's members.`
+      : 'This room cannot be shared through a project. Choose a persistent room with an invitation, or use a local room group.' : ''
     this.el('sharedProjectsStatus').textContent = state?.error ?? (!state ? this.#status : !state.ready ? 'Loading your projects…' : state.pendingSends ? `${state.pendingSends} encrypted ${state.pendingSends === 1 ? 'delivery' : 'deliveries'} awaiting relay confirmation. Retry when connected.` : 'Shared with the people and agents listed below.')
     const list = this.el('sharedProjectsList'), focused = this.root.activeElement as HTMLElement | null
     const focusedProject = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-project]')?.dataset.project : undefined
@@ -181,7 +194,16 @@ export class SharedProjectsPanel {
           for (const room of d.rooms) rooms.append(this.#button(room.name, () => { this.dialog.close(); this.options.openRoom({ roomId: room.room, name: room.name, link: room.link, openedAt: 0, readAt: 0 }) }, false, `room:${room.room}`))
           card.append(rooms)
         }
-        if (project.owner === this.#identity?.pubkey) card.append(this.#button('Edit project', () => this.edit(project)))
+        if (project.owner === this.#identity?.pubkey) {
+          card.append(this.#button('Edit project', () => this.edit(project)))
+          const room = this.#roomToAdd
+          if (room && this.persistent(room) && !d.archived) {
+            const existing = d.rooms.some(r => r.room === room.roomId)
+            const add = this.#button(existing ? 'Review room in project' : 'Add room to project', () => this.edit(project, room), true, 'add-room')
+            add.disabled = !state?.ready || this.#busy
+            card.append(add)
+          }
+        }
         else if (project.joined) card.append(this.#button('Hide from my projects', () => { void this.#follow(project, false) }))
       }
       list.append(card)
@@ -204,7 +226,7 @@ export class SharedProjectsPanel {
     if (!this.editor.open) this.editor.showModal()
   }
   edit(project?: SharedProject, room?: KnownRoom): void {
-    if (!this.#identity || !this.#directory?.snapshot().ready) return
+    if (!this.#identity || project && !this.#directory?.snapshot().ready) return
     this.#editing = project; this.#request = undefined
     const initial = project?.definition
     this.#selectedMembers = new Map((initial?.members ?? [{ pubkey: this.#identity.pubkey, kind: 'person' as const, epoch: 1 }]).map(m => [m.pubkey, structuredClone(m)]))
@@ -289,7 +311,7 @@ export class SharedProjectsPanel {
     finally {
       if (generation === this.#generation) {
         this.#busy = false
-        ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = false
+        ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = !this.#directory?.snapshot().ready
         ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
       }
     }

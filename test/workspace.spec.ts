@@ -48,13 +48,13 @@ async function reenter(page: Page, link: string) {
 }
 
 async function project(page: Page, room: string, name: string) {
-  await page.getByRole('button', { name: `Set project for ${room}`, exact: true }).click()
+  await page.getByRole('button', { name: `Set local group for ${room}`, exact: true }).click()
   await page.locator('#projectName').fill(name)
-  await page.getByRole('button', { name: 'Save project', exact: true }).click()
+  await page.getByRole('button', { name: 'Save local group', exact: true }).click()
   await expect(page.locator('#projectEditor')).not.toBeVisible()
 }
 
-test('projects group rooms, filter by name, survive reload and remain reachable on mobile', async ({ browser, baseURL }, testInfo) => {
+test('local groups organise rooms, filter by name, survive reload and remain reachable on mobile', async ({ browser, baseURL }, testInfo) => {
   const { context, page, rooms } = await setup(browser, baseURL!)
   try {
     await join(page, rooms[0]!.link)
