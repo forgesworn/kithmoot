@@ -384,11 +384,16 @@ const callFocus = installCallFocus()
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(positionReactionDetails)
 }, { passive: true })
-// WebKit can consume Escape during native popover handling before a bubbling
-// listener sees it. Capture first so receipt details close consistently.
+// Dismissed hover details stay closed through a delayed pointer-enter or log
+// redraw. Only another pointer interaction or keyboard navigation reopens them.
+let dismissedReaction: string | undefined
+for (const type of ['pointermove', 'pointerdown']) document.addEventListener(type, () => { dismissedReaction = undefined }, { passive: true })
 document.addEventListener('keydown', event => {
+  if (event.key === 'Tab') dismissedReaction = undefined
   if (event.key !== 'Escape') return
-  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+  const open = document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open')
+  if (open.length) event.preventDefault()
+  open.forEach(details => { dismissedReaction = details.id; details.hidePopover() })
   // Not while on the call: the room bar's control now leaves a call rather
   // than reopening its panel, so a bay folded away by Escape would be a
   // call with no controls and no way back to them.
@@ -9731,6 +9736,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const hideDetails = (): void => { keepDetails(); if (details.matches(':popover-open')) details.hidePopover() }
       const queueHideDetails = (): void => { keepDetails(); hideTimer = setTimeout(hideDetails, 150) }
       const showDetails = (): void => {
+        if (dismissedReaction === details.id) return
         keepDetails()
         // Top layer: a long list of names must not be clipped by the chat log.
         document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(other => { if (other !== details) other.hidePopover() })

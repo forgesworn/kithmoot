@@ -185,6 +185,19 @@ test('Chip completes by name and @all receives acknowledgements from both agents
     expect(failures).toEqual([])
     await page.keyboard.press('Escape')
     await expect(details).toHaveCount(0)
+    // A layout-generated pointer-enter after dismissal must not undo Escape,
+    // including when another room event replaces the reaction DOM nodes.
+    await receipt.dispatchEvent('pointerenter')
+    await tally.channel('workshop').send('Dismissed details stay dismissed')
+    await expect(page.locator('#chatLog .msg').filter({ hasText: 'Dismissed details stay dismissed' })).toBeVisible()
+    await receipt.dispatchEvent('pointerenter')
+    await expect(details).toHaveCount(0)
+    // Deliberately hover again to read the same receipt after dismissal.
+    await page.mouse.move(1, 1)
+    await receipt.hover()
+    await expect(details.locator('.reactionPerson')).toHaveCount(2)
+    await page.keyboard.press('Escape')
+    await expect(details).toHaveCount(0)
     await goToConversation(page, 'Chat')
     await expect(page.locator('#chatLog .msg')).toHaveCount(0)
   } finally {
