@@ -1,8 +1,29 @@
 import { ORIGINAL_ART } from './original-art-data.js'
+import type { ChatArtwork } from '../../src/artwork.js'
 
 export interface CatalogueImage { slug: string; name: string; url: string; preview: string; type: 'image/gif' | 'image/png'; bytes: number; sha256: string }
-const MAX_BYTES = 8 * 1024 * 1024
 const localURL = (slug: string, extension: string): string => `${import.meta.env.BASE_URL}chat-art/${slug}.${extension}`
+export const ORIGINAL_ART_PACK = 'kithmoot-original-v1'
+
+/** Received references never supply a URL: only an exact bundled entry resolves. */
+export function resolveCatalogueArtwork(reference: ChatArtwork): CatalogueImage | undefined {
+  if (reference.pack !== ORIGINAL_ART_PACK || !['sticker', 'gif'].includes(reference.kind)) return undefined
+  const art = ORIGINAL_ART.find(item => item.slug === reference.id)
+  if (!art || (reference.kind === 'gif' && art.slug !== 'coffee')) return undefined
+  const extension = reference.kind === 'gif' ? 'gif' : 'png'
+  if (reference.sha256 !== art[extension].sha256) return undefined
+  return { slug: art.slug, name: `${art.title}.${extension}`, url: localURL(art.slug, extension),
+    preview: extension === 'gif' ? localURL('coffee-animation', 'png') : localURL(art.slug, 'png'),
+    type: extension === 'gif' ? 'image/gif' : 'image/png', bytes: art[extension].bytes, sha256: art[extension].sha256 }
+}
+
+/** Choosing built-in artwork stages metadata, without opening or uploading a file. */
+export function catalogueArtwork(item: CatalogueImage): ChatArtwork {
+  const reference: ChatArtwork = { pack: ORIGINAL_ART_PACK, id: item.slug, kind: item.type === 'image/gif' ? 'gif' : 'sticker', sha256: item.sha256, label: item.name.replace(/\.(gif|png)$/i, '') }
+  const known = resolveCatalogueArtwork(reference)
+  if (!known || item.url !== known.url || item.preview !== known.preview || item.bytes !== known.bytes || item.name !== known.name || item.type !== known.type) throw new Error('Unknown artwork file.')
+  return reference
+}
 
 /** Searching the bundled artwork does not make a network request. */
 export async function searchMediaCatalogue(query: string, stickers: boolean, signal: AbortSignal): Promise<CatalogueImage[]> {
@@ -13,20 +34,4 @@ export async function searchMediaCatalogue(query: string, stickers: boolean, sig
     slug: item.slug, name: `${item.title}.${extension}`, url: localURL(item.slug, extension), preview: !stickers && item.slug === 'coffee' ? localURL('coffee-animation', 'png') : localURL(item.slug, 'png'),
     type: stickers ? 'image/png' : 'image/gif', bytes: item[extension].bytes, sha256: item[extension].sha256,
   }))
-}
-
-/** Only an exact bundled file can enter the existing encrypted attachment flow. */
-export async function downloadCatalogueImage(item: CatalogueImage, signal: AbortSignal): Promise<File> {
-  const art = ORIGINAL_ART.find(art => art.slug === item.slug)
-  const extension = item.type === 'image/gif' ? 'gif' : 'png'
-  if (!art || item.url !== localURL(art.slug, extension) || item.bytes !== art[extension].bytes || item.sha256 !== art[extension].sha256) throw new Error('Unknown artwork file.')
-  const response = await fetch(item.url, { credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', cache: 'force-cache', signal })
-  if (!response.ok || Number(response.headers.get('content-length') ?? 0) > MAX_BYTES) throw new Error('This artwork could not be opened.')
-  const reader = response.body?.getReader(); if (!reader) throw new Error('The artwork has no data.')
-  const chunks: Uint8Array<ArrayBuffer>[] = []; let length = 0
-  try { while (true) { const part = await reader.read(); if (part.done) break; length += part.value.length; if (length > MAX_BYTES) throw new Error('The artwork is too large.'); chunks.push(part.value.slice()) } } finally { await reader.cancel() }
-  const bytes = new Uint8Array(length); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('')
-  if (length !== item.bytes || hash !== item.sha256) throw new Error('The artwork file does not match this version of KithMoot.')
-  return new File([bytes], `${art.title}.${extension}`, { type: item.type })
 }

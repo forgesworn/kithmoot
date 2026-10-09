@@ -32,6 +32,23 @@ function add(pending: PendingSends, id: string, publish: () => Promise<void>, du
 const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 
 describe('unsent messages', () => {
+  it('keeps artwork through reload and retry, and can take it back for editing without losing the reference', async () => {
+    const h = harness(false)
+    const artwork = [{ pack: 'kithmoot-original-v1', id: 'coffee', kind: 'gif' as const, sha256: 'a'.repeat(64), label: 'Coffee' }]
+    h.pending.add({ id: 'art', roomId: ROOM, channel: 'Chat', text: 'GIF: Coffee', files: [], artwork, event: event('art'), publish: async () => {}, durable: true, editable: true })
+    const restored = new PendingSends({ store: h.store, connected: () => false, schedule: () => {} })
+    const [item] = restored.restore(ROOM)
+    expect(item?.artwork).toEqual(artwork)
+    const editable = new PendingSends({ store: h.store, connected: () => false, schedule: () => {} })
+    editable.restore(ROOM)
+    expect(editable.take('art')?.artwork).toEqual(artwork)
+    const publish = vi.fn(async () => {})
+    restored.resume('art', publish)
+    restored.retry('art')
+    await flush()
+    expect(publish).toHaveBeenCalledOnce()
+    expect(restored.items(ROOM)[0]?.artwork).toEqual(artwork)
+  })
   it('reads what a failed publish says about where the event went', () => {
     expect(stateAfter(new Error('every relay rejected the event (wss://a: blocked)'))).toBe('refused')
     expect(stateAfter(new Error('no relay could be reached in time (wss://a: timeout)'))).toBe('unknown')

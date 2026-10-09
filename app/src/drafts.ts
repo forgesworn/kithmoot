@@ -1,4 +1,5 @@
 import type { ChatAttachment, ChatMessage } from '../../src/chat.js'
+import type { ChatArtwork } from '../../src/artwork.js'
 
 export interface ConversationDraft {
   readonly channel: string | undefined
@@ -7,6 +8,7 @@ export interface ConversationDraft {
   selectionEnd: number
   selectionDirection: 'forward' | 'backward' | 'none'
   attachments: ChatAttachment[]
+  artwork: ChatArtwork[]
   pendingFiles?: File[]
   event: string
   key: string
@@ -24,7 +26,7 @@ export interface ConversationDraft {
 }
 
 export function draftHasWork(draft: ConversationDraft): boolean {
-  return Boolean(draft.text || draft.event || draft.key || draft.attachments.length || draft.pendingFiles?.length || draft.job)
+  return Boolean(draft.text || draft.event || draft.key || draft.attachments.length || draft.artwork.length || draft.pendingFiles?.length || draft.job)
 }
 
 /** Drafts belong to one conversation in this room visit. They never enter
@@ -36,7 +38,7 @@ export class ConversationDrafts {
     let draft = this.#drafts.get(channel)
     if (!draft) {
       draft = { channel, text: '', selectionStart: 0, selectionEnd: 0, selectionDirection: 'none',
-        attachments: [], event: '', key: '', panelOpen: false, status: '' }
+        attachments: [], artwork: [], event: '', key: '', panelOpen: false, status: '' }
       this.#drafts.set(channel, draft)
     }
     return draft
@@ -53,6 +55,7 @@ export class ConversationDrafts {
     draft.selectionStart = draft.selectionEnd = 0
     draft.selectionDirection = 'none'
     draft.attachments = []
+    draft.artwork = []
     draft.pendingFiles = []
     draft.panelOpen = false
     draft.replyTo = draft.editing = undefined

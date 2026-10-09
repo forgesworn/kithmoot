@@ -572,3 +572,6 @@ export { PROJECT_APP, PROJECT_KIND, PROJECT_WRAP_KIND, projectKey, projectId, pr
 export type { ProjectIdentity, ProjectMember, ProjectRoom, ProjectDefinition, ProjectReference, ProjectRevision, ProjectRecord } from './projects.js'
 
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
+
+export { normaliseArtwork, normaliseOutgoingArtwork, artworkFallbackText, MAX_CHAT_ARTWORK, MAX_ARTWORK_LABEL_LENGTH } from './artwork.js'
+export type { ChatArtwork } from './artwork.js'
