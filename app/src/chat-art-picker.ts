@@ -296,7 +296,7 @@ export class ChatArtPicker {
   }
   async #chooseMedia(item: CatalogueImage): Promise<void> {
     if (this.#busy || !this.#onMedia) return
-    const request = this.#selectionRequest = new AbortController(); this.#busy = true; this.#status.textContent = 'Adding encrypted file to your draft…'
+    const request = this.#selectionRequest = new AbortController(); this.#busy = true; this.#status.textContent = 'Adding artwork to your draft…'
     try { await this.#onMedia(item, request.signal); if (!request.signal.aborted) this.close() }
     catch (error) { if (!request.signal.aborted) this.#status.textContent = error instanceof Error ? error.message : 'Could not add this file.' }
     finally { if (this.#selectionRequest === request) this.#busy = false }

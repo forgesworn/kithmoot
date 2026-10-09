@@ -433,8 +433,10 @@ function rootOf(resolved: ResolvedMessage, byKey: Map<string, ResolvedMessage>):
 function shownFrom(original: ChatMessage, latest: ChatMessage): ChatMessage {
   const shown: ChatMessage = { ...original, text: latest.text }
   delete shown.attachments
+  delete shown.artwork
   delete shown.mentions
   if (latest.attachments) shown.attachments = latest.attachments
+  if (latest.artwork) shown.artwork = latest.artwork
   if (latest.mentions) shown.mentions = latest.mentions
   return shown
 }

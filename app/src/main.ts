@@ -1,6 +1,8 @@
 import { ParticipantCard } from './participant-card.js'
 import { ChatArtPicker } from './chat-art-picker.js'
-import { downloadCatalogueImage } from './media-catalogue.js'
+import { catalogueArtwork } from './media-catalogue.js'
+import { artworkCards, artworkMessageText } from './chat-artwork.js'
+import { artworkFallbackText, MAX_CHAT_ARTWORK } from '../../src/artwork.js'
 import { unlockCultPack } from './nostr-packs.js'
 import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
 import { isCultEmoji } from '../../src/custom-emoji.js'
@@ -324,13 +326,14 @@ const outbox = new Outbox(document.getElementById('outbox')!, pendingSends, () =
  *  is dropped, and sending again signs a new one. */
 async function editPending(item: PendingSend): Promise<void> {
   const input = $('chatInput') as HTMLTextAreaElement
-  if (input.value.trim() && !await confirmRoomAction({ title: 'Replace what you are writing?', message: 'The unsent message goes back into the message box in place of what is there now.', confirmLabel: 'Replace' })) return
+  if (draftHasWork(captureDraft()) && !await confirmRoomAction({ title: 'Replace what you are writing?', message: 'The unsent message goes back into the message box in place of what is there now.', confirmLabel: 'Replace' })) return
   if (!pendingSends.take(item.id)) {
     setStatus('That message is already on its way, so it can no longer be edited here.')
     return
   }
-  input.value = item.text
+  input.value = artworkMessageText(item.text, item.artwork)
   const draft = captureDraft()
+  draft.artwork = [...(item.artwork ?? [])]
   draftChanged(draft)
   growComposer(input)
   input.focus()
@@ -359,6 +362,7 @@ function queueSend(prepared: PreparedSend, channel: string, opts: { files?: stri
   if (!roomId) throw new Error('Open a room to send a message.')
   pendingSends.add({
     id: prepared.message.id, roomId, channel, text: prepared.message.text, files: opts.files ?? [],
+    ...(prepared.message.artwork?.length ? { artwork: prepared.message.artwork } : {}),
     event: prepared.event, publish: opts.publish ?? prepared.publish, durable: opts.durable ?? false,
     ...(opts.editable ? { editable: true } : {}),
   }, (opts.holdSeconds ?? 0) * 1000)
@@ -9419,6 +9423,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       appendWithMentions(p, m.text, mentionsFor(m), namesOfMine)
       p.append(by)
       for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
+      p.append(artworkCards(m.artwork, (file, trigger) => attachmentViewer.open(file, trigger), m.text))
       into.append(p)
       return
     }
@@ -9520,15 +9525,17 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     // the names in it are marked. Yours too, except in your own message:
     // saying your own name is not being addressed.
     const expansionKey = `${currentRoomId()}:${logId}:${m.participant}:${m.id}`
-    const long = m.text.length > 700 || m.text.split('\n').length > 12
+    const messageText = artworkMessageText(m.text, m.artwork)
+    const long = messageText.length > 700 || messageText.split('\n').length > 12
     const paintText = () => {
       text.replaceChildren()
-      const shown = long && !expandedMessages.has(expansionKey) ? m.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : m.text
+      const shown = long && !expandedMessages.has(expansionKey) ? messageText.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : messageText
       appendWithMentions(text, shown, mentionsFor(m), mine ? new Set<string>() : namesOfMine)
       paintCustomEmoji(text)
       if (isCultEmoji(shown.trim()) || isOriginalEmoji(shown.trim())) text.classList.add('cultSticker')
     }
     paintText()
+    text.hidden = !messageText
     bubble.append(text)
     if (long) {
       bubble.classList.add('longMessage')
@@ -9550,6 +9557,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       tools.append(expand, copy); bubble.append(tools)
     }
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
+    bubble.append(artworkCards(m.artwork, (file, trigger) => attachmentViewer.open(file, trigger), m.text))
     body.append(bubble)
     row.append(body)
     if (mine && !m.reaction && !m.retracts) {
@@ -12383,6 +12391,18 @@ const PINNED_GROUP = 'pinned:'
 /** The rail's order as last drawn, held while the person is in it. */
 let lastRailOrder: string[] | undefined
 
+/** Keep unchanged rail children attached: a watch update can arrive between
+ *  pressing a room action and releasing it. Only move actual order changes. */
+function reconcileRailChildren(parent: HTMLElement, children: HTMLElement[]): void {
+  const wanted = new Set(children)
+  for (const child of Array.from(parent.children)) if (!wanted.has(child as HTMLElement)) child.remove()
+  let next = parent.firstChild
+  for (const child of children) {
+    if (child === next) next = next.nextSibling
+    else parent.insertBefore(child, next)
+  }
+}
+
 function renderWorkspace(): void {
   updateDesktopUnread()
   if ($('workspaceNav').hidden) return
@@ -12410,75 +12430,97 @@ function renderWorkspace(): void {
   ]
   const self = meParticipant || currentParticipant() || ''
   const selfName = joiningName()
-  list.replaceChildren()
+  const existingGroups = new Map(Array.from(list.children, group => [(group as HTMLElement).dataset.project, group as HTMLElement]))
+  const sections: HTMLElement[] = []
   for (const project of groups) {
-    const group = document.createElement('section')
-    const heading = document.createElement('h3')
+    const group = existingGroups.get(project.key) ?? document.createElement('section')
+    // A shared room can appear in more than one project. Its row belongs
+    // to this section, rather than to a single global room-id cache.
+    const existingRows = new Map(Array.from(group.querySelectorAll<HTMLElement>('.workspaceRoom'), row => [row.dataset.room, row]))
+    const heading = group.querySelector('h3') ?? document.createElement('h3')
     heading.textContent = project.name
     heading.hidden = groups.length === 1 && !project.key
     group.dataset.project = project.key
-    group.append(heading)
+    const rows: HTMLElement[] = [heading]
     const members = project.key === PINNED_GROUP ? arranged.pinned : unpinned.filter(room => matchesRoom(room, '', project.key))
     for (const room of members) {
-      const row = document.createElement('div')
+      const row = existingRows.get(room.roomId) ?? document.createElement('div')
       row.className = 'workspaceRoom'
       row.dataset.room = room.roomId
-      const button = document.createElement('button')
+      const button = row.querySelector<HTMLButtonElement>('[data-action="switch"]') ?? document.createElement('button')
       button.type = 'button'
       button.className = 'workspaceRoomLink'
       button.dataset.action = 'switch'
-      button.textContent = knownRoomLabel(room)
+      if (button.textContent !== knownRoomLabel(room)) button.textContent = knownRoomLabel(room)
       button.title = `${knownRoomLabel(room)} · ${shortKey(room.roomId)}`
       if (room.roomId === current) button.setAttribute('aria-current', 'true')
+      else button.removeAttribute('aria-current')
       // Switching retains each room's draft collection in this tab.
-      button.addEventListener('click', () => {
+      button.onclick = () => {
         void switchRoom(room)
-      })
-      row.append(button)
-      if (room.endsAt !== undefined && !roomIsEnded(room)) row.append(fusePill(room.endsAt, room.startsAt, !!room.destruct))
+      }
+      const children: HTMLElement[] = [button]
+      if (room.endsAt !== undefined && !roomIsEnded(room)) children.push(fusePill(room.endsAt, room.startsAt, !!room.destruct, row.querySelector<HTMLElement>('.fusePill') ?? undefined))
       // What each other room has waiting, counted exactly as the rooms list
       // and the window's own badge count it: from the watch this device
       // keeps on every room while the installed window is open, against the
       // room's read position. The room on screen is read where it is shown.
       // Beside the button rather than in it, so its name stays the room's.
       const watched = room.roomId === current ? undefined : roomWatches.get(room.roomId)
+      row.classList.remove('hasUnread')
       if (watched?.watch.readsChat) {
         const label = knownRoomLabel(room)
         const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
         row.classList.toggle('hasUnread', split.people > 0)
-        if (split.people > 0) row.append(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
-        if (split.agents > 0) row.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
+        if (split.people > 0) children.push(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
+        if (split.agents > 0) children.push(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
       }
       const pinned = pins.has(room.roomId)
-      const pin = document.createElement('button')
+      const pin = row.querySelector<HTMLButtonElement>('[data-action="pin"]') ?? document.createElement('button')
       pin.type = 'button'
       pin.className = 'pinRoom'
       pin.dataset.action = 'pin'
-      pin.textContent = pinned ? '★' : '☆'
+      if (pin.textContent !== (pinned ? '★' : '☆')) pin.textContent = pinned ? '★' : '☆'
       pin.setAttribute('aria-pressed', String(pinned))
       pin.setAttribute('aria-label', `${pinned ? 'Unpin' : 'Pin'} ${knownRoomLabel(room)}`)
       pin.title = pinned ? 'Unpin: back among the other rooms' : 'Pin: keep this room in Pinned, at the top'
-      pin.addEventListener('click', () => {
-        setPinned(localStorage, room.roomId, !pinned)
+      pin.onclick = () => {
+        setPinned(localStorage, room.roomId, !loadPins(localStorage).has(room.roomId))
         renderWorkspace()
-      })
-      row.append(pin)
+      }
+      children.push(pin)
       if (organising()) {
-        const organise = projectButton(room)
+        const organise = row.querySelector<HTMLButtonElement>('[data-action="project"]') ?? document.createElement('button')
+        organise.type = 'button'
+        organise.className = 'quiet organiseRoom'
+        organise.dataset.action = 'project'
         organise.textContent = '⋯'
-        row.append(organise)
+        const shared = !!nostrSession?.signer.nip44
+        organise.setAttribute('aria-label', shared ? `Add ${knownRoomLabel(room)} to a project` : `Set local group for ${knownRoomLabel(room)}`)
+        organise.onclick = () => shared ? openProjectEditor(room, organise) : openLocalGroupEditor(room, organise)
+        children.push(organise)
       }
       // The room on screen is left first; forgetting it from under the
       // person would strand the conversation they are reading.
       if (room.roomId !== current) {
-        const forget = forgetButton(room, '×')
+        const forget = row.querySelector<HTMLButtonElement>('[data-action="forget"]') ?? document.createElement('button')
+        forget.type = 'button'
+        forget.className = 'forget quiet'
+        forget.dataset.action = 'forget'
+        forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
+        forget.title = `Forget ${knownRoomLabel(room)}`
+        forget.textContent = '×'
+        forget.onclick = () => forgetKnownRoom(room)
         forget.disabled = busy
-        row.append(forget)
+        children.push(forget)
       }
-      group.append(row)
+      reconcileRailChildren(row, children)
+      rows.push(row)
     }
-    list.append(group)
+    reconcileRailChildren(group, rows)
+    sections.push(group)
   }
+  reconcileRailChildren(list, sections)
   $('workspaceEmpty').hidden = rooms.length > 0
   $('workspaceNote').textContent = busy ? 'Finish sending or stop adding files before switching rooms.' : organising() ? 'Use ⋯ to organise rooms into projects.' : ''
   if (focusedRoom && action) {
@@ -15790,9 +15832,12 @@ function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): void {
     start += emoji.length; end = start; direction = 'none'
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }, async (item, signal) => {
-    const file = await downloadCatalogueImage(item, signal)
+    signal.throwIfAborted()
     if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) throw new Error('The conversation changed. Open the picker again.')
-    await shareDroppedFiles([file])
+    const draft = captureDraft()
+    if (draft.artwork.length >= MAX_CHAT_ARTWORK) throw new Error(`A message carries at most ${MAX_CHAT_ARTWORK} stickers or GIFs.`)
+    draft.artwork.push(catalogueArtwork(item))
+    draftChanged(draft)
   }, () => {
     selectionEvents.abort()
     if (roomGeneration === generation && currentChannel === channel && input.isConnected) input.setSelectionRange(start, end, direction)
@@ -15820,9 +15865,10 @@ function setComposing(next: { replyTo?: ChatMessage; editing?: ChatMessage }, sh
     // an edit that says nothing about them keeps them. An edit is the
     // whole new message; see docs/messages.md.
     const draft = captureDraft()
-    box.value = shown.text
-    draft.text = shown.text
+    box.value = artworkMessageText(shown.text, shown.artwork)
+    draft.text = box.value
     draft.attachments = [...(shown.attachments ?? [])]
+    draft.artwork = [...(shown.artwork ?? [])]
     draftChanged(draft)
     growComposer(box)
   }
@@ -15857,6 +15903,7 @@ function renderComposerContext(): void {
       box.value = ''
       draft.text = ''
       draft.attachments = []
+      draft.artwork = []
       draftChanged(draft)
       growComposer(box)
     }
@@ -15907,16 +15954,18 @@ $('chatForm').addEventListener('submit', (event) => {
     return
   }
   const attachments = draft.attachments
-  if ((!typed && attachments.length === 0) || !session) return
+  const artwork = draft.artwork
+  if ((!typed && attachments.length === 0 && artwork.length === 0) || !session) return
   // A file with nothing said about it still gets a caption, because the
   // caption is all a client that has never heard of attachments will show.
   const text =
     typed ||
-    (attachments.length === 1
+    (attachments.length === 0 && artwork.length ? artworkFallbackText(artwork) : attachments.length === 1
       ? `Shared a file${attachments[0]?.name ? `: ${attachments[0].name}` : ''}`
       : `Shared ${attachments.length} files`)
   const log = activeChat() ?? session.chat
   const sendOpts: SendOptions = attachments.length ? { attachments } : {}
+  if (artwork.length) sendOpts.artwork = artwork
   const mentions = mentionsInDraft(typed)
   if (mentions.length) sendOpts.mentions = mentions
   if (draft.editing) sendOpts.replaces = draft.editing.id
@@ -15936,6 +15985,7 @@ $('chatForm').addEventListener('submit', (event) => {
   growComposer(input)
   closeMentionPicker()
   draft.attachments = []
+  draft.artwork = []
   draftChanged(draft)
   setComposing({})
   // Into whichever conversation is on screen, which is the main chat until
@@ -16085,6 +16135,13 @@ function renderStaged(): void {
     })
     chip.append(remove)
     box.append(chip)
+  })
+  draft.artwork.forEach((artwork, index) => {
+    const chip = document.createElement('span'); chip.className = 'attachChip artworkChip'
+    chip.append(artworkCards([artwork]), document.createTextNode(`${artwork.kind === 'gif' ? 'GIF' : 'Sticker'}: ${artwork.label} `))
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'remove'; remove.setAttribute('aria-label', `Remove ${artwork.label} ${artwork.kind}`)
+    remove.onclick = () => { draft.artwork.splice(index, 1); draftChanged(draft) }
+    chip.append(remove); box.append(chip)
   })
   // One name, whatever the state. The button used to be "Add a file" in the
   // markup and "Attach" the moment anything re-rendered it, so a control a

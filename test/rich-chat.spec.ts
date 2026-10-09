@@ -1,18 +1,18 @@
 import { test, expect, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { localIdentity } from '../src/identity.js'
 import { RoomAgent } from '../src/agent.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
-import { decryptEnvelope } from '../src/attachment.js'
 import { CULT_REGISTRY } from '../app/src/nostr-packs.js'
-import { allowTestFileStorage, TEST_RELAY_WS, TEST_RELAY_HTTP } from './browser.js'
+import { TEST_RELAY_WS } from './browser.js'
 import { openRoomUrl } from './relays.js'
-import { routeTestBlossom } from './blossom.js'
 import { nostrTestDevice, signInNostrTestDevice } from './nostr-device.js'
 import { FAMILIAR_ART } from '../src/familiar-emoji.js'
+import { KINDS } from '../src/kinds.js'
+import type { Event } from 'nostr-tools/pure'
+import { ORIGINAL_ART } from '../app/src/original-art-data.js'
 
 async function artworkSearch(page: Page, name: string) {
   const query = page.getByRole('searchbox', { name, exact: true })
@@ -148,44 +148,90 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
   } finally { await writer.leave(); pool.close(); await context.close() }
 })
 
-test('original artwork search makes no third-party requests and a bundled GIF arrives encrypted', async ({ browser, baseURL }) => {
-  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+test('built-in GIF and stickers arrive locally on another client without uploads or storage consent', async ({ browser, baseURL }) => {
+  const contexts = await Promise.all([
+    browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 }, hasTouch: true }),
+    browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' }),
+  ])
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  await context.routeWebSocket(url => url.href !== relay.href, socket => socket.close())
-  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
-  await routeTestBlossom(context, new URL(baseURL!).origin)
-  const gif = readFileSync(new URL('../app/public/chat-art/coffee.gif', import.meta.url))
-  const external: string[] = []
-  context.on('request', request => { const url = new URL(request.url()); if (url.protocol.startsWith('http') && url.origin !== new URL(baseURL!).origin) external.push(url.href) })
-  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'GIF room', relays: [relay.href], iceUrls: [] })
+  const external: string[] = [], uploads: string[] = [], wire: Event[] = []
+  for (const context of contexts) {
+    await context.routeWebSocket(url => url.href !== relay.href, socket => socket.close())
+    await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+    await context.route('**/upload', route => route.abort())
+    context.on('request', request => {
+      if (request.method() === 'PUT') uploads.push(request.url())
+      const url = new URL(request.url()); if (url.protocol.startsWith('http') && url.origin !== new URL(baseURL!).origin) external.push(url.href)
+    })
+    context.on('page', page => page.on('websocket', socket => socket.on('framesent', frame => {
+      try { const message = JSON.parse(String(frame.payload)); if (message[0] === 'EVENT') wire.push(message[1]) } catch { /* Binary or non-event frames do not publish messages. */ }
+    })))
+  }
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Local artwork room', relays: [relay.href], iceUrls: [] })
   const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
   try {
-    const page = await context.newPage(); await openRoomUrl(page, link); await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
-    await allowTestFileStorage(page, new URL(baseURL!).origin)
-    await openGIFs(page)
-    await (await artworkSearch(page, 'Search GIFs and stickers')).fill('coffee')
-    await page.getByRole('button', { name: 'Add Coffee.gif', exact: true }).click()
-    await expect(page.getByRole('dialog', { name: 'GIFs and stickers' })).not.toBeVisible()
-    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
-    await expect(page.locator('#chatInput')).toHaveValue('')
-    expect(external).toEqual([])
-    await page.locator('#chatForm button[type=submit]').click()
-    await expect.poll(() => writer.chat.messages().some(message => message.attachments?.length === 1)).toBe(true)
-    const message = writer.chat.messages().find(message => message.attachments?.length === 1)!
-    expect(message.text).toBe('Shared a file: Coffee.gif')
-    const attachment = message.attachments![0]!
-    const response = await context.request.get(TEST_RELAY_HTTP + new URL(attachment.url).pathname)
-    const encrypted = await response.body()
-    expect(encrypted.subarray(0, 8).toString()).toBe('FSWNENC2')
-    const opened = decryptEnvelope(encrypted, attachment.key)
-    expect(Buffer.from(opened.source).equals(gif)).toBe(true)
-    await page.locator('#chatLog .attachment').getByRole('button', { name: 'Show', exact: true }).click()
-    await expect(page.locator('#chatLog .attachment img')).toHaveAttribute('src', /^blob:/)
-    await page.getByRole('button', { name: 'Expand Coffee.gif' }).click()
-    await expect(page.getByRole('dialog', { name: 'Coffee.gif' }).locator('img')).toBeVisible()
-    await page.screenshot({ path: test.info().outputPath('encrypted-gif.png') })
-  } finally { await writer.leave(); await context.close() }
+    const [page, receiver] = await Promise.all(contexts.map(context => context.newPage()))
+    for (const [client, name] of [[page!, 'Ada'], [receiver!, 'Bryn']] as const) {
+      await openRoomUrl(client, link); await client.locator('#displayName').fill(name); await client.locator('#join').click()
+      await expect(client.locator('#roomArea')).toBeVisible()
+      await expect(client.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    }
+    await openGIFs(page!)
+    await (await artworkSearch(page!, 'Search GIFs and stickers')).fill('coffee')
+    await page!.getByRole('button', { name: 'Preview Coffee.gif', exact: true }).click()
+    await expect(page!.locator('#attachStaged .artworkChip')).toHaveCount(0)
+    await page!.getByRole('button', { name: 'Add Coffee.gif', exact: true }).click()
+    await expect(page!.getByRole('dialog', { name: 'GIFs and stickers' })).not.toBeVisible()
+    await expect(page!.locator('#attachStaged .artworkChip')).toHaveCount(1)
+    await expect(page!.locator('#chatInput')).toHaveValue('')
+    await expect(page!.locator('#allowSharedFiles')).not.toBeChecked()
+    await page!.locator('#chatForm button[type=submit]').click()
+    await expect.poll(() => writer.chat.messages().some(message => message.artwork?.[0]?.kind === 'gif')).toBe(true)
+    const message = writer.chat.messages().find(message => message.artwork?.[0]?.kind === 'gif')!
+    expect(message.text).toBe('GIF: Coffee')
+    expect(message.attachments).toBeUndefined()
+    expect(message.artwork).toEqual([{ pack: 'kithmoot-original-v1', id: 'coffee', kind: 'gif', sha256: ORIGINAL_ART.find(item => item.slug === 'coffee')!.gif.sha256, label: 'Coffee' }])
+    await expect(page!.locator('#chatLog .chatArtwork img')).toHaveAttribute('src', '/j/chat-art/coffee.gif')
+    await expect(receiver!.locator('#chatLog .chatArtwork img')).toHaveAttribute('src', '/j/chat-art/coffee-animation.png')
+    await expect(receiver!.locator('#chatLog .chatArtwork img')).toBeVisible()
+    await expect(receiver!.locator('#chatLog .text')).not.toContainText('GIF: Coffee')
+    await receiver!.getByRole('button', { name: 'Expand Coffee.gif' }).click()
+    await expect(receiver!.getByRole('dialog', { name: 'Coffee.gif' }).locator('img')).toHaveAttribute('src', /\/j\/chat-art\/coffee-animation\.png$/)
+    await receiver!.getByRole('dialog', { name: 'Coffee.gif' }).getByRole('button', { name: 'Close', exact: true }).click()
+    await page!.locator(`#chatLog .msg[data-message-id="${message.id}"] .messageMore`).click()
+    await page!.locator('#messageActionPanel').getByRole('button', { name: 'Edit this message' }).click()
+    await expect(page!.locator('#attachStaged .artworkChip')).toHaveCount(1)
+    await expect(page!.locator('#chatInput')).toHaveValue('')
+    await page!.locator('#chatInput').fill('Coffee break')
+    await page!.locator('#chatForm button[type=submit]').click()
+    await expect.poll(() => writer.chat.messages().some(edit => edit.replaces === message.id && edit.text === 'Coffee break')).toBe(true)
+    expect(writer.chat.messages().find(edit => edit.replaces === message.id)!.artwork).toEqual(message.artwork)
+    await expect(receiver!.locator('#chatLog')).toContainText('Coffee break')
+    await expect(receiver!.locator('#chatLog .chatArtwork')).toHaveCount(1)
+    await openGIFs(page!)
+    await page!.getByRole('tab', { name: 'Stickers', exact: true }).click()
+    await (await artworkSearch(page!, 'Search GIFs and stickers')).fill('facepalm')
+    await page!.getByRole('button', { name: 'Add Facepalm.png', exact: true }).click()
+    await page!.locator('#chatInput').fill('Not again')
+    await page!.locator('#chatForm button[type=submit]').click()
+    await expect(receiver!.locator('#chatLog .chatArtwork[data-artwork-id="facepalm"] img')).toHaveAttribute('src', '/j/chat-art/facepalm.png')
+    await expect(receiver!.locator('#chatLog')).toContainText('Not again')
+    const unknown = { ...message.artwork![0]!, pack: 'future-pack', label: 'Future coffee' }
+    await writer.chat.send('GIF: Future coffee', { artwork: [unknown] })
+    await expect(receiver!.locator('#chatLog')).toContainText('GIF: Future coffee')
+    await expect(receiver!.locator('#chatLog .chatArtwork')).toHaveCount(2)
+    expect(uploads).toEqual([]); expect(external).toEqual([])
+    expect(wire.some(event => event.kind === 1063)).toBe(false)
+    const chatEvents = wire.filter(event => event.kind === KINDS.CHAT)
+    expect(chatEvents.length).toBeGreaterThanOrEqual(2)
+    for (const event of chatEvents) {
+      expect(event.content).not.toContain('kithmoot-original-v1')
+      expect(JSON.stringify(event.tags)).not.toContain('coffee')
+      expect(JSON.stringify(event)).not.toContain(message.artwork![0]!.sha256)
+    }
+    await page!.screenshot({ path: test.info().outputPath('local-gif-phone.png') })
+    await receiver!.screenshot({ path: test.info().outputPath('local-artwork-received.png') })
+  } finally { await writer.leave(); await Promise.all(contexts.map(context => context.close())) }
 })
 
 for (const size of [{ width: 390, height: 844 }, { width: 1280, height: 800 }, { width: 844, height: 390 }]) test(`composer artwork tray keeps browsing and draft usable at ${size.width}x${size.height}`, async ({ browser, baseURL }) => {

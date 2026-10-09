@@ -1105,3 +1105,55 @@ describe('opening an old room', () => {
   // a busy machine or a shared CI runner that alone runs past five seconds.
   }, 15_000)
 })
+
+describe('bundled artwork on encrypted chat', () => {
+  const artwork = { pack: 'kithmoot-original-v1', id: 'coffee', kind: 'gif' as const, sha256: 'ab'.repeat(32), label: 'Coffee' }
+
+  it('reaches another reader through a tiny encrypted event, with no file announcement', async () => {
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    const sender = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, deviceSk, credential, now: () => NOW })
+    const reader = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, now: () => NOW })
+    await sender.send('GIF: Coffee', { artwork: [artwork] })
+    expect(reader.messages()[0]).toMatchObject({ text: 'GIF: Coffee', artwork: [artwork] })
+    expect(reader.messages()[0]).not.toHaveProperty('attachments')
+    expect(relay.published).toHaveLength(1)
+    expect(relay.published[0]!.kind).toBe(KINDS.CHAT)
+    expect(relay.published[0]!.content.length).toBeLessThan(3000)
+    expect(JSON.stringify(relay.published[0])).not.toContain('coffee')
+    expect(JSON.stringify(relay.published[0])).not.toContain('kithmoot-original-v1')
+    sender.close(); reader.close()
+  })
+
+  it('omits absent or empty artwork without changing the plaintext of ordinary messages', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const opts = { roomId, roomKey, deviceSk }
+    const plain = nip44.v2.decrypt(encodeChatEvent(msg, opts).content, roomKey)
+    expect(plain).not.toContain('artwork')
+    expect(nip44.v2.decrypt(encodeChatEvent({ ...msg, artwork: [] }, opts).content, roomKey)).toBe(plain)
+  })
+
+  it('drops malformed incoming entries, retains unknown packs, and refuses over-cap messages', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const forged = (artwork: unknown) => finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', roomId]], content: nip44.v2.encrypt(JSON.stringify({ ...msg, artwork }), roomKey) }, deviceSk)
+    const opts = { roomId, roomKey, now: NOW }
+    const unknown = { ...artwork, pack: 'future-pack' }
+    expect(decodeChatEvent(forged([{ ...artwork, id: '../coffee' }, unknown]), opts)?.artwork).toEqual([unknown])
+    expect(decodeChatEvent(forged('bad'), opts)).toMatchObject({ text: msg.text })
+    expect(decodeChatEvent(forged([null]), opts)).not.toHaveProperty('artwork')
+    expect(decodeChatEvent(forged(Array(5).fill(artwork)), opts)).toBeNull()
+  })
+
+  it('refuses artwork on reactions, retractions, invitations and assignment payloads before sanitising it', async () => {
+    const { roomId, roomKey, deviceSk, msg, credential } = await fixture()
+    const extras = [{ reaction: { messageId: 'target', participant: msg.participant, emoji: '👍', active: true, revision: 1 } }, { retracts: 'target' }, { invite: {} }, { assignment: {} }]
+    for (const extra of extras) {
+      const event = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', roomId]], content: nip44.v2.encrypt(JSON.stringify({ ...msg, ...extra, artwork: [] }), roomKey) }, deviceSk)
+      expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
+    }
+    const log = new ChatLog({ transport: new SimTransport(new SimRelay()), roomId, roomKey, deviceSk, credential, now: () => NOW })
+    expect(() => log.prepare('Reacted', { reaction: { messageId: 'target', participant: msg.participant, emoji: '👍', active: true, revision: 1 }, artwork: [artwork] })).toThrow()
+    expect(() => log.prepare('Retracted', { retracts: 'target', artwork: [artwork] })).toThrow(/carries nothing else/)
+    log.close()
+  })
+})

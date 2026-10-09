@@ -1,0 +1,6 @@
+.chatArtwork{display:inline-block;max-width:100%;vertical-align:middle;margin:6px 6px 2px 0}
+.chatArtwork img{display:block;width:160px;height:160px;max-width:100%;object-fit:contain}
+.chatArtwork button{display:block;padding:0;border:0;background:transparent;border-radius:12px;cursor:pointer}
+.chatArtwork button:focus-visible{outline:2px solid var(--accent,#39bac8);outline-offset:3px}
+.chatArtworkFallback{display:block;margin-top:6px}
+.attachChip .chatArtwork{margin:0 6px 0 0}.attachChip .chatArtwork img{width:44px;height:44px}

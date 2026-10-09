@@ -307,3 +307,15 @@ describe('resolveConversation', () => {
     expect(stream[0]!.orphan).toBe(true)
   })
 })
+
+describe('artwork edits', () => {
+  it('replaces or removes the original artwork when editing a message', () => {
+    const artwork = { pack: 'kithmoot-original-v1', id: 'coffee', kind: 'gif' as const, sha256: 'ab'.repeat(32), label: 'Coffee' }
+    const original = msg('art', ADA, 'GIF: Coffee', 100, { artwork: [artwork] })
+    const changed = { ...artwork, kind: 'sticker' as const }
+    const edited = msg('edit', ADA, 'Sticker: Coffee', 110, { replaces: 'art', artwork: [changed] })
+    expect(resolveConversation([original, edited]).stream[0]!.shown.artwork).toEqual([changed])
+    const removed = msg('removed', ADA, 'just words', 120, { replaces: 'art' })
+    expect(resolveConversation([original, edited, removed]).stream[0]!.shown).not.toHaveProperty('artwork')
+  })
+})

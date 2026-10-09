@@ -87,6 +87,51 @@ test('create an empty project, add a room to that existing project, and restore 
   } finally { await context.close(); await keeper.leave() }
 })
 
+test('one room retains a separate rail row in each shared project after a chat refresh', async ({ browser, baseURL }) => {
+  const { context, pubkey, relay } = await signedDevice(browser, baseURL!)
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Shared planning', ...agentRelaysFor(baseURL!) })
+  const saved = { roomId: keeper.roomId, name: 'Shared planning', link: encodeRoomLink(baseURL!, { ...keeper.link, relays: [relay] }), openedAt: 1, readAt: 0 }
+  await context.addInitScript(({ saved, pubkey }) => {
+    localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${saved.roomId}`, JSON.stringify(saved))
+  }, { saved, pubkey })
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    for (const name of ['Design team', 'Release team']) {
+      await page.locator('#sharedProjectNew').click()
+      await page.locator('#sharedProjectName').fill(name)
+      await page.locator('#sharedProjectRooms').getByRole('checkbox', { name: 'Shared planning', exact: true }).check()
+      await page.locator('#sharedProjectSave').click()
+      await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
+    }
+    await page.locator('#sharedProjectsClose').click()
+    await page.getByRole('button', { name: 'Open Shared planning', exact: true }).click()
+    await expect(page.locator('#roomArea:visible, #displayName:visible').first()).toBeVisible()
+    if (await page.locator('#displayName').isVisible()) {
+      await page.locator('#displayName').fill('Ada')
+      await page.locator('#join').click()
+    }
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const rail = page.locator('#workspaceRooms')
+    const groups = ['Design team', 'Release team'].map(name => rail.locator('section', { has: page.getByRole('heading', { name, exact: true }) }))
+    for (const group of groups) await expect(group.getByRole('button', { name: 'Shared planning', exact: true })).toHaveCount(1)
+    const buttons = await Promise.all(groups.map(group => group.getByRole('button', { name: 'Shared planning', exact: true }).elementHandle()))
+    await keeper.chat.send('This planning update belongs to both teams.')
+    await expect(page.locator('#chatLog')).toContainText('This planning update belongs to both teams.')
+    // Draft changes also refresh the real rail; neither association may
+    // borrow the other section's row during reconciliation.
+    await page.locator('#chatInput').fill('A draft for both teams')
+    for (let i = 0; i < groups.length; i++) {
+      const button = groups[i]!.getByRole('button', { name: 'Shared planning', exact: true })
+      await expect(button).toHaveCount(1)
+      expect(await button.evaluate((node, original) => node === original && node.isConnected, buttons[i]!)).toBe(true)
+    }
+  } finally { await context.close(); await keeper.leave() }
+})
+
 test('project creation stays discoverable and explains an incompatible signer', async ({ browser, baseURL }) => {
   const { context } = await signedDevice(browser, baseURL!, false)
   try {

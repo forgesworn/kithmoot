@@ -1,5 +1,6 @@
 import { confirmAction } from './confirm-action.js'
 import { neverLeft, type PendingSend, type PendingSends } from './pending-sends.js'
+import { artworkCards, artworkMessageText } from './chat-artwork.js'
 
 /**
  * Shows this device's unsent messages at the foot of the conversation, as
@@ -49,8 +50,10 @@ export class Outbox {
     bubble.className = 'bubble'
     const text = document.createElement('p')
     text.className = 'pendingText'
-    text.textContent = item.text
+    text.textContent = artworkMessageText(item.text, item.artwork)
+    text.hidden = !text.textContent
     bubble.append(text)
+    bubble.append(artworkCards(item.artwork, undefined, item.text))
     if (item.files.length) {
       const files = document.createElement('p')
       files.className = 'pendingFiles'

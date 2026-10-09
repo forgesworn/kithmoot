@@ -4,6 +4,7 @@ import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { withExpiration } from './expiration.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
+import { normaliseArtwork, normaliseOutgoingArtwork, MAX_CHAT_ARTWORK, type ChatArtwork } from './artwork.js'
 import { compareMessages } from './message-order.js'
 import { assignmentPayload, ASSIGNMENT_CHANNEL } from './assignments.js'
 import {
@@ -134,6 +135,8 @@ export interface ChatMessage {
    * which the sender wrote as the caption. See `ChatAttachment`.
    */
   attachments?: ChatAttachment[]
+  /** Bundled stickers and GIFs, inside the encrypted chat payload only. */
+  artwork?: ChatArtwork[]
   /**
    * Whose agent the sender is, when it is one and its principal has said
    * so. Carried on the message for the reason the credential is: chat is
@@ -396,6 +399,7 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     kind: transcript ? 'transcript' : directive ? 'directive' : undefined,
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
     attachments: honestAttachments(msg.attachments),
+    artwork: normaliseOutgoingArtwork(msg.artwork),
     reaction: msg.reaction === undefined ? undefined : normaliseReaction(msg.reaction),
     owner: currentOwner,
     ownerClaim: historicalOwner ?? (claimedOwner && inspectAgentOwnershipSignature(claimedOwner, { agent: msg.participant, now: msg.sentAt }).ok ? claimedOwner : undefined),
@@ -519,7 +523,7 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     const statements = ['reaction', 'replaces', 'retracts', 'invite', 'assignment'].filter(has)
     if (statements.length > 1) return null
     if ((has('reaction') || has('retracts') || has('invite') || has('assignment')) &&
-        (has('kind') || has('attachments') || has('reply') || has('thread') || has('mentions'))) return null
+        (has('kind') || has('attachments') || has('artwork') || has('reply') || has('thread') || has('mentions'))) return null
     if (has('replaces') && (has('kind') || has('reply') || has('thread'))) return null
     if (msg.assignment) {
       const payload = assignmentPayload(msg.assignment, opts.roomId)
@@ -601,6 +605,18 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
         const kept = msg.attachments.map(normaliseAttachment).filter((a): a is ChatAttachment => a !== null)
         if (kept.length) msg.attachments = kept
         else delete msg.attachments
+      }
+    }
+
+    // Unknown catalogues remain readable, but malformed references never
+    // become URLs or silence the accompanying text.
+    if (msg.artwork !== undefined) {
+      if (!Array.isArray(msg.artwork)) delete msg.artwork
+      else {
+        if (msg.artwork.length > MAX_CHAT_ARTWORK) return null
+        const kept = msg.artwork.map(normaliseArtwork).filter((a): a is ChatArtwork => a !== null)
+        if (kept.length) msg.artwork = kept
+        else delete msg.artwork
       }
     }
 
@@ -737,6 +753,8 @@ export interface SendOptions {
   /** Files shared through Wildbloom to carry with the text. See
    *  `ChatAttachment`. The text is the caption and is still required. */
   attachments?: ChatAttachment[]
+  /** Bundled stickers and GIFs, inside the encrypted chat payload only. */
+  artwork?: ChatArtwork[]
   /** Answer this message. The thread root is worked out here: the target's
    *  own root when it is in a thread, the target itself otherwise. */
   replyTo?: Pick<ChatMessage, 'id' | 'participant' | 'thread' | 'reply'>
@@ -1058,7 +1076,7 @@ export class ChatLog {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
     }
     const reaction = sendOpts.reaction === undefined ? undefined : normaliseReaction(sendOpts.reaction)
-    if (sendOpts.reaction !== undefined && (!reaction || sendOpts.transcriptOf !== undefined || sendOpts.directive || sendOpts.attachments !== undefined)) {
+    if (sendOpts.reaction !== undefined && (!reaction || sendOpts.transcriptOf !== undefined || sendOpts.directive || sendOpts.attachments !== undefined || sendOpts.artwork !== undefined)) {
       throw new Error('invalid reaction')
     }
     // One statement per message, checked here as a caller's mistake so it
@@ -1068,7 +1086,7 @@ export class ChatLog {
     const isConversation = statements.length === 0
     if (!isConversation && sendOpts.replyTo !== undefined) throw new Error('only a message can answer another')
     if ((sendOpts.reaction !== undefined || sendOpts.retracts !== undefined || sendOpts.invite !== undefined) &&
-        (sendOpts.mentions !== undefined || sendOpts.attachments !== undefined || sendOpts.transcriptOf !== undefined || sendOpts.directive)) {
+        (sendOpts.mentions !== undefined || sendOpts.attachments !== undefined || sendOpts.artwork !== undefined || sendOpts.transcriptOf !== undefined || sendOpts.directive)) {
       throw new Error('a reaction, a retraction or an invitation carries nothing else')
     }
     if (sendOpts.replaces !== undefined && (sendOpts.transcriptOf !== undefined || sendOpts.directive)) {
@@ -1103,6 +1121,7 @@ export class ChatLog {
       })
       if (attachments.length === 0) attachments = undefined
     }
+    const artwork = normaliseOutgoingArtwork(sendOpts.artwork)
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
       participant: credential.pubkey,
@@ -1119,6 +1138,7 @@ export class ChatLog {
       ...(reaction ? { reaction } : {}),
       ...this.#sentAt(),
       ...(attachments ? { attachments } : {}),
+      ...(artwork ? { artwork } : {}),
       ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
       ...(this.#opts.ownerClaim ? { ownerClaim: this.#opts.ownerClaim } : {}),
       ...(reply ? { reply } : {}),

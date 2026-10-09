@@ -28,6 +28,7 @@
 import type { Event } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
+import { MAX_CHAT_ARTWORK, normaliseArtwork, type ChatArtwork } from '../../src/artwork.js'
 
 export type PendingState = 'holding' | 'waiting' | 'sending' | 'refused' | 'unknown' | 'moved'
 
@@ -39,6 +40,7 @@ export interface PendingSend {
   channel: string
   text: string
   files: string[]
+  artwork?: ChatArtwork[]
   event: Event
   state: PendingState
   /** Publishes the event. Absent on a row put back after a reload until
@@ -98,7 +100,7 @@ export function stateAfter(error: unknown): PendingState {
   return 'unknown'
 }
 
-interface Kept { id: string; channel: string; text: string; files: string[]; event: Event; state: PendingState; editable?: boolean }
+interface Kept { id: string; channel: string; text: string; files: string[]; artwork?: ChatArtwork[]; event: Event; state: PendingState; editable?: boolean }
 
 /** States in which nothing of the message has reached any relay, so taking
  *  it back leaves no trace. */
@@ -217,6 +219,8 @@ export class PendingSends {
       if (!k || typeof k.id !== 'string' || !k.event || this.#items.has(k.id)) continue
       const state: PendingState = k.state === 'moved' ? 'moved' : k.state === 'refused' ? 'refused' : k.state === 'unknown' ? 'unknown' : 'waiting'
       const item: PendingSend = { id: k.id, roomId, channel: k.channel, text: k.text, files: Array.isArray(k.files) ? k.files : [], event: k.event, state, durable: true, attempts: 0, ...(k.editable === true ? { editable: true } : {}) }
+      const artwork = (Array.isArray(k.artwork) ? k.artwork : []).slice(0, MAX_CHAT_ARTWORK).flatMap(raw => normaliseArtwork(raw) ?? [])
+      if (artwork.length) item.artwork = artwork
       this.#items.set(k.id, item)
       restored.push(item)
     }
@@ -290,7 +294,7 @@ export class PendingSends {
 
   #persist(roomId: string): void {
     const kept: Kept[] = this.items(roomId).filter(item => item.durable)
-      .map(({ id, channel, text, files, event, state, editable }) => ({ id, channel, text, files, event, state: state === 'sending' ? 'unknown' : state === 'holding' ? 'waiting' : state, ...(editable ? { editable } : {}) }))
+      .map(({ id, channel, text, files, artwork, event, state, editable }) => ({ id, channel, text, files, ...(artwork?.length ? { artwork } : {}), event, state: state === 'sending' ? 'unknown' : state === 'holding' ? 'waiting' : state, ...(editable ? { editable } : {}) }))
       .slice(-MAX_KEPT)
     try {
       if (kept.length) this.#opts.store.set(PREFIX + roomId, JSON.stringify(kept))
