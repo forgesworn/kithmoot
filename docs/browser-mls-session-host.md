@@ -1,7 +1,8 @@
 # Browser MLS session host (P3-03c)
 
-This is the session persistence boundary for browser MLS rooms. It has no app,
-room or network caller and is not production enabled. It follows the shared
+This is the session persistence boundary for browser MLS rooms. Its development-only room caller is described in
+[browser room operations](browser-mls-room-operations.md). It has no app
+or network caller and is not production enabled. It follows the shared
 [Vennel driver contract](https://github.com/forgesworn/vennel/blob/main/docs/vmls-driver.md)
 and uses the existing pinned WASM and coordinated persona store.
 
@@ -11,7 +12,9 @@ and uses the existing pinned WASM and coordinated persona store.
 one persona Web Lock, the coordinator reconciles any uncertain candidate and
 freshly checks the witness before the host opens a snapshot. The saved snapshot,
 opened engine and witnessed session generation must agree exactly; the witness
-subject's sequence is not a session generation. No live session is cached.
+subject's sequence is not a session generation. No idle live session is cached. `signedStep` owns one bounded pending handle
+across consent, then checks exact snapshot bytes and generation in a fresh
+transaction before completion.
 
 A synchronous engine call supplies its next snapshot and provisional result.
 The host checks the session id and generation, seals the snapshot through the
@@ -69,13 +72,9 @@ acceptance, Android/browser composition or physical-device acceptance.
 
 ## Remaining before browser rooms
 
-- Connect current device credentials and typed signing to owned, one-shot
-  pending create/join/update operations; revalidate account, device and exact
-  snapshot after asynchronous signing. The generic host does not provide that
-  ceremony or an arbitrary snapshot import API.
-- Add the room store, including accepted plaintext/history and room metadata
-  committed with receive snapshots before acknowledging fetched records.
-  Provisional event returns alone do not recover chat history after a crash.
+- Typed create/Update and atomic room history now exist in the separately
+  reviewed [room operations](browser-mls-room-operations.md). Typed join,
+  membership operations and app consent wiring remain open.
 - Implement the strict box client and driver: capabilities on open and every
   reply, installation comparison, Gap fetching, exact outbox ordering, signed
   receipt checks, lost-reply/status reconciliation, and privacy/offline policy.

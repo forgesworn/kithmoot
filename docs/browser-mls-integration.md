@@ -189,8 +189,10 @@ review above. It has no production or room caller yet.
 The [browser session host](browser-mls-session-host.md) now connects real engine
 snapshots to the coordinator: exact generations, acknowledgement under the
 writer lock, withheld effects through cleanup, durable outbox recovery and
-witnessed session-id tombstones. It has no app or network caller. Room history,
-typed pending operations, the box client/driver and room acceptance remain open.
+witnessed session-id tombstones. It has no app or network caller. The subsequent
+[room operations](browser-mls-room-operations.md) add typed create/Update and
+atomic metadata/history persistence. Typed join, the box client/driver, app
+wiring and room acceptance remain open.
 
 ## Remaining integration and acceptance
 
@@ -204,7 +206,7 @@ typed pending operations, the box client/driver and room acceptance remain open.
 3. Expand full-app account/mode-transition acceptance against real Bothy.
    The pairing and pending/fenced controls now have a disposable real-daemon
    lab; the app host's lifecycle wiring still has separate offline acceptance.
-4. The MLS room store, driver and box client: installation checks on open and
+4. Complete room operations and connect the driver and box client: installation checks on open and
    every reply, watched Gap mailboxes, exact witnessed generations before
    commit acknowledgement or network/plaintext release, and offline drafts.
 5. Complete the remaining real-box/physical acceptance and obtain a fresh
