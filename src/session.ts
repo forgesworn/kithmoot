@@ -1,6 +1,7 @@
 import { getPublicKey } from 'nostr-tools/pure'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
+import { requestFreshRootEpoch } from './fresh-epoch.js'
 import { randomFraction } from './random.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { credentialSeal, generateSealKey, newerCredential } from './seal.js'
@@ -331,6 +332,10 @@ export interface RoomSessionBaseOptions {
    * the rekey events a relay replays before deciding.
    */
   expectedEpoch?: number
+  /** Live persistent admission requires a fresh pinned-root desk answer even
+   * at epoch zero. No member grant or replay completion can release this gate. */
+  requireFreshEpoch?: boolean
+  admissionSignal?: AbortSignal
   /** How long to wait for replayed rekeys when `expectedEpoch` is unknown,
    *  in milliseconds. Zero in tests. */
   epochSettleMs?: number
@@ -676,6 +681,9 @@ export class RoomSession {
   #renewalTimer?: ReturnType<typeof setTimeout>
   #left = false
   #rekeying = false
+  readonly #admissionAbort = new AbortController()
+  readonly #admissionTransport: RelayTransport
+  #freshEpochConfirmed = false
   /**
    * When each remote device was last HEARD from, by this device's own clock.
    *
@@ -760,6 +768,22 @@ export class RoomSession {
   #refusedWhileJoining?: EpochRefusal
 
   constructor(opts: RoomSessionOptions) {
+    if (opts.requireFreshEpoch && !opts.authority) throw new Error('fresh epoch admission needs a pinned authority')
+    this.#admissionTransport = opts.transport
+    if (opts.requireFreshEpoch) {
+      const raw = opts.transport
+      opts = { ...opts, transport: {
+        publish: event => {
+          if (!this.#freshEpochConfirmed || this.#left) return Promise.reject(new Error('room authority has not confirmed admission'))
+          return raw.publish(event)
+        },
+        subscribe: (filters, onEvent, onEose) => raw.subscribe(filters, onEvent, onEose),
+        close: () => raw.close(),
+        ...(raw.rekey ? { rekey: (key: Uint8Array) => raw.rekey!(key) } : {}),
+        ...(raw.describe ? { describe: () => raw.describe!() } : {}),
+        ...(raw.setRelays ? { setRelays: (entries: Parameters<NonNullable<RelayTransport['setRelays']>>[0]) => raw.setRelays!(entries) } : {}),
+      } }
+    }
     const { roomId, roomKey } = deriveRoom(opts.secret)
     this.roomId = roomId
     this.#roomKey = roomKey
@@ -942,6 +966,19 @@ export class RoomSession {
   }
 
   async join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+    if (!this.#opts.requireFreshEpoch) return this.#join(tracks, claims)
+    const signal = this.#opts.admissionSignal
+    const cancel = () => { void this.leave() }
+    signal?.addEventListener('abort', cancel, { once: true })
+    try {
+      await this.#join(tracks, claims)
+      if (this.#left || signal?.aborted) throw new Error('room admission cancelled')
+    } catch (error) { await this.leave(); throw error }
+    finally { signal?.removeEventListener('abort', cancel) }
+  }
+
+  async #join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+    if (this.#left || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
     if (this.#ended()) throw new Error(CONFERENCE_ENDED_MESSAGE)
     if (this.#opts.policy) {
       const verdict = evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now(), this.roomId)
@@ -986,6 +1023,8 @@ export class RoomSession {
         const kept = await this.#opts.archive?.read({ kind: KINDS.ROOM_REKEY, d: this.roomId, limit: 1_000 }).catch(() => [])
         for (const event of kept ?? []) this.#ingestRekey(event)
         await this.#settleEpoch(replayed)
+        if (this.#left || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+        this.#freshEpochConfirmed = true
       } catch (err) {
         this.#unsubRekey?.()
         this.#unsubRekey = undefined
@@ -1390,6 +1429,32 @@ export class RoomSession {
    * behind it, say nothing and get on.
    */
   async #settleEpoch(replayed: Promise<void>): Promise<void> {
+    if (this.#opts.requireFreshEpoch) {
+      this.#drainRekeys()
+      if (this.#refusedWhileJoining) throw new EpochRefusedError(this.#refusedWhileJoining)
+      const floor = () => Math.max(this.#epoch.epoch, this.#opts.expectedEpoch ?? 0, ...this.#pendingRekeys.keys())
+      try {
+        const grant = await requestFreshRootEpoch({ transport: this.#admissionTransport, roomId: this.roomId,
+          authority: this.#opts.authority!, deviceSk: this.#opts.deviceSk, roomKey: this.#roomKey,
+          credential: this.#self!.credential, proof: this.#opts.proof, now: this.#now, floor,
+          timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
+          expiresAt: this.#opts.endsAt, sealSks: () => this.#sealSks(),
+          signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])] })
+        if (this.#left || this.#opts.admissionSignal?.aborted || grant.epoch.epoch < floor()) throw new Error('room admission changed while awaiting authority')
+        if (grant.removed.includes(this.participant)) throw new EpochRefusedError('removed')
+        if (grant.epoch.epoch === this.#epoch.epoch && grant.epoch.epoch > 0 &&
+            deriveEpoch(grant.epoch as RoomEpoch).id !== this.#epoch.id) throw new Error('room authority returned a conflicting epoch key')
+        for (const p of grant.removed) this.#removed.add(p)
+        if (grant.members) this.#members = new Set(grant.members)
+        if (grant.epoch.epoch > this.#epoch.epoch) this.#moveToEpoch(grant.epoch as RoomEpoch,
+          { epoch: grant.epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() }, grant.passed ?? [])
+        for (const n of this.#pendingRekeys.keys()) if (n <= this.#epoch.epoch) this.#pendingRekeys.delete(n)
+      } catch (error) {
+        if (error instanceof EpochRefusedError && error.refused !== 'unknown') throw error
+        throw new EpochUnreachableError(error)
+      }
+      return
+    }
     const expected = this.#opts.expectedEpoch
     if (expected === undefined) {
       const settle = this.#opts.epochSettleMs ?? DEFAULT_EPOCH_SETTLE_MS
@@ -2884,6 +2949,7 @@ export class RoomSession {
    * Everything else here is immediate.
    */
   leave(): Promise<void> {
+    this.#admissionAbort.abort()
     // The last thing this device says is an entry claiming nothing,
     // publishing nothing, and marked `left`. That releases a singular role
     // and takes the tile off everybody's screen at once, rather than making
