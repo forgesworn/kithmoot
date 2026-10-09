@@ -42,6 +42,26 @@ describe('durable live keeper lifecycle', () => {
     })).toBe(true)
     await j.close()
   })
+  it('checkpoints room metadata without allowing an epoch or lifecycle change', async () => {
+    const s = storage(), j = LiveKeeperJournal.create(s.open(), { now: () => NOW })
+    const state = j.snapshot(), member = getPublicKey(generateSecretKey())
+    await j.checkpoint({ ...state, members: [member], channels: ['radio'] })
+    expect(j.snapshot().members).toEqual([member])
+    for (const patch of [{ secret: generateSecretKey() }, { inviterSk: generateSecretKey() },
+      { bearer: generateSecretKey() }, { epoch: 1, epochSecret: generateSecretKey() },
+      { removed: [member] }, { closed: true }, { destruct: true as const }, { endsAt: NOW + 100 }]) {
+      await expect(j.checkpoint({ ...j.snapshot(), ...patch })).rejects.toThrow()
+    }
+    const change = transition(j.snapshot())
+    await j.prepareRekey(change.event, change.next)
+    await expect(j.checkpoint(j.snapshot())).rejects.toThrow(/pending/)
+    await j.close()
+    const back = LiveKeeperJournal.open(s.open(), () => NOW)
+    expect(back.snapshot().channels).toEqual(['radio'])
+    expect(back.pendingEvents()[0]!.id).toBe(change.event.id)
+    await back.close()
+  })
+
   it('creates its own room and reopens, refusing missing, legacy, malformed and conflicting state', async () => {
     const s = storage(), j = LiveKeeperJournal.create(s.open(), { relays: ['wss://relay.example/'], now: () => NOW })
     const state = j.snapshot()
