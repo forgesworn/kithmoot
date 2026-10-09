@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 
 test('the app exposes witness preparation only in development preview and retains it safely on sign-out', async ({ context, page, baseURL }, info) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
   const secret = generateSecretKey(), pubkey = getPublicKey(secret), production = info.project.name === 'production'
   await context.exposeFunction('mlsTestPublicKey', () => pubkey)
   await context.exposeFunction('mlsTestSign', (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, secret))
@@ -30,6 +32,7 @@ test('the app exposes witness preparation only in development preview and retain
     await expect(page.locator('#mlsWitnessSettingsOpen')).toBeHidden()
     await expect(page.locator('#mlsWitnessSettings')).toHaveCount(0)
     expect(mlsRequests).toEqual([])
+    expect(pageErrors).toEqual([])
     return
   }
   await page.locator('#mlsWitnessSettingsOpen').click()
@@ -57,5 +60,6 @@ test('the app exposes witness preparation only in development preview and retain
   await page.locator('#mlsWitnessClose').click(); await page.locator('#openAppSettings').click(); await page.locator('#forgetBrowser').click()
   await expect(page.locator('#actionDialog')).toBeVisible(); await page.locator('#actionConfirm').click()
   await expect(page.locator('#signOut')).toBeHidden()
+  expect(pageErrors).toEqual([])
   expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.') || k.startsWith('signet:login.')))).toEqual([])
 })

@@ -177,14 +177,22 @@ review does not authorise production enablement or close browser integration.
   Bothy process/SQLite witness on a loopback WebPKI relay. Mutations still use
   synthetic vault/session records, not MLS room messages. Typecheck passes.
 
+## Coordinated typed vault follow-up
+
+The [coordinated vault implementation](browser-mls-coordinated-vault.md) adds
+explicit legacy transfer, witnessed credential/policy/journal changes and typed
+box authentication. Its review and validation are separate from the foundation
+review above. It has no production or room caller yet.
+
 ## Remaining integration and acceptance
 
 1. Complete real witness acceptance and security review before enabling the
    development-preview enrolment/recovery controls in production. MLS room use
    remains unavailable; the controls alone do not close browser integration.
-2. Move all typed vault mutations, consent, credentials and journals under the
-   coordinator. Add the contracted typed box-request signer. Keep account
-   generations, cross-tab invalidation and retired-key tombstones enforced.
+2. Review and accept the coordinated typed vault follow-up, then connect its
+   consent and credential flows to the app. Its API now covers migration,
+   journalled leaf signing and typed box requests; full-app and real-witness
+   acceptance remain open.
 3. Expand full-app account/mode-transition acceptance against real Bothy.
    The pairing and pending/fenced controls now have a disposable real-daemon
    lab; the app host's lifecycle wiring still has separate offline acceptance.
