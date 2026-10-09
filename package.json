@@ -41,7 +41,7 @@
   "scripts": {
     "brand:build": "node scripts/build-brand-assets.mjs",
     "brand:site": "node scripts/build-site-brand.mjs",
-    "build": "node scripts/check-link-web.mjs && npm run build:context && vite build --config app/vite.config.ts && node scripts/check-no-telemetry.mjs app/dist",
+    "build": "node scripts/check-link-web.mjs && node scripts/check-vmls-wasm.mjs && npm run build:context && vite build --config app/vite.config.ts && node scripts/check-no-telemetry.mjs app/dist",
     "build:lib": "npm run build:context && tsc -p tsconfig.json",
     "prepack": "npm run build:lib",
     "demo": "vite --config app/vite.config.ts --host",
