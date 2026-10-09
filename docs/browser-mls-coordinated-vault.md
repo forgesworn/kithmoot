@@ -19,7 +19,9 @@ Identity signing and consent prompts run outside the writer lock. The vault
 reopens and checks the device, credential, account and approval after those
 awaits. Leaf approval, signature and journal decision form one candidate.
 Nothing returns as a successful signature until that candidate is promoted.
-Denials are also covered writes. A lost advance reply returns `witness-pending`;
+Denials are also covered writes. Release and later reply acceptance recheck
+the operation deadline and binding/device-credential expiry; a slow successful
+commit can retain its journal while withholding an expired signature. A lost advance reply returns `witness-pending`;
 a retry reconciles and reads the exact promoted decision before doing new work.
 
 Each vault instance has an unpredictable boot nonce. Journal entries bind that
@@ -52,13 +54,15 @@ durable revision under the persona lock and checks the confirming account
 context. Restart, a different tab's write, pending witness work or explicit
 invalidation removes that authority. It cannot stage a write or yield session
 marks. A queued operation cannot resurrect an earlier confirmation during
-cleanup. Covered leaf signatures and future MLS operations still require
+cleanup, and an in-flight local read rechecks its exact confirmation token
+after every release boundary. Covered leaf signatures and future MLS operations still require
 `transact`, never this local confirmation path.
 
 Within one vault lifetime, repeated identical requests advance their timestamp
 by one second, at most 30 seconds ahead of the vault clock. The bounded timestamp
 cache refuses new live entries rather than evicting one and reusing its event
-id. Like Android's in-memory cache, separate tabs or a restart can produce an
+id. A lifetime clock floor holds signing if the clock regresses, including
+after an earlier cache entry has expired. Like Android's in-memory cache, separate tabs or a restart can produce an
 already-used request id; the box's replay refusal remains authoritative. The
 future box client must retry with a fresh header and reconcile status after a
 lost reply or replay refusal. No timestamp cache, request header or request

@@ -64,9 +64,10 @@ export class CoordinatedMlsVault {
   readonly #generation: () => number
   readonly #signals: VaultSignals
   #bumps = 0
-  #made = new WeakMap<object, { ctx: VaultContext; request: string }>()
+  #made = new WeakMap<object, { ctx: VaultContext; request: string; validBefore: number; deadline: number }>()
   // In-memory only. Do not evict live entries: eviction could repeat an id.
   #boxTimes = new Map<string, number>()
+  #boxClockFloor = 0
   constructor(private readonly coordinator: BrowserPersonaCoordinator, options: CoordinatedVaultOptions = {}) {
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1000))
     this.#generation = options.generation ?? (() => 0)
@@ -265,10 +266,12 @@ export class CoordinatedMlsVault {
     if (first.value.ask) {
       try { decision = await consent({ ...first.value.scope }) } catch { decision = 'deny' }
     }
+    let validBefore = 0
     const answer = await this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => {
       const checked = this.#leaf(ctx, req, body, r)
       if (!checked.ok) return checked
       if (!r) return refuse('unauthorised')
+      validBefore = Math.min(r.device.credentialExpiresAt, readUnsignedBinding(body).expiresAt)
       if (!sameScope(checked.value, first.value.scope)) return refuse('stale')
       const earlier = this.#earlier(ctx, req, r)
       if (earlier) return this.#replay(ctx, req, body, r, checked.value, earlier)
@@ -290,7 +293,12 @@ export class CoordinatedMlsVault {
       await saveRecord(tx, r)
       return outcome.ok ? ok(Object.freeze({ v: 1 as const, operation: req.operation, digest: req.digest, device: r.device.device, signature: outcome.signature })) : refuse('denied')
     }))
-    if (answer.ok) this.#made.set(answer.value, { ctx, request: leafKey(req) })
+    if (answer.ok) {
+      // A signature may be durably journalled before a slow advance/cleanup
+      // crosses its expiry. Keep that decision, but release no expired reply.
+      if (!this.#live(validBefore, req.expires_at)) return refuse('expired')
+      this.#made.set(answer.value, { ctx, request: leafKey(req), validBefore, deadline: req.expires_at })
+    }
     return answer
   }
   acceptSignReply(req: SignLeafBindingRequest, reply: unknown): VaultResult<SignLeafBindingReply> {
@@ -302,11 +310,16 @@ export class CoordinatedMlsVault {
     try { return schnorr.verify(hexToBytes(r.signature), hexToBytes(req.digest), hexToBytes(r.device)) ? ok(r) : refuse('unauthorised') }
     catch { return refuse('unauthorised') }
   }
+  #live(validBefore: number, deadline: number): boolean {
+    const now = this.#now()
+    return Number.isSafeInteger(now) && now >= 0 && now < validBefore && now <= deadline
+  }
   #accept(request: string, reply: unknown): VaultResult<void> {
     const made = typeof reply === 'object' && reply !== null ? this.#made.get(reply) : undefined
     if (!made) return refuse('unauthorised')
     if (!this.#current(made.ctx)) return refuse('stale')
-    return made.request === request ? ok(undefined) : refuse('replay')
+    if (made.request !== request) return refuse('replay')
+    return this.#live(made.validBefore, made.deadline) ? ok(undefined) : refuse('expired')
   }
 
   async signBoxRequestV1(ctx: VaultContext, input: unknown, consent: ConsentPrompt): Promise<VaultResult<BoxReply>> {
@@ -327,16 +340,21 @@ export class CoordinatedMlsVault {
       const saved = await this.approve(ctx, first.value.scope)
       if (!saved.ok) return saved
     }
+    let validBefore = 0, deadline = 0
     const answer = await this.#look(ctx, tx => this.#with(tx, ctx.persona, async r => {
       const now = this.#now(), refusal = this.#device(r, now)
       if (refusal || !r) return refuse(refusal ?? 'unauthorised')
       if (r.device.device !== first.value.scope.device || !r.policy.approved.some(s => sameScope(s, first.value.scope))) return refuse('unauthorised')
+      if (now < this.#boxClockFloor) return refuse('busy')
+      this.#boxClockFloor = now
+      validBefore = r.device.credentialExpiresAt
       const key = ctx.persona + '|' + r.device.device + '|' + boxKey(req)
       for (const [k, at] of this.#boxTimes) if (at < now) this.#boxTimes.delete(k)
       if (!this.#boxTimes.has(key) && this.#boxTimes.size >= 1024) return refuse('busy')
       const created_at = Math.max(now, (this.#boxTimes.get(key) ?? now - 1) + 1)
       if (created_at > now + 30) return refuse('busy')
       this.#boxTimes.set(key, created_at)
+      deadline = created_at + 120
       const scalar = hexToBytes(r.device.scalar)
       try {
         const event = finalizeEvent({ kind: 27235, created_at, content: '', tags: [
@@ -346,7 +364,11 @@ export class CoordinatedMlsVault {
         return ok(Object.freeze({ v: 1 as const, device: r.device.device, authorization: 'Nostr ' + base64Encode(new TextEncoder().encode(JSON.stringify(event))) }))
       } finally { scalar.fill(0) }
     }))
-    if (answer.ok) this.#made.set(answer.value, { ctx, request: boxKey(req) })
+    if (answer.ok) {
+      if (!this.#live(validBefore, deadline)) return refuse('expired')
+      if (this.#now() < this.#boxClockFloor) return refuse('busy')
+      this.#made.set(answer.value, { ctx, request: boxKey(req), validBefore, deadline })
+    }
     return answer
   }
   acceptBoxReply(req: BoxRequest, reply: unknown): VaultResult<BoxReply> {

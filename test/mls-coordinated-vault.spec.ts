@@ -242,3 +242,44 @@ test('substituted leaf digest, unsupported version and expired requests refuse',
   }
   expect(f.witness.advances).toBe(1)
 })
+for (const mode of ['invalidate', 'queued', 'cleanup'] as const) test(`a box header cannot outlive confirmation invalidation: ${mode}`, async ({ context }) => {
+  const f = await enrolled(context)
+  expect((await run(f.page, 'M.box()')).answer.ok).toBe(true)
+  expect((await run(f.page, `M.confirmationRace('${mode}')`)).answer).toEqual({ ok: false, refusal: 'witness-pending' })
+})
+for (const mode of ['advance', 'cleanup'] as const) test(`expiry during ${mode} keeps the journal but withholds its signature`, async ({ context }) => {
+  const f = await enrolled(context)
+  expect((await run(f.page, `M.expireDuringCommit('${mode}')`)).answer).toEqual({ ok: false, refusal: 'expired' })
+  expect((await run(f.page, 'M.localRecord()')).journal).toBe(1)
+  expect(f.witness.advances).toBe(2)
+})
+test('accepting an earlier valid reply rechecks the operation deadline', async ({ context }) => {
+  const f = await enrolled(context)
+  expect((await run(f.page, 'M.sign()')).answer.ok).toBe(true)
+  await run(f.page, 'M.advanceClock(301)')
+  expect(await run(f.page, 'M.accept()')).toEqual({ ok: false, refusal: 'expired' })
+})
+test('a backwards clock cannot reuse an evicted request event id', async ({ context }) => {
+  const f = await enrolled(context), first = await run(f.page, 'M.box()')
+  await run(f.page, 'M.advanceClock(1)')
+  const other = { v: 1, box: '78'.repeat(32), method: 'POST', path: '/vmls/v1/ack', payload: '12'.repeat(32) }
+  expect((await f.page.evaluate(r => (window as any).M.box(r), other)).answer.ok).toBe(true)
+  await run(f.page, 'M.advanceClock(-1)')
+  expect((await run(f.page, 'M.box()')).answer).toEqual({ ok: false, refusal: 'busy' })
+  await run(f.page, 'M.advanceClock(1)')
+  const recovered = await run(f.page, 'M.box()')
+  expect(recovered.answer.ok).toBe(true); expect(recovered.event.id).not.toBe(first.event.id)
+})
+test('binding expiry during commit withholds a reply before its RPC deadline', async ({ context }) => {
+  const f = await enrolled(context)
+  await run(f.page, 'M.request(30)')
+  expect((await run(f.page, "M.expireDuringCommit('advance', 31)")).answer).toEqual({ ok: false, refusal: 'expired' })
+  expect((await run(f.page, 'M.localRecord()')).journal).toBe(1)
+})
+test('the enrolled credential expiry still binds a longer credential in the request', async ({ context }) => {
+  const f = await fixture(context)
+  expect((await run(f.page, 'M.enrol(false, 45)')).ok).toBe(true)
+  await run(f.page, 'M.longerBindingCredential()')
+  expect((await run(f.page, "M.expireDuringCommit('advance', 46)")).answer).toEqual({ ok: false, refusal: 'expired' })
+  expect((await run(f.page, 'M.localRecord()')).journal).toBe(1)
+})

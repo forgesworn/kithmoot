@@ -9,6 +9,7 @@ import { loadMlsEngine } from '../app/src/mls-engine.js'
 import type { WitnessAnswer } from '../app/src/mls-witness-link.js'
 import { encodeUnsignedBinding } from './vmls-encode.js'
 import { bindingDigest } from '../src/vmls/binding.js'
+import { createDeviceCredential } from '../src/credential.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
 
@@ -40,13 +41,13 @@ export async function prepare(route: PersonaWitnessRoute) {
     return { digest: bytesToHex(genesis.digest), persona }
   })
 }
-export async function enrol(replace = false) {
-  const answer = await vault.enrol(ctx(), identity, clock + 7 * 86400, { replace })
+export async function enrol(replace = false, lifetime = 7 * 86400) {
+  const answer = await vault.enrol(ctx(), identity, clock + lifetime, { replace })
   if (answer.ok) deviceId = answer.value.device
   return answer
 }
-export function request() {
-  const body = encodeUnsignedBinding({ leafId: randomBytes(32), signatureKey: randomBytes(32), credential, device: deviceId, expiresAt: clock + 86400, homeBox: hexToBytes(boxId) })
+export function request(lifetime = 86400) {
+  const body = encodeUnsignedBinding({ leafId: randomBytes(32), signatureKey: randomBytes(32), credential, device: deviceId, expiresAt: clock + lifetime, homeBox: hexToBytes(boxId) })
   return lastRequest = { v: 1, operation: bytesToHex(randomBytes(32)), body: base64Encode(body), digest: bytesToHex(bindingDigest(body)), expires_at: clock + 300 }
 }
 export async function sign(req = lastRequest, decision: 'approve' | 'deny' = 'approve') {
@@ -152,4 +153,50 @@ export async function malformedRecord() {
 export async function typedClear() {
   const installation = await store.withPersona(persona, async s => (await s.marker())!.installation)
   return vault.clear(ctx(), installation)
+}
+export async function confirmationRace(mode: 'invalidate' | 'queued' | 'cleanup') {
+  const open = LockedPersonaStore.prototype.openObject, close = LockedPersonaStore.prototype.close
+  let opened = 0, closed = 0, entered!: () => void, finish!: () => void
+  const waiting = new Promise<void>(r => { entered = r }), release = new Promise<void>(r => { finish = r })
+  LockedPersonaStore.prototype.openObject = async function (...args) {
+    const result = await open.apply(this, args)
+    if (mode !== 'cleanup' && ++opened === 2) { entered(); await release }
+    return result
+  }
+  LockedPersonaStore.prototype.close = async function () {
+    await close.call(this)
+    if (mode === 'cleanup' && ++closed === 2) { entered(); await release }
+  }
+  let queued: Promise<unknown> | undefined
+  try {
+    const signing = box()
+    await waiting
+    if (mode === 'queued') queued = host.status(persona)
+    else host.invalidate(persona)
+    finish()
+    const answer = await signing
+    await queued
+    return answer
+  } finally { finish(); LockedPersonaStore.prototype.openObject = open; LockedPersonaStore.prototype.close = close }
+}
+export async function expireDuringCommit(mode: 'advance' | 'cleanup', seconds = 301) {
+  const exchange = window.witnessExchange, close = LockedPersonaStore.prototype.close
+  let changed = false, closes = 0
+  window.witnessExchange = async (method, request) => {
+    const reply = await exchange(method, request)
+    if (mode === 'advance' && method === 'advance' && !changed) { changed = true; clock += seconds }
+    return reply
+  }
+  LockedPersonaStore.prototype.close = async function () {
+    await close.call(this)
+    if (mode === 'cleanup' && ++closes === 2) { changed = true; clock += seconds }
+  }
+  try { return await sign() }
+  finally { window.witnessExchange = exchange; LockedPersonaStore.prototype.close = close }
+}
+export function setClock(value: number) { clock = value }
+
+export async function longerBindingCredential() {
+  credential = await createDeviceCredential({ identity, devicePubkey: deviceId, expiresAt: clock + 1000, scope: 'person', now: () => clock })
+  return request(600)
 }

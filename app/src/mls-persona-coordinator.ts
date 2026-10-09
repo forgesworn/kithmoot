@@ -58,18 +58,22 @@ export class BrowserPersonaCoordinator {
    * A restart, local write, pending exchange or fence removes confirmation. */
   async readConfirmed<T>(persona: string, read: (view: PersonaReader) => Promise<T>, current: () => boolean): Promise<CoordinationResult<T>> {
     if (!current()) return pending('stale')
+    let token: { revision: string; current: () => boolean } | undefined
+    const stillConfirmed = () => token !== undefined && this.#confirmed.get(persona) === token && token.current()
     const outcome = await this.store.withPersona<CoordinationResult<T>>(persona, async store => {
       if (!current()) return pending('stale')
       const confirmed = this.#confirmed.get(persona)
       if (!confirmed || !confirmed.current() || confirmed.revision !== await store.revision()) { this.invalidate(persona); return pending() }
+      token = confirmed
       const file = await store.read()
+      if (!stillConfirmed()) return pending()
       if (!file || file.marker.state === 'fenced' || file.data.cleared || file.data.staged !== null) { this.invalidate(persona); return pending() }
       const tx = new Transaction(store, file.data.installation, file.data.active)
       try {
         const view: PersonaReader = Object.freeze({ installation: tx.installation, readVault: tx.readVault.bind(tx), readSession: tx.readSession.bind(tx) })
         const value = await read(view)
         await tx.finish()
-        return current() ? { state: 'active', value, marks: new Map() } : pending('stale')
+        return !current() ? pending('stale') : !stillConfirmed() ? pending() : { state: 'active', value, marks: new Map() }
       } catch (error) {
         this.invalidate(persona)
         if (!(error instanceof InvalidPersonaRecord)) throw error
@@ -77,7 +81,7 @@ export class BrowserPersonaCoordinator {
         return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
       } finally { await tx.dispose() }
     })
-    return current() ? outcome : pending('stale')
+    return !current() ? pending('stale') : outcome.state === 'active' && !stillConfirmed() ? pending() : outcome
   }
   constructor(private readonly store: BrowserMlsPersonaStore, private readonly channels: PersonaWitnessChannels,
     private readonly engine: () => Promise<Engine> = loadMlsEngine) {}
