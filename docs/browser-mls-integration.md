@@ -2,7 +2,8 @@
 
 This branch implements the browser portion of Vennel's approved witness and
 MLS contract, following the existing Android integration. It is not yet wired
-to rooms or enabled in the app. Ordinary Bothy text routing remains separate.
+to MLS rooms or enabled in production. Account controls are available only in
+an explicit development preview. Ordinary Bothy text routing remains separate.
 
 ## Foundation verified
 
@@ -129,21 +130,49 @@ to rooms or enabled in the app. Ordinary Bothy text routing remains separate.
   All 147 acceptance cases pass across Chromium, Firefox and WebKit; all
   3,399 unit tests, typecheck and production build pass. A pre-existing unit
   assertion matched kind digits inside random key hex; it now inspects the
-  kind field directly. The service is not yet exposed through app controls.
+  kind field directly. That service-only checkpoint preceded the controls below.
+- The development preview now exposes local preparation, witness-only pairing,
+  keeper enrolment, explicit fresh checks, clear and exact-subject keeper
+  recovery through Settings → Connections → MLS restore protection. Opening
+  reads local state without loading MLS WASM or contacting the witness. Pairing
+  capabilities are removed from inputs immediately; commands are freshly read
+  before copying. A saved genesis is never labelled witness acceptance.
+- Account sign-in/out, restored sessions, room changes and pagehide invalidate
+  displayed data and pause dedicated connections. The host supplies account and
+  room generations; quiet rooms hold witness traffic. The controller's Tor-only
+  hold is fixture-tested, not evidence of a browser Tor carrier. UI checks are
+  informational: future MLS room effects still require coordinator transactions.
+- Cross-tab notifications contain only `{ type: 'changed' }` and invalidate the
+  other panel, including open confirmations. Clear also checks the reviewed
+  installation under the writer lock, independently of notification delivery.
+  A stale confirmation cannot erase a replacement. Sealed retirement subjects
+  are distinguished from markers whose seal is unavailable; readable malformed
+  state is retained for repair. An unregistered preparation with a lost inner
+  key can still be explicitly cleared. Browser forgetting refuses retained MLS
+  state or retirement duties across all accounts; retired tombstones are kept.
+- Use `VITE_BROWSER_MLS_PREVIEW=true npm run demo` for the development controls.
+  The build also requires Vite's development flag: an ordinary production build
+  with that environment variable still hides the entry point and excludes the
+  preview runtime. The full-app Chromium journey checks preparation, sign-out,
+  reconnect and both sides of the browser-forgetting guard, with an offline
+  test signer/relay. A separate production journey checks the disabled entry
+  point. Neither test pairs with real Bothy. Narrow-screen layout was inspected.
+- The controls checkpoint passes all 180 MLS browser cases, both full-app
+  checks, 3,399 unit tests, typecheck and the production build. The generated
+  production JavaScript was also checked for absence of the preview runtime.
+  CI now runs the app lifecycle/production gate alongside the browser suite.
 
 ## Remaining integration and acceptance
 
-1. Integrate the implemented coordinator, clear/replacement and retirement
-   operations into explicit persona enrolment and account lifecycle controls.
-   No browser MLS controls or room use are enabled by these primitives alone.
+1. Complete real witness acceptance and security review before enabling the
+   development-preview enrolment/recovery controls in production. MLS room use
+   remains unavailable; the controls alone do not close browser integration.
 2. Move all typed vault mutations, consent, credentials and journals under the
    coordinator. Add the contracted typed box-request signer. Keep account
    generations, cross-tab invalidation and retired-key tombstones enforced.
-3. Wire the implemented witness pairing/enrolment service and dedicated Link
-   lifetime to app controls, account generations and quiet/Tor-only policy.
-   Add pending, fenced and retirement/replacement UI, then prove the ceremony
-   against a real Bothy witness-only pairing slot. Enrolment commands already
-   use sealed metadata; retirement/recovery controls remain to be integrated.
+3. Prove the implemented pairing, pending/fenced UI and clear/replacement
+   ceremony against a real Bothy witness-only pairing slot. Expand actual-app
+   mode-transition and restore acceptance beyond the injected endpoint tests.
 4. The MLS room store, driver and box client: installation checks on open and
    every reply, watched Gap mailboxes, exact witnessed generations before
    commit acknowledgement or network/plaintext release, and offline drafts.
@@ -157,4 +186,6 @@ bundle nor a passing adapter test closes those gates.
 
 Focused commands: `node scripts/check-vmls-wasm.mjs`,
 `npx vitest run app/src/mls-witness-link.test.ts`,
-`npx playwright test -c playwright.mls.config.ts`, and `npm run typecheck`.
+`npx playwright test -c playwright.mls.config.ts`,
+`npm run build:lib && npx playwright test -c playwright.mls-app.config.ts`,
+and `npm run typecheck`.

@@ -4748,3 +4748,12 @@ html[data-call-docked] #mobileCall { display: none !important; }
 .participantCard p { overflow-wrap: anywhere; }
 .participantCard > .avatar { width: 4rem; height: 4rem; border-radius: 50%; object-fit: cover; }
 .participantCard button { margin: .3rem; min-height: 2.75rem; }
+
+/* Explicit MLS enrolment/recovery in the development preview. */
+#mlsWitnessSettings .mlsWitnessIdentifier { overflow-wrap: anywhere; }
+#mlsWitnessSettings fieldset { min-width: 0; margin-block: 1rem; }
+#mlsWitnessSettings input:not([type="checkbox"]),
+#mlsWitnessSettings textarea { width: 100%; box-sizing: border-box; }
+#mlsWitnessSettings textarea { resize: vertical; }
+#mlsWitnessSettings button { margin-block: .3rem; }
+#mlsWitnessSettings .profileSettingsHeader { position: sticky; top: 0; z-index: 1; background: var(--panel); padding-block: .25rem; }

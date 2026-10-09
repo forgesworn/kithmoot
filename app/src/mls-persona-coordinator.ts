@@ -42,14 +42,16 @@ export class BrowserPersonaCoordinator {
   /** Explicit local replacement. This destroys MLS object keys, not the
    * witness's registration. A known retiring duty keeps only its outer-sealed
    * writer/state/route until a fresh signed retired receipt ends it. */
-  async clear(persona: string, current: () => boolean): Promise<CoordinationHold | CoordinationFence> {
+  async clear(persona: string, current: () => boolean, expectedInstallation?: string): Promise<CoordinationHold | CoordinationFence> {
     if (!current()) return pending('stale')
     const wasm = await this.engine()
     const outcome = await this.store.withPersona<CoordinationHold | CoordinationFence>(persona, async store => {
       if (!current()) return pending('stale')
+      if (expectedInstallation !== undefined && (await store.marker())?.installation !== expectedInstallation) throw new PersonaStorageError('conflict')
       let file: PersonaSnapshot | undefined
       try { file = await store.read(true) } catch (error) {
         if (!broken(error)) throw error
+        if (!current()) return pending('stale')
         const marker = await store.fence((error as PersonaStorageError).code)
         // An unreadable outer key has already lost the writer. Preserve the
         // exact subject for explicit keeper recovery; never enrol implicitly.
@@ -58,6 +60,7 @@ export class BrowserPersonaCoordinator {
         if ((error as PersonaStorageError).code !== 'invalid') await store.erase(await store.revision())
         return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
       }
+      if (!current()) return pending('stale')
       if (!file) return pending('not-enrolled')
       if (file.data.coordinator === null) {
         await store.fence('cleared')

@@ -158,6 +158,15 @@ export class BrowserMlsPersonaStore {
     })
   }
   async close(): Promise<void> { (await this.#database)?.close(); this.#database = undefined }
+  /** Browser-wide forgetting must not strand another account's writer or
+   * retirement duty. Retired tombstones alone do not block it. */
+  async hasRetainedState(): Promise<boolean> {
+    const db = await this.#db(), tx = db.transaction(['personas', 'markers', 'keys'], 'readonly'), done = complete(tx)
+    const rows = request<number>(tx.objectStore('personas').count()), keys = request<number>(tx.objectStore('keys').count())
+    const markers = request<PersonaMarker[]>(tx.objectStore('markers').getAll())
+    const [count, keyCount, saved] = await Promise.all([rows, keys, markers, done])
+    return count > 0 || keyCount > 1 || saved.some(marker => marker?.state !== 'superseded')
+  }
   #db(): Promise<IDBDatabase> {
     return this.#database ??= new Promise<IDBDatabase>((resolve, reject) => {
       const open = this.factory.open(this.dbName, 1)
