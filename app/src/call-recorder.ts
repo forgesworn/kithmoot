@@ -55,8 +55,11 @@ export class CallRecorder {
   readonly #chunks: Blob[] = []
   readonly #maxBytes: number
   readonly #onLimit?: (reason: string) => void
+  readonly #stopped: Promise<void>
   #bytes = 0
   #limited = false
+  #elapsedMs = 0
+  #resumedAt: number | undefined
 
   constructor(options: CallRecorderOptions) {
     const mimeType = recordingMimeType()
@@ -73,6 +76,9 @@ export class CallRecorder {
     silence.connect(this.#destination)
     silence.start()
     this.#recorder = new MediaRecorder(this.#destination.stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND })
+    // Subscribe before any stop (including an automatic limit). Final data
+    // arrives asynchronously after state has already become inactive.
+    this.#stopped = new Promise(resolve => this.#recorder.addEventListener('stop', () => resolve(), { once: true }))
     this.#recorder.addEventListener('dataavailable', (event) => {
       if (!event.data.size) return
       this.#chunks.push(event.data)
@@ -82,6 +88,7 @@ export class CallRecorder {
     this.#recorder.addEventListener('error', () => this.#limit('the browser stopped it'))
     if (this.#context.state !== 'running') void this.#context.resume().catch(() => {})
     this.#recorder.start(10_000)
+    this.#resumedAt = performance.now()
   }
 
   /** Bytes recorded so far. */
@@ -91,6 +98,37 @@ export class CallRecorder {
 
   get recording(): boolean {
     return this.#recorder.state === 'recording'
+  }
+
+  get paused(): boolean {
+    return this.#recorder.state === 'paused'
+  }
+
+  get canPause(): boolean {
+    return typeof this.#recorder.pause === 'function' && typeof this.#recorder.resume === 'function'
+  }
+
+  /** Captured time. Paused intervals are omitted from the exported timeline. */
+  get elapsedMs(): number {
+    return this.#elapsedMs + (this.#resumedAt === undefined ? 0 : performance.now() - this.#resumedAt)
+  }
+
+  pause(): void {
+    if (!this.canPause || !this.recording) return
+    this.#recorder.pause()
+    this.#holdClock()
+  }
+
+  resume(): void {
+    if (!this.canPause || !this.paused) return
+    this.#recorder.resume()
+    this.#resumedAt = performance.now()
+  }
+
+  #holdClock(): void {
+    if (this.#resumedAt === undefined) return
+    this.#elapsedMs += performance.now() - this.#resumedAt
+    this.#resumedAt = undefined
   }
 
   /**
@@ -119,11 +157,11 @@ export class CallRecorder {
 
   /** Stop, and hand back everything recorded. */
   async stop(): Promise<Blob> {
+    this.#holdClock()
     if (this.#recorder.state !== 'inactive') {
-      const stopped = new Promise<void>(resolve => this.#recorder.addEventListener('stop', () => resolve(), { once: true }))
       this.#recorder.stop()
-      await stopped
     }
+    await this.#stopped
     this.setTracks([])
     void this.#context.close().catch(() => {})
     return new Blob(this.#chunks, { type: this.mimeType })
@@ -132,6 +170,7 @@ export class CallRecorder {
   #limit(reason: string): void {
     if (this.#limited) return
     this.#limited = true
+    this.#holdClock()
     if (this.#recorder.state !== 'inactive') this.#recorder.stop()
     this.#onLimit?.(reason)
   }

@@ -62,11 +62,13 @@
         <div id="callDock" class="callDock" role="region" aria-label="Your call" hidden>
           <span id="callDockText" class="callDockText" aria-live="polite"></span>
           <span id="callDockRecordingNotice" role="status" hidden></span>
+          <span id="callDockRecordingElapsed" aria-live="off" hidden></span>
           <span class="callDockActions">
             <button id="callDockMic" type="button" aria-pressed="false">Microphone</button>
             <button id="callDockCamera" type="button" aria-pressed="false">Camera</button>
             <button id="callDockScreen" type="button" aria-pressed="false">Share screen</button>
             <button id="callDockRecording" type="button" hidden>Record call</button>
+            <button id="callDockRecordingPause" type="button" hidden>Pause recording</button>
             <button id="callDockBack" type="button" class="primary">Back to the call</button>
             <button id="callDockLeave" type="button" class="danger">Leave call</button>
           </span>
@@ -338,6 +340,8 @@
         <div id="recordingBanner" class="recordingBanner" role="status" hidden>
           <span class="recordingDot" aria-hidden="true"></span>
           <span id="recordingBannerText"></span>
+          <span id="recordingElapsed" aria-live="off" hidden></span>
+          <button id="recordingPause" type="button" hidden>Pause recording</button>
           <button id="recordingStop" type="button" class="danger" hidden>Stop recording</button>
         </div>
         <!-- A finished recording on this device, waiting for its owner to

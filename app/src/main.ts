@@ -7409,6 +7409,7 @@ interface ActiveRecording {
   authoritySk: Uint8Array
   notice: SignedRecording
   timer: ReturnType<typeof setInterval>
+  elapsedTimer: ReturnType<typeof setInterval>
   discarded?: boolean
 }
 /** The recording this device is making, if it is making one. */
@@ -7607,7 +7608,7 @@ async function startRecording(): Promise<void> {
   if (!recordingMimeType()) throw new Error('This browser cannot record audio.')
   if (!await confirmRoomAction({
     title: `Record the call in ${callOrigin(s)?.roomName ?? 'this room'}?`,
-    message: 'Everybody in the room is told now, and anybody joining is told before they join. A recording notice stays up for everybody until you stop. What is recorded is the call\'s sound: every voice you can hear, and yours. It stays on this device until you choose to share it.',
+    message: 'Everybody in the room is told now, and anybody joining is told before they join. A recording notice stays up for everybody until you stop, including while paused. What is recorded is the call\'s sound: every voice you can hear, and yours. Paused intervals are omitted from the saved audio. It stays on this device until you choose to share it.',
     confirmLabel: 'Start recording',
   })) return
   if (mediaSession() !== s || !s.call || s.closed || activeRecording) return
@@ -7635,7 +7636,10 @@ async function startRecording(): Promise<void> {
       .then(() => adoptRecording(s, signed, nowSeconds()))
       .catch(() => { /* The next repost tries again; the notice shows as unconfirmed meanwhile. */ })
   }, RECORDING_REPOST_SECONDS * 1000)
-  activeRecording = { recorder, session: s, authoritySk, notice: signed, timer }
+  const elapsedTimer = setInterval(() => {
+    if (!document.hidden && !recorder.paused) renderRecordingElapsed()
+  }, 1000)
+  activeRecording = { recorder, session: s, authoritySk, notice: signed, timer, elapsedTimer }
   feedRecorder()
   renderRecording()
   renderMeeting()
@@ -7659,6 +7663,7 @@ async function stopRecording(): Promise<void> {
   if (!active) return
   activeRecording = undefined
   clearInterval(active.timer)
+  clearInterval(active.elapsedTimer)
   const roomId = active.session.roomId
   recordingStops.add(active)
   renderRecording()
@@ -7701,6 +7706,41 @@ function clockTime(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function renderRecordingElapsed(): void {
+  const active = activeRecording
+  const seconds = Math.floor((active?.recorder.elapsedMs ?? 0) / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const elapsed = `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')} recorded`
+  for (const [id, visible] of [
+    ['recordingElapsed', !!active && active.session === session],
+    ['callDockRecordingElapsed', !!active && active.session === dockedCall?.session],
+  ] as const) {
+    const element = $(id)
+    element.hidden = !visible
+    if (visible && element.textContent !== elapsed) element.textContent = elapsed
+  }
+}
+
+function renderRecordingPause(id: string, mine: boolean): void {
+  const button = $(id) as HTMLButtonElement
+  const recorder = activeRecording?.recorder
+  button.hidden = !mine || !recorder?.canPause
+  button.textContent = recorder?.paused ? 'Resume recording' : 'Pause recording'
+  button.setAttribute('aria-pressed', String(!!recorder?.paused))
+}
+
+function toggleRecordingPause(): void {
+  const active = activeRecording
+  if (!active || active.session !== mediaSession()) return
+  try {
+    if (active.recorder.paused) active.recorder.resume()
+    else active.recorder.pause()
+    renderRecording()
+  } catch (error) {
+    setStatus(describeError(error))
+  }
+}
+
 /** The recording notice every member sees, and the finished file its
  *  owner decides about. */
 function renderRecording(): void {
@@ -7721,9 +7761,13 @@ function renderRecording(): void {
   banner.hidden = view.state === 'off'
   banner.dataset.state = view.state
   stop.hidden = !mine
+  renderRecordingPause('recordingPause', mine)
+  renderRecordingElapsed()
   if (view.state === 'on') {
     text.textContent = mine
-      ? `You are recording this call (${formatBytes(activeRecording!.recorder.bytes)} so far). Everybody in the room can see this notice.`
+      ? activeRecording!.recorder.paused
+        ? 'Your audio recording is paused. Paused time is omitted from the saved audio. Everybody still sees the recording notice.'
+        : `You are recording this call's audio (${formatBytes(activeRecording!.recorder.bytes)} so far). Everybody in the room can see this notice.`
       : `This call is being recorded, since ${clockTime(view.since)}. What is said on the call is in the recording. KithMoot cannot stop anybody recording with another app, recording or not.`
   } else if (view.state === 'unconfirmed') {
     text.textContent = `This call may still be recording: the notice was last confirmed at ${clockTime(view.lastHeard)}.`
@@ -7752,6 +7796,8 @@ function discardPendingRecording(): void {
 }
 
 $('recordingStop').addEventListener('click', () => { void stopRecording() })
+$('recordingPause').addEventListener('click', toggleRecordingPause)
+$('callDockRecordingPause').addEventListener('click', toggleRecordingPause)
 $('recordingShare').addEventListener('click', () => {
   const pending = pendingRecording
   if (!pending || session?.roomId !== pending.roomId) return
@@ -13181,7 +13227,9 @@ function renderDock(): void {
   const recordingMine = activeRecording?.session === c.session
   const notice = $('callDockRecordingNotice')
   notice.hidden = view.state === 'off'
-  notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? 'You are recording this call.' : 'This call is being recorded.'
+  notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? activeRecording!.recorder.paused ? 'Your audio recording is paused.' : 'You are recording this call.' : 'This call is being recorded.'
+  renderRecordingPause('callDockRecordingPause', !!recordingMine)
+  renderRecordingElapsed()
   const recording = $('callDockRecording')
   recording.hidden = !recordingMine && !callRecordingAuthority()
   recording.textContent = recordingMine ? 'Stop recording' : 'Record call'
