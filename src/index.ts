@@ -66,6 +66,7 @@ export type {
   MemberEpochSource,
 } from './member-epoch.js'
 export { signMeetingPolicy, verifyMeetingPolicy, signRecordingNotice, verifyRecordingNotice, canonicalSpeakers, meetingAllows, withSpeaker, withMeetingMode, recordingView, MAX_MEETING_SPEAKERS, RECORDING_REPOST_SECONDS, RECORDING_STALE_SECONDS, RECORDING_FORGET_SECONDS, HAND_TTL_SECONDS, type MeetingPolicy, type RecordingNotice, type RecordingView, type MeetingMedia } from './meeting.js'
+export { signRecordingCaptureNotice, verifyRecordingCaptureNotice, isRecordingCapture, type RecordingCapture, type RecordingCaptureNotice } from './meeting.js'
 export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, invitationRelaysFrom, withRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
 export { renameRoomOp, carryRoomNameOp, roomNameFromMessage, compareRoomNames, followRoomName, RoomNameBook, ROOM_NAME_REPOST_SECONDS, ROOM_NAME_REKEY_GRACE_SECONDS, type RoomNameOp, type RoomNameRecord, type RoomNameEpochs, type RoomNameSession, type FollowRoomNameOptions, type RoomNameFollower } from './room-name.js'
 export type {

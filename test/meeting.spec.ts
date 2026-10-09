@@ -163,6 +163,8 @@ test('a recording is announced to everybody, before joining as well as during, a
     // Somebody already on the call is told.
     await expect(b.locator('#recordingBanner')).toBeVisible()
     await expect(b.locator('#recordingBannerText')).toContainText('being recorded')
+    await expect(b.locator('#recordingBannerText')).toContainText('Ada')
+    await expect(b.locator('#recordingBannerText')).toContainText('capturing call audio')
 
     const elapsedSeconds = async () => {
       const text = await a.locator('#recordingElapsed').textContent()
@@ -188,6 +190,7 @@ test('a recording is announced to everybody, before joining as well as during, a
     await c.locator('#joinCall').click()
     await expect(c.locator('#actionDialog')).toBeVisible()
     await expect(c.locator('#actionTitle')).toHaveText('This call is being recorded')
+    await expect(c.locator('#actionDescription')).toContainText('capturing call audio')
     await c.locator('#actionCancel').click()
     await expect(c.locator('#actionDialog')).toBeHidden()
     await a.waitForTimeout(1200)

@@ -34,6 +34,24 @@ async function fixture() {
 }
 
 describe('roster events', () => {
+  it('requires exact recording capability 2 and keeps absent clients byte-compatible', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const opts = { roomId, roomKey, deviceSk }
+    const withCapability = encodeRosterEvent({ ...entry, recordingProfile: 2 }, opts)
+    expect(decodeRosterEvent(withCapability, { roomId, roomKey, now: NOW })?.recordingProfile).toBe(2)
+    for (const bad of [undefined, null, true, '2', 1, 3, {}, []]) {
+      const offered = { ...entry, recordingProfile: bad } as unknown as RosterEntry
+      const event = encodeRosterEvent(offered, opts)
+      const plaintext = JSON.parse(nip44.v2.decrypt(event.content, roomKey))
+      expect(plaintext).toEqual(JSON.parse(JSON.stringify(entry)))
+      // Exercise the decoder independently of our encoder's sanitisation.
+      const hostile = finalizeEvent({ kind: event.kind, tags: event.tags, created_at: event.created_at,
+        content: nip44.v2.encrypt(JSON.stringify(offered), roomKey) }, deviceSk)
+      const decoded = decodeRosterEvent(hostile, { roomId, roomKey, now: NOW })
+      expect(decoded).not.toBeNull()
+      expect(decoded?.recordingProfile).toBeUndefined()
+    }
+  })
   it('carries a call membership, and drops a malformed one without losing the entry', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
     const onCall: RosterEntry = { ...entry, call: { id: 'A'.repeat(32), since: NOW - 30 } }

@@ -178,6 +178,8 @@ import {
   verifyMeetingPolicy,
   signRecordingNotice,
   verifyRecordingNotice,
+  signRecordingCaptureNotice,
+  verifyRecordingCaptureNotice,
   meetingAllows,
   withSpeaker,
   withMeetingMode,
@@ -186,6 +188,7 @@ import {
   HAND_TTL_SECONDS,
   type MeetingPolicy,
   type RecordingNotice,
+  type RecordingCaptureNotice,
   signRoomRelays,
   invitationRelaysFrom,
   verifyRoomRelays,
@@ -7390,6 +7393,7 @@ interface HeardRecording extends SignedRecording { since: number; heardAt: numbe
 
 const meetings = new Map<string, SignedMeeting>()
 const recordings = new Map<string, HeardRecording>()
+const recordingCaptures = new Map<string, RecordingCaptureNotice & { sig: string }>()
 /** Raised hands in the room on screen: participant -> unix seconds raised. */
 const handsUp = new Map<string, number>()
 /** The newest hand message per participant, up or down, so an old "up"
@@ -7408,6 +7412,7 @@ interface ActiveRecording {
   session: RoomSession
   authoritySk: Uint8Array
   notice: SignedRecording
+  capture: RecordingCaptureNotice & { sig: string }
   timer: ReturnType<typeof setInterval>
   elapsedTimer: ReturnType<typeof setInterval>
   discarded?: boolean
@@ -7421,6 +7426,7 @@ const recordingStops = new Set<ActiveRecording>()
 
 /** Destruction also drops an unsaved clip, including one still finalising. */
 function discardRoomRecording(roomId: string): void {
+  recordingCaptures.delete(roomId)
   if (activeRecording?.session.roomId === roomId) activeRecording.discarded = true
   for (const recording of recordingStops) if (recording.session.roomId === roomId) recording.discarded = true
   if (pendingRecording?.roomId === roomId) {
@@ -7555,6 +7561,31 @@ function ingestRecording(control: Extract<ControlMessage, { op: 'recording' }>, 
   adoptRecording(s, { ...notice, sig: control.sig }, sentAt)
 }
 
+function ingestRecordingCapture(control: Extract<ControlMessage, { op: 'recording-capture' }>): void {
+  const s = session, authority = roomAuthority()
+  if (!s || !authority || !verifyRecordingCaptureNotice({ roomId: s.roomId, notice: control, sig: control.sig, authority })) return
+  const before = recordingCaptures.get(s.roomId)
+  if (before && before.version >= control.version) return
+  recordingCaptures.set(s.roomId, control)
+  renderRecording()
+}
+
+function currentRecordingCapture(s = session): RecordingCaptureNotice | undefined {
+  if (!s) return undefined
+  const notice = recordings.get(s.roomId), capture = recordingCaptures.get(s.roomId)
+  return notice?.on && capture?.id === notice.id && capture.version === notice.version ? capture : undefined
+}
+
+function recordingCaptureDescription(s = session): string {
+  const capture = currentRecordingCapture(s)
+  if (!capture) return 'Audio and video you share may be included.'
+  const person = s?.participants().find(view => view.participant === capture.recorder)
+  const name = shownAs(capture.recorder, person?.name).name
+  const who = name ? `${name} (${shortKey(capture.recorder)})` : shortKey(capture.recorder)
+  const what = { audio: 'call audio', gallery: 'gallery video and call audio', speaker: 'speaker video and call audio', 'screen-camera': 'a screen share with camera and call audio' }[capture.capture]
+  return `${who} is capturing ${what}.`
+}
+
 function adoptRecording(s: RoomSession, notice: SignedRecording, sentAt: number): void {
   const before = recordings.get(s.roomId)
   if (before && before.version > notice.version) return
@@ -7594,7 +7625,7 @@ async function consentToRecordedCall(): Promise<boolean> {
   if (currentRecordingView().state === 'off' || activeRecording) return true
   return confirmRoomAction({
     title: 'This call is being recorded',
-    message: 'The person who made this room is recording the call\'s sound. If you join, what you say is in the recording. You can stay in the room and read the chat without joining the call.',
+    message: `${recordingCaptureDescription()} If you join, the media you share may be recorded. You can stay in the room and read the chat without joining the call.`,
     confirmLabel: 'Join and be recorded',
     cancelLabel: 'Not now',
   })
@@ -7615,10 +7646,14 @@ async function startRecording(): Promise<void> {
   const before = recordings.get(s.roomId)
   const notice: RecordingNotice = { on: true, id: bytesToHex(randomBytes(16)), version: Math.max(Date.now(), (before?.version ?? 0) + 1) }
   const signed: SignedRecording = { ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
+  const captureNotice: RecordingCaptureNotice = { id: notice.id, version: notice.version, capture: 'audio', recorder: mediaMe(), device: myDeviceId }
+  const capture = { ...captureNotice, sig: signRecordingCaptureNotice({ roomId: s.roomId, notice: captureNotice, authoritySk }) }
   // Told first, recorded second. A recording nobody was told about is the
   // one thing this must never make, so a notice that fails to go out is a
   // recording that never starts.
+  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
   await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+  recordingCaptures.set(s.roomId, capture)
   if (mediaSession() !== s || !s.call || s.closed) { await postRecordingOff(s, authoritySk, signed); return }
   adoptRecording(s, signed, nowSeconds())
   let recorder: CallRecorder
@@ -7632,14 +7667,15 @@ async function startRecording(): Promise<void> {
     throw err
   }
   const timer = setInterval(() => {
-    s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+    s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
+      .then(() => s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed })))
       .then(() => adoptRecording(s, signed, nowSeconds()))
       .catch(() => { /* The next repost tries again; the notice shows as unconfirmed meanwhile. */ })
   }, RECORDING_REPOST_SECONDS * 1000)
   const elapsedTimer = setInterval(() => {
     if (!document.hidden && !recorder.paused) renderRecordingElapsed()
   }, 1000)
-  activeRecording = { recorder, session: s, authoritySk, notice: signed, timer, elapsedTimer }
+  activeRecording = { recorder, session: s, authoritySk, notice: signed, capture, timer, elapsedTimer }
   feedRecorder()
   renderRecording()
   renderMeeting()
@@ -7768,7 +7804,7 @@ function renderRecording(): void {
       ? activeRecording!.recorder.paused
         ? 'Your audio recording is paused. Paused time is omitted from the saved audio. Everybody still sees the recording notice.'
         : `You are recording this call's audio (${formatBytes(activeRecording!.recorder.bytes)} so far). Everybody in the room can see this notice.`
-      : `This call is being recorded, since ${clockTime(view.since)}. What is said on the call is in the recording. KithMoot cannot stop anybody recording with another app, recording or not.`
+      : `This call is being recorded, since ${clockTime(view.since)}. ${recordingCaptureDescription()} KithMoot cannot stop anybody recording with another app, recording or not.`
   } else if (view.state === 'unconfirmed') {
     text.textContent = `This call may still be recording: the notice was last confirmed at ${clockTime(view.lastHeard)}.`
   }
@@ -8145,6 +8181,9 @@ function ingestControl(messages: ChatMessage[]): void {
         break
       case 'recording':
         ingestRecording(control, m.sentAt)
+        break
+      case 'recording-capture':
+        ingestRecordingCapture(control)
         break
       case 'hand':
         ingestHand(m.participant, control.up, m.sentAt)
@@ -11291,6 +11330,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
+          recordingProfile: 2,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
@@ -11351,6 +11391,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
+          recordingProfile: 2,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
@@ -13227,7 +13268,7 @@ function renderDock(): void {
   const recordingMine = activeRecording?.session === c.session
   const notice = $('callDockRecordingNotice')
   notice.hidden = view.state === 'off'
-  notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? activeRecording!.recorder.paused ? 'Your audio recording is paused.' : 'You are recording this call.' : 'This call is being recorded.'
+  notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? activeRecording!.recorder.paused ? 'Your audio recording is paused.' : 'You are recording this call.' : `This call is being recorded. ${recordingCaptureDescription(c.session)}`
   renderRecordingPause('callDockRecordingPause', !!recordingMine)
   renderRecordingElapsed()
   const recording = $('callDockRecording')

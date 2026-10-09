@@ -74,6 +74,38 @@ export interface RecordingNotice {
   version: number
 }
 
+export type RecordingCapture = 'audio' | 'gallery' | 'speaker' | 'screen-camera'
+
+/** Signed companion to the legacy running/stopped notice. Missing or invalid
+ * details never mean audio-only: new clients retain a broad recording warning.
+ * Older devices' video is excluded unless they advertise recordingProfile 2. */
+export interface RecordingCaptureNotice {
+  id: string
+  version: number
+  capture: RecordingCapture
+  recorder: string
+  device: string
+}
+
+export function isRecordingCapture(value: unknown): value is RecordingCapture {
+  return value === 'audio' || value === 'gallery' || value === 'speaker' || value === 'screen-camera'
+}
+
+function recordingCaptureMessage(roomId: string, notice: RecordingCaptureNotice): Uint8Array {
+  if (!RECORDING_ID.test(notice.id) || !isRecordingCapture(notice.capture) ||
+      !HEX64.test(notice.recorder) || !HEX64.test(notice.device)) throw new Error('invalid recording capture details')
+  return digest(`kithmoot/v1/recording-capture:${requireRoomId(roomId)}:${requireVersion(notice.version)}:${notice.id}:${notice.capture}:${notice.recorder}:${notice.device}`)
+}
+
+export function signRecordingCaptureNotice(opts: { roomId: string; notice: RecordingCaptureNotice; authoritySk: Uint8Array }): string {
+  return sign(recordingCaptureMessage(opts.roomId, opts.notice), opts.authoritySk)
+}
+
+/** Never throws; every field is covered by the room authority's signature. */
+export function verifyRecordingCaptureNotice(opts: { roomId: string; notice: RecordingCaptureNotice; sig: string; authority: string }): boolean {
+  return verify(() => recordingCaptureMessage(opts.roomId, opts.notice), opts.sig, opts.authority)
+}
+
 /** Canonical speaker list: lower-case, deduplicated, sorted. Throws on
  *  anything that is not a participant pubkey, or on more than the cap. */
 export function canonicalSpeakers(speakers: readonly string[]): string[] {
@@ -201,4 +233,5 @@ export function recordingView(notice: RecordingNotice | undefined, since: number
 export const MEETING_LABELS = [
   'kithmoot/v1/meeting:',
   'kithmoot/v1/recording:',
+  'kithmoot/v1/recording-capture:',
 ] as const

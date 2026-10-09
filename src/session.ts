@@ -93,6 +93,8 @@ export interface ParticipantView {
    * the field existed and is read as profile 1.
    */
   callProfiles?: Record<string, number>
+  /** Devices whose UI understands signed audio/video capture details. */
+  recordingProfiles?: Record<string, 2>
   tracks: Array<TrackAdvert & { device: string }>
   /**
    * Offers this person's devices have made to relay for the room.
@@ -221,6 +223,7 @@ export interface RoomSessionBaseOptions {
    * day is one reload away from today's behaviour. See `MeshOptions.callProfile`.
    */
   callProfile?: 1 | 2
+  recordingProfile?: 2
   /** Maps this app's local tracks into profile-2 fixed media slots. */
   trackRole?: RoleResolver
   /** Declare this device an automated participant on every entry it
@@ -2248,6 +2251,7 @@ export class RoomSession {
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
       ...(this.#opts.callProfile === 2 ? { callProfile: 2 as const } : {}),
+      ...(this.#opts.recordingProfile === 2 ? { recordingProfile: 2 as const } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
@@ -2840,6 +2844,9 @@ export class RoomSession {
     /** The page session each device is currently to be dealt with as, and
      *  how good a claim the entry that named it had - see `#sessionOf`. */
     const sessions = new Map<string, { sid: string; rank: number; at: number }>()
+    // Capability belongs to the actual endpoint carrying media. An idle,
+    // updated tab must not qualify an older call tab sharing its device key.
+    const recordingPresence = new Map<string, RosterEntry>()
 
     for (const entry of entries) {
       let view = byParticipant.get(entry.participant)
@@ -2878,6 +2885,11 @@ export class RoomSession {
         view.callProfiles = view.callProfiles ?? {}
         view.callProfiles[entry.device] = entry.callProfile
       }
+      const previousRecordingPresence = recordingPresence.get(entry.device)
+      const recordingRank = entry.call ? 2 : entry.tracks.length > 0 ? 1 : 0
+      const previousRecordingRank = previousRecordingPresence?.call ? 2 : previousRecordingPresence?.tracks.length ? 1 : 0
+      if (!previousRecordingPresence || recordingRank > previousRecordingRank ||
+          (recordingRank === previousRecordingRank && entry.updatedAt >= previousRecordingPresence.updatedAt)) recordingPresence.set(entry.device, entry)
       if (entry.agent === true) view.agent = true
       if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true
       // Verified at decode, or not here at all. One proof per person is
@@ -2923,6 +2935,10 @@ export class RoomSession {
 
     for (const view of byParticipant.values()) {
       for (const device of view.devices) {
+        if (recordingPresence.get(device)?.recordingProfile === 2) {
+          view.recordingProfiles ??= {}
+          view.recordingProfiles[device] = 2
+        }
         const session = sessions.get(device)
         if (!session) continue
         view.sids = view.sids ?? {}
