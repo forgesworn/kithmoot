@@ -1,5 +1,5 @@
 /** Typed browser vault under the persona's restore witness (P3-03c).
- * No product caller is enabled yet. Secret records are opened only inside a
+ * Production remains disabled. Secret records are opened only inside a
  * coordinator transaction; prompts and identity signing happen outside it.
  * Only promoted results acquire reply provenance and can leave this vault. */
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js'
@@ -41,6 +41,7 @@ interface RecordV1 {
   /** Retained permanently: a migration retry cannot overwrite newer work. */
   migrated: boolean
 }
+export interface VaultOverview { device: EnrolledDevice; approved: ConsentScope[]; revoked: boolean }
 export interface BoxRequest { v: 1; box: string; method: string; path: string; payload: string }
 export interface BoxReply { readonly v: 1; readonly device: string; readonly authorization: string }
 export interface VaultSignals { revision(): string; invalidate(): void }
@@ -123,15 +124,22 @@ export class CoordinatedMlsVault {
   #public(d: DeviceRecord): EnrolledDevice {
     return { persona: d.persona, device: d.device, credentialId: d.credentialId, credentialExpiresAt: d.credentialExpiresAt }
   }
+  overview(ctx: VaultContext): Promise<VaultResult<VaultOverview | null>> {
+    return this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => ok(r ? {
+      device: this.#public(r.device), approved: r.policy.approved.filter(s => s.principal === ctx.principal).map(s => ({ ...s })),
+      revoked: r.policy.revoked.includes(r.device.credentialId),
+    } : null)))
+  }
   device(ctx: VaultContext): Promise<VaultResult<EnrolledDevice>> {
     return this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => r ? ok(this.#public(r.device)) : refuse('unauthorised')))
   }
 
-  async enrol(ctx: VaultContext, identity: ParticipantIdentity, expiresAt: number, options: { replace?: boolean } = {}): Promise<VaultResult<EnrolledDevice>> {
+  async enrol(ctx: VaultContext, identity: ParticipantIdentity, expiresAt: number, options: { replace?: boolean; expectedDevice?: string } = {}): Promise<VaultResult<EnrolledDevice>> {
     const replace = options.replace === true
     if (identity.pubkey !== ctx.persona) return refuse('unauthorised')
     const before = await this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => r && !replace ? refuse('unauthorised') : ok(r?.device.device ?? null)))
     if (!before.ok) return before
+    if (replace && options.expectedDevice !== undefined && before.value !== options.expectedDevice) return refuse('stale')
     const scalar = secp256k1.utils.randomSecretKey()
     try {
       const device = bytesToHex(schnorr.getPublicKey(scalar))

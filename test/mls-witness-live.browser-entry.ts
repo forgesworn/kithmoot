@@ -1,3 +1,8 @@
+import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
+import { bytesToHex, randomBytes, hexToBytes } from '@noble/hashes/utils.js'
+import { MlsVault, BrowserMlsVaultStorage, base64Encode } from '../app/src/mls-vault.js'
+import { encodeUnsignedBinding } from './vmls-encode.js'
+import { bindingDigest } from '../src/vmls/binding.js'
 import { BrowserMlsPersonaStore, LockedPersonaStore } from '../app/src/mls-persona-store.js'
 import { BrowserPersonaLinks } from '../app/src/mls-persona-link.js'
 import { BrowserPersonaEnrolment } from '../app/src/mls-persona-enrolment.js'
@@ -5,7 +10,8 @@ import { BrowserPersonaCoordinator } from '../app/src/mls-persona-coordinator.js
 import { BrowserMlsAccount } from '../app/src/mls-persona-account.js'
 import { BrowserMlsPanel } from '../app/src/mls-persona-panel.js'
 
-const persona = '21'.repeat(32), session = '67'.repeat(32)
+const secret = new Uint8Array(32).fill(42)
+const persona = getPublicKey(secret), session = '67'.repeat(32)
 const store = new BrowserMlsPersonaStore('mls-real-witness-lab')
 const links = new BrowserPersonaLinks(() => true)
 const enrolment = new BrowserPersonaEnrolment(store, links)
@@ -112,4 +118,37 @@ export async function lose(kind: 'stage' | 'inner-key') {
       tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error)
     })
   } finally { db.close() }
+}
+
+let credential: any, leafRequest: any
+const identity = { pubkey: persona, async signEvent(e: any) { credential = finalizeEvent(e, secret); return credential } }
+const typedAccount = new BrowserMlsAccount(() => ({ persona, identity, generation: '0', mode: 'normal' }), () => ({ store, links, enrolment, coordinator }))
+export async function typedEnrol(migrate = false) {
+  const expires = Math.floor(Date.now() / 1000) + 86400
+  if (!migrate) return typedAccount.enrolDevice(expires)
+  const legacy = new MlsVault(new BrowserMlsVaultStorage())
+  const old = await legacy.enrol(legacy.context(location.origin, persona), identity, expires)
+  if (!old.ok) return old
+  const migrated = await typedAccount.migrateDevice()
+  return { ...migrated, sameDevice: migrated.ok && migrated.value.device === old.value.device }
+}
+export const typedState = () => typedAccount.vaultState()
+export async function typedLeaf(retry = false, decision: 'approve' | 'deny' = 'approve') {
+  if (!retry) {
+    const state = await typedAccount.vaultState()
+    if (!state.vault?.ok || !state.vault.value) return state.vault
+    const body = encodeUnsignedBinding({ leafId: randomBytes(32), signatureKey: randomBytes(32), credential, device: state.vault.value.device.device, expiresAt: Math.floor(Date.now() / 1000) + 3600, homeBox: hexToBytes('78'.repeat(32)) })
+    leafRequest = { v: 1, operation: bytesToHex(randomBytes(32)), body: base64Encode(body), digest: bytesToHex(bindingDigest(body)), expires_at: Math.floor(Date.now() / 1000) + 300 }
+  }
+  return typedAccount.signLeafBinding(leafRequest, async () => decision)
+}
+export const typedBox = (decision: 'approve' | 'deny' = 'approve') => typedAccount.signBoxRequest({ v: 1, box: '78'.repeat(32), method: 'POST', path: '/vmls/v1/fetch', payload: '12'.repeat(32) }, async () => decision)
+export async function typedWithdraw() {
+  const state = await typedAccount.vaultState()
+  if (!state.vault?.ok || !state.vault.value) return state.vault
+  for (const scope of state.vault.value.approved) {
+    const answer = await typedAccount.withdraw(scope)
+    if (!answer.ok) return answer
+  }
+  return { ok: true }
 }

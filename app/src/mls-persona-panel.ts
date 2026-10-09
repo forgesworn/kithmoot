@@ -1,4 +1,6 @@
 import { BrowserMlsAccount, type MlsAccountContext, type MlsAccountView } from './mls-persona-account.js'
+import type { ConsentScope, ConsentPrompt, VaultResult, SignLeafBindingRequest } from './mls-vault.js'
+import type { BoxRequest } from './mls-coordinated-vault.js'
 import { confirmAction } from './confirm-action.js'
 
 /** Development-preview controls. Opening reads local state only. Pairing,
@@ -7,6 +9,7 @@ export class BrowserMlsPanel {
   readonly dialog: HTMLDialogElement
   #generation = 0
   #busy = false
+  #consentGeneration = 0
   #idle: Promise<void> = Promise.resolve()
   #last?: MlsAccountView
   constructor(private readonly context: () => MlsAccountContext | undefined,
@@ -35,6 +38,23 @@ export class BrowserMlsPanel {
       </div>
       <button id="mlsWitnessCheck" type="button">Check witness now</button>
       <p id="mlsWitnessNetworkStatus" class="note" role="status"></p>
+      <fieldset id="mlsWitnessVaultFields"><legend>MLS device and permissions</legend>
+        <p>Check the saved device with your witness before making changes. Creating a device asks your account signer for a credential valid for 30 days.</p>
+        <button id="mlsWitnessVaultRead" type="button">Check MLS device</button>
+        <p id="mlsWitnessDevice" class="mlsWitnessIdentifier" role="status"></p>
+        <div id="mlsWitnessDeviceChoice" hidden>
+          <p>Choose explicitly. Migration retains an existing preview device and freezes its old vault. Creating a new device leaves any legacy ciphertext untouched and does not transfer its permissions.</p>
+          <button id="mlsWitnessDeviceNew" type="button">Create new MLS device</button>
+          <button id="mlsWitnessDeviceMigrate" type="button">Migrate existing preview device</button>
+        </div>
+        <button id="mlsWitnessDeviceReplace" type="button">Replace MLS device</button>
+        <button id="mlsWitnessDeviceRevoke" type="button">Revoke device credential</button>
+        <p>Signing permissions apply only to the account, device, app and Bothy shown in each request. Room signing and box authentication require separate approval.</p>
+        <label>Bothy node identifier <input id="mlsWitnessPermissionBox" autocomplete="off" spellcheck="false" maxlength="64"></label>
+        <label>Permission <select id="mlsWitnessPermissionMethod"><option value="signLeafBindingV1/1">MLS leaf binding</option><option value="signBoxRequestV1/1">Box authentication</option></select></label>
+        <button id="mlsWitnessPermissionApprove" type="button">Review permission</button>
+        <div id="mlsWitnessPermissions"></div>
+      </fieldset>
       <details id="mlsWitnessRecovery"><summary>Clear and recovery</summary>
         <p>Clearing destroys this installation’s MLS keys and messages. It does not retire its registration on Bothy. A known retirement duty is retained until it can finish.</p>
         <button id="mlsWitnessClear" type="button" class="danger">Clear local MLS keys</button>
@@ -60,6 +80,29 @@ export class BrowserMlsPanel {
       void this.#run(() => this.account.pair(code, relays))
     }
     this.button('Genesis').onclick = () => { void this.#run(() => this.account.genesis()) }
+    this.button('PermissionApprove').onclick = () => { void this.#run(async () => {
+      const saved = this.#last?.vault, device = saved?.ok ? saved.value?.device : undefined
+      const homeBox = this.input('PermissionBox').value.trim()
+      if (!device || !/^[0-9a-f]{64}$/.test(homeBox)) throw new VaultActionError('Enter the exact 64-character lowercase Bothy node identifier supplied by its keeper.')
+      const method = (this.el('PermissionMethod') as HTMLSelectElement).value as ConsentScope['method']
+      return this.#afterVault(await this.account.approveScope({ principal: location.origin, persona: device.persona, device: device.device, homeBox, method }, this.consent))
+    }) }
+    this.button('VaultRead').onclick = () => { void this.#run(() => this.account.vaultState()) }
+    for (const action of ['New', 'Migrate', 'Replace', 'Revoke'] as const) {
+      this.button(`Device${action}`).onclick = () => { void this.#run(async current => {
+        const saved = this.#last?.vault, device = saved?.ok ? saved.value?.device : undefined
+        if ((action === 'Replace' || action === 'Revoke') && !device) return undefined
+        const message = action === 'Migrate' ? 'Move the existing preview device into this witnessed installation. Its old vault will be frozen and retained. A missing legacy device will refuse; it will not create a replacement.'
+          : action === 'Revoke' ? `Revoke this credential: ${device!.credentialId}. This device will no longer sign MLS requests.`
+            : action === 'Replace' ? `Retire device ${device!.device} and create a new device with a 30-day credential. Its old signing permissions will not transfer.`
+              : 'Create a new MLS device with a 30-day credential signed by this account. Any existing legacy vault is retained without migration.'
+        if (!await this.#confirm(`Device${action}`, message, current, action === 'Revoke' || action === 'Replace')) return undefined
+        const answer = action === 'Migrate' ? await this.account.migrateDevice()
+          : action === 'Revoke' ? await this.account.revokeCredential(device!.credentialId)
+            : await this.account.enrolDevice(Math.floor(Date.now() / 1000) + 30 * 86400, action === 'Replace', device?.device)
+        return this.#afterVault(answer)
+      }) }
+    }
     this.button('Check').onclick = () => { void this.#run(() => this.account.check()) }
     this.button('Clear').onclick = () => { void this.#run(async current => {
       const installation = this.#installation()
@@ -94,7 +137,10 @@ export class BrowserMlsPanel {
   /** Call before account or room/privacy transitions and on pagehide. Clear
    * displayed identifiers and pairing capabilities immediately, before await. */
   async invalidate(close = true): Promise<void> {
-    this.#generation++; this.#reset()
+    this.#generation++; this.#consentGeneration++
+    const prompt = this.root.getElementById('actionDialog') as HTMLDialogElement | null
+    if (prompt?.dataset.mlsConsent === 'true') prompt.close('cancel')
+    this.#reset()
     if (close && this.dialog.open) this.dialog.close()
     await this.account.pause()
   }
@@ -117,7 +163,7 @@ export class BrowserMlsPanel {
         if (changed) this.dialog.scrollTop = 0
       } else this.message('Cancelled. Local state was not changed by this action.')
     } catch (error) {
-      if (current()) this.message(error instanceof Error && error.message === 'retirement-input' ? 'Enter the exact subject and confirm that the keeper retired it.'
+      if (current()) this.message(error instanceof VaultActionError ? error.message : error instanceof Error && error.message === 'retirement-input' ? 'Enter the exact subject and confirm that the keeper retired it.'
         : !context ? 'Sign in before opening MLS witness settings.'
           : context.mode !== 'normal' ? 'Witness connections are held in quiet and Tor-only modes. Leave that mode before connecting.'
             : 'The operation could not be confirmed. Reopen these settings to read the saved state.')
@@ -146,6 +192,22 @@ export class BrowserMlsPanel {
           : check.reason === 'not-enrolled' ? 'No enrolled installation is available. Prepare one explicitly.'
             : check.refused ? 'The witness refused this subject or writer. Ask the keeper to check the registration; no replacement was created.'
               : 'The witness could not confirm the state. It remains held; retry when the witness is available.')
+    const vault = value.vault
+    this.el('Device').textContent = !vault ? 'Device not checked in this view.' : !vault.ok ? vaultMessage(vault.refusal)
+      : !vault.value ? 'No coordinated device exists. Choose migration or a new device below.'
+        : `Device: ${vault.value.device.device}\nCredential: ${vault.value.device.credentialId}\nExpires: ${new Date(vault.value.device.credentialExpiresAt * 1000).toISOString()}${vault.value.revoked ? '\nCredential revoked.' : ''}`
+    this.el('Permissions').replaceChildren()
+    if (vault?.ok && vault.value) for (const scope of vault.value.approved) {
+      const row = this.root.createElement('p'), label = this.root.createElement('span'), button = this.root.createElement('button')
+      label.className = 'mlsWitnessIdentifier'
+      label.textContent = `${scope.method === 'signBoxRequestV1/1' ? 'Box authentication' : 'MLS leaf binding'} — Bothy ${scope.homeBox} — app ${scope.principal}`
+      button.type = 'button'; button.textContent = 'Withdraw permission'
+      button.onclick = () => { void this.#run(async current => {
+        if (!await this.#confirm('Withdraw permission', this.#scopeText(scope), current, true)) return undefined
+        return this.#afterVault(await this.account.withdraw(scope))
+      }) }
+      row.append(label, button); this.el('Permissions').append(row)
+    }
     const retirement = value.retirement
     this.el('Retirement').textContent = !retirement ? '' : retirement.verified
       ? `Old subject from sealed state: ${retirement.subject}`
@@ -160,6 +222,14 @@ export class BrowserMlsPanel {
       Check: state !== 'genesis' && state !== 'fenced', Clear: !this.#installation(),
       Copy: state !== 'genesis', ConfirmRetired: state !== 'fenced' || !this.#last?.retirement || this.#last?.check?.state !== 'fenced' || this.#last.check.retiring,
     }
+    const vault = this.#last?.vault, device = vault?.ok ? vault.value : undefined
+    Object.assign(disabled, { VaultRead: state !== 'genesis', DeviceNew: !vault?.ok || vault.value !== null,
+      DeviceMigrate: !vault?.ok || vault.value !== null, DeviceReplace: !device,
+      DeviceRevoke: !device || device.revoked, PermissionApprove: !device || device.revoked || device.device.credentialExpiresAt <= Math.floor(Date.now() / 1000) })
+    this.fieldset('VaultFields').hidden = state !== 'genesis'
+    this.fieldset('VaultFields').disabled = busy || mode !== 'normal'
+    this.el('DeviceChoice').hidden = !vault?.ok || vault.value !== null
+    this.button('DeviceReplace').hidden = !device; this.button('DeviceRevoke').hidden = !device
     for (const [name, off] of Object.entries(disabled)) this.button(name).disabled = busy || off || (['Pair', 'Check'].includes(name) && mode !== 'normal')
     this.fieldset('PairFields').disabled = busy || (state !== 'prepared' && state !== 'paired') || mode !== 'normal'
     this.fieldset('KeeperFields').disabled = this.button('ConfirmRetired').disabled
@@ -175,15 +245,54 @@ export class BrowserMlsPanel {
   }
   #reset(): void {
     this.#last = undefined
-    for (const name of ['Account', 'LocalStatus', 'Identity', 'NetworkStatus', 'Retirement']) this.el(name).textContent = ''
-    for (const name of ['Code', 'Relays', 'RetiredSubject']) this.input(name).value = ''
+    for (const name of ['Account', 'LocalStatus', 'Identity', 'NetworkStatus', 'Retirement', 'Device', 'Permissions']) this.el(name).textContent = ''
+    for (const name of ['Code', 'Relays', 'RetiredSubject', 'PermissionBox']) this.input(name).value = ''
     ;(this.el('Command') as HTMLTextAreaElement).value = ''; this.input('RetiredAcknowledged').checked = false
     this.el('Enrolment').hidden = true; (this.el('Recovery') as HTMLDetailsElement).open = false
     this.#controls()
+  }
+  #scopeText(scope: ConsentScope): string {
+    return `App: ${scope.principal}\nAccount: ${scope.persona}\nDevice: ${scope.device}\nBothy: ${scope.homeBox}\nPermission: ${scope.method === 'signBoxRequestV1/1' ? 'Authenticate contracted MLS requests to this box' : 'Sign MLS leaf bindings for this box'}\n\nApproval is saved with the witness and can be withdrawn here.`
+  }
+  async #confirm(name: string, message: string, current: () => boolean, danger = false): Promise<boolean> {
+    const generation = this.#consentGeneration
+    const answer = confirmAction({ title: name.startsWith('Device') ? this.button(name).textContent! : name, message,
+      confirmLabel: danger ? 'Confirm' : 'Continue', danger, isCurrent: () => generation === this.#consentGeneration && current() })
+    // Tag only the prompt created for this request, after the shared queue has
+    // mounted it. Its isCurrent guard also protects a request still queued.
+    const observer = new MutationObserver(() => {
+      const dialog = this.root.getElementById('actionDialog')
+      if (dialog?.querySelector('#actionDescription')?.textContent === message) dialog.dataset.mlsConsent = 'true'
+    })
+    observer.observe(this.root.body, { childList: true })
+    try { return await answer } finally { observer.disconnect() }
+  }
+  readonly consent: ConsentPrompt = async scope => {
+    const context = this.context(), generation = this.#generation
+    const current = () => this.dialog.open && generation === this.#generation && this.context()?.persona === context?.persona && this.context()?.generation === context?.generation && this.context()?.mode === 'normal'
+    return await this.#confirm('Allow MLS signing?', this.#scopeText(scope), current) ? 'approve' : 'deny'
+  }
+  /** The future room adapter uses the same scoped prompt; no arbitrary event
+   * signing or standalone-vault fallback is exposed by the panel. */
+  signLeafBinding(request: SignLeafBindingRequest) { return this.account.signLeafBinding(request, this.consent) }
+  signBoxRequest(request: BoxRequest) { return this.account.signBoxRequest(request, this.consent) }
+  async #afterVault(answer: VaultResult<unknown>): Promise<MlsAccountView> {
+    if (!answer.ok) throw new VaultActionError(vaultMessage(answer.refusal))
+    return this.account.vaultState()
   }
   private el(name: string): HTMLElement { return this.root.getElementById(`mlsWitness${name}`)! }
   private button(name: string): HTMLButtonElement { return this.el(name) as HTMLButtonElement }
   private input(name: string): HTMLInputElement { return this.el(name) as HTMLInputElement }
   private fieldset(name: string): HTMLFieldSetElement { return this.el(name) as HTMLFieldSetElement }
   private message(text: string): void { this.el('NetworkStatus').textContent = text }
+}
+
+class VaultActionError extends Error {}
+function vaultMessage(refusal: string): string {
+  return refusal === 'witness-pending' ? 'The witness has not confirmed this action. Check the MLS device again when it is available; a pending change may already be saved.'
+    : refusal === 'restore-fenced' ? 'Saved MLS state could not be verified. Recheck this installation and any legacy source before recovery; no replacement was created.'
+      : refusal === 'stale' ? 'The account, mode or device changed. Reopen these settings.'
+        : refusal === 'denied' ? 'The signer or consent request was declined.'
+          : refusal === 'unauthorised' ? 'No eligible device or signer was available for this action. Check the saved device; no fallback was used.'
+            : `The MLS action was refused (${refusal}). Check the device before retrying.`
 }

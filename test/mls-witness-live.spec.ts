@@ -245,3 +245,31 @@ test('real witness-only pairing, keeper enrolment, advances, restart, outage and
     await call(page, 'close')
   } finally { await daemon.cleanup() }
 })
+
+for (const migrate of [false, true]) test(`real witness covers typed account ${migrate ? 'migration' : 'creation'}, signatures, lost replies and withdrawal`, async ({ context }) => {
+  const daemon = await witnessDaemon(binary!, relay!)
+  try {
+    const page = await fixture(context)
+    await call(page, 'prepare'); await call(page, 'pair', await daemon.pair(), relay)
+    await daemon.enrol((await call(page, 'genesis')).command)
+    const enrolled = await call(page, 'typedEnrol', migrate)
+    expect(enrolled.ok).toBe(true); if (migrate) expect(enrolled.sameDevice).toBe(true)
+    expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
+    const header = await call(page, 'typedBox')
+    expect(header.ok).toBe(true); expect(header.value.authorization).toMatch(/^Nostr /)
+    await call(page, 'stopAt', 'lost-reply')
+    expect(await call(page, 'typedLeaf')).toEqual({ ok: false, refusal: 'witness-pending' })
+    const recovered = await call(page, 'typedLeaf', true)
+    expect(recovered.ok).toBe(true); expect(recovered.value.signature).toMatch(/^[0-9a-f]{128}$/)
+    expect(await call(page, 'typedLeaf', true)).toEqual(recovered)
+    expect(await call(page, 'typedWithdraw')).toEqual({ ok: true })
+    expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
+    await daemon.stop()
+    expect(await call(page, 'typedLeaf', true)).toEqual({ ok: false, refusal: 'witness-pending' })
+    await daemon.restart(); await call(page, 'close'); await page.reload()
+    const saved = await call(page, 'typedState')
+    expect(saved.vault.value.device.device).toBe(enrolled.value.device)
+    expect(saved.vault.value.approved).toEqual([])
+    await call(page, 'close')
+  } finally { await daemon.cleanup() }
+})
