@@ -6,6 +6,17 @@ audio. It states local retention, paused-timeline behaviour, unsupported
 capabilities and the changed retention promise in a self-destructing room.
 Recordings remain local until Save or an explicit encrypted room share.
 
+Add to message keeps the local Save/Discard copy while staging the file. With
+uploads off, it holds the file in the originating conversation draft until a
+storage destination is allowed and Upload selected files is pressed. A failed
+upload leaves both the local recording and held file available for retry.
+After upload, Send is still required before another person receives the message.
+On a phone, Add opens Chat so the storage choice and Send are visible while the
+call continues.
+Recipients fetch and decrypt the recording only after pressing Show. Discarding
+the local recording does not remove a file already added to a message draft or
+recall saved/sent copies; the confirmation explains that distinction.
+
 ## Capture and ownership
 
 One locally composed 1280×720 canvas at 15 frames per second is combined with

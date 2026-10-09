@@ -223,11 +223,16 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     }
   }
 
-  /** Where the stage starts: under the room bar. Only the ordinary build
-   *  places the stage by number; the installed window's panels are a row. */
+  const notices = ['roomFuse', 'recordingBanner', 'recordingReady', 'meetingNotice']
+    .map(id => document.getElementById(id)).filter((el): el is HTMLElement => !!el)
+
+  /** Keep the media stage below the room's visible notices too. A finished
+   * recording must not put Save/Add/Discard underneath the gallery header. */
   function measure(): void {
     if (!bar) return
-    const top = Math.max(0, Math.round(bar.getBoundingClientRect().bottom - workspace.getBoundingClientRect().top))
+    const bottom = Math.max(bar.getBoundingClientRect().bottom,
+      ...notices.filter(el => el.getClientRects().length > 0).map(el => el.getBoundingClientRect().bottom))
+    const top = Math.max(0, Math.round(bottom - workspace.getBoundingClientRect().top))
     const value = `${top}px`
     if (workspace.style.getPropertyValue('--call-first-top') !== value) workspace.style.setProperty('--call-first-top', value)
   }
@@ -495,7 +500,10 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
 
   new MutationObserver(evaluate).observe(root, { attributes: true, attributeFilter: ['data-call-docked', 'data-call-pane'] })
   window.addEventListener('resize', evaluate)
-  if (bar) new ResizeObserver(() => { if (active) measure() }).observe(bar)
+  if (bar) {
+    const observer = new ResizeObserver(() => { if (active) measure() })
+    for (const element of [bar, ...notices]) observer.observe(element)
+  }
   chat.setAttribute('aria-expanded', String(chatOpen))
   renderBadge()
 
