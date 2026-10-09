@@ -70,26 +70,24 @@ Still open: MLS room storage/driver/box-client integration, membership and
 revocation administration across peers, Android/browser composition, physical
 device acceptance and independent production enablement review.
 
-## Production liveness gate discovered in the live lab
+## Shutdown liveness follow-up
 
-The full-app journey passes, including device management, reload, witness
-outage, late signing after sign-out, account switching and quiet-room departure.
-The extended repeated-signing journey is incomplete: Link shutdown can retain
-the writer lock for minutes after a successful receipt. Secret-free lab timings
-separate endpoint open, read, advance and close; no pairing capability, key or
-request body is logged. The account correctly withholds the result while close
-is pending. This is not acceptable production liveness.
+The repeated-signing lab exposed Link shutdown stalls lasting minutes after
+successful witness receipts. Link `2fa7f232625ef1394bea66c9fd80668573b8310f` repairs browser timer
+reset starvation and waits for relay drivers and all browser WebSockets to
+terminate after QUIC drain. It also makes repeated stops await completion.
+The writer lock remains held throughout shutdown; no timeout releases it early.
 
-The extended reproducer is opt-in in addition to the ordinary live suite:
+Both extended creation and migration journeys now pass across Chromium,
+Firefox and WebKit, including lost replies, identical retries, withdrawal,
+outage, restart and reload. Each returned operation checks that all observed
+relay WebSockets are CLOSED. These cases run in the ordinary opt-in live suite;
+`LAB_SHUTDOWN_STRESS` is no longer needed. Six cases passed in 2.9 minutes.
+Normal local closes were around 100–150 ms; the deliberately offline witness
+used the request timeout plus a roughly three-second QUIC drain.
 
-```sh
-BOTHYD=/absolute/path/bothyd LAB_RELAY=wss://your-loopback-lab-relay/link \
-LAB_SHUTDOWN_STRESS=1 npx playwright test -c playwright.mls-live.config.ts \
-  --project=chromium -g 'typed account creation'
-```
-
-The default suite explicitly skips these extended cases. Focused creation,
-migration and signing/persistence cases are separate evidence; passing them
-must not be described as closing the shutdown gate. The independent reviewer
-allows merging the disabled app slice with this limitation, and rejects
-releasing writer ownership before transport termination as a workaround.
+This closes the observed transport liveness gate for the disposable lab. MLS
+room integration, physical-device acceptance and production enablement remain
+separate gates. The Link source review found no blocking security/lifetime
+issues; its timer, cancellation and socket-ordering regressions are recorded in
+Link's `docs/browser-shutdown.md`.

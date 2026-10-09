@@ -249,37 +249,51 @@ test('real witness-only pairing, keeper enrolment, advances, restart, outage and
 })
 
 for (const migrate of [false, true]) test(`real witness covers typed account ${migrate ? 'migration' : 'creation'}, signatures, lost replies and withdrawal`, async ({ context }) => {
-  // Known Link shutdown liveness gate: close can retain writer ownership for
-  // minutes after successful receipts. Keep the exact repeated-session
-  // reproducer opt-in; this is not accepted production behaviour.
-  test.skip(process.env.LAB_SHUTDOWN_STRESS !== '1', 'Known Link shutdown gate; set LAB_SHUTDOWN_STRESS=1 to reproduce.')
-  test.setTimeout(480_000)
+  // Exercise every step with the real transport and prove no relay socket
+  // survives a returned result. An independent Playwright timeout catches a
+  // stalled WASM timer, including while the witness is deliberately offline.
+  test.setTimeout(90_000)
+  await context.addInitScript(() => {
+    const sockets: WebSocket[] = []
+    const Original = window.WebSocket
+    window.WebSocket = class extends Original {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols); sockets.push(this)
+      }
+    }
+    ;(window as any).allRelaySocketsClosed = () => sockets.every(socket => socket.readyState === Original.CLOSED)
+  })
+  const settled = async (page: Page, action: string, ...args: unknown[]) => {
+    const result = await call(page, action, ...args)
+    expect(await page.evaluate(() => (window as any).allRelaySocketsClosed()), `${action} returned with a live relay socket`).toBe(true)
+    return result
+  }
   const daemon = await witnessDaemon(binary!, relay!)
   try {
     const page = await fixture(context)
-    await call(page, 'prepare'); await call(page, 'pair', await daemon.pair(), relay)
-    await daemon.enrol((await call(page, 'genesis')).command)
-    const enrolled = await call(page, 'typedEnrol', migrate)
+    await settled(page, 'prepare'); await settled(page, 'pair', await daemon.pair(), relay)
+    await daemon.enrol((await settled(page, 'genesis')).command)
+    const enrolled = await settled(page, 'typedEnrol', migrate)
     expect(enrolled.ok).toBe(true); if (migrate) expect(enrolled.sameDevice).toBe(true)
-    expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
-    const header = await call(page, 'typedBox')
+    expect(await settled(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
+    const header = await settled(page, 'typedBox')
     expect(header.ok).toBe(true); expect(header.value.authorization).toMatch(/^Nostr /)
-    await call(page, 'stopAt', 'lost-reply')
-    expect(await call(page, 'typedLeaf')).toEqual({ ok: false, refusal: 'witness-pending' })
-    const recovered = await call(page, 'typedLeaf', true)
+    await settled(page, 'stopAt', 'lost-reply')
+    expect(await settled(page, 'typedLeaf')).toEqual({ ok: false, refusal: 'witness-pending' })
+    const recovered = await settled(page, 'typedLeaf', true)
     expect(recovered.ok).toBe(true); expect(recovered.value.signature).toMatch(/^[0-9a-f]{128}$/)
-    expect(await call(page, 'typedLeaf', true)).toEqual(recovered)
-    const scopes = (await call(page, 'typedState')).vault.value.approved
+    expect(await settled(page, 'typedLeaf', true)).toEqual(recovered)
+    const scopes = (await settled(page, 'typedState')).vault.value.approved
     expect(scopes).toHaveLength(2)
-    for (const scope of scopes) expect(await call(page, 'typedWithdraw', scope)).toEqual({ ok: true })
-    expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
+    for (const scope of scopes) expect(await settled(page, 'typedWithdraw', scope)).toEqual({ ok: true })
+    expect(await settled(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
     await daemon.stop()
-    expect(await call(page, 'typedLeaf', true)).toEqual({ ok: false, refusal: 'witness-pending' })
-    await daemon.restart(); await call(page, 'close'); await page.reload()
-    const saved = await call(page, 'typedState')
+    expect(await settled(page, 'typedLeaf', true)).toEqual({ ok: false, refusal: 'witness-pending' })
+    await daemon.restart(); await settled(page, 'close'); await page.reload()
+    const saved = await settled(page, 'typedState')
     expect(saved.vault.value.device.device).toBe(enrolled.value.device)
     expect(saved.vault.value.approved).toEqual([])
-    await call(page, 'close')
+    await settled(page, 'close')
   } finally { await daemon.cleanup() }
 })
 
