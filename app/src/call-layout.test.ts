@@ -79,6 +79,13 @@ describe('gridRects', () => {
 
 describe('layoutCall', () => {
   const room = { width: 1000, height: 700 }
+  test('a manual page keeps gallery mode and draws only its people and shares', () => {
+    const out = layoutCall({ ...room, view: 'gallery', people: ids(24), self: 'p0', shares: [{ id: 'screen-a' }, { id: 'screen-b' }], gallery: { people: ['p11', 'p10'], shares: ['screen-b', 'screen-a'] } })
+    expect(out.mode).toBe('gallery')
+    expect([...out.people.keys()]).toEqual(['p11', 'p10'])
+    expect([...out.shares.keys()]).toEqual(['screen-b', 'screen-a'])
+    for (const rect of [...out.people.values(), ...out.shares.values()]) expect(rect.y + rect.height).toBeLessThanOrEqual(room.height)
+  })
 
   test('gallery: every person gets the identical box, with 2, 4 and 8 people', () => {
     for (const n of [3, 4, 8]) {

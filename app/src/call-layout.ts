@@ -151,6 +151,9 @@ export interface LayoutInput {
   /** This device's own person, when they are among `people`. */
   self?: string
   shares: readonly ShareInput[]
+  /** A manual gallery page. Full membership still determines the mode;
+   *  two tiles on a page of a larger call are not a one-to-one call. */
+  gallery?: { people: readonly string[]; shares: readonly string[] }
   /** Who the big picture is in Speaker view: a pin, else the voice. */
   featured?: string
   /** Where your own picture floats in a call of two. */
@@ -222,7 +225,9 @@ export function layoutCall(input: LayoutInput): LayoutResult {
   }
 
   if (mode === 'gallery') {
-    const items = [...input.people.map(id => ({ id, share: false })), ...input.shares.map(s => ({ id: s.id, share: true }))]
+    const peopleOnPage = input.gallery?.people ?? input.people
+    const sharesOnPage = input.gallery?.shares ?? input.shares.map(share => share.id)
+    const items = [...peopleOnPage.map(id => ({ id, share: false })), ...sharesOnPage.map(id => ({ id, share: true }))]
     const rects = gridRects(area, items.length, { minWidth: MIN_TILE_WIDTH })
     for (const [i, item] of items.entries()) (item.share ? shares : people).set(item.id, rects[i])
     result.contentHeight = Math.max(input.height, bottomOf(rects) + gap)

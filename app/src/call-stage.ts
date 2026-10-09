@@ -1,9 +1,10 @@
 import './call-layout.css'
 import {
   ActiveSpeaker, StripOrder, CORNER_KEY, HIDE_NO_VIDEO_KEY, HIDE_SELF_KEY, VIEW_KEY,
-  fitRect, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref,
+  effectiveMode, fitRect, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref,
   type CallView, type LayoutPrefs, type LayoutResult, type Rect, type ShareInput,
 } from './call-layout.js'
+import { GalleryPages, galleryPageSize } from './gallery-pages.js'
 
 /**
  * The call stage on a desktop-sized window: measures the room, asks
@@ -23,8 +24,8 @@ import {
  * element inside its fixed place on the stage, so that it carries no bands;
  * the picture itself is drawn in the same place either way.
  *
- * Phones keep their own layout (`#roomArea[data-mobile-view]` in
- * style.css): below `DESKTOP_STAGE` this takes its hands off entirely.
+ * Phones keep their own tile layout (`#roomArea[data-mobile-view]` in
+ * style.css), with smaller gallery pages and the same audio ownership.
  */
 
 /** Where this layout runs. Outside it, style.css's phone and short-window
@@ -46,6 +47,8 @@ interface Person {
 const LAYOUT_ATTR = 'data-call-layout'
 
 export interface CallStage {
+  /** Navigation retains the same owner; a different call starts fresh. */
+  setScope(scope: string): void
   /** Lays the room out again now. */
   refresh(): void
   dispose(): void
@@ -54,8 +57,8 @@ export interface CallStage {
 export function installCallStage(room: HTMLElement, host: HTMLElement, storage: Storage = localStorage): CallStage {
   const prefs: LayoutPrefs = loadPrefs(storage)
   const media = matchMedia(DESKTOP_STAGE)
-  const speaker = new ActiveSpeaker()
-  const stripOrder = new StripOrder()
+  let speaker = new ActiveSpeaker()
+  let stripOrder = new StripOrder()
   let view: CallView = prefs.view
   let knownShares = new Set<string>()
   let pinned: string | undefined
@@ -64,9 +67,14 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   let queued = 0
   let recheck: ReturnType<typeof setTimeout> | undefined
   const styled = new Set<HTMLVideoElement>()
+  const pages = new GalleryPages()
+  const pausedVideos = new Set<HTMLVideoElement>()
+  let scope: string | undefined
 
   const bar = buildToolbar()
   host.insertBefore(bar.root, room)
+  const pager = buildPager()
+  host.insertBefore(pager.root, room)
 
   const schedule = (): void => {
     if (queued) return
@@ -92,11 +100,29 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   }
 
   function apply(): void {
+    for (const paused of pausedVideos) if (!paused.isConnected) pausedVideos.delete(paused)
     const everyone = people()
     const anyPicture = everyone.some(person => person.cameras.length > 0 || person.shares.length > 0)
     const width = room.clientWidth
     const height = room.clientHeight
-    if (!media.matches || !anyPicture || !room.isConnected) return clear(everyone)
+    if (!anyPicture || !room.isConnected) return clear(everyone)
+    if (!media.matches) {
+      clear(everyone, true)
+      const shown = everyone.filter(person => (person.onCall || person.cameras.length > 0 || person.shares.length > 0)
+        && (!prefs.hideSelf || !person.self) && (!prefs.hideNoVideo || person.cameras.length > 0))
+      pages.update(shown.map(person => `p:${person.id}`), window.innerWidth < 600 ? 2 : 4)
+      const visible = new Set(pages.visible)
+      for (const person of everyone) {
+        const hidden = !visible.has(`p:${person.id}`)
+        setAttr(person.box, 'data-gallery-off-page', hidden ? '' : null)
+        for (const video of [...person.cameras, ...person.shares]) pageVideo(video, hidden)
+      }
+      setAttr(room, 'data-gallery-paged', pages.pages > 1 ? '' : null)
+      renderPager(everyone, true)
+      return
+    }
+    room.removeAttribute('data-gallery-paged')
+    for (const person of everyone) person.box.removeAttribute('data-gallery-off-page')
     if (!room.hasAttribute('data-layout')) {
       // First pass: the room takes its height from the stylesheet only once
       // it is in this mode, so measure on the next frame.
@@ -146,6 +172,12 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     if (wait !== Infinity) recheck = setTimeout(schedule, wait + 20)
 
     const self = shown.find(person => person.self)
+    const mode = effectiveMode({ view, people: shown.map(person => person.id), self: self?.id, shares })
+    let gallery: { people: string[]; shares: string[] } | undefined
+    if (mode === 'gallery') {
+      pages.update([...shown.map(person => `p:${person.id}`), ...shares.map(share => `s:${share.id}`)], galleryPageSize(width, height))
+      gallery = { people: pages.visible.filter(id => id.startsWith('p:')).map(id => id.slice(2)), shares: pages.visible.filter(id => id.startsWith('s:')).map(id => id.slice(2)) }
+    }
     const out = layoutCall({
       width,
       height,
@@ -153,6 +185,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       people: shown.map(person => person.id),
       self: self?.id,
       shares,
+      gallery,
       featured: pinned ?? active.current,
       selfCorner: prefs.corner,
       stripFirst: lead.first,
@@ -176,21 +209,25 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       setAttr(box, 'data-initials', initialsOf(person.name))
       setAttr(box, 'data-camera', person.cameras.length > 0 ? 'on' : 'off')
       ensurePin(person, out)
+      for (const video of person.cameras) pageVideo(video, !rect)
     }
 
     // Each share's element, onto its place: positioned from its owner's
     // tile, because that is where it lives.
     for (const share of shares) {
       const slot = out.shares.get(share.id)
+      pageVideo(share.video, !slot)
+      const expand = share.owner.box.querySelectorAll<HTMLElement>(':scope > .shareExpand')[share.owner.shares.indexOf(share.video)]
+      if (expand) setAttr(expand, 'data-gallery-off-page', slot ? null : '')
       if (!slot) continue
       const origin = boxOrigin(share.owner.box)
       const picture = share.aspect ? fitRect(slot, share.aspect) : slot
       placeVideo(share.video, { x: picture.x - origin.x, y: picture.y - origin.y, width: picture.width, height: picture.height })
-      const expand = share.owner.box.querySelectorAll<HTMLElement>(':scope > .shareExpand')[share.owner.shares.indexOf(share.video)]
       if (expand) placeExpand(expand, slot, picture, origin)
     }
 
     renderToolbar(everyone, shares.length, out)
+    renderPager(everyone, mode === 'gallery')
 
     // A picture that was a share and is not any more keeps no pixels from
     // the stage: inline sizes outlive the share they were measured for.
@@ -200,7 +237,15 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   }
 
   /** Hands the room back to style.css. */
-  function clear(everyone: Person[]): void {
+  function clear(everyone: Person[], keepPaging = false): void {
+    if (!keepPaging) {
+      pager.root.hidden = true
+      room.removeAttribute('data-gallery-paged')
+      for (const person of everyone) {
+        person.box.removeAttribute('data-gallery-off-page')
+        for (const video of [...person.cameras, ...person.shares]) pageVideo(video, false)
+      }
+    }
     if (!room.hasAttribute('data-layout')) { bar.root.hidden = true; return }
     room.removeAttribute('data-layout')
     room.style.removeProperty('--call-stage-top')
@@ -213,9 +258,51 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       for (const attr of ['data-layout-hidden', 'data-floating', 'data-featured', 'data-initials', 'data-camera', 'data-tall']) person.box.removeAttribute(attr)
       for (const expand of person.box.querySelectorAll<HTMLElement>(':scope > .shareExpand')) {
         expand.style.removeProperty('left'); expand.style.removeProperty('top'); expand.removeAttribute('data-on-stage')
+        expand.removeAttribute('data-gallery-off-page')
       }
       person.box.querySelector(`:scope > [${LAYOUT_ATTR}]`)?.remove()
     }
+  }
+
+  /** Pause only this gallery's video sinks. Tracks and call audio stay live,
+   *  and another viewer of the same track keeps its independent sink. */
+  function pageVideo(video: HTMLVideoElement, hidden: boolean): void {
+    setAttr(video, 'data-gallery-off-page', hidden ? '' : null)
+    if (hidden) { pausedVideos.add(video); video.pause() }
+    else if (pausedVideos.delete(video) && video.isConnected && video.srcObject) void video.play().catch(() => {})
+    for (const paused of pausedVideos) if (!paused.isConnected) pausedVideos.delete(paused)
+  }
+
+  function buildPager() {
+    const root = document.createElement('div'); root.id = 'galleryPager'; root.className = 'galleryPager'; root.hidden = true
+    root.setAttribute('role', 'group'); root.setAttribute('aria-label', 'Gallery pages'); root.tabIndex = 0
+    const label = document.createElement('span'); label.id = 'galleryPageStatus'; label.setAttribute('role', 'status')
+    const speaking = document.createElement('span'); speaking.className = 'gallerySpeaking'
+    const previous = document.createElement('button'); previous.type = 'button'; previous.textContent = '‹'; previous.setAttribute('aria-label', 'Previous gallery page')
+    const next = document.createElement('button'); next.type = 'button'; next.textContent = '›'; next.setAttribute('aria-label', 'Next gallery page')
+    const go = (page: number): void => { pages.go(page); apply() }
+    previous.addEventListener('click', () => go(pages.page - 1))
+    next.addEventListener('click', () => go(pages.page + 1))
+    root.addEventListener('keydown', event => {
+      const page = event.key === 'ArrowLeft' || event.key === 'PageUp' ? pages.page - 1
+        : event.key === 'ArrowRight' || event.key === 'PageDown' ? pages.page + 1
+        : event.key === 'Home' ? 0 : event.key === 'End' ? pages.pages - 1 : undefined
+      if (page === undefined) return
+      event.preventDefault(); go(page)
+    })
+    root.append(previous, label, next, speaking)
+    return { root, label, previous, next, speaking }
+  }
+
+  function renderPager(everyone: Person[], gallery: boolean): void {
+    pager.root.hidden = !gallery || pages.pages <= 1
+    if (pager.root.hidden) return
+    setText(pager.label, `Page ${pages.page + 1} of ${pages.pages} · ${pages.count} tiles`)
+    setAttr(pager.root, 'data-page', String(pages.page + 1))
+    pager.previous.disabled = pages.page === 0
+    pager.next.disabled = pages.page === pages.pages - 1
+    const talking = everyone.filter(person => !person.self && person.box.classList.contains('speaking')).map(person => person.name)
+    setText(pager.speaking, talking.length ? `Speaking: ${talking.join(', ')}` : 'Nobody is speaking')
   }
 
   function boxOrigin(box: HTMLElement): { x: number; y: number } {
@@ -420,6 +507,22 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     event.preventDefault()
   }
   room.addEventListener('pointerdown', onPointerDown)
+  let swipe: { id: number; x: number; y: number } | undefined
+  const startSwipe = (event: PointerEvent): void => {
+    if (event.pointerType !== 'touch' || pager.root.hidden || (event.target as Element).closest('button, input, a, .screenPreview, [data-floating]')) return
+    swipe = { id: event.pointerId, x: event.clientX, y: event.clientY }
+    room.setPointerCapture(event.pointerId)
+  }
+  const finishSwipe = (event: PointerEvent): void => {
+    if (!swipe || event.pointerId !== swipe.id) return
+    const dx = event.clientX - swipe.x, dy = event.clientY - swipe.y
+    swipe = undefined
+    if (event.type === 'pointercancel' || Math.abs(dx) < 64 || Math.abs(dx) <= Math.abs(dy) * 1.5) return
+    pages.go(pages.page + (dx < 0 ? 1 : -1)); apply()
+  }
+  room.addEventListener('pointerdown', startSwipe)
+  room.addEventListener('pointerup', finishSwipe)
+  room.addEventListener('pointercancel', finishSwipe)
 
   // --- What makes it run again ---------------------------------------------
 
@@ -431,6 +534,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   const sizes = new ResizeObserver(schedule)
   sizes.observe(room)
   media.addEventListener('change', schedule)
+  window.addEventListener('resize', schedule, { passive: true })
   // A share may arrive before its first decoded dimensions, or change
   // shape while the same track stays live. Fit it when those dimensions
   // arrive rather than waiting for a scroll or an unrelated roster change.
@@ -447,19 +551,31 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   schedule()
 
   return {
+    setScope(next) {
+      if (scope === next) return
+      scope = next
+      pages.clear(); knownShares.clear(); pinned = undefined
+      speaker = new ActiveSpeaker(); stripOrder = new StripOrder(); view = prefs.view
+    },
     refresh: apply,
     dispose() {
       mutations.disconnect()
       sizes.disconnect()
       media.removeEventListener('change', schedule)
+      window.removeEventListener('resize', schedule)
       room.removeEventListener('loadedmetadata', onVideoSize, true)
       room.removeEventListener('resize', onVideoSize, true)
       room.removeEventListener('scroll', onScroll)
       room.removeEventListener('pointerdown', onPointerDown)
+      room.removeEventListener('pointerdown', startSwipe)
+      room.removeEventListener('pointerup', finishSwipe)
+      room.removeEventListener('pointercancel', finishSwipe)
       if (queued) cancelAnimationFrame(queued)
       if (recheck) clearTimeout(recheck)
       clear(people())
       bar.root.remove()
+      pager.root.remove()
+      pausedVideos.clear()
     },
   }
 }

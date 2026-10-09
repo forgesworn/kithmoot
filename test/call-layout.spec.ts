@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { closeCallView, createRoom, joinWithMedia, newDeviceContext, open, openCallView } from './browser.js'
+import { closeCallView, createRoom, inbound, joinWithMedia, newDeviceContext, open, openCallView } from './browser.js'
 
 /**
  * The call stage: one box for every face, calm when people come and go.
@@ -147,6 +147,88 @@ async function chooseView(page: Page, label: 'Gallery' | 'Speaker' | 'Screen'): 
   // Choosing puts the bar's View menu away, so read the state off the
   // button whether or not it is still on screen.
   await expect(page.locator('#callView .callViewChoice button', { hasText: new RegExp(`^${label}$`) })).toHaveAttribute('aria-pressed', 'true')
+}
+
+for (const phone of [false, true]) {
+  test(`gallery pages preserve live audio and an independent share viewer (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }) => {
+    test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone, camera and touch input')
+    const contexts: BrowserContext[] = []
+    try {
+      const context = await newDeviceContext(browser, baseURL!, phone ? { isMobile: true, hasTouch: true } : {})
+      contexts.push(context)
+      const page = await context.newPage()
+      await page.setViewportSize(phone ? { width: 390, height: 844 } : { width: 1440, height: 900 })
+      const url = await createRoom(page, baseURL!)
+      await joinWithMedia(page, url, 'Ada')
+      const bob = await join(browser, baseURL!, url, 'Bob', contexts)
+      await bob.locator('#toggleScreen').click()
+      await expect(page.locator('#room video.screenPreview')).toBeVisible()
+      await page.locator('#room .participant[data-name="Bob"] .shareExpand').click()
+      const popupReady = page.waitForEvent('popup')
+      await page.locator('dialog.shareViewer').getByRole('button', { name: 'Pop out', exact: true }).click()
+      const popup = await popupReady
+      const popupVideo = popup.locator('.shareStage > video')
+      await expect.poll(() => popupVideo.evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(0)
+      if (!phone) await chooseView(page, 'Gallery')
+      // Two real media participants plus layout stand-ins. This proves
+      // paging behaviour, not a 26-person encoded-media capacity claim.
+      await addStandIns(page, Array.from({ length: 24 }, (_, i) => [`Guest ${i}`, i % 3 !== 0] as [string, boolean]))
+      const pager = page.locator('#galleryPager')
+      await expect(pager).toBeVisible()
+      await expect(pager).toHaveAttribute('data-page', '1')
+      const bobCamera = page.locator('#room .participant[data-name="Bob"] video:not(.screenPreview)')
+      await bobCamera.evaluate((video: HTMLVideoElement) => {
+        const win = window as unknown as { __galleryCamera: HTMLVideoElement; __galleryTrack: MediaStreamTrack }
+        win.__galleryCamera = video; win.__galleryTrack = (video.srcObject as MediaStream).getVideoTracks()[0]
+      })
+      const audioCount = await page.locator('#room audio').count()
+      const energy = (await page.evaluate(inbound)).audioEnergy
+      const popupTime = await popupVideo.evaluate((video: HTMLVideoElement) => video.currentTime)
+      await pager.getByRole('button', { name: 'Next gallery page' }).click()
+      await expect(pager).toHaveAttribute('data-page', '2')
+      await expect.poll(() => bobCamera.evaluate((video: HTMLVideoElement) => video.paused)).toBe(true)
+      await expect.poll(() => page.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(energy)
+      await expect.poll(() => popupVideo.evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(popupTime)
+      await expect(popup.locator('audio')).toHaveCount(0)
+      await expect(page.locator('#room audio')).toHaveCount(audioCount)
+      await expect(pager.locator('.gallerySpeaking')).toContainText('Bob')
+      await addStandIns(page, [['Newcomer', false]])
+      await expect(pager).toHaveAttribute('data-page', '2')
+
+      // Keyboard controls leave page selection with the member; returning
+      // uses the original element and received track, not another decoder.
+      await pager.focus(); await pager.press('Home')
+      await expect(pager).toHaveAttribute('data-page', '1')
+      await expect.poll(() => bobCamera.evaluate((video: HTMLVideoElement) => !video.paused && video.currentTime > 0)).toBe(true)
+      expect(await bobCamera.evaluate((video: HTMLVideoElement) => {
+        const win = window as unknown as { __galleryCamera: HTMLVideoElement; __galleryTrack: MediaStreamTrack }
+        return video === win.__galleryCamera && (video.srcObject as MediaStream).getVideoTracks()[0] === win.__galleryTrack
+      })).toBe(true)
+      if (phone) {
+        const nextBox = (await pager.getByRole('button', { name: 'Next gallery page' }).boundingBox())!
+        expect(nextBox.width).toBeGreaterThanOrEqual(44); expect(nextBox.height).toBeGreaterThanOrEqual(44)
+        expect(nextBox.y + nextBox.height).toBeLessThanOrEqual(844)
+        // Swipe a visible camera, not the centre of a camera-plus-share
+        // tile that can extend below the phone's scroll viewport.
+        const tile = (await page.locator('#room .participant[data-name="Ada"] video:not(.screenPreview)').boundingBox())!
+        const y = tile.y + tile.height / 2
+        const input = await context.newCDPSession(page)
+        await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 320, y }] })
+        await input.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 80, y }] })
+        await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        await expect(pager).toHaveAttribute('data-page', '2')
+        await input.detach()
+      } else {
+        await pager.press('End')
+        await expect(pager.getByRole('button', { name: 'Next gallery page' })).toBeDisabled()
+        await pager.press('PageUp')
+        await expect(pager).toHaveAttribute('data-page', '3')
+      }
+      await popup.close()
+    } finally {
+      for (const context of contexts) await context.close()
+    }
+  })
 }
 
 test('every face is one box, from a call of two to a call of eight', async ({ browser, baseURL }) => {
