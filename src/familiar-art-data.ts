@@ -1,5 +1,5 @@
 /** Generated from the pinned ForgeMoji artwork snapshot. */
-export const FORGEMOJI_SOURCE = {"repository":"https://github.com/forgesworn/forgemoji","revision":"8e2e2effc322d4daf9d22005d994da6780824a31","version":"0.1.0","creator":"TheCryptoDonkey","model":"gpt-image-2.5-sunburst","license":"MIT"} as const
+export const FORGEMOJI_SOURCE = {"repository":"https://github.com/forgesworn/forgemoji","revision":"c9f53357de24fff682e8a234af183406a57757a6","version":"0.1.2","creator":"TheCryptoDonkey","model":"gpt-image-2.5-sunburst","license":"MIT"} as const
 export const FAMILIAR_ART = [
   {
     "emoji": "👍",
@@ -964,10 +964,116 @@ export const FAMILIAR_ART = [
   {
     "emoji": "🫏",
     "slug": "crypto-donkey",
-    "title": "Crypto donkey",
-    "keywords": "crypto donkey orange donkey crypto cryptodonkey thecryptodonkey cute mascot",
+    "title": "Donkey",
+    "keywords": "donkey orange crypto cryptodonkey thecryptodonkey cute mascot",
     "category": "Nature",
     "toneable": false
+  },
+  {
+    "emoji": "🪨",
+    "slug": "sacred-stone",
+    "title": "Sacred stone",
+    "keywords": "rock stone sacred 600 600.wtf 600000000000",
+    "category": "Objects",
+    "toneable": false
+  },
+  {
+    "emoji": "🕷️",
+    "slug": "jumping-spider",
+    "title": "Jumping spider",
+    "keywords": "jumping spider black spider cute littleleap little leap pip jumping fuzzy",
+    "category": "Nature",
+    "toneable": false
+  },
+  {
+    "emoji": "₿",
+    "slug": "bitcoin",
+    "title": "Bitcoin",
+    "keywords": "bitcoin btc orange coin currency",
+    "category": "Symbols",
+    "toneable": false,
+    "kind": "symbol"
+  },
+  {
+    "emoji": ":fs_forgesworn:",
+    "slug": "fs-forgesworn",
+    "title": "ForgeSworn",
+    "keywords": "forgesworn forgesworn brand logo forgesworn",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_kindred:",
+    "slug": "fs-kindred",
+    "title": "Kindred",
+    "keywords": "kindred forgesworn brand logo kindred",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_kithmoot:",
+    "slug": "fs-kithmoot",
+    "title": "KithMoot",
+    "keywords": "kithmoot forgesworn brand logo kithmoot",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_mysignet:",
+    "slug": "fs-mysignet",
+    "title": "MySignet",
+    "keywords": "mysignet forgesworn brand logo mysignet",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_vitark:",
+    "slug": "fs-vitark",
+    "title": "Vitark",
+    "keywords": "vitark forgesworn brand logo vitark",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_vitark_den:",
+    "slug": "fs-vitark-den",
+    "title": "Vitark Den",
+    "keywords": "vitark den forgesworn brand logo vitark den",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_vitark_train:",
+    "slug": "fs-vitark-train",
+    "title": "Vitark Train",
+    "keywords": "vitark train forgesworn brand logo vitark train",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_vitark_still:",
+    "slug": "fs-vitark-still",
+    "title": "Vitark Still",
+    "keywords": "vitark still forgesworn brand logo vitark still",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
+  },
+  {
+    "emoji": ":fs_vitark_record:",
+    "slug": "fs-vitark-record",
+    "title": "Vitark Record",
+    "keywords": "vitark record forgesworn brand logo vitark record",
+    "category": "forgesworn",
+    "toneable": false,
+    "kind": "custom"
   }
 ] as const
 export const FAMILIAR_DRAWINGS = [
@@ -1574,5 +1680,53 @@ export const FAMILIAR_DRAWINGS = [
   {
     "emoji": "✌🏿",
     "file": "peace-tone5.png"
+  },
+  {
+    "emoji": "🪨",
+    "file": "sacred-stone.png"
+  },
+  {
+    "emoji": "🕷️",
+    "file": "jumping-spider.png"
+  },
+  {
+    "emoji": "₿",
+    "file": "bitcoin.png"
+  },
+  {
+    "emoji": ":fs_forgesworn:",
+    "file": "fs-forgesworn.png"
+  },
+  {
+    "emoji": ":fs_kindred:",
+    "file": "fs-kindred.png"
+  },
+  {
+    "emoji": ":fs_kithmoot:",
+    "file": "fs-kithmoot.png"
+  },
+  {
+    "emoji": ":fs_mysignet:",
+    "file": "fs-mysignet.png"
+  },
+  {
+    "emoji": ":fs_vitark:",
+    "file": "fs-vitark.png"
+  },
+  {
+    "emoji": ":fs_vitark_den:",
+    "file": "fs-vitark-den.png"
+  },
+  {
+    "emoji": ":fs_vitark_train:",
+    "file": "fs-vitark-train.png"
+  },
+  {
+    "emoji": ":fs_vitark_still:",
+    "file": "fs-vitark-still.png"
+  },
+  {
+    "emoji": ":fs_vitark_record:",
+    "file": "fs-vitark-record.png"
   }
 ] as const

@@ -19,10 +19,14 @@ if (!Array.isArray(definitions) || !Array.isArray(drawings)) throw new Error('Mi
 const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' })
 const definitionsByEmoji = new Map(definitions.map(item => [item.emoji, item]))
 if (definitionsByEmoji.size !== definitions.length) throw new Error('Duplicate emoji definitions')
+for (const item of definitions) {
+  const custom = item.kind === 'custom' && item.category === 'forgesworn' && /^:fs_[a-z0-9_]+:$/.test(item.emoji)
+  if (!custom && Array.from(segmenter.segment(item.emoji)).length !== 1) throw new Error('Invalid ForgeMoji meaning')
+}
 const seen = new Set()
 const verified = []
 for (const item of drawings) {
-  if (!/^png\/[a-z0-9-]+\.png$/.test(item.file) || !definitionsByEmoji.has(item.baseEmoji) || seen.has(item.emoji) || Array.from(segmenter.segment(item.emoji)).length !== 1) throw new Error('Invalid ForgeMoji drawing')
+  if (!/^png\/[a-z0-9-]+\.png$/.test(item.file) || !definitionsByEmoji.has(item.baseEmoji) || seen.has(item.emoji) || (Array.from(segmenter.segment(item.emoji)).length !== 1 && !(definitionsByEmoji.get(item.baseEmoji)?.kind === 'custom' && item.emoji === item.baseEmoji))) throw new Error('Invalid ForgeMoji drawing')
   const bytes = await readFile(resolve(source, item.file))
   if (bytes.length !== item.bytes || createHash('sha256').update(bytes).digest('hex') !== item.sha256 || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw new Error(`Invalid artwork bytes: ${item.file}`)
   seen.add(item.emoji); verified.push({ item, bytes })
@@ -39,7 +43,7 @@ if (native) {
   const id = item => 'fm_' + basename(item.file, '.png').replaceAll('-', '_')
   for (const { item, bytes } of verified) await writeFile(resolve(drawables, `${id(item)}.png`), bytes)
   const quote = value => JSON.stringify(value).replaceAll('$', '\\$')
-  await writeFile(resolve(native, 'app/src/main/kotlin/dev/forgesworn/kithmoot/session/FamiliarArt.kt'), `package dev.forgesworn.kithmoot.session\n\n/** ForgeMoji ${manifest.version}, by TheCryptoDonkey; pinned source ${revision}. */\ndata class FamiliarArt(val emoji: String, val slug: String, val keywords: String, val toneable: Boolean, val title: String = slug.replace('-', ' '))\nval FAMILIAR_ART = listOf(\n${definitions.map(item => `    FamiliarArt(${quote(item.emoji)}, ${quote(item.slug)}, ${quote(item.keywords)}, ${item.toneable}, ${quote(item.title)}),`).join('\n')}\n)\nval HUMAN_SKIN_TONES = listOf("", "🏻", "🏼", "🏽", "🏾", "🏿")\nfun withSkinTone(emoji: String, tone: Int): String {\n    require(tone in HUMAN_SKIN_TONES.indices)\n    return if (tone == 0 || FAMILIAR_ART.none { it.emoji == emoji && it.toneable }) emoji else emoji.replace("\\uFE0F", "") + HUMAN_SKIN_TONES[tone]\n}\n`)
+  await writeFile(resolve(native, 'app/src/main/kotlin/dev/forgesworn/kithmoot/session/FamiliarArt.kt'), `package dev.forgesworn.kithmoot.session\n\n/** ForgeMoji ${manifest.version}, by TheCryptoDonkey; pinned source ${revision}. */\ndata class FamiliarArt(val emoji: String, val slug: String, val keywords: String, val toneable: Boolean, val title: String = slug.replace('-', ' '), val category: String = "faces")\nval FAMILIAR_ART = listOf(\n${definitions.map(item => `    FamiliarArt(${quote(item.emoji)}, ${quote(item.slug)}, ${quote(item.keywords)}, ${item.toneable}, ${quote(item.title)}, ${quote(item.category)}),`).join('\n')}\n)\nval HUMAN_SKIN_TONES = listOf("", "🏻", "🏼", "🏽", "🏾", "🏿")\nfun withSkinTone(emoji: String, tone: Int): String {\n    require(tone in HUMAN_SKIN_TONES.indices)\n    return if (tone == 0 || FAMILIAR_ART.none { it.emoji == emoji && it.toneable }) emoji else emoji.replace("\\uFE0F", "") + HUMAN_SKIN_TONES[tone]\n}\n`)
   const maps = drawings.map(item => `    ${quote(item.emoji.replaceAll('\uFE0F', ''))} to R.drawable.${id(item)},`).join('\n')
   await writeFile(resolve(native, 'app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/FamiliarArtwork.kt'), `package dev.forgesworn.kithmoot.ui.room\n\nimport dev.forgesworn.kithmoot.R\n\nprivate val familiarDrawings = mapOf(\n${maps}\n)\nfun familiarArtworkDrawable(emoji: String): Int? = familiarDrawings[emoji.replace("\\uFE0F", "")]\n`)
   const licences = resolve(native, 'app/src/main/assets/emoji'); await mkdir(licences, { recursive: true })

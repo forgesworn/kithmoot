@@ -1,8 +1,8 @@
 {
   "source": {
     "repository": "https://github.com/forgesworn/forgemoji",
-    "revision": "8e2e2effc322d4daf9d22005d994da6780824a31",
-    "version": "0.1.0",
+    "revision": "c9f53357de24fff682e8a234af183406a57757a6",
+    "version": "0.1.2",
     "creator": "TheCryptoDonkey",
     "model": "gpt-image-2.5-sunburst",
     "license": "MIT"
@@ -971,10 +971,116 @@
     {
       "emoji": "🫏",
       "slug": "crypto-donkey",
-      "title": "Crypto donkey",
-      "keywords": "crypto donkey orange donkey crypto cryptodonkey thecryptodonkey cute mascot",
+      "title": "Donkey",
+      "keywords": "donkey orange crypto cryptodonkey thecryptodonkey cute mascot",
       "category": "Nature",
       "toneable": false
+    },
+    {
+      "emoji": "🪨",
+      "slug": "sacred-stone",
+      "title": "Sacred stone",
+      "keywords": "rock stone sacred 600 600.wtf 600000000000",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🕷️",
+      "slug": "jumping-spider",
+      "title": "Jumping spider",
+      "keywords": "jumping spider black spider cute littleleap little leap pip jumping fuzzy",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "₿",
+      "slug": "bitcoin",
+      "title": "Bitcoin",
+      "keywords": "bitcoin btc orange coin currency",
+      "category": "Symbols",
+      "toneable": false,
+      "kind": "symbol"
+    },
+    {
+      "emoji": ":fs_forgesworn:",
+      "slug": "fs-forgesworn",
+      "title": "ForgeSworn",
+      "keywords": "forgesworn forgesworn brand logo forgesworn",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_kindred:",
+      "slug": "fs-kindred",
+      "title": "Kindred",
+      "keywords": "kindred forgesworn brand logo kindred",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_kithmoot:",
+      "slug": "fs-kithmoot",
+      "title": "KithMoot",
+      "keywords": "kithmoot forgesworn brand logo kithmoot",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_mysignet:",
+      "slug": "fs-mysignet",
+      "title": "MySignet",
+      "keywords": "mysignet forgesworn brand logo mysignet",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark:",
+      "slug": "fs-vitark",
+      "title": "Vitark",
+      "keywords": "vitark forgesworn brand logo vitark",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_den:",
+      "slug": "fs-vitark-den",
+      "title": "Vitark Den",
+      "keywords": "vitark den forgesworn brand logo vitark den",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_train:",
+      "slug": "fs-vitark-train",
+      "title": "Vitark Train",
+      "keywords": "vitark train forgesworn brand logo vitark train",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_still:",
+      "slug": "fs-vitark-still",
+      "title": "Vitark Still",
+      "keywords": "vitark still forgesworn brand logo vitark still",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_record:",
+      "slug": "fs-vitark-record",
+      "title": "Vitark Record",
+      "keywords": "vitark record forgesworn brand logo vitark record",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
     }
   ],
   "artwork": [
@@ -2336,6 +2442,114 @@
       "file": "png/peace-tone5.png",
       "bytes": 33411,
       "sha256": "33c1b4d165116fe9d86eec92de7bca7f6dc961d2f6eedda1ed8df3431117d8d0"
+    },
+    {
+      "emoji": "🪨",
+      "baseEmoji": "🪨",
+      "slug": "sacred-stone",
+      "tone": 0,
+      "file": "png/sacred-stone.png",
+      "bytes": 58506,
+      "sha256": "69ee04c0f038199fe51751a742422778deee710f7fd7f0cff49770adf7eaf683"
+    },
+    {
+      "emoji": "🕷️",
+      "baseEmoji": "🕷️",
+      "slug": "jumping-spider",
+      "tone": 0,
+      "file": "png/jumping-spider.png",
+      "bytes": 56876,
+      "sha256": "80af0c42d692f3b32ec289bf41100d88fa1fb0dc63e3c1acf21f4f2f83aa7271"
+    },
+    {
+      "emoji": "₿",
+      "baseEmoji": "₿",
+      "slug": "bitcoin",
+      "tone": 0,
+      "file": "png/bitcoin.png",
+      "bytes": 47254,
+      "sha256": "a7fdc723d02b40d799c3674462bdfbfcc13ab76851fd5e7a203b60fe99be66df"
+    },
+    {
+      "emoji": ":fs_forgesworn:",
+      "baseEmoji": ":fs_forgesworn:",
+      "slug": "fs-forgesworn",
+      "tone": 0,
+      "file": "png/fs-forgesworn.png",
+      "bytes": 22419,
+      "sha256": "158894a18d41387d8f879930bcf72b51c1297848b5b6359be3fa973e2f232bb7"
+    },
+    {
+      "emoji": ":fs_kindred:",
+      "baseEmoji": ":fs_kindred:",
+      "slug": "fs-kindred",
+      "tone": 0,
+      "file": "png/fs-kindred.png",
+      "bytes": 6307,
+      "sha256": "b27e9c9673b1a13bded828304309505785317f9ace8904456b2e19a6ca4feece"
+    },
+    {
+      "emoji": ":fs_kithmoot:",
+      "baseEmoji": ":fs_kithmoot:",
+      "slug": "fs-kithmoot",
+      "tone": 0,
+      "file": "png/fs-kithmoot.png",
+      "bytes": 19438,
+      "sha256": "e9a5ab9ad870577b0b02ea3f204094d688cc00e712452f0659ee7e9ad6d71d58"
+    },
+    {
+      "emoji": ":fs_mysignet:",
+      "baseEmoji": ":fs_mysignet:",
+      "slug": "fs-mysignet",
+      "tone": 0,
+      "file": "png/fs-mysignet.png",
+      "bytes": 16954,
+      "sha256": "4ffb9b90c4276d4e1b6a1f9b320eb6f23be161757b0480c9bee2c805dc668036"
+    },
+    {
+      "emoji": ":fs_vitark:",
+      "baseEmoji": ":fs_vitark:",
+      "slug": "fs-vitark",
+      "tone": 0,
+      "file": "png/fs-vitark.png",
+      "bytes": 12279,
+      "sha256": "be6eaccf2538a28b43ad7c2342ae795540d8a96701e985355cd9affc653cd4ae"
+    },
+    {
+      "emoji": ":fs_vitark_den:",
+      "baseEmoji": ":fs_vitark_den:",
+      "slug": "fs-vitark-den",
+      "tone": 0,
+      "file": "png/fs-vitark-den.png",
+      "bytes": 12924,
+      "sha256": "8da0f7e306d4311bdd814fd85564df09957665a41c3ccd19387991d9d01b404b"
+    },
+    {
+      "emoji": ":fs_vitark_train:",
+      "baseEmoji": ":fs_vitark_train:",
+      "slug": "fs-vitark-train",
+      "tone": 0,
+      "file": "png/fs-vitark-train.png",
+      "bytes": 14655,
+      "sha256": "ead5f5156879dfdd72e36d66f8d2c1d2e229ad64cf727213f1059e5c806ab79c"
+    },
+    {
+      "emoji": ":fs_vitark_still:",
+      "baseEmoji": ":fs_vitark_still:",
+      "slug": "fs-vitark-still",
+      "tone": 0,
+      "file": "png/fs-vitark-still.png",
+      "bytes": 14407,
+      "sha256": "e00e2a3c1b6e9be5be722faa5f0df63fafc2b451ed4c8ccc111e330a864308eb"
+    },
+    {
+      "emoji": ":fs_vitark_record:",
+      "baseEmoji": ":fs_vitark_record:",
+      "slug": "fs-vitark-record",
+      "tone": 0,
+      "file": "png/fs-vitark-record.png",
+      "bytes": 16227,
+      "sha256": "9e51b03a8270b5fc1b7f7c3bc0615e4bec046feaaa281a0a9eb6cc08dc455e45"
     }
   ]
 }

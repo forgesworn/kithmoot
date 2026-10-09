@@ -28,7 +28,7 @@ export class EmojiPicker {
     this.#query.type = 'search'; this.#query.placeholder = 'Search emoji'; this.#query.setAttribute('aria-label', 'Search emoji')
     this.#grid.className = 'emojiGrid'
     const tabs = document.createElement('div'); tabs.className = 'emojiTabs'; tabs.setAttribute('aria-label', 'Emoji collections')
-    for (const [key, label] of [['familiar', 'Familiar emoji'], ['characters', 'Character stickers'], ['more', 'More emoji']]) {
+    for (const [key, label] of [['familiar', 'Familiar emoji'], ['forgesworn', 'ForgeSworn'], ['characters', 'Character stickers'], ['more', 'More emoji']]) {
       const button = document.createElement('button'); button.type = 'button'; button.textContent = label
       button.onclick = () => { this.#section = key; this.#query.value = ''; this.#render() }
       this.#tabs.set(key!, button); tabs.append(button)
@@ -62,12 +62,14 @@ export class EmojiPicker {
     this.#grid.replaceChildren()
     const query = this.#query.value.trim().toLocaleLowerCase()
     for (const [key, button] of this.#tabs) button.setAttribute('aria-pressed', String(key === this.#section))
-    this.#tone.parentElement!.hidden = this.#section === 'characters' && !query
-    this.#hint.textContent = this.#section === 'characters' ? 'Our character stickers.' : this.#section === 'more' ? 'More Unicode emoji. Search to find a specific reaction.' : 'ForgeMoji by TheCryptoDonkey. Familiar meanings, our own artwork.'
-    const familiar: [string, string][] = FAMILIAR_ART.map(item => [withSkinTone(item.emoji, Number(this.#tone.value)), item.keywords])
+    this.#tone.parentElement!.hidden = ['characters', 'forgesworn'].includes(this.#section) && !query
+    this.#hint.textContent = this.#section === 'forgesworn' ? 'Our ForgeSworn and project icons.' : this.#section === 'characters' ? 'Our character stickers.' : this.#section === 'more' ? 'More Unicode emoji. Search to find a specific reaction.' : 'ForgeMoji by TheCryptoDonkey. Familiar meanings, our own artwork.'
+    const allFamiliar: [string, string][] = FAMILIAR_ART.map(item => [withSkinTone(item.emoji, Number(this.#tone.value)), item.keywords])
+    const familiar = allFamiliar.filter(([emoji]) => !FAMILIAR_ART.some(item => item.emoji === emoji && String(item.category) === 'forgesworn'))
+    const brands = allFamiliar.filter(([emoji]) => FAMILIAR_ART.some(item => item.emoji === emoji && String(item.category) === 'forgesworn'))
     const characters: readonly (readonly [string, string])[] = [...ORIGINAL_EMOJIS, ...(this.packs?.available() ? CULT_EMOJIS : [])]
     const standard = EMOJI_CATALOG.filter(([emoji, name]) => !name.includes('flag') && !familiarArtwork(emoji))
-    const entries = query ? [...familiar, ...characters, ...standard] : this.#section === 'characters' ? characters : this.#section === 'more' ? standard : familiar
+    const entries = query ? [...allFamiliar, ...characters, ...standard] : this.#section === 'forgesworn' ? brands : this.#section === 'characters' ? characters : this.#section === 'more' ? standard : familiar
     const seen = new Set<string>()
     for (const [emoji, name] of entries) {
       const words = emoji === '🤦' ? 'facepalm head against wall frustrated ' + name : name
