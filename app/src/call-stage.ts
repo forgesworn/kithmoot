@@ -431,6 +431,15 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   const sizes = new ResizeObserver(schedule)
   sizes.observe(room)
   media.addEventListener('change', schedule)
+  // A share may arrive before its first decoded dimensions, or change
+  // shape while the same track stays live. Fit it when those dimensions
+  // arrive rather than waiting for a scroll or an unrelated roster change.
+  // These media events do not bubble; capture them from the stable room.
+  const onVideoSize = (event: Event): void => {
+    if (event.target instanceof HTMLVideoElement) schedule()
+  }
+  room.addEventListener('loadedmetadata', onVideoSize, true)
+  room.addEventListener('resize', onVideoSize, true)
   // A strip longer than the room scrolls, and the stage follows the scroll
   // in the same frame so it never slides out of view.
   const onScroll = (): void => { if (room.hasAttribute('data-layout')) apply() }
@@ -443,6 +452,8 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       mutations.disconnect()
       sizes.disconnect()
       media.removeEventListener('change', schedule)
+      room.removeEventListener('loadedmetadata', onVideoSize, true)
+      room.removeEventListener('resize', onVideoSize, true)
       room.removeEventListener('scroll', onScroll)
       room.removeEventListener('pointerdown', onPointerDown)
       if (queued) cancelAnimationFrame(queued)

@@ -18,6 +18,10 @@ and forgets transient annotations. Reading another room keeps the call's
 popouts, but dismisses its modal. Returning to the call does not rejoin it or
 replace its running tracks.
 
+The main stage refits a share when its first decoded dimensions arrive or its
+shape changes, without waiting for a scroll or another roster update. Scroll
+acceptance measures the decoded, fitted picture rather than its empty slot.
+
 Drawing publishes through the owning call session, with room, call and share
 checks at publication. A share from a different call or another device cannot
 be substituted when the current source disappears. Marks remain transient.
