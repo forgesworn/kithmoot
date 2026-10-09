@@ -259,6 +259,13 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await expect(pages[1].locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     await expect(first.locator('#room')).toHaveAttribute('data-layout', 'share', { timeout: 60_000 })
     await expect(first.locator('#room video.screenPreview')).toBeVisible()
+    // A visible track can still have no decoded dimensions. Its first
+    // frame fits the picture inside the fixed stage, so measure scrolling
+    // after decoding rather than comparing that fit with the empty slot.
+    await expect.poll(() => first.locator('#room video.screenPreview').evaluate((video: HTMLVideoElement) =>
+      video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 && video.currentTime > 0
+        && Math.abs(video.offsetHeight - video.offsetWidth * video.videoHeight / video.videoWidth) <= 1,
+    ), { message: 'the shared screen has decoded before measuring its scroll position' }).toBe(true)
     // Hovering Flo to pin them scrolled the strip; start from the top.
     await first.locator('#room').evaluate(el => { el.scrollTop = 0; el.scrollLeft = 0 })
     await first.waitForTimeout(2000)
