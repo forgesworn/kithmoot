@@ -4,6 +4,12 @@ import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
 import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm } from './browser.js'
 
+// Three encoded-media clients and two live popouts produced over 5,000 trace
+// screencast frames (about 200 MB) during this journey on the hosted runner.
+// Keep DOM snapshots, source, assertions and the deliberate gallery screenshot;
+// avoid continuously screenshotting all five views while testing continuity.
+test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
+
 async function chooseView(page: Page, name: 'Gallery' | 'Speaker'): Promise<void> {
   const extras = page.locator('#callExtras')
   if (!await extras.evaluate((node: HTMLDetailsElement) => node.open)) await extras.locator(':scope > summary').click()
