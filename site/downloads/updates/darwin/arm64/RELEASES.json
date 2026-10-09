@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.62",
+  "currentRelease": "0.1.64",
   "releases": [
     {
-      "version": "0.1.62",
+      "version": "0.1.64",
       "updateTo": {
-        "version": "0.1.62",
-        "pub_date": "2026-10-08T21:25:06Z",
-        "notes": "Private chat profile pictures, days/hours/minutes lifetime sliders, brand navigation home and faster room opening after relay replay completes.",
-        "name": "0.1.62",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.62/KithMoot-0.1.62-mac-arm64.zip",
-        "sha256": "2ca3c3711934bbadc7a158a0e11a973566526609eba5b44946af4a856b0d4f27",
-        "size": 138922180
+        "version": "0.1.64",
+        "pub_date": "2026-10-09T07:54:43Z",
+        "notes": "Original KithMoot emoji, stickers and looping GIF memes. Artwork and search are bundled locally; no graphics-provider requests.",
+        "name": "0.1.64",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.64/KithMoot-0.1.64-mac-arm64.zip",
+        "sha256": "71fbd5f84c9f0c40618b672d9ff5045ff327b874967bf6bfacac040ec723c3d4",
+        "size": 153082232
       }
     }
   ]
