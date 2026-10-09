@@ -1,12 +1,12 @@
 {
   "sourceRepository": "https://github.com/forgesworn/forgesworn-link",
-  "sourceCommit": "5537c4d29f85b3d1c1275809e14d7d9459cd8b08",
+  "sourceCommit": "2fa7f232625ef1394bea66c9fd80668573b8310f",
   "wasiSdk": "34.0",
   "wasmBindgen": "0.2.129",
   "target": "web",
   "files": {
-    "link_web.js": "3b5c962ee9780eaf43ea98bf9c6fe10d85cce8f8a20a9907e704b685126b3a4a",
-    "link_web.d.ts": "648d02d6f166fdbdd959318b1e17f1061df0da860b67e5791b5650f11e14d7a1",
-    "link_web_bg.wasm": "fb24e8317348e72ef5f743745374649adb053fd1d2c5cf7a0076624e1cbee05d"
+    "link_web.js": "5b46301a4635063db5ad35f7bcb27f23834c8d73f1cb3cf5740bf8888b5081e5",
+    "link_web.d.ts": "b859db7cc0a99b8edf318ece658d1d519ea6806a0cfc89d7217ee7809bdbb9ec",
+    "link_web_bg.wasm": "2093f60f5c5ba137d7e6bde7a0a672084ce51f0596d54c8affa0343cf867201e"
   }
 }
