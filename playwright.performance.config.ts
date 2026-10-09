@@ -2,7 +2,13 @@ import { defineConfig } from '@playwright/test'
 
 const port = Number(process.env.E2E_PORT ?? 4273)
 const relayPort = Number(process.env.E2E_RELAY_PORT ?? port + 100)
-if (!Number.isInteger(port) || !Number.isInteger(relayPort)) throw new Error('Ports must be integers')
+if (![port, relayPort].every(value => Number.isInteger(value) && value > 0 && value < 65536) || port === relayPort) {
+  throw new Error('App and relay ports must be distinct integers between 1 and 65535')
+}
+// browser.ts/relays.ts read the same environment in the test worker. Without
+// this, the default app port uses 4273 while its room invitations name 7777.
+process.env.E2E_PORT = String(port)
+process.env.E2E_RELAY_PORT = String(relayPort)
 
 export default defineConfig({
   testDir: './test', testMatch: 'performance-baseline.spec.ts', workers: 1,
