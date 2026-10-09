@@ -1,0 +1,44 @@
+.chatArtPicker { position: fixed; z-index: 50; display: flex; flex-direction: column; gap: .45rem; padding: .7rem; box-sizing: border-box; border: 1px solid var(--border, #37505b); border-radius: 16px; background: var(--panel, #19272d); color: var(--fg, inherit); box-shadow: 0 12px 38px #0005; overflow: hidden; isolation: isolate; }
+.chatArtPicker[hidden], .chatArtPicker [hidden] { display: none !important; }
+.chatArtPicker button { margin: 0; min-width: 44px; min-height: 44px; padding: .4rem .55rem; }
+.chatArtPickerHeader { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .4rem; flex: none; }
+.chatArtPickerHeader > button:last-child { grid-column: 2; grid-row: 1; }
+.chatArtPickerTitle { font-size: 1rem; margin: 0; }
+.chatArtPickerTabs { display: flex; gap: .3rem; grid-column: 1 / -1; grid-row: 2; flex: none; }
+.chatArtPickerTabs button { flex: 1; border-radius: 10px; }
+.chatArtPicker [aria-selected="true"], .chatArtPicker [aria-pressed="true"] { border-color: var(--accent, #4ecbff); background: var(--accent-dim, #256575); }
+.chatArtPickerSearch { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; margin: 0; font-size: 16px; flex: none; }
+.chatArtPickerCollections { display: flex; gap: .25rem; flex: none; overflow-x: auto; scrollbar-width: thin; }
+.chatArtPickerCollections button { flex: none; white-space: nowrap; font-size: .8rem; }
+.chatArtPickerFilters { display: flex; align-items: center; gap: .4rem; flex: none; min-width: 0; }
+.chatArtPickerFilters select { min-height: 44px; min-width: 0; max-width: 100%; padding: .35rem; font-size: .8rem; }
+.chatArtPickerFilters > select { flex: 1; }
+.chatArtPickerFilters label { display: flex; align-items: center; gap: .3rem; font-size: .75rem; white-space: nowrap; }
+.chatArtPickerScroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.chatArtPicker .emojiGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: .25rem; margin: 0; }
+.chatArtPicker .emojiGrid button { display: flex; align-items: center; justify-content: center; height: 58px; padding: .2rem; font-size: 2rem; }
+.chatArtPicker .emojiGrid .familiarEmoji, .chatArtPicker .emojiGrid .cultEmoji { width: 44px; height: 44px; flex: none; }
+.chatArtPicker .mediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: .5rem; }
+.chatArtPickerMediaCard { min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
+.chatArtPicker .mediaGrid .chatArtPickerMediaCard > button:first-child { display: flex; flex-direction: column; align-items: center; width: 100%; padding: .45rem; text-align: center; }
+.chatArtPicker .mediaGrid img { width: 100%; height: 120px; object-fit: contain; }
+.chatArtPicker .mediaGrid button span { font-size: .85rem; }
+.chatArtPickerPreviewButton { font-size: .75rem; background: transparent; }
+.chatArtPickerMore { width: 100%; margin-top: .5rem !important; }
+.chatArtPickerStatus { flex: none; font-size: .75rem; line-height: 1.25; margin: 0; min-height: 1em; color: var(--muted, inherit); }
+.chatArtPickerUnlock { flex: none; font-size: .8rem; }
+.chatArtPickerPreview { position: absolute; inset: .5rem; z-index: 2; display: flex; flex-direction: column; align-items: stretch; gap: .6rem; padding: .6rem; border-radius: 12px; background: var(--panel, #19272d); }
+.chatArtPickerPreview img { flex: 1; width: 100%; min-height: 0; object-fit: contain; }
+.chatArtPickerPhone { border-radius: 18px; padding: .55rem; gap: .35rem; }
+.chatArtPickerPhone .chatArtPickerHeader { display: flex; gap: .2rem; }
+.chatArtPickerPhone .chatArtPickerTitle { display: none; }
+.chatArtPickerPhone .chatArtPickerTabs { flex: 1; gap: .2rem; }
+.chatArtPickerPhone .chatArtPickerTabs button { padding: .25rem .4rem; font-size: .85rem; }
+.chatArtPickerPhone .chatArtPickerHeader > button { width: 44px; padding: .2rem; flex: none; }
+.chatArtPickerPhone .chatArtPickerFilters { gap: .3rem; }
+.chatArtPickerPhone .chatArtPickerFilters label { gap: .2rem; }
+.chatArtPickerCompact .chatArtPickerTitle, .chatArtPickerCompact .chatArtPickerCollections, .chatArtPickerCompact .chatArtPickerFilters { display: none; }
+.chatArtPickerCompact .chatArtPickerCollections.chatArtPickerCollectionsOpen { display: flex; }
+.chatArtPickerCompact:not(.chatArtPickerPhone) .chatArtPickerHeader { display: flex; }
+.chatArtPickerCompact:not(.chatArtPickerPhone) .chatArtPickerTabs { flex: 1; }
+@media (max-height: 500px) { .chatArtPicker { gap: .2rem; padding: .4rem; } .chatArtPickerTitle { font-size: .85rem; } .chatArtPickerCollections { gap: .15rem; } .chatArtPickerFilters label { font-size: .7rem; } }

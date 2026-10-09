@@ -1,5 +1,5 @@
 import { ParticipantCard } from './participant-card.js'
-import { MediaPicker } from './media-picker.js'
+import { ChatArtPicker } from './chat-art-picker.js'
 import { downloadCatalogueImage } from './media-catalogue.js'
 import { unlockCultPack } from './nostr-packs.js'
 import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
@@ -35,7 +35,7 @@ import { dockSummary, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { setProjectsRailUnread } from './desktop-projects-rail.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
-import { EmojiPicker, preferredReaction } from './emoji-picker.js'
+import { preferredReaction } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
@@ -440,8 +440,7 @@ const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
 const drawingNoticeGate = new DrawingNoticeGate()
 const participantCard = new ParticipantCard(copyMessageText)
 let packGrant: { pubkey: string; until: number } | undefined
-const mediaPicker = new MediaPicker()
-const emojiPicker = new EmojiPicker({
+const chatArtPicker = new ChatArtPicker({
   available: () => !!nostrSession && packGrant?.pubkey === nostrSession.pubkey && packGrant.until > Date.now(),
   unlock: async () => {
     const actor = nostrSession
@@ -9039,7 +9038,7 @@ function renderComposer(): void {
   ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
   ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
   ;($('mediaToggle') as HTMLButtonElement).disabled = readOnly || closed
-  if (readOnly || closed) emojiPicker.close()
+  if (readOnly || closed) chatArtPicker.close()
   ;($('attachToggle') as HTMLButtonElement).disabled = closed
   ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job) || Boolean(draft.pendingFiles?.length)
   $('attachStaged').hidden = readOnly
@@ -9617,7 +9616,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           const emoji = preferredReaction(base)
           const mineToo = reactions.get(emoji)?.some(entry => entry.reaction!.active && entry.participant === meParticipant)
           return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
-        }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => emojiPicker.open(anchor, react) }]))
+        }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => chatArtPicker.openReaction(anchor, react) }]))
       }
       more.addEventListener('click', () => openActions(more))
       const addReaction = document.createElement('button')
@@ -12753,8 +12752,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   contextPanel.close()
   messageActions.close(false)
   conversationSearch.reset()
-  emojiPicker.close()
-  mediaPicker.close()
+  chatArtPicker.close()
   participantCard.close()
   shareViewer.close()
   floatingSharePreview.close()
@@ -15768,32 +15766,40 @@ function acknowledgeMinutesRequest(): void {
   )
 }
 
-$('mediaToggle').addEventListener('click', () => {
+function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): void {
   const input = $('chatInput') as HTMLTextAreaElement
   if (input.readOnly) return
+  chatArtPicker.close()
   const generation = roomGeneration, channel = currentChannel
-  mediaPicker.open($('mediaToggle'), async (item, signal) => {
-    const file = await downloadCatalogueImage(item, signal)
-    if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) throw new Error('The conversation changed. Open the picker again.')
-    await shareDroppedFiles([file])
-  })
-})
-
-$('emojiToggle').addEventListener('click', () => {
-  const input = $('chatInput') as HTMLTextAreaElement
-  if (input.readOnly) return
-  const channel = currentChannel
-  const start = input.selectionStart, end = input.selectionEnd
-  emojiPicker.open(input, emoji => {
-    if (currentChannel !== channel || input.readOnly) return
+  // Touch browsers can reset an inactive textarea's selection after a picker
+  // button receives focus. Keep our insertion range until the person moves it.
+  let start = input.selectionStart, end = input.selectionEnd, direction = input.selectionDirection
+  const selectionEvents = new AbortController()
+  const rememberSelection = () => {
+    if (document.activeElement !== input || roomGeneration !== generation || currentChannel !== channel) return
+    start = input.selectionStart; end = input.selectionEnd; direction = input.selectionDirection
+  }
+  for (const event of ['input', 'click', 'keyup', 'select']) input.addEventListener(event, rememberSelection, { signal: selectionEvents.signal })
+  chatArtPicker.openComposer($(mode === 'emoji' ? 'emojiToggle' : 'mediaToggle'), input, mode, emoji => {
+    if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) return
     if (input.value.length - (end - start) + emoji.length > MAX_CHAT_TEXT_LENGTH) {
       setStatus('There is no room for that emoji. Shorten your message first.')
       return
     }
     input.setRangeText(emoji, start, end, 'end')
+    start += emoji.length; end = start; direction = 'none'
     input.dispatchEvent(new Event('input', { bubbles: true }))
+  }, async (item, signal) => {
+    const file = await downloadCatalogueImage(item, signal)
+    if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) throw new Error('The conversation changed. Open the picker again.')
+    await shareDroppedFiles([file])
+  }, () => {
+    selectionEvents.abort()
+    if (roomGeneration === generation && currentChannel === channel && input.isConnected) input.setSelectionRange(start, end, direction)
   })
-})
+}
+$('mediaToggle').addEventListener('click', () => openChatArt('gifs'))
+$('emojiToggle').addEventListener('click', () => openChatArt('emoji'))
 
 // ---------------------------------------------------------------------------
 // What the box is doing besides saying something new

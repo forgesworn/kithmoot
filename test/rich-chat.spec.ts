@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
@@ -13,6 +13,12 @@ import { openRoomUrl } from './relays.js'
 import { routeTestBlossom } from './blossom.js'
 import { nostrTestDevice, signInNostrTestDevice } from './nostr-device.js'
 import { FAMILIAR_ART } from '../src/familiar-emoji.js'
+
+async function artworkSearch(page: Page, name: string) {
+  const query = page.getByRole('searchbox', { name, exact: true })
+  if (!(await query.isVisible())) await page.getByRole('button', { name: 'Search artwork', exact: true }).click()
+  return query
+}
 
 test('familiar artwork keeps Unicode, human tones, drafts and links intact', async ({ browser, baseURL }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -32,6 +38,7 @@ test('familiar artwork keeps Unicode, human tones, drafts and links intact', asy
     await page.getByRole('combobox', { name: 'Hand colour' }).selectOption('3')
     await page.locator('.emojiGrid button').filter({ has: page.locator('.familiarEmoji', { hasText: '👍🏽' }) }).click()
     await expect(page.locator('#chatInput')).toHaveValue('Nice 👍🏽')
+    await page.getByRole('button', { name: 'Close emoji picker', exact: true }).click()
     await page.locator('#chatForm button[type=submit]').click()
     await expect.poll(() => writer.chat.messages().some(message => message.text === 'Nice 👍🏽')).toBe(true)
     await writer.chat.send('Received 👎🏿 ❤️, keep 👩🏽‍💻 intact. https://example.test/👍🏽')
@@ -44,10 +51,11 @@ test('familiar artwork keeps Unicode, human tones, drafts and links intact', asy
     await expect.poll(() => writer.chat.messages().some(message => message.reaction?.emoji === '👍🏽')).toBe(true)
     await page.locator('#emojiToggle').click()
     await expect(page.getByRole('combobox', { name: 'Hand colour' })).toHaveValue('3')
-    await page.getByRole('searchbox', { name: 'Search emoji' }).fill('donkey')
+    await (await artworkSearch(page, 'Search emoji')).fill('donkey')
     await expect(page.locator('.emojiGrid .familiarEmoji')).toHaveText('🫏')
     await page.locator('.emojiGrid button').click()
     await expect(page.locator('#chatInput')).toHaveValue('🫏')
+    await page.getByRole('button', { name: 'Close emoji picker', exact: true }).click()
     await page.locator('#chatInput').fill('')
     await page.locator('#emojiToggle').click()
     await page.getByRole('button', { name: 'ForgeSworn', exact: true }).click()
@@ -55,6 +63,7 @@ test('familiar artwork keeps Unicode, human tones, drafts and links intact', asy
     await expect(page.getByRole('combobox', { name: 'Hand colour' })).toBeHidden()
     await page.locator('.emojiGrid button').filter({ has: page.locator('.familiarEmoji', { hasText: ':fs_kithmoot:' }) }).click()
     await expect(page.locator('#chatInput')).toHaveValue(':fs_kithmoot:')
+    await page.getByRole('button', { name: 'Close emoji picker', exact: true }).click()
     await page.locator('#chatForm button[type=submit]').click()
     await expect.poll(() => writer.chat.messages().some(message => message.text === ':fs_kithmoot:')).toBe(true)
     await writer.chat.send('Brand :fs_forgesworn: ₿ 🕷️ 🪨, literal :fs_bad: https://example.test/:fs_kithmoot:')
@@ -96,17 +105,19 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
     await expect(row.locator('.cultEmoji img')).toBeVisible()
     await expect.poll(() => row.locator('.cultEmoji img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1024)
     expect(registryRequests).toBe(0)
-    await page.locator('#emojiToggle').click(); await page.getByRole('searchbox', { name: 'Search emoji' }).fill('600')
+    await page.locator('#emojiToggle').click(); await (await artworkSearch(page, 'Search emoji')).fill('600')
     const basic600 = FAMILIAR_ART.filter(item => item.keywords.includes('600')).length
     await expect(page.locator('.emojiGrid button')).toHaveCount(basic600)
+    await page.getByRole('button', { name: 'Characters', exact: true }).click()
+    await (await artworkSearch(page, 'Search emoji')).fill('600')
     await page.getByRole('button', { name: 'Unlock Nostr packs' }).click()
-    await expect(page.locator('.emojiPicker [role=status]')).toContainText(member ? 'unlocked' : 'No member packs')
+    await expect(page.locator('.chatArtPicker [role=status]')).toContainText(member ? 'unlocked' : 'No member packs')
     expect(registryRequests).toBe(1)
     await expect(page.locator('.emojiGrid button')).toHaveCount(basic600 + (member ? 8 : 0))
     await page.getByRole('button', { name: 'Close emoji picker' }).click()
     await row.getByRole('button', { name: 'React to message from Rowan', exact: true }).click()
     await page.getByRole('button', { name: 'More emoji reactions', exact: true }).click()
-    await page.getByRole('searchbox', { name: 'Search emoji' }).fill('unicorn')
+    await (await artworkSearch(page, 'Search emoji')).fill('unicorn')
     await page.getByRole('button', { name: '🦄 unicorn', exact: true }).click()
     const reaction = row.getByRole('button', { name: 'Remove 🦄 reaction, 1', exact: true })
     await expect(reaction).toHaveAttribute('aria-pressed', 'true')
@@ -145,7 +156,7 @@ test('original artwork search makes no third-party requests and a bundled GIF ar
     await expect(page.locator('#roomArea')).toBeVisible()
     await allowTestFileStorage(page, new URL(baseURL!).origin)
     await page.locator('#mediaToggle').click()
-    await page.getByRole('searchbox', { name: 'Search GIFs and stickers' }).fill('coffee')
+    await (await artworkSearch(page, 'Search GIFs and stickers')).fill('coffee')
     await page.getByRole('button', { name: 'Add Coffee.gif', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'GIFs and stickers' })).not.toBeVisible()
     await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
@@ -167,4 +178,67 @@ test('original artwork search makes no third-party requests and a bundled GIF ar
     await expect(page.getByRole('dialog', { name: 'Coffee.gif' }).locator('img')).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('encrypted-gif.png') })
   } finally { await writer.leave(); await context.close() }
+})
+
+for (const size of [{ width: 390, height: 844 }, { width: 1280, height: 800 }, { width: 844, height: 390 }]) test(`composer artwork tray keeps browsing and draft usable at ${size.width}x${size.height}`, async ({ browser, baseURL }) => {
+  const touch = size.width === 390 || size.height === 390
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: size, hasTouch: touch })
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  await context.routeWebSocket(url => url.href !== relay.href, socket => socket.close())
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Artwork tray', relays: [relay.href], iceUrls: [] })
+  try {
+    const page = await context.newPage(); await openRoomUrl(page, link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const input = page.locator('#chatInput')
+    await input.fill('hello world')
+    await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(6, 6))
+    await page.locator('#emojiToggle').click()
+    const picker = page.locator('.chatArtPicker')
+    await expect(picker).toBeVisible()
+    if (touch) expect(await picker.evaluate(element => document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA' && element.contains(document.activeElement))).toBe(true)
+    await page.locator('.emojiGrid button').filter({ has: page.locator('.familiarEmoji', { hasText: '👍' }) }).first().click()
+    await page.locator('.emojiGrid button').filter({ has: page.locator('.familiarEmoji', { hasText: '👎' }) }).first().click()
+    await expect(picker).toBeVisible()
+    await expect(input).toHaveValue('hello 👍👎world')
+    await page.screenshot({ path: test.info().outputPath(`art-tray-${size.width}x${size.height}.png`) })
+    const close = page.getByRole('button', { name: 'Close emoji picker', exact: true })
+    const before = await close.boundingBox()
+    await picker.locator('.chatArtPickerScroll').evaluate(element => { element.scrollTop = element.scrollHeight })
+    expect(await picker.locator('.chatArtPickerScroll').evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    await expect(close).toBeVisible()
+    const after = await close.boundingBox()
+    expect(Math.abs(after!.y - before!.y)).toBeLessThan(2)
+    const bounds = await picker.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.y).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(size.width + 1)
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(size.height + 1)
+    await close.click()
+    await expect(input).toHaveValue('hello 👍👎world')
+    await expect(input).toBeFocused()
+    await page.keyboard.type('!')
+    await expect(input).toHaveValue('hello 👍👎!world')
+    await page.keyboard.press('Backspace')
+    await page.locator('#emojiToggle').click()
+    const recents = picker.getByRole('button', { name: 'Recents', exact: true })
+    if (!(await recents.isVisible())) await picker.getByRole('button', { name: 'Emoji collections', exact: true }).click()
+    await recents.click()
+    await expect(picker.locator('.emojiGrid button')).toHaveCount(2)
+    await picker.getByRole('tab', { name: 'Stickers', exact: true }).click()
+    await expect(picker.locator('.chatArtPickerMediaCard')).toHaveCount(24)
+    await picker.getByRole('tab', { name: 'GIFs', exact: true }).click()
+    await expect(picker.locator('.chatArtPickerMediaCard')).toHaveCount(1)
+    const preview = picker.getByRole('button', { name: 'Preview Coffee.gif', exact: true })
+    await preview.click()
+    await expect(picker.locator('.chatArtPickerPreview img')).toHaveAttribute('src', /\/chat-art\/coffee\.gif$/)
+    await expect(input).toHaveValue('hello 👍👎world')
+    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(0)
+    await picker.getByRole('button', { name: 'Back to choices', exact: true }).click()
+    await expect(preview).toBeFocused()
+    await picker.getByRole('button', { name: 'Close media picker', exact: true }).click()
+    await expect(input).toHaveValue('hello 👍👎world')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  } finally { await context.close() }
 })
