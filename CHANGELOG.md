@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Familiar original emoji and a shared artwork picker, for desktop 0.1.65 and Android 0.6.74.** ForgeMoji by TheCryptoDonkey covers 133 meanings with 124 Unicode emoji and symbols plus nine ForgeSworn brand shortcodes, using 163 PNGs including five human skin tones for six hand gestures. Emoji, Stickers and GIFs share one picker. Composer emoji choices preserve the draft and allow repeated insertion; reaction choices close the picker. Phone browsing starts without opening the keyboard, and search is explicit. Media previews stage built-in artwork only when Add is chosen; Send remains separate. Built-in stickers and GIFs travel as encrypted references to bundled artwork, without uploading an image or asking for file-storage consent. Your own files retain the encrypted upload flow and storage consent.
+- **One acted coffee GIF replaces the flat GIF catalogue.** The local collection now offers 24 original stickers and one six-second coffee animation modelled and performed in Blender. Browsing, search and previews contact no third-party graphics catalogue. Existing received GIFs and people’s own files remain supported.
+
 - **A keeper can turn its room's key over on a schedule, off by default.**
   `kithmoot-agent create --rekey-every <days>` (`KITHMOOT_REKEY_EVERY`,
   `RoomAgent.create({ rekeyEverySeconds })`) rekeys once the room has been
