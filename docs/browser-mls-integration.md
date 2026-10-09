@@ -184,6 +184,14 @@ explicit legacy transfer, witnessed credential/policy/journal changes and typed
 box authentication. Its review and validation are separate from the foundation
 review above. It has no production or room caller yet.
 
+## Session persistence follow-up
+
+The [browser session host](browser-mls-session-host.md) now connects real engine
+snapshots to the coordinator: exact generations, acknowledgement under the
+writer lock, withheld effects through cleanup, durable outbox recovery and
+witnessed session-id tombstones. It has no app or network caller. Room history,
+typed pending operations, the box client/driver and room acceptance remain open.
+
 ## Remaining integration and acceptance
 
 1. Complete real witness acceptance and security review before enabling the
