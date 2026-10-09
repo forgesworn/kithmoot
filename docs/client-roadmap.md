@@ -13,6 +13,20 @@ platform?
 
 ## New physical-test feedback
 
+### Product roadmap additions — 9 October 2026
+
+Accepted and open in [product goals G10–G17](product-goals.md#g10--battery-optimisation-backed-by-physical-measurements):
+battery optimisation; audio/video recording; measured room capacity and gallery
+paging; attributed screen-share popouts with the sharer's camera; a persistent
+top gallery and live popouts across room/project navigation; custom room/project
+logos; shorter invitations considering `z1p.app`; and closed-room admission plus
+UI/UX polish. The goals name existing foundations and completion evidence.
+
+Measure battery/capacity early, establish persistent call ownership before
+extending the gallery/popouts, and qualify the combined workload afterwards.
+Admission and visual polish should accompany complete journeys. These additions
+extend P1/P3/P4; they do not close the existing physical or release gates.
+
 ### Desktop space usage — 19 September 2026
 
 Open: the installed Mac 0.1.9 chat view leaves roughly half a wide window

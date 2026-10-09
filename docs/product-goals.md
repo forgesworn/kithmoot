@@ -4,6 +4,10 @@ Recorded 2026-09-09. These are accepted product goals; all remain open.
 Individual foundations already exist, but none of the complete journeys below
 is declared finished by this document.
 
+Roadmap additions recorded 2026-10-09: G10–G17 cover battery use, recording,
+room capacity, persistent call surfaces, room/project identity, shorter invites
+and admission/UI polish. All eight remain open.
+
 The [client roadmap](client-roadmap.md) sequences this work: finish and
 physically accept the PWA before desktop shells or further native-client
 expansion become the primary delivery lane.
@@ -404,12 +408,229 @@ Remaining work includes the assignment-to-Oathrun execution bridge, unified
 project/attention surfaces, native Android work controls, durable session
 integration and graph retrieval. This is not a new task-engine proposal.
 
+## G10 — Battery optimisation backed by physical measurements
+
+Make KithMoot practical for long conversations and calls on laptops and phones.
+
+Acceptance:
+
+- Establish repeatable idle, chat-only, audio-call, video-call and screen-share
+  baselines, including background/locked operation, a docked call and open
+  popouts. Record battery drain per hour, CPU, memory, network use and thermal
+  behaviour over at least 45 minutes on named physical devices and releases.
+- Profile relay subscriptions/reconnects, timers, speaking analysis, rendering,
+  hidden video decoding, duplicate media views and optional blur/masking.
+  Prioritise measured costs; define improvement targets from the baseline.
+- Reduce unnecessary work when views are hidden or people are off the current
+  gallery page. Preserve live audio, timely speaking indicators and the media
+  actually visible in the gallery, stage or popouts. Explain any deliberate
+  quality or background limitation before somebody depends on it.
+- Repeat the same journeys after optimisation, including foreground recovery
+  and network changes. Accept on physical iPhone, Android and laptop devices;
+  a simulator, browser CPU profile or battery API reading alone is insufficient.
+
+Existing speaking analysis and optional media processing are investigation
+starting points. The P4 battery gate remains open until measurements exist.
+
+## G11 — Audio and video recording people can use confidently
+
+Offer audio-only and video recording, with clear controls and an explicit
+choice of what the video contains: gallery, speaker or screen share with camera.
+
+Acceptance:
+
+- Make start, elapsed time, pause/resume where supported, stop, save, discard
+  and deliberate sharing discoverable. Show who is recording and what is being
+  captured to everyone, including late joiners and people navigating away.
+  Preserve the room's recording authority and visible retention rules.
+- Record the authorised call audio and chosen video layout in sync, with
+  correct participant/share attribution through joins, departures, mute/camera
+  changes, active-speaker changes and screen-share replacement. Define how a
+  paused interval appears in the exported timeline.
+- Keep the recording attached to its originating call during room navigation;
+  never capture another room accidentally. Stop or visibly recover on leaving,
+  expiry, permission loss, recorder failure or storage/size limits. Explain
+  unsupported formats and capture capabilities before starting.
+- Play back and export a 45-minute recording on each supported client/device,
+  checking synchronisation, file size, bounded memory, interruptions and
+  encrypted room sharing. Recording in temporary meetings must visibly change
+  the no-history promise described in G8.
+
+Current foundation: the PWA's `CallRecorder` mixes audio locally, with signed
+recording notices and save/share/discard controls in `main.ts`. This is not
+video recording or evidence of the complete cross-client journey.
+
+## G12 — Tested room capacity and a gallery that scales
+
+Answer “how many people can we support?” with measured supported configurations,
+and keep both the gallery and speaker view usable as a room grows.
+
+Acceptance:
+
+- Stress chat-only, audio, all-camera and camera-plus-screen-share rooms at
+  2, 4, 8, 12, 16 and 24 connected devices, then above that where configuration
+  allows. Count people, devices, simultaneous publishers and agents separately.
+  Exercise joins/leaves, reconnect bursts, multiple shares and a long soak.
+- Measure direct mesh, assist, forwarder and TURN routes separately where
+  applicable, including mixed clients, constrained mobile uplinks, latency and
+  packet loss. Record join success/time, audio gaps, video frame rate/freezes,
+  speaking-indicator delay, UI responsiveness, CPU/memory, client bandwidth and
+  forwarding bandwidth. Set pass thresholds before qualifying a release.
+- Add usable gallery paging with visible page/count controls, keyboard and
+  touch navigation, readable tiles and stable ordering during joins/leaves.
+  Show who is speaking even when they are off-page; speaker view may follow
+  the voice with a hold interval, while manual pages and pins stay under the
+  person's control. Camera-off participants remain identifiable.
+- Publish a supported envelope by client/device, route and media mode, with
+  the observed first bottleneck and graceful overload behaviour. Distinguish
+  synthetic signalling loads from real encoded/decoded media and physical
+  acceptance; a configured cap is not a supported headcount.
+
+Current foundations: gallery/speaker/share layouts, speaker hold and strip
+ordering exist in `call-layout.ts`/`call-stage.ts`; gallery overflow currently
+scrolls. The reference forwarder's default cap is 24 devices per room
+(`server/forwarder.mjs`), not proof that a 24-person video call works well.
+
+## G13 — Attributed screen-share popouts with the sharer's camera
+
+A popped-out screen must always identify whose screen it is and show that
+person's camera alongside it when available.
+
+Acceptance:
+
+- Put the sharer's name and originating room/project in both the popout title
+  and visible header. Bind the view to the participant, device and share track,
+  so duplicate names or a second share cannot silently substitute the source.
+- Include the sharer's live camera beside or over the screen, with resize/hide
+  controls, a speaking indicator and a named fallback when their camera is off.
+  Keep the sharer identifiable when somebody else is the active speaker.
+- Keep attribution and media current through name changes, track replacement,
+  reconnection and navigation. Explicitly show a share ending or its owner
+  leaving; never leave a frozen picture appearing live.
+- Support multiple popouts where the platform permits it. Closing a viewer
+  must not stop the call or share; avoid duplicate audio playback and preserve
+  zoom, annotations and a usable fullscreen/inline fallback.
+
+The existing `ShareViewer` has screen-share popout, zoom and annotation
+foundations. Its source model needs extending for the associated camera and
+durable origin attribution.
+
+## G14 — A persistent top video gallery across room navigation
+
+Keep the active call's video gallery at the top of the workspace while browsing
+other rooms/projects, and keep its existing popouts showing live media.
+
+Acceptance:
+
+- Switching conversations preserves camera tiles, speaking indicators, page,
+  pins and popout windows without a call rejoin. Offer a compact/collapsed form
+  on phones and small windows while leaving call controls reachable.
+- Always label the active call's originating room/project, independently of
+  the conversation being read. Keep microphone, camera, screen-share, recording
+  and Leave actions attached to that call. Navigation must not publish media or
+  recording into the newly viewed room.
+- Return to the call's room without replacing its media tracks or losing viewer
+  state. An explicit Leave, room expiry, removal or ended share performs the
+  appropriate cleanup across the gallery and popouts.
+- Accept a physical call in room A while reading/writing in rooms B and C,
+  switching projects, opening multiple shares, paging the gallery and returning
+  to A. Verify continuous media, correct destinations and no duplicate audio.
+
+Current foundation: `call-dock.ts` and `main.ts` preserve a call while navigating
+other rooms. That does not establish a persistent top gallery or surviving
+popouts. Implement the call/session ownership contract before polishing its
+individual views; G13 uses the same contract.
+
+## G15 — Custom logos for rooms and projects
+
+Make rooms and projects recognisable through their own optional logo.
+
+Acceptance:
+
+- Let authorised people upload, crop/preview, replace and remove a logo, with
+  sensible image/size limits and a useful initials/default fallback.
+- Show it consistently in project navigation, room lists/headers, invitation
+  and admission screens where authorised, and the originating-call label.
+  Keep names visible and accessible; a logo does not prove identity or access.
+- Define project-logo inheritance and room overrides. Synchronise changes to
+  admitted devices and account recovery, with offline/cache behaviour and no
+  arbitrary third-party image fetches exposing room visits.
+- Check light/dark surfaces, tiny navigation sizes, phones, missing/invalid
+  images and permissions. Shared metadata/protocol changes must be compatible
+  across clients; circle-layer changes land in fold-kit first.
+
+## G16 — Shorter room invitations, considering z1p.app
+
+Make invitations convenient to share and type without weakening admission.
+
+Candidate: a dedicated `https://z1p.app/k/<opaque-token>` route, keeping the
+existing Z1P site at `/`. Live verification on 2026-10-09 found the site serving
+its Z1P landing page over HTTPS; no short-invite service was verified.
+
+Acceptance:
+
+- Choose between a compact fragment capability and an opaque lookup token for
+  an encrypted invitation envelope. Document length, entropy, expiry, revocation,
+  resolver availability and metadata exposure. A path token that alone grants
+  entry is itself a bearer secret; keeping only the final link in a fragment
+  does not remove that exposure from HTTP infrastructure.
+- Keep plaintext invitation capabilities and room traffic keys out of resolver
+  storage, request paths/query strings, logs and link-preview responses. If a
+  hosted lookup is chosen, keep envelope decryption material in the fragment;
+  define secure token generation and abuse/rate controls. Quantify guessing
+  resistance rather than choosing memorable aliases as credentials.
+- Preserve inviter binding, closed-room admission, rotation and expiry. Opening
+  a link preview must not consume access or admit its crawler. Show useful
+  expired, revoked, unavailable and waiting-for-host states.
+- Provide copy, QR and supported PWA/Android opening, plus the full invitation
+  as a fallback. Test external messengers, browser redirects and fragment
+  preservation. Record the added hosting dependency before choosing the route.
+
+This is a design/feasibility goal; it does not authorise repurposing the domain's
+existing home page or claim that shortening the current payload is already done.
+
+## G17 — Closed-room admission and consistent UI/UX polish
+
+Make closed-room entry understandable for both the waiting guest and the person
+admitting them, then apply the same clarity throughout the workspace.
+
+Acceptance:
+
+- Give guests a clear room identity where permitted, device preview, request
+  action and distinct sending, waiting, admitted, declined, expired, host-offline
+  and reconnecting states. Offer cancel/retry without duplicate requests; retain
+  entered details while waiting and explain the next useful action.
+- Give hosts an obvious pending queue showing who wants to join, the available
+  identity evidence and individual admit/decline controls. Handle multiple
+  requests, returning devices, duplicate names, concurrent hosts and stale
+  requests without noisy repeated prompts or implying an unverified identity.
+- Preserve admission authority underneath the UI. Guests cannot receive room
+  contents or call media before admission; dismissal is not admission, and a
+  success animation is not an acknowledged grant. Test revocation, expiry and
+  admission completed while the host is viewing another room.
+- Review create/join, room/project navigation, gallery/paging, popouts, recording,
+  files, permission/recovery states and destructive actions as connected journeys.
+  Standardise spacing, labels, button hierarchy and empty/loading/error states;
+  verify keyboard focus, screen-reader announcements, contrast, large text,
+  touch targets and reduced motion on desktop and physical phones.
+- Observe an unfamiliar guest and host completing a closed-room join without
+  coaching. Record time, wrong turns and uncertainty, fix the findings, and
+  repeat alongside the existing physical-feedback register.
+
 ## Delivery and evidence
 
 G9 defines the product shell and remote work journey; G7 fits daily calls into
 that workspace, and G8 provides the separate temporary meeting experience.
 Prioritise a complete desktop-to-phone journey through project selection,
 conversation, task assignment, an approval and a returned result.
+
+G10–G17 are the 9 October roadmap additions. Proposed sequence: measure battery
+and capacity first (G10/G12), while designing the admission journey (G17); then
+establish call continuity and attributed popouts (G14/G13), finish recording
+(G11), and deliver logos and shorter invites (G15/G16). Apply UI polish within
+each journey. Measurements may change this order; existing release blockers
+retain priority. Re-run performance qualification with the completed gallery,
+popouts and recording enabled, since those features change the workload.
 
 Preserve the existing protocol, archive, search and push dependencies described
 in the README. G1 spans those releases; G4 integrates them into an owned deployment.
