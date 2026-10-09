@@ -2395,7 +2395,9 @@ label.note {
      One explicit gap instead, and the section margins that fed the old
      collapsing are dropped. */
   main > section,
-  main > p {
+  main > p,
+  main > #workspaceContent > section,
+  main > #workspaceContent > p {
     margin-block: 0;
   }
 
