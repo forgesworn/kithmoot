@@ -13,6 +13,7 @@ for (const item of data) {
   await copyFile(resolve(source, `${item.slug}.png`), resolve(drawables, `km_${item.slug}.png`))
 }
 await copyFile(resolve(source, 'catalogue.json'), resolve(assets, 'catalogue.json'))
+await copyFile(resolve(source, 'coffee-animation.png'), resolve(assets, 'coffee-animation.png'))
 const kotlinString = value => JSON.stringify(value).replaceAll('$', '\\$')
 const rows = data.map(item => `    OriginalArt(${[item.slug, item.title, item.keywords + ' ' + item.caption.toLowerCase()].map(kotlinString).join(', ')}, ${item.png.bytes}L, ${item.gif.bytes}L),`).join('\n')
 await writeFile(resolve(native, 'app/src/main/kotlin/dev/forgesworn/kithmoot/session/OriginalArt.kt'), `package dev.forgesworn.kithmoot.session\n\n/** Generated from the original artwork bundled with KithMoot. */\ndata class OriginalArt(val slug: String, val title: String, val keywords: String, val pngBytes: Long, val gifBytes: Long)\nval ORIGINAL_ART = listOf(\n${rows}\n)\nval ORIGINAL_EMOJIS = ORIGINAL_ART.map { ":km_\${it.slug}:" to it.keywords }\nfun isOriginalEmoji(value: String): Boolean = ORIGINAL_EMOJIS.any { it.first == value }\n`)

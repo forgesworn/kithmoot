@@ -166,6 +166,7 @@ export default defineConfig({
       // avoid. Both halves are excluded together, because precaching one
       // half of a pair that is useless apart is the worst of both.
       workbox: {
+        maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         globIgnores: ['**/mediapipe/**', '**/link-web/**', '**/vmls-wasm/**', '**/vision_bundle-*.js', 'notify-sw.js'],
         // A click on a notification shown through the registration arrives
         // in the worker, not the page. The handler is a plain script in
@@ -177,7 +178,7 @@ export default defineConfig({
       // not only after a production build - otherwise the manifest link in
       // index.html 404s in dev and the browser logs a spurious parse error.
       devOptions: { enabled: true, type: 'module' },
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'chat-art/*.png', 'chat-art/*.gif'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'chat-art/*.png', 'chat-art/*.gif', 'emoji/*.png'],
       manifest: {
         name: 'KithMoot',
         short_name: 'KithMoot',

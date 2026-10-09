@@ -1,0 +1,9 @@
+# ForgeMoji in KithMoot
+
+ForgeMoji is original everyday emoji artwork by TheCryptoDonkey, published in the separate [ForgeSworn repository](https://github.com/forgesworn/forgemoji). KithMoot bundles a reviewed snapshot locally. The picker starts with familiar faces, hearts, hands and other recognisable Unicode meanings, including selectable human skin tones. Character stickers and the Nostr member pack have their own collection. Existing character shortcodes still render.
+
+Messages and reactions keep their standard Unicode sequences, including the selected skin modifier. Rendering the artwork does not change copied text. Unfamiliar emoji clusters, text presentation and links remain intact. Other clients can display the same Unicode using their own renderer. The orange donkey uses the standard donkey meaning with original artwork based on TheCryptoDonkey's character.
+
+No graphics provider is contacted when browsing, searching or rendering the pack. Web precaches PNGs from its own origin; desktop and Android include them. The local hand-colour preference applies to familiar picker choices and quick reactions. The 600 pack retains its explicit picker-only Nostr unlock.
+
+To update a reviewed snapshot, run `node scripts/sync-forgemoji.mjs --source /absolute/forgemoji --android /absolute/native-checkout`. Both repositories must be chosen explicitly. The script verifies every PNG against the source manifest's byte size and SHA-256, then records the source Git revision, licence and artwork model in the bundled manifest. Commit the generated definitions and packaged PNGs together.

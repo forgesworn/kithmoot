@@ -1,5 +1,7 @@
 import { emojiGlyph } from './custom-emoji.js'
 import { isCultEmoji } from '../../src/custom-emoji.js'
+import { familiarArtwork } from '../../src/familiar-emoji.js'
+import { isOriginalEmoji } from '../../src/original-art.js'
 export interface MessageAction {
   label: string
   text?: string
@@ -62,7 +64,7 @@ export class MessageActions {
     const add = (action: MessageAction, into: HTMLElement): void => {
       const button = document.createElement('button')
       button.type = 'button'
-      if (isCultEmoji(action.text)) button.append(emojiGlyph(action.text!))
+      if (isCultEmoji(action.text) || isOriginalEmoji(action.text) || (action.text && familiarArtwork(action.text))) button.append(emojiGlyph(action.text!))
       else button.textContent = action.text ?? action.label
       button.setAttribute('aria-label', action.label)
       if (action.danger) button.className = 'danger'

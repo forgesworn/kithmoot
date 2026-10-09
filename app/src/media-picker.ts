@@ -14,7 +14,7 @@ export class MediaPicker {
     const privacy = document.createElement('p'); privacy.textContent = 'Our original artwork. Browsing and searching stay on this device.'
     const form = document.createElement('form'); const mode = document.createElement('select'); mode.setAttribute('aria-label', 'Media type')
     for (const [value, label] of [['gifs', 'Animated GIFs'], ['stickers', 'Sticker images']]) { const option = document.createElement('option'); option.value = value; option.textContent = label; mode.append(option) }
-    this.#query.type = 'search'; this.#query.maxLength = 80; this.#query.setAttribute('aria-label', 'Search GIFs and stickers'); this.#query.placeholder = 'Try cats, celebration, rocket…'
+    this.#query.type = 'search'; this.#query.maxLength = 80; this.#query.setAttribute('aria-label', 'Search GIFs and stickers'); this.#query.placeholder = 'Try coffee, facepalm, celebration…'
     const search = document.createElement('button'); search.type = 'submit'; search.textContent = 'Search catalogue'
     form.append(mode, this.#query, search); this.#grid.className = 'mediaGrid'; this.#status.setAttribute('role', 'status')
     const refresh = async () => {

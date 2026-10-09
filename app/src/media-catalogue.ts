@@ -9,8 +9,8 @@ export async function searchMediaCatalogue(query: string, stickers: boolean, sig
   signal.throwIfAborted()
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
   const extension = stickers ? 'png' : 'gif'
-  return ORIGINAL_ART.filter(item => words.every(word => `${item.title} ${item.keywords} ${item.caption}`.toLocaleLowerCase().includes(word))).map(item => ({
-    slug: item.slug, name: `${item.title}.${extension}`, url: localURL(item.slug, extension), preview: localURL(item.slug, 'png'),
+  return ORIGINAL_ART.filter(item => (stickers || item.slug === 'coffee') && words.every(word => `${item.title} ${item.keywords} ${item.caption}`.toLocaleLowerCase().includes(word))).map(item => ({
+    slug: item.slug, name: `${item.title}.${extension}`, url: localURL(item.slug, extension), preview: !stickers && item.slug === 'coffee' ? localURL('coffee-animation', 'png') : localURL(item.slug, 'png'),
     type: stickers ? 'image/png' : 'image/gif', bytes: item[extension].bytes, sha256: item[extension].sha256,
   }))
 }

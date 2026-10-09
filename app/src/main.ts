@@ -35,7 +35,7 @@ import { dockSummary, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { setProjectsRailUnread } from './desktop-projects-rail.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
-import { EmojiPicker } from './emoji-picker.js'
+import { EmojiPicker, preferredReaction } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
@@ -9613,7 +9613,8 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
         )
-        messageActions.open(anchor, reactionsOnly ? [] : actions, REACTION_EMOJIS.map<MessageAction>(emoji => {
+        messageActions.open(anchor, reactionsOnly ? [] : actions, REACTION_EMOJIS.map<MessageAction>(base => {
+          const emoji = preferredReaction(base)
           const mineToo = reactions.get(emoji)?.some(entry => entry.reaction!.active && entry.participant === meParticipant)
           return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
         }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => emojiPicker.open(anchor, react) }]))

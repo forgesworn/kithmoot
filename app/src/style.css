@@ -3391,6 +3391,10 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .emojiPicker input { width: 100%; }
 .emojiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr)); gap: .35rem; margin: 1rem 0; }
 .emojiGrid button { min-height: 3rem; padding: .35rem; font-size: 1.5rem; }
+.emojiTabs { display: flex; flex-wrap: wrap; gap: .35rem; margin: .7rem 0; }
+.emojiTabs button[aria-pressed="true"] { border-color: var(--accent, #4ecbff); }
+.emojiGrid .familiarEmoji { width: 2rem; height: 2rem; }
+.familiarEmoji { display: inline-block; width: 1.5em; height: 1.5em; vertical-align: middle; background-position: center; background-size: contain; background-repeat: no-repeat; color: transparent; line-height: 1.5em; }
 .messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: -.65rem; padding-inline: .45rem; position: relative; z-index: 1; }
 .messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: var(--bg); border: 1px solid var(--border); border-radius: 2rem; font-size: .95rem; }
 .messageReactions button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }

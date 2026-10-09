@@ -3,7 +3,7 @@ import { isReactionEmoji } from './emoji-catalog.js'
 import { compareMessages } from './message-order.js'
 
 // Keep the quick palette stable; the full picker uses the Unicode catalogue.
-export const REACTION_EMOJIS = ['👍', '❤️', '🤦', '😂', '🎉', '👀', '🙏', '😢', '💯'] as const
+export const REACTION_EMOJIS = ['👍', '👎', '❤️', '🤦', '😂', '🎉', '👀', '🙏', '😢', '💯'] as const
 export interface ChatReaction {
   messageId: string
   participant: string

@@ -12,6 +12,46 @@ import { allowTestFileStorage, TEST_RELAY_WS, TEST_RELAY_HTTP } from './browser.
 import { openRoomUrl } from './relays.js'
 import { routeTestBlossom } from './blossom.js'
 import { nostrTestDevice, signInNostrTestDevice } from './nostr-device.js'
+import { FAMILIAR_ART } from '../src/familiar-emoji.js'
+
+test('familiar artwork keeps Unicode, human tones, drafts and links intact', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  await context.routeWebSocket(url => url.href !== relay.href, socket => socket.close())
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  const external: string[] = []
+  context.on('request', request => { const url = new URL(request.url()); if (url.protocol.startsWith('http') && url.origin !== new URL(baseURL!).origin) external.push(url.href) })
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Familiar emoji room', relays: [relay.href], iceUrls: [] })
+  const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
+  try {
+    const page = await context.newPage(); await openRoomUrl(page, link); await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('Nice ')
+    await page.locator('#emojiToggle').click()
+    await expect(page.locator('.emojiGrid button')).toHaveCount(FAMILIAR_ART.length)
+    await page.getByRole('combobox', { name: 'Hand colour' }).selectOption('3')
+    await page.locator('.emojiGrid button').filter({ has: page.locator('.familiarEmoji', { hasText: '👍🏽' }) }).click()
+    await expect(page.locator('#chatInput')).toHaveValue('Nice 👍🏽')
+    await page.locator('#chatForm button[type=submit]').click()
+    await expect.poll(() => writer.chat.messages().some(message => message.text === 'Nice 👍🏽')).toBe(true)
+    await writer.chat.send('Received 👎🏿 ❤️, keep 👩🏽‍💻 intact. https://example.test/👍🏽')
+    const row = page.locator('#chatLog .msg').filter({ hasText: 'Received' }).first()
+    await expect(row.locator('.text')).toHaveText('Received 👎🏿 ❤️, keep 👩🏽‍💻 intact. https://example.test/👍🏽')
+    await expect(row.locator('.familiarEmoji')).toHaveCount(2)
+    await expect(row.locator('a .familiarEmoji')).toHaveCount(0)
+    await row.getByRole('button', { name: 'React to message from Rowan', exact: true }).click()
+    await page.getByRole('button', { name: 'Add 👍🏽 reaction', exact: true }).click()
+    await expect.poll(() => writer.chat.messages().some(message => message.reaction?.emoji === '👍🏽')).toBe(true)
+    await page.locator('#emojiToggle').click()
+    await expect(page.getByRole('combobox', { name: 'Hand colour' })).toHaveValue('3')
+    await page.getByRole('searchbox', { name: 'Search emoji' }).fill('donkey')
+    await expect(page.locator('.emojiGrid .familiarEmoji')).toHaveText('🫏')
+    await page.locator('.emojiGrid button').click()
+    await expect(page.locator('#chatInput')).toHaveValue('🫏')
+    expect(external).toEqual([])
+    await page.screenshot({ path: test.info().outputPath('familiar-emoji-phone.png') })
+  } finally { await writer.leave(); await context.close() }
+})
 
 for (const member of [false, true]) test(`full reactions, clickable profiles and picker-only member packs (${member ? 'member' : 'non-member'})`, async ({ browser, baseURL }) => {
   const secret = generateSecretKey(), senderKey = generateSecretKey(), identity = localIdentity(senderKey)
@@ -38,11 +78,12 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
     await expect.poll(() => row.locator('.cultEmoji img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1024)
     expect(registryRequests).toBe(0)
     await page.locator('#emojiToggle').click(); await page.getByRole('searchbox', { name: 'Search emoji' }).fill('600')
-    await expect(page.locator('.emojiGrid button')).toHaveCount(0)
+    const basic600 = FAMILIAR_ART.filter(item => item.keywords.includes('600')).length
+    await expect(page.locator('.emojiGrid button')).toHaveCount(basic600)
     await page.getByRole('button', { name: 'Unlock Nostr packs' }).click()
     await expect(page.locator('.emojiPicker [role=status]')).toContainText(member ? 'unlocked' : 'No member packs')
     expect(registryRequests).toBe(1)
-    await expect(page.locator('.emojiGrid button')).toHaveCount(member ? 8 : 0)
+    await expect(page.locator('.emojiGrid button')).toHaveCount(basic600 + (member ? 8 : 0))
     await page.getByRole('button', { name: 'Close emoji picker' }).click()
     await row.getByRole('button', { name: 'React to message from Rowan', exact: true }).click()
     await page.getByRole('button', { name: 'More emoji reactions', exact: true }).click()
@@ -75,7 +116,7 @@ test('original artwork search makes no third-party requests and a bundled GIF ar
   await context.routeWebSocket(url => url.href !== relay.href, socket => socket.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   await routeTestBlossom(context, new URL(baseURL!).origin)
-  const gif = readFileSync(new URL('../app/public/chat-art/laugh.gif', import.meta.url))
+  const gif = readFileSync(new URL('../app/public/chat-art/coffee.gif', import.meta.url))
   const external: string[] = []
   context.on('request', request => { const url = new URL(request.url()); if (url.protocol.startsWith('http') && url.origin !== new URL(baseURL!).origin) external.push(url.href) })
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'GIF room', relays: [relay.href], iceUrls: [] })
@@ -85,8 +126,8 @@ test('original artwork search makes no third-party requests and a bundled GIF ar
     await expect(page.locator('#roomArea')).toBeVisible()
     await allowTestFileStorage(page, new URL(baseURL!).origin)
     await page.locator('#mediaToggle').click()
-    await page.getByRole('searchbox', { name: 'Search GIFs and stickers' }).fill('laugh')
-    await page.getByRole('button', { name: 'Add Laugh.gif', exact: true }).click()
+    await page.getByRole('searchbox', { name: 'Search GIFs and stickers' }).fill('coffee')
+    await page.getByRole('button', { name: 'Add Coffee.gif', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'GIFs and stickers' })).not.toBeVisible()
     await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
     await expect(page.locator('#chatInput')).toHaveValue('')
@@ -94,17 +135,17 @@ test('original artwork search makes no third-party requests and a bundled GIF ar
     await page.locator('#chatForm button[type=submit]').click()
     await expect.poll(() => writer.chat.messages().some(message => message.attachments?.length === 1)).toBe(true)
     const message = writer.chat.messages().find(message => message.attachments?.length === 1)!
-    expect(message.text).toBe('Shared a file: Laugh.gif')
+    expect(message.text).toBe('Shared a file: Coffee.gif')
     const attachment = message.attachments![0]!
     const response = await context.request.get(TEST_RELAY_HTTP + new URL(attachment.url).pathname)
     const encrypted = await response.body()
     expect(encrypted.subarray(0, 8).toString()).toBe('FSWNENC2')
     const opened = decryptEnvelope(encrypted, attachment.key)
-    expect(Buffer.from(opened.source)).toEqual(gif)
+    expect(Buffer.from(opened.source).equals(gif)).toBe(true)
     await page.locator('#chatLog .attachment').getByRole('button', { name: 'Show', exact: true }).click()
     await expect(page.locator('#chatLog .attachment img')).toHaveAttribute('src', /^blob:/)
-    await page.getByRole('button', { name: 'Expand Laugh.gif' }).click()
-    await expect(page.getByRole('dialog', { name: 'Laugh.gif' }).locator('img')).toBeVisible()
+    await page.getByRole('button', { name: 'Expand Coffee.gif' }).click()
+    await expect(page.getByRole('dialog', { name: 'Coffee.gif' }).locator('img')).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('encrypted-gif.png') })
   } finally { await writer.leave(); await context.close() }
 })
