@@ -315,6 +315,13 @@
 /* --- The control in the call bar ------------------------------------ */
 
 .callView { display: none; }
+.galleryPager { display: flex; flex: 0 0 auto; grid-column: 1 / -1; align-items: center; justify-content: center; flex-wrap: wrap; gap: .35rem .6rem; padding: .2rem 0; font-size: .85rem; }
+.galleryPager[hidden] { display: none; }
+.galleryPager button { margin: 0; min-width: 44px; min-height: 44px; font-size: 1.4rem; }
+.gallerySpeaking { flex: 1 0 100%; text-align: center; overflow-wrap: anywhere; }
+#room:not([data-layout]) > .participant[data-gallery-off-page] { display: none !important; }
+#room video[data-gallery-off-page], #room .shareExpand[data-gallery-off-page], #room .media:has(> video[data-gallery-off-page]) > .shareMarks { visibility: hidden !important; pointer-events: none !important; }
+#whoIsHere:has(> #galleryPager:not([hidden])) #room { touch-action: pan-y; }
 #whoIsHere:has(> #room[data-layout]) > .callView:not([hidden]) {
   display: flex;
   align-items: center;

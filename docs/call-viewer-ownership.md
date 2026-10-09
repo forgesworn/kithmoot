@@ -33,5 +33,8 @@ touch browser checks camera bounds, reachable controls and absence of horizontal
 overflow. These are automated browser results, not physical phone acceptance.
 
 This is the viewer foundation for product goals G13/G14. A persistent top gallery,
-gallery paging, native Android parity and the named physical-device journeys
+native Android parity and the named physical-device journeys
 remain required before those goals are complete.
+
+Manual [gallery paging](call-gallery-paging.md) has a separate stable call-owned
+selection and pauses only its off-page video elements.

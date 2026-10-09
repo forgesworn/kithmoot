@@ -379,7 +379,7 @@ const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
 // Where every tile goes on a desktop-sized call. See app/src/call-stage.ts.
-installCallStage($('room'), $('whoIsHere'))
+const callStage = installCallStage($('room'), $('whoIsHere'))
 const callFocus = installCallFocus()
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(positionReactionDetails)
@@ -5966,6 +5966,8 @@ function render(views: ParticipantView[], me: string): void {
 /** The call's half of `render`: this device's roles, remote sound, tiles and
  *  call controls, for whichever session carries the call. */
 function renderCallMedia(views: ParticipantView[], me: string): void {
+  const owner = mediaSession()
+  callStage.setScope(`${owner?.roomId ?? ''}:${owner?.call?.id ?? owner?.calls()[0]?.id ?? ''}`)
   const mine = views.find((v) => v.participant === me)
 
   // A paired phone and laptop are one participant. Whichever device most
@@ -10229,6 +10231,7 @@ function parkPicture(el: HTMLVideoElement): void {
  */
 function restoreRemoteElement(el: HTMLMediaElement, container: HTMLElement): void {
   container.append(el)
+  if (el instanceof HTMLVideoElement && el.hasAttribute('data-gallery-off-page')) return
   if (el.paused) void el.play().catch((err) => { if (el instanceof HTMLAudioElement) reportAutoplayBlock(err) })
 }
 
@@ -10425,6 +10428,13 @@ function syncRemoteVideos(): void {
       entry.el.remove()
       remoteVideos.delete(key)
       callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
+      continue
+    }
+    // A manual gallery page hides only its video sink. Incoming packets,
+    // call audio and independent popouts remain live; a paused off-page
+    // clock must not be diagnosed as a broken decoder or rebound by recovery.
+    if (entry.el.hasAttribute('data-gallery-off-page')) {
+      entry.el.pause(); entry.stalled = 0; entry.frozenSince = undefined
       continue
     }
     // What to do about this picture is decided in app/src/remote-tiles.ts,
