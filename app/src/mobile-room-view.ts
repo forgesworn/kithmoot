@@ -10,7 +10,7 @@ export function showMobileRoomView(view: 'chat' | 'call'): void {
   if (compact.matches) {
     document.querySelector<HTMLTextAreaElement>('#chatInput')?.blur()
     window.scrollTo(0, 0)
-    if (view === 'call') for (const video of document.querySelectorAll<HTMLVideoElement>('#callStage video, #parked video')) void video.play().catch(() => {})
+    if (view === 'call') for (const video of document.querySelectorAll<HTMLVideoElement>('#callStage video, #parked video')) if (!video.hasAttribute('data-gallery-off-page') && !video.closest('[data-gallery-collapsed]')) void video.play().catch(() => {})
   }
 }
 

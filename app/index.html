@@ -53,111 +53,24 @@
         <button id="workspaceHome" type="button" class="quiet">All rooms / Start a room</button>
         <p id="workspaceNote" class="note"></p>
       </aside>
-      <section id="roomArea" hidden>
-        <!-- The call this device is on while another room is on screen. The
-             call's own tiles stay in the document, hidden, so its sound keeps
-             playing; this is the way back to them and the way off the call. -->
+      <div id="workspaceContent">
+      <section id="callSurface" aria-label="Call surface" hidden>
+        <div id="callSurfaceHeader" hidden>
+          <strong id="callSurfaceOrigin"></strong>
+          <button id="callGalleryCollapse" type="button" aria-expanded="true" aria-controls="callStage">Hide gallery</button>
+        </div>
         <div id="callDock" class="callDock" role="region" aria-label="Your call" hidden>
           <span id="callDockText" class="callDockText" aria-live="polite"></span>
+          <span id="callDockRecordingNotice" role="status" hidden></span>
           <span class="callDockActions">
             <button id="callDockMic" type="button" aria-pressed="false">Microphone</button>
             <button id="callDockCamera" type="button" aria-pressed="false">Camera</button>
+            <button id="callDockScreen" type="button" aria-pressed="false">Share screen</button>
+            <button id="callDockRecording" type="button" hidden>Record call</button>
             <button id="callDockBack" type="button" class="primary">Back to the call</button>
             <button id="callDockLeave" type="button" class="danger">Leave call</button>
           </span>
         </div>
-        <!-- One line. Back, who and where you are, a call, and the rest. -->
-        <div class="roomBar">
-          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher">Rooms</button>
-          <!-- The name and the who-is-here line are one control, because
-               they answer the same question and a reader who wants more
-               about either taps the thing they are looking at. -->
-          <button id="roomIdentity" type="button" class="roomIdentity" aria-haspopup="dialog">
-            <span id="roomTitle" class="roomTitle"></span>
-            <span id="roomEndsLine" class="roomEndsLine" hidden></span>
-            <span id="roomWho" class="roomWho"></span>
-          </button>
-          <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
-                  title="Call: microphone, camera and screen share" aria-label="Call controls">Call</button>
-          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
-          <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
-                  aria-label="Room details">
-            <span aria-hidden="true">&#8943;</span>
-          </button>
-        </div>
-
-        <div id="roomFuse" class="roomFuse" hidden>
-          <div class="roomFuseDial" aria-hidden="true"><span class="roomFuseSpark">✦</span></div>
-          <div class="roomFuseBody" aria-hidden="true">
-            <span class="roomFuseLabel">Room self-destruct</span>
-            <strong id="roomFuseClock" class="roomFuseClock"></strong>
-            <span id="roomFuseHint" class="roomFuseHint">Save anything you want to keep</span>
-            <span class="roomFuseTrack"><span id="roomFuseBurn"></span></span>
-          </div>
-          <span id="roomFuseSpoken" class="sr-only"></span>
-        </div>
-
-        <!-- A recording of this room's call is running. Shown to everybody
-             for as long as the authority's signed notice stands, and kept
-             up, marked unconfirmed, if the notice stops being reposted.
-             Filled in by `renderRecording` in app/src/main.ts. -->
-        <div id="recordingBanner" class="recordingBanner" role="status" hidden>
-          <span class="recordingDot" aria-hidden="true"></span>
-          <span id="recordingBannerText"></span>
-          <button id="recordingStop" type="button" class="danger" hidden>Stop recording</button>
-        </div>
-        <!-- A finished recording on this device, waiting for its owner to
-             share it in the room, save it, or throw it away. -->
-        <div id="recordingReady" class="recordingReady" role="status" hidden>
-          <span id="recordingReadyText"></span>
-          <button id="recordingShare" type="button" class="primary">Share in this room</button>
-          <a id="recordingSave" class="button">Save to this device</a>
-          <button id="recordingDiscard" type="button">Discard</button>
-        </div>
-        <!-- The call is in meeting mode. Filled in by `renderMeeting` in
-             app/src/main.ts. -->
-        <div id="meetingNotice" class="meetingNotice" role="status" hidden>
-          <span id="meetingNoticeText"></span>
-          <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
-        </div>
-        <nav id="mobileRoomViews" aria-label="Room views">
-          <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
-          <button id="mobileCall" type="button" aria-pressed="false">Call</button>
-          <button id="mobileWork" type="button" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
-        </nav>
-        <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
-        <div id="workAttention" class="workAttention" hidden>
-          <span id="workAttentionText"></span>
-          <button id="reviewWork" type="button">Review decisions</button>
-        </div>
-        <div id="presenceNotice" class="presenceNotice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-        <!-- This device is behind the room's key. Filled in by
-             `renderEpochWaiting` in app/src/main.ts. -->
-        <div id="epochNotice" class="epochNotice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-        <!-- A call is on and you are not on it. Filled in by
-             `renderCallState` in app/src/main.ts. -->
-        <div id="callBanner" class="callBanner" role="status" hidden>
-          <span id="callBannerText"></span>
-          <button id="joinCall" type="button" class="primary">Join call</button>
-        </div>
-        <div id="agentActivity" class="agentActivity" hidden>
-          <div><strong id="agentActivityTitle"></strong><span id="agentActivityNote"></span></div>
-          <button id="watchAgents" type="button">Watch agents</button>
-          <button id="manageAgents" type="button" hidden>Invite an agent</button>
-        </div>
-        <!-- Somebody has drawn on this device's own screen share and the
-             floating preview, if this browser has one, is not open to show
-             it directly. Filled in by `showDrawingNotice` in
-             app/src/main.ts; never steals focus. -->
-        <div id="sharerMarksNotice" class="sharerMarksNotice" role="status" hidden>
-          <span id="sharerMarksNoticeText"></span>
-          <button id="sharerMarksNoticeShow" type="button">Show</button>
-          <button id="sharerMarksNoticeFloat" type="button" hidden>Open floating window</button>
-        </div>
-
-        <!-- The call controls and the pictures, together, so that on a phone
-             they can share one bounded area and never push the conversation
-             off the screen. See "Phone reading pass" in style.css. -->
         <div id="callStage">
         <!-- Nobody is on a call, so the call area is one line: what the room
              is doing, and the way to start. Shown only by the installed
@@ -381,6 +294,105 @@
           <div id="room"></div>
         </div>
         </div>
+      </section>
+      <section id="roomArea" hidden>
+        <!-- The call this device is on while another room is on screen. The
+             call's own tiles stay in the document, hidden, so its sound keeps
+             playing; this is the way back to them and the way off the call. -->
+
+        <!-- One line. Back, who and where you are, a call, and the rest. -->
+        <div class="roomBar">
+          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher">Rooms</button>
+          <!-- The name and the who-is-here line are one control, because
+               they answer the same question and a reader who wants more
+               about either taps the thing they are looking at. -->
+          <button id="roomIdentity" type="button" class="roomIdentity" aria-haspopup="dialog">
+            <span id="roomTitle" class="roomTitle"></span>
+            <span id="roomEndsLine" class="roomEndsLine" hidden></span>
+            <span id="roomWho" class="roomWho"></span>
+          </button>
+          <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
+                  title="Call: microphone, camera and screen share" aria-label="Call controls">Call</button>
+          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
+          <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
+                  aria-label="Room details">
+            <span aria-hidden="true">&#8943;</span>
+          </button>
+        </div>
+
+        <div id="roomFuse" class="roomFuse" hidden>
+          <div class="roomFuseDial" aria-hidden="true"><span class="roomFuseSpark">✦</span></div>
+          <div class="roomFuseBody" aria-hidden="true">
+            <span class="roomFuseLabel">Room self-destruct</span>
+            <strong id="roomFuseClock" class="roomFuseClock"></strong>
+            <span id="roomFuseHint" class="roomFuseHint">Save anything you want to keep</span>
+            <span class="roomFuseTrack"><span id="roomFuseBurn"></span></span>
+          </div>
+          <span id="roomFuseSpoken" class="sr-only"></span>
+        </div>
+
+        <!-- A recording of this room's call is running. Shown to everybody
+             for as long as the authority's signed notice stands, and kept
+             up, marked unconfirmed, if the notice stops being reposted.
+             Filled in by `renderRecording` in app/src/main.ts. -->
+        <div id="recordingBanner" class="recordingBanner" role="status" hidden>
+          <span class="recordingDot" aria-hidden="true"></span>
+          <span id="recordingBannerText"></span>
+          <button id="recordingStop" type="button" class="danger" hidden>Stop recording</button>
+        </div>
+        <!-- A finished recording on this device, waiting for its owner to
+             share it in the room, save it, or throw it away. -->
+        <div id="recordingReady" class="recordingReady" role="status" hidden>
+          <span id="recordingReadyText"></span>
+          <button id="recordingShare" type="button" class="primary">Share in this room</button>
+          <a id="recordingSave" class="button">Save to this device</a>
+          <button id="recordingDiscard" type="button">Discard</button>
+        </div>
+        <!-- The call is in meeting mode. Filled in by `renderMeeting` in
+             app/src/main.ts. -->
+        <div id="meetingNotice" class="meetingNotice" role="status" hidden>
+          <span id="meetingNoticeText"></span>
+          <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
+        </div>
+        <nav id="mobileRoomViews" aria-label="Room views">
+          <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
+          <button id="mobileCall" type="button" aria-pressed="false">Call</button>
+          <button id="mobileWork" type="button" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
+        </nav>
+        <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
+        <div id="workAttention" class="workAttention" hidden>
+          <span id="workAttentionText"></span>
+          <button id="reviewWork" type="button">Review decisions</button>
+        </div>
+        <div id="presenceNotice" class="presenceNotice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+        <!-- This device is behind the room's key. Filled in by
+             `renderEpochWaiting` in app/src/main.ts. -->
+        <div id="epochNotice" class="epochNotice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+        <!-- A call is on and you are not on it. Filled in by
+             `renderCallState` in app/src/main.ts. -->
+        <div id="callBanner" class="callBanner" role="status" hidden>
+          <span id="callBannerText"></span>
+          <button id="joinCall" type="button" class="primary">Join call</button>
+        </div>
+        <div id="agentActivity" class="agentActivity" hidden>
+          <div><strong id="agentActivityTitle"></strong><span id="agentActivityNote"></span></div>
+          <button id="watchAgents" type="button">Watch agents</button>
+          <button id="manageAgents" type="button" hidden>Invite an agent</button>
+        </div>
+        <!-- Somebody has drawn on this device's own screen share and the
+             floating preview, if this browser has one, is not open to show
+             it directly. Filled in by `showDrawingNotice` in
+             app/src/main.ts; never steals focus. -->
+        <div id="sharerMarksNotice" class="sharerMarksNotice" role="status" hidden>
+          <span id="sharerMarksNoticeText"></span>
+          <button id="sharerMarksNoticeShow" type="button">Show</button>
+          <button id="sharerMarksNoticeFloat" type="button" hidden>Open floating window</button>
+        </div>
+
+        <!-- The call controls and the pictures, together, so that on a phone
+             they can share one bounded area and never push the conversation
+             off the screen. See "Phone reading pass" in style.css. -->
+        <div id="callStageSlot" aria-hidden="true"></div>
 
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
@@ -797,6 +809,7 @@
            and a paused element's clock never starts again. See parkPicture
            in app/src/main.ts. -->
       <div id="parked" aria-hidden="true"></div>
+      </div>
     </main>
 
     <!-- The "is this really them" ritual. A native <dialog> rather than the

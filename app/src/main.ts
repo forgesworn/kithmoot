@@ -54,6 +54,7 @@ import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
+import './call-surface.css'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -2226,7 +2227,7 @@ let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
  * away from the call's room keeps its session, relays and media running
  * here, and the room on screen is for reading and writing only: it never
  * carries this device's microphone or camera. The call's tiles stay in the
- * document, hidden, so no media element is paused by leaving it. Coming back
+ * permanent surface, so navigation does not replace their media elements. Coming back
  * puts the room's screen state back as it was left; there is no rejoin, so
  * nobody else sees anything happen. See app/src/call-dock.ts.
  */
@@ -2235,12 +2236,15 @@ interface DockedCall {
   transport: ManagedRelayPool | undefined
   quiet: QuietRoomTransport | undefined
   iceRefreshTimer: ReturnType<typeof setInterval> | undefined
+  conferenceEndTimer: ReturnType<typeof setTimeout> | undefined
   room: KnownRoom
   label: string
   me: string
   ui: RoomUiState
 }
 let dockedCall: DockedCall | undefined
+let callSurfaceScope = ''
+let galleryCollapsed = false
 
 function docked(): boolean {
   return dockedCall !== undefined
@@ -2250,6 +2254,17 @@ function docked(): boolean {
  *  screen. Everything about media asks this, never `session`. */
 function mediaSession(): RoomSession | undefined {
   return dockedCall?.session ?? session
+}
+
+/** Routing constraints belong to the call's original room. */
+function mediaUsesBothy(): boolean {
+  return dockedCall?.ui.roomUsesBothy ?? roomUsesBothy
+}
+
+function callRecordingAuthority(): Uint8Array | undefined {
+  if (!dockedCall) return isRoomAuthority() ? invitationAuthoritySk : undefined
+  const ui = dockedCall.ui
+  return ui.invitationAuthoritySk && ui.invitationDelegation.length === 0 && ui.roomInvitationCapability?.inviter === getPublicKey(ui.invitationAuthoritySk) ? ui.invitationAuthoritySk : undefined
 }
 
 /** This device's participant key in the call's room. */
@@ -4090,6 +4105,7 @@ function setCallOpen(open: boolean): void {
   $('deviceControls').hidden = !open
   $('callToggle').setAttribute('aria-expanded', String(open))
   $('callToggle').dataset.on = String(open)
+  renderDock()
 }
 
 function callIsLive(): boolean {
@@ -5018,7 +5034,7 @@ function adoptMicTrack(): void {
 }
 
 async function toggleMic(): Promise<void> {
-  if (roomUsesBothy) throw new Error('Microphone sharing is unavailable on this text-only Bothy route.')
+  if (mediaUsesBothy()) throw new Error('Microphone sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (!micTrack && (meetingRefuses() || !await consentToRecordedCall())) return
@@ -5088,7 +5104,7 @@ async function toggleMic(): Promise<void> {
 }
 
 async function toggleCamera(): Promise<void> {
-  if (roomUsesBothy) throw new Error('Camera sharing is unavailable on this text-only Bothy route.')
+  if (mediaUsesBothy()) throw new Error('Camera sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (!camera && (meetingRefuses() || !await consentToRecordedCall())) return
@@ -5379,7 +5395,7 @@ interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
 
 let screenStarting = false
 async function toggleScreen(area = false): Promise<void> {
-  if (roomUsesBothy) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
+  if (mediaUsesBothy()) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (screenStarting) return
@@ -6263,7 +6279,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // in the room is offering anything, and a room where nobody has turned
   // anything on shows nothing at all - which is most rooms, most of the
   // time, and is why this is not on the screen permanently.
-  $('whoIsHere').hidden = !views.some((view) => view.tracks.length > 0) && localMediaEl.childElementCount === 0
+  $('whoIsHere').hidden = !views.some((view) => view.call || view.tracks.length > 0) && localMediaEl.childElementCount === 0
   // Emptying the grid above detached our own holder if it was in a tile. If
   // no tile of ours was built this time - our entry has not come back from
   // the relay yet, or lapsed - it goes back to the preview strip in this same
@@ -7249,30 +7265,36 @@ const NOTICE_STORAGE_KEY = 'kithmoot.notice'
  * since a browser timer cannot wait as long as thirty days in one go.
  */
 function scheduleConferenceEnd(s: RoomSession): void {
-  clearTimeout(conferenceEndTimer)
-  conferenceEndTimer = undefined
+  const dock = dockedCall?.session === s ? dockedCall : undefined
+  clearTimeout(dock ? dock.conferenceEndTimer : conferenceEndTimer)
+  if (dock) dock.conferenceEndTimer = undefined
+  else conferenceEndTimer = undefined
   const endsAt = s.endsAt
   if (endsAt === undefined) return
   const wait = Math.min(Math.max(0, (endsAt - nowSeconds()) * 1000), 2 ** 31 - 1)
-  conferenceEndTimer = setTimeout(() => {
-    conferenceEndTimer = undefined
-    if (session !== s) return
+  const timer = setTimeout(() => {
+    // Navigation may have transferred this timer since it was armed.
+    const owner = dockedCall?.session === s ? dockedCall : undefined
+    if (!owner && session !== s) return
+    if (owner) owner.conferenceEndTimer = undefined
+    else conferenceEndTimer = undefined
     if (!conferenceEnded(endsAt, nowSeconds())) { scheduleConferenceEnd(s); return }
-    if (roomDestruct || roomIsDestruct(s.roomId)) {
-      // Self-destruct: the tidy-up leaves the room itself, then says so.
+    markEnded(deviceStore, s.roomId, endsAt)
+    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
+    if ((owner ? owner.ui.roomDestruct : roomDestruct) || roomIsDestruct(s.roomId)) {
       markRoomDestruct(s.roomId)
-      destructSecrets.set(s.roomId, roomSecret)
-      markEnded(deviceStore, s.roomId, endsAt)
-      if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
-      stopInvitationHost()
+      destructSecrets.set(s.roomId, owner ? owner.ui.roomSecret : roomSecret)
+      discardRoomRecording(s.roomId)
+      if (owner) void endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
+      else stopInvitationHost()
       void runDueDestructs()
       return
     }
-    markEnded(deviceStore, s.roomId, endsAt)
-    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
-    stopInvitationHost()
-    leaveWithNotice(conferenceEndedMessage(endsAt))
+    if (owner) void endDockedCall('user', conferenceEndedMessage(endsAt))
+    else { stopInvitationHost(); leaveWithNotice(conferenceEndedMessage(endsAt)) }
   }, wait)
+  if (dock) dock.conferenceEndTimer = timer
+  else conferenceEndTimer = timer
 }
 
 function leaveWithNotice(message: string): void {
@@ -7381,12 +7403,25 @@ interface ActiveRecording {
   authoritySk: Uint8Array
   notice: SignedRecording
   timer: ReturnType<typeof setInterval>
+  discarded?: boolean
 }
 /** The recording this device is making, if it is making one. */
 let activeRecording: ActiveRecording | undefined
 /** A finished recording, held on this device until its owner shares,
  *  saves or discards it. Never uploaded without that choice. */
 let pendingRecording: { file: File; roomId: string; url: string } | undefined
+const recordingStops = new Set<ActiveRecording>()
+
+/** Destruction also drops an unsaved clip, including one still finalising. */
+function discardRoomRecording(roomId: string): void {
+  if (activeRecording?.session.roomId === roomId) activeRecording.discarded = true
+  for (const recording of recordingStops) if (recording.session.roomId === roomId) recording.discarded = true
+  if (pendingRecording?.roomId === roomId) {
+    URL.revokeObjectURL(pendingRecording.url)
+    pendingRecording = undefined
+    renderRecording()
+  }
+}
 
 function roomMeeting(s = session): SignedMeeting | undefined {
   return s ? meetings.get(s.roomId) : undefined
@@ -7523,7 +7558,7 @@ function adoptRecording(s: RoomSession, notice: SignedRecording, sentAt: number)
   }
   const since = notice.on && before?.on && before.id === notice.id ? before.since : sentAt
   recordings.set(s.roomId, { ...notice, since, heardAt: sentAt })
-  if (sentAt >= nowSeconds() - 60 && !!before?.on !== notice.on) {
+  if (s === session && sentAt >= nowSeconds() - 60 && !!before?.on !== notice.on) {
     addSystemLine(notice.on ? 'This call is being recorded. Everybody on the call is told, and sees a notice until it stops.' : 'The recording has stopped.')
   }
   // The notice says this recording is over - stopped on another of the
@@ -7559,17 +7594,17 @@ async function consentToRecordedCall(): Promise<boolean> {
 }
 
 async function startRecording(): Promise<void> {
-  const s = session, authoritySk = invitationAuthoritySk
-  if (!s || !authoritySk || !isRoomAuthority()) throw new Error('Only the person who made this room can record its calls.')
+  const s = mediaSession(), authoritySk = callRecordingAuthority()
+  if (!s || !authoritySk) throw new Error('Only the person who made this room can record its calls.')
   if (activeRecording) return
   if (!s.call) throw new Error('Join the call to record it.')
   if (!recordingMimeType()) throw new Error('This browser cannot record audio.')
   if (!await confirmRoomAction({
-    title: 'Record this call?',
+    title: `Record the call in ${callOrigin(s)?.roomName ?? 'this room'}?`,
     message: 'Everybody in the room is told now, and anybody joining is told before they join. A recording notice stays up for everybody until you stop. What is recorded is the call\'s sound: every voice you can hear, and yours. It stays on this device until you choose to share it.',
     confirmLabel: 'Start recording',
   })) return
-  if (session !== s || activeRecording) return
+  if (mediaSession() !== s || !s.call || s.closed || activeRecording) return
   const before = recordings.get(s.roomId)
   const notice: RecordingNotice = { on: true, id: bytesToHex(randomBytes(16)), version: Math.max(Date.now(), (before?.version ?? 0) + 1) }
   const signed: SignedRecording = { ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
@@ -7577,6 +7612,7 @@ async function startRecording(): Promise<void> {
   // one thing this must never make, so a notice that fails to go out is a
   // recording that never starts.
   await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+  if (mediaSession() !== s || !s.call || s.closed) { await postRecordingOff(s, authoritySk, signed); return }
   adoptRecording(s, signed, nowSeconds())
   let recorder: CallRecorder
   try {
@@ -7617,19 +7653,28 @@ async function stopRecording(): Promise<void> {
   if (!active) return
   activeRecording = undefined
   clearInterval(active.timer)
-  // The recorder stops before the notice comes down, never after.
-  const blob = await active.recorder.stop()
-  await postRecordingOff(active.session, active.authoritySk, active.notice)
-  if (blob.size > 0) {
-    if (pendingRecording) URL.revokeObjectURL(pendingRecording.url)
-    const file = new File([blob], recordingFileName(active.recorder.startedAt, active.recorder.mimeType), { type: active.recorder.mimeType.split(';')[0]! })
-    pendingRecording = { file, roomId: active.session.roomId, url: URL.createObjectURL(file) }
-    setStatus(`Recording stopped: ${formatBytes(file.size)}, on this device only. Share it in the room or save it.`)
-  } else {
-    setStatus('Recording stopped. Nothing was recorded.')
-  }
+  const roomId = active.session.roomId
+  recordingStops.add(active)
   renderRecording()
   renderMeeting()
+  try {
+    // The recorder stops before the notice comes down, never after.
+    const blob = await active.recorder.stop()
+    await postRecordingOff(active.session, active.authoritySk, active.notice)
+    if (active.discarded) return
+    if (blob.size > 0) {
+      if (pendingRecording) URL.revokeObjectURL(pendingRecording.url)
+      const file = new File([blob], recordingFileName(active.recorder.startedAt, active.recorder.mimeType), { type: active.recorder.mimeType.split(';')[0]! })
+      pendingRecording = { file, roomId, url: URL.createObjectURL(file) }
+      setStatus(`Recording stopped: ${formatBytes(file.size)}, on this device only. Share it in the room or save it.`)
+    } else {
+      setStatus('Recording stopped. Nothing was recorded.')
+    }
+  } finally {
+    recordingStops.delete(active)
+    renderRecording()
+    renderMeeting()
+  }
 }
 
 /** Hand the recorder exactly what this device is playing, and its own
@@ -7688,6 +7733,7 @@ function renderRecording(): void {
     save.download = pendingRecording.file.name
     ;($('recordingShare') as HTMLButtonElement).hidden = session?.roomId !== pendingRecording.roomId
   }
+  renderDock()
 }
 
 setInterval(() => { if (activeRecording || session) renderRecording() }, 30_000)
@@ -11215,7 +11261,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
-            if (created && dockedCall?.session === created) { void endDockedCall('user', `${dockedCall.label} was closed.`); dockedRoomClosed(created.roomId, notice) }
+            if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
             else if (created && session === created) roomWasClosed(notice)
           },
           // The indicator has to move the moment this device starts or stops
@@ -11275,7 +11321,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
-            if (created && dockedCall?.session === created) { void endDockedCall('user', `${dockedCall.label} was closed.`); dockedRoomClosed(created.roomId, notice) }
+            if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
             else if (created && session === created) roomWasClosed(notice)
           },
           // The indicator has to move the moment this device starts or stops
@@ -12995,10 +13041,11 @@ function dockableRoom(): KnownRoom | undefined {
  *  been taken out of the globals that closing clears. */
 function dockCall(room: KnownRoom): void {
   dockedCall = {
-    session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer,
+    session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer, conferenceEndTimer,
     room, label: currentRoomLabel(), me: meParticipant, ui: captureRoomUi(),
   }
   iceRefreshTimer = undefined
+  conferenceEndTimer = undefined
   document.documentElement.dataset.callDocked = 'true'
 }
 
@@ -13015,6 +13062,7 @@ function resumeDockedCall(): void {
   sessionTransport = c.transport
   quietTransport = c.quiet
   iceRefreshTimer = c.iceRefreshTimer
+  conferenceEndTimer = c.conferenceEndTimer
   meParticipant = c.me
   history.replaceState(null, '', joinLinkBase() + new URL(c.room.link, location.href).hash)
   showRoomUi()
@@ -13056,6 +13104,8 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   const c = dockedCall
   if (!c) return
   const key = callLockKey()
+  if (activeRecording?.session === c.session) void stopRecording().catch(err => setStatus(describeError(err)))
+  clearTimeout(c.conferenceEndTimer)
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
   ++callGeneration
@@ -13086,17 +13136,29 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   setStatus(notice ?? `You left the call in ${c.label}.`, 'done')
 }
 
-/** The dock: which call this device is on, and the ways to it and off it. */
+/** The call surface is a permanent sibling of the route panels. Navigation
+ *  changes its presentation, never its parent or the media elements in it. */
 function renderDock(): void {
+  const surface = $('callSurface')
   const dock = $('callDock')
   const c = dockedCall
-  // Above the room on screen, or above the rooms list when there is none.
-  const place = $('roomArea').hidden && !$('home').hidden ? $('home') : $('roomArea')
-  if (dock.parentElement !== place) place.prepend(dock)
-  if (dock.hidden !== !c) dock.hidden = !c
+  const owner = mediaSession()
+  const live = !!owner?.call
+  const scope = live ? `${owner!.roomId}:${owner!.call!.id}` : ''
+  if (scope !== callSurfaceScope) { callSurfaceScope = scope; galleryCollapsed = live && innerHeight <= 540 }
+  surface.hidden = !c && ($('roomArea').hidden || ($('callBay').hidden && $('whoIsHere').hidden && $('roomArea').dataset.mobileView !== 'call' && import.meta.env.VITE_DESKTOP !== 'true'))
+  surface.toggleAttribute('data-live', live)
+  surface.toggleAttribute('data-gallery-collapsed', live && galleryCollapsed)
+  $('callSurfaceHeader').hidden = !live
+  const origin = callOrigin(owner)
+  const originText = origin ? `Call in ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
+  if ($('callSurfaceOrigin').textContent !== originText) $('callSurfaceOrigin').textContent = originText
+  const collapse = $('callGalleryCollapse')
+  collapse.textContent = galleryCollapsed ? 'Show gallery' : 'Hide gallery'
+  collapse.setAttribute('aria-expanded', String(!galleryCollapsed))
+  dock.hidden = !c
   if (!c) return
   const views = c.session.participants()
-  // The call this device is on, which is not always the room's first.
   const callId = c.session.call?.id
   const others = callId
     ? views.filter(view => view.call?.id === callId && view.participant !== c.me).map(view => shownAs(view.participant, view.name).name ?? 'somebody')
@@ -13105,8 +13167,23 @@ function renderDock(): void {
   if ($('callDockText').textContent !== text) $('callDockText').textContent = text
   setToggle('callDockMic', !!micTrack?.enabled)
   setToggle('callDockCamera', !!cameraTrack)
+  setToggle('callDockScreen', !!screenTrack)
+  $('callDockScreen').textContent = screenTrack ? 'Stop sharing' : 'Share screen'
+  $('callDockScreen').setAttribute('aria-label', screenTrack ? `Stop screen sharing in ${c.label}` : `Share screen in ${c.label}`)
+  const heard = recordings.get(c.session.roomId)
+  const view = recordingView(heard, heard?.since ?? 0, heard?.heardAt ?? 0, nowSeconds())
+  const recordingMine = activeRecording?.session === c.session
+  const notice = $('callDockRecordingNotice')
+  notice.hidden = view.state === 'off'
+  notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? 'You are recording this call.' : 'This call is being recorded.'
+  const recording = $('callDockRecording')
+  recording.hidden = !recordingMine && !callRecordingAuthority()
+  recording.textContent = recordingMine ? 'Stop recording' : 'Record call'
+  recording.setAttribute('aria-label', `${recordingMine ? 'Stop recording' : 'Record the call'} in ${c.label}`)
   $('callDockBack').setAttribute('aria-label', `Back to the call in ${c.label}`)
 }
+
+new MutationObserver(renderDock).observe($('roomArea'), { attributes: true, attributeFilter: ['hidden', 'data-mobile-view'] })
 
 /** What `resetRoomState` clears about the room on screen, kept for a docked
  *  call so coming back to its room needs no rejoin. */
@@ -13130,6 +13207,10 @@ interface RoomUiState {
   systemLines: SystemLine[]
   roomSecret: Uint8Array
   roomPolicy: RoomPolicy | undefined
+  roomUsesBothy: boolean
+  roomEndsAt: number | undefined
+  roomDestruct: boolean
+  roomStartsAt: number | undefined
   roomName: string | undefined
   roomInvitationCapability: RoomInvitation | undefined
   invitationAuthoritySk: Uint8Array | undefined
@@ -13152,7 +13233,7 @@ function captureRoomUi(): RoomUiState {
     channelLogs: new Map(channelLogs), channelCounts: new Map(channelCounts), conversationRead, currentChannel,
     keeperParticipant, agentParticipants: new Set(agentParticipants), agentDisplayNames: new Map(agentDisplayNames),
     receiptAgents: new Set(receiptAgents), handledInvites: new Set(handledInvites), approvals: new Map(approvals),
-    systemLines: [...systemLines], roomSecret, roomPolicy, roomName, roomInvitationCapability, invitationAuthoritySk,
+    systemLines: [...systemLines], roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName, roomInvitationCapability, invitationAuthoritySk,
     invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, roomRelayHints, iceUrls,
     sessionAuthority, presenceAnnouncements,
   }
@@ -13172,7 +13253,7 @@ function restoreRoomUi(ui: RoomUiState): void {
   refill(approvals, ui.approvals)
   systemLines.length = 0
   systemLines.push(...ui.systemLines)
-  ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomName,
+  ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName,
     roomInvitationCapability, invitationAuthoritySk, invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope,
     relays, roomRelayConfig, roomRelayHints, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
 }
@@ -14095,8 +14176,11 @@ $('toggleMirror').addEventListener('click', () => {
 })
 // The resting strip's own control. Only ever on screen when this device is
 // off the call, so it starts or joins one; it never has to leave.
-$('callDockMic').addEventListener('click', () => { void toggleMic() })
-$('callDockCamera').addEventListener('click', () => { void toggleCamera() })
+$('callDockMic').addEventListener('click', () => { void toggleMic().catch(err => setStatus(describeError(err))) })
+$('callDockCamera').addEventListener('click', () => { void toggleCamera().catch(err => setStatus(describeError(err))) })
+$('callDockScreen').addEventListener('click', () => { void toggleScreen().catch(err => setStatus(describeError(err))) })
+$('callDockRecording').addEventListener('click', () => { void (activeRecording?.session === mediaSession() ? stopRecording() : startRecording()).catch(err => setStatus(describeError(err))) })
+$('callGalleryCollapse').addEventListener('click', () => { galleryCollapsed = !galleryCollapsed; renderDock(); callStage.refresh() })
 $('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })
 $('callDockLeave').addEventListener('click', () => { void endDockedCall() })
 $('callStripAction').addEventListener('click', () => {
@@ -15415,6 +15499,11 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
   const roomId = room.roomId
   if (destructing.has(roomId)) return
   destructing.add(roomId)
+  discardRoomRecording(roomId)
+  if (dockedCall?.session.roomId === roomId) {
+    destructSecrets.set(roomId, dockedCall.ui.roomSecret)
+    await endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
+  }
   const here = !!session && currentRoomId() === roomId
   try {
     const ran = await withRoomLock(roomId, async () => {
@@ -15529,7 +15618,14 @@ async function learnDestructAtDoor(room: KnownRoom): Promise<void> {
 /** A docked call's room was closed under it: written down, and tidied
  *  away if it self-destructs. */
 function dockedRoomClosed(roomId: string, notice: { destruct?: true }): void {
-  if (notice.destruct || roomIsDestruct(roomId)) markRoomDestruct(roomId)
+  const owner = dockedCall
+  if (!owner || owner.session.roomId !== roomId) return
+  if (notice.destruct || roomIsDestruct(roomId)) {
+    destructSecrets.set(roomId, owner.ui.roomSecret)
+    discardRoomRecording(roomId)
+    markRoomDestruct(roomId)
+  }
+  void endDockedCall('user', `${owner.label} was closed.`)
   for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, roomId, nowSeconds())
   if (roomIsDestruct(roomId)) void runDueDestructs()
 }
@@ -15562,6 +15658,12 @@ async function leaveForTidyUp(): Promise<void> {
 // wakes, the room's device key is gone from storage: leave rather than go on
 // publishing under a key nothing here holds any more.
 window.addEventListener('storage', event => {
+  const callRoom = dockedCall?.session.roomId
+  if (callRoom && event.key === DEVICE_PREFIX + callRoom && event.newValue === null) {
+    discardRoomRecording(callRoom)
+    void endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
+    return
+  }
   const roomId = session ? currentRoomId() : undefined
   if (!roomId || event.key !== DEVICE_PREFIX + roomId || event.newValue !== null) return
   void leaveForTidyUp()

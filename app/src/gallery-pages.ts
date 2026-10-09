@@ -5,6 +5,7 @@ export class GalleryPages {
   #size = 9
   #page = 0
 
+  get size(): number { return this.#size }
   get page(): number { return this.#page }
   get count(): number { return this.#order.length }
   get pages(): number { return Math.max(1, Math.ceil(this.count / this.#size)) }

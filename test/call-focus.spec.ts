@@ -101,16 +101,18 @@ async function expectCallFirst(page: Page, label: string): Promise<void> {
   await expect(page.locator('html'), `${label}: the call should come first`).toHaveAttribute('data-call-first', '')
   await page.waitForTimeout(300)
 
-  // The stage runs from under the room bar to the bottom of the window.
+  // The stage runs below the room bar and compact call-origin header.
   const stage = (await page.locator('#callStage').boundingBox())!
   const bar = (await page.locator('#roomArea > .roomBar').boundingBox())!
-  expect(stage.y, `${label}: the stage starts ${stage.y.toFixed(0)}px down, under more than the room bar`).toBeLessThanOrEqual(bar.y + bar.height + 24)
+  const origin = (await page.locator('#callSurfaceHeader').boundingBox())!
+  expect(origin.height, `${label}: the origin header stays compact`).toBeLessThanOrEqual(52)
+  expect(stage.y, `${label}: the stage starts below more than its two headers`).toBeLessThanOrEqual(bar.y + bar.height + origin.height + 24)
   expect(stage.y + stage.height, `${label}: the stage stops ${(viewport.height - stage.y - stage.height).toFixed(0)}px short of the bottom`).toBeGreaterThanOrEqual(viewport.height - 48)
   expect(stage.y + stage.height, `${label}: the stage runs off the bottom of the window`).toBeLessThanOrEqual(viewport.height + 1)
   const room = (await page.locator('#room').boundingBox())!
   expect(room.height, `${label}: the pictures get ${room.height.toFixed(0)}px of a ${viewport.height}px window`).toBeGreaterThanOrEqual(viewport.height * 0.6)
 
-  // Nothing above the stage but the room bar: no agents notice, no card.
+  // Above the stage are only navigation and call attribution, without the agents card.
   await expect(page.locator('#agentActivity'), `${label}: the agents notice should step aside`).toBeHidden()
 
   // Exactly one way off the call, and it is in the bar.
@@ -215,11 +217,12 @@ test('the call has the window: a full-height stage, one bar, one Leave', async (
     await ada.locator('#callView').getByRole('button', { name: 'Gallery', exact: true }).click()
     await closeCallView(ada)
 
-    // Full screen: the room area, and back.
+    // Full screen includes both the permanent call surface and conversation.
     if (await ada.locator('#callFullscreen').isVisible()) {
       await ada.locator('#callFullscreen').click()
       await expect(ada.locator('#callFullscreen')).toHaveAttribute('aria-pressed', 'true')
-      expect(await ada.evaluate(() => document.fullscreenElement?.id)).toBe('roomArea')
+      expect(await ada.evaluate(() => document.fullscreenElement?.id)).toBe('workspaceContent')
+      expect(await ada.evaluate(() => document.fullscreenElement?.contains(document.getElementById('callStage')) && document.fullscreenElement?.contains(document.getElementById('chatForm')))).toBe(true)
       await ada.locator('#callFullscreen').click()
       await expect(ada.locator('#callFullscreen')).toHaveAttribute('aria-pressed', 'false')
     }
