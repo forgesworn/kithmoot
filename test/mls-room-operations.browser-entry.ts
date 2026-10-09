@@ -276,3 +276,144 @@ export async function boxClientScenario(route: PersonaWitnessRoute, mode: string
   client.invalidate()
   return { results, calls, distinctEvents: new Set(calls.map(c => c.event)).size }
 }
+
+// Join fixture uses the real encrypted provision ceremony and a separate
+// inviter. Only the inviter and box/witness transports are simulated.
+import { RendezvousVault, BrowserRendezvousVaultStorage, type RendezvousReceipt } from '../app/src/rendezvous-vault.js'
+import { base64urlnopad } from '@scure/base'
+import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
+const joinRzSecret = new Uint8Array(32).fill(43), provisionDevice = new Uint8Array(32).fill(44), inviterRzSecret = new Uint8Array(32).fill(45)
+const joinRz = getPublicKey(joinRzSecret), inviterRz = getPublicKey(inviterRzSecret), rzDatabase = 'mls-join-rendezvous-test'
+let rzVault = new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)), rzReceipt: RendezvousReceipt
+let joinOutbound: any, joinWelcome: any, inviter: any, inviterPlatform: any
+const joinContext = () => ({ vault: ctx(), rendezvousKey: joinRz, current: () => true })
+export async function provisionJoin(index = 1, lifetime = 600) {
+  const nonce = new Uint8Array(16).fill(9), device = getPublicKey(provisionDevice)
+  const plain = JSON.stringify({ v: 1, p: persona, d: device, rz: joinRz, u: 'rendezvous', i: index, n: base64urlnopad.encode(nonce), e: clock + lifetime, k: base64urlnopad.encode(joinRzSecret) })
+  const response = JSON.stringify({ v: 1, p: persona, d: device, rz: joinRz, u: 'rendezvous', i: index, n: base64urlnopad.encode(nonce), e: clock + lifetime, c: encrypt(plain, getConversationKey(joinRzSecret, device)) })
+  const result = await rzVault.accept(response, { identity: persona, device, nonce, now: clock }, { decrypt: async (peer, value) => decrypt(value, getConversationKey(provisionDevice, peer)) })
+  if (!result.ok) throw new Error(result.reason)
+  rzReceipt = result.receipt
+  return result
+}
+export async function clearJoinChild() { await new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)).clear(persona) }
+export async function typedJoin(mode = 'approve') {
+  const result = await rooms.join(joinContext(), { operation, name: 'Joined room', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault, async () => {
+    if (mode === 'clear') await clearJoinChild()
+    if (mode === 'replace') await provisionJoin(2)
+    if (mode === 'account') generation++
+    if (mode === 'invalidate') rooms.invalidate()
+    if (mode === 'expiry') clock += 601
+    if (mode === 'revoke') await revoke()
+    if (mode === 'device') await enrol(true)
+    return mode === 'deny' ? 'deny' : 'approve'
+  })
+  if (result.state === 'active') { roomId = result.value.session; joinOutbound = result.value.outbound[0] }
+  return result
+}
+export async function readJoin() { return rooms.read(joinContext(), roomId) }
+export async function sendJoin() { return rooms.send(joinContext(), roomId, operation, new TextEncoder().encode('joined hello')) }
+export function restartJoin() { restart(); rzVault = new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)) }
+export async function joinPermissions() { await new Promise(resolve => setTimeout(resolve, 100)); return vault.overview(ctx()) }
+export async function makeJoinWelcome() {
+  const wasm = await loadMlsEngine(), deviceSecret = new Uint8Array(32).fill(49), root = new Uint8Array(32).fill(48), p = getPublicKey(root)
+  const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', p], ['scope', 'person'], ['device', getPublicKey(deviceSecret)], ['expiration', String(clock + 7 * 86400)]] }, root)
+  const binding = { credential: { pubkey: hexToBytes(p), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
+  inviterPlatform = new wasm.Platform(schnorr.getPublicKey(deviceSecret), hexToBytes(inviterRz), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+  const creating = wasm.Session.prepareCreate(inviterPlatform, BigInt(clock), binding, hexToBytes(installation)), ask = creating.request()
+  const made = creating.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, deviceSecret)); inviter = made.session
+  const ack = (step: any) => { if (step.snapshot) { inviter.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
+  ack(made.step); creating.free()
+  const pending = wasm.prepareIntroduction(inviterPlatform, BigInt(clock), hexToBytes(joinRz), 0n), req = pending.request()
+  const shared = secp256k1.getSharedSecret(inviterRzSecret, concatBytes(Uint8Array.of(2), req.peerRz))
+  const intro = pending.complete(BigInt(clock), req.operation, shared.slice(1)); shared.fill(0)
+  const added = inviter.add(BigInt(clock), [intro.openCapability(BigInt(clock), joinOutbound.envelope)]); ack(added)
+  const slot = added.outbound.find((o: any) => o.destination.type === 'CommitSlot')
+  const applied = inviter.process(BigInt(clock), slot.mailbox, slot.envelope, receipt(slot), undefined); ack(applied.step)
+  joinWelcome = applied.step.outbound.find((o: any) => o.destination.type === 'Welcome')
+  intro.free(); pending.free(); inviter.free(); inviterPlatform.free()
+  return !!joinWelcome
+}
+export async function acceptJoinWelcome(install = installation, homeBox = boxId) { return rooms.process(joinContext(), roomId, { ...boxInput(joinWelcome), installation: install, homeBox }) }
+export async function firstJoinUpdate() {
+  const updated = await rooms.update(joinContext(), roomId, clock + 86400, async () => 'approve')
+  if (updated.state !== 'active') return updated
+  const slot = updated.value.outbound.find((o: any) => o.destination.type === 'CommitSlot')
+  return rooms.process(joinContext(), roomId, boxInput(slot, receipt(slot)))
+}
+export async function joinFault(at: 'stage' | 'promotion' | 'stale-close' | 'lost-advance', welcome = false) {
+  const write = LockedPersonaStore.prototype.write
+  let injected = false
+  const before = BigInt((await local()).generation ?? 0)
+  LockedPersonaStore.prototype.write = async function (...args) {
+    const f = await write.apply(this, args)
+    const candidate = f.data.staged ?? f.data.active
+    if (!injected && candidate.sessions.some((s: any) => BigInt(s.generation) > before) && (['stage', 'lost-advance'].includes(at) ? f.data.staged !== null : f.data.staged === null)) {
+      injected = true
+      if (at === 'lost-advance') await (window as any).loseNextWitnessAdvance()
+      else if (at === 'stale-close') closeAction = () => { closeAction = undefined; generation++ }
+      else throw new Error('fixture join interruption')
+    }
+    return f
+  }
+  try { return { result: welcome ? await acceptJoinWelcome() : await typedJoin(), injected } }
+  catch (error) { return { error: (error as Error).message, injected } }
+  finally { LockedPersonaStore.prototype.write = write; closeAction = undefined }
+}
+export async function recoverJoin() {
+  restartJoin(); const found = await rooms.findJoin(joinContext(), operation); if (found.state === 'active') roomId = found.value ?? ''
+  const result = await readJoin()
+  if (result.state === 'active') joinOutbound = (result.value as any).outbox.find((o: any) => o.destination.type === 'Introduction')
+  return result
+}
+export async function joinQueuedClear() {
+  const joining = typedJoin(), clearing = clearJoinChild()
+  const result = await joining; await clearing
+  return result
+}
+export async function joinReleaseFault(mode: 'child' | 'account' | 'expiry' | 'deadline' | 'cleanup' | 'revision') {
+  const storage = new BrowserRendezvousVaultStorage(rzDatabase), lock = storage.withLock.bind(storage)
+  let captured: any
+  const wasm = await loadMlsEngine(), sign = wasm.PendingCapability.prototype.signRequest, dh = wasm.PendingCapability.prototype.ecdhRequest
+  if (mode === 'deadline') {
+    wasm.PendingCapability.prototype.signRequest = function () { return { ...sign.call(this), expiresAt: BigInt(clock + 1) } }
+    wasm.PendingCapability.prototype.ecdhRequest = function () { return { ...dh.call(this), expiresAt: BigInt(clock + 1) } }
+  }
+  storage.withLock = async work => {
+    const result = await lock(work)
+    if (mode === 'child') storage.invalidate()
+    if (mode === 'account') generation++
+    if (mode === 'expiry') clock += 601
+    if (mode === 'deadline') clock += 2
+    if (mode === 'cleanup' || mode === 'revision') {
+      captured = result
+      if (mode === 'cleanup') throw new Error('fixture source cleanup')
+      storage.revision = () => { throw new Error('fixture source revision') }
+    }
+    return result
+  }
+  rzVault = new RendezvousVault(storage)
+  try { return await typedJoin() }
+  catch (error) { return { error: (error as Error).message, wiped: captured?.value?.outbound.every((o: any) => o.envelope.every((b: number) => b === 0) && o.mailbox.every((b: number) => b === 0)) } }
+  finally { wasm.PendingCapability.prototype.signRequest = sign; wasm.PendingCapability.prototype.ecdhRequest = dh }
+}
+let joinPrompt: (() => void) | undefined, pendingJoin: Promise<any> | undefined
+export async function startWaitingJoin() {
+  let entered!: () => void
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  pendingJoin = rooms.join(joinContext(), { operation, name: 'Pending', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault,
+    () => new Promise<'approve'>(resolve => { joinPrompt = () => resolve('approve'); entered() }))
+  await waiting
+}
+export async function finishWaitingJoin() { const result = await pendingJoin; joinPrompt?.(); await new Promise(resolve => setTimeout(resolve, 100)); return result }
+export async function neverJoinConsent() {
+  const timeout = globalThis.setTimeout
+  globalThis.setTimeout = ((fn: () => void, ms: number, ...args: any[]) => timeout(() => { if (ms > 1000 && ms <= 601000) clock += 601; fn() }, ms > 1000 && ms <= 601000 ? 200 : ms, ...args)) as typeof setTimeout
+  try { await startWaitingJoin(); return await finishWaitingJoin() }
+  finally { globalThis.setTimeout = timeout }
+}
+export async function forgedJoinSignature() {
+  const sign = vault.signLeafBindingV1.bind(vault)
+  vault.signLeafBindingV1 = async (...args) => { const answer = await sign(...args); return answer.ok ? { ok: true, value: { ...answer.value } } : answer }
+  try { return await typedJoin() } finally { vault.signLeafBindingV1 = sign }
+}

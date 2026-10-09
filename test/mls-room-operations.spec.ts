@@ -11,6 +11,7 @@ test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-roo
 async function fixture(context: BrowserContext) {
   const key = new Uint8Array(32).fill(91)
   const witness = { seq: 0n, digest: new Uint8Array(32), offline: false, refused: false, loseAdvance: false, wrongKey: false, replay: false, retired: false, advances: 0, reads: 0, last: undefined as number[] | undefined }
+  await context.exposeBinding('loseNextWitnessAdvance', () => { witness.loseAdvance = true })
   await context.exposeBinding('witnessExchange', async (_, method: string, input: number[]) => {
     if (witness.offline) return { type: 'unavailable' }
     if (witness.refused) return { type: 'refused' }
@@ -202,4 +203,95 @@ for (const mode of ['routes', 'caps-invalid', 'denied', 'stale-consent', 'late-r
   else if (mode === 'cancel-consent' || mode === 'timeout-consent') {
     expect(result.results[0].state).toBe('unavailable'); expect(result.calls).toHaveLength(0); expect(result.approved).toEqual([])
   } else { expect(result.results[0].state).toBe('unavailable'); expect(result.calls).toHaveLength(mode === 'stale-consent' ? 0 : 1) }
+})
+
+test('typed join survives reload, accepts authenticated Welcome and requires its first Update', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  const joining = await run(page, 'M.typedJoin()')
+  expect(joining.state).toBe('active')
+  const reopened = await run(page, 'M.recoverJoin()')
+  expect(reopened).toMatchObject({ state: 'active', value: { phase: { type: 'PendingJoin' }, name: 'Joined room' } })
+  expect(reopened.value.outbox).toEqual(joining.value.outbound)
+  expect(await run(page, 'M.sendJoin()')).toEqual({ state: 'refused', reason: 'not-joined' })
+  expect(await run(page, 'M.makeJoinWelcome()')).toBe(true)
+  expect((await run(page, `M.acceptJoinWelcome('${'00'.repeat(32)}')`)).value.outcome.type).not.toBe('Accepted')
+  expect((await run(page, 'M.readJoin()')).value.phase.type).toBe('PendingJoin')
+  expect(await run(page, `M.acceptJoinWelcome(undefined, '${'00'.repeat(32)}')`)).toEqual({ state: 'refused', reason: 'wrong-box' })
+  expect(await run(page, 'M.acceptJoinWelcome()')).toMatchObject({ state: 'active', value: { outcome: { type: 'Accepted' }, ack: { type: 'AfterCommitAck' } } })
+  expect((await run(page, 'M.readJoin()')).value.updateRequired).toBe(true)
+  expect(await run(page, 'M.sendJoin()')).toEqual({ state: 'refused', reason: 'update-required' })
+  expect((await run(page, 'M.firstJoinUpdate()')).state).toBe('active')
+  expect(await run(page, 'M.sendJoin()')).toMatchObject({ state: 'active' })
+  expect((await run(page, 'M.recoverJoin()')).value.history).toHaveLength(1)
+})
+for (const mode of ['deny', 'clear', 'replace', 'account', 'invalidate', 'expiry', 'revoke', 'device']) test(`typed join refuses stale authorisation after ${mode}`, async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect((await run(page, `M.typedJoin('${mode}')`)).state).not.toBe('active')
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+  if (['clear', 'replace', 'invalidate'].includes(mode)) expect((await run(page, 'M.joinPermissions()')).value.approved).toEqual([])
+})
+for (const at of ['stage', 'promotion', 'stale-close', 'lost-advance']) for (const welcome of [false, true]) test(`typed ${welcome ? 'Welcome' : 'join'} recovers ${at} without early effects`, async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  if (welcome) { await run(page, 'M.typedJoin()'); await run(page, 'M.makeJoinWelcome()') }
+  const lost = await run(page, `M.joinFault('${at}', ${welcome})`)
+  expect(lost.injected).toBe(true)
+  expect(lost.result?.state).not.toBe('active')
+  const recovered = await run(page, 'M.recoverJoin()')
+  expect(recovered).toMatchObject({ state: 'active', value: { phase: { type: welcome ? 'Active' : 'PendingJoin' }, generation: welcome ? '2' : '1' } })
+  if (welcome) expect(recovered.value.updateRequired).toBe(true)
+  else expect(recovered.value.outbox[0].destination.type).toBe('Introduction')
+})
+test('queued typed join cannot miss a child clear before lock acquisition', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect((await run(page, 'M.joinQueuedClear()')).state).not.toBe('active')
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+})
+for (const mode of ['child', 'account', 'expiry', 'deadline']) test(`typed join suppresses committed effects after ${mode} during source lock release`, async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect(await run(page, `M.joinReleaseFault('${mode}')`)).toMatchObject({ state: 'pending', reason: 'stale' })
+  expect((await run(page, 'M.local()')).generation).toBe('1')
+  expect((await run(page, 'M.recoverJoin()')).value.outbox[0].destination.type).toBe('Introduction')
+})
+test('another tab clears a child during consent without publishing or saving late permission', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()'); await run(page, 'M.startWaitingJoin()')
+  const other = await context.newPage(); await other.goto(origin)
+  await run(other, 'M.clearJoinChild()')
+  expect((await run(page, 'M.finishWaitingJoin()')).state).not.toBe('active')
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+  expect((await run(page, 'M.joinPermissions()')).value.approved).toEqual([])
+})
+test('never-resolving typed join consent expires and a late approval saves no permission', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect((await run(page, 'M.neverJoinConsent()')).state).not.toBe('active')
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+  expect((await run(page, 'M.joinPermissions()')).value.approved).toEqual([])
+})
+test('typed join rejects a copied signature reply despite valid signature bytes', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect(await run(page, 'M.forgedJoinSignature()')).toEqual({ state: 'refused', reason: 'unauthorised' })
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+})
+test('a repeated typed join operation cannot adopt a second pending session', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  const first = await run(page, 'M.typedJoin()')
+  expect(first.state).toBe('active')
+  expect(await run(page, 'M.typedJoin()')).toEqual({ state: 'refused', reason: 'join-exists' })
+  expect((await run(page, 'M.recoverJoin()')).value.session).toBe(first.value.session)
+  expect((await run(page, 'M.discover()')).ids).toEqual([first.value.session])
+})
+for (const mode of ['cleanup', 'revision']) test(`typed join wipes unreleased effects when source ${mode} throws`, async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect(await run(page, `M.joinReleaseFault('${mode}')`)).toEqual({ error: `fixture source ${mode}`, wiped: true })
+  expect((await run(page, 'M.local()')).generation).toBe('1')
+  expect((await run(page, 'M.recoverJoin()')).value.outbox[0].destination.type).toBe('Introduction')
 })
