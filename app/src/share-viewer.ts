@@ -63,14 +63,31 @@ function authorsData(marks: LiveMark[]): string {
 }
 
 /** A second, muted view of a live track. Closing it never stops the call's track. */
-export interface ShareSource { id: string; track: MediaStreamTrack; title: string }
+export interface ShareSource {
+  id: string
+  track?: MediaStreamTrack
+  title: string
+  origin?: { roomId: string; callId?: string; roomName: string; projectName?: string }
+  owner?: { participant: string; device: string; name: string }
+  camera?: MediaStreamTrack
+  speaking?: boolean
+  status?: 'live' | 'reconnecting' | 'ended' | 'left'
+}
+
+interface Viewer {
+  source: () => ShareSource | undefined
+  returnFocus?: HTMLElement
+  dialog?: HTMLDialogElement
+  popup?: Window
+  dispose?: () => void
+}
 
 /** Credited to nobody in particular - only reached if a caller never
  *  supplies `author`, which every real caller in main.ts does. */
 const UNKNOWN_AUTHOR: MarkAuthor = { key: '', label: '' }
 
 export interface ShareViewerOptions {
-  onAnnotation?: (annotation: ScreenAnnotation) => void
+  onAnnotation?: (annotation: ScreenAnnotation, source?: ShareSource) => void
   /** Who to credit this device's own strokes to: the same identity shown
    *  for this person everywhere else, resolved fresh for every stroke in
    *  case a name arrives or changes mid-room. */
@@ -79,11 +96,7 @@ export interface ShareViewerOptions {
 
 export class ShareViewer {
   readonly #opts: ShareViewerOptions
-  #dialog?: HTMLDialogElement
-  #popup?: Window
-  #dispose?: () => void
-  #source?: () => ShareSource | undefined
-  #returnFocus?: HTMLElement
+  readonly #viewers = new Set<Viewer>()
   /** Every mark on every share this page knows of, fading as they age.
    *  Shared by the expanded viewer and by every preview overlay. */
   readonly #marks = new ShareMarks()
@@ -166,41 +179,59 @@ export class ShareViewer {
   }
 
   open(source: () => ShareSource | undefined, returnFocus?: HTMLElement): void {
-    this.close()
-    this.#source = source
-    this.#returnFocus = returnFocus
+    // An inline viewer is modal; independent popouts keep their own source,
+    // zoom and drawing state when another share is opened.
+    this.closeInline()
+    const view: Viewer = { source, returnFocus }
+    this.#viewers.add(view)
     const dialog = document.createElement('dialog')
     dialog.className = 'shareViewer'
     dialog.setAttribute('aria-label', 'Screen-share viewer')
     document.body.append(dialog)
-    this.#dialog = dialog
-    dialog.addEventListener('close', () => { if (this.#dialog === dialog) this.close() })
+    view.dialog = dialog
+    dialog.addEventListener('close', () => { if (view.dialog === dialog) this.#closeView(view) })
     const content = document.createElement('div'); content.className = 'shareViewerContent'; dialog.append(content)
-    this.#dispose = this.#mount(content, false)
+    view.dispose = this.#mount(content, false, view)
     dialog.showModal()
   }
 
   close(): void {
-    this.#dispose?.()
-    this.#dispose = undefined
-    const dialog = this.#dialog
-    this.#dialog = undefined
-    dialog?.remove()
-    const popup = this.#popup
-    this.#popup = undefined
-    if (popup && !popup.closed) popup.close()
-    this.#source = undefined
-    if (this.#returnFocus?.isConnected) this.#returnFocus.focus({ preventScroll: true })
+    for (const view of [...this.#viewers]) this.#closeView(view)
   }
 
-  #popOut(notice: HTMLElement): void {
+  /** Room navigation dismisses a modal; separate call-owned windows remain. */
+  closeInline(): void {
+    for (const view of [...this.#viewers]) if (view.dialog) this.#closeView(view)
+  }
+
+  /** Call teardown also forgets live marks before another call can own them. */
+  endCall(): void {
+    this.close()
+    this.#marks.clear()
+  }
+
+  #closeView(view: Viewer): void {
+    if (!this.#viewers.has(view)) return
+    this.#viewers.delete(view)
+    view.dispose?.()
+    view.dispose = undefined
+    const dialog = view.dialog
+    view.dialog = undefined
+    dialog?.remove()
+    const popup = view.popup
+    view.popup = undefined
+    if (popup && !popup.closed) popup.close()
+    if (view.returnFocus?.isConnected) view.returnFocus.focus({ preventScroll: true })
+  }
+
+  #popOut(notice: HTMLElement, view: Viewer): void {
     const popup = window.open('', '', 'popup,width=1100,height=760,resizable=yes,scrollbars=no')
     if (!popup) { notice.textContent = 'The pop-out was blocked. Allow pop-ups for this site, or use fullscreen here.'; return }
-    this.#dispose?.()
-    const dialog = this.#dialog
-    this.#dialog = undefined
+    view.dispose?.()
+    const dialog = view.dialog
+    view.dialog = undefined
     dialog?.remove()
-    this.#popup = popup
+    view.popup = popup
     const doc = popup.document
     doc.title = 'KithMoot screen share'
     doc.documentElement.lang = document.documentElement.lang || 'en'
@@ -211,10 +242,10 @@ export class ShareViewer {
     for (const style of document.querySelectorAll('style[data-vite-dev-id]')) doc.head.append(style.cloneNode(true))
     doc.body.className = 'sharePopup'
     const host = doc.createElement('main'); host.className = 'shareViewer'; doc.body.append(host)
-    this.#dispose = this.#mount(host, true)
+    view.dispose = this.#mount(host, true, view)
   }
 
-  #mount(host: HTMLElement, popped: boolean): () => void {
+  #mount(host: HTMLElement, popped: boolean, view: Viewer): () => void {
     const doc = host.ownerDocument
     const win = doc.defaultView!
     const bar = doc.createElement('div'); bar.className = 'shareViewerBar'
@@ -226,20 +257,28 @@ export class ShareViewer {
     const video = doc.createElement('video'); video.autoplay = true; video.muted = true; video.playsInline = true
     const canvas = doc.createElement('canvas'); canvas.className = 'shareAnnotations'; canvas.setAttribute('aria-hidden', 'true')
     stage.append(video, canvas); viewport.append(stage)
+    const ownerCamera = doc.createElement('aside'); ownerCamera.className = 'shareOwnerCamera'
+    const cameraVideo = doc.createElement('video'); cameraVideo.autoplay = true; cameraVideo.muted = true; cameraVideo.playsInline = true
+    const ownerName = doc.createElement('span'); ownerName.className = 'shareOwnerName'
+    const cameraFallback = doc.createElement('span'); cameraFallback.className = 'shareCameraFallback'; cameraFallback.textContent = 'Camera off'
+    ownerCamera.append(cameraVideo, cameraFallback, ownerName); viewport.append(ownerCamera)
     const notice = doc.createElement('p'); notice.className = 'shareViewerNotice'; notice.setAttribute('role', 'status')
     host.append(bar, viewport, notice)
     let track: MediaStreamTrack | undefined
+    let camera: MediaStreamTrack | undefined
+    let showCamera = true
     let zoom = 1, x = 0, y = 0, width = 0, height = 0
     let dragging: { id: number; x: number; y: number } | undefined
     let drawing = false
     let stroke: AnnotationPoint[] | undefined
     let lastStrokeSent = 0
     const flushStroke = () => {
-      const shareId = this.#source?.()?.id
+      const current = view.source()
+      const shareId = current?.id
       if (!shareId || !stroke || stroke.length < 2) return
       const annotation: ScreenAnnotation = { op: 'stroke', shareId, strokeId: crypto.randomUUID(), points: [...stroke] }
       this.#marks.remember(annotation, this.#myAuthor())
-      this.#opts.onAnnotation?.(annotation)
+      this.#opts.onAnnotation?.(annotation, current)
       stroke = [stroke.at(-1)!]
       lastStrokeSent = performance.now()
     }
@@ -267,24 +306,31 @@ export class ShareViewer {
     })
     draw.setAttribute('aria-pressed', 'false'); draw.classList.add('shareDrawButton')
     const clear = makeButton('Clear marks', () => {
-      const shareId = this.#source?.()?.id
+      const current = view.source()
+      const shareId = current?.id
       if (!shareId) return
       const annotation: ScreenAnnotation = { op: 'clear', shareId, strokeId: '' }
-      this.#marks.remember(annotation, this.#myAuthor()); this.#opts.onAnnotation?.(annotation)
+      this.#marks.remember(annotation, this.#myAuthor()); this.#opts.onAnnotation?.(annotation, current)
     })
+    const cameraToggle = makeButton('Hide camera', () => { showCamera = !showCamera; refresh() })
+    cameraToggle.setAttribute('aria-pressed', 'true')
+    const cameraSize = doc.createElement('input'); cameraSize.type = 'range'; cameraSize.min = '120'; cameraSize.max = '320'; cameraSize.value = '200'
+    cameraSize.setAttribute('aria-label', 'Sharer camera size')
+    cameraSize.addEventListener('input', () => ownerCamera.style.setProperty('--share-camera-width', `${cameraSize.value}px`))
+    controls.append(cameraSize)
     const fullscreen = makeButton('Fullscreen', () => {
       const request = doc.fullscreenElement ? doc.exitFullscreen() : host.requestFullscreen?.()
       if (!request) { notice.textContent = 'Fullscreen is unavailable in this browser. The viewer still fills this window.'; return }
       void request.catch(() => { notice.textContent = 'Fullscreen could not open. You can still zoom or pop out the share.' })
     })
     if (!doc.fullscreenEnabled) fullscreen.hidden = true
-    if (!popped) makeButton('Pop out', () => this.#popOut(notice))
-    const close = makeButton('Close', () => this.close()); close.setAttribute('aria-label', 'Close screen-share viewer')
+    if (!popped) makeButton('Pop out', () => this.#popOut(notice, view))
+    const close = makeButton('Close', () => this.#closeView(view)); close.setAttribute('aria-label', 'Close screen-share viewer')
     host.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && popped && !doc.fullscreenElement) { event.preventDefault(); this.close() }
+      if (event.key === 'Escape' && popped && !doc.fullscreenElement) { event.preventDefault(); this.#closeView(view) }
     })
     const renderAnnotations = () => {
-      const current = this.#source?.()
+      const current = view.source()
       const ratio = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9
       const pixelWidth = Math.max(640, Math.min(1920, video.videoWidth || 1280))
       const pixelHeight = Math.round(pixelWidth / ratio)
@@ -389,24 +435,46 @@ export class ShareViewer {
       event.preventDefault()
     })
     const refresh = () => {
-      if (popped && win.closed) { this.close(); return }
-      const current = this.#source?.()
-      const next = current?.track.readyState === 'live' ? current.track : undefined
+      if (popped && win.closed) { this.#closeView(view); return }
+      const current = view.source()
+      const next = current?.track?.readyState === 'live' ? current.track : undefined
       if (next !== track) {
         track = next
         video.srcObject = next ? new MediaStream([next]) : null
-        notice.textContent = next ? `${idleHint()} Fit to screen resets the view.` : 'Screen sharing has stopped or is reconnecting.'
+        notice.textContent = next ? `${idleHint()} Fit to screen resets the view.` : endedNotice(current)
         if (next) void video.play().catch(() => { notice.textContent = 'Press the shared screen to start its video.' })
       }
-      if (!next && !notice.textContent) notice.textContent = 'Screen sharing has stopped or is reconnecting.'
-      if (current) title.textContent = current.title
+      if (!next) notice.textContent = endedNotice(current)
+      if (current) {
+        title.textContent = current.title
+        if (popped) doc.title = `${current.title} — KithMoot`
+        host.dataset.originRoom = current.origin?.roomId ?? ''
+        host.dataset.shareOwner = current.owner?.participant ?? ''
+        host.dataset.shareDevice = current.owner?.device ?? ''
+      }
+      const nextCamera = next && showCamera && current?.camera?.readyState === 'live' ? current.camera : undefined
+      if (nextCamera !== camera) {
+        camera = nextCamera
+        cameraVideo.srcObject = camera ? new MediaStream([camera]) : null
+        if (camera) void cameraVideo.play().catch(() => {})
+      }
+      ownerCamera.hidden = !showCamera || !current?.owner
+      cameraVideo.hidden = !camera
+      cameraFallback.hidden = !!camera
+      cameraFallback.textContent = next ? 'Camera off' : 'Share ended'
+      ownerName.textContent = current?.owner?.name ?? ''
+      ownerCamera.classList.toggle('speaking', !!current?.speaking)
+      cameraToggle.hidden = cameraSize.hidden = !current?.owner
+      cameraToggle.textContent = showCamera ? 'Hide camera' : 'Show camera'
+      cameraToggle.setAttribute('aria-pressed', String(showCamera))
+      cameraSize.disabled = !showCamera
       paint()
     }
     video.addEventListener('loadedmetadata', paint)
     doc.addEventListener('fullscreenchange', paint)
     viewport.addEventListener('click', () => { if (track) void video.play().catch(() => {}) })
     const size = new ResizeObserver(paint); size.observe(viewport)
-    const pageGone = () => { if (popped && this.#popup === win) this.close() }
+    const pageGone = () => { if (popped && view.popup === win) this.#closeView(view) }
     if (popped) win.addEventListener('pagehide', pageGone)
     const timer = window.setInterval(refresh, 250)
     const unsubscribe = this.#marks.subscribe(renderAnnotations)
@@ -416,6 +484,13 @@ export class ShareViewer {
       win.removeEventListener('pointerup', stopDragging); win.removeEventListener('pointercancel', stopDragging)
       win.removeEventListener('touchend', stopTouch); win.removeEventListener('touchcancel', stopTouch)
       window.clearInterval(timer); size.disconnect(); doc.removeEventListener('fullscreenchange', paint); video.pause(); video.srcObject = null
+      cameraVideo.pause(); cameraVideo.srcObject = null
     }
   }
+}
+
+function endedNotice(source: ShareSource | undefined): string {
+  if (source?.status === 'left') return 'The sharer has left the call.'
+  if (source?.status === 'ended') return 'Screen sharing has ended.'
+  return 'Screen sharing has stopped or is reconnecting.'
 }

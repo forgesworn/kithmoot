@@ -410,8 +410,14 @@ function positionReactionDetails(details: HTMLElement): void {
 }
 
 const shareViewer = new ShareViewer({
-  onAnnotation: annotation => session?.publishAnnotation(annotation),
-  author: () => markAuthor(meParticipant),
+  onAnnotation: (annotation, source) => {
+    const owner = mediaSession()
+    if (!owner || (source?.origin && source.origin.roomId !== owner.roomId)) return
+    if (source?.origin?.callId && source.origin.callId !== owner.call?.id) return
+    if (source && (source.id !== annotation.shareId || source.status !== 'live')) return
+    owner.publishAnnotation(annotation)
+  },
+  author: () => markAuthor(mediaMe()),
 })
 // Letting the person doing the sharing see marks drawn on their own screen -
 // see `notifyDrawingOnMyShare` and `floating-share-preview.ts`. Reuses
@@ -424,7 +430,7 @@ const shareViewer = new ShareViewer({
 const floatingSharePreview = new FloatingSharePreview({
   track: () => (shareMayShowItself ? undefined : screenTrack),
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
-  source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
+  source: () => screenTrack ? screenSource(mediaMe(), myDeviceId) : undefined,
 })
 // Redaction boxes (desktop app, not on Wayland): parts of the real screen
 // that are painted black in every outgoing screen or area share.
@@ -2244,6 +2250,14 @@ function mediaSession(): RoomSession | undefined {
 /** This device's participant key in the call's room. */
 function mediaMe(): string {
   return dockedCall?.me ?? meParticipant
+}
+
+/** Attribution belongs to the call's session, independently of navigation. */
+function callOrigin(owner = mediaSession()): ShareSource['origin'] {
+  if (!owner) return undefined
+  const roomName = dockedCall?.session === owner ? dockedCall.label : owner === session ? currentRoomLabel() : undefined
+  if (!roomName) return undefined
+  return { roomId: owner.roomId, callId: owner.call?.id, roomName, projectName: projectOf({ roomId: owner.roomId }) }
 }
 
 /** Bumped only when this device's call media is torn down, so a capture
@@ -4355,6 +4369,8 @@ async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
   // person sees the call go and never sees a door asking them back in.
   leavingCall = true
   try {
+    shareViewer.endCall()
+    floatingSharePreview.close()
     stopLocalMedia()
     speakingMonitor.retain([...remoteAudios.keys()])
     remoteVolume.retain([...remoteAudios.keys()])
@@ -6173,8 +6189,11 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     const sharedDevices = new Set(view.tracks.filter(track => track.role === 'screen').map(track => track.device))
     if (view.participant === me && screenTrack) sharedDevices.add(myDeviceId)
     for (const device of sharedDevices) {
-      const source = () => screenSource(view.participant, device)
+      const owner = mediaSession()
+      const origin = callOrigin(owner)
+      const source = () => screenSource(view.participant, device, owner, origin, shown.name ?? shown.short)
       const available = source()
+      const ready = available?.track?.readyState === 'live'
       // The button is there from the moment the roster says a screen is
       // being shared, and only becomes pressable when the picture has
       // arrived. Missing entirely until then, it looked to the person
@@ -6188,13 +6207,13 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       // Asked again at the click, because an area can grow to fill the
       // screen after the tile was drawn.
       const mirrored = (): boolean => device === myDeviceId && shareMayShowItself
-      expand.textContent = mirrored() ? 'Preview paused while sharing' : available ? 'Expand screen share' : 'Screen share arriving…'
-      expand.disabled = !available || mirrored()
+      expand.textContent = mirrored() ? 'Preview paused while sharing' : ready ? 'Expand screen share' : 'Screen share arriving…'
+      expand.disabled = !ready || mirrored()
       expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
       const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand) }
       expand.addEventListener('click', openViewer)
       box.append(expand)
-      if (!available) continue
+      if (!ready) continue
       const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
         ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
       if (preview) {
@@ -7032,10 +7051,12 @@ function personLabel(pubkey: string): string {
  * to be this device's own.
  */
 function markAuthor(participant: string): MarkAuthor {
-  const mine = participant === meParticipant
+  const shown = shownAs(participant, mediaSession()?.participants().find(view => view.participant === participant)?.name)
+  const label = shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+  const mine = participant === mediaMe()
   return {
     key: participant,
-    label: mine ? `${personLabel(participant)} (you)` : personLabel(participant),
+    label: mine ? `${label} (you)` : label,
   }
 }
 
@@ -9794,11 +9815,15 @@ const remoteVideos = new Map<string, RemoteVideo>()
 const fixedRemoteRoles = new WeakMap<MediaStreamTrack, TrackAdvert['role']>()
 
 /** Follow the advertised screen role across a track replacement or reconnect. */
-function screenSource(participant: string, device: string): ShareSource | undefined {
-  const person = session?.participants().find(view => view.participant === participant)
-  if (!person) return undefined
-  const advert = person.tracks.find(track => track.device === device && track.role === 'screen')
-  let track = participant === meParticipant && device === myDeviceId
+function screenSource(participant: string, device: string, owner = mediaSession(), origin = callOrigin(owner), lastName?: string): ShareSource | undefined {
+  // A viewer may survive navigation, but never follow another call or a
+  // same-named participant in the conversation being read.
+  if (!owner || owner !== mediaSession() || !origin) return undefined
+  if (origin.callId && origin.callId !== owner.call?.id) return undefined
+  const person = owner.participants().find(view => view.participant === participant && view.devices.includes(device))
+  const advert = person?.tracks.find(track => track.device === device && track.role === 'screen')
+  const local = participant === mediaMe() && device === myDeviceId
+  let track = local
     ? screenTrack : advert ? remoteVideos.get(tileKey(device, 'screen'))?.track : undefined
   // The advert says a screen is on and a picture from that device is
   // playing in another slot: the binding had not caught up when the tile
@@ -9808,14 +9833,24 @@ function screenSource(participant: string, device: string): ShareSource | undefi
   if (!track && advert && device !== myDeviceId) {
     for (const [key, entry] of remoteVideos) {
       if (tileDevice(key) !== device || entry.track.readyState !== 'live') continue
-      if (tileRole(key) === 'camera') continue
+      if ((fixedRemoteRoles.get(entry.track) ?? tileRole(key)) !== 'screen') continue
       track = entry.track
       break
     }
   }
-  if (!track || track.readyState !== 'live') return undefined
-  const name = participant === meParticipant ? 'Your screen' : `${shownAs(participant, person.name).name ?? shortKey(participant)}’s screen`
-  return { id: advert?.trackId ?? track.id, track, title: name }
+  if (track?.readyState !== 'live') track = undefined
+  const name = shownAs(participant, person?.name).name ?? lastName ?? shortKey(participant)
+  const cameraAdvert = person?.tracks.some(track => track.device === device && track.role === 'camera')
+  const camera = local ? cameraTrack : cameraAdvert ? remoteVideos.get(tileKey(device, 'camera'))?.track : undefined
+  const status = !person || (origin.callId && (person.call?.id !== origin.callId || !person.call.devices.includes(device))) ? 'left'
+    : !advert && !(local && screenTrack) ? 'ended' : track ? 'live' : 'reconnecting'
+  return {
+    id: advert?.trackId ?? track?.id ?? `${participant}:${device}:screen`, track: status === 'live' ? track : undefined,
+    title: `${local ? 'Your screen' : `${name}’s screen`} · ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}`,
+    owner: { participant, device, name }, origin, status,
+    camera: camera?.readyState === 'live' ? camera : undefined,
+    speaking: tileBoxes.get(participant)?.classList.contains('speaking') ?? false,
+  }
 }
 /** `last` is the element's clock at the previous poll, exactly as a picture's
  *  is: a sound that is decoding is a sound whose packets are arriving, which
@@ -12748,6 +12783,8 @@ async function switchRoom(room: KnownRoom): Promise<void> {
  *  tiles. Done when a room closes with no docked call, and when a docked
  *  call ends. */
 function tearDownCallMedia(): void {
+  shareViewer.endCall()
+  floatingSharePreview.close()
   stopLocalMedia()
   void callWakeLock.release()
   speakingMonitor.retain([])
@@ -12796,8 +12833,10 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   conversationSearch.reset()
   chatArtPicker.close()
   participantCard.close()
-  shareViewer.close()
-  floatingSharePreview.close()
+  if (!keepCall) {
+    shareViewer.endCall()
+    floatingSharePreview.close()
+  } else shareViewer.closeInline()
   hideDrawingNotice()
   closeMentionPicker()
   closeRoomSheet()
