@@ -1,0 +1,10 @@
+*.blend
+*.blend1
+*.png
+*.gif
+*.webm
+*.mp4
+*.json
+frames/
+*.log
+__pycache__/

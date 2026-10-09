@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
@@ -8,6 +8,12 @@ import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { reactionText, toggleReaction } from '../src/reactions.js'
 import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+
+async function artworkSearch(page: Page, name: string) {
+  const query = page.getByRole('searchbox', { name, exact: true })
+  if (!(await query.isVisible())) await page.getByRole('button', { name: 'Search artwork', exact: true }).click()
+  return query
+}
 
 test('timestamps, avatars, direct search, emoji insertion and encrypted reaction toggles work together', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -41,9 +47,11 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(row.locator('img.avatar')).toHaveCount(0)
     await page.locator('#chatInput').fill('before after')
     await page.locator('#chatInput').evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(7, 7))
-    await page.locator('#emojiToggle').click(); await page.getByRole('searchbox', { name: 'Search emoji' }).fill('head against wall')
-    await page.getByRole('button', { name: /🤦 facepalm/ }).click()
+    await page.locator('#emojiToggle').click(); await (await artworkSearch(page, 'Search emoji')).fill('head against wall')
+    await page.getByRole('button', { name: /🤦 (person )?facepalm/ }).click()
     await expect(page.locator('#chatInput')).toHaveValue('before 🤦after')
+    await expect(page.locator('.chatArtPicker')).toBeVisible()
+    await page.getByRole('button', { name: 'Close emoji picker', exact: true }).click()
     await expect(page.locator('#chatInput')).toBeFocused()
     await page.locator('#chatSearch').click(); await page.locator('#messageSearchQuery').fill('toolbox')
     await expect(page.locator('#messageSearchResults li')).toHaveCount(1)
@@ -158,7 +166,8 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await page.keyboard.press('Shift+Tab')
     await expect(reply).toBeFocused()
     await expect(panel.getByRole('button', { name: 'Edit this message', exact: true })).toHaveCount(0)
-    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(10)
+    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(11)
+    await expect(panel.getByRole('button', { name: 'Add 👎 reaction', exact: true })).toBeVisible()
     // A hundred per cent, as a reaction and not only as something the emoji
     // picker can find - the owner asked for it on the quick choices.
     await expect(panel.getByRole('button', { name: 'Add 💯 reaction', exact: true })).toBeVisible()
@@ -264,7 +273,7 @@ test('holding an older message opens emoji choices without losing the reading po
     await page.mouse.up()
     await expect(panel).toBeVisible()
     await expect(panel.getByRole('button', { name: 'Add 👍 reaction', exact: true })).toBeFocused()
-    await expect(panel.getByRole('button')).toHaveCount(10)
+    await expect(panel.getByRole('button')).toHaveCount(11)
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
     sentAt++; await writer.chat.send('A new arrival while choosing an emoji.')
     sentAt++; await writer.chat.send('Workshop note 5: updated while choosing an emoji.', { replaces: original.id })

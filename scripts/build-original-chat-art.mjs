@@ -1,10 +1,8 @@
-// Package Sunburst's original sprite sheets as local stickers and real looping GIFs.
+// Package original character stickers; retain reviewed Blender animation and legacy files.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { tmpdir } from 'node:os'
-import { chromium } from '@playwright/test'
 const root = resolve(import.meta.dirname, '..')
 const entries = [
   ['laugh', 'Laugh', 'laugh laughter lol funny tears', 'LOL'],
@@ -34,32 +32,51 @@ const entries = [
 ]
 const out = resolve(root, 'app/public/chat-art'); mkdirSync(out, { recursive: true })
 const run = args => { const result = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { stdio: 'inherit' }); if (result.status) throw new Error('Artwork packaging failed') }
+const COFFEE_SHA256 = '1ec70ce57a315e6dd13e8d451543eb529786a792f218121c9bfd67db718a61f1'
+const COFFEE_PREVIEW_SHA256 = '3a8c5667927a3c47e9267285cb5a3d584c61918cef8df5328a7989987e1fe473'
+const MAX_GIF_BYTES = 8 * 1024 * 1024
+const args = process.argv.slice(2)
+let coffeeExport = resolve(root, 'artwork/animation/coffee'), explicitExport = false, checkOnly = false
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--check') checkOnly = true
+  else if (args[i] === '--coffee-export' && args[i + 1]) { coffeeExport = resolve(args[++i]); explicitExport = true }
+  else throw new Error('Usage: node scripts/build-original-chat-art.mjs [--coffee-export /absolute/export-folder] [--check]')
+}
+const detail = file => { const bytes = readFileSync(file); return { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') } }
+const exportedGif = resolve(coffeeExport, 'coffee.gif'), exportedPreview = resolve(coffeeExport, 'coffee-preview.png')
+if (explicitExport && (!existsSync(exportedGif) || !existsSync(exportedPreview))) throw new Error('The Blender export needs coffee.gif and coffee-preview.png.')
+const approvedGif = existsSync(exportedGif) ? exportedGif : resolve(out, 'coffee.gif')
+const approvedPreview = existsSync(exportedPreview) ? exportedPreview : resolve(out, 'coffee-animation.png')
+// Fail before changing assets: an old rotating/bouncing GIF must never replace this animation.
+const gifBytes = readFileSync(approvedGif)
+if (!/^GIF8[79]a$/.test(gifBytes.subarray(0, 6).toString('ascii')) || gifBytes.length > MAX_GIF_BYTES || gifBytes.length < 10 || gifBytes.readUInt16LE(6) !== 512 || gifBytes.readUInt16LE(8) !== 512 || detail(approvedGif).sha256 !== COFFEE_SHA256) throw new Error('Coffee must be the reviewed 512px Blender GIF, within the eight-mebibyte limit. Review a new export before updating its pinned hash.')
+const previewBytes = readFileSync(approvedPreview)
+if (previewBytes.length < 24 || !previewBytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || previewBytes.readUInt32BE(16) !== 512 || previewBytes.readUInt32BE(20) !== 512 || detail(approvedPreview).sha256 !== COFFEE_PREVIEW_SHA256) throw new Error('Coffee needs its reviewed 512px Blender static preview.')
+// Legacy files remain available for old messages, but are never regenerated or offered by the picker.
+for (const [slug] of entries) if (slug !== 'coffee' && !existsSync(resolve(out, `${slug}.gif`))) throw new Error(`Missing preserved legacy GIF: ${slug}.gif`)
+if (checkOnly) {
+  const current = JSON.parse(readFileSync(resolve(out, 'catalogue.json'), 'utf8'))
+  for (const [slug] of entries) {
+    const row = current.find(item => item.slug === slug)
+    for (const kind of ['png', 'gif']) {
+      const actual = detail(resolve(out, `${slug}.${kind}`))
+      if (!row || row[kind]?.bytes !== actual.bytes || row[kind]?.sha256 !== actual.sha256) throw new Error(`Packaged ${slug}.${kind} does not match its metadata.`)
+    }
+  }
+  if (detail(resolve(out, 'coffee.gif')).sha256 !== COFFEE_SHA256 || detail(resolve(out, 'coffee-animation.png')).sha256 !== COFFEE_PREVIEW_SHA256) throw new Error('The packaged coffee animation and preview need to match the reviewed exports.')
+  console.log('Verified 24 character stickers, 23 preserved legacy GIFs and the reviewed Blender coffee animation.')
+  process.exit(0)
+}
+if (approvedGif !== resolve(out, 'coffee.gif')) copyFileSync(approvedGif, resolve(out, 'coffee.gif'))
+if (approvedPreview !== resolve(out, 'coffee-animation.png')) copyFileSync(approvedPreview, resolve(out, 'coffee-animation.png'))
 const metadata = []
-const captionDir = mkdtempSync(resolve(tmpdir(), 'kithmoot-art-captions-'))
-const browser = await chromium.launch({ headless: true })
-const page = await browser.newPage()
-try {
 for (const [index, [slug, title, keywords, caption]] of entries.entries()) {
   const sheet = resolve(root, `app/src/assets/kithmoot-original/reactions-sheet-${index < 12 ? '01-cutout' : '02'}.png`)
   const cell = index % 12, png = resolve(out, `${slug}.png`), gif = resolve(out, `${slug}.gif`)
   run(['-i', sheet, '-vf', `crop=512:512:${cell % 4 * 512}:${Math.floor(cell / 4) * 512},scale=384:384`, '-frames:v', '1', png])
-  // A gentle repeated turn/bounce animates the original pose; the caption makes
-  // the shared file a self-contained reaction meme rather than a linked image.
-  const captionPng = resolve(captionDir, slug + '.png')
-  const encoded = await page.evaluate(({ caption }) => {
-    const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 108
-    const ctx = canvas.getContext('2d'); ctx.font = `bold ${caption.length > 14 ? 30 : 42}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.lineJoin = 'round'; ctx.lineWidth = 6; ctx.strokeStyle = '#172c32'; ctx.fillStyle = 'white'; ctx.strokeText(caption, 256, 55); ctx.fillText(caption, 256, 55)
-    return canvas.toDataURL('image/png').split(',')[1]
-  }, { caption })
-  writeFileSync(captionPng, Buffer.from(encoded, 'base64'))
-  const filter = `[0:v]scale=384:384,rotate=0.035*sin(2*PI*t*2):c=none[sticker];color=c=black@0:s=512x512:r=12:d=1.5,format=rgba[canvas];[canvas][sticker]overlay=x=64:y='24+8*sin(2*PI*t*2)':shortest=1[frame];[frame][1:v]overlay=x=0:y=404,scale=256:256,split[a][b];[a]palettegen=max_colors=96:reserve_transparent=1[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:alpha_threshold=128`
-  run(['-loop', '1', '-framerate', '12', '-i', png, '-i', captionPng, '-filter_complex', filter, '-t', '1.5', '-loop', '0', gif])
-  const detail = file => { const bytes = readFileSync(file); return { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') } }
   metadata.push({ slug, title, keywords, caption, png: detail(png), gif: detail(gif) })
 }
-} finally { await browser.close(); rmSync(captionDir, { recursive: true, force: true }) }
 writeFileSync(resolve(out, 'catalogue.json'), JSON.stringify(metadata, null, 2) + '\n')
 writeFileSync(resolve(root, 'app/src/original-art-data.ts'), '/** Generated from our bundled artwork; no remote catalogue. */\nexport const ORIGINAL_ART = ' + JSON.stringify(metadata, null, 2) + ' as const\n')
 writeFileSync(resolve(root, 'src/original-art.ts'), `/** Original KithMoot artwork: local picker access needs no membership or network lookup. */\nexport const ORIGINAL_EMOJIS = ${JSON.stringify(entries.map(([slug, , words]) => [`:km_${slug}:`, words]), null, 2)} as const\nexport function isOriginalEmoji(value: unknown): boolean { return ORIGINAL_EMOJIS.some(([code]) => code === value) }\n`)
-console.log(`Packaged ${metadata.length} original stickers and ${metadata.length} animated reaction GIFs.`)
+console.log(`Packaged ${metadata.length} original character stickers and the reviewed Blender coffee GIF; preserved 23 legacy GIFs for existing messages.`)
