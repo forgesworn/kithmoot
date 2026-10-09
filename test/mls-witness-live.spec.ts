@@ -198,10 +198,12 @@ test('real witness reconciles browser process kills and fences a whole-profile r
 })
 async function fixture(context: BrowserContext) {
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
-  const page = await context.newPage(); await page.goto(origin)
+  const page = await context.newPage()
+  page.on('console', message => { if (/^\[witness-lab\] (open|read|advance|close) (start|end \d+ms)$/.test(message.text())) console.info(message.text()) })
+  await page.goto(origin)
   return page
 }
-const call = (page: Page, action: string, ...args: unknown[]) => page.evaluate(([action, args]) => (window as any).W[action as string](...args as unknown[]), [action, args])
+const call = (page: Page, action: string, ...args: unknown[]) => test.step(action, () => page.evaluate(([action, args]) => (window as any).W[action as string](...args as unknown[]), [action, args]))
 
 test('real witness-only pairing, keeper enrolment, advances, restart, outage and retirement', async ({ context }) => {
   const daemon = await witnessDaemon(binary!, relay!)
@@ -242,6 +244,62 @@ test('real witness-only pairing, keeper enrolment, advances, restart, outage and
     expect(replacement.state).toBe('prepared')
     expect(replacement.installation).not.toBe(prepared.installation)
     expect(replacement.writer).not.toBe(prepared.writer)
+    await call(page, 'close')
+  } finally { await daemon.cleanup() }
+})
+
+for (const migrate of [false, true]) test(`real witness covers typed account ${migrate ? 'migration' : 'creation'}, signatures, lost replies and withdrawal`, async ({ context }) => {
+  // Known Link shutdown liveness gate: close can retain writer ownership for
+  // minutes after successful receipts. Keep the exact repeated-session
+  // reproducer opt-in; this is not accepted production behaviour.
+  test.skip(process.env.LAB_SHUTDOWN_STRESS !== '1', 'Known Link shutdown gate; set LAB_SHUTDOWN_STRESS=1 to reproduce.')
+  test.setTimeout(480_000)
+  const daemon = await witnessDaemon(binary!, relay!)
+  try {
+    const page = await fixture(context)
+    await call(page, 'prepare'); await call(page, 'pair', await daemon.pair(), relay)
+    await daemon.enrol((await call(page, 'genesis')).command)
+    const enrolled = await call(page, 'typedEnrol', migrate)
+    expect(enrolled.ok).toBe(true); if (migrate) expect(enrolled.sameDevice).toBe(true)
+    expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
+    const header = await call(page, 'typedBox')
+    expect(header.ok).toBe(true); expect(header.value.authorization).toMatch(/^Nostr /)
+    await call(page, 'stopAt', 'lost-reply')
+    expect(await call(page, 'typedLeaf')).toEqual({ ok: false, refusal: 'witness-pending' })
+    const recovered = await call(page, 'typedLeaf', true)
+    expect(recovered.ok).toBe(true); expect(recovered.value.signature).toMatch(/^[0-9a-f]{128}$/)
+    expect(await call(page, 'typedLeaf', true)).toEqual(recovered)
+    const scopes = (await call(page, 'typedState')).vault.value.approved
+    expect(scopes).toHaveLength(2)
+    for (const scope of scopes) expect(await call(page, 'typedWithdraw', scope)).toEqual({ ok: true })
+    expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
+    await daemon.stop()
+    expect(await call(page, 'typedLeaf', true)).toEqual({ ok: false, refusal: 'witness-pending' })
+    await daemon.restart(); await call(page, 'close'); await page.reload()
+    const saved = await call(page, 'typedState')
+    expect(saved.vault.value.device.device).toBe(enrolled.value.device)
+    expect(saved.vault.value.approved).toEqual([])
+    await call(page, 'close')
+  } finally { await daemon.cleanup() }
+})
+
+for (const migrate of [false, true]) test(`real witness persists typed device ${migrate ? 'migration' : 'creation'} and scoped signatures across reload`, async ({ context }) => {
+  const daemon = await witnessDaemon(binary!, relay!)
+  try {
+    const page = await fixture(context)
+    await call(page, 'prepare'); await call(page, 'pair', await daemon.pair(), relay)
+    await daemon.enrol((await call(page, 'genesis')).command)
+    const enrolled = await call(page, 'typedEnrol', migrate)
+    expect(enrolled.ok).toBe(true); if (migrate) expect(enrolled.sameDevice).toBe(true)
+    const leaf = await call(page, 'typedLeaf')
+    expect(leaf.ok).toBe(true); expect(leaf.value.signature).toMatch(/^[0-9a-f]{128}$/)
+    expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
+    const header = await call(page, 'typedBox')
+    expect(header.ok).toBe(true); expect(header.value.authorization).toMatch(/^Nostr /)
+    await call(page, 'close'); await page.reload()
+    const saved = await call(page, 'typedState')
+    expect(saved.vault.value.device.device).toBe(enrolled.value.device)
+    expect(saved.vault.value.approved.map((scope: any) => scope.method).sort()).toEqual(['signBoxRequestV1/1', 'signLeafBindingV1/1'])
     await call(page, 'close')
   } finally { await daemon.cleanup() }
 })

@@ -1,3 +1,6 @@
+import { CoordinatedMlsVault } from '../app/src/mls-coordinated-vault.js'
+import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
+import { BrowserMlsVaultStorage, MlsVault } from '../app/src/mls-vault.js'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { BrowserMlsPanel } from '../app/src/mls-persona-panel.js'
@@ -52,4 +55,45 @@ export async function loseInnerKey() {
     cursor.onsuccess = () => { const c = cursor.result!; if (c.key === 'names') { c.continue(); return } c.update({ outer: c.value.outer }) }
     tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error)
   }) } finally { db.close() }
+}
+
+const secret = new Uint8Array(32).fill(42)
+let rejectSigner = false, releaseSigner: (() => void) | undefined, signerWait: Promise<void> | undefined
+const identity = { pubkey: getPublicKey(secret), async signEvent(e: any) {
+  document.body.dataset.signer = 'waiting'; await signerWait
+  if (rejectSigner) throw new Error('declined')
+  return finalizeEvent(e, secret)
+} }
+export async function useIdentity() { context = { persona: identity.pubkey, generation: 'identity', mode: 'normal', identity }; await panel.invalidate() }
+export function denySigner(value = true) { rejectSigner = value }
+export function holdSigner() { signerWait = new Promise(resolve => { releaseSigner = resolve }) }
+export function finishSigner() { releaseSigner?.(); signerWait = undefined }
+export async function legacyEnrol() {
+  const vault = new MlsVault(new BrowserMlsVaultStorage())
+  return vault.enrol(vault.context(location.origin, identity.pubkey), identity, Math.floor(Date.now() / 1000) + 86400)
+}
+export async function replaceDevice() { return account.enrolDevice(Math.floor(Date.now() / 1000) + 86400, true) }
+export function boxSign() { return panel.signBoxRequest({ v: 1, box: '78'.repeat(32), method: 'POST', path: '/vmls/v1/fetch', payload: '12'.repeat(32) }) }
+export function vaultState() { return account.vaultState() }
+
+export async function mutateConsentScope() {
+  const state = await account.vaultState()
+  if (!state.vault?.ok || !state.vault.value) throw new Error('no device')
+  const scope = { principal: location.origin, persona: identity.pubkey, device: state.vault.value.device.device, homeBox: '78'.repeat(32), method: 'signLeafBindingV1/1' as const }
+  const result = await account.approveScope(scope, async shown => {
+    scope.homeBox = '79'.repeat(32)
+    return shown.homeBox === '78'.repeat(32) ? 'approve' : 'deny'
+  })
+  return { result, state: (await account.vaultState()).vault }
+}
+
+export async function loseKeyBeforeRelease() {
+  const sign = CoordinatedMlsVault.prototype.signBoxRequestV1
+  CoordinatedMlsVault.prototype.signBoxRequestV1 = async function (...args) {
+    const answer = await sign.apply(this, args)
+    await loseInnerKey()
+    return answer
+  }
+  try { return await account.signBoxRequest({ v: 1, box: '78'.repeat(32), method: 'POST', path: '/vmls/v1/fetch', payload: '12'.repeat(32) }, async () => 'approve') }
+  finally { CoordinatedMlsVault.prototype.signBoxRequestV1 = sign }
 }
