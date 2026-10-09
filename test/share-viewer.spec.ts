@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open, openCall } from './browser.js'
+import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_MIC } from './browser.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
@@ -9,6 +9,37 @@ async function openExistingCall(page: Page): Promise<void> {
   await expect(page.locator('#callStripAction')).toHaveText('Join call')
   await openCall(page)
 }
+
+test('a focused share control survives remote microphone updates and still opens its owner', async ({ browser, baseURL }) => {
+  const contexts = await Promise.all([
+    newDeviceContext(browser, baseURL!),
+    newDeviceContext(browser, baseURL!, { isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } }),
+  ])
+  await Promise.all(contexts.map(context => context.addInitScript(SYNTHETIC_MIC)))
+  try {
+    const [ada, viewer] = await Promise.all(contexts.map(context => context.newPage()))
+    const link = await createRoom(ada!, baseURL!)
+    await open(ada!, link, 'Ada'); await ada!.locator('#join').click(); await openCall(ada!)
+    await ada!.locator('#toggleMic').click()
+    await ada!.locator('#toggleScreen').click()
+    await open(viewer!, link, 'Bo'); await viewer!.locator('#join').click(); await openExistingCall(viewer!)
+    const expand = viewer!.getByRole('button', { name: 'Expand screen share from Ada', exact: true })
+    await expect(expand).toBeEnabled()
+    await expand.focus()
+    const original = await expand.elementHandle()
+    await ada!.locator('#toggleMic').click()
+    await expect(viewer!.locator('#room .participant[data-name="Ada"] .badge.muted-self')).toBeVisible()
+    expect(await expand.evaluate((button, previous) => button === previous, original)).toBe(true)
+    await expect(expand).toBeFocused()
+    await viewer!.keyboard.press('Enter')
+    await expect(viewer!.locator('dialog.shareViewer')).toBeVisible()
+    await expect(viewer!.locator('.shareViewerBar h2')).toContainText('Ada')
+    await ada!.locator('#toggleScreen').click()
+    await expect(expand).toHaveCount(0)
+  } finally {
+    await Promise.allSettled(contexts.map(context => context.close()))
+  }
+})
 
 test('independent share popouts keep their call owner, camera and annotations while another room is read', async ({ browser, baseURL }) => {
   const contexts = await Promise.all(Array.from({ length: 3 }, () => newDeviceContext(browser, baseURL!)))
