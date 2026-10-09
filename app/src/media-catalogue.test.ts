@@ -6,11 +6,29 @@ it('searches original reaction artwork locally and offers no flags or external U
   const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
   const signal = new AbortController().signal
   const all = await searchMediaCatalogue('', false, signal)
-  expect(all.map(item => item.slug)).toEqual(['coffee']); expect(all.every(item => item.url.startsWith('/') && item.url.includes('/chat-art/'))).toBe(true)
-  expect(await searchMediaCatalogue('', true, signal)).toHaveLength(24)
+  expect(all.map(item => item.slug)).toEqual(['coffee', 'donkey-laugh', 'donkey-facepalm', 'donkey-bitcoin']); expect(all.every(item => item.url.startsWith('/') && item.url.includes('/chat-art/'))).toBe(true)
+  expect(await searchMediaCatalogue('', true, signal)).toHaveLength(27)
   expect(await searchMediaCatalogue('flag', false, signal)).toEqual([])
   const found = await searchMediaCatalogue('facepalm', true, signal)
-  expect(found).toHaveLength(1); expect(found[0]!.type).toBe('image/png'); expect(found[0]!.slug).toBe('facepalm')
+  expect(found.map(item => item.slug)).toEqual(['facepalm', 'donkey-facepalm']); expect(found.every(item => item.type === 'image/png')).toBe(true)
+  expect(fetch).not.toHaveBeenCalled()
+})
+it('resolves each Donkey GIF to its own bundled animation and still, without fetching a provider', async () => {
+  const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
+  const signal = new AbortController().signal
+  const donkeys = await searchMediaCatalogue('Donkey', false, signal)
+  expect(donkeys).toHaveLength(3)
+  expect(await searchMediaCatalogue('TheCryptoDonkey', false, signal)).toEqual(donkeys)
+  expect((await searchMediaCatalogue('donkey bitcoin', false, signal)).map(item => item.slug)).toEqual(['donkey-bitcoin'])
+  for (const item of donkeys) {
+    expect(item.type).toBe('image/gif')
+    expect(item.url).toContain(`/chat-art/${item.slug}.gif`)
+    expect(item.preview).toContain(`/chat-art/${item.slug}.png`)
+    expect(item.bytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+    expect(resolveCatalogueArtwork(catalogueArtwork(item))).toEqual(item)
+    expect(resolveCatalogueArtwork({ ...catalogueArtwork(item), sha256: '0'.repeat(64) })).toBeUndefined()
+  }
+  expect(await searchMediaCatalogue('not again', false, signal)).toEqual([])
   expect(fetch).not.toHaveBeenCalled()
 })
 it('stages only pinned catalogue references without downloading, and never resolves unknown artwork', async () => {

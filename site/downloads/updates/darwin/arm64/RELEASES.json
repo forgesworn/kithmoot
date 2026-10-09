@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.65",
+  "currentRelease": "0.1.66",
   "releases": [
     {
-      "version": "0.1.65",
+      "version": "0.1.66",
       "updateTo": {
-        "version": "0.1.65",
-        "pub_date": "2026-10-09T13:26:12Z",
-        "notes": "Own familiar emoji and hand colours, 24 stickers and one detailed Blender coffee GIF. Built-in artwork appears for recipients without uploads or storage consent; improved phone and desktop picker.",
-        "name": "0.1.65",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.65/KithMoot-0.1.65-mac-arm64.zip",
-        "sha256": "1c20bac745f411cdf920e9734fa162b8aad097e4d1ba32902e900edcd3b221cc",
-        "size": 166266745
+        "version": "0.1.66",
+        "pub_date": "2026-10-09T15:51:25Z",
+        "notes": "Three original Donkey animations made in Blender: laugh, facepalm and Bitcoin coin toss. Four GIFs and 27 stickers, with local search, reduced-motion stills and encrypted references without image uploads.",
+        "name": "0.1.66",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.66/KithMoot-0.1.66-mac-arm64.zip",
+        "sha256": "79826621b8e2dccd40066cba04883bbf7098dd4e75d60737a4243af574d75b57",
+        "size": 176736864
       }
     }
   ]

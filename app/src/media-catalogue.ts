@@ -9,11 +9,11 @@ export const ORIGINAL_ART_PACK = 'kithmoot-original-v1'
 export function resolveCatalogueArtwork(reference: ChatArtwork): CatalogueImage | undefined {
   if (reference.pack !== ORIGINAL_ART_PACK || !['sticker', 'gif'].includes(reference.kind)) return undefined
   const art = ORIGINAL_ART.find(item => item.slug === reference.id)
-  if (!art || (reference.kind === 'gif' && art.slug !== 'coffee')) return undefined
+  if (!art || (reference.kind === 'gif' && !art.animated)) return undefined
   const extension = reference.kind === 'gif' ? 'gif' : 'png'
   if (reference.sha256 !== art[extension].sha256) return undefined
   return { slug: art.slug, name: `${art.title}.${extension}`, url: localURL(art.slug, extension),
-    preview: extension === 'gif' ? localURL('coffee-animation', 'png') : localURL(art.slug, 'png'),
+    preview: extension === 'gif' ? `${import.meta.env.BASE_URL}chat-art/${art.animationPreview}` : localURL(art.slug, 'png'),
     type: extension === 'gif' ? 'image/gif' : 'image/png', bytes: art[extension].bytes, sha256: art[extension].sha256 }
 }
 
@@ -30,8 +30,8 @@ export async function searchMediaCatalogue(query: string, stickers: boolean, sig
   signal.throwIfAborted()
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
   const extension = stickers ? 'png' : 'gif'
-  return ORIGINAL_ART.filter(item => (stickers || item.slug === 'coffee') && words.every(word => `${item.title} ${item.keywords} ${item.caption}`.toLocaleLowerCase().includes(word))).map(item => ({
-    slug: item.slug, name: `${item.title}.${extension}`, url: localURL(item.slug, extension), preview: !stickers && item.slug === 'coffee' ? localURL('coffee-animation', 'png') : localURL(item.slug, 'png'),
+  return ORIGINAL_ART.filter(item => (stickers || item.animated) && words.every(word => `${item.title} ${item.keywords} ${item.caption}`.toLocaleLowerCase().includes(word))).map(item => ({
+    slug: item.slug, name: `${item.title}.${extension}`, url: localURL(item.slug, extension), preview: !stickers ? `${import.meta.env.BASE_URL}chat-art/${item.animationPreview}` : localURL(item.slug, 'png'),
     type: stickers ? 'image/png' : 'image/gif', bytes: item[extension].bytes, sha256: item[extension].sha256,
   }))
 }

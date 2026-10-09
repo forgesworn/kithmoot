@@ -36,10 +36,12 @@ describe('API surface snapshot', () => {
   })
 
   for (const [name, file] of Object.entries(MODULES)) {
+    // The index recursively parses the whole library on a cold cache. Keep
+    // its export assertions intact while allowing bounded work on busy CI.
     it(`${name} (src/${file}) exports exactly the names in the committed snapshot`, () => {
       const live = moduleExports(join(here, file))
       expect(live).toEqual(snapshot[name])
-    })
+    }, name === 'index' ? 15_000 : 5_000)
   }
 
   it('every snapshot entry is sorted and free of duplicates, so a diff is ever only an actual change', () => {
