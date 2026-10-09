@@ -1,5 +1,7 @@
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import type { LiveKeeperJournal } from './live-keeper.js'
+import { requestLivePersistentAdmission } from './live-admission.js'
+import { decodeLivePersistentDescriptor, decodeInvitationRetirementNotice, deriveInvitationId, retirementError } from '@forgesworn/fold-kit'
 import { RoomSession, CONFERENCE_ENDED_MESSAGE } from './session.js'
 import { requireRoomEnds } from './expiration.js'
 import type { ParticipantView, PublishOptions, SessionTiming } from './session.js'
@@ -197,6 +199,7 @@ interface CommonAgentOptions {
    *  this agent did not say which epoch the room is at. See
    *  `RoomSessionBaseOptions.epochSettleMs`. */
   epochSettleMs?: number
+  epochRequestTimeoutMs?: number
   /** Declare this device an agent in the roster. On by default, and turning
    *  it off is lying to the room about what this is - see
    *  `RosterEntry.agent`. */
@@ -267,6 +270,15 @@ export interface JoinRoomOptions extends CommonAgentOptions {
    * keeper, not a delegate: see `RoomAgent.create`.
    */
   hostInvitation?: boolean
+}
+
+export interface JoinLiveRoomOptions extends Omit<JoinRoomOptions, 'relays' | 'hostInvitation' | 'deviceKeyForRoom'> {
+  descriptor: string
+  transport: (relays: string[]) => RelayTransport
+  deviceSk: Uint8Array
+  signal?: AbortSignal
+  /** Already-known local retirement state; never a mesh cache completeness claim. */
+  retired?: () => boolean
 }
 
 export interface CreateRoomOptions extends CommonAgentOptions {
@@ -581,6 +593,61 @@ export class RoomAgent {
     })
   }
 
+  /** Fresh persistent admission on an explicitly selected route, then a pinned-root epoch gate. */
+  static async joinLive(opts: JoinLiveRoomOptions): Promise<RoomAgent> {
+    const link = parseRoomLink(opts.link)
+    if (!opts.transport || !opts.deviceSk || !link.invitation?.persistent || link.pairingCode) throw new Error('live admission needs a persistent invitation, device and explicit route')
+    const context = decodeLivePersistentDescriptor(opts.descriptor, link.invitation)
+    if (!context) throw new Error('live admission descriptor does not match this invitation')
+    if (opts.signal?.aborted || opts.retired?.()) throw new Error('live admission cancelled or retired')
+    const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    const controller = new AbortController()
+    const cancel = () => controller.abort()
+    opts.signal?.addEventListener('abort', cancel, { once: true })
+    let initial: RelayTransport | undefined, stopRetirement = () => {}
+    let notice: { ended: boolean; destruct?: true } | undefined
+    let retirementChecks = 0
+    let agent: RoomAgent | undefined
+    try {
+      initial = opts.transport(invitationRelaysFrom(link.relays))
+      stopRetirement = initial.subscribe([{ kinds: [1461], authors: [context.invitation.inviter], '#d': [deriveInvitationId(context.invitation)] }], event => {
+        if (++retirementChecks > 64) { controller.abort(); return }
+        try {
+          if (typeof event.content !== 'string' || event.content.length > 512 || JSON.stringify(event).length > 4096) return
+          const retired = decodeInvitationRetirementNotice(event, context.invitation)
+          if (retired) { notice = retired; controller.abort() }
+        } catch { /* An invalid tombstone grants no authority. */ }
+      })
+      const proof = await requestLivePersistentAdmission({ ...context, transport: initial, ownerDevice: getPublicKey(opts.deviceSk),
+        now, signal: controller.signal, retired: opts.retired })
+      if (notice || opts.retired?.() || opts.signal?.aborted || controller.signal.aborted) throw new Error('live admission cancelled or retired')
+      const remaining = (proof.expiresAt - now()) * 1000
+      if (remaining <= 0) throw new Error('live admission expired before epoch confirmation')
+      const room = invitationRelaysFrom(proof.admission.relays ?? [])
+      agent = await RoomAgent.#start({ ...opts, link, url: opts.link, room, own: [], secret: proof.admission.secret,
+        identity: opts.identityForRoom?.(context.roomId) ?? opts.identity,
+        makeTransport: opts.transport, now, expectedEpoch: proof.epochHint,
+        endsAt: proof.admission.endsAt, destruct: proof.admission.destruct,
+        requireFreshEpoch: true, admissionSignal: controller.signal,
+        epochRequestTimeoutMs: Math.min(opts.epochRequestTimeoutMs ?? 20_000, remaining) })
+      if (notice || opts.retired?.() || opts.signal?.aborted || controller.signal.aborted) throw new Error('live admission cancelled or retired')
+      return agent
+    } catch (error) {
+      await agent?.leave()
+      throw notice ? retirementError(notice) : error
+    } finally {
+      opts.signal?.removeEventListener('abort', cancel)
+      const cleanupErrors: unknown[] = []
+      try { stopRetirement() } catch (error) { cleanupErrors.push(error) }
+      try { initial?.close() } catch (error) { cleanupErrors.push(error) }
+      if (cleanupErrors.length) {
+        // A failed join must not leave an unreachable, publishing room behind.
+        try { await agent?.leave() } catch (error) { cleanupErrors.push(error) }
+        throw new AggregateError(cleanupErrors, 'live admission route cleanup failed')
+      }
+    }
+  }
+
   /** Make a room, and keep it. */
   static async create(opts: CreateRoomOptions): Promise<RoomAgent> {
     const journal = opts.liveKeeper
@@ -676,6 +743,8 @@ export class RoomAgent {
       now: () => number
       authority?: { inviterSk: Uint8Array; delegation: InvitationDelegation[] }
       expectedEpoch?: number
+      requireFreshEpoch?: boolean
+      admissionSignal?: AbortSignal
       endsAt?: number
       destruct?: boolean
       keeper?: KeeperState
@@ -692,7 +761,7 @@ export class RoomAgent {
     const identity = opts.identity ?? localIdentity(generateSecretKey())
     const deviceSk = opts.deviceSk ?? generateSecretKey()
     const destruct = opts.destruct === true || opts.keeper?.destruct === true
-    const pool = opts.liveKeeper ? [...opts.room] : agentRelayPool(opts.room, opts.own)
+    const pool = opts.liveKeeper || opts.requireFreshEpoch ? [...opts.room] : agentRelayPool(opts.room, opts.own)
     const plain = opts.makeTransport(pool)
     // A quiet room's chat rides in drops; the session tells the wrapper
     // the epoch key. Everything else the agent does stays in the open.
@@ -733,6 +802,9 @@ export class RoomAgent {
       // A keeper is the authority: it holds the epoch and waits for nobody.
       expectedEpoch: opts.keeper ? (opts.epoch?.epoch ?? 0) : opts.expectedEpoch,
       epochSettleMs: opts.epochSettleMs,
+      epochRequestTimeoutMs: opts.epochRequestTimeoutMs,
+      requireFreshEpoch: opts.requireFreshEpoch,
+      admissionSignal: opts.admissionSignal,
       ...(opts.liveKeeper ? { commitRekey: (event: Event, next: RoomEpoch, notice: RekeyNotice) => agent!.#commitLiveRekey(event, next, notice) } : {}),
       onEpoch: (notice) => {
         if (agent) agent.#onEpoch(notice)

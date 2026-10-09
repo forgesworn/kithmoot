@@ -10,7 +10,7 @@ export { DEFAULT_ICE_URLS, LEGACY_DEFAULT_ICE_URLS, isDefaultIceUrls, isLoopback
 export { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, DEFAULT_RELAYS } from './agent.js'
 export { CONTROL_CHANNEL, encodeControl, decodeControl, DEFAULT_APPROVAL_OPTIONS, MAX_APPROVAL_TEXT, MAX_APPROVAL_OPTIONS } from './control.js'
 export type { ControlMessage, CatalogueEntry, RunningAgent, ModelShortcut } from './control.js'
-export type { JoinRoomOptions, CreateRoomOptions, KeeperState, ApprovalRequestOptions, ApprovalOutcome, IgnoredApproval } from './agent.js'
+export type { JoinRoomOptions, JoinLiveRoomOptions, CreateRoomOptions, KeeperState, ApprovalRequestOptions, ApprovalOutcome, IgnoredApproval } from './agent.js'
 export { parseKeeperState, serialiseKeeperState, KEEPER_STATE_VERSION } from './keeper-state.js'
 export type { StoredKeeperState } from './keeper-state.js'
 export {
