@@ -203,9 +203,12 @@ describe("a forwarder's view of the roster is opaque", () => {
     // membership, and would still let it count devices by their signatures.
     const filters = forwarder.stats().filters
     expect(filters).toEqual([{ kinds: [KINDS.SIGNAL_WRAP], '#p': [FORWARDER_PUB] }])
-    expect(JSON.stringify(filters)).not.toContain(String(KINDS.ROSTER))
-    expect(JSON.stringify(filters)).not.toContain(String(KINDS.DESCRIPTOR))
-    expect(JSON.stringify(filters)).not.toContain(String(KINDS.CHAT))
+    // Inspect the kind field: random public-key hex can contain "1460"
+    // without subscribing to chat (or any other matching decimal kind).
+    const kinds = filters.flatMap((filter: { kinds?: number[] }) => filter.kinds ?? [])
+    expect(kinds).not.toContain(KINDS.ROSTER)
+    expect(kinds).not.toContain(KINDS.DESCRIPTOR)
+    expect(kinds).not.toContain(KINDS.CHAT)
     expect(JSON.stringify(filters)).not.toContain(ROOM_ID)
   })
 

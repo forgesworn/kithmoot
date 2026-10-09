@@ -174,9 +174,18 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
     const page = await context.newPage(); const remote = await other.newPage()
     for (const [p, name] of [[page, 'Ada'], [remote, 'Rowan']] as const) {
       await p.goto(link); await p.locator('#displayName').fill(name); await p.locator('#join').click()
+      // Let the first caller's camera reach the second phone before joining.
+      // Pictures expand the pane even while this device is off the call;
+      // its explicit Join call action must remain available in that state.
+      if (p === remote) {
+        await expect(p.locator('html')).toHaveAttribute('data-call-pane', 'live')
+        await expect(p.locator('#callToggle')).toHaveAttribute('data-live', 'false')
+      }
       // The Call tab only opens the call view (B1); starting the call is
       // still the one explicit tap on the strip's own action.
-      await p.locator('#mobileCall').click(); await p.locator('#callStripAction').click(); await p.locator('#toggleCamera').click()
+      await p.locator('#mobileCall').click()
+      await expect(p.locator('#callStripAction')).toBeVisible()
+      await p.locator('#callStripAction').click(); await p.locator('#toggleCamera').click()
     }
     await expect(page.locator('#room video')).toHaveCount(2)
     await expect.poll(() => remote.locator('#room video').evaluateAll(v => v.every(e => (e as HTMLVideoElement).videoWidth > 0))).toBe(true)

@@ -13,6 +13,7 @@ import { BrowserRoomPanel } from './browser-room-panel.js'
 import { encodeRosterEvent } from '../../src/roster.js'
 import type { ManagedRelayPool } from './browser-room-pool.js'
 import { BrowserLinkPanel } from './browser-link-panel.js'
+import type { BrowserMlsPanel } from './mls-persona-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
 import { ShareMarksOverlay } from './share-marks-overlay.js'
@@ -547,6 +548,10 @@ const relayStorage = {
 let boxDiscovery: BoxDiscovery | undefined
 const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, url => boxDiscovery?.circleRelays().has(url) ?? false)
 const browserLink = new BrowserLink(startBrowserLink)
+// Remains unavailable in production until browser integration and review pass.
+const browserMlsPreview = import.meta.env.DEV && import.meta.env.VITE_BROWSER_MLS_PREVIEW === 'true'
+let browserMlsPanel: BrowserMlsPanel | undefined
+async function pauseBrowserMls(): Promise<void> { await browserMlsPanel?.invalidate() }
 let roomUsesBothy = false
 const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserLink, async room => {
   if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
@@ -1095,6 +1100,7 @@ async function provisionRendezvousForThisBrowser(): Promise<void> {
 $('provisionRendezvous').addEventListener('click', () => { void provisionRendezvousForThisBrowser() })
 
 function adoptRestoredSession(account: SignetSession): void {
+  if (browserMlsPanel) void pauseBrowserMls().catch(() => undefined)
   nostrSession = account
   browserRoomRoutes.resume()
   rememberAccount(account)
@@ -1205,6 +1211,7 @@ async function signInWithNostr(): Promise<void> {
   clearImportedHistorySearch()
   let account: SignetSession | null
   try {
+    if (browserMlsPanel) await pauseBrowserMls()
     account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
       // 'nsec' is the dangerous route, kept behind Advanced by the picker:
       // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
@@ -1248,6 +1255,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
+  if (browserMlsPanel) await pauseBrowserMls()
   participantCard.close()
   packGrant = undefined
   browserRoomRoutes.pause()
@@ -1305,6 +1313,11 @@ async function signOutOfNostr(): Promise<void> {
  * are removed one room at a time with Forget room, same as today.
  */
 async function forgetThisBrowser(): Promise<void> {
+  if (browserMlsPreview) {
+    const { BrowserMlsAccount } = await import('./mls-persona-account.js')
+    if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
+    if (browserMlsPanel) await pauseBrowserMls()
+  }
   if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
   if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
   if (!await confirmRoomAction({
@@ -3222,6 +3235,7 @@ async function roomFromLocation(): Promise<boolean> {
   // fragment size, how many relays and ICE servers a link may name, and
   // that a public relay is wss - hold here as they do in the library.
   const parsedLink = parseRoomLink(location.href)
+  if (browserMlsPanel) await pauseBrowserMls()
 
   // The room's name, when the link says. Text a stranger wrote, so it gets
   // the display-name treatment before it lands anywhere.
@@ -10943,6 +10957,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   let retrying = false
 
   try {
+    if (browserMlsPanel) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
@@ -12713,6 +12728,7 @@ function tearDownCallMedia(): void {
 
 /** Stop the room completely before any other room can own the controls. */
 async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}): Promise<void> {
+  if (browserMlsPanel) await pauseBrowserMls()
   chatScroll.suspend()
   ++roomGeneration
   const old = session
@@ -13822,7 +13838,21 @@ browserRoomRoutes.barrier.listen(renderDoorBothyRecovery)
 $('bothyCurrentRoom').addEventListener('click', () => { ($('bothySettings') as HTMLDialogElement).close(); void browserRoomPanel.open() })
 $('roomBothySettings').addEventListener('click', () => { closeRoomSheet(); void browserRoomPanel.open() })
 $('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => browserLinkPanel.open()))
-window.addEventListener('pagehide', () => { void browserLinkPanel.stop() })
+window.addEventListener('pagehide', () => { void browserLinkPanel.stop(); void pauseBrowserMls().catch(() => undefined) })
+if (browserMlsPreview) {
+  $('mlsWitnessSettingsOpen').hidden = false
+  $('mlsWitnessSettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => {
+    const account = nostrSession, generation = identityGeneration
+    void import('./mls-persona-panel.js').then(async ({ BrowserMlsPanel }) => {
+      if (nostrSession !== account || identityGeneration !== generation) return
+      browserMlsPanel ??= new BrowserMlsPanel(() => nostrSession ? {
+        persona: nostrSession.pubkey, generation: `${identityGeneration}:${roomGeneration}`,
+        mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal',
+      } : undefined)
+      await browserMlsPanel.open()
+    }).catch(() => setStatus('MLS witness settings could not be opened.'))
+  }))
+}
 
 const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   canAuthenticate: () => !!nostrSession?.signer.capabilities.canSignEvents,
