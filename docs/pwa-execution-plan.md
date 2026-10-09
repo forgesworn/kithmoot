@@ -12,6 +12,16 @@ native Android product work keeps its own release gate.
 
 ## New physical-test feedback
 
+### Roadmap additions — 9 October 2026
+
+The [G10–G17 product goals](product-goals.md#g10--battery-optimisation-backed-by-physical-measurements)
+add battery profiling, audio/video recording, room stress tests and gallery
+paging, attributed popouts, a persistent top gallery across navigation, custom
+logos, shorter invitations and admission/UI polish. Start baseline measurements
+early, deliver the shared call-continuity contract before extending viewers,
+and repeat qualification with recording/popouts enabled. These are open work;
+the existing P0 and release gates still apply.
+
 The [15 September feedback register](2026-09-15-testing-feedback.md) tracks
 notification interruption recovery, readable laptop video, clipboard files,
 attachment viewing, project/room notification preferences, upside-down iPhone
