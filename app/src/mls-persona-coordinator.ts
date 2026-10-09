@@ -13,7 +13,16 @@ export type CoordinationResult<T> = CoordinationHold | CoordinationFence | { sta
  * temporary copy is wiped. A missing route or unavailable mode yields null.
  * One channel lives for the operation and is closed under the persona lock. */
 export type PersonaWitnessChannels = (persona: string, seed: Uint8Array, route: PersonaWitnessRoute | null, current: () => boolean) => Promise<WitnessChannel | null>
-export interface PersonaTransaction {
+/** A reader found an authenticated but unsupported typed record. Distinct
+ * from invalid proposed edits, which must not fence a healthy predecessor. */
+export class InvalidPersonaRecord extends Error {}
+
+export interface PersonaReader {
+  readonly installation: string
+  readVault(id: string): Promise<Uint8Array | undefined>
+  readSession(id: string): Promise<{ generation: bigint; plaintext: Uint8Array } | undefined>
+}
+export interface PersonaTransaction extends PersonaReader {
   readVault(id: string): Promise<Uint8Array | undefined>
   putVault(id: string, value: Uint8Array): Promise<void>
   readSession(id: string): Promise<{ generation: bigint; plaintext: Uint8Array } | undefined>
@@ -30,10 +39,46 @@ const broken = (error: unknown) => error instanceof PersonaStorageError && ['sea
 
 /** Platform orchestration only: all witness validation and decisions remain
  * in the shared Rust coordinator. Every call reopens actual durable state and
- * fresh-reads the witness under the persona lock. No confirmed-state cache.
+ * fresh-reads the witness under the persona lock for every covered operation.
  * A failed persistence discards the engine; the next call reconciles from disk.
  */
 export class BrowserPersonaCoordinator {
+  // Confirmation is local to this coordinator lifetime, never persisted or
+  // transferable to another tab. Every use compares the exact durable revision.
+  #confirmed = new Map<string, { revision: string; current: () => boolean }>()
+  #confirming = new Map<string, symbol>()
+
+  invalidate(persona?: string): void {
+    if (persona === undefined) { this.#confirmed.clear(); this.#confirming.clear() }
+    else { this.#confirmed.delete(persona); this.#confirming.delete(persona) }
+  }
+
+  /** Unjournalled typed box authentication only (§6.2.1). This is not a
+   * substitute for transact for leaf signatures, mutations or MLS effects.
+   * A restart, local write, pending exchange or fence removes confirmation. */
+  async readConfirmed<T>(persona: string, read: (view: PersonaReader) => Promise<T>, current: () => boolean): Promise<CoordinationResult<T>> {
+    if (!current()) return pending('stale')
+    const outcome = await this.store.withPersona<CoordinationResult<T>>(persona, async store => {
+      if (!current()) return pending('stale')
+      const confirmed = this.#confirmed.get(persona)
+      if (!confirmed || !confirmed.current() || confirmed.revision !== await store.revision()) { this.invalidate(persona); return pending() }
+      const file = await store.read()
+      if (!file || file.marker.state === 'fenced' || file.data.cleared || file.data.staged !== null) { this.invalidate(persona); return pending() }
+      const tx = new Transaction(store, file.data.installation, file.data.active)
+      try {
+        const view: PersonaReader = Object.freeze({ installation: tx.installation, readVault: tx.readVault.bind(tx), readSession: tx.readSession.bind(tx) })
+        const value = await read(view)
+        await tx.finish()
+        return current() ? { state: 'active', value, marks: new Map() } : pending('stale')
+      } catch (error) {
+        this.invalidate(persona)
+        if (!(error instanceof InvalidPersonaRecord)) throw error
+        const marker = await store.fence('invalid-vault')
+        return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
+      } finally { await tx.dispose() }
+    })
+    return current() ? outcome : pending('stale')
+  }
   constructor(private readonly store: BrowserMlsPersonaStore, private readonly channels: PersonaWitnessChannels,
     private readonly engine: () => Promise<Engine> = loadMlsEngine) {}
 
@@ -43,6 +88,7 @@ export class BrowserPersonaCoordinator {
    * witness's registration. A known retiring duty keeps only its outer-sealed
    * writer/state/route until a fresh signed retired receipt ends it. */
   async clear(persona: string, current: () => boolean, expectedInstallation?: string): Promise<CoordinationHold | CoordinationFence> {
+    this.invalidate(persona)
     if (!current()) return pending('stale')
     const wasm = await this.engine()
     const outcome = await this.store.withPersona<CoordinationHold | CoordinationFence>(persona, async store => {
@@ -114,9 +160,14 @@ export class BrowserPersonaCoordinator {
    * intended result. `current` fences replies from an obsolete account context.
    */
   async transact<T>(persona: string, change: (tx: PersonaTransaction) => Promise<T>, current: () => boolean): Promise<CoordinationResult<T>> {
+    this.invalidate(persona)
     if (!current()) return pending('stale')
+    const confirmation = Symbol()
+    this.#confirming.set(persona, confirmation)
     const wasm = await this.engine()
+    let confirmedRevision: string | undefined
     const outcome = await this.store.withPersona<CoordinationResult<T>>(persona, async store => {
+      this.#confirmed.delete(persona)
       if (!current()) return pending('stale')
       let file: PersonaSnapshot | undefined
       try { file = await store.read(true) } catch (error) {
@@ -152,8 +203,10 @@ export class BrowserPersonaCoordinator {
           const held = await run.commit(tx.candidate())
           if (held !== undefined) return held
           if (!current()) return pending('stale')
+          confirmedRevision = run.file.revision
           return { state: 'active', value, marks: run.marks() }
         } catch (error) {
+          if (error instanceof InvalidPersonaRecord) return await run.fence('invalid-vault')
           if (!(error instanceof PersonaStorageError) || !['seal-lost', 'missing-record'].includes(error.code)) throw error
           return await run.fence((error as PersonaStorageError).code)
         } finally { await tx.dispose() }
@@ -161,7 +214,14 @@ export class BrowserPersonaCoordinator {
     })
     // Disposal and lock release both await. Recheck after those awaits too,
     // before resolving a successful reply into the app's account context.
-    return !current() ? pending('stale') : outcome
+    if (!current()) return pending('stale')
+    // A queued operation or explicit pause may already have invalidated this
+    // attempt while it awaited cleanup. It must not resurrect confirmation.
+    if (this.#confirming.get(persona) === confirmation) {
+      this.#confirming.delete(persona)
+      if (outcome.state === 'active' && confirmedRevision) this.#confirmed.set(persona, { revision: confirmedRevision, current })
+    }
+    return outcome
   }
 }
 
@@ -316,7 +376,7 @@ class Transaction implements PersonaTransaction {
   #pending: Promise<unknown>[] = []
   #tail: Promise<unknown> = Promise.resolve()
   #plaintext = new Set<Uint8Array>()
-  constructor(private readonly store: LockedPersonaStore, private readonly installation: string, active: PersonaObjects) { this.#objects = structuredClone(active) }
+  constructor(private readonly store: LockedPersonaStore, readonly installation: string, active: PersonaObjects) { this.#objects = structuredClone(active) }
   #work<T>(work: () => Promise<T>): Promise<T> {
     if (!this.#open) return Promise.reject(new PersonaStorageError('closed'))
     // Preserve call order even if the caller issues two seals before awaiting.
