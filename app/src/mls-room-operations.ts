@@ -8,7 +8,7 @@ import { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import { base64Encode, type ConsentPrompt, type SignLeafBindingRequest, type SignLeafBindingReply, type VaultContext, type VaultResult } from './mls-vault.js'
 import { BrowserPersonaCoordinator, InvalidPersonaRecord } from './mls-persona-coordinator.js'
 import { BrowserMlsSessionHost, StaleMlsOperation, type HostedMlsResult, type HostedMlsStep, type MlsSessionContext, type MlsSessionEdits } from './mls-session-host.js'
-import { appendMlsHistory, createMlsRoom, readMlsRoom, saveMlsRoom, mlsHistory, mlsRoomIds, MlsRoomRefused, type MlsRoomRecord } from './mls-room-store.js'
+import { appendMlsHistory, rememberMlsOrdering, createMlsRoom, readMlsRoom, saveMlsRoom, mlsHistory, mlsRoomIds, MlsRoomRefused, type MlsRoomRecord } from './mls-room-store.js'
 
 export interface MlsRoomContext { vault: VaultContext; rendezvousKey: string; current(): boolean }
 export interface MlsJoinOptions {
@@ -17,11 +17,11 @@ export interface MlsJoinOptions {
 }
 export type MlsRoomResult<T> = HostedMlsResult<T> | { state: 'refused'; reason: string }
 interface EngineStep { snapshot: VmlsSnapshot | null; events: any[]; outbound: any[] }
-export interface MlsRoomEffect { events: any[]; outbound: any[]; ack?: any; outcome?: any; session: string }
+export interface MlsRoomEffect { events: any[]; outbound: any[]; ack?: any; outcome?: any; session: string; generation: string }
 const hex = (v: string) => /^[0-9a-f]{64}(?![\s\S])/.test(v)
 const checked = <T>(r: VaultResult<T>): T => { if (!r.ok) throw new MlsRoomRefused(r.refusal); return r.value }
 const request = (r: VmlsSignRequest): SignLeafBindingRequest => ({ v: 1, operation: bytesToHex(r.operation), body: base64Encode(r.body), digest: bytesToHex(r.digest), expires_at: Number(r.expiresAt) })
-const effect = (s: Session, step: EngineStep, extra = {}): HostedMlsStep<MlsRoomEffect> => ({ snapshot: step.snapshot, value: { session: bytesToHex(s.id()), events: step.events, outbound: step.outbound, ...extra } })
+const effect = (s: Session, step: EngineStep, extra = {}): HostedMlsStep<MlsRoomEffect> => ({ snapshot: step.snapshot, value: { session: bytesToHex(s.id()), generation: String(s.generation()), events: step.events, outbound: step.outbound, ...extra } })
 
 /** Development-only room operations. This is not a box driver: authenticated
  * capability/reply transport, invitation admission and UI remain separate.
@@ -244,6 +244,8 @@ export class BrowserMlsRoomOperations {
         use(room)
       },
       persist: async (tx, session, value) => {
+        const events = (value as Partial<MlsRoomEffect> | undefined)?.events
+        if (events) rememberMlsOrdering(room, events)
         persist?.(room, session, value)
         room.generation = String(session.generation())
         await saveMlsRoom(tx, room)
@@ -274,6 +276,76 @@ export class BrowserMlsRoomOperations {
     })
   }
 
+  /** Minimal witnessed state for one driver round. No chat plaintext. */
+  driverState(context: MlsRoomContext, id: string): Promise<MlsRoomResult<MlsDriverState>> {
+    return this.#using<MlsDriverState>(context, async scope => {
+      let room: MlsRoomRecord
+      return scope.host.step(scope.hostContext, id, s => ({ snapshot: null, value: {
+        generation: String(s.generation()), phase: s.phase(), epoch: s.epoch() as bigint | null,
+        binding: room.binding, join: room.join, ordering: room.ordering ?? [], outbox: s.outbox() as MlsOutbound[], watch: s.watchList() as MlsWatch[],
+      } }), this.#edits(scope.ctx, scope, id, r => { room = r }))
+    })
+  }
+
+  /** Fresh, exact-room confirmation for unjournalled box authentication.
+   * Normal session cleanup invalidates its short-lived confirmation; this
+   * separate transaction owns no engine handle and closes before signing. */
+  async confirmTransport(context: MlsRoomContext, id: string, expected: { generation: string; homeBox: string }): Promise<MlsRoomResult<void>> {
+    const ctx = Object.freeze({ ...context.vault }), rz = context.rendezvousKey, epoch = this.#epoch, valid = context.current.bind(context)
+    expected = { ...expected }
+    const current = () => epoch === this.#epoch && valid() && this.vault.current(ctx)
+    try {
+      return await this.coordinator.transact(ctx.persona, async tx => {
+        const room = await readMlsRoom(tx, id), b = room.binding
+        if (room.generation !== expected.generation) throw new StaleMlsOperation()
+        if (b.homeBox !== expected.homeBox || b.rendezvousKey !== rz) throw new MlsRoomRefused('wrong-box')
+        checked(await this.vault.checkRoomDevice(tx, ctx, b.device, b.credentialId))
+      }, current)
+    } catch (error) {
+      if (error instanceof StaleMlsOperation) return { state: 'pending', reason: 'stale', refused: false }
+      if (error instanceof MlsRoomRefused) return { state: 'refused', reason: error.reason }
+      throw error
+    }
+  }
+
+  /** Every network answer is conditional on the predecessor that authorised
+   * its request. Reconcile and check inside the persona lock, never retarget a
+   * delayed answer to a newer session. No box I/O in this transaction. */
+  drive(context: MlsRoomContext, id: string, guard: MlsDriverGuard, command: MlsDriverCommand): Promise<MlsRoomResult<MlsRoomEffect>> {
+    guard = { ...guard }; command = structuredClone(command)
+    return this.#using<MlsRoomEffect>(context, async scope => {
+      let room: MlsRoomRecord
+      return scope.host.step(scope.hostContext, id, s => {
+        if (guard.generation !== String(s.generation())) throw new StaleMlsOperation()
+        if (guard.homeBox !== room.binding.homeBox || !hex(guard.installation)) throw new MlsRoomRefused('wrong-box')
+        if (command.type !== 'installation' && room.binding.installation !== null && guard.installation !== room.binding.installation) throw new MlsRoomRefused('wrong-installation')
+        try {
+          const now = BigInt(this.now())
+          switch (command.type) {
+            case 'installation': return effect(s, ['Active', 'NeedsRecovery'].includes(s.phase().type) ? s.observeInstallation(now, hexToBytes(guard.installation)) : { snapshot: null, events: [], outbound: [] })
+            case 'tick': return effect(s, s.tick(now))
+            case 'delivered':
+              if (!command.records.length || command.records.some(id => !s.outbox().some((r: MlsOutbound) => bytesToHex(r.recordId) === bytesToHex(id)))) throw new StaleMlsOperation()
+              return effect(s, s.outboundDelivered(command.records))
+            case 'deposit': return effect(s, s.depositResult(now, command.attempt, command.receipt))
+            case 'slot': return effect(s, s.slotStatus(now, command.attempt, command.status, command.receipt))
+            case 'receipt':
+              if (command.receipt.length !== 197 || bytesToHex(command.receipt.subarray(65, 97)) !== command.slot) throw new MlsRoomRefused('wrong-slot')
+              if (!room.ordering?.some(q => q.slot === command.slot && q.attempt === command.attempt)) throw new StaleMlsOperation()
+              // A failed signature/association leaves the durable query pending.
+              return effect(s, s.observeReceipt(now, command.receipt))
+            case 'drained': return effect(s, s.mailboxDrained(command.mailbox))
+          }
+        } catch (error) {
+          if ((error as any)?.kind === 'engine') throw new MlsRoomRefused('engine:' + (error as any).code)
+          throw error
+        }
+      }, this.#edits<MlsRoomEffect>(scope.ctx, scope, id, r => { room = r }, r => {
+        if (command.type === 'receipt') r.ordering = r.ordering?.filter(q => q.slot !== command.slot || q.attempt !== command.attempt)
+      }))
+    }).finally(() => wipe(command))
+  }
+
   rename(context: MlsRoomContext, id: string, name: string): Promise<MlsRoomResult<void>> {
     return this.#using(context, async scope => {
       if (typeof name !== 'string' || name.length < 1 || name.length > 120) throw new MlsRoomRefused('malformed')
@@ -294,7 +366,7 @@ export class BrowserMlsRoomOperations {
         const previous = room.history.find(m => m.id === 'sent:' + operation)
         if (previous) {
           if (previous.body !== bytesToHex(body)) throw new MlsRoomRefused('replay')
-          return { snapshot: null, value: { session: id, events: [], outbound: [], outcome: { type: 'Duplicate' } } }
+          return { snapshot: null, value: { session: id, generation: String(s.generation()), events: [], outbound: [], outcome: { type: 'Duplicate' } } }
         }
         message = { leaf: bytesToHex(s.ownLeafId()), epoch: String(s.epoch()) }
         return effect(s, s.send(body))
@@ -306,11 +378,12 @@ export class BrowserMlsRoomOperations {
 
   /** The driver must verify the box reply, requested mailbox and receipt
    * framing before this call. Only an active result may acknowledge the box. */
-  process(context: MlsRoomContext, id: string, input: { mailbox: Uint8Array; envelope: Uint8Array; receipt?: Uint8Array; homeBox: string; installation: string }): Promise<MlsRoomResult<MlsRoomEffect>> {
+  process(context: MlsRoomContext, id: string, input: { mailbox: Uint8Array; envelope: Uint8Array; receipt?: Uint8Array; homeBox: string; installation: string; generation?: string }): Promise<MlsRoomResult<MlsRoomEffect>> {
     input = { ...input, mailbox: input.mailbox.slice(), envelope: input.envelope.slice(), receipt: input.receipt?.slice() }
     return this.#using<MlsRoomEffect>(context, async scope => {
       let room: MlsRoomRecord
       return scope.host.step(scope.hostContext, id, s => {
+        if (input.generation !== undefined && input.generation !== String(s.generation())) throw new StaleMlsOperation()
         if (input.homeBox !== room.binding.homeBox || !hex(input.installation)) throw new MlsRoomRefused('wrong-box')
         if (room.binding.installation !== null && input.installation !== room.binding.installation) return effect(s, s.observeInstallation(BigInt(this.now()), hexToBytes(input.installation)), { ack: { type: 'Keep' } })
         const processed = s.process(BigInt(this.now()), input.mailbox, input.envelope, input.receipt,
@@ -335,3 +408,21 @@ function wipe(value: unknown): void {
   if (value instanceof Uint8Array) value.fill(0)
   else if (value && typeof value === 'object') for (const v of Object.values(value)) wipe(v)
 }
+
+export interface MlsDriverGuard { generation: string; homeBox: string; installation: string }
+export type MlsDriverCommand =
+  | { type: 'installation' | 'tick' }
+  | { type: 'delivered'; records: Uint8Array[] }
+  | { type: 'deposit'; attempt: number; receipt: Uint8Array }
+  | { type: 'slot'; attempt: number; status: 'Expired' | 'Void'; receipt: Uint8Array }
+  | { type: 'receipt'; slot: string; attempt: number; receipt: Uint8Array }
+  | { type: 'drained'; mailbox: Uint8Array }
+export type MlsDestination =
+  | { type: 'Leaf'; leafId: Uint8Array; homeBox: Uint8Array }
+  | { type: 'CommitSlot'; homeBox: Uint8Array; epoch: bigint; attempt: number }
+  | { type: 'ForkEvidence'; homeBox: Uint8Array; expiresAt: bigint }
+  | { type: 'Introduction'; peerRz: Uint8Array }
+  | { type: 'Welcome'; packageId: Uint8Array }
+export interface MlsOutbound { recordId: Uint8Array; mailbox: Uint8Array; envelope: Uint8Array; destination: MlsDestination }
+export interface MlsWatch { mailbox: Uint8Array; homeBox: Uint8Array | null; kind: { type: 'OwnLeaf' | 'RetainedLeaf' | 'ForkEvidence' | 'Welcome' } | { type: 'CommitSlot'; epoch: bigint; attempt: number } }
+export interface MlsDriverState { generation: string; phase: { type: string; reason?: string }; epoch: bigint | null; binding: MlsRoomRecord['binding']; join?: MlsRoomRecord['join']; ordering: { slot: string; attempt: number }[]; outbox: MlsOutbound[]; watch: MlsWatch[] }

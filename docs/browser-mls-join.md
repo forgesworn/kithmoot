@@ -52,8 +52,8 @@ session. After uncertainty or restart, `findJoin()` resolves that operation ID
 under fresh witness confirmation, then `read()` recovers its exact durable
 outbox. This does not need a still-live provisioned child. The existing lifetime
 adoption ledger prevents reused session IDs; there is no room deletion API.
-A pending session still needs the future driver to call the engine's clock/expiry
-operations before sending its outbox. This slice does not add that driver.
+The [message driver](browser-mls-message-driver.md) now calls the engine's
+clock/expiry operations before sending a pending session's outbox.
 
 ## Welcome and first Update
 

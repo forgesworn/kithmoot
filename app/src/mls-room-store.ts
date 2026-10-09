@@ -14,6 +14,7 @@ export interface MlsHistoryEntry { id: string; direction: 'sent' | 'received'; l
 interface StoredMessage extends Omit<MlsHistoryEntry, 'body'> { body: string }
 export interface MlsRoomRecord {
   version: 1; session: string; generation: string; name: string; binding: MlsRoomBinding; history: StoredMessage[]
+  ordering?: { slot: string; attempt: number }[]
   join?: MlsJoinCeremony
 }
 export class MlsRoomRefused extends Error { constructor(readonly reason: string) { super(reason) } }
@@ -34,11 +35,12 @@ export async function readMlsRoom(tx: PersonaReader, id: string): Promise<MlsRoo
   finally { bytes.fill(0) }
 }
 function validate(r: MlsRoomRecord, id: string): void {
-  if (!r || typeof r !== 'object' || !keys(r, r.join ? 'binding,generation,history,join,name,session,version' : 'binding,generation,history,name,session,version') || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
+  if (!r || typeof r !== 'object' || !keys(r, ['binding', 'generation', 'history', ...(r.join ? ['join'] : []), 'name', ...(r.ordering ? ['ordering'] : []), 'session', 'version'].join(',')) || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
     typeof r.name !== 'string' || r.name.length < 1 || r.name.length > 120 || !r.binding || !keys(r.binding, 'credentialId,device,homeBox,installation,rendezvousKey') ||
     ![r.binding.device, r.binding.credentialId, r.binding.rendezvousKey, r.binding.homeBox].every(hex) ||
     !(hex(r.binding.installation) || r.binding.installation === null && r.join) || !Array.isArray(r.history) || r.history.length > MAX_ROOM_MESSAGES) invalid()
   if (r.join && (!keys(r.join, 'adderRz,counter,expiresAt,introductionBox,operation') || !hex(r.join.operation) || !hex(r.join.adderRz) || !hex(r.join.introductionBox) || !uint(r.join.counter) || !Number.isSafeInteger(r.join.expiresAt) || r.join.expiresAt < 0)) invalid()
+  if (r.ordering && (!Array.isArray(r.ordering) || r.ordering.length > 1024 || r.ordering.some(q => !q || !keys(q, 'attempt,slot') || !hex(q.slot) || !Number.isInteger(q.attempt) || q.attempt < 0 || q.attempt > 0xffffffff) || new Set(r.ordering.map(q => `${q.slot}:${q.attempt}`)).size !== r.ordering.length)) invalid()
   let total = 0
   const ids = new Set<string>()
   for (const m of r.history) {
@@ -83,3 +85,15 @@ export function appendMlsHistory(room: MlsRoomRecord, message: MlsHistoryEntry):
   room.history.push({ ...message, body })
 }
 export function mlsHistory(room: MlsRoomRecord): MlsHistoryEntry[] { return room.history.map(m => ({ ...m, body: hexToBytes(m.body) })) }
+
+/** Save once-raised ordering work alongside the snapshot that raised it. */
+export function rememberMlsOrdering(room: MlsRoomRecord, events: readonly any[]): void {
+  for (const e of events) if (e.type === 'OrderingUnconfirmed') {
+    const slot = bytesToHex(e.slot), attempt = e.attempt
+    room.ordering ??= []
+    if (!room.ordering.some(q => q.slot === slot && q.attempt === attempt)) {
+      if (room.ordering.length >= 1024) throw new MlsRoomRefused('ordering-full')
+      room.ordering.push({ slot, attempt })
+    }
+  }
+}
