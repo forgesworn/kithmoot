@@ -161,6 +161,16 @@ an explicit development preview. Ordinary Bothy text routing remains separate.
   checks, 3,399 unit tests, typecheck and the production build. The generated
   production JavaScript was also checked for absence of the preview runtime.
   CI now runs the app lifecycle/production gate alongside the browser suite.
+- The [disposable real witness lab](browser-mls-witness-lab.md) now passes
+  17 live checks: real witness-only pairing, the visible keeper enrolment
+  controls, signed advances, outage/retirement, receipt replay/damage, missing
+  stage/key and restoring Bothy's witness behind the browser. Chromium also
+  passes whole-process kills at three durable boundaries, a lost accepted
+  reply, database/whole-profile rollback and two cloned profiles contending
+  for one successor. Four process-test combinations are explicitly skipped
+  on Firefox/WebKit. The live run uses real pinned Link/MLS WASM and a separate
+  Bothy process/SQLite witness on a loopback WebPKI relay. Mutations still use
+  synthetic vault/session records, not MLS room messages. Typecheck passes.
 
 ## Remaining integration and acceptance
 
@@ -170,15 +180,16 @@ an explicit development preview. Ordinary Bothy text routing remains separate.
 2. Move all typed vault mutations, consent, credentials and journals under the
    coordinator. Add the contracted typed box-request signer. Keep account
    generations, cross-tab invalidation and retired-key tombstones enforced.
-3. Prove the implemented pairing, pending/fenced UI and clear/replacement
-   ceremony against a real Bothy witness-only pairing slot. Expand actual-app
-   mode-transition and restore acceptance beyond the injected endpoint tests.
+3. Expand full-app account/mode-transition acceptance against real Bothy.
+   The pairing and pending/fenced controls now have a disposable real-daemon
+   lab; the app host's lifecycle wiring still has separate offline acceptance.
 4. The MLS room store, driver and box client: installation checks on open and
    every reply, watched Gap mailboxes, exact witnessed generations before
    commit acknowledgement or network/plaintext release, and offline drafts.
-5. Run W01–W12 against real Bothy, including full profile rollback, clones,
-   lost stage/key, witness outages and wrong/replayed receipts. Obtain the
-   client security review required by P3-03 before merging/enabling this work.
+5. Complete the remaining real-box/physical acceptance and obtain the client
+   security review required by P3-03 before merging/enabling this work.
+   See the [real witness lab](browser-mls-witness-lab.md) for the exact boundary
+   between live daemon, process-kill, profile-restore and fixture evidence.
 
 Browser membership administration follows under P3-05c. Android/browser room
 composition and upgrade/restore acceptance follow under P7. Neither the asset
