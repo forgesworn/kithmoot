@@ -99,6 +99,16 @@ describe('fresh root epoch gate', () => {
     expect(f.sent.every(e => e.kind === KINDS.EPOCH_REQUEST)).toBe(true)
   })
 
+  it('refuses a root grant with a different key for the already-known epoch', async () => {
+    const f = await setup(false), client = f.create({ epoch: { epoch: 1, secret: generateSecretKey() }, expectedEpoch: 1 })
+    f.relay.subscribe([{ kinds: [KINDS.EPOCH_REQUEST] }], request => {
+      f.relay.publish(encodeEpochGrant({ roomId: client.roomId, authoritySk: f.state.inviterSk,
+        device: request.pubkey, request: request.id, epoch: { epoch: 1, secret: generateSecretKey() }, removed: [], now: NOW }))
+    })
+    await expect(client.join([], {})).rejects.toThrow()
+    expect(f.sent.every(e => e.kind === KINDS.EPOCH_REQUEST)).toBe(true)
+  })
+
   it.each(['signal', 'leave'])('cancels through %s and cannot resume when a late grant arrives', async mode => {
     const f = await setup(false), controller = new AbortController(), client = f.create({ admissionSignal: controller.signal, epochRequestTimeoutMs: 20_000 })
     let entered!: () => void

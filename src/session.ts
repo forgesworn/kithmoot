@@ -1442,6 +1442,8 @@ export class RoomSession {
           signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])] })
         if (this.#left || this.#opts.admissionSignal?.aborted || grant.epoch.epoch < floor()) throw new Error('room admission changed while awaiting authority')
         if (grant.removed.includes(this.participant)) throw new EpochRefusedError('removed')
+        if (grant.epoch.epoch === this.#epoch.epoch && grant.epoch.epoch > 0 &&
+            deriveEpoch(grant.epoch as RoomEpoch).id !== this.#epoch.id) throw new Error('room authority returned a conflicting epoch key')
         for (const p of grant.removed) this.#removed.add(p)
         if (grant.members) this.#members = new Set(grant.members)
         if (grant.epoch.epoch > this.#epoch.epoch) this.#moveToEpoch(grant.epoch as RoomEpoch,

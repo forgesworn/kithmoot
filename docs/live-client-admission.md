@@ -29,6 +29,8 @@ challenge, whose original signed request and cached answer must be reused.
 Keep unknown/removed policy intact and stop all work on cancellation. Until
 it succeeds, only admission control traffic may be published. Leaving while the
 gate is pending must never resume room entry when a late answer arrives.
+A grant for an already-known positive epoch must derive the same traffic room;
+the same epoch number with a different key is a conflict, not confirmation.
 
 Tests must cover dropped initial offers, duplicate replies, wrong/expired
 answers, abort during handoff, no peers, time rollback, resource caps, zero-epoch
