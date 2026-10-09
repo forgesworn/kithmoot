@@ -86,3 +86,28 @@ is still required separately; its signed notices do not implement capture.
 Gallery capacity and battery measurements must be repeated with recording
 enabled. Browser feature detection and short synthetic recordings do not
 establish those physical gates.
+
+## Long synthetic stress check
+
+Run the desktop gallery journey in real time, then play back the complete
+export in Chromium:
+
+```bash
+RECORDING_SOAK_SECONDS=2700 E2E_PORT=4876 \
+  npx playwright test test/recording-video.spec.ts --project=chromium \
+  --grep 'gallery.*desktop'
+```
+
+The opt-in duration affects only the desktop gallery test. Ordinary CI retains
+the short journeys. The stress run measures the entire test browser's process
+RSS as well as JavaScript heap, because encoded Blob storage is outside that
+heap. Its progress receipt records the source commit, synthetic input boundary,
+minute samples and recording/playback/passed/failed phase. The saved WebM and
+export receipt remain under that test's output directory. The test requires
+continuous recording, a file within the room's 256 MiB upload limit, complete
+decoding, audible audio, both camera colours and paired track durations.
+
+This checks a two-device synthetic gallery on the named test host. It is not
+phone memory qualification, a battery baseline, an instantaneous A/V offset
+measurement or encrypted sharing acceptance. Repeat real permission,
+interruption and 45-minute journeys on physical supported devices.
