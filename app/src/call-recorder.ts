@@ -1,10 +1,11 @@
 /**
- * The call's sound, recorded on this device.
+ * The call's authorised sound and optional composed video, recorded here.
  *
  * One mix, not a track per speaker: every voice this device is allowed to
  * play, and its own microphone, summed in one `AudioContext` into one
- * `MediaRecorder`. A track per speaker would sound better and has to be lined
- * up afterwards; a mix is what a person means by "a recording of the call",
+ * `MediaRecorder`, optionally alongside a local compositor output. A track
+ * per speaker would sound better and has to be lined up afterwards; a mix
+ * is what a person means by "a recording of the call",
  * and it is small - Opus at 32 kbit/s is about 14 MB an hour, far inside the
  * 256 MiB a room will seal and upload.
  *
@@ -18,6 +19,7 @@
  */
 
 const MIME_TYPES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4']
+const VIDEO_MIME_TYPES = ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4']
 const AUDIO_BITS_PER_SECOND = 32_000
 
 export interface CallRecorderOptions {
@@ -26,20 +28,22 @@ export interface CallRecorderOptions {
   /** Called once if the recorder stops itself: size cap, or the browser's
    *  own error. The caller still calls `stop()` for the result. */
   onLimit?: (reason: string) => void
+  /** The local compositor's owned output, never a raw capture track. */
+  video?: MediaStreamTrack
   /** Injected for a test. */
   createContext?: () => AudioContext
 }
 
 /** The media type this browser can record into, or undefined if none. */
-export function recordingMimeType(): string | undefined {
+export function recordingMimeType(video = false): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined
-  return MIME_TYPES.find(type => MediaRecorder.isTypeSupported(type))
+  return (video ? VIDEO_MIME_TYPES : MIME_TYPES).find(type => MediaRecorder.isTypeSupported(type))
 }
 
 /** A file name for a recording made at `startedAt`, in the right extension
  *  for the media type it was made in. */
 export function recordingFileName(startedAt: Date, mimeType: string): string {
-  const ext = mimeType.startsWith('audio/mp4') ? 'm4a' : mimeType.startsWith('audio/ogg') ? 'ogg' : 'webm'
+  const ext = mimeType.startsWith('video/mp4') ? 'mp4' : mimeType.startsWith('audio/mp4') ? 'm4a' : mimeType.startsWith('audio/ogg') ? 'ogg' : 'webm'
   const pad = (n: number): string => String(n).padStart(2, '0')
   const stamp = `${startedAt.getFullYear()}-${pad(startedAt.getMonth() + 1)}-${pad(startedAt.getDate())}-${pad(startedAt.getHours())}${pad(startedAt.getMinutes())}`
   return `call-recording-${stamp}.${ext}`
@@ -62,33 +66,39 @@ export class CallRecorder {
   #resumedAt: number | undefined
 
   constructor(options: CallRecorderOptions) {
-    const mimeType = recordingMimeType()
-    if (!mimeType) throw new Error('This browser cannot record audio.')
+    const mimeType = recordingMimeType(!!options.video)
+    if (!mimeType) throw new Error(`This browser cannot record ${options.video ? 'video with audio' : 'audio'}.`)
     this.mimeType = mimeType
     this.#maxBytes = options.maxBytes
     this.#onLimit = options.onLimit
     this.#context = options.createContext?.() ?? new AudioContext()
-    this.#destination = this.#context.createMediaStreamDestination()
-    // A silent source keeps the recorder's clock running through a pause
-    // with nobody connected, so the file's timeline matches the call's.
-    const silence = this.#context.createConstantSource()
-    silence.offset.value = 0
-    silence.connect(this.#destination)
-    silence.start()
-    this.#recorder = new MediaRecorder(this.#destination.stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND })
-    // Subscribe before any stop (including an automatic limit). Final data
-    // arrives asynchronously after state has already become inactive.
-    this.#stopped = new Promise(resolve => this.#recorder.addEventListener('stop', () => resolve(), { once: true }))
-    this.#recorder.addEventListener('dataavailable', (event) => {
-      if (!event.data.size) return
-      this.#chunks.push(event.data)
-      this.#bytes += event.data.size
-      if (this.#bytes >= this.#maxBytes) this.#limit('it reached the largest file a room can share')
-    })
-    this.#recorder.addEventListener('error', () => this.#limit('the browser stopped it'))
-    if (this.#context.state !== 'running') void this.#context.resume().catch(() => {})
-    this.#recorder.start(10_000)
-    this.#resumedAt = performance.now()
+    try {
+      this.#destination = this.#context.createMediaStreamDestination()
+      // A silent source keeps the recorder's clock running through a pause
+      // with nobody connected, so the file's timeline matches the call's.
+      const silence = this.#context.createConstantSource()
+      silence.offset.value = 0
+      silence.connect(this.#destination)
+      silence.start()
+      const stream = options.video ? new MediaStream([...this.#destination.stream.getAudioTracks(), options.video]) : this.#destination.stream
+      this.#recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND, ...(options.video ? { videoBitsPerSecond: 640_000 } : {}) })
+      // Subscribe before any stop (including an automatic limit). Final data
+      // arrives asynchronously after state has already become inactive.
+      this.#stopped = new Promise(resolve => this.#recorder.addEventListener('stop', () => resolve(), { once: true }))
+      this.#recorder.addEventListener('dataavailable', (event) => {
+        if (!event.data.size) return
+        this.#chunks.push(event.data)
+        this.#bytes += event.data.size
+        if (this.#bytes >= this.#maxBytes) this.#limit('it reached the largest file a room can share')
+      })
+      this.#recorder.addEventListener('error', () => this.#limit('the browser stopped it'))
+      if (this.#context.state !== 'running') void this.#context.resume().catch(() => {})
+      this.#recorder.start(10_000)
+      this.#resumedAt = performance.now()
+    } catch (error) {
+      void this.#context.close().catch(() => {})
+      throw error
+    }
   }
 
   /** Bytes recorded so far. */

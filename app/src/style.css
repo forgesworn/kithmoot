@@ -2809,6 +2809,12 @@ label.note {
 .actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
+.recordingChoices { margin: 1rem 0 0; padding: .5rem; min-width: 0; }
+.actionDialog:has(.recordingChoices) { box-sizing: border-box; overflow-y: auto; }
+.recordingChoices label { display: flex; align-items: center; gap: .65rem; min-height: 44px; margin: .25rem 0; }
+.recordingChoices input { flex: 0 0 auto; }
+.recordingChoices select { min-width: 0; max-width: 100%; min-height: 44px; }
+.recordingChoices .note { margin-top: .75rem; }
 .keyboardHelp { box-sizing: border-box; width: min(36rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: .75rem; overflow: hidden; }
 .keyboardHelp[open] { display: flex; flex-direction: column; }
 .keyboardHelpBar { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; gap: .5rem; padding-bottom: .75rem; }

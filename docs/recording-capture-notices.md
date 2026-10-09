@@ -2,7 +2,9 @@
 
 G11 requires everyone, including late joiners and people reading another room,
 to know who is recording and what is captured. This is the notice and client
-compatibility prerequisite; the recorder currently still captures audio only.
+compatibility prerequisite. The PWA's [local video recorder](video-recording.md)
+uses it for audio, gallery, speaker and screen-share-with-camera capture;
+Android currently displays these notices but does not record a call itself.
 
 ## Wire contract
 
@@ -67,5 +69,6 @@ capabilities, matching notice ids/versions, stale replays and stopped notices.
 The real Chromium recording journey checks the named recorder and audio
 capture description in another member's notice and the late-join dialog.
 
-Video composition, layout selection, track replacement, physical acceptance
-and 45-minute synchronised export remain required before G11 is complete.
+The local video implementation and its short browser export checks are
+described separately. Native capture, physical acceptance and 45-minute
+synchronised export remain required before G11 is complete.
