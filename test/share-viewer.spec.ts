@@ -42,6 +42,7 @@ test('independent share popouts keep their call owner, camera and annotations wh
       return popup
     }
     const first = await popOut('Ada'), second = await popOut('Bo')
+    const originalExpand = await viewer!.getByRole('button', { name: 'Expand screen share from Ada', exact: true }).elementHandle()
     await first.screenshot({ path: '/tmp/kithmoot-call-origin-popout.png' })
     const firstOwner = await first.locator('main.shareViewer').getAttribute('data-share-owner')
     const secondOwner = await second.locator('main.shareViewer').getAttribute('data-share-owner')
@@ -76,6 +77,7 @@ test('independent share popouts keep their call owner, camera and annotations wh
     await expect(first.locator('.shareOwnerCamera video')).toBeHidden()
     await ada!.locator('#toggleCamera').click()
     await expect.poll(() => first.locator('.shareOwnerCamera video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0)
+    expect(await viewer!.getByRole('button', { name: 'Expand screen share from Ada', exact: true }).evaluate((button, original) => button === original, originalExpand)).toBe(true)
     await first.getByRole('button', { name: 'Hide camera', exact: true }).click()
     await expect(first.locator('.shareOwnerCamera')).toBeHidden()
     await first.getByRole('button', { name: 'Show camera', exact: true }).click()

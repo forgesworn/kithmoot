@@ -6103,11 +6103,15 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       tileBoxes.set(view.participant, box)
     }
     kept.add(view.participant)
-    // Everything but the media holders is rebuilt from the roster; the
-    // holders stay exactly where they are unless they have emptied.
+    const sharedDevices = new Set(view.tracks.filter(track => track.role === 'screen').map(track => track.device))
+    if (view.participant === me && screenTrack) sharedDevices.add(myDeviceId)
+    const shareButtons = new Map([...box.querySelectorAll<HTMLButtonElement>(':scope > .shareExpand')].map(button => [button.dataset.shareDevice, button]))
+    // Keep media holders and live share controls in place. Replacing an
+    // Expand button during presence updates can interrupt a phone tap.
     for (const child of [...box.children]) {
       // The call stage's own controls (see call-stage.ts) are its to keep.
       if (child.hasAttribute('data-call-layout')) continue
+      if (child instanceof HTMLButtonElement && child.classList.contains('shareExpand') && sharedDevices.has(child.dataset.shareDevice ?? '')) continue
       if (!child.classList.contains('media') || child.childElementCount === 0) child.remove()
     }
     box.className = 'participant'
@@ -6209,8 +6213,6 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       )
     }
 
-    const sharedDevices = new Set(view.tracks.filter(track => track.role === 'screen').map(track => track.device))
-    if (view.participant === me && screenTrack) sharedDevices.add(myDeviceId)
     for (const device of sharedDevices) {
       const owner = mediaSession()
       const origin = callOrigin(owner)
@@ -6223,8 +6225,13 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       // waiting as if there was nothing to expand, and on a phone the
       // double-tap that also opened the viewer is not a gesture anybody
       // finds. One tap on the preview opens it too.
-      const expand = document.createElement('button')
-      expand.type = 'button'; expand.className = 'shareExpand'
+      let expand = shareButtons.get(device)
+      if (!expand) {
+        expand = document.createElement('button')
+        expand.type = 'button'; expand.className = 'shareExpand'
+        expand.dataset.shareDevice = device
+        box.append(expand)
+      }
       // This device's own share while it may be filming KithMoot: opened in
       // the viewer, inside the captured window, it was the mirror again.
       // Asked again at the click, because an area can grow to fill the
@@ -6233,9 +6240,8 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       expand.textContent = mirrored() ? 'Preview paused while sharing' : ready ? 'Expand screen share' : 'Screen share arriving…'
       expand.disabled = !ready || mirrored()
       expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
-      const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand) }
-      expand.addEventListener('click', openViewer)
-      box.append(expand)
+      const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand!) }
+      expand.onclick = openViewer
       if (!ready) continue
       const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
         ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el

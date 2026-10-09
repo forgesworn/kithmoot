@@ -14,7 +14,11 @@ async function chooseView(page: Page, name: 'Gallery' | 'Speaker'): Promise<void
 for (const phone of [false, true]) {
   test(`the persistent gallery owns its call across rooms, home and collapsed views (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }, info) => {
     test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic call media needs Chromium')
-    test.setTimeout(180_000)
+    // This journey includes three encoded-media clients, two independent
+    // popouts and two recording lifecycles. Keep individual checks bounded
+    // by the ordinary expectation timeout; the whole journey needs room for
+    // those checks on a software-rendering runner. This is not a speed gate.
+    test.setTimeout(300_000)
     const contexts = await Promise.all(Array.from({ length: 3 }, (_, i) => newDeviceContext(browser, baseURL!, i === 0 && phone ? { isMobile: true, hasTouch: true } : {})))
     const sides = ['Side B', 'Side C'].map((name, i) => {
       const secret = generateRoomSecret()
