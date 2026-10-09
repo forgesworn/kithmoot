@@ -45,8 +45,11 @@ for (const colour of ['light', 'dark'] as const) {
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 900 })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `page overflow at ${width}px`).toBe(true)
-        const images = await page.locator('img').evaluateAll(images => images.every(img => img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0))
-        expect(images, 'all website images must load').toBe(true)
+        // Resizing can select a new <picture> source after goto's load event.
+        // Wait for that request/decoding too; a broken image still times out.
+        await expect.poll(() => page.locator('img').evaluateAll(images => images
+          .filter(img => !(img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0))
+          .map(img => img.getAttribute('src'))), { message: 'all website images must load after resizing' }).toEqual([])
         await page.screenshot({ path: info.outputPath(`site-${colour}-${width}.png`), fullPage: width === 1440 })
       }
       await page.goto('https://site.kithmoot.test/')
