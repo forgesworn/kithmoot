@@ -10,13 +10,19 @@ let bundle: string
 test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-persona-panel.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'P', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })
 async function fixture(context: BrowserContext) {
   const key = new Uint8Array(32).fill(91), pairing = pairingFixture(key)
-  const witness = { reads: 0, enrolled: false, offline: false, digest: new Uint8Array(32) }
+  const witness = { seq: 0n, advances: 0, reads: 0, enrolled: false, offline: false, digest: new Uint8Array(32) }
   await context.exposeBinding('panelWitness', async (_, input: number[]) => {
-    witness.reads++
+    if (input.length === 73) witness.reads++
     if (witness.offline) return { status: 503, body: [], witnessRefused: false }
     if (!witness.enrolled) return { status: 403, body: [], witnessRefused: true }
     const request = new Uint8Array(input), signed = new Uint8Array(106)
-    expect(request.length).toBe(73)
+    expect([73, 145]).toContain(request.length)
+    if (request.length === 145) {
+      expect(BigInt(request[39])).toBe(witness.seq)
+      expect(request.slice(43, 75)).toEqual(witness.digest)
+      witness.seq++; witness.advances++; witness.digest = request.slice(78, 110)
+    }
+    new DataView(signed.buffer).setBigUint64(34, witness.seq)
     signed[0] = 1; signed.set(request.subarray(6, 38), 2); signed.set(witness.digest, 42); signed.set(request.subarray(request.length - 32), 74)
     const hash = sha256(concatBytes(new TextEncoder().encode('VMLS/1 witness receipt'), signed))
     return { status: 200, body: Array.from(concatBytes(signed, ed25519.sign(hash, key))), witnessRefused: false }
@@ -153,4 +159,91 @@ test('the enrolment command fits a narrow screen without horizontal overflow', a
   await f.open(); await f.prepare(); await f.pair(); await f.genesis()
   expect(await f.page.locator('#mlsWitnessSettings').evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true)
   await f.page.screenshot({ path: '/tmp/vennel-mls-panel-mobile.png', fullPage: true })
+})
+
+async function deviceFixture(context: BrowserContext) {
+  const f = await fixture(context)
+  await f.page.evaluate('P.useIdentity()'); await f.open(); await f.prepare(); await f.pair(); await f.genesis()
+  f.witness.enrolled = true
+  await f.button('VaultRead').click(); await expect(f.button('DeviceNew')).toBeEnabled()
+  return f
+}
+async function createDevice(f: Awaited<ReturnType<typeof deviceFixture>>) {
+  await f.button('DeviceNew').click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessDevice')).toContainText('Credential:')
+}
+test('device creation, scoped consent, withdrawal and revocation are witnessed', async ({ context }) => {
+  const f = await deviceFixture(context); await createDevice(f)
+  expect(f.witness.advances).toBe(1)
+  const signing = f.page.evaluate('P.boxSign()')
+  await expect(f.page.locator('#actionDescription')).toContainText('Bothy: ' + '78'.repeat(32))
+  await expect(f.page.locator('#actionDescription')).toContainText('App: ' + origin)
+  await f.page.locator('#actionCancel').click(); expect(await signing).toEqual({ ok: false, refusal: 'denied' })
+  expect(f.witness.advances).toBe(1)
+  const allowed = f.page.evaluate('P.boxSign()'); await f.page.locator('#actionConfirm').click()
+  expect((await allowed as any).ok).toBe(true); expect(f.witness.advances).toBe(2)
+  expect((await f.page.evaluate('P.boxSign()') as any).ok).toBe(true); expect(f.witness.advances).toBe(2)
+  await f.button('VaultRead').click(); await expect(f.page.getByText('Withdraw permission', { exact: true })).toBeEnabled()
+  await f.page.getByText('Withdraw permission', { exact: true }).click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessPermissions')).toBeEmpty(); expect(f.witness.advances).toBe(3)
+  await f.button('DeviceRevoke').click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessDevice')).toContainText('Credential revoked'); expect(f.witness.advances).toBe(4)
+  expect(await f.page.evaluate('P.boxSign()')).toEqual({ ok: false, refusal: 'revoked' })
+})
+test('migration is explicit and missing legacy state never creates a device', async ({ context }) => {
+  const f = await deviceFixture(context)
+  await f.button('DeviceMigrate').click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessNetworkStatus')).toContainText('no replacement')
+  expect(f.witness.advances).toBe(0)
+  const old: any = await f.page.evaluate('P.legacyEnrol()')
+  expect(old.ok).toBe(true)
+  await f.button('DeviceMigrate').click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessDevice')).toContainText(old.value.device)
+  expect(f.witness.advances).toBe(1)
+})
+test('signer denial and late signer approval after account change create no device', async ({ context }) => {
+  const f = await deviceFixture(context)
+  await f.page.evaluate('P.denySigner()'); await f.button('DeviceNew').click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessNetworkStatus')).toContainText('declined'); expect(f.witness.advances).toBe(0)
+  await f.page.evaluate('P.denySigner(false); P.holdSigner()'); await f.button('DeviceNew').click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('body')).toHaveAttribute('data-signer', 'waiting')
+  await f.page.evaluate('P.change({ persona: "22".repeat(32), generation: "2", mode: "normal" })'); await f.page.evaluate('P.finishSigner()')
+  await expect(f.page.locator('#mlsWitnessSettings')).toBeHidden()
+  await f.page.evaluate('P.useIdentity()'); await f.open(); await f.button('VaultRead').click()
+  await expect(f.button('DeviceNew')).toBeEnabled(); expect(f.witness.advances).toBe(0)
+})
+test('mode change cancels a signing prompt and exposes no late authorisation', async ({ context }) => {
+  const f = await deviceFixture(context); await createDevice(f)
+  const result = f.page.evaluate('P.boxSign()')
+  await expect(f.page.locator('#actionDialog')).toBeVisible()
+  await f.page.evaluate('P.change({ persona: "22".repeat(32), generation: "3", mode: "quiet" })')
+  await expect(f.page.locator('#actionDialog')).toHaveCount(0)
+  expect(await result).toEqual({ ok: false, refusal: 'stale' }); expect(f.witness.advances).toBe(1)
+})
+test('a replacement confirmation cannot replace a newer device', async ({ context }) => {
+  const f = await deviceFixture(context); await createDevice(f)
+  await f.button('DeviceReplace').click(); await expect(f.page.locator('#actionDialog')).toBeVisible()
+  const replacement: any = await f.page.evaluate('P.replaceDevice()'); expect(replacement.ok).toBe(true)
+  await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessNetworkStatus')).toContainText('changed')
+  expect(f.witness.advances).toBe(2)
+  await f.button('VaultRead').click(); await expect(f.page.locator('#mlsWitnessDevice')).toContainText(replacement.value.device)
+})
+test('unavailable witness prevents signing prompts and device creation', async ({ context }) => {
+  const f = await deviceFixture(context); f.witness.offline = true
+  await f.button('DeviceNew').click(); await f.page.locator('#actionConfirm').click()
+  await expect(f.page.locator('#mlsWitnessNetworkStatus')).toContainText('not confirmed')
+  expect(f.witness.advances).toBe(0); await expect(f.page.locator('body')).not.toHaveAttribute('data-signer', 'waiting')
+})
+
+test('approval uses the scope shown even if the caller mutates its input during consent', async ({ context }) => {
+  const f = await deviceFixture(context); await createDevice(f)
+  const result: any = await f.page.evaluate('P.mutateConsentScope()')
+  expect(result.result.ok).toBe(true)
+  expect(result.state.value.approved.map((s: any) => s.homeBox)).toEqual(['78'.repeat(32)])
+})
+
+test('a fence discovered after signing prevents release of the signed header', async ({ context }) => {
+  const f = await deviceFixture(context); await createDevice(f)
+  expect(await f.page.evaluate('P.loseKeyBeforeRelease()')).toEqual({ ok: false, refusal: 'restore-fenced' })
 })

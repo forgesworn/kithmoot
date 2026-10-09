@@ -13845,7 +13845,7 @@ if (browserMlsPreview) {
     void import('./mls-persona-panel.js').then(async ({ BrowserMlsPanel }) => {
       if (nostrSession !== account || identityGeneration !== generation) return
       browserMlsPanel ??= new BrowserMlsPanel(() => nostrSession ? {
-        persona: nostrSession.pubkey, generation: `${identityGeneration}:${roomGeneration}`,
+        persona: nostrSession.pubkey, identity: { pubkey: nostrSession.pubkey, signEvent: nostrSession.signer.signEvent.bind(nostrSession.signer) }, generation: `${identityGeneration}:${roomGeneration}`,
         mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal',
       } : undefined)
       await browserMlsPanel.open()

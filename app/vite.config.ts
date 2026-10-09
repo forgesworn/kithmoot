@@ -17,6 +17,21 @@ const desktop = process.env.VITE_DESKTOP === 'true'
 // companion itself defaults to.
 const relayPort = Number(process.env.E2E_RELAY_PORT ?? 7777)
 
+/** wasm-bindgen modules are pinned public files, not Vite source modules.
+ * Dynamic imports in development receive Vite's import query; serve only the
+ * exact checked-in runtime filenames before its source transform middleware. */
+function pinnedWasmPreview(): Plugin {
+  const files = new Set(['link-web/link_web.js', 'link-web/link_web_bg.wasm', 'vmls-wasm/vmls_wasm.js', 'vmls-wasm/vmls_wasm_bg.wasm'])
+  return { name: 'kithmoot-pinned-wasm-preview', configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const path = req.url?.split('?')[0]
+      if (!path?.startsWith(BASE) || !files.has(path.slice(BASE.length))) return next()
+      res.setHeader('content-type', path.endsWith('.wasm') ? 'application/wasm' : 'text/javascript')
+      createReadStream(join(here, 'public', path.slice(BASE.length))).pipe(res)
+    })
+  } }
+}
+
 /**
  * The MediaPipe WASM runtime, served from our own origin.
  *
@@ -149,7 +164,7 @@ export default defineConfig({
     outDir: resolve(here, desktop ? '../desktop/web' : 'dist'),
     emptyOutDir: true,
   },
-  plugins: [
+  plugins: [pinnedWasmPreview(),
     mediapipeRuntime(),
     audioWorklet(),
     // getUserMedia and getDisplayMedia both require a secure context. A

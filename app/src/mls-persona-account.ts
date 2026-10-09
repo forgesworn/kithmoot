@@ -2,12 +2,16 @@ import { BrowserMlsPersonaStore, PersonaStorageError } from './mls-persona-store
 import { BrowserPersonaLinks } from './mls-persona-link.js'
 import { BrowserPersonaEnrolment, type PersonaEnrolment } from './mls-persona-enrolment.js'
 import { BrowserPersonaCoordinator, type CoordinationResult } from './mls-persona-coordinator.js'
-import { BrowserCoordinatedVaultSignals } from './mls-coordinated-vault.js'
+import { CoordinatedMlsVault, type VaultOverview, type BoxRequest, type BoxReply, BrowserCoordinatedVaultSignals } from './mls-coordinated-vault.js'
 
-export interface MlsAccountContext { persona: string; generation: string; mode: 'normal' | 'quiet' | 'tor-only' }
+import type { ParticipantIdentity } from '../../src/identity.js'
+import { MlsVault, BrowserMlsVaultStorage, type VaultContext, type VaultResult, type ConsentScope, type ConsentPrompt, type SignLeafBindingRequest, type SignLeafBindingReply } from './mls-vault.js'
+
+export interface MlsAccountContext { identity?: ParticipantIdentity; persona: string; generation: string; mode: 'normal' | 'quiet' | 'tor-only' }
 export interface MlsAccountView {
   enrolment: PersonaEnrolment
   check?: CoordinationResult<void>
+  vault?: VaultResult<VaultOverview | null>
   installation?: string
   retirement?: { subject: string; installation: string; verified: boolean }
 }
@@ -19,6 +23,17 @@ interface Services { store: BrowserMlsPersonaStore; links: BrowserPersonaLinks; 
 export class BrowserMlsAccount {
   #services?: Services
   #generation = 0
+  #vault?: CoordinatedMlsVault
+  #epochKey = ''
+  #epochNumber = 0
+  #epoch(): number {
+    const c = this.context(), key = JSON.stringify([this.#generation, c?.persona, c?.generation, c?.mode])
+    if (key !== this.#epochKey) { this.#epochKey = key; this.#epochNumber++ }
+    return this.#epochNumber
+  }
+  #typed(s: Services): CoordinatedMlsVault {
+    return this.#vault ??= new CoordinatedMlsVault(s.coordinator, { generation: () => this.#epoch() })
+  }
   #stopping: Promise<void> = Promise.resolve()
   #resumeNeeded = false
   #notifications?: BroadcastChannel
@@ -74,10 +89,61 @@ export class BrowserMlsAccount {
       return { enrolment: await s.enrolment.status(c.persona, current) }
     }, false, true)
   }
+  /** Explicit network actions only. Opening settings never reads the vault or
+   * prompts a signer. The principal is this app origin, never caller input. */
+  async #vaultRun<T>(work: (vault: CoordinatedMlsVault, ctx: VaultContext, account: MlsAccountContext, current: () => boolean) => Promise<VaultResult<T>>, changed = false): Promise<VaultResult<T>> {
+    let result: VaultResult<T> = { ok: false, refusal: 'stale' }
+    const view = await this.#run(async (s, c, current) => {
+      const vault = this.#typed(s), ctx = vault.context(globalThis.location.origin, c.persona)
+      result = await work(vault, ctx, c, current)
+      return { enrolment: await s.enrolment.status(c.persona, current) }
+    }, true, changed)
+    if (view.enrolment.state !== 'genesis') {
+      this.#vault?.bump()
+      return { ok: false, refusal: view.enrolment.state === 'fenced' ? 'restore-fenced' : 'stale' }
+    }
+    return result
+  }
+  async vaultState(): Promise<MlsAccountView> {
+    return this.#run(async (s, c, current) => ({
+      vault: await this.#typed(s).overview(this.#typed(s).context(globalThis.location.origin, c.persona)),
+      enrolment: await s.enrolment.status(c.persona, current),
+    }), true)
+  }
+  enrolDevice(expiresAt: number, replace = false, expectedDevice?: string) {
+    return this.#vaultRun((vault, ctx, c) => c.identity
+      ? vault.enrol(ctx, c.identity, expiresAt, { replace, expectedDevice })
+      : Promise.resolve({ ok: false as const, refusal: 'unauthorised' as const }), true)
+  }
+  migrateDevice() {
+    return this.#vaultRun(async (vault, ctx) => {
+      try { return await vault.migrate(ctx, new MlsVault(new BrowserMlsVaultStorage())) }
+      catch { return { ok: false, refusal: 'restore-fenced' } }
+    }, true)
+  }
+  withdraw(scope: ConsentScope) { return this.#vaultRun((vault, ctx) => vault.withdraw(ctx, scope), true) }
+  revokeCredential(id: string) { return this.#vaultRun((vault, ctx) => vault.revokeCredential(ctx, id), true) }
+  approveScope(scope: ConsentScope, consent: ConsentPrompt) {
+    scope = { ...scope }
+    return this.#vaultRun(async (vault, ctx, _c, current) => {
+      if (scope.persona !== ctx.persona || scope.principal !== ctx.principal) return { ok: false, refusal: 'unauthorised' }
+      if (await consent({ ...scope }) !== 'approve') return { ok: false, refusal: 'denied' }
+      if (!current()) return { ok: false, refusal: 'stale' }
+      return vault.approve(ctx, scope)
+    }, true)
+  }
+  async signLeafBinding(request: SignLeafBindingRequest, consent: ConsentPrompt): Promise<VaultResult<SignLeafBindingReply>> {
+    const result = await this.#vaultRun((vault, ctx, _c, current) => vault.signLeafBindingV1(ctx, request, async scope => current() ? consent(scope) : 'deny'), true)
+    return result.ok ? this.#vault!.acceptSignReply(request, result.value) : result
+  }
+  async signBoxRequest(request: BoxRequest, consent: ConsentPrompt): Promise<VaultResult<BoxReply>> {
+    const result = await this.#vaultRun((vault, ctx, _c, current) => vault.signBoxRequestV1(ctx, request, async scope => current() ? consent(scope) : 'deny'), true)
+    return result.ok ? this.#vault!.acceptBoxReply(request, result.value) : result
+  }
   /** Invalidate immediately; wait for late starts and shutdown before an
    * explicit next operation may resume. A shutdown failure stays fail-closed. */
   pause(): Promise<void> {
-    this.#generation++
+    this.#generation++; this.#vault?.bump()
     if (this.#services) {
       this.#services.coordinator.invalidate()
       this.#resumeNeeded = true
@@ -100,6 +166,10 @@ export class BrowserMlsAccount {
     let value: MlsAccountView
     try { value = await work(services, context, current) }
     finally { if (changed) this.#notifications?.postMessage({ type: 'changed' }) }
+    if (value.vault?.ok && value.enrolment.state !== 'genesis') {
+      this.#vault?.bump()
+      value.vault = { ok: false, refusal: value.enrolment.state === 'fenced' ? 'restore-fenced' : 'stale' }
+    }
     if (current() && value.enrolment.state === 'fenced') {
       const recovery = await services.store.withPersona(context.persona, async store => {
         try {

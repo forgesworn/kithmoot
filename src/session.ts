@@ -365,6 +365,10 @@ export interface RoomSessionBaseOptions {
    * keep asking.
    */
   onUnknownAsking?: (asker: { participant: string; device: string }) => void
+  /** An exclusive authority owner persists and hands off this exact transition
+   * before the session moves. Failure terminates this session: reopen durable
+   * state rather than minting another secret for the same epoch. */
+  commitRekey?: (event: Event, next: RoomEpoch, notice: RekeyNotice) => Promise<void>
   /** Called on every epoch this session moves to, with what the rekey said:
    *  the number, who was removed and by whom. Also on this session's own
    *  rekeys, when it is the authority. A current-state grant is marked
@@ -671,6 +675,7 @@ export class RoomSession {
   #sweepTimer?: ReturnType<typeof setInterval>
   #renewalTimer?: ReturnType<typeof setTimeout>
   #left = false
+  #rekeying = false
   /**
    * When each remote device was last HEARD from, by this device's own clock.
    *
@@ -1866,6 +1871,14 @@ export class RoomSession {
    * Refused with a removal or a close.
    */
   async rekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean; destruct?: boolean; scheduled?: boolean }): Promise<RekeyNotice> {
+    if (this.#left || this.#rekeying) throw new Error('room authority is unavailable or changing epoch')
+    this.#rekeying = true
+    try {
+      return await this.#makeRekey(opts)
+    } finally { this.#rekeying = false }
+  }
+
+  async #makeRekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean; destruct?: boolean; scheduled?: boolean }): Promise<RekeyNotice> {
     if (!this.#self) throw new Error('join the room before rekeying it')
     if (this.#closed) throw new Error('this room has been closed')
     const authority = getPublicKey(opts.authoritySk)
@@ -1918,20 +1931,6 @@ export class RoomSession {
     // Only a scheduled rekey is cut: one for a removal is sealed to the
     // roster alone, as it always was.
     const event = scheduled ? capRecipients(recipients, encode).event : encode(recipients)
-    // Known before it is published, so a relay's copy coming back while the
-    // publish is still out is recognised as this device's own rekey and not
-    // taken for one sealed to somebody else.
-    this.#followed.set(next.epoch, event.id)
-    try {
-      await this.#opts.transport.publish(event)
-    } catch (err) {
-      // Not moved, so a retry signs a different rekey for this epoch. If a
-      // relay kept this one after all, the two will be reported as a
-      // conflict when it comes back, which is what they are.
-      this.#followed.delete(next.epoch)
-      throw err
-    }
-    this.#keepRekey(next.epoch, event)
     const notice: RekeyNotice = {
       epoch: next.epoch,
       removed,
@@ -1943,6 +1942,27 @@ export class RoomSession {
       secret: next.secret,
       at: now,
     }
+    // Known before it is published, so a relay's copy coming back while the
+    // publish is still out is recognised as this device's own rekey and not
+    // taken for one sealed to somebody else.
+    this.#followed.set(next.epoch, event.id)
+    try {
+      if (this.#opts.commitRekey) {
+        await this.#opts.commitRekey(event, next, notice)
+        if (this.#left) throw new Error('room left during durable rekey')
+      } else await this.#opts.transport.publish(event)
+    } catch (err) {
+      if (this.#opts.commitRekey) {
+        await this.leave()
+        throw err
+      }
+      // Not moved, so a retry signs a different rekey for this epoch. If a
+      // relay kept this one after all, the two will be reported as a
+      // conflict when it comes back, which is what they are.
+      this.#followed.delete(next.epoch)
+      throw err
+    }
+    this.#keepRekey(next.epoch, event)
     if (opts.closed) {
       this.#closed = true
       this.#closeMemberDesk()
