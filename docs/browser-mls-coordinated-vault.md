@@ -112,8 +112,18 @@ npm run typecheck
 npm run build
 ```
 
-Before merge, the changed storage/coordinator and signing paths need a fresh
-security review under P3-03. The prior foundation review does not cover this
-slice. Production remains gated. Full-app vault/consent UI, the room store and
+The [independent agent review](browser-mls-vault-security-review.md) found
+three issues in its first pass. All were fixed and re-reviewed at `24df5a0`,
+with no remaining blockers for this production-disabled slice. This is separate
+from the prior foundation review and is not a human cryptographic audit. Production remains gated. Full-app vault/consent UI, the room store and
 box client, real-witness typed-signing acceptance, Android/browser composition
 and physical-device acceptance remain separate work.
+
+## Local validation, 9 October 2026
+
+The complete MLS browser suite passes 288 cases across Chromium, Firefox and
+WebKit, including 108 typed-vault cases. Typecheck passes on the reviewed code.
+The unit suite, production build and full-app preview/gate checks are tracked
+with the pull request. The build excludes the typed-vault runtime and MLS WASM
+from service-worker precaching. No production deployment is implied by these
+checks.
