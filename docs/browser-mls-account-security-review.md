@@ -35,3 +35,26 @@ The reviewer did not independently rerun heavy suites. Automated and real-Bothy
 results belong to the release validation record and are separate from this
 source review. Room-store/box-client integration, Android/browser composition,
 physical devices and production enablement remain open.
+
+## Live shutdown finding and scoped merge judgement
+
+The full-app real-Bothy journey passed, but a longer repeated typed-signing
+journey timed out during Link shutdown. Instrumentation showed signed reads in
+7–10 ms and advances in 2–3 ms, followed by a close of 48.751 seconds; a later
+close did not finish before the diagnostic was stopped. The writer lock stays
+held and success stays withheld. This is an availability failure, with no
+observed fail-open release.
+
+The reviewer confirmed that this may remain a production liveness gate while
+merging the disabled app slice. The repeated journey is **not accepted live
+coverage**. It remains reproducible with `LAB_SHUTDOWN_STRESS=1`; transport
+shutdown repair and a successful rerun are required before production enablement
+or a claim of complete typed live acceptance.
+
+Do not remove `wait_idle` as a workaround. In the pinned Link source, relay
+close signals driver shutdown but does not await it; WebSocket destruction
+requests closure without awaiting its close event, and sends can remain queued
+until the driver drops its receiver. The reviewer found no alternative exposed
+safe shutdown API. A future completion barrier must prove driver/transport
+termination before ownership is released. No Link library or pinned runtime
+change was made in this slice.

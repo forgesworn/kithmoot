@@ -69,3 +69,27 @@ are recorded in the delivery checkpoint.
 Still open: MLS room storage/driver/box-client integration, membership and
 revocation administration across peers, Android/browser composition, physical
 device acceptance and independent production enablement review.
+
+## Production liveness gate discovered in the live lab
+
+The full-app journey passes, including device management, reload, witness
+outage, late signing after sign-out, account switching and quiet-room departure.
+The extended repeated-signing journey is incomplete: Link shutdown can retain
+the writer lock for minutes after a successful receipt. Secret-free lab timings
+separate endpoint open, read, advance and close; no pairing capability, key or
+request body is logged. The account correctly withholds the result while close
+is pending. This is not acceptable production liveness.
+
+The extended reproducer is opt-in in addition to the ordinary live suite:
+
+```sh
+BOTHYD=/absolute/path/bothyd LAB_RELAY=wss://your-loopback-lab-relay/link \
+LAB_SHUTDOWN_STRESS=1 npx playwright test -c playwright.mls-live.config.ts \
+  --project=chromium -g 'typed account creation'
+```
+
+The default suite explicitly skips these extended cases. Focused creation,
+migration and signing/persistence cases are separate evidence; passing them
+must not be described as closing the shutdown gate. The independent reviewer
+allows merging the disabled app slice with this limitation, and rejects
+releasing writer ownership before transport termination as a workaround.
