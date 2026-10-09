@@ -47,6 +47,21 @@ describe('markAlpha', () => {
   })
 })
 
+it('call teardown clears every share and does not revive old marks when an id is reused', () => {
+  const { marks, advance } = harness()
+  marks.remember(stroke('share-a', 'old-a'), ME)
+  marks.remember(stroke('share-b', 'old-b'), ME)
+  const changed = vi.fn()
+  marks.subscribe(changed)
+  marks.clear()
+  expect(changed).toHaveBeenCalledOnce()
+  expect(marks.any).toBe(false)
+  marks.remember(stroke('share-a', 'new-a'), ME)
+  advance(50)
+  expect(marks.alive('share-a').map(mark => mark.annotation.strokeId)).toEqual(['new-a'])
+  expect(marks.alive('share-b')).toEqual([])
+})
+
 describe('colourForParticipant', () => {
   it('is stable for one pubkey and, usually, different for another - the same colour wherever it is computed, including on the drawer\'s own screen', () => {
     const ada = colourForParticipant(ADA)

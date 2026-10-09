@@ -50,11 +50,12 @@ const PORTRAIT_SCREEN = () => {
 
 const VIEWPORT = { width: 1320, height: 880 }
 
-async function enter(page: Page, url: string, name: string): Promise<void> {
+async function enter(page: Page, url: string, name: string, existingCall = false): Promise<void> {
   await page.setViewportSize(VIEWPORT)
   await open(page, url, name)
   await page.locator('#join').click()
   await expect(page.locator('#roomArea')).toBeVisible()
+  if (existingCall) await expect(page.locator('#callStripAction')).toHaveText('Join call')
   await openCall(page)
 }
 
@@ -123,7 +124,7 @@ test('a portrait share is shown whole and nothing sits on it', async ({ browser,
     const alex = await a.newPage(), sam = await b.newPage()
     const link = await createRoom(alex, baseURL!)
     await enter(alex, link, 'Alex')
-    await enter(sam, link, 'Sam')
+    await enter(sam, link, 'Sam', true)
 
     await alex.locator('#toggleScreen').click()
     await expect(alex.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
@@ -139,7 +140,10 @@ test('a portrait share is shown whole and nothing sits on it', async ({ browser,
       sam.waitForEvent('popup'),
       sam.getByRole('dialog', { name: 'Screen-share viewer' }).getByRole('button', { name: 'Pop out' }).click(),
     ])
-    await expect(popup.locator('video')).toHaveCount(1)
+    await expect(popup.locator('.shareStage > video')).toHaveCount(1)
+    await expect(popup.locator('.shareOwnerName')).toHaveText('Alex')
+    await expect(popup.locator('.shareCameraFallback')).toHaveText('Camera off')
+    await expect(popup.locator('.shareOwnerCamera video')).toBeHidden()
     await expectShareUncovered(alexTile, "Sam's view of Alex, popped out")
     await popup.close()
   } finally {
@@ -175,11 +179,12 @@ test('a person on two devices, one sharing portrait and one with only a micropho
     await pageLaptop.locator('#toggleMic').click()
     await expect(pageLaptop.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     // The phone: sharing a portrait screen, no camera.
+    await expect(pagePhone.locator('#callStripAction')).toHaveText('Join call')
     await openCall(pagePhone)
     await pagePhone.locator('#toggleScreen').click()
     await expect(pagePhone.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
 
-    await enter(sam, url, 'Sam')
+    await enter(sam, url, 'Sam', true)
     const grouped = sam.locator('#room .participant.linked')
     await expect(grouped).toHaveCount(1, { timeout: 90_000 })
     await expectShareUncovered(grouped, "Sam's view of Alex's two devices")

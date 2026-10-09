@@ -162,6 +162,12 @@ test('two people each share a screen: both on the stage, faces one size beside t
     await open(pageB, link, 'Bob')
     await pageB.locator('#join').click()
     await expect(pageB.locator('#roomArea')).toBeVisible()
+    // Join Ada's advertised call before starting capture. Starting media
+    // before presence arrives can create an independent call instead.
+    await expect(pageB.locator('#callToggle')).toHaveText('Join call')
+    await pageB.locator('#callToggle').click()
+    await expect(pageB.locator('#callChips')).toContainText('Ada')
+    await expect(pageA.locator('#callChips')).toContainText('Bob')
     await turnOnMedia(pageB)
 
     await openCall(pageA)

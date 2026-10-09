@@ -193,6 +193,12 @@ export class ShareMarks {
     return () => { this.#listeners.delete(listener) }
   }
 
+  /** Forget annotations when the owning call ends, including reused share ids. */
+  clear(): void {
+    this.#kept.clear()
+    this.#notify()
+  }
+
   #notify(): void {
     for (const listener of [...this.#listeners]) listener()
   }

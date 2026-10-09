@@ -1,5 +1,144 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
 import { createRoom, newDeviceContext, open, openCall } from './browser.js'
+import { deriveRoom, generateRoomSecret } from '../src/room.js'
+import { encodeRoomLink } from '../src/link.js'
+import { testRelaysFor } from './relays.js'
+
+/** Wait for presence so the viewer joins this call instead of starting another. */
+async function openExistingCall(page: Page): Promise<void> {
+  await expect(page.locator('#callStripAction')).toHaveText('Join call')
+  await openCall(page)
+}
+
+test('independent share popouts keep their call owner, camera and annotations while another room is read', async ({ browser, baseURL }) => {
+  const contexts = await Promise.all(Array.from({ length: 3 }, () => newDeviceContext(browser, baseURL!)))
+  const secret = generateRoomSecret()
+  const side = { roomId: deriveRoom(secret).roomId, name: 'Side room', link: encodeRoomLink(baseURL!, { secret, name: 'Side room', relays: testRelaysFor(baseURL!) ?? [], iceUrls: [] }), openedAt: Math.floor(Date.now() / 1000), readAt: 0 }
+  await contexts[2]!.addInitScript(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), side)
+  try {
+    const [ada, bo, viewer] = await Promise.all(contexts.map(context => context.newPage()))
+    const link = await createRoom(ada!, baseURL!)
+    for (const [page, name] of [[ada!, 'Ada'], [bo!, 'Bo'], [viewer!, 'Rowan']] as const) {
+      await open(page, link, name); await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible()
+      if (name === 'Ada') await openCall(page)
+      else await openExistingCall(page)
+    }
+    for (const presenter of [ada!, bo!]) {
+      await presenter.locator('#toggleCamera').click()
+      await presenter.locator('#toggleScreen').click()
+    }
+    const popOut = async (name: string) => {
+      await viewer!.getByRole('button', { name: `Expand screen share from ${name}` }).click()
+      const dialog = viewer!.getByRole('dialog', { name: 'Screen-share viewer' })
+      const next = viewer!.waitForEvent('popup')
+      await dialog.getByRole('button', { name: 'Pop out', exact: true }).click()
+      const popup = await next
+      await expect(popup.locator('.shareViewerBar h2')).toContainText(name)
+      await expect.poll(() => popup.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0)
+      await expect.poll(() => popup.locator('.shareOwnerCamera video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0)
+      expect(await popup.locator('video').evaluateAll(videos => videos.every(video => (video as HTMLVideoElement).muted))).toBe(true)
+      await expect(popup.locator('audio')).toHaveCount(0)
+      return popup
+    }
+    const first = await popOut('Ada'), second = await popOut('Bo')
+    await first.screenshot({ path: '/tmp/kithmoot-call-origin-popout.png' })
+    const firstOwner = await first.locator('main.shareViewer').getAttribute('data-share-owner')
+    const secondOwner = await second.locator('main.shareViewer').getAttribute('data-share-owner')
+    expect(firstOwner).not.toBe(secondOwner)
+    const origin = await first.locator('main.shareViewer').getAttribute('data-origin-room')
+    expect(origin).toBe(await second.locator('main.shareViewer').getAttribute('data-origin-room'))
+    expect(origin).not.toBe(side.roomId)
+    const tracks = await first.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => (video.srcObject as MediaStream).getVideoTracks().map(track => track.id))
+
+    await viewer!.keyboard.press('Control+k')
+    await viewer!.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Side room', exact: true }).click()
+    await expect(viewer!.locator('#roomTitle')).toHaveText('Side room')
+    await expect(viewer!.locator('#callDock')).toBeVisible()
+    for (const popup of [first, second]) {
+      expect(popup.isClosed()).toBe(false)
+      await expect(popup.locator('main.shareViewer')).toHaveAttribute('data-origin-room', origin!)
+      await expect(popup.locator('.shareViewerBar h2')).not.toContainText('Side room')
+      const before = await popup.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => video.currentTime)
+      await expect.poll(() => popup.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(before)
+    }
+    expect(await first.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => (video.srcObject as MediaStream).getVideoTracks().map(track => track.id))).toEqual(tracks)
+    await first.getByRole('button', { name: 'Draw', exact: true }).click()
+    const picture = (await first.locator('.shareStage').boundingBox())!
+    await first.mouse.move(picture.x + picture.width * .25, picture.y + picture.height * .3)
+    await first.mouse.down(); await first.mouse.move(picture.x + picture.width * .6, picture.y + picture.height * .6, { steps: 10 }); await first.mouse.up()
+    const marks = ada!.locator('#room .participant[data-self="true"] canvas.shareMarks')
+    await expect(marks).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/, { timeout: 10_000 })
+    await expect(marks).toHaveAttribute('data-legend', /Rowan/)
+
+    await ada!.locator('#toggleCamera').click()
+    await expect(first.locator('.shareCameraFallback')).toHaveText('Camera off')
+    await expect(first.locator('.shareOwnerCamera video')).toBeHidden()
+    await ada!.locator('#toggleCamera').click()
+    await expect.poll(() => first.locator('.shareOwnerCamera video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0)
+    await first.getByRole('button', { name: 'Hide camera', exact: true }).click()
+    await expect(first.locator('.shareOwnerCamera')).toBeHidden()
+    await first.getByRole('button', { name: 'Show camera', exact: true }).click()
+    await expect(first.locator('.shareOwnerCamera')).toBeVisible()
+
+    await second.close()
+    expect(first.isClosed()).toBe(false)
+    await expect(bo!.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await viewer!.locator('#callDockBack').click()
+    expect(await first.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => (video.srcObject as MediaStream).getVideoTracks().map(track => track.id))).toEqual(tracks)
+    const returning = await popOut('Bo')
+    await bo!.locator('#leaveCall').click()
+    await expect(returning.locator('.shareViewerNotice')).toHaveText('The sharer has left the call.')
+    expect(await returning.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => video.srcObject)).toBe(null)
+    await returning.close()
+    await viewer!.keyboard.press('Control+k')
+    await viewer!.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Side room', exact: true }).click()
+    await ada!.locator('#toggleScreen').click()
+    await expect(first.locator('.shareViewerNotice')).toHaveText('Screen sharing has ended.')
+    expect(await first.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => video.srcObject)).toBe(null)
+    await viewer!.locator('#callDockLeave').click()
+    await expect.poll(() => first.isClosed()).toBe(true)
+    await expect(viewer!.locator('#roomTitle')).toHaveText('Side room')
+  } finally { await Promise.allSettled(contexts.map(context => context.close())) }
+})
+
+test('a phone share viewer keeps the camera inside its picture area and controls reachable', async ({ browser, baseURL }) => {
+  const presenterContext = await newDeviceContext(browser, baseURL!)
+  const phoneContext = await newDeviceContext(browser, baseURL!, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  try {
+    const presenter = await presenterContext.newPage(), phone = await phoneContext.newPage()
+    const link = await createRoom(presenter, baseURL!)
+    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await openCall(presenter)
+    await open(phone, link, 'Rowan'); await phone.locator('#join').click()
+    await openExistingCall(phone)
+    await presenter.locator('#toggleCamera').click(); await presenter.locator('#toggleScreen').click()
+    await phone.getByRole('button', { name: 'Expand screen share from Ada' }).click()
+    const dialog = phone.getByRole('dialog', { name: 'Screen-share viewer' })
+    await expect.poll(() => dialog.locator('.shareOwnerCamera video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0)
+    const viewport = (await dialog.locator('.shareViewport').boundingBox())!
+    const camera = (await dialog.locator('.shareOwnerCamera').boundingBox())!
+    expect(camera.x).toBeGreaterThanOrEqual(viewport.x)
+    expect(camera.y).toBeGreaterThanOrEqual(viewport.y)
+    expect(camera.x + camera.width).toBeLessThanOrEqual(viewport.x + viewport.width + 1)
+    expect(camera.y + camera.height).toBeLessThanOrEqual(viewport.y + viewport.height + 1)
+    expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await expect(dialog.locator('.shareOwnerName')).toHaveText('Ada')
+    await expect(dialog.locator('.shareViewerBar h2')).toContainText('Untitled room')
+    for (const label of ['Hide camera', 'Close screen-share viewer']) {
+      const button = dialog.getByRole('button', { name: label, exact: true })
+      const bounds = (await button.boundingBox())!
+      expect(bounds.height).toBeGreaterThanOrEqual(44)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(844)
+    }
+    await dialog.screenshot({ path: '/tmp/kithmoot-call-origin-phone.png' })
+    await dialog.getByRole('button', { name: 'Hide camera', exact: true }).click()
+    await expect(dialog.locator('.shareOwnerCamera')).toBeHidden()
+    await dialog.getByRole('button', { name: 'Show camera', exact: true }).click()
+    await expect(dialog.locator('.shareOwnerCamera')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close screen-share viewer', exact: true }).click()
+    await expect(presenter.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+  } finally { await Promise.allSettled([presenterContext.close(), phoneContext.close()]) }
+})
 
 test('a viewer enlarges, pans and pops out a real received synthetic screen without stopping it', async ({ browser, baseURL }) => {
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
@@ -8,12 +147,12 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     const link = await createRoom(presenter, baseURL!)
     await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
     await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
-    await openCall(presenter); await openCall(viewer)
+    await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
     const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
     await expect(expand).toBeVisible({ timeout: 60000 }); await expand.click()
     const dialog = viewer.getByRole('dialog', { name: 'Screen-share viewer' })
-    const video = dialog.locator('video')
+    const video = dialog.locator('.shareStage > video')
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     const previous = await video.evaluate((v: HTMLVideoElement) => v.currentTime)
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(previous)
@@ -56,7 +195,7 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     const presenterExpand = presenter.getByRole('button', { name: 'Expand screen share from Ada' })
     await expect(presenterExpand).toBeVisible(); await presenterExpand.click()
     const presenterDialog = presenter.getByRole('dialog', { name: 'Screen-share viewer' })
-    await expect.poll(() => presenterDialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    await expect.poll(() => presenterDialog.locator('.shareStage > video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     await drawStroke()
     await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/)
     await expect(presenterDialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/, { timeout: 2_000 })
@@ -82,7 +221,7 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     const popupPromise = viewer.waitForEvent('popup')
     await dialog.getByRole('button', { name: 'Pop out', exact: true }).click()
     const popup = await popupPromise
-    await expect.poll(() => popup.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    await expect.poll(() => popup.locator('.shareStage > video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     await popup.setViewportSize({ width: 700, height: 480 })
     expect(await popup.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await popup.getByRole('button', { name: 'Zoom in', exact: true }).click()
@@ -92,7 +231,7 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     await expand.click()
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     await presenter.locator('#toggleScreen').click()
-    await expect(dialog).toContainText('Screen sharing has stopped or is reconnecting')
+    await expect(dialog).toContainText('Screen sharing has ended')
     expect(await video.evaluate((v: HTMLVideoElement) => v.srcObject)).toBe(null)
     // And the tile behind the dialog: a stopped share comes off the
     // viewer's screen on the roster's word, not left as a black box, and
@@ -124,12 +263,12 @@ test('the sharer is told when somebody draws on their screen, and the notice bri
     const link = await createRoom(presenter, baseURL!)
     await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
     await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
-    await openCall(presenter); await openCall(viewer)
+    await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
     const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
     await expect(expand).toBeVisible({ timeout: 60000 }); await expand.click()
     const dialog = viewer.getByRole('dialog', { name: 'Screen-share viewer' })
-    await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    await expect.poll(() => dialog.locator('.shareStage > video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
 
     // The presenter's own tile, pushed out of view the way it actually is
     // while presenting: looking at the shared window, not at this page.
@@ -229,7 +368,7 @@ test('a floating preview window carries the same marks overlay, exercised with a
     const link = await createRoom(presenter, baseURL!)
     await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
     await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
-    await openCall(presenter); await openCall(viewer)
+    await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
 
     await presenter.locator('#callExtras').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
@@ -249,7 +388,7 @@ test('a floating preview window carries the same marks overlay, exercised with a
     const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
     await expect(expand).toBeVisible({ timeout: 60000 }); await expand.click()
     const dialog = viewer.getByRole('dialog', { name: 'Screen-share viewer' })
-    await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    await expect.poll(() => dialog.locator('.shareStage > video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
     const drawRect = (await dialog.locator('.shareViewport').boundingBox())!
     await viewer.mouse.move(drawRect.x + drawRect.width * .3, drawRect.y + drawRect.height * .35)
@@ -294,7 +433,7 @@ test('a drawer gets the same colour on every screen, two different drawers get t
     await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
     await open(rowan, link, 'Rowan'); await rowan.locator('#join').click(); await expect(rowan.locator('#roomArea')).toBeVisible()
     await open(sam, link, 'Sam'); await sam.locator('#join').click(); await expect(sam.locator('#roomArea')).toBeVisible()
-    await openCall(presenter); await openCall(rowan); await openCall(sam)
+    await openCall(presenter); await openExistingCall(rowan); await openExistingCall(sam)
     await presenter.locator('#toggleScreen').click()
 
     // Both other participants open the viewer and switch to Draw before
@@ -307,7 +446,7 @@ test('a drawer gets the same colour on every screen, two different drawers get t
       const expand = page.getByRole('button', { name: 'Expand screen share from Ada' })
       await expect(expand).toBeVisible({ timeout: 60_000 }); await expand.click()
       const dialog = page.getByRole('dialog', { name: 'Screen-share viewer' })
-      await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+      await expect.poll(() => dialog.locator('.shareStage > video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
       await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
       return dialog
     }
@@ -380,12 +519,12 @@ test.describe('drawing on a screen share with a finger', () => {
     const link = await createRoom(presenter, baseURL)
     await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
     await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
-    await openCall(presenter); await openCall(viewer)
+    await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
     const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
     await expect(expand).toBeVisible({ timeout: 60_000 }); await expand.tap()
     const dialog = viewer.getByRole('dialog', { name: 'Screen-share viewer' })
-    await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    await expect.poll(() => dialog.locator('.shareStage > video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     const cdp = await b.newCDPSession(viewer)
     const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number; id: number }[]) =>
       cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(p => ({ x: p.x, y: p.y, id: p.id })) })
