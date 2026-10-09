@@ -159,11 +159,14 @@ export class BrowserPersonaCoordinator {
 
   /** `change` may compute provisional state and effects, but must not publish,
    * acknowledge an engine step or display new plaintext. Only an active result
-   * authorises its returned value and exact session marks. All secret buffers
+   * authorises its returned value and exact session marks.
+   * `activated` may acknowledge an engine generation after promotion; it must
+   * be synchronous and must release no effects. All secret buffers
    * opened through the transaction are wiped before returning; copy only the
    * intended result. `current` fences replies from an obsolete account context.
    */
-  async transact<T>(persona: string, change: (tx: PersonaTransaction) => Promise<T>, current: () => boolean): Promise<CoordinationResult<T>> {
+  async transact<T>(persona: string, change: (tx: PersonaTransaction) => Promise<T>, current: () => boolean,
+    activated?: (marks: ReadonlyMap<string, bigint>) => undefined): Promise<CoordinationResult<T>> {
     this.invalidate(persona)
     if (!current()) return pending('stale')
     const confirmation = Symbol()
@@ -207,8 +210,15 @@ export class BrowserPersonaCoordinator {
           const held = await run.commit(tx.candidate())
           if (held !== undefined) return held
           if (!current()) return pending('stale')
+          const marks = run.marks()
+          // Synchronous engine acknowledgement only, under the same writer
+          // lock as promotion. It must not publish effects, start another
+          // transaction or return a promise. Cleanup can still withhold value.
+          const activation: unknown = activated?.(marks)
+          if (activation !== undefined) throw new Error('Asynchronous persona activation is forbidden')
+          if (!current()) return pending('stale')
           confirmedRevision = run.file.revision
-          return { state: 'active', value, marks: run.marks() }
+          return { state: 'active', value, marks }
         } catch (error) {
           if (error instanceof InvalidPersonaRecord) return await run.fence('invalid-vault')
           if (!(error instanceof PersonaStorageError) || !['seal-lost', 'missing-record'].includes(error.code)) throw error
