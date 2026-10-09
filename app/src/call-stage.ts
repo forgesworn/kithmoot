@@ -105,7 +105,11 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     const anyPicture = everyone.some(person => person.cameras.length > 0 || person.shares.length > 0)
     const width = room.clientWidth
     const height = room.clientHeight
-    if (!anyPicture || !room.isConnected) return clear(everyone)
+    if ((!anyPicture && !everyone.some(person => person.onCall)) || !room.isConnected) return clear(everyone)
+    if (room.closest('[data-gallery-collapsed]')) {
+      for (const person of everyone) for (const video of [...person.cameras, ...person.shares]) pageVideo(video, true)
+      return
+    }
     if (!media.matches) {
       clear(everyone, true)
       const shown = everyone.filter(person => (person.onCall || person.cameras.length > 0 || person.shares.length > 0)
@@ -175,7 +179,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     const mode = effectiveMode({ view, people: shown.map(person => person.id), self: self?.id, shares })
     let gallery: { people: string[]; shares: string[] } | undefined
     if (mode === 'gallery') {
-      pages.update([...shown.map(person => `p:${person.id}`), ...shares.map(share => `s:${share.id}`)], galleryPageSize(width, height))
+      pages.update([...shown.map(person => `p:${person.id}`), ...shares.map(share => `s:${share.id}`)], document.documentElement.hasAttribute('data-call-docked') && pages.count ? pages.size : galleryPageSize(width, height))
       gallery = { people: pages.visible.filter(id => id.startsWith('p:')).map(id => id.slice(2)), shares: pages.visible.filter(id => id.startsWith('s:')).map(id => id.slice(2)) }
     }
     const out = layoutCall({
@@ -186,6 +190,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       self: self?.id,
       shares,
       gallery,
+      compact: document.documentElement.hasAttribute('data-call-docked'),
       featured: pinned ?? active.current,
       selfCorner: prefs.corner,
       stripFirst: lead.first,

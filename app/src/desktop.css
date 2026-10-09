@@ -63,7 +63,7 @@ html[data-desktop] {
 html[data-desktop] #chatDrawerToggle { display: none; }
 @media (min-width: 1100px) and (min-height: 541px) {
   html[data-desktop] main:has(#roomArea:not([hidden])) { grid-template-columns: var(--rail-w) minmax(0, 1fr); gap: 1rem; }
-  html[data-desktop] .desktopRoomContent:has(#callBay:not([hidden])) #callStage { max-height: none; }
+  html[data-desktop] #callSurface:has(#callBay:not([hidden])) #callStage { max-height: none; }
   html[data-desktop] .desktopConversation .attachWord { display: none; }
   html[data-desktop] .desktopConversation .attachIcon { display: inline; }
   html[data-desktop] #room { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
@@ -76,7 +76,7 @@ html[data-desktop] #chatDrawerToggle { display: none; }
      width transition rather than a transform, so the stage genuinely gets
      its room back when the drawer is shut, not just the appearance of it. */
   html[data-desktop] .desktopRoomContent { flex-direction: row; align-items: stretch; }
-  html[data-desktop] .desktopRoomContent #callStage {
+  html[data-desktop] #callSurface #callStage {
     flex: 1 1 auto;
     min-width: 0;
     /* Column, and stretched by the row above: without this, `#callStage`
@@ -89,13 +89,13 @@ html[data-desktop] #chatDrawerToggle { display: none; }
     flex-direction: column;
     min-height: 0;
   }
-  html[data-desktop] .desktopRoomContent #callStage > #whoIsHere:not([hidden]) {
+  html[data-desktop] #callSurface #callStage > #whoIsHere:not([hidden]) {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
   }
-  html[data-desktop] .desktopRoomContent #whoIsHere #room {
+  html[data-desktop] #callSurface #whoIsHere #room {
     flex: 1 1 auto;
     min-height: 0;
   }
@@ -132,7 +132,7 @@ html[data-desktop] #chatDrawerToggle { display: none; }
     width: 100%;
     max-width: none;
   }
-  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent #callStage {
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) #callSurface #callStage {
     flex: 0 0 auto;
     max-height: 30vh;
   }
@@ -171,7 +171,7 @@ html[data-desktop] #chatDrawerToggle { display: none; }
    rule rather than to read nicely: desktop.css is imported before style.css,
    so source order settles nothing here and the longer selector is the only
    thing that wins. */
-html[data-desktop][data-call-pane="controls"] .desktopRoomContent #callStage > #whoIsHere:not([hidden]) { display: none; }
+html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) #callSurface #callStage > #whoIsHere:not([hidden]) { display: none; }
 html[data-desktop][data-call-pane="controls"] #callBay { margin: 0; padding: .4rem .55rem; }
 html[data-desktop][data-call-pane="controls"] #deviceControls { gap: .3rem .6rem; }
 html[data-desktop][data-call-pane="controls"] .callHead { margin-bottom: .2rem; }

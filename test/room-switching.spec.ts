@@ -418,7 +418,7 @@ test('the rooms list keeps a live call docked, and a room from the list brings i
     await expect(page.locator('#actionConfirm')).toBeHidden()
     await expect(page.locator('#home')).toBeVisible()
     await expect(page.locator('#roomArea')).toBeHidden()
-    await expect(page.locator('#home #callDock')).toBeVisible()
+    await expect(page.locator('#callSurface #callDock')).toBeVisible()
     await expect(page.locator('#callDockText')).toHaveText('On a call in Town hall. Just you.')
     await expect(page.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'true')
     expect(await page.evaluate(() => (window as any).sameDocument)).toBe(true)
@@ -426,11 +426,11 @@ test('the rooms list keeps a live call docked, and a room from the list brings i
     // Another room from the list: the call stays docked above it.
     await page.getByRole('button', { name: 'Open Project room', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Project room')
-    await expect(page.locator('#roomArea #callDock')).toBeVisible()
+    await expect(page.locator('#callSurface #callDock')).toBeVisible()
     // And back through the list to the call's own room, with no rejoin.
     await page.locator('#backToRooms').click()
     await page.locator('#roomSwitcherHome').click()
-    await expect(page.locator('#home #callDock')).toBeVisible()
+    await expect(page.locator('#callSurface #callDock')).toBeVisible()
     await page.getByRole('button', { name: 'Open Town hall', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await expect(page.locator('#callDock')).toBeHidden()

@@ -85,6 +85,9 @@ test('the home page leads with room actions, fits both themes and starts a named
       media.append(document.createElement('video'))
       participant.append(media)
       document.getElementById('whoIsHere')!.hidden = false
+      // This layout stand-in bypasses the session render that reveals the
+      // permanent surface when a real camera arrives.
+      document.getElementById('callSurface')!.hidden = false
     })
     // Firefox and WebKit apply the new desktop media-query layout on their
     // next render after a viewport resize. Poll the visible geometry instead

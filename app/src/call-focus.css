@@ -30,7 +30,7 @@ html[data-call-first] body:has(#roomArea:not([hidden])) {
   overflow: hidden;
 }
 html[data-call-first] main:has(#roomArea:not([hidden])) { max-width: none; min-height: 0; }
-html[data-call-first] main > #roomArea { margin-bottom: 0; }
+html[data-call-first] main > #workspaceContent > #roomArea { margin-bottom: 0; }
 /* The page's own gutters were sized for reading, not for a call. */
 html[data-call-first]:not([data-desktop]) body:has(#roomArea:not([hidden])) { padding-inline: 1rem; }
 @media (min-width: 1100px) {
@@ -91,8 +91,8 @@ html[data-call-first] #callStage > #callBay {
    (`--call-first-top`, measured by call-focus.ts) to the bottom, and short
    of the panel on the right. The conversation's parts keep their order and
    their own flex rules, in a column of the panel's width. */
-html[data-call-first]:not([data-desktop]) main > #roomArea { position: relative; }
-html[data-call-first]:not([data-desktop]) #roomArea > #callStage {
+html[data-call-first]:not([data-desktop]) main > #workspaceContent > #roomArea { position: relative; }
+html[data-call-first]:not([data-desktop]) #workspaceContent > #callSurface {
   position: absolute;
   top: var(--call-first-top, 4rem);
   left: 0;
@@ -100,7 +100,7 @@ html[data-call-first]:not([data-desktop]) #roomArea > #callStage {
   right: calc(var(--call-chat-w) + var(--call-gap));
   z-index: 1;
 }
-html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #roomArea > #callStage { right: 0; }
+html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #workspaceContent > #callSurface { right: 0; }
 html[data-call-first]:not([data-desktop]) #roomArea > :is(#conversationNav, #workAttention, #presenceNotice, .conversationTools, #approvals, #chatViewport, #outbox, #readOnlyNote, #pasteSizeNote, #chatForm, #attachStaged, #attachPanel, #status) {
   align-self: flex-end;
   width: var(--call-chat-w);
@@ -175,8 +175,8 @@ html[data-call-first][data-call-chat="closed"] #approvals:not(:empty) {
   box-shadow: 0 10px 30px var(--drop-shadow);
 }
 
-/* Full screen: the room area itself, stage and panel together. */
-#roomArea:fullscreen {
+/* Full screen: the workspace, stage and conversation together. */
+#workspaceContent:fullscreen {
   background: var(--bg);
   color: var(--text);
   margin: 0;
@@ -185,12 +185,12 @@ html[data-call-first][data-call-chat="closed"] #approvals:not(:empty) {
   display: flex;
   flex-direction: column;
 }
-html[data-call-first]:not([data-desktop]) #roomArea:fullscreen > #callStage {
+html[data-call-first]:not([data-desktop]) #workspaceContent:fullscreen > #callSurface {
   left: 1rem;
   bottom: 1rem;
   right: calc(var(--call-chat-w) + var(--call-gap) + 1rem);
 }
-html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #roomArea:fullscreen > #callStage { right: 1rem; }
+html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #workspaceContent:fullscreen > #callSurface { right: 1rem; }
 
 /* --- The bar -------------------------------------------------------------- */
 
