@@ -338,6 +338,7 @@
     "InvitationDelegation",
     "IssueAgentOwnershipOptions",
     "IssueKindredProofOptions",
+    "JoinLiveRoomOptions",
     "JoinRoomOptions",
     "KEEPER_STATE_VERSION",
     "KINDS",
