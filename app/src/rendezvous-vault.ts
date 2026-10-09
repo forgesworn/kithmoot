@@ -46,6 +46,10 @@ export interface EncryptedRendezvousRecord {
 }
 
 export interface RendezvousVaultStorage {
+  /** MLS custody requires a cross-tab lock and synchronous invalidation. */
+  withLock?<T>(work: () => Promise<T>): Promise<T>
+  revision?(): string
+  invalidate?(): void
   key(): Promise<CryptoKey | undefined>
   saveKey(key: CryptoKey): Promise<void>
   record(): Promise<EncryptedRendezvousRecord | undefined>
@@ -92,6 +96,7 @@ export class RendezvousVault {
   }
 
   async accept(response: string, expect: RendezvousProvisionExpect, device: RendezvousDeviceCrypt): Promise<RendezvousVaultResult> {
+    this.storage.invalidate?.()
     return await this.#serial(async () => {
       const outer = readRendezvousProvisionEnvelope(response, expect)
       if (!outer.ok) return outer
@@ -129,7 +134,7 @@ export class RendezvousVault {
       const child = await this.#read()
       try {
         return child?.receipt.identity === identity && child.receipt.device === device
-          ? new StoredRendezvousChild(child.receipt, child.withScalar(value => value.slice()))
+          ? child.withScalar(value => new StoredRendezvousChild(child.receipt, value))
           : undefined
       } finally { child?.wipe() }
     })
@@ -137,10 +142,31 @@ export class RendezvousVault {
 
   /** Sign-out/revocation removes this account's dedicated child record. */
   async clear(identity: string): Promise<void> {
+    this.storage.invalidate?.()
     await this.#serial(async () => {
       const child = await this.#read()
       try { if (child?.receipt.identity === identity) await this.storage.remove() }
       finally { child?.wipe() }
+    })
+  }
+
+  /** Trusted MLS custody only. Keep the child lock through final witnessed
+   * adoption and result release; never acquire it while holding a persona
+   * lock. Replacement/clear invalidates synchronously before waiting here.
+   * The caller must bound its work and must not retain the child. */
+  async withCurrentChild<T>(identity: string, device: string,
+    work: (child: StoredRendezvousChild | undefined, current: () => boolean, releaseCurrent: () => boolean) => Promise<T>): Promise<T> {
+    if (!this.storage.withLock || !this.storage.revision || !this.storage.invalidate) throw new Error('MLS rendezvous custody requires cross-tab coordination.')
+    const revision = this.storage.revision()
+    const releaseCurrent = () => this.storage.revision!() === revision
+    return this.#serial(async () => {
+      let alive = true
+      const current = () => alive && releaseCurrent()
+      if (!current()) return work(undefined, current, releaseCurrent)
+      const child = await this.#read()
+      try {
+        return await work(child?.receipt.identity === identity && child.receipt.device === device ? child : undefined, current, releaseCurrent)
+      } finally { alive = false; child?.wipe() }
     })
   }
 
@@ -191,7 +217,8 @@ export class RendezvousVault {
   }
 
   async #serial<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.#queue.then(work, work)
+    const locked = () => this.storage.withLock ? this.storage.withLock(work) : work()
+    const next = this.#queue.then(locked, locked)
     this.#queue = next.then(() => undefined, () => undefined)
     return await next
   }
@@ -204,6 +231,12 @@ export class BrowserRendezvousVaultStorage implements RendezvousVaultStorage {
   constructor(private readonly dbName = 'kithmoot-rendezvous-vault-v1', private readonly factory: IDBFactory = globalThis.indexedDB) {
     if (!factory) throw new Error('This browser does not provide encrypted rendezvous vault storage.')
   }
+  async withLock<T>(work: () => Promise<T>): Promise<T> {
+    if (!globalThis.navigator?.locks) throw new Error('Rendezvous storage requires Web Locks.')
+    return await navigator.locks.request(this.dbName + ':custody', work)
+  }
+  revision(): string { return localStorage.getItem(this.dbName + ':revision') ?? '' }
+  invalidate(): void { localStorage.setItem(this.dbName + ':revision', crypto.randomUUID()) }
   async key(): Promise<CryptoKey | undefined> { return (await request((await this.#transaction('keys', 'readonly')).objectStore('keys').get('device')))?.key }
   async saveKey(key: CryptoKey): Promise<void> {
     const transaction = await this.#transaction('keys', 'readwrite')

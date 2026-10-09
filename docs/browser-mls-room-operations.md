@@ -1,7 +1,7 @@
 # Browser MLS room operations (P3-03c)
 
 `BrowserMlsRoomOperations` connects the coordinated typed vault to real WASM
-creation and Update, and stores room metadata and accepted chat history in the
+creation, join and Update, and stores room metadata and accepted chat history in the
 witnessed persona transaction. It has no app, UI or network caller. Production
 MLS remains disabled; this slice does not close P3-03c or P3-06.
 
@@ -70,7 +70,9 @@ installation supplied from authenticated capabilities.
 
 The [strict box client prerequisite](browser-mls-box-client.md) now supplies
 authenticated request construction and bounded reply parsing, with no caller.
-Still required: typed join and membership operations; a box driver
+The [typed join follow-up](browser-mls-join.md) adds provisioned-child custody,
+pending metadata, Welcome persistence and operation-id recovery.
+Still required: membership operations; a box driver
 with capabilities and installation checks on every reply, Gap fetching, outbox
 ordering and lost-reply reconciliation; encrypted drafts and explicit offline
 history policy; UI/account wiring; real-Bothy, Android/browser and physical-device

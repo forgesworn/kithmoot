@@ -1,18 +1,24 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import type { Session, VmlsSignRequest, VmlsSnapshot } from '../public/vmls-wasm/vmls_wasm.js'
+import type { Session, VmlsSignRequest, VmlsEcdhRequest, VmlsSnapshot } from '../public/vmls-wasm/vmls_wasm.js'
+import type { RendezvousReceipt, RendezvousVault } from './rendezvous-vault.js'
+import { withMlsRendezvous } from './mls-rendezvous-custody.js'
 import { loadMlsEngine } from './mls-engine.js'
 import { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import { base64Encode, type ConsentPrompt, type SignLeafBindingRequest, type SignLeafBindingReply, type VaultContext, type VaultResult } from './mls-vault.js'
 import { BrowserPersonaCoordinator, InvalidPersonaRecord } from './mls-persona-coordinator.js'
 import { BrowserMlsSessionHost, StaleMlsOperation, type HostedMlsResult, type HostedMlsStep, type MlsSessionContext, type MlsSessionEdits } from './mls-session-host.js'
-import { appendMlsHistory, createMlsRoom, readMlsRoom, saveMlsRoom, mlsHistory, MlsRoomRefused, type MlsRoomRecord } from './mls-room-store.js'
+import { appendMlsHistory, createMlsRoom, readMlsRoom, saveMlsRoom, mlsHistory, mlsRoomIds, MlsRoomRefused, type MlsRoomRecord } from './mls-room-store.js'
 
 export interface MlsRoomContext { vault: VaultContext; rendezvousKey: string; current(): boolean }
+export interface MlsJoinOptions {
+  operation: string; name: string; homeBox: string; introductionBox: string; adderRz: string; counter: bigint; expiresAt: number
+  rendezvous: RendezvousReceipt
+}
 export type MlsRoomResult<T> = HostedMlsResult<T> | { state: 'refused'; reason: string }
 interface EngineStep { snapshot: VmlsSnapshot | null; events: any[]; outbound: any[] }
 export interface MlsRoomEffect { events: any[]; outbound: any[]; ack?: any; outcome?: any; session: string }
-const hex = (v: string) => /^[0-9a-f]{64}$/.test(v)
+const hex = (v: string) => /^[0-9a-f]{64}(?![\s\S])/.test(v)
 const checked = <T>(r: VaultResult<T>): T => { if (!r.ok) throw new MlsRoomRefused(r.refusal); return r.value }
 const request = (r: VmlsSignRequest): SignLeafBindingRequest => ({ v: 1, operation: bytesToHex(r.operation), body: base64Encode(r.body), digest: bytesToHex(r.digest), expires_at: Number(r.expiresAt) })
 const effect = (s: Session, step: EngineStep, extra = {}): HostedMlsStep<MlsRoomEffect> => ({ snapshot: step.snapshot, value: { session: bytesToHex(s.id()), events: step.events, outbound: step.outbound, ...extra } })
@@ -27,10 +33,117 @@ export class BrowserMlsRoomOperations {
     private readonly now: () => number = () => Math.floor(Date.now() / 1000)) {}
   invalidate(): void { this.#epoch++; for (const cancel of this.#cancel) cancel() }
 
+  /** Single-box join ceremony: homeBox is the expected group's box and this
+   * leaf's box; introductionBox is explicitly resolved by the invitation.
+   * Only an active result releases Introduction bytes. Retry an uncertain
+   * adoption by discovering/reopening its saved session, never by rejoining. */
+  async join(context: MlsRoomContext, options: MlsJoinOptions, source: RendezvousVault, consent: ConsentPrompt): Promise<MlsRoomResult<MlsRoomEffect>> {
+    options = { ...options, rendezvous: { ...options.rendezvous } }
+    const ctx = Object.freeze({ ...context.vault }), rz = context.rendezvousKey, epoch = this.#epoch, valid = context.current.bind(context)
+    const current = () => epoch === this.#epoch && valid() && this.vault.current(ctx)
+    let ownedResult: MlsRoomResult<MlsRoomEffect> | undefined, released = false
+    let credentialExpiresAt = 0, deadline = 0
+    try {
+      if (!hex(options.operation) || options.rendezvous.identity !== ctx.persona || options.rendezvous.rendezvousPubkey !== rz || !hex(options.homeBox) || !hex(options.introductionBox) || !hex(options.adderRz) ||
+        typeof options.counter !== 'bigint' || options.counter < 0n || options.counter > 0x7fffffffffffffffn || !Number.isSafeInteger(options.expiresAt) || typeof options.name !== 'string' || options.name.length < 1 || options.name.length > 120) throw new MlsRoomRefused('malformed')
+      let releaseCurrent = () => false
+      const result = await withMlsRendezvous(source, options.rendezvous, this.now, current, async custody => {
+        releaseCurrent = custody.releaseCurrent
+        return ownedResult = await this.#using<MlsRoomEffect>({ vault: ctx, rendezvousKey: rz, current: custody.current }, async scope => {
+          credentialExpiresAt = scope.credentialExpiresAt
+          const { host, wasm, platform, device, credentialId, hostContext } = scope
+          const pending = wasm.Session.prepareCapability(platform, BigInt(this.now()), {
+            binding: { ...scope.binding, homeBox: hexToBytes(options.homeBox), expiresAt: BigInt(options.expiresAt) },
+            expiresAt: BigInt(options.expiresAt), adderRz: hexToBytes(options.adderRz), counter: options.counter,
+          })
+          let disposed = false, wake!: () => void, timer: ReturnType<typeof setTimeout> | undefined, poll: ReturnType<typeof setInterval> | undefined
+          let cleanupFailure: { error: unknown } | undefined, held: HostedMlsResult<MlsRoomEffect> | undefined
+          const cancelled = new Promise<undefined>(resolve => { wake = () => resolve(undefined) })
+          const cancel = () => {
+            if (disposed) return
+            disposed = true
+            try { pending.free() } catch (error) { cleanupFailure ??= { error } } finally { wake() }
+          }
+          this.#cancel.add(cancel)
+          try {
+            const ask: VmlsSignRequest = pending.signRequest(), dh: VmlsEcdhRequest = pending.ecdhRequest(), typed = request(ask)
+            deadline = typed.expires_at
+            const ecdh = Object.freeze({ v: 1 as const, operation: bytesToHex(dh.operation), peer_rz: bytesToHex(dh.peerRz), expires_at: Number(dh.expiresAt) })
+            if (ecdh.operation !== typed.operation || ecdh.expires_at !== typed.expires_at || ecdh.peer_rz !== options.adderRz) throw new MlsRoomRefused('malformed')
+            const live = () => !disposed && scope.current() && custody.current() && this.now() <= typed.expires_at
+            const remaining = Math.min(typed.expires_at + 1, options.expiresAt, options.rendezvous.expiresAt) - this.now()
+            if (!Number.isSafeInteger(remaining) || remaining <= 0 || remaining > 601) throw new StaleMlsOperation()
+            timer = setTimeout(cancel, remaining * 1000)
+            // A child mutation in another tab invalidates synchronously, and a
+            // bounded poll releases the custody lock even if consent never returns.
+            poll = setInterval(() => { if (!live()) cancel() }, 50)
+            const sharedAnswer = custody.derive(ecdh)
+            const signing = this.vault.signLeafBindingV1(ctx, typed, async s => {
+              if (!live()) return 'deny'
+              const decision = await consent(s)
+              return live() ? decision : 'deny'
+            })
+            const signed = await Promise.race([signing, cancelled])
+            if (!signed || !live()) throw new StaleMlsOperation()
+            const reply = checked(signed)
+            return held = await host.create({ ...hostContext, current: live }, () => {
+              const accepted = checked(this.vault.acceptSignReply(typed, reply))
+              if (!live() || accepted.device !== device) throw new StaleMlsOperation()
+              const shared = custody.accept(ecdh, sharedAnswer)
+              try {
+                const made: { session: Session; step: EngineStep } = pending.complete(BigInt(this.now()), ask.operation, hexToBytes(accepted.signature), shared)
+                return { session: made.session, step: effect(made.session, made.step) }
+              } finally { shared.fill(0) }
+            }, {
+              validate: async tx => {
+                checked(await this.vault.checkRoomDevice(tx, ctx, device, credentialId, options.homeBox))
+                for (const id of await mlsRoomIds(tx)) if ((await readMlsRoom(tx, id)).join?.operation === options.operation) throw new MlsRoomRefused('join-exists')
+                if (!live()) throw new StaleMlsOperation()
+              },
+              persist: async (tx, session) => {
+                if (session.installation() !== null || session.phase().type !== 'PendingJoin' || bytesToHex(session.homeBox()) !== '00'.repeat(32)) throw new InvalidPersonaRecord('Invalid pending join')
+                await createMlsRoom(tx, { version: 1, session: bytesToHex(session.id()), generation: String(session.generation()), name: options.name,
+                  binding: { device, credentialId, rendezvousKey: rz, homeBox: options.homeBox, installation: null }, history: [],
+                  join: { operation: options.operation, adderRz: options.adderRz, introductionBox: options.introductionBox, counter: String(options.counter), expiresAt: options.expiresAt } })
+              },
+            })
+          } finally {
+            if (timer !== undefined) clearTimeout(timer)
+            if (poll !== undefined) clearInterval(poll)
+            this.#cancel.delete(cancel); cancel()
+            if (cleanupFailure) { wipe(held); throw cleanupFailure.error }
+          }
+        }, options.expiresAt)
+      })
+      if (result.state === 'active' && (!releaseCurrent() || this.now() >= Math.min(options.expiresAt, credentialExpiresAt) || this.now() > deadline)) return { state: 'pending', reason: 'stale', refused: false }
+      released = true
+      return result
+    } catch (error) { if (error instanceof MlsRoomRefused) return { state: 'refused', reason: error.reason }; throw error }
+    finally { if (!released) wipe(ownedResult) }
+  }
+
+  /** Recover an uncertain adoption by its stable caller operation, without
+   * requiring the expired provisioned child or making another capability. */
+  findJoin(context: MlsRoomContext, operation: string): Promise<MlsRoomResult<string | null>> {
+    return this.#using<string | null>(context, async scope => {
+      if (!hex(operation)) throw new MlsRoomRefused('malformed')
+      return this.coordinator.readConfirmed(scope.ctx.persona, async tx => {
+        checked(await this.vault.checkRoomDevice(tx, scope.ctx, scope.device, scope.credentialId))
+        for (const id of await mlsRoomIds(tx)) {
+          const room = await readMlsRoom(tx, id)
+          if (room.join?.operation !== operation) continue
+          if (room.binding.device !== scope.device || room.binding.credentialId !== scope.credentialId || room.binding.rendezvousKey !== scope.rz) throw new MlsRoomRefused('stale-device')
+          return id
+        }
+        return null
+      }, scope.current)
+    })
+  }
+
   async #using<T>(context: MlsRoomContext, work: (scope: {
     host: BrowserMlsSessionHost<Session>; wasm: Awaited<ReturnType<typeof loadMlsEngine>>;
     platform: InstanceType<Awaited<ReturnType<typeof loadMlsEngine>>['Platform']>;
-    binding: { credential: any; expiresAt?: bigint }; device: string; credentialId: string;
+    binding: { credential: any; expiresAt?: bigint }; device: string; credentialId: string; credentialExpiresAt: number;
     ctx: VaultContext; current: () => boolean; hostContext: MlsSessionContext; rz: string;
   }) => Promise<HostedMlsResult<T>>, validUntil = Infinity): Promise<MlsRoomResult<T>> {
     const ctx = Object.freeze({ ...context.vault }), rz = context.rendezvousKey, epoch = this.#epoch
@@ -53,7 +166,7 @@ export class BrowserMlsRoomOperations {
       const host = new BrowserMlsSessionHost(this.coordinator, (id, plaintext, mark) => wasm.Session.open(platform!, id, plaintext, mark))
       cancel = () => host.invalidate(); this.#cancel.add(cancel)
       const c = identity.credential
-      const value = output = await work({ host, wasm, platform, device: identity.device.device, credentialId: identity.device.credentialId,
+      const value = output = await work({ host, wasm, platform, device: identity.device.device, credentialId: identity.device.credentialId, credentialExpiresAt: identity.device.credentialExpiresAt,
         binding: { credential: { pubkey: hexToBytes(c.pubkey), createdAt: BigInt(c.created_at), tags: structuredClone(c.tags), content: c.content, sig: hexToBytes(c.sig) } },
         ctx, current: live, hostContext: { persona: ctx.persona, current: live }, rz })
       close()
@@ -124,7 +237,8 @@ export class BrowserMlsRoomOperations {
       before: async (tx, session) => {
         room = await readMlsRoom(tx, id)
         const b = room.binding
-        if (room.generation !== String(session.generation()) || bytesToHex(session.homeBox()) !== b.homeBox || bytesToHex(session.installation()) !== b.installation) throw new InvalidPersonaRecord('Room and session binding differ')
+        const installation: Uint8Array | null = session.installation()
+        if (room.generation !== String(session.generation()) || bytesToHex(session.homeBox()) !== (b.installation === null ? '00'.repeat(32) : b.homeBox) || (installation === null ? null : bytesToHex(installation)) !== b.installation) throw new InvalidPersonaRecord('Room and session binding differ')
         if (b.device !== expected.device || b.credentialId !== expected.credentialId || b.rendezvousKey !== expected.rz) throw new MlsRoomRefused('stale-device')
         checked(await this.vault.checkRoomDevice(tx, ctx, b.device, b.credentialId, needsConsent() ? b.homeBox : undefined))
         use(room)
@@ -142,7 +256,7 @@ export class BrowserMlsRoomOperations {
       if (!Number.isSafeInteger(expiresAt)) throw new MlsRoomRefused('malformed')
       let room: MlsRoomRecord, typed: SignLeafBindingRequest, signed: SignLeafBindingReply, signatureReturned = false
       return scope.host.signedStep({ ...scope.hostContext, current: () => scope.current() && this.now() < expiresAt }, id,
-        s => s.prepareUpdate(BigInt(this.now()), { ...scope.binding, homeBox: hexToBytes(room.binding.homeBox), expiresAt: BigInt(expiresAt) }) as VmlsSignRequest,
+        s => { if (room.binding.installation === null) throw new MlsRoomRefused('not-joined'); return s.prepareUpdate(BigInt(this.now()), { ...scope.binding, homeBox: hexToBytes(room.binding.homeBox), expiresAt: BigInt(expiresAt) }) as VmlsSignRequest },
         async ask => { typed = request(ask); signed = checked(await this.vault.signLeafBindingV1(scope.ctx, typed, consent)); signatureReturned = true; return signed },
         (s, ask) => {
           const reply = checked(this.vault.acceptSignReply(typed, signed))
@@ -155,7 +269,7 @@ export class BrowserMlsRoomOperations {
   read(context: MlsRoomContext, id: string) {
     return this.#using(context, async scope => {
       let room: MlsRoomRecord
-      return scope.host.step(scope.hostContext, id, s => ({ snapshot: null, value: { name: room.name, session: id, generation: String(s.generation()), phase: s.phase(), history: mlsHistory(room), outbox: s.outbox(), watch: s.watchList() } }),
+      return scope.host.step(scope.hostContext, id, s => ({ snapshot: null, value: { name: room.name, session: id, generation: String(s.generation()), phase: s.phase(), updateRequired: s.updateRequired(), join: room.join, history: mlsHistory(room), outbox: s.outbox(), watch: s.watchList() } }),
         this.#edits(scope.ctx, scope, id, r => { room = r }))
     })
   }
@@ -175,6 +289,8 @@ export class BrowserMlsRoomOperations {
       if (!hex(operation)) throw new MlsRoomRefused('malformed')
       let room: MlsRoomRecord, message: { leaf: string; epoch: string } | undefined
       return scope.host.step(scope.hostContext, id, s => {
+        if (room.binding.installation === null) throw new MlsRoomRefused('not-joined')
+        if (s.updateRequired()) throw new MlsRoomRefused('update-required')
         const previous = room.history.find(m => m.id === 'sent:' + operation)
         if (previous) {
           if (previous.body !== bytesToHex(body)) throw new MlsRoomRefused('replay')
@@ -196,11 +312,17 @@ export class BrowserMlsRoomOperations {
       let room: MlsRoomRecord
       return scope.host.step(scope.hostContext, id, s => {
         if (input.homeBox !== room.binding.homeBox || !hex(input.installation)) throw new MlsRoomRefused('wrong-box')
-        if (input.installation !== room.binding.installation) return effect(s, s.observeInstallation(BigInt(this.now()), hexToBytes(input.installation)), { ack: { type: 'Keep' } })
-        const processed = s.process(BigInt(this.now()), input.mailbox, input.envelope, input.receipt, undefined)
+        if (room.binding.installation !== null && input.installation !== room.binding.installation) return effect(s, s.observeInstallation(BigInt(this.now()), hexToBytes(input.installation)), { ack: { type: 'Keep' } })
+        const processed = s.process(BigInt(this.now()), input.mailbox, input.envelope, input.receipt,
+          room.binding.installation === null ? { homeBox: hexToBytes(input.homeBox), installation: hexToBytes(input.installation) } : undefined)
+        if (s.installation() !== null && bytesToHex(s.homeBox()) !== room.binding.homeBox) throw new MlsRoomRefused('wrong-box')
         if (processed.step.events.some((e: any) => e.type === 'Message') && (!processed.step.snapshot || processed.outcome.type !== 'Accepted')) throw new Error('Unwitnessed MLS message')
         return effect(s, processed.step, { ack: processed.ack, outcome: processed.outcome })
-      }, this.#edits<MlsRoomEffect>(scope.ctx, scope, id, r => { room = r }, (r, _s, value) => {
+      }, this.#edits<MlsRoomEffect>(scope.ctx, scope, id, r => { room = r }, (r, s, value) => {
+        if (r.binding.installation === null && s.installation() !== null) {
+          if (!value.events.some(e => e.type === 'Joined') || value.outcome?.type !== 'Accepted') throw new InvalidPersonaRecord('Unwitnessed Welcome binding')
+          r.binding.installation = bytesToHex(s.installation())
+        }
         for (const event of value.events) if (event.type === 'Message') appendMlsHistory(r, {
           id: 'received:' + bytesToHex(sha256(input.envelope)), direction: 'received', leaf: bytesToHex(event.sender.leafId), epoch: String(event.epoch), body: event.body,
         })

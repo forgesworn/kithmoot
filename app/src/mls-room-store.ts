@@ -5,14 +5,16 @@ export const MAX_ROOM_HISTORY_BYTES = 1024 * 1024
 export const MAX_ROOM_MESSAGES = 512
 const INDEX = bytesToHex(new TextEncoder().encode('kithmoot.mls-rooms.v1'))
 const prefix = bytesToHex(new TextEncoder().encode('kithmoot.mls-room.v1:'))
-const hex = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)
+const hex = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}(?![\s\S])/.test(v)
 const uint = (v: unknown): v is string => typeof v === 'string' && /^(0|[1-9][0-9]{0,18})$/.test(v) && BigInt(v) <= 0x7fffffffffffffffn
 const keys = (v: object, expected: string) => Object.keys(v).sort().join(',') === expected
-export interface MlsRoomBinding { device: string; credentialId: string; rendezvousKey: string; homeBox: string; installation: string }
+export interface MlsRoomBinding { device: string; credentialId: string; rendezvousKey: string; homeBox: string; installation: string | null }
+export interface MlsJoinCeremony { operation: string; adderRz: string; introductionBox: string; counter: string; expiresAt: number }
 export interface MlsHistoryEntry { id: string; direction: 'sent' | 'received'; leaf: string; epoch: string; body: Uint8Array }
 interface StoredMessage extends Omit<MlsHistoryEntry, 'body'> { body: string }
 export interface MlsRoomRecord {
   version: 1; session: string; generation: string; name: string; binding: MlsRoomBinding; history: StoredMessage[]
+  join?: MlsJoinCeremony
 }
 export class MlsRoomRefused extends Error { constructor(readonly reason: string) { super(reason) } }
 const invalid = (): never => { throw new InvalidPersonaRecord('Invalid MLS room record') }
@@ -32,9 +34,11 @@ export async function readMlsRoom(tx: PersonaReader, id: string): Promise<MlsRoo
   finally { bytes.fill(0) }
 }
 function validate(r: MlsRoomRecord, id: string): void {
-  if (!r || typeof r !== 'object' || !keys(r, 'binding,generation,history,name,session,version') || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
+  if (!r || typeof r !== 'object' || !keys(r, r.join ? 'binding,generation,history,join,name,session,version' : 'binding,generation,history,name,session,version') || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
     typeof r.name !== 'string' || r.name.length < 1 || r.name.length > 120 || !r.binding || !keys(r.binding, 'credentialId,device,homeBox,installation,rendezvousKey') ||
-    !Object.values(r.binding).every(hex) || !Array.isArray(r.history) || r.history.length > MAX_ROOM_MESSAGES) invalid()
+    ![r.binding.device, r.binding.credentialId, r.binding.rendezvousKey, r.binding.homeBox].every(hex) ||
+    !(hex(r.binding.installation) || r.binding.installation === null && r.join) || !Array.isArray(r.history) || r.history.length > MAX_ROOM_MESSAGES) invalid()
+  if (r.join && (!keys(r.join, 'adderRz,counter,expiresAt,introductionBox,operation') || !hex(r.join.operation) || !hex(r.join.adderRz) || !hex(r.join.introductionBox) || !uint(r.join.counter) || !Number.isSafeInteger(r.join.expiresAt) || r.join.expiresAt < 0)) invalid()
   let total = 0
   const ids = new Set<string>()
   for (const m of r.history) {
