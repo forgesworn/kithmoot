@@ -5,7 +5,10 @@ import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, hexToBytes, randomBytes, concatBytes } from '@noble/hashes/utils.js'
-import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure'
+import { base32 } from '@scure/base'
+import { BrowserMlsBoxClient } from '../app/src/mls-box-client.js'
+import type { LinkRequest } from '../app/src/browser-link-types.js'
 import { BrowserMlsPersonaStore, LockedPersonaStore, type PersonaWitnessRoute } from '../app/src/mls-persona-store.js'
 import { BrowserPersonaCoordinator } from '../app/src/mls-persona-coordinator.js'
 import { personaWriter, pairedWitnessIdentity } from '../app/src/mls-writer-identity.js'
@@ -219,4 +222,57 @@ export async function completedCleanup() {
   wasm.PendingCreate.prototype.free = function () { free.call(this); throw new Error('fixture completed free failure') }
   try { return await create() } catch (error) { return { error: (error as Error).message } }
   finally { wasm.PendingCreate.prototype.free = free }
+}
+
+/** Wire/signing integration with the real typed vault and WASM parser. The
+ * transport is an in-process fixture, not a live Bothy acceptance claim. */
+export async function boxClientScenario(route: PersonaWitnessRoute, mode: string) {
+  const calls: { path: string; event: string }[] = [], encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
+  const mailbox = new Uint8Array(32).fill(11), envelope = Uint8Array.of(1, 2, 3), hash = bytesToHex(sha256(envelope))
+  const box = bytesToHex(hexToBytes(route.card).subarray(5, 37))
+  const caps = { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation }
+  const response = (status: number, body: Uint8Array) => ({ status, body, witnessRefused: false, path: { status: 'up', relay: null, direct: null, cause: '' } })
+  const transport = { request: async (req: LinkRequest) => {
+    const event = JSON.parse(atob(req.authorization.slice(6)))
+    if (!verifyEvent(event) || event.pubkey !== deviceId || event.kind !== 27235 ||
+      JSON.stringify(event.tags) !== JSON.stringify([
+        ['u', `http://${base32.encode(hexToBytes(box)).replace(/=+$/, '').toLowerCase()}${req.path}`],
+        ['method', req.method], ['payload', bytesToHex(sha256(req.body))],
+      ])) throw new Error('Invalid fixture authentication')
+    calls.push({ path: req.path, event: event.id })
+    if (mode === 'late-reply') generation++
+    if (mode === 'lost-reply' && calls.length === 1) throw new Error('reply lost')
+    if (req.path.endsWith('/capabilities')) return response(200, mode === 'caps-invalid' ? encode({ ...caps, extra: 1 }) : encode(caps))
+    if (req.path.endsWith('/fetch')) return response(200, encode({ v: 1, code: 'ok', server_time: clock, records: [{ mailbox: bytesToHex(mailbox), receipt: mode === 'bad-receipt' ? '00'.repeat(32) : hash, envelope: base64Encode(envelope) }], next: null }))
+    if (req.path.endsWith('/ack')) return response(200, encode({ v: 1, code: 'marked', server_time: clock, acked: 1 }))
+    if (req.path.includes('/packages/')) return response(req.method === 'DELETE' ? 200 : 201, encode({ v: 1, code: req.method === 'DELETE' ? 'withdrawn' : 'registered', server_time: clock }))
+    return response(201, encode({ v: 1, code: 'stored', server_time: clock, receipt: hash }))
+  } }
+  let enter!: () => void, approve!: (answer: 'approve') => void, finished!: () => void
+  const entering = new Promise<void>(resolve => { enter = resolve }), consentAnswer = new Promise<'approve'>(resolve => { approve = resolve }), signingFinished = new Promise<void>(resolve => { finished = resolve })
+  const signingVault = { current: vault.current.bind(vault), acceptBoxReply: vault.acceptBoxReply.bind(vault), signBoxRequestV1: async (...args: Parameters<typeof vault.signBoxRequestV1>) => {
+    try { return await vault.signBoxRequestV1(...args) } finally { finished() }
+  } }
+  const client = new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret), cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, box, signingVault, ctx(), async () => {
+    if (mode === 'cancel-consent' || mode === 'timeout-consent') { enter(); return consentAnswer }
+    if (mode === 'stale-consent') generation++
+    return mode === 'denied' ? 'deny' : 'approve'
+  }, () => true, mode === 'timeout-consent' ? 1000 : 20_000)
+  const first = client.capabilities()
+  if (mode === 'cancel-consent' || mode === 'timeout-consent') {
+    await entering
+    if (mode === 'cancel-consent') client.invalidate()
+    const result = await first
+    approve('approve'); await signingFinished
+    const overview = checked(await vault.overview(ctx()))
+    return { results: [result], calls, approved: overview?.approved ?? [] }
+  }
+  const results: any[] = [await first]
+  if (mode === 'routes') {
+    results.push(await client.deposit(mailbox, envelope), await client.fetch([mailbox]), await client.ack([{ mailbox, receipt: sha256(envelope) }]),
+      await client.registerPackage(mailbox, mailbox, clock + 3600, clock), await client.withdrawPackage(mailbox))
+  } else if (mode === 'bad-receipt') results.push(await client.fetch([mailbox]))
+  else if (mode === 'lost-reply') results.push(await client.capabilities())
+  client.invalidate()
+  return { results, calls, distinctEvents: new Set(calls.map(c => c.event)).size }
 }

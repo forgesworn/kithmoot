@@ -186,3 +186,20 @@ test('completed creation cleanup failure releases no effects and preserves witne
   await run(page, 'M.restart()'); await run(page, 'M.discover()')
   expect(await run(page, 'M.read()')).toMatchObject({ state: 'active', value: { generation: '1' } })
 })
+
+for (const mode of ['routes', 'caps-invalid', 'denied', 'stale-consent', 'late-reply', 'lost-reply', 'bad-receipt', 'cancel-consent', 'timeout-consent']) test(`strict box client with real vault and WASM: ${mode}`, async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  const result = await page.evaluate(({ route, mode }) => (window as any).M.boxClientScenario(route, mode), { route: pairingFixture(new Uint8Array(32).fill(76)).route, mode })
+  if (mode === 'routes') {
+    expect(result.results.map((r: any) => r.state)).toEqual(new Array(6).fill('ok'))
+    expect(result.calls).toHaveLength(6); expect(result.distinctEvents).toBe(6)
+    expect(result.results[0].value.installation).toBe('79'.repeat(32))
+  } else if (mode === 'lost-reply') {
+    expect(result.results.map((r: any) => r.state)).toEqual(['unavailable', 'ok']); expect(result.distinctEvents).toBe(2)
+  } else if (mode === 'bad-receipt') expect(result.results.map((r: any) => r.state)).toEqual(['ok', 'malformed'])
+  else if (mode === 'caps-invalid') expect(result.results[0].state).toBe('malformed')
+  else if (mode === 'denied') { expect(result.results[0]).toEqual({ state: 'not-signed', reason: 'denied' }); expect(result.calls).toHaveLength(0) }
+  else if (mode === 'cancel-consent' || mode === 'timeout-consent') {
+    expect(result.results[0].state).toBe('unavailable'); expect(result.calls).toHaveLength(0); expect(result.approved).toEqual([])
+  } else { expect(result.results[0].state).toBe('unavailable'); expect(result.calls).toHaveLength(mode === 'stale-consent' ? 0 : 1) }
+})

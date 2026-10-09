@@ -191,7 +191,9 @@ snapshots to the coordinator: exact generations, acknowledgement under the
 writer lock, withheld effects through cleanup, durable outbox recovery and
 witnessed session-id tombstones. It has no app or network caller. The subsequent
 [room operations](browser-mls-room-operations.md) add typed create/Update and
-atomic metadata/history persistence. Typed join, the box client/driver, app
+atomic metadata/history persistence. The [strict box client](browser-mls-box-client.md)
+adds pinned request signing and bounded reply parsing, with no caller. Typed join,
+the box driver and endpoint lifetime, app
 wiring and room acceptance remain open.
 
 ## Remaining integration and acceptance

@@ -68,7 +68,9 @@ installation changes to the engine, and persists engine results. It does not
 establish transport authenticity itself. Creation similarly requires a box and
 installation supplied from authenticated capabilities.
 
-Still required: typed join and membership operations; strict box client/driver
+The [strict box client prerequisite](browser-mls-box-client.md) now supplies
+authenticated request construction and bounded reply parsing, with no caller.
+Still required: typed join and membership operations; a box driver
 with capabilities and installation checks on every reply, Gap fetching, outbox
 ordering and lost-reply reconciliation; encrypted drafts and explicit offline
 history policy; UI/account wiring; real-Bothy, Android/browser and physical-device
