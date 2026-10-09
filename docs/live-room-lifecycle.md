@@ -27,10 +27,10 @@ as an optional post-publication persistence notification.
 A live-journal agent must not run the legacy delegated invitation responder or
 republish kind 1463 on restart. Its epoch desk remains available for authenticated
 member recovery, with the existing unknown/removed policy. A reply-key challenge
-cannot call `letIn`. Keep the new live admission responder disabled until its
-bounded requester, aggregate durable quotas and authenticated epoch-zero gate
-are integrated. This increment supplies the root transaction boundary; it does
-not yet enable a new client route.
+cannot call `letIn`. The responder remains disabled by default. An explicit `liveAdmission` budget
+now enables it alongside the bounded requester and authenticated epoch-zero
+gate; see [live-admission-responder.md](live-admission-responder.md). A journal
+alone still supplies only the root transaction boundary.
 
 Acceptance: actual RoomAgent/RoomSession rekey, closed and retired restart;
 uncertain handoff retains exact ID/secret and terminates the old session;

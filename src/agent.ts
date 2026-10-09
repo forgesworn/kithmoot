@@ -1,5 +1,6 @@
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import type { LiveKeeperJournal } from './live-keeper.js'
+import type { LiveAdmissionBudget } from './live-admission-responder.js'
 import { requestLivePersistentAdmission } from './live-admission.js'
 import { decodeLivePersistentDescriptor, decodeInvitationRetirementNotice, deriveInvitationId, retirementError } from '@forgesworn/fold-kit'
 import { RoomSession, CONFERENCE_ENDED_MESSAGE } from './session.js'
@@ -284,8 +285,10 @@ export interface JoinLiveRoomOptions extends Omit<JoinRoomOptions, 'relays' | 'h
 export interface CreateRoomOptions extends CommonAgentOptions {
   /** Transfer an exclusively owned lifecycle journal to this root agent.
    * Requires an explicit transport. Cannot combine with state/onState,
-   * relays or lifetime overrides. New live admission remains disabled. */
+   * relays or lifetime overrides. Admission also requires liveAdmission. */
   liveKeeper?: LiveKeeperJournal
+  /** Explicit shared durable allowance; enables fresh persistent admission on the selected route. */
+  liveAdmission?: LiveAdmissionBudget
   /** Where the app is served, for the link: `https://host/j/`. */
   base: string
   /** What the room is called. Rides in the link, so everybody sent it
@@ -663,6 +666,7 @@ export class RoomAgent {
 
   static async #create(opts: CreateRoomOptions): Promise<RoomAgent> {
     const journal = opts.liveKeeper
+    if (opts.liveAdmission && !journal) throw new Error('live admission requires a live keeper journal')
     if (journal) {
       if (!opts.transport || opts.state !== undefined || opts.onState !== undefined || opts.relays !== undefined ||
           opts.endsAt !== undefined || opts.destruct !== undefined || isQuietPolicy(opts.policy)) {
@@ -749,6 +753,7 @@ export class RoomAgent {
       destruct?: boolean
       keeper?: KeeperState
       liveKeeper?: LiveKeeperJournal
+      liveAdmission?: LiveAdmissionBudget
       epoch?: RoomEpoch
       removed?: string[]
       admins?: string[]
@@ -884,6 +889,9 @@ export class RoomAgent {
             if (agent) agent.#stopHosting()
           },
         })
+        if (opts.liveAdmission && opts.liveKeeper?.status === 'active') {
+          agent.#host = opts.liveAdmission.host(opts.liveKeeper, hostTransport, () => { void agent!.leave().catch(() => {}) })
+        }
         agent.#hostTransport = hostTransport
         agent.#pools.push(hostTransport)
         if (opts.keeper) {
@@ -1066,6 +1074,7 @@ export class RoomAgent {
       const saved = this.#liveKeeper.snapshot()
       if (saved.epoch !== notice.epoch) { void this.#failLive(); return }
       this.#keeper = saved
+      if (saved.closed) { this.#host?.close(); this.#host = undefined }
       this.#liveTransition = false
     }
     this.#emit(this.#epochListeners, notice)
@@ -1538,6 +1547,8 @@ export class RoomAgent {
     this.#liveTransition = true
     try {
       await this.#liveKeeper.retire()
+      this.#host?.close()
+      this.#host = undefined
       if (this.#liveKeeper.status === 'pending' && !await this.#liveKeeper.offerPending(event => this.#transitionTransport.publish(event))) throw new Error('live keeper retirement is pending')
       this.#liveTransition = false
     } catch (error) { await this.#failLive(); throw error }

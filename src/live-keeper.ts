@@ -229,13 +229,16 @@ export class LiveKeeperJournal {
   }
 
   /** Returns local handoff only; exceptions/unknown handoffs keep the same cached answer. */
-  answer(requestEvent: Event, publish: (event: Event) => Promise<void>): Promise<boolean> {
+  answer(requestEvent: Event, publish: (event: Event) => Promise<void>, budget?: { check(): boolean; offer(bytes: number, fresh: boolean): boolean }): Promise<boolean> {
     // Cheap shape bounds precede allocation/queue admission and crypto.
     try { boundedEvent(requestEvent); if (size(requestEvent) > 4096) return Promise.resolve(false) } catch { return Promise.resolve(false) }
     const requestCopy = copy(requestEvent)
     return this.#run(async () => {
-      const at = this.#time(), state = this.snapshot()
-      if (this.#data.phase !== 'active' || this.#data.pending || (state.endsAt !== undefined && state.endsAt <= at)) return false
+      const at = this.#time()
+      if (this.#data.phase !== 'active' || this.#data.pending) return false
+      if (budget && !budget.check()) return false
+      const state = this.snapshot()
+      if (state.endsAt !== undefined && state.endsAt <= at) return false
       if (!this.#reserve(at, 0, false, true)) return false
       const ctx = context(state)
       const request = decodeLivePersistentRequest(requestCopy, { ...ctx, now: at })
@@ -253,6 +256,7 @@ export class LiveKeeperJournal {
         data.answers.push(cached)
       }
       cached.offers++
+      if (budget && !budget.offer(size(cached.answer), fresh)) return false
       if (!this.#reserve(at, size(cached.answer), fresh, false, data)) return false
       await publish(copy(cached.answer))
       return true
