@@ -12,6 +12,10 @@ people, devices, agents and simultaneous camera/audio/share publishers separatel
 Record the route actually selected from connection statistics; a requested mesh,
 assist, forwarder or TURN route is not evidence that media used it.
 
+Record other work running on the measurement host. Run browser regressions and
+capacity workloads separately. Host load averages give context, but cannot
+identify another process's contribution or establish a supported capacity.
+
 Use a private local report directory. Do not include room links, signing keys,
 chat contents, public keys, IP addresses or ICE candidate strings. Reports need
 anonymous device labels, counters, candidate types and codec names. Collecting a
@@ -45,7 +49,9 @@ The opt-in local collector starts a production PWA build and a deterministic
 local relay, joins isolated Chromium clients through the real call controls and
 waits for decoded video from every other client. It saves per-stream counters,
 selected route types, video playback counters and renderer metrics every two
-seconds. Run it separately from normal CI:
+seconds. Clients wait for the existing call before joining it. Reports distinguish
+requested publishers from successful joins and include the actual measurement
+start and elapsed time, including when setup fails. Run it separately from normal CI:
 
 ```sh
 E2E_PORT=4273 PERF_DEVICES=2 PERF_SECONDS=45 npx playwright test -c playwright.performance.config.ts

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { createRoom, newDeviceContext, joinWithMedia, SYNTHETIC_MIC } from './browser.js'
+import { createRoom, newDeviceContext, open, turnOnMedia, SYNTHETIC_MIC } from './browser.js'
 import { performanceSample } from './performance-sample.js'
 
 /** Opt-in diagnostic workload; synthetic media on one host is not physical qualification. */
@@ -13,16 +13,18 @@ test('collect a reproducible encoded-media baseline', async ({ browser, baseURL 
   if (!Number.isInteger(devices) || devices < 2 || devices > 32) throw new Error('PERF_DEVICES must be 2–32')
   if (!Number.isFinite(seconds) || seconds < 10 || seconds > 2700) throw new Error('PERF_SECONDS must be 10–2700')
   const contexts: BrowserContext[] = []
+  let measurementStarted: number | undefined
   const result = {
     schemaVersion: 1, evidence: 'synthetic encoded media on one host', qualified: false,
     source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     dirty: execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim().length > 0,
-    host: { platform: os.platform(), release: os.release(), architecture: os.arch(), cpus: os.cpus().length },
+    host: { platform: os.platform(), release: os.release(), architecture: os.arch(), cpus: os.cpus().length, loadAverageAtStart: os.loadavg() },
     browser: browser.version(), requestedDevices: devices, requestedSeconds: seconds,
-    people: 0, agents: 0, physicalDevices: 0, syntheticBrowserClients: devices,
-    cameraPublishers: devices, audioPublishers: devices, sharePublishers: 0,
+    people: 0, agents: 0, physicalDevices: 0, syntheticBrowserClients: 0,
+    requestedPublishers: { camera: devices, audio: devices, share: 0 },
+    cameraPublishers: 0, audioPublishers: 0, sharePublishers: 0,
     routeRequested: 'direct mesh; loopback', battery: null, thermal: null,
-    startedAt: new Date().toISOString(), joinedMs: [] as number[],
+    startedAt: new Date().toISOString(), measurementStartedAt: null as string | null, joinedMs: [] as number[],
     samples: [] as unknown[], failure: null as string | null,
   }
   try {
@@ -31,6 +33,7 @@ test('collect a reproducible encoded-media baseline', async ({ browser, baseURL 
     for (let device = 0; device < devices; device++) {
       const context = await newDeviceContext(browser, baseURL!)
       contexts.push(context)
+      result.syntheticBrowserClients++
       await context.addInitScript(SYNTHETIC_MIC)
       const page = await context.newPage()
       pages.push(page)
@@ -41,7 +44,15 @@ test('collect a reproducible encoded-media baseline', async ({ browser, baseURL 
     const room = await createRoom(pages[0]!, baseURL!)
     for (const [index, page] of pages.entries()) {
       const started = Date.now()
-      await joinWithMedia(page, room, `Device ${index + 1}`)
+      await open(page, room, `Device ${index + 1}`)
+      await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible()
+      // Join the existing call after its roster entry arrives, rather than
+      // starting a second call before another client's presence settles.
+      if (index > 0) await expect(page.locator('#callToggle')).toHaveText('Join call')
+      await turnOnMedia(page)
+      result.cameraPublishers++
+      result.audioPublishers++
       result.joinedMs.push(Date.now() - started)
     }
     for (const page of pages) {
@@ -50,7 +61,8 @@ test('collect a reproducible encoded-media baseline', async ({ browser, baseURL 
         return sample.connections.flatMap(c => c.streams).filter(s => s.direction === 'inbound-rtp' && s.kind === 'video' && Number(s.framesDecoded) > 0).length
       }, { timeout: 60_000 }).toBe(devices - 1)
     }
-    const measurementStarted = Date.now()
+    measurementStarted = Date.now()
+    result.measurementStartedAt = new Date(measurementStarted).toISOString()
     while (Date.now() - measurementStarted < seconds * 1000) {
       const clients = await Promise.all(pages.map(async (page, device) => {
         const media = await page.evaluate(performanceSample)
@@ -69,7 +81,10 @@ test('collect a reproducible encoded-media baseline', async ({ browser, baseURL 
     const directory = info.outputPath('performance')
     await mkdir(directory, { recursive: true, mode: 0o700 })
     const file = path.join(directory, 'baseline.json')
-    await writeFile(file, JSON.stringify({ ...result, endedAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 })
+    await writeFile(file, JSON.stringify({ ...result, endedAt: new Date().toISOString(),
+      measurementElapsedMs: measurementStarted === undefined ? null : Date.now() - measurementStarted,
+      loadAverageAtEnd: os.loadavg(),
+    }, null, 2) + '\n', { mode: 0o600 })
     await info.attach('performance-baseline', { path: file, contentType: 'application/json' })
     await Promise.allSettled(contexts.map(context => context.close()))
   }

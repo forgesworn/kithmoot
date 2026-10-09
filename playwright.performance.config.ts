@@ -13,6 +13,7 @@ process.env.E2E_RELAY_PORT = String(relayPort)
 export default defineConfig({
   testDir: './test', testMatch: 'performance-baseline.spec.ts', workers: 1,
   retries: 0, reporter: 'list', timeout: 3_600_000,
+  expect: { timeout: 30_000 },
   use: {
     baseURL: `https://localhost:${port}/j/`, ignoreHTTPSErrors: true,
     launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output', '--autoplay-policy=no-user-gesture-required'] },
