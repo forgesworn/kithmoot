@@ -1,0 +1,12 @@
+*.blend
+*.blend1
+*.png
+*.gif
+*.webm
+*.mp4
+*.json
+!reviewed-assets.json
+*.log
+frames/
+review/
+__pycache__/

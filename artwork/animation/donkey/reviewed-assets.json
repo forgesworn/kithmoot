@@ -1,0 +1,26 @@
+{
+  "donkey-laugh.gif": {
+    "bytes": 3431941,
+    "sha256": "0f4d7aed5da34d581e8ec3f1c0df9ef78e53eed049f9d49f96c90c836b3c920a"
+  },
+  "donkey-laugh.png": {
+    "bytes": 181230,
+    "sha256": "26d4e0fe11522c3341a7f8514c43af3935868a85d72f5f66d37b0d2f308b0cec"
+  },
+  "donkey-facepalm.gif": {
+    "bytes": 3216659,
+    "sha256": "93940fd71884d3abe93ffe9fac1ad767c2a622cf9437b9ff43d2a8e1173cb774"
+  },
+  "donkey-facepalm.png": {
+    "bytes": 169227,
+    "sha256": "d1682b22135db49d0c6ab70d37950230376aa833ac36046d89110b8287891add"
+  },
+  "donkey-bitcoin.gif": {
+    "bytes": 3313210,
+    "sha256": "9299201cd31b10a520a18cd408c4a3f6cbe4858c5819ba5a8951884eb0796626"
+  },
+  "donkey-bitcoin.png": {
+    "bytes": 179945,
+    "sha256": "5e5ace7fd49d260dca46a54f5374a84f95530c462d48c205d15c603c862ce09c"
+  }
+}

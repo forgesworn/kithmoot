@@ -188,7 +188,7 @@ export class ChatArtPicker {
     this.#panel.setAttribute('aria-label', emoji ? 'Choose an emoji' : 'GIFs and stickers')
     this.#closeButton.setAttribute('aria-label', emoji ? 'Close emoji picker' : 'Close media picker')
     this.#query.setAttribute('aria-label', emoji ? 'Search emoji' : 'Search GIFs and stickers')
-    this.#query.placeholder = emoji ? 'Search faces, hands, animals…' : this.#mode === 'stickers' ? 'Try facepalm, love, celebration…' : 'Search the coffee animation'
+    this.#query.placeholder = emoji ? 'Search faces, hands, animals…' : this.#mode === 'stickers' ? 'Try facepalm, love, celebration…' : 'Try Donkey, laugh, Bitcoin, coffee…'
     for (const [key, button] of this.#tabs) { button.hidden = this.#reaction && key !== 'emoji'; button.setAttribute('aria-selected', String(key === this.#mode)); button.tabIndex = key === this.#mode ? 0 : -1 }
     this.#collections.hidden = !emoji; this.#populateCategories(); this.#render(); this.#position()
   }
@@ -245,7 +245,7 @@ export class ChatArtPicker {
     const request = this.#renderRequest = new AbortController(); this.#status.textContent = 'Our original artwork. Search stays on this device.'
     void searchMediaCatalogue(this.#query.value, this.#mode === 'stickers', request.signal).then(items => {
       if (this.#renderRequest !== request || request.signal.aborted || this.#panel.hidden) return
-      this.#status.textContent = items.length ? this.#mode === 'gifs' ? 'One acted coffee animation. Preview it or add it to your draft.' : `${items.length} original stickers. Choose one to add to your draft.` : this.#mode === 'gifs' ? 'No matching GIF. The coffee animation is available here.' : 'No matching stickers. Try another word.'
+      this.#status.textContent = items.length ? this.#mode === 'gifs' ? `${items.length} original animation${items.length === 1 ? '' : 's'}. Preview one or add it to your draft.` : `${items.length} original stickers. Choose one to add to your draft.` : this.#mode === 'gifs' ? 'No matching GIF. Try Donkey or coffee.' : 'No matching stickers. Try another word.'
       for (const item of items) this.#grid.append(this.#mediaCard(item))
     }).catch(error => { if (!request.signal.aborted) this.#status.textContent = error instanceof Error ? error.message : 'The artwork could not be opened.' })
   }

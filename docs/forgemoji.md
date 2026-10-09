@@ -8,4 +8,6 @@ The basic collection also includes the public 600 sacred stone, a black Little L
 
 No graphics provider is contacted when browsing, searching or rendering the pack. Web precaches PNGs from its own origin; desktop and Android include them. The local hand-colour preference applies to familiar picker choices and quick reactions. The 600 pack retains its explicit picker-only Nostr unlock.
 
+The GIF collection includes the coffee goblin and three Blender performances of Donkey: a snorting laugh, an embarrassed facepalm and a Bitcoin coin toss and catch. Donkey retains the orange coat, black mane and tail, cream muzzle and dark hooves of TheCryptoDonkey's familiar emoji. Each animation has a matching still for reduced motion and can also be sent as a sticker. All four animations use the same bundled references as the other stickers, without artwork uploads or a graphics provider. An older app that has not bundled an animation displays its text fallback.
+
 To update a reviewed snapshot, run `node scripts/sync-forgemoji.mjs --source /absolute/forgemoji --android /absolute/native-checkout`. Both repositories must be chosen explicitly. The script verifies every PNG against the source manifest's byte size and SHA-256, then records the source Git revision, licence and artwork model in the bundled manifest. Commit the generated definitions and packaged PNGs together.
