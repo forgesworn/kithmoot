@@ -62,8 +62,10 @@ signing remains fixture evidence (the live lab damages an existing signature).
 It also does not prove physical-browser persistence, a full-app account/mode
 transition during pairing, MLS vault migration, room behaviour or production
 peer delivery. The panel is mounted in a small lab page, while the existing
-full-app preview tests cover host lifecycle wiring separately. The required
-client security review remains a merge/production gate.
+full-app preview tests cover host lifecycle wiring separately. The subsequent
+[client security review](browser-mls-security-review.md) approves only the
+production-disabled foundation merge; production integration and its review
+remain open.
 
 ## Rehearsal inputs, 9 October 2026
 

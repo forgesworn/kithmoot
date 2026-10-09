@@ -5,6 +5,11 @@ MLS contract, following the existing Android integration. It is not yet wired
 to MLS rooms or enabled in production. Account controls are available only in
 an explicit development preview. Ordinary Bothy text routing remains separate.
 
+The [independent agent security review](browser-mls-security-review.md) found
+no blockers for merging the production-disabled foundation at `b19508c`.
+The owner authorised the reviewer substitution required by P3-03. This scoped
+review does not authorise production enablement or close browser integration.
+
 ## Foundation verified
 
 - Self-hosted WASM built from Vennel `d91a23d1978ef08c22709181e16ab158d95c98cd`
@@ -186,8 +191,9 @@ an explicit development preview. Ordinary Bothy text routing remains separate.
 4. The MLS room store, driver and box client: installation checks on open and
    every reply, watched Gap mailboxes, exact witnessed generations before
    commit acknowledgement or network/plaintext release, and offline drafts.
-5. Complete the remaining real-box/physical acceptance and obtain the client
-   security review required by P3-03 before merging/enabling this work.
+5. Complete the remaining real-box/physical acceptance and obtain a fresh
+   client security review of vault/room integration before production enablement.
+   The foundation-only merge review is recorded separately above.
    See the [real witness lab](browser-mls-witness-lab.md) for the exact boundary
    between live daemon, process-kill, profile-restore and fixture evidence.
 
@@ -200,3 +206,14 @@ Focused commands: `node scripts/check-vmls-wasm.mjs`,
 `npx playwright test -c playwright.mls.config.ts`,
 `npm run build:lib && npx playwright test -c playwright.mls-app.config.ts`,
 and `npm run typecheck`.
+
+## Release validation, 9 October 2026
+
+After incorporating the main-branch phone call fix, code head `b19508c`
+passes a fresh typecheck, all 3,399 unit tests, all 180 MLS browser cases,
+both full-app preview/production-gate checks, 95 desktop boundary tests,
+Android publication checks and independent context/library package smoke
+checks. The production build contains no preview runtime and does not
+precache MLS WASM. The earlier 17-check daemon rehearsal was not repeated
+for this unchanged MLS implementation. Hosted CI is tracked on PR #286;
+these local results do not imply that every hosted job has completed.
