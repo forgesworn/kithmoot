@@ -456,9 +456,11 @@ Acceptance:
   encrypted room sharing. Recording in temporary meetings must visibly change
   the no-history promise described in G8.
 
-Current foundation: the PWA's `CallRecorder` mixes audio locally, with signed
-recording notices and save/share/discard controls in `main.ts`. This is not
-video recording or evidence of the complete cross-client journey.
+Current foundation: the PWA's [local recorder](video-recording.md) offers audio
+and three video layouts, with signed capture notices, elapsed time, pause and
+save/share/discard controls. Android [understands the notices](recording-capture-notices.md)
+but does not yet record/export a call itself. Short synthetic browser exports
+do not close the 45-minute or physical cross-client journey above.
 
 ## G12 — Tested room capacity and a gallery that scales
 

@@ -5,9 +5,14 @@ import { CallRecorder } from './call-recorder.js'
 // data and stop events asynchronously. Keep that ordering in the fixture.
 class Recorder extends EventTarget {
   static latest: Recorder
+  static failCreation = false
   static isTypeSupported(): boolean { return true }
   state: RecordingState = 'inactive'
-  constructor() { super(); Recorder.latest = this }
+  constructor() {
+    super()
+    if (Recorder.failCreation) throw new Error('browser refused the muxer')
+    Recorder.latest = this
+  }
   start(): void { this.state = 'recording' }
   pause(): void { this.state = 'paused' }
   resume(): void { this.state = 'recording' }
@@ -25,7 +30,7 @@ class Recorder extends EventTarget {
   }
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { Recorder.failCreation = false; vi.unstubAllGlobals() })
 
 function setup(onLimit: (reason: string) => void): { recorder: CallRecorder; close: ReturnType<typeof vi.fn> } {
   vi.stubGlobal('MediaRecorder', Recorder)
@@ -57,5 +62,18 @@ test('a browser error waits for final data before closing the audio context', as
   expect(close).not.toHaveBeenCalled()
   expect(await (await finished!).text()).toBe('last chunk')
   expect(onLimit).toHaveBeenCalledOnce()
+  expect(close).toHaveBeenCalledOnce()
+})
+
+test('a rejected muxer releases its audio context instead of leaving capture work alive', () => {
+  vi.stubGlobal('MediaRecorder', Recorder)
+  Recorder.failCreation = true
+  const close = vi.fn(async () => {})
+  const context = {
+    state: 'running', close,
+    createMediaStreamDestination: () => ({ stream: {} }),
+    createConstantSource: () => ({ offset: { value: 0 }, connect() {}, start() {} }),
+  } as unknown as AudioContext
+  expect(() => new CallRecorder({ maxBytes: 5, createContext: () => context })).toThrow('browser refused the muxer')
   expect(close).toHaveBeenCalledOnce()
 })

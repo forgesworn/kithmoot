@@ -136,6 +136,7 @@ for (const phone of [false, true]) {
       // own banner and the permission to share the resulting file stay separate.
       await ada!.locator('#callDockRecording').click()
       await expect(ada!.locator('#actionTitle')).toContainText('Record the call in')
+      await ada!.locator('input[name="recording-layout"][value="gallery"]').check()
       await ada!.locator('#actionConfirm').click()
       await expect(bo!.locator('#recordingBanner')).toBeVisible()
       await expect(ada!.locator('#recordingBanner')).toBeHidden()
@@ -151,6 +152,18 @@ for (const phone of [false, true]) {
       await continuous()
       await ada!.locator('#callDockRecording').click()
       await expect(ada!.locator('#recordingReady')).toBeVisible()
+      const dimensions = await ada!.locator('#recordingSave').evaluate(async (link: HTMLAnchorElement) => {
+        const video = document.createElement('video')
+        const ready = new Promise<void>((resolve, reject) => {
+          video.addEventListener('loadedmetadata', () => resolve(), { once: true })
+          video.addEventListener('error', () => reject(new Error('original-call video export did not decode')), { once: true })
+        })
+        video.src = link.href; await ready
+        const result = { width: video.videoWidth, height: video.videoHeight }
+        video.removeAttribute('src'); video.load()
+        return result
+      })
+      expect(dimensions).toEqual({ width: 1280, height: 720 })
       await expect(ada!.locator('#recordingShare')).toBeHidden()
       await expect(bo!.locator('#recordingBanner')).toBeHidden()
       await ada!.keyboard.press('Control+k'); await ada!.locator('#roomSwitcherHome').click()

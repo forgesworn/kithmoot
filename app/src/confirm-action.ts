@@ -4,6 +4,8 @@ export interface ConfirmActionOptions {
   confirmLabel: string
   cancelLabel?: string
   danger?: boolean
+  /** Optional local controls for choosing the action's scope before consent. */
+  content?: HTMLElement
   /** Do not authorise an action if its room or account changed while waiting. */
   isCurrent?: () => boolean
 }
@@ -43,7 +45,7 @@ function showConfirmation(options: ConfirmActionOptions | ChooseActionOptions): 
   const dialog = document.createElement('dialog')
   dialog.id = 'actionDialog'
   dialog.className = 'actionDialog'
-  dialog.setAttribute('role', 'alertdialog')
+  dialog.setAttribute('role', options.content ? 'dialog' : 'alertdialog')
   dialog.setAttribute('aria-labelledby', 'actionTitle')
   dialog.setAttribute('aria-describedby', 'actionDescription')
   const title = document.createElement('h2')
@@ -73,7 +75,9 @@ function showConfirmation(options: ConfirmActionOptions | ChooseActionOptions): 
   }
   const buttons = alternative ? [cancel, alternative, confirm] : [cancel, confirm]
   actions.append(...buttons)
-  dialog.append(title, description, actions)
+  dialog.append(title, description)
+  if (options.content) dialog.append(options.content)
+  dialog.append(actions)
   document.body.append(dialog)
   return new Promise(resolve => {
     const cancelForDeparture = () => dialog.close('cancel')
@@ -102,9 +106,16 @@ function showConfirmation(options: ConfirmActionOptions | ChooseActionOptions): 
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return
       event.preventDefault()
-      const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
-      const next = (at + (event.shiftKey ? buttons.length - 1 : 1)) % buttons.length
-      buttons[at < 0 ? 0 : next].focus({ preventScroll: true })
+      const candidates = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')).filter(element => element.getClientRects().length)
+      const controls = candidates.filter(element => {
+        if (!(element instanceof HTMLInputElement) || element.type !== 'radio') return true
+        const group = candidates.filter((other): other is HTMLInputElement => other instanceof HTMLInputElement && other.type === 'radio' && other.name === element.name)
+        return element === (group.find(other => other.checked) ?? group[0])
+      })
+      const at = controls.indexOf(document.activeElement as HTMLElement)
+      const next = (at + (event.shiftKey ? controls.length - 1 : 1)) % controls.length
+      controls[at < 0 ? 0 : next]?.focus({ preventScroll: true })
+      controls[at < 0 ? 0 : next]?.scrollIntoView({ block: 'nearest' })
     })
     dialog.addEventListener('click', event => {
       if (event.target !== dialog) return
