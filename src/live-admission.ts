@@ -101,7 +101,7 @@ export function requestLivePersistentAdmission(opts: LiveAdmissionOptions): Prom
       })
       if (settled) { unsubscribe(); return }
       timers.push(setTimeout(() => finish(new Error('live admission timed out')), 90_000))
-      timers.push(setTimeout(offer, 30_000), setTimeout(offer, 60_000))
+      timers.push(setTimeout(offer, 10_000), setTimeout(offer, 20_000))
       monitor = setInterval(live, 1000)
       offer()
     } catch (error) { finish(error) }

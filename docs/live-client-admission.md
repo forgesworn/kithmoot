@@ -10,7 +10,10 @@ members retain their existing member-assisted recovery.
 The live challenge owner uses the caller's explicit transport and a stable local
 device identifier. Allow one outstanding challenge per device/room, with a small
 process-wide cap. Generate a fresh ephemeral reply key; send the identical
-signed request at most at 0, 30 and 60 seconds. A 90-second monotonic deadline,
+signed request at most at 0, 10 and 20 seconds. The original 0/30/60 design
+failed shared-mesh reply-loss testing: cached answers expire after 30 seconds,
+so the next offer arrived too late. All three offers now fit inside that
+window without extending or re-signing the answer. A 90-second monotonic deadline,
 request expiry and observed wall-clock rollback can only shorten the exchange.
 Never persist the reply key. On success, cancellation, retirement or timeout,
 remove subscriptions/timers, release ownership and wipe the local key buffer.

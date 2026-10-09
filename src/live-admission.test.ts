@@ -36,7 +36,7 @@ describe('live admission exchange owner', () => {
   it('recovers a lost first offer with the identical request, consumes one reply and cleans up', async () => {
     const f = setup(); f.drop(1); f.host()
     const result = outcome(requestLivePersistentAdmission(f.opts))
-    await vi.advanceTimersByTimeAsync(29_999)
+    await vi.advanceTimersByTimeAsync(9_999)
     expect(f.offered.length).toBe(1)
     await vi.advanceTimersByTimeAsync(1)
     const got = await result
@@ -46,6 +46,22 @@ describe('live admission exchange owner', () => {
     expect(f.active()).toBe(0)
     await vi.advanceTimersByTimeAsync(90_000)
     expect(f.offered.length).toBe(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('recovers a lost request and lost reply before the cached answer expires', async () => {
+    const f = setup(); f.drop(1)
+    const replies: Event[] = []
+    f.relay.subscribe([{ kinds: [20466] }], e => { void f.journal.answer(e, async reply => {
+      replies.push(reply); if (replies.length > 1) f.relay.publish(reply)
+    }) })
+    const result = outcome(requestLivePersistentAdmission(f.opts))
+    await vi.advanceTimersByTimeAsync(20_001)
+    expect((await result).value?.epochHint).toBe(0)
+    expect(f.offered).toHaveLength(3)
+    expect(replies).toHaveLength(2)
+    expect(replies[1]).toEqual(replies[0])
+    expect(f.active()).toBe(0)
     expect(vi.getTimerCount()).toBe(0)
   })
 
