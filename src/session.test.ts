@@ -1506,6 +1506,36 @@ describe('RoomSession presence is judged by this device, not by the sender', () 
     })
   }
 
+  it('keeps recording support per device rather than promoting every device of a person', async () => {
+    const relay = new SimRelay(), identity = localIdentity(generateSecretKey())
+    const updated = room(now, relay, { identity, recordingProfile: 2 })
+    const legacy = room(now, relay, { identity })
+    const observer = room(now, relay)
+    await updated.join([], {})
+    await legacy.join([], {})
+    await observer.join([], {})
+    await settle()
+    const view = observer.participants().find(v => v.participant === updated.participant)!
+    expect(view.devices).toHaveLength(2)
+    expect(view.recordingProfiles).toEqual({ [updated.device]: 2 })
+    expect(view.recordingProfiles?.[legacy.device]).toBeUndefined()
+  })
+
+  it('does not qualify an old call tab using a newer idle tab with the same device key', async () => {
+    const relay = new SimRelay(), identity = localIdentity(generateSecretKey()), deviceSk = generateSecretKey()
+    const older = room(now, relay, { identity, deviceSk })
+    const newer = room(now, relay, { identity, deviceSk, recordingProfile: 2 })
+    const observer = room(now, relay)
+    await older.join([], {})
+    await older.setCall({ id: '12'.repeat(16), since: NOW })
+    await newer.join([], {})
+    await observer.join([], {})
+    await settle()
+    const view = observer.participants().find(v => v.participant === older.participant)!
+    expect(view.call?.devices).toContain(older.device)
+    expect(view.recordingProfiles?.[older.device]).toBeUndefined()
+  })
+
   it('BUG: keeps a device whose clock runs a little slow, rather than evicting it between heartbeats', async () => {
     // A phone a minute behind stamps every entry a minute in the past.
     // Judged on that stamp against the presence window it lapsed fifteen
