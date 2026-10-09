@@ -1,9 +1,10 @@
 # Publishing the first production Android APK
 
-The public download remains the debug-signed 0.5.12 preview until the owner-held
-production key, exact-preview upgrade and physical-phone gates in the Android
-repository are complete. This runbook starts after those gates. It does not
-create a key, sign an APK or weaken them.
+The first-production procedure below is historical. The current production
+version and artifact identity come from `site/android-release.json`; subsequent
+releases use the same immutable APK across the website, GitHub and Zapstore.
+This runbook does not create an Android key, sign an APK or replace the
+physical-phone gates in the Android repository.
 
 ## Prepare one reviewable publication
 
@@ -68,3 +69,57 @@ hash, `aapt` and `apksigner` checks. Confirm that the live
 preview upgrades in place on the accepted physical phone, and the old-signed
 APK is still refused. Publish the GitHub release only with that same artifact
 and recorded evidence.
+
+## Publish and verify Zapstore separately
+
+A website deployment or GitHub release does not publish a Zapstore release.
+Treat Zapstore as a separate delivery gate for every production Android version.
+Use [Zapstore's publisher](https://zapstore.dev/docs/publish) with the exact
+already-verified APK, the Android repository's `zapstore.yaml` metadata and
+release notes for that version. Point `release_source` at that one APK rather
+than relying on whichever local build happens to match a glob. The repository
+changelog may lag the signed GitHub release notes.
+
+The existing KithMoot listing belongs to
+`npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2`.
+Preserve that publisher. The Nostr publisher key is separate from the Android
+APK signing certificate. Keep signer connections and client keys in private
+local configuration, outside repository files, command history and release logs.
+
+Check the connected signer's actual public key before uploading or publishing.
+In `zsp` 0.4.12, the config's publisher check resolves local `nsec`/`npub` values
+but does not enforce the returned key for asynchronous bunker/browser signers.
+The 0.6.75 publication used a local post-connection publisher check before the
+normal publisher workflow. A rejected or expired bunker connection is a failed
+connection, not evidence that a release-signing request reached the signer.
+
+After publication, run the read-only channel verifier from this repository:
+
+```bash
+npm run verify:zapstore-publication -- --output /tmp/kithmoot-zapstore-receipt.json
+```
+
+It waits for the Zapstore relay to complete its query, verifies Nostr event
+signatures and the existing publisher, checks the latest `main` release against
+the production manifest, follows its signed APK asset reference, and compares
+the advertised version/code, SDKs, certificate, filename and size. It then
+downloads the public CDN artifact and verifies its byte count and SHA-256.
+It signs nothing and reads no private key. `--manifest /path/to/manifest.json`
+can check a prepared release manifest before it becomes the website manifest.
+An absent/stale release, invalid signature, mismatched asset, incomplete relay
+query or unavailable/mismatched download fails the command.
+
+The APK's Android signature and lineage remain the responsibility of
+`verify:android-publication` above. A successful channel receipt does not prove
+that Zapstore's Android client has indexed the update or that a physical phone
+has installed and accepted it; the receipt leaves those gates explicitly open.
+
+Verified on 9 October 2026 at 21:22 UTC: version **0.6.75**, code **98**, channel
+`main`, APK SHA-256
+`9eeb8ef7a301568455247b94f791153cb8ba99153258ad95085d45e05d5f78db`,
+79,088,286 bytes. The signed release event is
+`c493f7e442ed447971fdf2cbc3ad48adbf1c580b221f0cc24a6b92668e2be674`,
+referencing APK asset
+`2a11e34ac43c689f7213584970a9dd4f678bfe0624f508367898bc063eb5bca0`.
+The public download matched the production manifest. Store-client and physical
+installation acceptance were not claimed by that publication check.

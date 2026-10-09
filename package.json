@@ -58,6 +58,7 @@
     "build:context": "npm run build --workspace @forgesworn/context && npm run build --workspace @forgesworn/context-tools",
     "test:context-packages": "node test/context-package-smoke.mjs",
     "verify:android-publication": "node deploy/verify-android-publication.mjs",
+    "verify:zapstore-publication": "node deploy/verify-zapstore-publication.mjs",
     "predemo": "npm run build:context"
   },
   "dependencies": {
