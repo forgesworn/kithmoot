@@ -12391,6 +12391,18 @@ const PINNED_GROUP = 'pinned:'
 /** The rail's order as last drawn, held while the person is in it. */
 let lastRailOrder: string[] | undefined
 
+/** Keep unchanged rail children attached: a watch update can arrive between
+ *  pressing a room action and releasing it. Only move actual order changes. */
+function reconcileRailChildren(parent: HTMLElement, children: HTMLElement[]): void {
+  const wanted = new Set(children)
+  for (const child of Array.from(parent.children)) if (!wanted.has(child as HTMLElement)) child.remove()
+  let next = parent.firstChild
+  for (const child of children) {
+    if (child === next) next = next.nextSibling
+    else parent.insertBefore(child, next)
+  }
+}
+
 function renderWorkspace(): void {
   updateDesktopUnread()
   if ($('workspaceNav').hidden) return
@@ -12418,75 +12430,97 @@ function renderWorkspace(): void {
   ]
   const self = meParticipant || currentParticipant() || ''
   const selfName = joiningName()
-  list.replaceChildren()
+  const existingGroups = new Map(Array.from(list.children, group => [(group as HTMLElement).dataset.project, group as HTMLElement]))
+  const sections: HTMLElement[] = []
   for (const project of groups) {
-    const group = document.createElement('section')
-    const heading = document.createElement('h3')
+    const group = existingGroups.get(project.key) ?? document.createElement('section')
+    // A shared room can appear in more than one project. Its row belongs
+    // to this section, rather than to a single global room-id cache.
+    const existingRows = new Map(Array.from(group.querySelectorAll<HTMLElement>('.workspaceRoom'), row => [row.dataset.room, row]))
+    const heading = group.querySelector('h3') ?? document.createElement('h3')
     heading.textContent = project.name
     heading.hidden = groups.length === 1 && !project.key
     group.dataset.project = project.key
-    group.append(heading)
+    const rows: HTMLElement[] = [heading]
     const members = project.key === PINNED_GROUP ? arranged.pinned : unpinned.filter(room => matchesRoom(room, '', project.key))
     for (const room of members) {
-      const row = document.createElement('div')
+      const row = existingRows.get(room.roomId) ?? document.createElement('div')
       row.className = 'workspaceRoom'
       row.dataset.room = room.roomId
-      const button = document.createElement('button')
+      const button = row.querySelector<HTMLButtonElement>('[data-action="switch"]') ?? document.createElement('button')
       button.type = 'button'
       button.className = 'workspaceRoomLink'
       button.dataset.action = 'switch'
-      button.textContent = knownRoomLabel(room)
+      if (button.textContent !== knownRoomLabel(room)) button.textContent = knownRoomLabel(room)
       button.title = `${knownRoomLabel(room)} · ${shortKey(room.roomId)}`
       if (room.roomId === current) button.setAttribute('aria-current', 'true')
+      else button.removeAttribute('aria-current')
       // Switching retains each room's draft collection in this tab.
-      button.addEventListener('click', () => {
+      button.onclick = () => {
         void switchRoom(room)
-      })
-      row.append(button)
-      if (room.endsAt !== undefined && !roomIsEnded(room)) row.append(fusePill(room.endsAt, room.startsAt, !!room.destruct))
+      }
+      const children: HTMLElement[] = [button]
+      if (room.endsAt !== undefined && !roomIsEnded(room)) children.push(fusePill(room.endsAt, room.startsAt, !!room.destruct, row.querySelector<HTMLElement>('.fusePill') ?? undefined))
       // What each other room has waiting, counted exactly as the rooms list
       // and the window's own badge count it: from the watch this device
       // keeps on every room while the installed window is open, against the
       // room's read position. The room on screen is read where it is shown.
       // Beside the button rather than in it, so its name stays the room's.
       const watched = room.roomId === current ? undefined : roomWatches.get(room.roomId)
+      row.classList.remove('hasUnread')
       if (watched?.watch.readsChat) {
         const label = knownRoomLabel(room)
         const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
         row.classList.toggle('hasUnread', split.people > 0)
-        if (split.people > 0) row.append(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
-        if (split.agents > 0) row.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
+        if (split.people > 0) children.push(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
+        if (split.agents > 0) children.push(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
       }
       const pinned = pins.has(room.roomId)
-      const pin = document.createElement('button')
+      const pin = row.querySelector<HTMLButtonElement>('[data-action="pin"]') ?? document.createElement('button')
       pin.type = 'button'
       pin.className = 'pinRoom'
       pin.dataset.action = 'pin'
-      pin.textContent = pinned ? '★' : '☆'
+      if (pin.textContent !== (pinned ? '★' : '☆')) pin.textContent = pinned ? '★' : '☆'
       pin.setAttribute('aria-pressed', String(pinned))
       pin.setAttribute('aria-label', `${pinned ? 'Unpin' : 'Pin'} ${knownRoomLabel(room)}`)
       pin.title = pinned ? 'Unpin: back among the other rooms' : 'Pin: keep this room in Pinned, at the top'
-      pin.addEventListener('click', () => {
-        setPinned(localStorage, room.roomId, !pinned)
+      pin.onclick = () => {
+        setPinned(localStorage, room.roomId, !loadPins(localStorage).has(room.roomId))
         renderWorkspace()
-      })
-      row.append(pin)
+      }
+      children.push(pin)
       if (organising()) {
-        const organise = projectButton(room)
+        const organise = row.querySelector<HTMLButtonElement>('[data-action="project"]') ?? document.createElement('button')
+        organise.type = 'button'
+        organise.className = 'quiet organiseRoom'
+        organise.dataset.action = 'project'
         organise.textContent = '⋯'
-        row.append(organise)
+        const shared = !!nostrSession?.signer.nip44
+        organise.setAttribute('aria-label', shared ? `Add ${knownRoomLabel(room)} to a project` : `Set local group for ${knownRoomLabel(room)}`)
+        organise.onclick = () => shared ? openProjectEditor(room, organise) : openLocalGroupEditor(room, organise)
+        children.push(organise)
       }
       // The room on screen is left first; forgetting it from under the
       // person would strand the conversation they are reading.
       if (room.roomId !== current) {
-        const forget = forgetButton(room, '×')
+        const forget = row.querySelector<HTMLButtonElement>('[data-action="forget"]') ?? document.createElement('button')
+        forget.type = 'button'
+        forget.className = 'forget quiet'
+        forget.dataset.action = 'forget'
+        forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
+        forget.title = `Forget ${knownRoomLabel(room)}`
+        forget.textContent = '×'
+        forget.onclick = () => forgetKnownRoom(room)
         forget.disabled = busy
-        row.append(forget)
+        children.push(forget)
       }
-      group.append(row)
+      reconcileRailChildren(row, children)
+      rows.push(row)
     }
-    list.append(group)
+    reconcileRailChildren(group, rows)
+    sections.push(group)
   }
+  reconcileRailChildren(list, sections)
   $('workspaceEmpty').hidden = rooms.length > 0
   $('workspaceNote').textContent = busy ? 'Finish sending or stop adding files before switching rooms.' : organising() ? 'Use ⋯ to organise rooms into projects.' : ''
   if (focusedRoom && action) {

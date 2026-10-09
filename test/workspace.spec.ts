@@ -742,7 +742,25 @@ test('the installed window shows each other room\'s unread messages in the rail,
     await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
     await reenter(page, withRelays(here.url, [relay]))
     await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
-    await pinnedSection.getByRole('button', { name: 'Unpin Planning room', exact: true }).click()
+    // A real watched message can redraw the rail between pointer down and
+    // up. Keep its section, row and pressed action connected while still
+    // showing the new unread count immediately; releasing must unpin it.
+    const unpin = pinnedSection.getByRole('button', { name: 'Unpin Planning room', exact: true })
+    const sectionNode = await pinnedSection.elementHandle()
+    const rowNode = await planning.elementHandle()
+    const pinNode = await unpin.elementHandle()
+    await unpin.hover()
+    await page.mouse.down()
+    try {
+      await elsewhere.chat.send('One more update while the pin is pressed.')
+      await expect(planning.locator('.unread:not(.agent)')).toHaveText('1')
+      await expect(planning.locator('.unread:not(.agent)')).toHaveAttribute('aria-label', '1 unread in Planning room')
+      await expect(planning).toHaveClass(/hasUnread/)
+      expect(await sectionNode!.evaluate(node => node.isConnected && node === document.querySelector('#workspaceRooms section[data-project="pinned:"]'))).toBe(true)
+      expect(await rowNode!.evaluate(node => node.isConnected && node === document.querySelector('#workspaceRooms section[data-project="pinned:"] .workspaceRoom'))).toBe(true)
+      expect(await pinNode!.evaluate(node => node.isConnected && node === document.querySelector('#workspaceRooms section[data-project="pinned:"] [data-action="pin"]'))).toBe(true)
+    } finally { await page.mouse.up() }
     await expect(pinnedSection).toHaveCount(0)
+    await expect(planning.getByRole('button', { name: 'Pin Planning room', exact: true })).toHaveAttribute('aria-pressed', 'false')
   } finally { here.leave(); elsewhere.leave(); await context.close() }
 })
