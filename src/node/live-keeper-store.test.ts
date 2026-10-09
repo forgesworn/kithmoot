@@ -18,7 +18,7 @@ afterEach(async () => {
 })
 
 /** Real packaged JS in another process, with synthetic keys only. No socket or radio. */
-async function start(file: string, action: 'hold' | 'retire' | 'rekey' | 'answer'): Promise<{ child: ChildProcess; evidence: { id?: string; hash?: string; request?: Event } }> {
+async function start(file: string, action: 'hold' | 'retire' | 'rekey' | 'answer' | 'agent'): Promise<{ child: ChildProcess; evidence: { id?: string; hash?: string; request?: Event } }> {
   const module = (name: string) => pathToFileURL(join(process.cwd(), 'dist/src', name)).href
   const script = `
     import { LiveKeeperJournal } from ${JSON.stringify(module('live-keeper.js'))};
@@ -26,7 +26,12 @@ async function start(file: string, action: 'hold' | 'retire' | 'rekey' | 'answer
     import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
     import { deriveRoom, deriveEpoch, encodeRekeyEvent, encodeLivePersistentRequest } from '@forgesworn/fold-kit';
     import { createHash } from 'node:crypto';
+    import { RoomAgent } from ${JSON.stringify(module('agent.js'))};
     const j=LiveKeeperJournal.create(new EncryptedLiveKeeperStore(${JSON.stringify(file)},new Uint8Array(32).fill(7)),{relays:['wss://relay.example/'],now:()=>${NOW}});
+    // Keep the idle authority reachable and prove the lease survives GC.
+    process.on('message', message=>{
+      if(message==='gc-status'){global.gc();setImmediate(()=>process.send({status:j.status}));}
+    });
     const state=j.snapshot();
     let evidence={};
     if (${JSON.stringify(action)}==='retire') { await j.retire(); evidence.id=j.pendingEvents()[0].id; }
@@ -36,13 +41,19 @@ async function start(file: string, action: 'hold' | 'retire' | 'rekey' | 'answer
       await j.prepareRekey(event,{...state,epoch:1,epochSecret:secret,epochAt:${NOW},members:[]});
       evidence={id:event.id,hash:createHash('sha256').update(secret).digest('hex')};
     }
-    if (${JSON.stringify(action)}==='answer') {
+    if (${JSON.stringify(action)}==='agent') {
+      const transport=()=>({subscribe:()=>()=>{},close:()=>{},publish:async event=>{
+        if(event.kind===1462){process.send({id:event.id});await new Promise(()=>{});}
+      }});
+      const agent=await RoomAgent.create({name:'Killed keeper',base:'https://room.example/j/',liveKeeper:j,transport,now:()=>${NOW}});
+      await agent.session.rekey({authoritySk:state.inviterSk});
+    } else if (${JSON.stringify(action)}==='answer') {
       const request=encodeLivePersistentRequest({invitation:{bearer:state.bearer,inviter:getPublicKey(state.inviterSk),persistent:true},roomId:deriveRoom(state.secret).roomId,requesterSk:generateSecretKey(),now:${NOW}});
       await j.answer(request,event=>{process.send({id:event.id,request});return new Promise(()=>{});});
     } else process.send(evidence);
     setInterval(()=>{},60000);
   `
-  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
+  const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '-e', script], { cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
   children.push(child)
   let errors = ''
   child.stderr!.on('data', b => { errors = (errors + String(b)).slice(-2048) })
@@ -79,6 +90,12 @@ describe('encrypted live keeper storage', () => {
 
   it('refuses a competing process and automatically releases ownership after SIGKILL', async () => {
     const file = path(), { child } = await start(file, 'hold')
+    const alive = new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('owner stopped answering')), 5_000)
+      child.once('message', value => { clearTimeout(timer); resolve(value) })
+    })
+    child.send('gc-status')
+    expect(await alive).toEqual({ status: 'active' })
     expect(() => new EncryptedLiveKeeperStore(file, key)).toThrow()
     await kill(child)
     const j = LiveKeeperJournal.open(new EncryptedLiveKeeperStore(file, key), () => NOW)
@@ -121,4 +138,24 @@ describe('encrypted live keeper storage', () => {
     expect(offered).toEqual([evidence.id])
     await j.close()
   }, 20_000)
+  it('recovers an actual root session killed inside its durable rekey handoff', async () => {
+    const file = path(), { child, evidence } = await start(file, 'agent')
+    await kill(child)
+    const j = LiveKeeperJournal.open(new EncryptedLiveKeeperStore(file, key), () => NOW)
+    expect(j.status).toBe('pending')
+    const pending = j.pendingEvents()[0]!
+    expect(pending.id).toBe(evidence.id)
+    const { RoomAgent } = await import('../agent.js')
+    const offered: Event[] = []
+    const a = await RoomAgent.create({ name: 'Recovered keeper', base: 'https://room.example/j/', liveKeeper: j, now: () => NOW,
+      transport: () => ({ subscribe: () => () => {}, close: () => {}, publish: async event => { offered.push(event) } }) })
+    try {
+      expect(offered[0]!.id).toBe(evidence.id)
+      expect(a.session.epoch).toBe(1)
+      expect(j.snapshot().epoch).toBe(1)
+      expect(Buffer.from(j.snapshot().epochSecret!).equals(Buffer.from(a.session.currentEpoch().secret))).toBe(true)
+      expect(offered.filter(e => e.kind === 1462).map(e => e.id)).toEqual([evidence.id])
+    } finally { await a.leave() }
+  }, 20_000)
+
 })

@@ -171,6 +171,23 @@ export class LiveKeeperJournal {
   }
 
   snapshot(): KeeperState { return keeper(this.#data.keeper) }
+  signedInvitation(): Event { return copy(this.#data.welcome) }
+  relayPolicy(): string[] { return [...(decodePersistentInvitation(this.#data.welcome, invitation(this.snapshot()))!.relays ?? [])] }
+
+  /** Same-epoch metadata only; epoch authority changes require a signed transition. */
+  checkpoint(nextState: KeeperState): Promise<void> {
+    const raw = serialiseKeeperState(nextState)
+    return this.#run(() => {
+      const current = this.snapshot(), next = keeper(raw)
+      requireValue(!this.#data.pending && this.#data.phase !== 'closed', 'resolve the pending transition first')
+      for (const field of ['secret', 'inviterSk', 'bearer', 'epochSecret'] as const) {
+        requireValue(same(current[field] && [...current[field]!], next[field] && [...next[field]!]))
+      }
+      requireValue(current.epoch === next.epoch && same(current.removed ?? [], next.removed ?? []))
+      requireValue(!!current.closed === !!next.closed && current.endsAt === next.endsAt && !!current.destruct === !!next.destruct)
+      this.#save({ ...copy(this.#data), keeper: raw, lastAt: this.#time() })
+    })
+  }
   get status(): 'poisoned' | 'closed-owner' | 'pending' | Phase {
     return this.#poisoned ? 'poisoned' : this.#closed ? 'closed-owner' : this.#data.pending ? 'pending' : this.#data.phase
   }

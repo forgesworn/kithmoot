@@ -1,4 +1,5 @@
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
+import type { LiveKeeperJournal } from './live-keeper.js'
 import { RoomSession, CONFERENCE_ENDED_MESSAGE } from './session.js'
 import { requireRoomEnds } from './expiration.js'
 import type { ParticipantView, PublishOptions, SessionTiming } from './session.js'
@@ -20,7 +21,7 @@ import type { InvitationDelegation } from './invitation.js'
 import { localIdentity } from './identity.js'
 import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret, deriveRoom } from './room.js'
-import { canonicalAdmins, canonicalChannels, deriveEpoch, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
+import { canonicalAdmins, canonicalChannels, deriveEpoch, epochsInWindow, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
 import type { LeftEpoch, RekeyNotice, RoomEpoch } from './epoch.js'
 import { deleteSignedEvents } from './self-destruct.js'
 import type { DeletionKey, DeletionReport } from './self-destruct.js'
@@ -45,6 +46,8 @@ import { meetingAllows, verifyMeetingPolicy, type MeetingPolicy } from './meetin
  * any of them: see the app's note on its list.
  */
 export const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom']
+
+const liveKeeperOwners = new WeakSet<LiveKeeperJournal>()
 
 /**
  * The relays an agent connects to for a room: the room's own first, then the
@@ -267,6 +270,10 @@ export interface JoinRoomOptions extends CommonAgentOptions {
 }
 
 export interface CreateRoomOptions extends CommonAgentOptions {
+  /** Transfer an exclusively owned lifecycle journal to this root agent.
+   * Requires an explicit transport. Cannot combine with state/onState,
+   * relays or lifetime overrides. New live admission remains disabled. */
+  liveKeeper?: LiveKeeperJournal
   /** Where the app is served, for the link: `https://host/j/`. */
   base: string
   /** What the room is called. Rides in the link, so everybody sent it
@@ -435,6 +442,9 @@ export class RoomAgent {
   #epochDesk?: { close(): void }
   #controlUnsub?: () => void
   #keeper?: KeeperState
+  readonly #liveKeeper?: LiveKeeperJournal
+  readonly #transitionTransport: RelayTransport
+  #liveTransition = false
   readonly #onState?: (state: KeeperState) => void | Promise<void>
   /** The scheduled cadence, seconds. Zero is off. */
   readonly #rekeyEvery: number
@@ -464,6 +474,8 @@ export class RoomAgent {
     transport: RelayTransport
     now: () => number
     keeper?: KeeperState
+    liveKeeper?: LiveKeeperJournal
+    transitionTransport: RelayTransport
     admins?: string[]
     owner?: AgentOwnership
     onState?: (state: KeeperState) => void | Promise<void>
@@ -488,6 +500,8 @@ export class RoomAgent {
     this.#transport = fields.transport
     this.#now = fields.now
     this.#keeper = fields.keeper
+    this.#liveKeeper = fields.liveKeeper
+    this.#transitionTransport = fields.transitionTransport
     // A keeper restart must not silently empty the room's channel list and
     // take its conversations off every client's screen.
     for (const name of fields.keeper?.channels ?? []) this.#channels.add(name)
@@ -569,13 +583,39 @@ export class RoomAgent {
 
   /** Make a room, and keep it. */
   static async create(opts: CreateRoomOptions): Promise<RoomAgent> {
-    const relays = opts.relays ?? DEFAULT_RELAYS
+    const journal = opts.liveKeeper
+    if (journal && liveKeeperOwners.has(journal)) throw new Error('live keeper already belongs to a room agent')
+    if (journal) liveKeeperOwners.add(journal)
+    try { return await RoomAgent.#create(opts) }
+    catch (error) {
+      await journal?.close()
+      if (journal) liveKeeperOwners.delete(journal)
+      throw error
+    }
+  }
+
+  static async #create(opts: CreateRoomOptions): Promise<RoomAgent> {
+    const journal = opts.liveKeeper
+    if (journal) {
+      if (!opts.transport || opts.state !== undefined || opts.onState !== undefined || opts.relays !== undefined ||
+          opts.endsAt !== undefined || opts.destruct !== undefined || isQuietPolicy(opts.policy)) {
+        throw new Error('live keeper requires an explicit transport and its own state, relay and lifetime policy')
+      }
+      if (journal.status === 'pending') {
+        const recovery = opts.transport(journal.relayPolicy())
+        try {
+          if (!await journal.offerPending(event => recovery.publish(event))) throw new Error('live keeper recovery is pending')
+        } finally { recovery.close() }
+      }
+      if (journal.status !== 'active' && journal.status !== 'retired') throw new Error('live keeper is not available for a room')
+    }
+    const relays = journal ? journal.relayPolicy() : opts.relays ?? DEFAULT_RELAYS
     // What the room is made on is fixed, and signed into its invitation.
     const room = invitationRelaysFrom(relays)
     const makeTransport = opts.transport ?? ((r: string[]) => new NostrRelayPool(r))
     const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
 
-    let state = opts.state
+    let state = journal ? journal.snapshot() : opts.state
     if (state?.closed) throw new Error('this room was closed; delete its state to make a new one')
     if (!state) {
       const host = createRoomInvitation(true)
@@ -639,6 +679,7 @@ export class RoomAgent {
       endsAt?: number
       destruct?: boolean
       keeper?: KeeperState
+      liveKeeper?: LiveKeeperJournal
       epoch?: RoomEpoch
       removed?: string[]
       admins?: string[]
@@ -651,15 +692,24 @@ export class RoomAgent {
     const identity = opts.identity ?? localIdentity(generateSecretKey())
     const deviceSk = opts.deviceSk ?? generateSecretKey()
     const destruct = opts.destruct === true || opts.keeper?.destruct === true
-    const pool = agentRelayPool(opts.room, opts.own)
+    const pool = opts.liveKeeper ? [...opts.room] : agentRelayPool(opts.room, opts.own)
     const plain = opts.makeTransport(pool)
     // A quiet room's chat rides in drops; the session tells the wrapper
     // the epoch key. Everything else the agent does stays in the open.
-    const transport: RelayTransport = isQuietPolicy(opts.link.policy)
-      ? quietRoomTransport(plain, { policy: opts.link.policy!, participant: identity.pubkey, slot: 0, now: opts.now, ...opts.quiet })
-      : plain
     let agent: RoomAgent | undefined
-    const session = new RoomSession({
+    const ready = (): boolean => !opts.liveKeeper ||
+      ((opts.liveKeeper.status === 'active' || opts.liveKeeper.status === 'retired') && (!agent || (!agent.#liveTransition && !agent.#left)))
+    const guarded: RelayTransport = opts.liveKeeper ? {
+      publish: async event => { if (!ready()) throw new Error('live keeper transition blocks publication'); await plain.publish(event) },
+      subscribe: (filters, onEvent, onEose) => plain.subscribe(filters, onEvent, onEose),
+      close: () => plain.close(),
+      ...(plain.rekey ? { rekey: (key: Uint8Array) => plain.rekey!(key) } : {}),
+    } : plain
+    const transport: RelayTransport = isQuietPolicy(opts.link.policy)
+      ? quietRoomTransport(guarded, { policy: opts.link.policy!, participant: identity.pubkey, slot: 0, now: opts.now, ...opts.quiet })
+      : guarded
+    let session: RoomSession
+    try { session = new RoomSession({
       transport,
       secret: opts.secret,
       identity,
@@ -683,6 +733,7 @@ export class RoomAgent {
       // A keeper is the authority: it holds the epoch and waits for nobody.
       expectedEpoch: opts.keeper ? (opts.epoch?.epoch ?? 0) : opts.expectedEpoch,
       epochSettleMs: opts.epochSettleMs,
+      ...(opts.liveKeeper ? { commitRekey: (event: Event, next: RoomEpoch, notice: RekeyNotice) => agent!.#commitLiveRekey(event, next, notice) } : {}),
       onEpoch: (notice) => {
         if (agent) agent.#onEpoch(notice)
       },
@@ -696,7 +747,7 @@ export class RoomAgent {
           agent.#emit(agent.#closedListeners, notice)
         }
       },
-    })
+    }) } catch (error) { transport.close(); throw error }
     agent = new RoomAgent({
       session,
       link: opts.link,
@@ -708,6 +759,8 @@ export class RoomAgent {
       transport,
       now: opts.now,
       keeper: opts.keeper,
+      liveKeeper: opts.liveKeeper,
+      transitionTransport: plain,
       admins: opts.admins,
       owner: opts.owner,
       onState: opts.onState,
@@ -729,19 +782,19 @@ export class RoomAgent {
     if (opts.keeper) agent.#keepMembers()
 
     try {
-      if (opts.keeper?.persistent && opts.link.invitation) {
+      if (!opts.liveKeeper && opts.keeper?.persistent && opts.link.invitation) {
         await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now(), endsAt: opts.keeper.endsAt, relays: opts.room.length ? opts.room : undefined, ...(destruct ? { destruct: true } : {}) }))
       }
       await session.join(opts.tracks ?? [], opts.claims ?? {})
     } catch (err) {
-      transport.close()
+      await agent.leave()
       throw err
     }
 
     if (opts.authority && opts.link.invitation) {
-      const hostTransport = opts.makeTransport(agent.#pool)
+      const hostTransport = opts.liveKeeper ? transport : opts.makeTransport(agent.#pool)
       try {
-        agent.#host = hostRoomInvitation({
+        if (!opts.liveKeeper) agent.#host = hostRoomInvitation({
           transport: hostTransport,
           invitation: opts.link.invitation,
           inviterSk: opts.authority.inviterSk,
@@ -792,13 +845,15 @@ export class RoomAgent {
             expiresAt: opts.keeper.endsAt,
           })
         }
-      } catch {
+      } catch (error) {
+        if (opts.liveKeeper) { await agent.leave(); throw error }
         // An expired or malformed delegation removes only this agent's
         // ability to answer newcomers. It is still a member of the room it
         // was admitted to, exactly as the app treats the same case.
         hostTransport.close()
       }
     }
+    if (opts.liveKeeper) await agent.#persist()
     agent.#openControl()
     if (opts.keeper && agent.#forwarders.length) agent.#keepDescribing()
     if (opts.keeper) agent.#keepRekeying()
@@ -934,6 +989,13 @@ export class RoomAgent {
   }
 
   #onEpoch(notice: RekeyNotice): void {
+    if (this.#liveKeeper) {
+      // A transition from elsewhere cannot override this exclusive journal.
+      const saved = this.#liveKeeper.snapshot()
+      if (saved.epoch !== notice.epoch) { void this.#failLive(); return }
+      this.#keeper = saved
+      this.#liveTransition = false
+    }
     this.#emit(this.#epochListeners, notice)
     if (this.#keeper) {
       this.#persist().catch(() => {})
@@ -972,6 +1034,7 @@ export class RoomAgent {
    * stale or not from the authority is ignored.
    */
   #adoptRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, m: ChatMessage): void {
+    if (this.#liveKeeper) return // This profile's transport/relay policy belongs to its journal owner.
     const authority = this.link.invitation?.inviter
     if (!authority) return
     if (control.version <= this.#relaysVersion) return
@@ -1330,8 +1393,12 @@ export class RoomAgent {
   }
 
   async #persist(): Promise<void> {
-    const keeper = this.#keeper
-    if (!keeper) return
+    if (!this.#keeper || (this.#liveKeeper && (this.#liveTransition || this.#left || this.session.closed))) return
+    await this.#writeKeeper(this.#keeperSnapshot())
+  }
+
+  #keeperSnapshot(): KeeperState {
+    const keeper = this.#keeper!
     const current = this.session.currentEpoch()
     // When this epoch began: the rekey into it, as held; else, in the epoch
     // the keeper already knew, what it kept; else, just moved, now.
@@ -1360,8 +1427,48 @@ export class RoomAgent {
       ...(past.length ? { past } : {}),
       ...(devices.length ? { devices } : {}),
     }
+    return next
+  }
+
+  async #writeKeeper(next: KeeperState): Promise<void> {
+    if (this.#liveKeeper) {
+      try { await this.#liveKeeper.checkpoint(next) }
+      catch (error) { await this.#failLive(); throw error }
+    }
     this.#keeper = next
     await this.#onState?.(next)
+  }
+
+  async #failLive(): Promise<void> {
+    this.#liveTransition = true
+    await this.leave()
+  }
+
+  async #commitLiveRekey(event: Event, epoch: RoomEpoch, notice: RekeyNotice): Promise<void> {
+    this.#liveTransition = true
+    try {
+      const current = this.#keeperSnapshot()
+      const removed = [...new Set([...(current.removed ?? []), ...notice.removed])].sort()
+      const next: KeeperState = { ...current, epoch: epoch.epoch, epochSecret: epoch.secret, epochAt: event.created_at,
+        removed, members: notice.members ?? [],
+        past: epochsInWindow([...this.session.pastSecrets(), { ...this.session.currentEpoch(), leftAt: event.created_at }], this.#now()),
+        devices: this.session.recentCredentials().filter(d => !removed.includes(d.participant)).map(({ device, credential, seen }) => ({ device, credential, seen })),
+        ...(notice.closed ? { closed: true } : {}), ...(notice.destruct ? { destruct: true as const } : {}) }
+      await this.#liveKeeper!.prepareRekey(event, next)
+      if (!await this.#liveKeeper!.offerPending(retained => this.#transitionTransport.publish(retained))) throw new Error('live keeper handoff is pending')
+      // The onEpoch callback releases ordinary publication only after the session moves.
+    } catch (error) { await this.#failLive(); throw error }
+  }
+
+  /** Retire a live-journal invitation while keeping current members' room open. */
+  async retireInvitation(): Promise<void> {
+    if (!this.#liveKeeper || this.#left || this.#liveTransition) throw new Error('live keeper is unavailable')
+    this.#liveTransition = true
+    try {
+      await this.#liveKeeper.retire()
+      if (this.#liveKeeper.status === 'pending' && !await this.#liveKeeper.offerPending(event => this.#transitionTransport.publish(event))) throw new Error('live keeper retirement is pending')
+      this.#liveTransition = false
+    } catch (error) { await this.#failLive(); throw error }
   }
 
   /**
@@ -1377,8 +1484,7 @@ export class RoomAgent {
     const next: KeeperState = { ...keeper }
     if (nudge.length) next.nudge = nudge
     else delete next.nudge
-    this.#keeper = next
-    await this.#onState?.(next)
+    await this.#writeKeeper(next)
   }
 
   /**
@@ -1409,6 +1515,11 @@ export class RoomAgent {
     if (this.#left || this.session.closed) return
     const destruct = opts.destruct === true || this.#destruct
     if (destruct) this.#destruct = true
+    if (this.#liveKeeper) {
+      await this.session.rekey({ authoritySk: keeper.inviterSk, closed: true, by, ...(destruct ? { destruct: true } : {}) })
+      await this.leave()
+      return
+    }
     this.#keeper = { ...keeper, closed: true, ...(destruct ? { destruct: true as const } : {}) }
     await this.#onState?.({ ...this.#keeper, epoch: this.session.epoch, removed: [...this.session.removed].sort(), ...(this.session.epoch > 0 ? { epochSecret: this.session.currentEpoch().secret } : {}) })
     if (this.link.invitation) {
@@ -1601,8 +1712,12 @@ export class RoomAgent {
     }
     this.#approvals.clear()
     this.#stopHosting()
-    await this.session.leave()
-    this.#transport.close()
+    try { await this.session.leave() }
+    finally {
+      this.#transport.close()
+      await this.#liveKeeper?.close()
+      if (this.#liveKeeper) liveKeeperOwners.delete(this.#liveKeeper)
+    }
   }
 }
 
