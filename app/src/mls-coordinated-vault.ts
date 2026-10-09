@@ -134,6 +134,29 @@ export class CoordinatedMlsVault {
     return this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => r ? ok(this.#public(r.device)) : refuse('unauthorised')))
   }
 
+  /** Public credential only; private device material never leaves the vault. */
+  credential(ctx: VaultContext): Promise<VaultResult<{ device: EnrolledDevice; credential: DeviceRecord['credential'] }>> {
+    return this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const refusal = this.#device(r)
+      return refusal || !r ? refuse(refusal ?? 'unauthorised') : ok({ device: this.#public(r.device), credential: structuredClone(r.device.credential) })
+    }))
+  }
+  current(ctx: VaultContext): boolean { return this.#current(ctx) }
+
+  /** Trusted room transaction helper: uses its existing persona lock, never
+   * acquires another. Rechecks current durable device/credential and, for a
+   * pending signature, its exact stored scoped permission before completion. */
+  async checkRoomDevice(tx: PersonaReader, ctx: VaultContext, device: string, credentialId: string, homeBox?: string): Promise<VaultResult<void>> {
+    if (!this.#current(ctx)) return refuse('stale')
+    return this.#with(tx, ctx.persona, async r => {
+      const reason = this.#device(r)
+      if (reason || !r) return refuse(reason ?? 'unauthorised')
+      if (r.device.device !== device || r.device.credentialId !== credentialId) return refuse('stale')
+      if (homeBox && !r.policy.approved.some(s => sameScope(s, { principal: ctx.principal, persona: ctx.persona, device, homeBox, method: SIGN_METHOD }))) return refuse('unauthorised')
+      return this.#current(ctx) ? ok(undefined) : refuse('stale')
+    })
+  }
+
   async enrol(ctx: VaultContext, identity: ParticipantIdentity, expiresAt: number, options: { replace?: boolean; expectedDevice?: string } = {}): Promise<VaultResult<EnrolledDevice>> {
     const replace = options.replace === true
     if (identity.pubkey !== ctx.persona) return refuse('unauthorised')
