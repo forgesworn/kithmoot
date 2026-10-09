@@ -4,6 +4,7 @@ import { downloadCatalogueImage } from './media-catalogue.js'
 import { unlockCultPack } from './nostr-packs.js'
 import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
 import { isCultEmoji } from '../../src/custom-emoji.js'
+import { isOriginalEmoji } from '../../src/original-art.js'
 import { BrowserLink } from './browser-link.js'
 import { startBrowserLink } from './browser-link-runtime.js'
 import { BrowserRoomRoutes } from './browser-room-routes.js'
@@ -9512,7 +9513,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const shown = long && !expandedMessages.has(expansionKey) ? m.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : m.text
       appendWithMentions(text, shown, mentionsFor(m), mine ? new Set<string>() : namesOfMine)
       paintCustomEmoji(text)
-      if (isCultEmoji(shown.trim())) text.classList.add('cultSticker')
+      if (isCultEmoji(shown.trim()) || isOriginalEmoji(shown.trim())) text.classList.add('cultSticker')
     }
     paintText()
     bubble.append(text)
@@ -15743,10 +15744,6 @@ $('mediaToggle').addEventListener('click', () => {
   mediaPicker.open($('mediaToggle'), async (item, signal) => {
     const file = await downloadCatalogueImage(item, signal)
     if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) throw new Error('The conversation changed. Open the picker again.')
-    const credit = `${item.credit}\n${item.source}`
-    if (input.value.length + credit.length + 1 > MAX_CHAT_TEXT_LENGTH) throw new Error('Shorten your message before adding this file’s credit.')
-    input.value += (input.value ? '\n' : '') + credit
-    input.dispatchEvent(new Event('input', { bubbles: true }))
     await shareDroppedFiles([file])
   })
 })

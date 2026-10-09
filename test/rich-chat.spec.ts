@@ -69,36 +69,32 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
   } finally { await writer.leave(); pool.close(); await context.close() }
 })
 
-test('catalogue requests wait for Search and a selected GIF arrives encrypted with its credit', async ({ browser, baseURL }) => {
+test('original artwork search makes no third-party requests and a bundled GIF arrives encrypted', async ({ browser, baseURL }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   await context.routeWebSocket(url => url.href !== relay.href, socket => socket.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   await routeTestBlossom(context, new URL(baseURL!).origin)
-  const gif = readFileSync(new URL('./fixtures/animated-colours.gif', import.meta.url))
-  const url = 'https://upload.wikimedia.org/wikipedia/commons/a/aa/Party.gif'
-  let queries = 0
-  await context.route('https://commons.wikimedia.org/w/api.php?**', route => {
-    queries++
-    return route.fulfill({ json: { query: { pages: { '1': { title: 'File:Party.gif', imageinfo: [{ url, mime: 'image/gif', size: gif.length, width: 16, height: 16, descriptionurl: 'https://commons.wikimedia.org/wiki/File:Party.gif', extmetadata: { Artist: { value: 'Test artist' }, LicenseShortName: { value: 'CC0' } } }] } } } } })
-  })
-  await context.route(url, route => route.fulfill({ contentType: 'image/gif', body: gif }))
+  const gif = readFileSync(new URL('../app/public/chat-art/laugh.gif', import.meta.url))
+  const external: string[] = []
+  context.on('request', request => { const url = new URL(request.url()); if (url.protocol.startsWith('http') && url.origin !== new URL(baseURL!).origin) external.push(url.href) })
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'GIF room', relays: [relay.href], iceUrls: [] })
   const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
   try {
     const page = await context.newPage(); await openRoomUrl(page, link); await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await allowTestFileStorage(page, new URL(baseURL!).origin)
-    await page.locator('#mediaToggle').click(); expect(queries).toBe(0)
-    await page.getByRole('button', { name: 'Search catalogue' }).click()
-    await page.getByRole('button', { name: 'Add Party.gif', exact: true }).click()
+    await page.locator('#mediaToggle').click()
+    await page.getByRole('searchbox', { name: 'Search GIFs and stickers' }).fill('laugh')
+    await page.getByRole('button', { name: 'Add Laugh.gif', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'GIFs and stickers' })).not.toBeVisible()
     await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
-    await expect(page.locator('#chatInput')).toHaveValue('Test artist · CC0\nhttps://commons.wikimedia.org/wiki/File:Party.gif')
+    await expect(page.locator('#chatInput')).toHaveValue('')
+    expect(external).toEqual([])
     await page.locator('#chatForm button[type=submit]').click()
     await expect.poll(() => writer.chat.messages().some(message => message.attachments?.length === 1)).toBe(true)
     const message = writer.chat.messages().find(message => message.attachments?.length === 1)!
-    expect(message.text).toContain('Test artist · CC0')
+    expect(message.text).toBe('')
     const attachment = message.attachments![0]!
     const response = await context.request.get(TEST_RELAY_HTTP + new URL(attachment.url).pathname)
     const encrypted = await response.body()
@@ -107,8 +103,8 @@ test('catalogue requests wait for Search and a selected GIF arrives encrypted wi
     expect(Buffer.from(opened.source)).toEqual(gif)
     await page.locator('#chatLog .attachment').getByRole('button', { name: 'Show', exact: true }).click()
     await expect(page.locator('#chatLog .attachment img')).toHaveAttribute('src', /^blob:/)
-    await page.getByRole('button', { name: 'Expand Party.gif' }).click()
-    await expect(page.getByRole('dialog', { name: 'Party.gif' }).locator('img')).toBeVisible()
+    await page.getByRole('button', { name: 'Expand Laugh.gif' }).click()
+    await expect(page.getByRole('dialog', { name: 'Laugh.gif' }).locator('img')).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('encrypted-gif.png') })
   } finally { await writer.leave(); await context.close() }
 })

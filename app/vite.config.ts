@@ -177,7 +177,7 @@ export default defineConfig({
       // not only after a production build - otherwise the manifest link in
       // index.html 404s in dev and the browser logs a spurious parse error.
       devOptions: { enabled: true, type: 'module' },
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'chat-art/*.png', 'chat-art/*.gif'],
       manifest: {
         name: 'KithMoot',
         short_name: 'KithMoot',
