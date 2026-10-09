@@ -1364,6 +1364,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   line-height: 1;
 }
 #emojiToggle { font-size: 1.1rem; }
+.sendIcon { display: none; width: 24px; height: 24px; fill: currentColor; }
 
 #chatForm input {
   min-width: 0;
@@ -4602,6 +4603,10 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 0; min-width: 0; width: auto; }
   #roomArea[data-mobile-view="chat"] #chatForm { flex-wrap: nowrap; }
+  #roomArea[data-mobile-view="chat"] #mediaToggle { display: none; }
+  #roomArea[data-mobile-view="chat"] #chatForm > :is(#emojiToggle, #attachToggle, button[type=submit]) { min-width: 44px; min-height: 44px; padding-inline: .35rem; }
+  #roomArea[data-mobile-view="chat"] .sendWord { display: none; }
+  #roomArea[data-mobile-view="chat"] .sendIcon { display: block; }
   #roomArea[data-mobile-view="chat"] #chatForm:has(#composerContext:not([hidden])) { flex-wrap: wrap; }
 }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {

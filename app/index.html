@@ -450,13 +450,13 @@
                box was a row taken from the conversation on every phone. -->
           <div id="laneNote" class="laneNote" role="status" hidden></div>
           <button type="button" id="mediaToggle" aria-label="GIFs and stickers" title="GIFs and stickers">GIF</button>
-          <button type="button" id="emojiToggle" aria-label="Choose an emoji" title="Emoji"><img src="%BASE_URL%emoji/happy.png" alt="" width="28" height="28" /></button>
+          <button type="button" id="emojiToggle" aria-label="Choose an emoji" title="Emoji, stickers and GIFs"><img src="%BASE_URL%emoji/happy.png" alt="" width="28" height="28" /></button>
           <button type="button" id="attachToggle" aria-label="Add a file"
                   title="Send a file: drop one here, or pick one">
             <span class="attachIcon" aria-hidden="true">+</span>
             <span class="attachWord">Add a file</span><span id="attachCount" class="attachCount"></span>
           </button>
-          <button type="submit" class="primary">Send</button>
+          <button type="submit" class="primary" aria-label="Send"><span class="sendWord">Send</span><svg class="sendIcon" aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3l18 9-18 9 4-9z" /></svg></button>
         </form>
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>

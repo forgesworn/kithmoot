@@ -20,6 +20,14 @@ async function artworkSearch(page: Page, name: string) {
   return query
 }
 
+async function openGIFs(page: Page) {
+  if (await page.locator('#mediaToggle').isVisible()) await page.locator('#mediaToggle').click()
+  else {
+    await page.locator('#emojiToggle').click()
+    await page.locator('.chatArtPicker').getByRole('tab', { name: 'GIFs', exact: true }).click()
+  }
+}
+
 test('familiar artwork keeps Unicode, human tones, drafts and links intact', async ({ browser, baseURL }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -155,7 +163,7 @@ test('original artwork search makes no third-party requests and a bundled GIF ar
     const page = await context.newPage(); await openRoomUrl(page, link); await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await allowTestFileStorage(page, new URL(baseURL!).origin)
-    await page.locator('#mediaToggle').click()
+    await openGIFs(page)
     await (await artworkSearch(page, 'Search GIFs and stickers')).fill('coffee')
     await page.getByRole('button', { name: 'Add Coffee.gif', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'GIFs and stickers' })).not.toBeVisible()
@@ -192,6 +200,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 1280, height: 800 }, {
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     const input = page.locator('#chatInput')
+    if (size.width === 390) expect((await input.boundingBox())!.width).toBeGreaterThan(180)
     await input.fill('hello world')
     await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(6, 6))
     await page.locator('#emojiToggle').click()
