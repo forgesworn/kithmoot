@@ -1,0 +1,9 @@
+Use case: stylized-concept
+Asset type: an original KithMoot chat reaction sticker sprite sheet, to be shipped locally inside the app without third-party graphics or tracking.
+Primary request: draw TWELVE different funny expressive reaction stickers, each starring the same original cheeky teal round goblin creature with tiny charcoal horns, big thick expressive eyebrows, stubby arms and a soft charcoal outline. This is an original creature, not a known franchise character. Humorous and slightly mischievous, suitable for adult banter rather than babyish.
+Composition: a STRICT 4-column by 3-row grid on a 2048 by 1536 transparent canvas. Each cell is exactly 512 by 512. One complete, separate sticker centred in each cell; generous transparent gutters of at least 40 pixels inside every cell. Do not cross cell boundaries. No visible grid, no labels, no text, no logo, no flags, no map, no watermark. All twelve must fit without clipping.
+Reading order, left to right, top to bottom:
+Row 1: laughing so hard with tears and tilted head; emphatic facepalm hand across eyes; surprised exploding mind with a colourful harmless puff; smug sunglasses with a satisfied smirk.
+Row 2: shrugging both arms and raised eyebrow; celebrating with small colourful confetti; furious little steam puffs and clenched fists; giving a warm heart hug with coral heart.
+Row 3: exaggerated crying fountain tears; unimpressed side-eye folded arms; curious popcorn munching watching drama; victorious mic drop with a little microphone.
+Style: polished hand-shaped 3D sticker illustration with clean readable silhouette, strong expressive face, teal and charcoal main colours with coral/gold/lilac accents. Crisp at small chat sizes. Real alpha transparency around each isolated character. No background rectangle, no ground, no common glow connecting stickers. Light shading is inside the artwork only.

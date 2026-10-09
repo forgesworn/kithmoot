@@ -1,0 +1,7 @@
+Use case: stylized-concept. New original KithMoot reaction stickers. The supplied image is a STYLE AND CHARACTER REFERENCE: use the same original teal round goblin, small charcoal horns, thick brows and polished expressive 3D sticker style, but create twelve DIFFERENT reactions.
+STRICT 4-column by 3-row grid, 2048x1536 canvas, each 512x512 cell one separate centred complete sticker with at least 40 pixels of transparent padding inside each edge. Genuine alpha cutouts. NO background, ambient glow, fog, ground shadow, grid, text, labels, logos, flags, maps or watermark. Do not overlap cell boundaries.
+Left to right, top to bottom:
+Row 1: enthusiastic thumbs up; sceptical thumbs down; slow sarcastic clap and smug grin; dramatic eye roll upward.
+Row 2: impatiently looking at a wristwatch; cartoon exhausted deadpan lying flat with tiny harmless skull icon; baffled wide-eyed WHAT expression with hands spread; melting into a teal puddle in embarrassment.
+Row 3: wicked cheeky plotting grin with hands rubbed together; riding a tiny gold rocket to the moon; clutching an oversized coffee mug with tired eyes; warmly shaking hands with a second tiny matching goblin.
+Strong readable silhouettes, cheeky expressive comedy, isolated stickers. Stickers themselves may use coral, gold and lilac props, but all outside pixels must have zero alpha. Keep the same character identity as the supplied reference.

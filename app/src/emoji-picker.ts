@@ -1,6 +1,7 @@
 import { CULT_EMOJIS } from '../../src/custom-emoji.js'
 import { emojiGlyph } from './custom-emoji.js'
 import { EMOJI_CATALOG } from '../../src/emoji-catalog.js'
+import { ORIGINAL_EMOJIS } from '../../src/original-art.js'
 
 /** Inserts into the selection saved when opening, preserving the current conversation's draft. */
 export class EmojiPicker {
@@ -9,6 +10,7 @@ export class EmojiPicker {
   readonly #grid = document.createElement('div')
   #choose?: (emoji: string) => void
   #return?: HTMLElement
+  #standard = false
   constructor(private readonly packs?: { available: () => boolean; unlock: () => Promise<boolean> }) {
     const dialog = this.#dialog
     dialog.className = 'emojiPicker'; dialog.setAttribute('aria-label', 'Choose an emoji')
@@ -18,6 +20,8 @@ export class EmojiPicker {
     const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Close emoji picker'
     close.addEventListener('click', () => dialog.close())
     const unlock = document.createElement('button'); unlock.type = 'button'; unlock.textContent = 'Unlock Nostr packs'
+    const standard = document.createElement('button'); standard.type = 'button'; standard.textContent = 'Standard emoji'
+    standard.addEventListener('click', () => { this.#standard = !this.#standard; standard.textContent = this.#standard ? 'KithMoot originals' : 'Standard emoji'; this.#render() })
     const status = document.createElement('p'); status.setAttribute('role', 'status')
     unlock.addEventListener('click', async () => {
       unlock.disabled = true; status.textContent = 'Confirm this account in your signer…'
@@ -25,7 +29,7 @@ export class EmojiPicker {
       catch (error) { status.textContent = error instanceof Error ? error.message : 'The pack could not be unlocked.' }
       finally { unlock.disabled = false }
     })
-    dialog.append(title, this.#query, this.#grid, unlock, status, close); document.body.append(dialog)
+    dialog.append(title, this.#query, this.#grid, standard, unlock, status, close); document.body.append(dialog)
     this.#query.addEventListener('input', () => this.#render())
     dialog.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.isComposing) { e.preventDefault(); dialog.close() } })
     dialog.addEventListener('close', () => { this.#choose = undefined; this.#query.value = ''; this.#return?.focus({ preventScroll: true }) })
@@ -37,7 +41,8 @@ export class EmojiPicker {
   #render(): void {
     this.#grid.replaceChildren()
     const query = this.#query.value.trim().toLocaleLowerCase()
-    for (const [emoji, name] of [...(this.packs?.available() ? CULT_EMOJIS : []), ...EMOJI_CATALOG]) {
+    const standard = this.#standard || query ? EMOJI_CATALOG.filter(([, name]) => !name.includes('flag')) : []
+    for (const [emoji, name] of [...ORIGINAL_EMOJIS, ...(this.packs?.available() ? CULT_EMOJIS : []), ...standard]) {
       const words = emoji === '🤦' ? 'facepalm head against wall frustrated ' + name : name
       if (!`${emoji} ${words}`.includes(query)) continue
       const button = document.createElement('button'); button.type = 'button'; button.append(emojiGlyph(emoji))
@@ -46,7 +51,7 @@ export class EmojiPicker {
       this.#grid.append(button)
       if (this.#grid.childElementCount >= 120) break
     }
-    if (!query) { const hint = document.createElement('p'); hint.textContent = 'Search 3,781 emoji, including skin tones and flags.'; this.#grid.prepend(hint) }
+    if (!query) { const hint = document.createElement('p'); hint.textContent = 'Original KithMoot artwork. Search here for more reactions.'; this.#grid.prepend(hint) }
     if (!this.#grid.childElementCount) this.#grid.textContent = 'No matching emoji. You can also use your keyboard’s emoji picker.'
   }
 }
