@@ -94,7 +94,7 @@ test('original artwork search makes no third-party requests and a bundled GIF ar
     await page.locator('#chatForm button[type=submit]').click()
     await expect.poll(() => writer.chat.messages().some(message => message.attachments?.length === 1)).toBe(true)
     const message = writer.chat.messages().find(message => message.attachments?.length === 1)!
-    expect(message.text).toBe('')
+    expect(message.text).toBe('Shared a file: Laugh.gif')
     const attachment = message.attachments![0]!
     const response = await context.request.get(TEST_RELAY_HTTP + new URL(attachment.url).pathname)
     const encrypted = await response.body()
