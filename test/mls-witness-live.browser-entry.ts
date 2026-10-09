@@ -18,11 +18,15 @@ const enrolment = new BrowserPersonaEnrolment(store, links)
 let advanceBoundary: 'witness' | 'lost-reply' | undefined
 let readMode: 'normal' | 'remember' | 'replay' | 'bad-signature' = 'normal'
 let rememberedRead: Uint8Array | undefined
+const timed = async <T>(name: string, work: () => Promise<T>): Promise<T> => {
+  const start = performance.now(); console.info(`[witness-lab] ${name} start`)
+  try { return await work() } finally { console.info(`[witness-lab] ${name} end ${Math.round(performance.now() - start)}ms`) }
+}
 const coordinator = new BrowserPersonaCoordinator(store, async (...args) => {
-  const channel = await links.channels(...args)
+  const channel = await timed('open', () => links.channels(...args))
   if (!channel) return null
-  return { ...channel, read: async request => {
-    const answer = await channel.read(request)
+  return { ...channel, close: () => timed('close', () => channel.close!()), read: async request => {
+    const answer = await timed('read', () => channel.read(request))
     if (answer.type !== 'receipt') return answer
     if (readMode === 'remember') rememberedRead = answer.bytes.slice()
     if (readMode === 'replay') return { type: 'receipt', bytes: rememberedRead!.slice() }
@@ -32,7 +36,7 @@ const coordinator = new BrowserPersonaCoordinator(store, async (...args) => {
     }
     return answer
   }, advance: async request => {
-    const answer = await channel.advance(request)
+    const answer = await timed('advance', () => channel.advance(request))
     if (answer.type === 'receipt' && advanceBoundary) {
       document.body.dataset.boundary = advanceBoundary
       if (advanceBoundary === 'witness') await new Promise(() => {})
@@ -143,12 +147,7 @@ export async function typedLeaf(retry = false, decision: 'approve' | 'deny' = 'a
   return typedAccount.signLeafBinding(leafRequest, async () => decision)
 }
 export const typedBox = (decision: 'approve' | 'deny' = 'approve') => typedAccount.signBoxRequest({ v: 1, box: '78'.repeat(32), method: 'POST', path: '/vmls/v1/fetch', payload: '12'.repeat(32) }, async () => decision)
-export async function typedWithdraw() {
-  const state = await typedAccount.vaultState()
-  if (!state.vault?.ok || !state.vault.value) return state.vault
-  for (const scope of state.vault.value.approved) {
-    const answer = await typedAccount.withdraw(scope)
-    if (!answer.ok) return answer
-  }
-  return { ok: true }
+export async function typedWithdraw(scope: import('../app/src/mls-vault.js').ConsentScope) {
+  const answer = await typedAccount.withdraw(scope)
+  return answer.ok ? { ok: true } : answer
 }

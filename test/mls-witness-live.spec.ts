@@ -198,10 +198,12 @@ test('real witness reconciles browser process kills and fences a whole-profile r
 })
 async function fixture(context: BrowserContext) {
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
-  const page = await context.newPage(); await page.goto(origin)
+  const page = await context.newPage()
+  page.on('console', message => { if (/^\[witness-lab\] (open|read|advance|close) (start|end \d+ms)$/.test(message.text())) console.info(message.text()) })
+  await page.goto(origin)
   return page
 }
-const call = (page: Page, action: string, ...args: unknown[]) => page.evaluate(([action, args]) => (window as any).W[action as string](...args as unknown[]), [action, args])
+const call = (page: Page, action: string, ...args: unknown[]) => test.step(action, () => page.evaluate(([action, args]) => (window as any).W[action as string](...args as unknown[]), [action, args]))
 
 test('real witness-only pairing, keeper enrolment, advances, restart, outage and retirement', async ({ context }) => {
   const daemon = await witnessDaemon(binary!, relay!)
@@ -247,6 +249,8 @@ test('real witness-only pairing, keeper enrolment, advances, restart, outage and
 })
 
 for (const migrate of [false, true]) test(`real witness covers typed account ${migrate ? 'migration' : 'creation'}, signatures, lost replies and withdrawal`, async ({ context }) => {
+  // This journey deliberately opens fresh writer sessions for each mutation.
+  test.setTimeout(480_000)
   const daemon = await witnessDaemon(binary!, relay!)
   try {
     const page = await fixture(context)
@@ -262,7 +266,9 @@ for (const migrate of [false, true]) test(`real witness covers typed account ${m
     const recovered = await call(page, 'typedLeaf', true)
     expect(recovered.ok).toBe(true); expect(recovered.value.signature).toMatch(/^[0-9a-f]{128}$/)
     expect(await call(page, 'typedLeaf', true)).toEqual(recovered)
-    expect(await call(page, 'typedWithdraw')).toEqual({ ok: true })
+    const scopes = (await call(page, 'typedState')).vault.value.approved
+    expect(scopes).toHaveLength(2)
+    for (const scope of scopes) expect(await call(page, 'typedWithdraw', scope)).toEqual({ ok: true })
     expect(await call(page, 'typedBox', 'deny')).toEqual({ ok: false, refusal: 'denied' })
     await daemon.stop()
     expect(await call(page, 'typedLeaf', true)).toEqual({ ok: false, refusal: 'witness-pending' })

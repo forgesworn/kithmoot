@@ -84,9 +84,11 @@ test('full app creates and manages a witnessed device, survives reload, holds of
     let quietWitnessConnections = 0
     page.on('websocket', socket => { if (socket.url() === relay) quietWitnessConnections++ })
     const quietUrl = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Quiet lab', relays: [], iceUrls: [], policy: { tier: 'open', members: [getPublicKey(secret)], quiet: true } })
-    await page.goto(quietUrl); await settings(page)
-    await expect(page.locator('#mlsWitnessVaultRead')).toBeDisabled()
-    await expect(page.locator('#mlsWitnessNetworkStatus')).toContainText('connections are held')
+    // A room link changes only the fragment. Leave the current document first
+    // so this models opening the invitation, rather than an inert hash edit.
+    await page.goto('about:blank'); await page.goto(quietUrl)
+    await expect(page.getByRole('heading', { name: 'Quiet lab', exact: true })).toBeVisible()
+    await expect(page.locator('#mlsWitnessSettings')).toHaveCount(0)
     expect(quietWitnessConnections).toBe(0)
     expect(errors).toEqual([])
   } finally { release?.(); await daemon.cleanup() }
