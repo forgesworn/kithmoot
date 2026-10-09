@@ -2,6 +2,7 @@ import { BrowserMlsPersonaStore, PersonaStorageError } from './mls-persona-store
 import { BrowserPersonaLinks } from './mls-persona-link.js'
 import { BrowserPersonaEnrolment, type PersonaEnrolment } from './mls-persona-enrolment.js'
 import { BrowserPersonaCoordinator, type CoordinationResult } from './mls-persona-coordinator.js'
+import { BrowserCoordinatedVaultSignals } from './mls-coordinated-vault.js'
 
 export interface MlsAccountContext { persona: string; generation: string; mode: 'normal' | 'quiet' | 'tor-only' }
 export interface MlsAccountView {
@@ -62,6 +63,7 @@ export class BrowserMlsAccount {
   clear(installation: string): Promise<MlsAccountView> {
     if (!/^[0-9a-f]{64}$/.test(installation)) return Promise.reject(new Error('Reopen the installation before clearing it.'))
     return this.#run(async (s, c, current) => {
+      new BrowserCoordinatedVaultSignals().invalidate()
       const check = await s.coordinator.clear(c.persona, current, installation)
       return { check, enrolment: await s.enrolment.status(c.persona, current) }
     }, false, true)
@@ -77,6 +79,7 @@ export class BrowserMlsAccount {
   pause(): Promise<void> {
     this.#generation++
     if (this.#services) {
+      this.#services.coordinator.invalidate()
       this.#resumeNeeded = true
       this.#stopping = Promise.all([this.#stopping, this.#services.links.pause()]).then(() => undefined)
     }

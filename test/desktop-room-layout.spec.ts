@@ -140,7 +140,11 @@ test('two people each share a screen: both on the stage, faces one size beside t
   test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
   await mkdir(SHOTS, { recursive: true })
 
-  const a = await newDeviceContext(browser, baseURL!)
+  // These assertions compare layout endpoints. Synthetic speech can reorder
+  // the shares' parent tiles between reads, even after the drawer settles.
+  // Use the app's reduced-motion mode so intermediate animation frames are
+  // not mistaken for overlapping final positions.
+  const a = await newDeviceContext(browser, baseURL!, { reducedMotion: 'reduce' })
   const b = await newDeviceContext(browser, baseURL!)
   // A shared tab each. The fake desktop capture shares a whole screen, and
   // a whole screen's own preview is withheld from the sharer so it cannot

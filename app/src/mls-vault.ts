@@ -31,11 +31,13 @@ import {
   type BindingErrorCode, type PersonCredential,
 } from '../../src/vmls/binding.js'
 import type { StoredRendezvousChild } from './rendezvous-vault.js'
+import type { BrowserPersonaCoordinator, CoordinationResult } from './mls-persona-coordinator.js'
+import { importLegacyVault } from './mls-coordinated-vault.js'
 
 /** The stable refusal strings of §6.2. */
 export type VaultRefusal =
   | 'unsupported' | 'malformed' | 'unauthorised' | 'expired' | 'revoked'
-  | 'denied' | 'busy' | 'stale' | 'replay' | 'restore-fenced'
+  | 'denied' | 'busy' | 'stale' | 'replay' | 'restore-fenced' | 'witness-pending'
 
 export type VaultResult<T> = { ok: true; value: T } | { ok: false; refusal: VaultRefusal }
 
@@ -88,7 +90,7 @@ export interface ConsentScope {
   persona: string
   device: string
   homeBox: string
-  method: typeof SIGN_METHOD
+  method: typeof SIGN_METHOD | 'signBoxRequestV1/1'
 }
 
 export type ConsentDecision = 'approve' | 'deny'
@@ -143,7 +145,7 @@ export interface VaultLocks {
   request<T>(name: string, work: () => Promise<T>): Promise<T>
 }
 
-interface DeviceRecord {
+export interface DeviceRecord {
   persona: string
   scalar: string
   device: string
@@ -152,7 +154,7 @@ interface DeviceRecord {
   credentialExpiresAt: number
 }
 
-interface PersonCredentialEvent {
+export interface PersonCredentialEvent {
   kind: number
   pubkey: string
   created_at: number
@@ -161,7 +163,7 @@ interface PersonCredentialEvent {
   sig: string
 }
 
-interface JournalEntry {
+export interface JournalEntry {
   revision?: string
   /** The vault generation it was decided under: a retry from another
    * generation is stale, never a replay (S25, E06). */
@@ -175,12 +177,12 @@ interface JournalEntry {
   outcome: { ok: true; signature: string; homeBox: string } | { ok: false; refusal: 'denied' }
 }
 
-interface PolicyRecord {
+export interface PolicyRecord {
   approved: ConsentScope[]
   revoked: string[]
 }
 
-type Purpose = 'installation' | 'device' | 'journal' | 'policy'
+type Purpose = 'installation' | 'device' | 'journal' | 'policy' | 'migration'
 
 export interface MlsVaultOptions {
   crypto?: Crypto
@@ -306,7 +308,7 @@ export class MlsVault {
   async approve(ctx: VaultContext, scope: ConsentScope): Promise<VaultResult<void>> {
     await this.#ready()
     if (!this.#current(ctx)) return refuse('stale')
-    if (!scopeShape(scope) || scope.persona !== ctx.persona || scope.principal !== ctx.principal) return refuse('malformed')
+    if (!scopeShape(scope) || scope.method !== SIGN_METHOD || scope.persona !== ctx.persona || scope.principal !== ctx.principal) return refuse('malformed')
     return await this.#locked(async () => {
       if (!this.#current(ctx)) return refuse('stale')
       const policy = await this.#policy(ctx.persona)
@@ -546,8 +548,43 @@ export class MlsVault {
   async clear(persona: string): Promise<void> {
     await this.#ready()
     await this.#locked(async () => {
+      await this.#notMigrated(persona)
       this.storage.invalidate()
       for (const purpose of ['device', 'journal', 'policy'] as const) await this.storage.remove(await this.#name(purpose, persona))
+    })
+  }
+
+  /** Explicit one-way transfer of the dormant legacy vault. Freeze it before
+   * the destination can stage anything; interruption leaves it frozen and the
+   * same destination can retry. The encrypted source is retained for recovery.
+   * No keys, installation or empty persona are created here. Only public
+   * device metadata returns, after the destination coordinator promotes it. */
+  async migrateTo(persona: string, installation: string, destination: BrowserPersonaCoordinator, current: () => boolean): Promise<CoordinationResult<VaultResult<EnrolledDevice>>> {
+    if (!HEX64.test(persona) || !HEX64.test(installation)) throw new Error('Invalid MLS migration destination.')
+    if (!browserLocks()) throw new Error('MLS migration requires Web Locks.')
+    return this.#locked(async () => {
+      if (!current()) return { state: 'pending', reason: 'stale', refused: false }
+      const keys = await this.storage.keys()
+      if (!keys) throw new Error('The legacy MLS vault keys are missing.')
+      this.#keys = Promise.resolve(keys)
+      const legacyInstallation = await this.#openRecord<string>('installation', '')
+      if (!legacyInstallation || !HEX64.test(legacyInstallation)) throw new Error('The legacy MLS installation is missing.')
+      this.#installation = Promise.resolve(legacyInstallation)
+      const migration = await this.#openRecord<{ installation: string }>('migration', persona)
+      if (migration && migration.installation !== installation) throw new Error('The legacy MLS vault is bound to another migration.')
+      const device = await this.#openRecord<DeviceRecord>('device', persona)
+      if (!device) throw new Error('The legacy MLS device is missing.')
+      try {
+        const policy = await this.#openRecord<PolicyRecord>('policy', persona) ?? { approved: [], revoked: [] }
+        const journal = await this.#openRecord<JournalEntry[]>('journal', persona) ?? []
+        if (!current()) return { state: 'pending', reason: 'stale', refused: false }
+        this.storage.invalidate()
+        if (!migration) await this.#seal('migration', persona, { installation })
+        return await destination.transact(persona, async tx => {
+          if (tx.installation !== installation) return refuse('stale')
+          return importLegacyVault(tx, persona, { device, policy, journal })
+        }, current)
+      } finally { device.scalar = '' }
     })
   }
 
@@ -584,6 +621,7 @@ export class MlsVault {
   }
 
   async #seal(purpose: Purpose, persona: string, value: unknown): Promise<void> {
+    if (purpose !== 'installation' && purpose !== 'migration') await this.#notMigrated(persona)
     const keys = await this.#cryptoKeys()
     const plaintext = new TextEncoder().encode(JSON.stringify(value))
     const nonce = new Uint8Array(NONCE_BYTES); this.#crypto.getRandomValues(nonce)
@@ -596,6 +634,15 @@ export class MlsVault {
   /** Opens a record; a missing one is `undefined`, a corrupt one throws:
    * never a silent fallback (§6.1). */
   async #open<T>(purpose: Purpose, persona: string): Promise<T | undefined> {
+    if (purpose !== 'installation' && purpose !== 'migration') await this.#notMigrated(persona)
+    return this.#openRecord<T>(purpose, persona)
+  }
+
+  async #notMigrated(persona: string): Promise<void> {
+    if (await this.#openRecord('migration', persona) !== undefined) throw new Error('This MLS vault has moved to coordinated storage.')
+  }
+
+  async #openRecord<T>(purpose: Purpose, persona: string): Promise<T | undefined> {
     const record = await this.storage.get(await this.#name(purpose, persona))
     if (!record) return undefined
     if (record.version !== RECORD_VERSION || !(record.nonce instanceof ArrayBuffer) || !(record.ciphertext instanceof ArrayBuffer) || record.nonce.byteLength !== NONCE_BYTES) throw new Error('An MLS vault record is malformed.')
@@ -657,7 +704,7 @@ export class MlsVault {
 
 // ---- request shapes ----
 
-function signRequestShape(value: unknown): VaultResult<SignLeafBindingRequest> {
+export function signRequestShape(value: unknown): VaultResult<SignLeafBindingRequest> {
   if (!plain(value)) return refuse('malformed')
   const keys = Object.keys(value).sort().join(',')
   if ('v' in value && value.v !== 1) return refuse('unsupported')
@@ -681,12 +728,12 @@ function ecdhRequestShape(value: unknown): VaultResult<RendezvousEcdhRequest> {
   return { ok: true, value: { v: 1, operation, peer_rz, expires_at } }
 }
 
-function scopeShape(scope: ConsentScope): boolean {
+export function scopeShape(scope: ConsentScope): boolean {
   return plain(scope) && typeof scope.principal === 'string' && scope.principal.length > 0 &&
-    HEX64.test(scope.persona) && HEX64.test(scope.device) && HEX64.test(scope.homeBox) && scope.method === SIGN_METHOD
+    HEX64.test(scope.persona) && HEX64.test(scope.device) && HEX64.test(scope.homeBox) && (scope.method === SIGN_METHOD || scope.method === 'signBoxRequestV1/1')
 }
 
-function sameScope(a: ConsentScope, b: ConsentScope): boolean {
+export function sameScope(a: ConsentScope, b: ConsentScope): boolean {
   return a.principal === b.principal && a.persona === b.persona && a.device === b.device && a.homeBox === b.homeBox && a.method === b.method
 }
 
@@ -698,7 +745,7 @@ const requestKey = (r: SignLeafBindingRequest): string => `${r.operation}|${r.di
 const ecdhKey = (r: RendezvousEcdhRequest): string => `${r.operation}|${r.peer_rz}|${r.expires_at}`
 
 /** Canonical padded base64 only: what decodes must re-encode identically. */
-function base64Decode(text: string): Uint8Array | undefined {
+export function base64Decode(text: string): Uint8Array | undefined {
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(text) || text.length % 4 !== 0) return undefined
   let bytes: Uint8Array
   try { bytes = Uint8Array.from(atob(text), c => c.charCodeAt(0)) } catch { return undefined }
@@ -713,7 +760,7 @@ export function base64Encode(bytes: Uint8Array): string {
   return btoa(text)
 }
 
-function refusalOf(error: unknown): VaultRefusal {
+export function refusalOf(error: unknown): VaultRefusal {
   if (!(error instanceof BindingError)) return 'malformed'
   const code: BindingErrorCode = error.code
   switch (code) {

@@ -156,7 +156,10 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
   const contexts: BrowserContext[] = []
   try {
     const first = await (async () => {
-      const context = await newDeviceContext(browser, baseURL!)
+      // Measure layout endpoints, including a fixed share during scrolling.
+      // Speaker changes can start another tile transition between geometry
+      // reads; a sleep cannot settle continuously changing synthetic speech.
+      const context = await newDeviceContext(browser, baseURL!, { reducedMotion: 'reduce' })
       contexts.push(context)
       const page = await context.newPage()
       await page.setViewportSize({ width: 1440, height: 900 })
@@ -275,9 +278,8 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
 
     // Faces past the end of the room scroll; the share stays where it is.
     await first.locator('#room').evaluate(el => { el.scrollTop = el.scrollHeight; el.scrollLeft = el.scrollWidth })
-    // Polled, not read once: the strip reorders as people speak, tiles ease
-    // to their new places over 160 ms, and a share drawn from its owner's
-    // tile is caught mid-move by a reading that lands inside one.
+    // The scroll event schedules the stage update; wait for that update
+    // rather than reading before the share has followed the new offset.
     const drift = async () => {
       const scrolled = (await first.locator('#room video.screenPreview').boundingBox())!
       return Math.max(Math.abs(scrolled.y - stage!.y), Math.abs(scrolled.x - stage!.x))
