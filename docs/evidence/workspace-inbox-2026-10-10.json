@@ -308,13 +308,18 @@
   "desktopCandidate": {
     "version": "0.1.68",
     "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
-    "verifiedAt": "2026-10-10T06:27:44.153644+00:00",
-    "state": "packaged-awaiting-notarisation-and-hosted-ci",
+    "verifiedAt": "2026-10-10T07:12:13.270309+00:00",
+    "state": "notarised-packages-and-signed-feeds-awaiting-final-ci",
     "containsVoiceMaskFix": true,
     "containsLateAgentUnreadFix": true,
     "exactWebFilesPerBundle": 264,
     "exactDesktopFilesPerBundle": 22,
     "readyArchives": [
+      {
+        "name": "KithMoot-0.1.68-mac-arm64.zip",
+        "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96",
+        "bytes": 176749486
+      },
       {
         "name": "KithMoot-0.1.68-linux-x64.tar.gz",
         "bytes": 169928092,
@@ -428,14 +433,48 @@
       "m4LoginKeychainUnlocked": false,
       "developerIdSigned": true,
       "strictSignatureVerified": true,
-      "notarisationAccepted": false,
-      "publicReleasePublished": false
+      "notarisationAccepted": true,
+      "publicReleasePublished": false,
+      "submissionId": "d150232b-518e-434a-a35d-ea146c4faee8",
+      "dedicatedNotaryKeychainVerified": true,
+      "loginKeychainStatePreserved": true
     },
-    "shellUnitChecksPassed": 95,
+    "shellUnitChecksPassed": 98,
     "publicReleasePublished": false,
     "eligibleForPublication": false,
-    "macNotarisationAccepted": false,
-    "macFinalArchiveVerified": false,
-    "physicalWindowsLinuxAcceptance": false
+    "macNotarisationAccepted": true,
+    "macFinalArchiveVerified": true,
+    "physicalWindowsLinuxAcceptance": false,
+    "macFinalProof": {
+      "verifiedAt": "2026-10-10T07:11:07.409202+00:00",
+      "version": "0.1.68",
+      "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "submission": {
+        "status": "Accepted",
+        "message": "Successfully received submission info",
+        "id": "d150232b-518e-434a-a35d-ea146c4faee8",
+        "name": "KithMoot-0.1.68-signed.zip",
+        "createdDate": "2026-10-10T07:00:45.901Z"
+      },
+      "staplerValidated": true,
+      "strictSignatureVerified": true,
+      "gatekeeper": "Notarized Developer ID",
+      "archive": {
+        "name": "KithMoot-0.1.68-mac-arm64.zip",
+        "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96",
+        "bytes": 176749486
+      },
+      "exactBundleEntries": 280,
+      "allBundleFilesAndLinksMatch": true,
+      "zipCrcVerified": true,
+      "published": false
+    },
+    "signedReleaseManifestVerified": true,
+    "squirrelFeedMatchesFinalMacArchive": true,
+    "aptSignaturesVerified": [
+      "InRelease",
+      "Release.gpg"
+    ],
+    "aptSignerFingerprint": "D6D7B42A690985CC3DDCC676F546951EDCB5E0DC"
   }
 }

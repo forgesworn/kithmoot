@@ -126,6 +126,15 @@ signs Electron's nested code with hardened runtime, submits the ZIP to Apple,
 requires Accepted status, staples and validates the ticket, and checks Gatekeeper
 before creating the public archive filename.
 
+For a dedicated notarisation keychain, set `KITHMOOT_MAC_NOTARY_KEYCHAIN` to
+its absolute path. It can be separate from the signing keychain. For unattended
+builds, also set `KITHMOOT_MAC_NOTARY_PASSWORD_FILE` to a file owned by the
+build user with mode `0600`, containing that dedicated keychain's password.
+The helper unlocks only this keychain for the notarytool operation and restores
+its original lock state afterwards. It passes the file path rather than the
+password on the command line. Keep the password file and credentials outside
+the repository; the login keychain and its settings need no change.
+
 For a disposable local build only, `KITHMOOT_MAC_LOCAL_PREVIEW=1 npm run package:mac`
 produces an explicitly named `-local-preview.zip`. Do not publish it as a normal
 Mac update. Developer ID signing still needs physical upgrade/capture acceptance;

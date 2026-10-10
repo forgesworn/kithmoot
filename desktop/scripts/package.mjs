@@ -1,6 +1,6 @@
 import { packager } from '@electron/packager'
 import { sign } from '@electron/osx-sign'
-import { macSigningConfig } from './mac-signing.mjs'
+import { macSigningConfig, notarySubmissionArgs, notaryCommand } from './mac-signing.mjs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -51,7 +51,8 @@ for (const path of paths) {
   const zip = signing.localPreview ? archive : resolve(root, `out/.KithMoot-${version}-pending-notarisation.zip`)
   if (spawnSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', bundle, zip], { stdio: 'inherit' }).status) throw new Error('ZIP failed')
   if (!signing.localPreview) {
-    const submitted = spawnSync('xcrun', ['notarytool', 'submit', zip, '--keychain-profile', signing.profile, '--wait', '--output-format', 'json'], { encoding: 'utf8' })
+    const notary = notaryCommand(notarySubmissionArgs(zip, signing), signing)
+    const submitted = spawnSync(notary.command, notary.args, { encoding: 'utf8' })
     await writeFile(resolve(assets, `notarisation-${version}.json`), submitted.stdout || JSON.stringify({ error: submitted.stderr, status: submitted.status }))
     if (submitted.status || JSON.parse(submitted.stdout).status !== 'Accepted') throw new Error('Apple did not accept notarisation. The archive must not be published.')
     for (const args of [['stapler', 'staple', bundle], ['stapler', 'validate', bundle]]) {

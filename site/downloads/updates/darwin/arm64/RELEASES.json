@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.67",
+  "currentRelease": "0.1.68",
   "releases": [
     {
-      "version": "0.1.67",
+      "version": "0.1.68",
       "updateTo": {
-        "version": "0.1.67",
-        "pub_date": "2026-10-10T00:13:29Z",
-        "notes": "Record gallery, speaker or a selected screen share with camera and mixed call audio. Everyone sees named capture notices. Add to message keeps your local recording through storage refusal, upload failure and retry; Send remains a separate choice.",
-        "name": "0.1.67",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.67/KithMoot-0.1.67-mac-arm64.zip",
-        "sha256": "c9084e7d531c790c5fcf90fa1d2e7f51dbaeee9352f1e0706497b013a4e74515",
-        "size": 176742721
+        "version": "0.1.68",
+        "pub_date": "2026-10-10T07:12:13Z",
+        "notes": "Inbox and All work bring activity from your joined project rooms together. Follow questions, mentions and results back to their original room, while keeping unsent drafts. Agent unread counts refresh when signed presence arrives after a message. Voice-mask failures keep the microphone muted until you choose how to continue.",
+        "name": "0.1.68",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/KithMoot-0.1.68-mac-arm64.zip",
+        "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96",
+        "size": 176749486
       }
     }
   ]
