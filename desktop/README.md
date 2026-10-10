@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.69 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.70 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -217,3 +217,18 @@ architectures have verified Debian payloads and a signed APT index. Windows
 remains an unsigned preview. The [preparation receipt](../docs/evidence/desktop-0.1.69-signed-build-2026-10-10.json)
 keeps archive and automated unread evidence separate from public feed activation
 and installed-app acceptance.
+
+
+## Version 0.1.70 release preparation
+
+Send keeps the newest pending message in view and retains its row until the
+conversation shows the message. Accepted sends pass the normal protocol
+checks and appear without waiting for a subscription echo. Rejected sends
+remain pending, and retries publish the same signed event.
+
+The Mac candidate is Developer ID signed, notarised and stapled; Gatekeeper
+accepts it. Linux tarballs, both Debian packages and the unsigned Windows
+preview contain the same verified web and desktop runtime. The
+[preparation receipt](../docs/evidence/desktop-0.1.70-signed-build-2026-10-10.json)
+records the exact source and all six archive hashes. Publication and installed
+Mac acceptance remain separate checks.
