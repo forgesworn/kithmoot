@@ -52,6 +52,10 @@ test('M1: a docked call in landscape never draws over the room bar', async ({ br
     await page.locator('#backToRooms').click()
     await page.locator('#roomSwitcherList').getByRole('button', { name: `Switch to ${rooms[1].name}`, exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText(rooms[1].name)
+    // The title is rendered while entry is still preparing the room. Measure
+    // the committed conversation, rather than its temporarily hidden bar.
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('.roomBar')).toBeVisible()
     await expect(page.locator('#callDock')).toBeVisible()
 
     const dock = (await page.locator('#callDock').boundingBox())!

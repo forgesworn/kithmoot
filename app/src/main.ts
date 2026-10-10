@@ -8255,6 +8255,7 @@ function renderMeeting(): void {
   const recordLabel = recordingHere ? 'Stop recording' : 'Record call'
   record.hidden = !session && !recordingHere
   record.querySelector('.callWord')!.textContent = recordLabel
+  record.querySelector('.callShort')!.textContent = recordingHere ? 'Stop' : 'Record'
   record.setAttribute('aria-label', recordLabel)
   record.setAttribute('aria-pressed', String(recordingHere))
   record.dataset.on = String(recordingHere)

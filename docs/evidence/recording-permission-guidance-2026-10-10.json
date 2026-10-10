@@ -6,15 +6,44 @@
     "typecheck": "passed",
     "unitTests": 3834,
     "unitFiles": 272,
-    "recordingSharingMeetingAndCallSurface": { "passed": 20, "skipped": 2 },
-    "additionalParticipantDockNavigation": { "passed": 4, "skipped": 0 },
-    "browserProjects": ["chromium", "chromium-desktop"],
+    "recordingSharingMeetingAndCallSurface": {
+      "passed": 20,
+      "skipped": 2
+    },
+    "additionalParticipantDockNavigation": {
+      "passed": 4,
+      "skipped": 0
+    },
+    "browserProjects": [
+      "chromium",
+      "chromium-desktop"
+    ],
     "syntheticMediaInputs": true,
     "recordingAuthorityGuardRetained": true,
-    "disabledParticipantSyntheticClickRejected": true
+    "disabledParticipantSyntheticClickRejected": true,
+    "finalPhoneAndDesktopLayoutRegression": {
+      "passed": 10,
+      "skipped": 0,
+      "duration": "2.8m",
+      "projects": [
+        "chromium",
+        "chromium-desktop"
+      ],
+      "scope": [
+        "Separate recording slot never overlays Microphone in short landscape",
+        "Record and creator-only explanation visible without shrinking gallery below45percent",
+        "Room-bar geometry measured after committed room entry",
+        "Gallery audio/video export and originating-call navigation retained"
+      ]
+    }
   },
   "publication": "pending pull request CI and release",
   "physicalAcceptance": false,
   "nativeAndroidRecording": false,
-  "longSessionAcceptance": "not established by these short browser checks"
+  "longSessionAcceptance": "not established by these short browser checks",
+  "priorCI": {
+    "run": "https://github.com/forgesworn/kithmoot/actions/runs/38087081629",
+    "passedChecks": 11,
+    "remainingJob": "Chromium rest stopped at20minute limit; phone overlap and gallery-height failures reproduced and repaired"
+  }
 }
