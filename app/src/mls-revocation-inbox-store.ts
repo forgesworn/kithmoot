@@ -91,7 +91,7 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
         outcomes.some((item, index) => !item || !exact(item, item.outcome === 'no-live' ? 'at,evidence,node,outcome,recordDigest,reference' : 'at,node,outcome,reference') || !hex32(item.node) || !hex32(item.reference) ||
           !time(item.at) || item.at < prompt.approval!.approvedAt || item.at > value.checkedAt || !['revoked','route-unavailable','no-live'].includes(item.outcome) ||
           index > 0 && outcomes[index - 1]!.reference >= item.reference || !prompt.approval!.grants.some(grant => grant.node === item.node && grant.reference === item.reference)) ||
-        prompt.state === 'done' && outcomes.length !== prompt.approval.grants.length) invalid()
+        prompt.state === 'done' && (outcomes.length !== prompt.approval.grants.length || outcomes.some(item => item.outcome === 'no-live'))) invalid()
       for (const item of outcomes) if (item.outcome === 'no-live') {
         const evidence = item.evidence, binding = evidence?.binding
         const grant = prompt.approval!.grants.find(grant => grant.reference === item.reference)!

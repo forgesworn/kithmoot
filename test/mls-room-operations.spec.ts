@@ -113,11 +113,11 @@ test('dual-clock lapse preserves the compromised hold until real MLS commit with
   expect(await run(page, 'M.applyKeeperRemoval()')).toMatchObject({ state: 'active' })
   await run(page, 'M.restart()')
   const done = await run(page, 'M.continueKeeperRequest()')
-  expect(done).toMatchObject({ state: 'done', rooms: [{ state: 'committed' }] })
+  expect(done).toMatchObject({ state: 'approved', completion: 'awaiting-grant-install-hold', rooms: [{ state: 'committed' }] })
   expect(done.grants).toEqual(expect.arrayContaining([expect.objectContaining({ state: 'no-live' }), expect.objectContaining({ state: 'revoked' })]))
   expect(await run(page, 'M.membership()')).toMatchObject({ value: [{ mls: 'Committed', grants: [{ state: { type: 'Pending' } }] }] })
   expect(await run(page, 'M.keeperWithdrawalAttempts()')).toHaveLength(1)
-  expect(await run(page, 'M.send()')).toMatchObject({ state: 'active' })
+  expect(await run(page, 'M.send()')).toEqual({ state: 'refused', reason: 'compromised-removal' })
   await run(page, 'M.forgetGuest()')
 })
 for (const mode of ['behind', 'refused'] as const) test(`keeper lapse holds with ${mode} box-clock evidence`, async ({ context }) => {

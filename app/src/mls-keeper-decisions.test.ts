@@ -75,7 +75,8 @@ describe('witnessed keeper operator decisions', () => {
         expect(execution).toMatchObject({ value: { revoked: [], unavailable: [], lapsed: [plan.value.grants[0]!.reference] } })
         const effects = { withdrawRequestedDevice: vi.fn(async () => { throw new Error('must not publish') }) }
         const controller = new BrowserMlsKeeperRequestController(f.restart(), {} as any, effects, f.context)
-        expect(await controller.advance(f.operation)).toMatchObject({ state: 'done', grants: [{ state: 'no-live' }], notice: 'No live grants remain in this keeper’s ledger.' })
+        expect(await controller.advance(f.operation)).toMatchObject({ state: 'approved', grants: [{ state: 'no-live' }], completion: 'awaiting-grant-install-hold' })
+        await expect(f.restart().complete(f.operation)).rejects.toThrow('grant-install hold')
         expect(effects.withdrawRequestedDevice).not.toHaveBeenCalled()
       }
       expect(f.client.fetch.mock.calls.length).toBe(calls); expect(JSON.stringify(f.records)).toBe(JSON.stringify([record]))
@@ -108,7 +109,7 @@ describe('witnessed keeper operator decisions', () => {
     await f.decisions.lapse(f.operation, record, (await f.boxClock.probe(record))!)
     f.records.length = 0
     expect(await f.restart().execution(f.operation)).toMatchObject({ value: { revoked: [], lapsed: [plan.value.grants[0]!.reference] } })
-    expect(await f.restart().complete(f.operation)).toMatchObject({ value: { state: 'done' } })
+    await expect(f.restart().complete(f.operation)).rejects.toThrow('grant-install hold')
     f.records.push({ ...record, state: 'revoking' })
     await expect(f.restart().execution(f.operation)).rejects.toThrow('lapsed grant record changed')
     f.records[0] = await planMlsGrant(keeper, record.box, member.pubkey, device, { session, name: 'Replacement', leaf: '55'.repeat(32) }, record.expiration, { ...record, state: 'revoked' })
@@ -143,6 +144,8 @@ describe('witnessed keeper operator decisions', () => {
     f.beforeCommit(() => undefined); f.clock(record.expiration)
     await f.decisions.lapse(f.operation, record, (await f.boxClock.probe(record))!)
     const saved = await readMlsMembership(f.tx)
+    const premature = structuredClone(saved); premature.inbox!.prompts[0]!.state = 'done'
+    await expect(saveMlsMembership(f.tx, premature)).rejects.toBeInstanceOf(InvalidPersonaRecord)
     for (const kind of ['box-time', 'phone-time', 'binding', 'expiry', 'digest', 'observed-at', 'extra'] as const) {
       const changed = structuredClone(saved), item = changed.inbox!.prompts[0]!.grantOutcomes![0]!
       if (item.outcome !== 'no-live') throw new Error('missing lapse')

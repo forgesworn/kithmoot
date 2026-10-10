@@ -8,7 +8,7 @@ export interface MlsKeeperRequestProgress {
   state: 'approved' | 'done'
   rooms: { session: string; operation: string; state: 'pending' | 'committed' | 'ledger-only' | 'absent'; failure?: string; effect?: MlsRemovalEffect }[]
   grants: { node: string; reference: string; state: 'pending' | 'revoked' | 'unavailable' | 'no-live'; access?: 'unconfirmed'; failure?: string }[]
-  notice?: 'No live grants remain in this keeper’s ledger.'
+  completion?: 'awaiting-grant-install-hold'
 }
 type Operations = Pick<BrowserMlsRoomOperations, 'removeRequestedDevice' | 'driveRemoval' | 'membership' | 'retryRemoval' | 'setRemovalGrants'>
 const failure = (error: unknown): string => error instanceof Error ? error.message : 'The operation could not be confirmed.'
@@ -113,11 +113,13 @@ export class BrowserMlsKeeperRequestController {
     }
     plan = await execution()
     if (progress.grants.every(grant => grant.state !== 'pending') && progress.rooms.every(room => room.state !== 'pending')) {
-      const done = await this.decisions.complete(operation)
-      check()
-      if (done.state === 'active') progress.state = 'done'
+      if (plan.lapsed.length) progress.completion = 'awaiting-grant-install-hold'
+      else {
+        const done = await this.decisions.complete(operation)
+        check()
+        if (done.state === 'active') progress.state = 'done'
+      }
     }
-    if (progress.state === 'done' && progress.grants.every(grant => grant.state === 'no-live')) progress.notice = 'No live grants remain in this keeper’s ledger.'
     return progress
   }
 }

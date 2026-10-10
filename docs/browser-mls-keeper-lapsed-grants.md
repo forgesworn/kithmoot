@@ -17,8 +17,9 @@ The signed expiration must be no later than **both** the authenticated positive
 fetch's box time and the phone time captured by that probe. The later local
 audit time cannot expand this conservative expiry test. Account, foreground
 and nondecreasing phone time remain required through witness commit. Every
-attempt invalidates the observation, including unavailable or aborted witnesses;
-a further attempt needs a fresh explicit probe.
+attempt after the concrete clock owner resolves invalidates its observation,
+including unavailable or aborted witnesses; a further attempt needs a fresh
+explicit probe. The caller must invalidate its owner if resolution fails.
 
 The sealed `no-live` outcome contains the exact node/reference, audit time,
 bounded clock facts and a domain-separated digest of the complete serialized
@@ -29,11 +30,17 @@ record's active/revoking status is unchanged.
 
 After restart, execution reports `lapsed` separately. The controller reports a
 `no-live` row and does not publish a withdrawal or mark the engine grant
-`Revoked`. Real MLS Remove journals must still reach `Committed` before the
-compromised-device hold releases. When every approved grant has this lapse
-outcome, completion reports "No live grants remain in this keeper's ledger."
-An additional or replacement device grant, or any changed retained record
-digest, prevents that old approval from completing.
+`Revoked`. Real MLS Remove journals must still reach `Committed`. Lapsed requests
+then remain approved, with `completion: awaiting-grant-install-hold`, and keep
+the compromised-device hold. `complete()` refuses them and persisted `done`
+lapse outcomes are rejected. No terminal no-live notice is exposed yet.
+
+Grant ledger reads and persona witness commits are different atomic domains.
+A replacement could be installed between the final ledger read and witness
+commit. Detecting changes at a read does not close that window. An
+affected-device grant-install hold spanning completion is therefore mandatory
+before terminal completion or runtime composition. The current development
+slice deliberately keeps that gate closed.
 
 An absent old record is accepted only with its exact sealed lapse outcome.
 Absence without that fact remains held. This accommodates future authorised

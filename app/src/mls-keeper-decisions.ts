@@ -147,6 +147,10 @@ export class BrowserMlsKeeperDecisions {
     const scope = this.#scope()
     return this.coordinator.transact(scope.vault.persona, async tx => {
       const current = await this.#execution(tx, scope, operation)
+      // A ledger read and persona witness are different atomic domains.
+      // Until affected-device installation is held across this commit, a
+      // replacement could arrive after the last read. Keep the approval hold.
+      if (current.lapsed.length) throw new Error('Lapsed grant completion awaits the affected-device grant-install hold.')
       if (current.revoked.length + current.unavailable.length + current.lapsed.length !== current.grants.length || current.rooms.some(room => room.action === 'remove')) throw new Error('The approved removal or grant withdrawal is still pending.')
       const journal = await readMlsMembership(tx), prompt = journal.inbox!.prompts.find(item => item.operation === operation)!
       // A target can disappear before its journal catches up. Do not clear
