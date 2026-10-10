@@ -436,7 +436,7 @@ export class BrowserMlsRoomOperations {
           })
           const packageId = hexToBytes(route.packageId), mailbox = hexToBytes(route.welcomeMailbox)
           try {
-            const answer = await BrowserMlsBoxClient.prototype.registerPackage.call(client, packageId, mailbox, route.expiresAt, boxNow)
+            const answer = await BrowserMlsBoxClient.prototype.registerPackageSettled.call(client, packageId, mailbox, route.expiresAt, boxNow)
             if (answer.state !== 'ok') throw new PackageRegistrationStopped(answer)
           } finally { packageId.fill(0); mailbox.fill(0) }
         }

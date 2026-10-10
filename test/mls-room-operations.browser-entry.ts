@@ -178,7 +178,7 @@ function boxInput(record: any, signed?: Uint8Array) { return { homeBox: boxId, i
 let candidateRegistrations = 0, candidatePackagePause: Promise<void> | undefined, releaseCandidatePackage: (() => void) | undefined
 let candidateAddTask: Promise<unknown> | undefined, candidateAddResult: unknown
 let candidatePrepared = false, candidateStartPause: Promise<void> | undefined, releaseCandidateStart: (() => void) | undefined
-function fixturePackageClient(): BrowserMlsBoxClient {
+function fixturePackageClient(timeoutMs = 20_000): BrowserMlsBoxClient {
   const route = pairingFixture(nodeKey).route, encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
   const transport = { request: async (request: LinkRequest) => {
     const event = JSON.parse(atob(request.authorization.slice(6)))
@@ -193,9 +193,9 @@ function fixturePackageClient(): BrowserMlsBoxClient {
       path: { status: 'up' as const, relay: null, direct: null, cause: '' } }
   } }
   return new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret),
-    cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, boxId, vault, ctx(), async () => 'approve', () => true)
+    cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, boxId, vault, ctx(), async () => 'approve', () => true, timeoutMs)
 }
-export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient(), joined = false, separatePerson = false) {
+export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient(), joined = false, separatePerson = false, retryUncertain = true) {
   const activeContext = joined ? joinContext() : roomContext(), activeRz = joined ? joinRz : persona, activeRzSecret = joined ? joinRzSecret : secret
   const wasm = await loadMlsEngine(), d = checked(await vault.credential(ctx())), guestSecret = new Uint8Array(32).fill(44), rz = hexToBytes(activeRz)
   const keeperPlatform = new wasm.Platform(hexToBytes(d.device.device), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
@@ -216,7 +216,7 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   candidatePrepared = true
   await candidateStartPause
   let added = await rooms.addCapabilities(activeContext, roomId, [opened], packageClient, clock)
-  if (added.state === 'transport' && (added.answer.state === 'unavailable' || added.answer.state === 'not-signed')) {
+  if (retryUncertain && added.state === 'transport' && (added.answer.state === 'unavailable' || added.answer.state === 'not-signed')) {
     added = await rooms.addCapabilities(activeContext, roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
   }
   intro.free(); introPending.free(); joining.free(); keeperPlatform.free()
@@ -263,9 +263,9 @@ export function pauseCandidateStart() { candidatePrepared = false; candidateStar
 export function releaseCandidateStartPause() { releaseCandidateStart?.(); candidateStartPause = undefined; releaseCandidateStart = undefined }
 export function pauseCandidatePackages() { candidatePackagePause = new Promise<void>(resolve => { releaseCandidatePackage = resolve }) }
 export function releaseCandidatePackages() { releaseCandidatePackage?.(); candidatePackagePause = undefined; releaseCandidatePackage = undefined }
-export function beginCandidateAdd(conflict = false) {
+export function beginCandidateAdd(conflict = false, timeoutMs = 20_000) {
   candidateAddResult = undefined
-  candidateAddTask = addGuest(true, fixturePackageClient(), false, !conflict).then(result => candidateAddResult = result, error => candidateAddResult = { error: error.message })
+  candidateAddTask = addGuest(true, fixturePackageClient(timeoutMs), false, !conflict, false).then(result => candidateAddResult = result, error => candidateAddResult = { error: error.message })
 }
 export async function finishCandidateAdd() { return candidateAddTask }
 export function invalidateCandidateAdd() { rooms.invalidate() }

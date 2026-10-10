@@ -22,7 +22,12 @@ the same key. Request expiry, approved Later and restart do not retire the hold.
 Pending/dismissed prompts do not create a hold. The final witnessed Add proposal
 transaction reopens the same checks and compares genuine metadata again before
 consuming any capability. The gates last through actual registration and witness
-settlement; no timeout releases them while work continues. Capability ownership
+settlement; no timeout releases them while work continues. Add uses the
+settlement-preserving package registration API: a timeout/invalidation withholds
+the answer but awaits underlying signing/transport promise settlement before
+returning unavailable. The ordinary bounded registration API stays available
+to other callers. Local settlement is not proof of remote rollback or an ended
+remote operation; an uncertain reply never starts the Add proposal. Capability ownership
 and cleanup still follow the engine's consume-on-Add contract.
 
 This protects the candidate admission attempt and proposal. An already-proposed
