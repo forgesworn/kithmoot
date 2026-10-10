@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.71",
+  "currentRelease": "0.1.72",
   "releases": [
     {
-      "version": "0.1.71",
+      "version": "0.1.72",
       "updateTo": {
-        "version": "0.1.71",
-        "pub_date": "2026-10-10T14:59:14Z",
-        "notes": "Room creators can find Record call beside the microphone, camera and screen-share controls. Choose audio only or video with audio without opening meeting settings.",
-        "name": "0.1.71",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.71/KithMoot-0.1.71-mac-arm64.zip",
-        "sha256": "1fd725825d334f41a9e0284479e245575e4e002a2ef656c9b80c13498c86526a",
-        "size": 175410145
+        "version": "0.1.72",
+        "pub_date": "2026-10-10T18:15:18Z",
+        "notes": "Opening a conversation no longer moves it to the top or changes its activity time. Temporary-room guests wait for an admission decision unless a matching signed account proof qualifies them for automatic admission. Record call remains beside microphone, camera and screen sharing for the room creator.",
+        "name": "0.1.72",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.72/KithMoot-0.1.72-mac-arm64.zip",
+        "sha256": "a7d1902846a6c36ba7c5577394174982e9b5cb67122208ff0049c0bba0411092",
+        "size": 175413102
       }
     }
   ]

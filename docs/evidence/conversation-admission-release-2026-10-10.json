@@ -1,0 +1,77 @@
+{
+  "recorded": "2026-10-10T18:15:18.903144+00:00",
+  "state": "verified-candidates-awaiting-final-ci-and-publication",
+  "desktop": {
+    "version": "0.1.72",
+    "build": 57,
+    "sourceCommit": "78ae3c83557675ec5ef1359a31003a89cdb2db2e",
+    "archives": [
+      {
+        "name": "KithMoot-0.1.72-mac-arm64.zip",
+        "sha256": "a7d1902846a6c36ba7c5577394174982e9b5cb67122208ff0049c0bba0411092",
+        "bytes": 175413102
+      },
+      {
+        "name": "KithMoot-0.1.72-linux-x64.tar.gz",
+        "bytes": 169947966,
+        "sha256": "3b7b1ead114233c997db6e7cc1a03651a6f7616940a177ea4a6960935d437649"
+      },
+      {
+        "name": "KithMoot-0.1.72-linux-arm64.tar.gz",
+        "bytes": 171069842,
+        "sha256": "734070c3c4457eecc2a2236c6bff493a45bb8ae7c2e5f73a36b9d1a6f8996feb"
+      },
+      {
+        "name": "KithMoot-0.1.72-windows-x64.zip",
+        "bytes": 205364783,
+        "sha256": "d72ac4dc484211243ecc3d41b1a85211fd7959520da21f9bb75975aed2bc1115"
+      },
+      {
+        "name": "kithmoot_0.1.72_amd64.deb",
+        "bytes": 133502756,
+        "sha256": "9e12d6f02545ec2b8b0756bc6d82f7cf648dba4d901df97a19e2ccef380b73ce"
+      },
+      {
+        "name": "kithmoot_0.1.72_arm64.deb",
+        "bytes": 128528992,
+        "sha256": "e9419ffb6d2d1eebc29e39b743e48a76939b3067d5697b645d54c4766dc793d8"
+      }
+    ],
+    "notarisationAccepted": true,
+    "notarisationSubmission": "fc037019-b776-400f-b14e-ee2c4edbc57f",
+    "runtimeEquivalence": {
+      "currentReleaseHead": "23764d9bbd684b120054d3794d69dc1f907fd7d3",
+      "candidateSource": "78ae3c83557675ec5ef1359a31003a89cdb2db2e",
+      "webFiles": 264,
+      "desktopRuntimeFiles": 22,
+      "assetFilenameRenames": [],
+      "changedBytes": [],
+      "allRuntimeBytesEqual": true,
+      "freshProductionBuild": true
+    },
+    "desktopUnitTests": 98,
+    "rootUnitTests": 3724,
+    "mlsBrowserJourneys": 24
+  },
+  "android": {
+    "version": "0.6.79",
+    "versionCode": 102,
+    "mergedSource": "04062201179cb41bb993c08c0c9e255bbc8a166c",
+    "githubRelease": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.79",
+    "apkSha256": "39f819ae81ec1efb9990ea89d7872e143bddc06fcb7f6f751a1dba1a1df5cfbc",
+    "apkBytes": 79362718,
+    "protocolTests": 401,
+    "debugUnitTests": 1911,
+    "releaseUnitTests": 1911,
+    "signingAndLineageVerified": true,
+    "websitePublished": false,
+    "zapstorePublished": false
+  },
+  "remaining": [
+    "Final release PR hosted checks and exact merged-source runtime comparison.",
+    "Desktop public packages, website deployment, signed-feed and full download verification.",
+    "Android website and Zapstore publication.",
+    "Physical camera, microphone, update and native chat acceptance.",
+    "Native Android closed-room admission UI and full G17 acceptance."
+  ]
+}

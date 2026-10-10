@@ -134,7 +134,22 @@ The APK's Android signature and lineage remain the responsibility of
 that Zapstore's Android client has indexed the update or that a physical phone
 has installed and accepted it; the receipt leaves those gates explicitly open.
 
-Prepared release, 10 October 2026: **0.6.78**, code **101**, from Android
+Prepared release, 10 October 2026: **0.6.79**, code **102**, from Android
+main `04062201179cb41bb993c08c0c9e255bbc8a166c`. Opening a chat no longer
+changes its activity time or list position. The single-message Send guard
+from 0.6.78 remains. GitHub publishes the immutable production APK; website
+and Zapstore publication still require their independent release gates.
+
+The APK is 79,362,718 bytes, SHA-256
+`39f819ae81ec1efb9990ea89d7872e143bddc06fcb7f6f751a1dba1a1df5cfbc`.
+Full downloaded APK verification checked version/SDKs, the production
+certificate, V3-only signatures and the reviewed previous-signer capabilities.
+401 protocol, 1,911 debug app and 1,911 release app unit tests, both lint gates,
+and hosted recovery/signing-lineage checks passed. Physical-device acceptance
+remains open. The [release evidence](evidence/conversation-admission-release-2026-10-10.json)
+records the separate publication states.
+
+Earlier Prepared release, 10 October 2026: **0.6.78**, code **101**, from Android
 source `7eccbea6decc40457a806692d44ec105e8149054`. Repeated Send taps claim
 the composer synchronously, preventing copies of the same pending draft. A new
 draft can queue as soon as its predecessor is encrypted and retained locally,
