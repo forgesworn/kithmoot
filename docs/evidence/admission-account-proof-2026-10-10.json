@@ -11,8 +11,8 @@
   },
   "consumer": {
     "typecheckPassed": true,
-    "unitTestsPassed": 3704,
-    "browserJourneysPassed": 8,
+    "unitTestsPassed": 3714,
+    "browserJourneysPassed": 20,
     "browsers": [
       "Chromium",
       "Firefox",
@@ -21,7 +21,9 @@
     ],
     "journeys": [
       "An unproved claim to an invited account waits for the host decision and can be admitted manually.",
-      "A matching signed proof for the request device and invitation admits an invited account automatically."
+      "A matching signed proof for the request device and invitation admits an invited account automatically.",
+      "A saved NIP-07 account restores its matching signer before requesting admission.",
+      "A delayed synthetic account signature cannot publish after Stop opening, sign-out or the shared deadline."
     ],
     "automaticAdmissionUses": "verifiedParticipant",
     "memberDeskAccountAdmissionUses": "verifiedParticipant",
@@ -33,7 +35,11 @@
       "identity replacement",
       "room reset",
       "Stop opening"
-    ]
+    ],
+    "productionBuildPassed": true,
+    "restoresMatchingSignerBeforeAdmission": true,
+    "syntheticSignOutControl": "The invitation door hides Settings; the test invokes its existing handler, then uses the visible sign-out action.",
+    "originalBootFailsRestoredSignerJourney": true
   },
   "remaining": [
     "Native Android invitation-account-proof parity.",

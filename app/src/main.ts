@@ -3337,6 +3337,9 @@ async function roomFromLocation(): Promise<boolean> {
   // fragment size, how many relays and ICE servers a link may name, and
   // that a public relay is wss - hold here as they do in the library.
   const parsedLink = parseRoomLink(location.href)
+  // A returning account restores its live signer asynchronously. Do not
+  // issue an unproved guest request while that matching signer is arriving.
+  if (identityRestoring && expectedAccount) await identityReady
   if (browserMlsPanel) await pauseBrowserMls()
 
   // The room's name, when the link says. Text a stranger wrote, so it gets
@@ -17399,7 +17402,9 @@ const pendingRoomSwitch = (() => {
   } catch { return null }
 })()
 armStopOpening()
-const roomArrival = roomFromLocation()
+// Defer until identityReady has been initialised below. Admission can then
+// wait for a returning account without delaying the first door paint.
+const roomArrival = Promise.resolve().then(roomFromLocation)
 roomArrival
   .finally(disarmStopOpening)
   .then((found) => {
