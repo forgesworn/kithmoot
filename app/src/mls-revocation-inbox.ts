@@ -9,7 +9,7 @@ import { validateMlsGrant, type BrowserMlsGrantStore, type MlsGrantRecord } from
 import { readMlsRoom, mlsRoomIds } from './mls-room-store.js'
 import { loadMlsEngine } from './mls-engine.js'
 import type { VaultContext } from './mls-vault.js'
-import type { Session } from '../public/vmls-wasm/vmls_wasm.js'
+import type { Platform, Session } from '../public/vmls-wasm/vmls_wasm.js'
 
 export const MAX_MLS_REVOCATION_CANDIDATES = 64
 export const MAX_MLS_REVOCATION_DECRYPTIONS = 8
@@ -127,11 +127,13 @@ export class BrowserMlsRevocationInbox {
         continue
       }
       if (!(await mlsRoomIds(tx)).includes(use.session)) throw new Error('A keeper room must be restored before reviewing this request.')
-      const room = await readMlsRoom(tx, use.session), saved = await tx.readSession(use.session)
-      if (room.keeper !== request.keeper || !saved) throw new Error('A keeper room must be restored before reviewing this request.')
-      const wasm = await loadMlsEngine()
-      let platform: InstanceType<typeof wasm.Platform> | undefined, session: Session | undefined
+      const room = await readMlsRoom(tx, use.session)
+      if (room.keeper !== request.keeper) throw new Error('A keeper room must be restored before reviewing this request.')
+      const saved = await tx.readSession(use.session)
+      if (!saved) throw new Error('A keeper room must be restored before reviewing this request.')
+      let platform: Platform | undefined, session: Session | undefined
       try {
+        const wasm = await loadMlsEngine()
         platform = new wasm.Platform(hexToBytes(room.binding.device), hexToBytes(room.binding.rendezvousKey), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
         session = wasm.Session.open(platform, hexToBytes(use.session), saved.plaintext, saved.generation)
         if (bytesToHex(session.id()) !== use.session || session.generation() !== saved.generation || room.generation !== String(saved.generation)) throw new InvalidPersonaRecord('Keeper room does not match witnessed snapshot')
