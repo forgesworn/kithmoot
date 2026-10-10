@@ -53,7 +53,7 @@ export function arrangeRooms<T extends { roomId: string }>(
   activityOf: (room: T) => number,
   held?: readonly string[],
 ): { pinned: T[]; rest: T[] } {
-  const byActivity = [...rooms].sort((a, b) => activityOf(b) - activityOf(a))
+  const byActivity = [...rooms].sort((a, b) => activityOf(b) - activityOf(a) || a.roomId.localeCompare(b.roomId))
   const keep = (list: T[]): T[] => {
     if (!held) return list
     const position = new Map(held.map((id, i) => [id, i]))

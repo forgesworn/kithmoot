@@ -53,6 +53,62 @@ async function openRowMenu(row: ReturnType<Page['locator']>): Promise<void> {
   await row.locator('.rowMenu').click()
 }
 
+test('opening an older conversation keeps its message time and position until a new message arrives', async ({ browser, baseURL }) => {
+  const principal = await newDeviceContext(browser, baseURL!)
+  try {
+    const page = await principal.newPage()
+    const now = Date.now()
+    await page.clock.setFixedTime(now)
+    const post = async (text: string) => {
+      await page.locator('#chatInput').fill(text)
+      await page.locator('#chatInput').press('Enter')
+      await expect(page.locator('#chatLog')).toContainText(text)
+    }
+    const home = async () => {
+      await page.locator('#backToRooms').click()
+      await page.locator('#roomSwitcherHome').click()
+      await expect(page.locator('#rooms')).toBeVisible()
+    }
+    const enter = async (link: string) => {
+      await openRoomUrl(page, link)
+      await expectAtTheDoor(page)
+      await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible()
+    }
+    const older = await startNamedRoom(page, baseURL!, 'Older conversation')
+    await enter(older)
+    await post('First conversation message')
+    await home()
+    await page.clock.setFixedTime(now + 65_000)
+    const newer = await startNamedRoom(page, baseURL!, 'Newer conversation')
+    await enter(newer)
+    await post('Second conversation message')
+    await home()
+    const rows = page.locator('#roomList .roomRow')
+    const names = rows.locator('.roomName')
+    const olderRow = rows.filter({ has: page.locator('.roomName', { hasText: 'Older conversation' }) })
+    await expect(names).toHaveText(['Newer conversation', 'Older conversation'])
+    const originalTime = await olderRow.locator('.roomTime').textContent()
+    expect(originalTime).toBeTruthy()
+    await page.clock.setFixedTime(now + 130_000)
+    await olderRow.locator('button.open').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#chatLog')).toContainText('First conversation message')
+    await home()
+    await expect(names).toHaveText(['Newer conversation', 'Older conversation'])
+    await expect(olderRow.locator('.roomTime')).toHaveText(originalTime!)
+    await olderRow.locator('button.open').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await post('A genuinely new message')
+    await home()
+    await expect(names).toHaveText(['Older conversation', 'Newer conversation'])
+    await expect(olderRow.locator('.roomPreview')).toContainText('A genuinely new message')
+    await expect(olderRow.locator('.roomTime')).not.toHaveText(originalTime!)
+  } finally {
+    await principal.close()
+  }
+})
+
 test('the front page lists every room this device has been in, with what is new and who is here', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
   const url = baseURL!
