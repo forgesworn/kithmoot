@@ -324,6 +324,13 @@ Combined signed-project/call acceptance, fresh-device summaries, older work
 coverage, live execution and physical acceptance remain open; this does not
 complete G9.
 
+The [delayed-agent unread regression](evidence/agent-unread-reclassification-2026-10-10.json)
+now clears a human unread badge when signed agent presence catches up with its
+message, while preserving keyboard focus and unsent drafts. Six controlled
+desktop/phone Chromium/Firefox journeys and all twelve hosted checks passed;
+the merged browser fix is published with matching deployed and HTTP assets.
+Physical acceptance remains open.
+
 ### Proposed navigation
 
 - **Inbox:** decisions needing this person's judgement, alongside human mentions
