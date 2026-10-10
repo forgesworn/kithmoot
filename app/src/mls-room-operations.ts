@@ -127,17 +127,30 @@ class PackageRegistrationStopped extends Error {
 async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<ReturnType<typeof loadMlsEngine>>, session: string,
   room: MlsRoomRecord, persona: string, active: Session): Promise<void> {
   const journal = await readMlsMembership(tx)
+  if (journal.inbox && journal.inbox.keeper !== persona) throw new InvalidPersonaRecord('Keeper mutation hold belongs to another persona')
   // The operator's witnessed approval closes the interval before the exact
   // Remove journal is recorded. Grant failure or request expiry cannot release
   // this hold. The fresh witnessed roster must no longer contain the device.
   for (const prompt of journal.inbox?.prompts ?? []) if (prompt.approval && ['approved', 'done'].includes(prompt.state)) {
+    if (room.keeper === persona && memberStatuses(active).some(member => member.device === prompt.request.device)) throw new MlsRoomRefused('compromised-removal')
     if (prompt.approval.unresolvedLegacyAddRooms?.includes(session)) throw new MlsRoomRefused('compromised-removal')
     for (const intent of prompt.approval.rooms) if (intent.session === session) {
       if (room.keeper !== persona || prompt.request.keeper !== persona) throw new InvalidPersonaRecord('Keeper send hold no longer matches its room')
       // Lapse evidence is durable, but terminal completion is gated until
       // affected-device grant installation can be held across its witness.
       if (prompt.state === 'approved' && prompt.grantOutcomes?.some(item => item.outcome === 'no-live')) throw new MlsRoomRefused('compromised-removal')
-      if (intent.pendingAdd && !room.pendingAdds?.find(candidate => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(candidate)) === JSON.stringify(intent.pendingAdd))?.readback) throw new MlsRoomRefused('compromised-removal')
+      if (intent.pendingAdd) {
+        const candidate = room.pendingAdds?.find(candidate => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(candidate)) === JSON.stringify(intent.pendingAdd))
+        const record = journal.removals.find(item => item.operation === intent.operation)
+        if (!candidate?.readback || !record) throw new MlsRoomRefused('compromised-removal')
+        if (record.session !== session || record.kind !== 'device' || record.target !== intent.member.leafId || !record.compromised || record.request) throw new InvalidPersonaRecord('Pending Add mutation hold removal binding differs')
+        const removal = decodeRemoval(wasm, record, { keeper: room.keeper, persona })
+        try {
+          const expected = prompt.approval.grants.filter(grant => grant.node === intent.member.homeBox).map(grant => ({ node: grant.node, grant: grant.reference, keeper: true }))
+          if (JSON.stringify(removal.grants().map(item => grantKey(item.grant))) !== JSON.stringify(expected)) throw new InvalidPersonaRecord('Pending Add mutation hold grant binding differs')
+          if (removal.mls() !== 'Committed') throw new MlsRoomRefused('compromised-removal')
+        } finally { removal.free() }
+      }
       if (memberStatuses(active).some(member => member.device === prompt.request.device)) throw new MlsRoomRefused('compromised-removal')
     }
   }

@@ -36,6 +36,11 @@ witnessed readback. It validates the exact retained candidate/proposal and
 current member again before creating the request-bound removal journal.
 Completion requires the exact genuine Committed Remove journal, including
 its grant scope. Absence alone is insufficient, even after a witnessed Add.
+Send/Add require that same request-bound journal before the pending intent
+can release its mutation hold. Execution always checks every frozen candidate
+record remains retained, even after Remove committed. Every approved/done
+device also holds fresh keeper rosters outside the frozen room list; a later
+legacy admission cannot bypass the hold through an earlier empty-room approval.
 No pending record is evicted or cleared; the 64-record limit refuses another
 Add before package registration. Safe retirement needs separate proof and
 remains future work.

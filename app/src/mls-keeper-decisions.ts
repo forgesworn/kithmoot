@@ -181,6 +181,7 @@ export class BrowserMlsKeeperDecisions {
           if (intent.pendingAdd) throw new Error('The approved pending Add requires its exact committed Remove journal; absence alone cannot complete it.')
           continue
         }
+        if (intent.pendingAdd && record.request) throw new InvalidPersonaRecord('Keeper pending Add removal is bound to a different member request')
         const wasm = await loadMlsEngine()
         const bytes = hexToBytes(record.journal)
         let removal: ReturnType<typeof wasm.removalDecode> | undefined
@@ -209,6 +210,7 @@ export class BrowserMlsKeeperDecisions {
       if (!ids.includes(intent.session)) throw new Error('An approved keeper room must be restored before continuing.')
       const room = await readMlsRoom(tx, intent.session)
       if (room.keeper !== scope.vault.persona || room.binding.rendezvousKey !== intent.rendezvousKey) throw new Error('An approved room no longer belongs to this keeper.')
+      if (intent.pendingAdd && !room.pendingAdds?.some(candidate => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(candidate)) === JSON.stringify(intent.pendingAdd))) throw new Error('The approved authenticated pending Add authority changed or disappeared. Restore and review it again.')
     }
     let records: MlsGrantRecord[] = []
     const current = await this.#review(tx, scope, operation, true, value => { records = value }), approved = prompt.approval
@@ -328,7 +330,7 @@ export class BrowserMlsKeeperDecisions {
             let removal: ReturnType<typeof wasm.removalDecode> | undefined
             try {
               removal = wasm.removalDecode(bytes)
-              if (record.session !== id || record.kind !== 'device' || !record.compromised || record.target !== candidate.route.leafId || bytesToHex(removal.sessionId()) !== id ||
+              if (record.session !== id || record.kind !== 'device' || !record.compromised || record.request || record.target !== candidate.route.leafId || bytesToHex(removal.sessionId()) !== id ||
                   removal.personIdentity() !== undefined || JSON.stringify(removal.leafIds().map(bytesToHex)) !== JSON.stringify([candidate.route.leafId])) throw new InvalidPersonaRecord('Pending Add removal binding differs')
               action = removal.mls() === 'Committed' ? 'ledger-only' : 'remove'
             } finally { bytes.fill(0); removal?.free() }
