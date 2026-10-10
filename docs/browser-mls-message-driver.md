@@ -83,10 +83,14 @@ their Add-persisted package route must name that exact box and mailbox. The
 membership API registers every package successfully before `Session.add`; a
 permanent registration refusal never admits the leaf, and an uncertain answer
 is retried only by reopening the same capability. Successful Welcome delivery
-removes its route atomically with the durable outbox record; `tick` removes
-expired routes once no Welcome still references them. No home-box fallback is
-used. Grant revocation transport remains separate. The WASM join API still
-exposes no group-id pin.
+removes its route atomically with the durable outbox record. `tick` records an
+expired pending member, and the driver removes its now-impossible Welcome and
+saved route in one witnessed transaction after the full 120-second box
+clock-skew allowance. The route must match exactly one Welcome's package id and
+mailbox, the room's home box and a still-pending verified leaf; a mismatch stays
+held. That cleanup claims neither delivery nor acknowledgement. No home-box
+fallback is used. Grant revocation transport remains separate. The WASM join
+API still exposes no group-id pin.
 
 Unit tests exercise ordering, bounded paging, stale replies, cancellation and
 buffer ownership. Browser tests use real WASM, IndexedDB, WebCrypto, typed NIP-98

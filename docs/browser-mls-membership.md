@@ -22,9 +22,14 @@ driver deposits a Welcome only at the saved route. It retains a plain deposit
 that carries no package answer, confirms the pending member when the box reports
 keeper acknowledgement, and removes the route with the delivered outbox record.
 Delivered Welcome routes are removed atomically with their outbox record. An
-expired Welcome that is never delivered remains in the outbox with its route;
-automatic cleanup and capacity recovery for that abandoned state remain open.
-There is no implicit home-box fallback.
+expired Welcome that is never delivered is removed with its route in one
+witnessed transaction, after the full 120-second box clock-skew allowance has
+also passed. Cleanup requires one exact package-id/mailbox match, the room's
+exact home box and the route's still-pending verified leaf; inconsistent state
+remains held. This releases local route and outbox capacity without claiming
+delivery, acknowledgement or member confirmation. `tick` still records the
+pending member's expiry and proposes its later removal. There is no implicit
+home-box fallback.
 
 ## Removal journal
 
@@ -107,9 +112,9 @@ These are browser automation results, not a live Bothy room, process-kill,
 physical-device or production acceptance claim. The production app's MLS room
 lifecycle and automatic driver rounds remain open, as do the P3-08
 member-to-keeper request channel and dedicated endpoint lifecycle. Abandoned
-expired Welcome cleanup and a full joined-session `UpdateFirst` -> Update ->
-Remove automation case also remain open. Production MLS stays off until those
-gates and the production review are complete.
+Welcome cleanup is covered; a full joined-session `UpdateFirst` -> Update ->
+Remove automation case remains open. Production MLS stays off until those gates
+and the production review are complete.
 
 An uncertain grant withdrawal can also remain `revoking` past its signed
 expiration: renewal deliberately refuses to overwrite it, and expiry is never

@@ -107,21 +107,37 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
   if (mode.startsWith('inviter-welcome')) {
     const registrar = makeClient(), staged = await stageGuestWelcome(registrar); registrar.invalidate()
     if (staged !== 'active') return { result: staged, calls, driverAfter: await f.rooms.driverState(f.context, f.roomId) }
+    if (mode === 'inviter-welcome-expired-route-mismatch') await f.host.transact(f.persona, async tx => {
+      const room = await readMlsRoom(tx, f.roomId)
+      if (!room.packages?.length) throw new Error('Missing fixture package route')
+      room.packages[0].welcomeMailbox = '55'.repeat(32); room.packages[0].leafId = '56'.repeat(32)
+      await saveMlsRoom(tx, room)
+    }, () => true)
+    if (mode.startsWith('inviter-welcome-expired')) f.advance(86400 + 120)
   }
   const before = await f.rooms.driverState(f.context, f.roomId)
   if (before.state !== 'active') return { result: before }
   outgoing = before.value.outbox
   driver = make()
   const result = await driver.round(), firstAcked = acked
-  let recovered: any
+  let recovered: any, settled: any, expiredBoundary: any
   if (mode === 'lost-deposit' || mode === 'restart-replay' || mode === 'lost-witness') {
     await driver.close(); if (mode === 'lost-deposit') f.advance(1); if (joining) restartJoin(); else restart()
     driver = make(); recovered = await driver.round()
   }
+  if (mode.startsWith('inviter-welcome-expired')) {
+    expiredBoundary = await f.rooms.driverState(f.context, f.roomId)
+    f.advance(1)
+    if (mode === 'inviter-welcome-expired-lost-witness') await (window as any).loseNextWitnessAdvance()
+    recovered = await driver.round()
+    if (mode === 'inviter-welcome-expired-lost-witness') {
+      await driver.close(); restart(); driver = make(); settled = await driver.round()
+    }
+  }
   const after = mode === 'account-fetch' ? undefined : joining ? await readJoin() : await read()
   const driverAfter = mode === 'account-fetch' ? undefined : await f.rooms.driverState(f.context, f.roomId)
   await driver.close()
-  return { result, recovered, firstAcked, acked, after, driverAfter, calls, closed, distinctEvents: new Set(calls.map(c => c.event)).size }
+  return { result, recovered, settled, expiredBoundary, firstAcked, acked, after, driverAfter, calls, closed, distinctEvents: new Set(calls.map(c => c.event)).size }
 }
 
 /** Guard and encrypted metadata tests use a real engine and coordinator. */
