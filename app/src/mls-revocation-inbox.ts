@@ -120,26 +120,34 @@ export class BrowserMlsRevocationInbox {
   }
   async #authority(tx: PersonaTransaction, request: VmlsRevocationRequest, ledger: readonly MlsGrantRecord[], rosters: RosterCache = new Map()): Promise<MlsGrantRecord[]> {
     const grants = ledger.filter(record => record.issuer === request.keeper && record.persona === request.sender && record.device === request.device && record.state !== 'revoked')
-    for (const grant of grants) for (const use of grant.rooms) {
-      const cached = rosters.get(use.session)
+    if (!grants.length) return []
+    const ids = await mlsRoomIds(tx)
+    if (grants.some(grant => grant.rooms.some(use => !ids.includes(use.session)))) throw new Error('A keeper room must be restored before reviewing this request.')
+    // Ledger room uses can be empty or stale after a Remove. The signed
+    // ledger names authority, but every current keeper roster must still agree
+    // about this device; neither ledger uses nor request hints scope the scan.
+    for (const id of ids) {
+      const room = await readMlsRoom(tx, id)
+      if (room.keeper !== request.keeper) {
+        if (grants.some(grant => grant.rooms.some(use => use.session === id))) throw new Error('A saved grant room no longer belongs to this keeper.')
+        continue
+      }
+      const cached = rosters.get(id)
       if (cached) {
         if (cached.some(item => item.device === request.device && item.identity !== request.sender)) return []
         continue
       }
-      if (!(await mlsRoomIds(tx)).includes(use.session)) throw new Error('A keeper room must be restored before reviewing this request.')
-      const room = await readMlsRoom(tx, use.session)
-      if (room.keeper !== request.keeper) throw new Error('A keeper room must be restored before reviewing this request.')
-      const saved = await tx.readSession(use.session)
+      const saved = await tx.readSession(id)
       if (!saved) throw new Error('A keeper room must be restored before reviewing this request.')
       let platform: Platform | undefined, session: Session | undefined
       try {
         const wasm = await loadMlsEngine()
         platform = new wasm.Platform(hexToBytes(room.binding.device), hexToBytes(room.binding.rendezvousKey), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
-        session = wasm.Session.open(platform, hexToBytes(use.session), saved.plaintext, saved.generation)
-        if (bytesToHex(session.id()) !== use.session || session.generation() !== saved.generation || room.generation !== String(saved.generation)) throw new InvalidPersonaRecord('Keeper room does not match witnessed snapshot')
+        session = wasm.Session.open(platform, hexToBytes(id), saved.plaintext, saved.generation)
+        if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation || room.generation !== String(saved.generation)) throw new InvalidPersonaRecord('Keeper room does not match witnessed snapshot')
         const members = session.members() as { member: { device: Uint8Array; identity: Uint8Array } }[]
         const roster = members.map(item => ({ device: bytesToHex(item.member.device), identity: bytesToHex(item.member.identity) }))
-        rosters.set(use.session, roster)
+        rosters.set(id, roster)
         if (roster.some(item => item.device === request.device && item.identity !== request.sender)) return []
       } finally {
         saved.plaintext.fill(0)

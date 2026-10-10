@@ -168,7 +168,8 @@ slot and does not reduce the 60-room quota.
 
 Only the keeper's own signed grant ledger can identify affected grants;
 request-supplied session and box hints confer no authority. Every retained
-room in that ledger is checked against its genuine witnessed WASM snapshot.
+room owned by this keeper is checked against its genuine witnessed WASM snapshot,
+even when the signed grant's saved room list is empty or stale.
 A device currently bound to another person is silently excluded. Missing
 room state must be restored before a prompt can be displayed. A signed grant
 without any remaining room use can still yield a ledger-only prompt.

@@ -70,6 +70,7 @@ async function joinedWithMemberDevice(page: Page) {
 test('keeper inbox checks the genuine witnessed roster and retains prompts across restart', async ({ context }) => {
   const { page } = await enrolled(context)
   expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')
+  expect(await run(page, 'M.receiveKeeperRequest(true, true)')).toMatchObject({ state: 'active', value: { prompts: [] } })
   expect(await run(page, 'M.receiveKeeperRequest(true)')).toMatchObject({ state: 'active', value: { prompts: [] } })
   const correct = await run(page, 'M.receiveKeeperRequest()')
   expect(correct).toMatchObject({ state: 'active', value: { prompts: [{ conflict: false, grants: [{ state: 'active', rooms: [{ name: 'Witnessed room' }] }], prompt: { state: 'pending' } }] } })
@@ -80,6 +81,9 @@ test('keeper inbox checks the genuine witnessed roster and retains prompts acros
 test('keeper inbox can review a signed ledger-only grant after the device has no room left', async ({ context }) => {
   const { page } = await enrolled(context)
   expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')
+  expect(await run(page, 'M.beginGuestRemoval()')).toMatchObject({ state: 'active' })
+  expect(await run(page, 'M.applyGuestRemoval()')).toMatchObject({ state: 'active' })
+  expect(await run(page, 'M.driveGuestRemoval()')).toMatchObject({ state: 'active', value: { membership: { mls: 'Committed' } } })
   const result = await run(page, 'M.receiveKeeperRequest(false, true)')
   expect(result).toMatchObject({ state: 'active', value: { prompts: [{ grants: [{ state: 'active', rooms: [] }], prompt: { state: 'pending' } }] } })
   await run(page, 'M.restart()')
