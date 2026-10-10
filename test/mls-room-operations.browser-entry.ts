@@ -263,9 +263,9 @@ export function pauseCandidateStart() { candidatePrepared = false; candidateStar
 export function releaseCandidateStartPause() { releaseCandidateStart?.(); candidateStartPause = undefined; releaseCandidateStart = undefined }
 export function pauseCandidatePackages() { candidatePackagePause = new Promise<void>(resolve => { releaseCandidatePackage = resolve }) }
 export function releaseCandidatePackages() { releaseCandidatePackage?.(); candidatePackagePause = undefined; releaseCandidatePackage = undefined }
-export function beginCandidateAdd(conflict = false, timeoutMs = 20_000) {
+export function beginCandidateAdd(conflict = false, timeoutMs = 20_000, retryUncertain = true) {
   candidateAddResult = undefined
-  candidateAddTask = addGuest(true, fixturePackageClient(timeoutMs), false, !conflict, false).then(result => candidateAddResult = result, error => candidateAddResult = { error: error.message })
+  candidateAddTask = addGuest(true, fixturePackageClient(timeoutMs), false, !conflict, retryUncertain).then(result => candidateAddResult = result, error => candidateAddResult = { error: error.message })
 }
 export async function finishCandidateAdd() { return candidateAddTask }
 export function invalidateCandidateAdd() { rooms.invalidate() }

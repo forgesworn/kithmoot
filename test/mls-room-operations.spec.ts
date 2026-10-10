@@ -228,7 +228,7 @@ test('candidate Add keeps approval outside the device gate through actual packag
 })
 test('candidate Add retains the device gate past registration timeout until actual transport settlement', async ({ context }) => {
   const { page } = await enrolled(context)
-  await run(page, "M.candidateKeeperHold('pending'); M.pauseCandidatePackages(); M.beginCandidateAdd(false, 500)")
+  await run(page, "M.candidateKeeperHold('pending'); M.pauseCandidatePackages(); M.beginCandidateAdd(false, 500, false)")
   await expect.poll(async () => (await run(page, 'M.candidateAddSnapshot()')).registrations).toBe(1)
   const before = await run(page, 'M.read()')
   const holding = page.evaluate(() => (window as any).M.holdKeeperDevice())
