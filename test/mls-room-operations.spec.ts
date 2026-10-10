@@ -190,6 +190,37 @@ test('keeper admission witness outage refuses an install before signing, writing
   witness.offline = false
   await run(page, 'M.forgetGuest()')
 })
+test('keeper completion holds queued installs through actual terminal witness settlement', async ({ context }) => {
+  const { page, witness } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.receiveKeeperRequest()')
+  await run(page, 'M.approveKeeperRequest()'); await run(page, 'M.applyKeeperRemoval()')
+  expect(await run(page, 'M.settleKeeperRemovalJournal()')).toMatchObject({ state: 'active', value: { membership: { mls: 'Committed' } } })
+  let release!: () => void
+  const before = witness.advances
+  witness.advancePause = new Promise<void>(resolve => { release = resolve })
+  await run(page, 'M.beginKeeperCompletion()')
+  await expect.poll(async () => ({ advanced: witness.advances > before, status: await run(page, 'M.completionStatus()') })).toEqual({ advanced: true, status: undefined })
+  await run(page, "M.beginKeeperInstall('', false)")
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'shared'))).toBe(true)
+  release(); witness.advancePause = undefined
+  expect(await run(page, 'M.finishKeeperCompletion()')).toMatchObject({ result: { state: 'active', value: { state: 'done' } } })
+  expect(await run(page, 'M.finishKeeperInstall()')).toMatchObject({ error: expect.stringContaining('retained keeper revocation hold') })
+  await run(page, 'M.forgetGuest()')
+})
+test('keeper completion releases its preliminary persona read before waiting and rejects changed retained approval', async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.receiveKeeperRequest()')
+  await run(page, 'M.approveKeeperRequest()'); await run(page, 'M.applyKeeperRemoval()')
+  expect(await run(page, 'M.settleKeeperRemovalJournal()')).toMatchObject({ state: 'active', value: { membership: { mls: 'Committed' } } })
+  await run(page, 'M.holdKeeperDevice()'); await run(page, 'M.beginKeeperCompletion()')
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'exclusive'))).toBe(true)
+  expect(await run(page, 'M.deferKeeperRequest()')).toMatchObject({ state: 'active', value: [{ state: 'approved' }] })
+  await run(page, 'M.releaseHeldKeeperDevice()')
+  expect(await run(page, 'M.finishKeeperCompletion()')).toMatchObject({ error: expect.stringContaining('request changed while waiting') })
+  expect(await run(page, 'M.keeperApprovals(true)')).toMatchObject({ state: 'active', value: [{ state: 'approved' }] })
+  expect(await run(page, "M.keeperInstallAttempt('new')")).toMatchObject({ error: expect.stringContaining('retained keeper revocation hold'), signed: 0, writes: 0, published: 0 })
+  await run(page, 'M.forgetGuest()')
+})
 test('keeper acceptance retains failed exact withdrawal across restart and expiry while Remove commits independently', async ({ context }) => {
   const { page } = await enrolled(context)
   expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')

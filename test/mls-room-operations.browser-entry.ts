@@ -283,6 +283,23 @@ export function beginKeeperApproval(plan: MlsKeeperDecisionPlan) {
   heldKeeperApproval = keeperDecisions().decide(plan, true).then(result => ({ result }), error => ({ error: error.message }))
 }
 export async function finishKeeperApproval() { return heldKeeperApproval }
+let heldKeeperCompletion: Promise<unknown> | undefined, heldKeeperDevice: Promise<unknown> | undefined, releaseKeeperDevice: (() => void) | undefined, keeperCompletionStatus: unknown
+export async function beginKeeperCompletion() {
+  const retained = await keeperDecisions().approvals(true)
+  if (retained.state !== 'active' || !retained.value[0]) throw new Error('fixture approval missing')
+  keeperCompletionStatus = undefined
+  heldKeeperCompletion = keeperDecisions().complete(retained.value[0].operation).then(result => keeperCompletionStatus = { result }, error => keeperCompletionStatus = { error: error.message })
+}
+export function completionStatus() { return keeperCompletionStatus }
+export async function finishKeeperCompletion() { return heldKeeperCompletion }
+export async function holdKeeperDevice() {
+  let started!: () => void
+  const began = new Promise<void>(resolve => { started = resolve }), wait = new Promise<void>(resolve => { releaseKeeperDevice = resolve })
+  const ledger = new BrowserMlsGrantLedger(() => localIdentity(secret), {} as any, inboxGrants)
+  heldKeeperDevice = ledger.withDeviceInstallHold(inboxGrants, persona, guestDevice, () => true, async () => { started(); await wait })
+  await began
+}
+export async function releaseHeldKeeperDevice() { releaseKeeperDevice?.(); return heldKeeperDevice }
 export async function beginKeeperInstall(stage = '', wait = true) {
   let started!: () => void, entered = false
   const began = new Promise<void>(resolve => { started = resolve })
@@ -435,6 +452,11 @@ export async function applyKeeperRemoval() {
   const slot = keeperProgress?.rooms.flatMap(room => room.effect?.outbound ?? []).find((item: any) => item.destination.type === 'CommitSlot')
   if (!slot) throw new Error('fixture keeper Remove has no commit slot')
   return rooms.process(roomContext(), roomId, boxInput(slot, receipt(slot)))
+}
+export async function settleKeeperRemovalJournal() {
+  const operation = keeperProgress?.rooms[0]?.operation
+  if (!operation) throw new Error('fixture keeper removal missing')
+  return rooms.driveRemoval(roomContext(), roomId, operation)
 }
 export async function unapprovedKeeperRemoval() {
   const plan = await keeperDecisionPlan()

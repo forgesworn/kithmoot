@@ -148,14 +148,25 @@ export class BrowserMlsKeeperDecisions {
     const scope = this.#scope()
     return this.coordinator.transact(scope.vault.persona, tx => this.#execution(tx, scope, operation), () => this.#current(scope))
   }
-  complete(operation: string): Promise<CoordinationResult<MlsRevocationInboxPrompt>> {
+  async complete(operation: string): Promise<CoordinationResult<MlsRevocationInboxPrompt>> {
     const scope = this.#scope()
-    return this.coordinator.transact(scope.vault.persona, async tx => {
+    if (!(this.installations instanceof BrowserMlsGrantLedger)) throw new Error('Keeper completion requires the affected-device grant-install hold.')
+    // Discover the validated device without nesting device acquisition inside
+    // a persona transaction. That read fully settles before taking the gate.
+    const retained = await this.coordinator.transact(scope.vault.persona, async tx => {
+      const journal = await readMlsMembership(tx), prompt = journal.inbox?.prompts.find(item => item.operation === operation)
+      if (journal.inbox?.keeper !== scope.vault.persona || !prompt?.approval || !['approved', 'done'].includes(prompt.state)) throw new Error('This request has no witnessed keeper approval.')
+      return structuredClone(prompt)
+    }, () => this.#current(scope))
+    if (retained.state !== 'active') return retained
+    return this.installations.withDeviceInstallHold(this.grants, scope.vault.persona, retained.value.request.device,
+      () => this.#current(scope), currentScope => this.coordinator.transact(scope.vault.persona, async tx => {
+      const fresh = await readMlsMembership(tx), before = fresh.inbox?.prompts.find(item => item.operation === operation)
+      if (fresh.inbox?.keeper !== scope.vault.persona || JSON.stringify(before) !== JSON.stringify(retained.value)) throw new Error('The retained keeper request changed while waiting for completion. Check it again.')
       const current = await this.#execution(tx, scope, operation)
-      // A ledger read and persona witness are different atomic domains.
-      // Until affected-device installation is held across this commit, a
-      // replacement could arrive after the last read. Keep the approval hold.
-      if (current.lapsed.length) throw new Error('Lapsed grant completion awaits the affected-device grant-install hold.')
+      // The local gate cannot quiesce older clients or raw store writers.
+      // Keep lapse terminal enablement and its persona schema blocked.
+      if (current.lapsed.length) throw new Error('Lapsed grant completion awaits the old-client/schema barrier; the grant-install hold alone is insufficient.')
       if (current.revoked.length + current.unavailable.length + current.lapsed.length !== current.grants.length || current.rooms.some(room => room.action === 'remove')) throw new Error('The approved removal or grant withdrawal is still pending.')
       const journal = await readMlsMembership(tx), prompt = journal.inbox!.prompts.find(item => item.operation === operation)!
       // A target can disappear before its journal catches up. Do not clear
@@ -181,7 +192,7 @@ export class BrowserMlsKeeperDecisions {
       delete prompt.deferredUntil
       await saveMlsMembership(tx, journal)
       return structuredClone(prompt)
-    }, () => this.#current(scope))
+    }, currentScope))
   }
   async #execution(tx: PersonaTransaction, scope: MlsRevocationInboxContext, operation: string): Promise<MlsKeeperExecutionPlan> {
     const journal = await readMlsMembership(tx), prompt = journal.inbox?.prompts.find(item => item.operation === operation)
