@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.68",
+  "currentRelease": "0.1.69",
   "releases": [
     {
-      "version": "0.1.68",
+      "version": "0.1.69",
       "updateTo": {
-        "version": "0.1.68",
-        "pub_date": "2026-10-10T07:12:13Z",
-        "notes": "Inbox and All work bring activity from your joined project rooms together. Follow questions, mentions and results back to their original room, while keeping unsent drafts. Agent unread counts refresh when signed presence arrives after a message. Voice-mask failures keep the microphone muted until you choose how to continue.",
-        "name": "0.1.68",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/KithMoot-0.1.68-mac-arm64.zip",
-        "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96",
-        "size": 176749486
+        "version": "0.1.69",
+        "pub_date": "2026-10-10T11:08:25Z",
+        "notes": "Room and Dock unread counts stay visible while a call hides chat or Room details covers it. Roster controls keep their focus and pressed actions while presence refreshes.",
+        "name": "0.1.69",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.69/KithMoot-0.1.69-mac-arm64.zip",
+        "sha256": "107085c61ec7cd117b7229ece5402405f5e55b4ea0ddd0a8bdaea68020e1a2d9",
+        "size": 176764301
       }
     }
   ]

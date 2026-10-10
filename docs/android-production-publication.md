@@ -134,6 +134,21 @@ The APK's Android signature and lineage remain the responsibility of
 that Zapstore's Android client has indexed the update or that a physical phone
 has installed and accepted it; the receipt leaves those gates explicitly open.
 
+Prepared release, 10 October 2026: **0.6.78**, code **101**, from Android
+source `7eccbea6decc40457a806692d44ec105e8149054`. Repeated Send taps claim
+the composer synchronously, preventing copies of the same pending draft. A new
+draft can queue as soon as its predecessor is encrypted and retained locally,
+while relay confirmation is pending. Intentional repeated text remains allowed.
+The immutable APK is 79,334,046 bytes, SHA-256
+`f3ee6f3033236dc90f136588e69c1365477da659bed22fe489f7fda887f351e9`.
+The existing M4 production key signed it; independent M1 verification checked
+all 799 unchanged ZIP payload entries, version/SDKs, certificate, V3 signing
+and previous-signer capabilities. The [signed-build receipt](evidence/android-0.6.78-signed-build-2026-10-10.json)
+records local unit/lint/build and real-composer emulator evidence. Both update
+manifests are signed. All four hosted checks passed on that exact source; the
+merged native tree `9647360` matches it. Publication readbacks, Zapstore-client
+indexing and physical tester acceptance remain separate gates.
+
 Prepared release, 10 October 2026: **0.6.77**, code **100**, from Android
 source `e4b080cb37acfdeb5e1d204bb28291971a4f545d`. The immutable APK is
 79,305,374 bytes, SHA-256
