@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.68 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.69 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -25,6 +25,10 @@ The Windows build is a portable `KithMoot-<version>-windows-x64.zip`. Extract th
 The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Behaviour
+
+Unread room counts and the Dock badge clear when the conversation is visible,
+uncovered and at the bottom. Focusing the app or receiving a message behind
+Room details or a closed call chat does not mark it read.
 
 - The app serves its bundled web assets inside an isolated, persistent Electron session. No local HTTP listener is required. HTTPS is intercepted only for `/j/` on the KithMoot origin; network services such as TURN and encrypted file storage retain their normal endpoints. Browser and desktop profiles are separate.
 - Sign in with the same Nostr account using an existing supported remote signer or account option. Browser signer extensions are not installed in Electron. Project/room sync follows the existing account policies; installing the app does not copy browser keys or local history.
@@ -199,3 +203,17 @@ Every Mac release must update `site/downloads/release.json`, its archive and the
 static feed together. `npm test` in this directory refuses version, URL, size or
 digest drift. The first updater-capable release still needs a manual install;
 automatic delivery starts with the following signed release.
+
+## Version 0.1.69 release preparation
+
+Room and Dock unread counts persist while a call hides chat or Room details
+covers it. Reading a visible conversation at the bottom clears both counts.
+Roster controls preserve focus and pressed actions while presence refreshes.
+
+All six desktop archives were checked against the bundled application bytes.
+The Mac archive is Developer ID signed, notarised and stapled; its Apple
+submission `17d23f8e-4fb1-4ae4-8425-ffb148645bda` is Accepted. Both Linux
+architectures have verified Debian payloads and a signed APT index. Windows
+remains an unsigned preview. The [preparation receipt](../docs/evidence/desktop-0.1.69-signed-build-2026-10-10.json)
+keeps archive and automated unread evidence separate from public feed activation
+and installed-app acceptance.

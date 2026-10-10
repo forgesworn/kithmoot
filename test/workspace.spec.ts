@@ -729,6 +729,83 @@ test('rooms can be forgotten from the sidebar and the switcher, but not the one 
   } finally { await context.close() }
 })
 
+test('room details does not publish a read position for messages hidden behind the dialog', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  const rowan = await RoomAgent.create({ base: baseURL!, name: 'Rowan', roomName: 'Unread behind details', ...agentRelaysFor(baseURL!), agent: false })
+  try {
+    await join(page, withRelays(rowan.url, [relay]))
+    const readAt = () => page.evaluate(roomId => JSON.parse(localStorage.getItem('kithmoot.room.' + roomId)!).readAt as number, rowan.roomId)
+    const before = await readAt()
+    await page.locator('#roomMenu').click()
+    await expect(page.locator('#roomSheet')).toBeVisible()
+    await rowan.chat.send('This message has not been read behind Room details.')
+    await expect(page.locator('#chatLog')).toContainText('This message has not been read behind Room details.')
+    expect(await readAt()).toBe(before)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#roomSheet')).toBeHidden()
+    await expect.poll(readAt).toBeGreaterThan(before)
+  } finally { await context.close(); await rowan.leave() }
+})
+
+test('a call with chat closed keeps incoming messages unread in the desktop badge and room rail', async ({ browser, baseURL }) => {
+  test.skip(browser.browserType().name() !== 'chromium', 'The camera fixture needs Chromium synthetic media; the dialog regression runs across browsers.')
+  const { context, page, rooms, relay } = await setup(browser, baseURL!)
+  await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
+  await context.addInitScript(() => {
+    const known: Record<string, unknown> = {
+      updateState: async () => ({ phase: 'disabled' }), installUpdate: async () => false,
+      setUnread: (count: number) => { Object.assign(window, { testUnread: count }) },
+    }
+    Object.assign(window, { testUnread: 0, kithmootDesktop: new Proxy(known, {
+      get: (target, key) => key in target ? target[key as string]
+        : String(key).startsWith('supports') || key === 'shareAreaMode' ? undefined
+        : String(key).startsWith('on') ? () => () => {} : () => undefined,
+    }) })
+    document.hasFocus = () => true
+  })
+  const rowan = await RoomAgent.create({ base: baseURL!, name: 'Rowan', roomName: 'Call unread', ...agentRelaysFor(baseURL!), agent: false })
+  const extraWriters: RoomAgent[] = []
+  const count = () => page.evaluate(() => (window as unknown as { testUnread: number }).testUnread)
+  try {
+    await join(page, withRelays(rowan.url, [relay]))
+    await page.locator('#callToggle').click()
+    await page.locator('#toggleCamera').click()
+    await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await expect(page.locator('html')).toHaveAttribute('data-call-first', '')
+    if (await page.locator('#callChatToggle').getAttribute('aria-expanded') === 'true') await page.locator('#callChatToggle').click()
+    await expect(page.locator('#chatLog')).toBeHidden()
+    await rowan.chat.send('Unread while you are looking at the call.')
+    await expect(page.locator('#chatLog')).toContainText('Unread while you are looking at the call.')
+    await expect.poll(count).toBe(1)
+    await expect(page).toHaveTitle('(1) KithMoot')
+    const callRoom = page.locator('#workspaceRooms .workspaceRoom', { has: page.getByRole('button', { name: 'Call unread', exact: true }) })
+    await expect(callRoom.locator('.unread:not(.agent)')).toHaveText('1')
+    // Real per-person spam protection allows 30 messages a minute. Four
+    // synthetic people exercise the count cap without disabling that guard.
+    for (const name of ['Cy', 'Di', 'Ed']) extraWriters.push(await RoomAgent.join({ link: rowan.url, name, ...agentRelaysFor(baseURL!), agent: false }))
+    const writers = [rowan, ...extraWriters]
+    for (let index = 0; index < 99; index++) await writers[index % writers.length]!.chat.send(`Another unread update ${index}`)
+    await expect.poll(count).toBe(100)
+    await expect(callRoom.locator('.unread:not(.agent)')).toHaveText('99+')
+    await expect(page.locator('#callChatToggle .callChatUnread')).toHaveText('99+')
+    await expect(page).toHaveTitle('(100) KithMoot')
+    await page.locator('#workspaceRooms').getByRole('button', { name: rooms[0]!.name, exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText(rooms[0]!.name)
+    await expect(callRoom.locator('.unread:not(.agent)')).toHaveText('99+')
+    await expect.poll(count).toBe(100)
+    await callRoom.getByRole('button', { name: 'Call unread', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Call unread')
+    await expect(page.locator('#chatLog')).toBeHidden()
+    await expect.poll(count).toBe(100)
+    await page.locator('#callChatToggle').click()
+    await expect(page.locator('#chatLog')).toBeVisible()
+    await page.locator('#chatLog').evaluate(log => { log.scrollTop = log.scrollHeight })
+    await expect.poll(count).toBe(0)
+    await expect(page).toHaveTitle('KithMoot')
+    await expect(callRoom.locator('.unread')).toHaveCount(0)
+  } finally { await context.close(); await Promise.all(extraWriters.map(writer => writer.leave())); await rowan.leave() }
+})
+
 test('the installed window shows each other room\'s unread messages in the rail, and clears them on reading', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
   // The installed window's bridge, as far as this needs it: its presence is
