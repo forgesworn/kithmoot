@@ -114,5 +114,13 @@
       "webkit"
     ],
     "retryJourney": "An unanswered invitation retains the name, reopens preview and requires another explicit request"
+  },
+  "desktopRailAdmissionRegression": {
+    "passed": 1,
+    "skipped": 0,
+    "duration": "22.1s",
+    "project": "chromium-desktop",
+    "journey": "Initial invite and later rail entry each require explicit Request to join; verified relay waiting then host acceptance opens the room",
+    "reason": "The older fixture expected automatic requests and failed in CI38087761238"
   }
 }
