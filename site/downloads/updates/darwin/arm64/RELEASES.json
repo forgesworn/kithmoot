@@ -12,18 +12,6 @@
         "sha256": "a9035e3dda6e173a539dbde13421e378b6a423e22b84b9d9dca34a700100bf32",
         "size": 175410039
       }
-    },
-    {
-      "version": "0.1.69",
-      "updateTo": {
-        "version": "0.1.69",
-        "pub_date": "2026-10-10T11:08:25Z",
-        "notes": "Room and Dock unread counts stay visible while a call hides chat or Room details covers it. Roster controls keep their focus and pressed actions while presence refreshes.",
-        "name": "0.1.69",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.69/KithMoot-0.1.69-mac-arm64.zip",
-        "sha256": "107085c61ec7cd117b7229ece5402405f5e55b4ea0ddd0a8bdaea68020e1a2d9",
-        "size": 176764301
-      }
     }
   ]
 }
