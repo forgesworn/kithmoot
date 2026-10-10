@@ -40,5 +40,452 @@
     "Native Android parity, fresh-device summary delivery, older task completeness and representative scale/battery acceptance remain open.",
     "The UI requests bounded recent activity and retained canonical journals. It does not establish complete history or complete G9.",
     "This receipt records source validation, not publication or physical acceptance."
-  ]
+  ],
+  "webPublication": {
+    "verifiedAt": "2026-10-10T02:30:16.268799+00:00",
+    "sourceCommit": "3c47373dac06e125805b8ec92e3c99ffc66a65d6",
+    "release": "/var/www/kithmoot/releases/20261010T022821Z",
+    "allRemoteFilesMatched": 305,
+    "publicHttpFilesMatched": 13,
+    "ciRun": 38015690359,
+    "ciChecksPassed": 12,
+    "hostedWebKitInboxJourneySeconds": 15.9,
+    "nativeAndroidInboxWorkShipped": false,
+    "physicalAcceptance": false
+  },
+  "desktopCandidateBeforeVoiceMaskFix": {
+    "version": "0.1.68",
+    "sourceCommit": "2aea3489aad8ed33a531387d6fd6f3d9cfaa76fe",
+    "exactWebFilesPerBundle": 264,
+    "exactDesktopFilesPerBundle": 22,
+    "readyArchives": [
+      {
+        "name": "KithMoot-0.1.68-linux-x64.tar.gz",
+        "bytes": 169918727,
+        "sha256": "cf26b32ad92206ad5187b7d545cb3b2c2837fdbf0c362952a60fccbfeb692c94"
+      },
+      {
+        "name": "KithMoot-0.1.68-linux-arm64.tar.gz",
+        "bytes": 171034912,
+        "sha256": "54f30bb6d74faa3a5ccf9f4be79ccbb46373e7fd036ef968dd832b07e4c24bbb"
+      },
+      {
+        "name": "KithMoot-0.1.68-windows-x64.zip",
+        "bytes": 205347938,
+        "sha256": "ccc90274b7f73c4b6ea2a2337521b8602e006d98e9b5a615db461d5b38888ceb"
+      },
+      {
+        "name": "kithmoot_0.1.68_amd64.deb",
+        "bytes": 133487436,
+        "sha256": "61332d5d23f66df028a3196fccaeb9c1251c75bc94b19e02dc7537ba90332227"
+      },
+      {
+        "name": "kithmoot_0.1.68_arm64.deb",
+        "bytes": 128526340,
+        "sha256": "4c0697ef3e10cc0ceee14c3ea7b0ae0aab933ac27d007ab4ddea6a467f078a65"
+      }
+    ],
+    "macBundleDeveloperIdSigned": true,
+    "macNotarisationAccepted": false,
+    "macFinalArchiveVerified": false,
+    "publicReleasePublished": false,
+    "physicalWindowsLinuxAcceptance": false,
+    "archivePayloadProof": {
+      "sourceCommit": "2aea3489aad8ed33a531387d6fd6f3d9cfaa76fe",
+      "version": "0.1.68",
+      "archives": [
+        {
+          "name": "KithMoot-0.1.68-windows-x64.zip",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-win32-x64/resources/app.asar": {
+              "sha256": "63d2c98f1d1b0b32a1fc8c5f3c19c251e35a77394560aaf2301e142b10479063",
+              "bytes": 69076202
+            },
+            "KithMoot-win32-x64/KithMoot.exe": {
+              "sha256": "7f58bb4c4c9072b95bdadf0570168729ef0eaf72833443324b94f24f08771fdf",
+              "bytes": 246660608
+            }
+          }
+        },
+        {
+          "name": "KithMoot-0.1.68-linux-x64.tar.gz",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-linux-x64/kithmoot": {
+              "sha256": "8407787e90832dceaf83d751cc2ad89a92b92f90c9c5dedcc126e54258649a6f",
+              "bytes": 228367688
+            },
+            "KithMoot-linux-x64/resources/app.asar": {
+              "sha256": "63d2c98f1d1b0b32a1fc8c5f3c19c251e35a77394560aaf2301e142b10479063",
+              "bytes": 69076202
+            }
+          }
+        },
+        {
+          "name": "KithMoot-0.1.68-linux-arm64.tar.gz",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-linux-arm64/kithmoot": {
+              "sha256": "8ed0941287822db160d4072ecca983f3533657649e451d6acafcba8dfa62e3a4",
+              "bytes": 220728712
+            },
+            "KithMoot-linux-arm64/resources/app.asar": {
+              "sha256": "63d2c98f1d1b0b32a1fc8c5f3c19c251e35a77394560aaf2301e142b10479063",
+              "bytes": 69076202
+            }
+          }
+        }
+      ],
+      "readyArchivesCodeAndExecutableVerified": true,
+      "macFinalArchiveVerified": false
+    },
+    "debPayloadProof": {
+      "sourceCommit": "2aea3489aad8ed33a531387d6fd6f3d9cfaa76fe",
+      "version": "0.1.68",
+      "debs": [
+        {
+          "name": "kithmoot_0.1.68_amd64.deb",
+          "architecture": "amd64",
+          "bytes": 133487436,
+          "sha256": "61332d5d23f66df028a3196fccaeb9c1251c75bc94b19e02dc7537ba90332227",
+          "exactApplicationFiles": 75,
+          "regularArchiveFiles": 78,
+          "versionStampVerified": true,
+          "setuidSandboxVerified": true,
+          "embeddedSourceVerified": true
+        },
+        {
+          "name": "kithmoot_0.1.68_arm64.deb",
+          "architecture": "arm64",
+          "bytes": 128526340,
+          "sha256": "4c0697ef3e10cc0ceee14c3ea7b0ae0aab933ac27d007ab4ddea6a467f078a65",
+          "exactApplicationFiles": 75,
+          "regularArchiveFiles": 78,
+          "versionStampVerified": true,
+          "setuidSandboxVerified": true,
+          "embeddedSourceVerified": true
+        }
+      ],
+      "allApplicationBytesVerified": true
+    },
+    "supersededByVoiceMaskFix": true,
+    "eligibleForPublication": false
+  },
+  "desktopCandidateBeforeAgentUnreadFix": {
+    "version": "0.1.68",
+    "sourceCommit": "2f4087ed527a88a67f7f00a0fc675e561fb39485",
+    "includesVoiceMaskFailureFix": true,
+    "payloadRebuildRequired": false,
+    "exactWebFilesPerBundle": 264,
+    "exactDesktopFilesPerBundle": 22,
+    "readyArchives": [
+      {
+        "name": "KithMoot-0.1.68-linux-x64.tar.gz",
+        "bytes": 169927871,
+        "sha256": "9efa3533083aabf8239991532681d1f10ba482e6c5d67abe2c485fcf1eb291c8"
+      },
+      {
+        "name": "KithMoot-0.1.68-linux-arm64.tar.gz",
+        "bytes": 171043111,
+        "sha256": "0c11b31d2dceecefd44d2bb1322368da14acb4613071b8b0c7e01630d4edc181"
+      },
+      {
+        "name": "KithMoot-0.1.68-windows-x64.zip",
+        "bytes": 205348430,
+        "sha256": "eb16d04009a87e7444625adfda9076957e6e538b7d33d7429ec95a5a9200fddb"
+      },
+      {
+        "name": "kithmoot_0.1.68_amd64.deb",
+        "bytes": 133480284,
+        "sha256": "9a1d983e854af270c4e4a4e47926cc7757bcc13f9adb13e494ed5dd882946df9"
+      },
+      {
+        "name": "kithmoot_0.1.68_arm64.deb",
+        "bytes": 128533124,
+        "sha256": "be07475681dcd21349412ec3dd7587f1a6fcfb756023f00eb8159bbbba165432"
+      }
+    ],
+    "archivePayloadProof": {
+      "sourceCommit": "2f4087ed527a88a67f7f00a0fc675e561fb39485",
+      "version": "0.1.68",
+      "archives": [
+        {
+          "name": "KithMoot-0.1.68-windows-x64.zip",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-win32-x64/resources/app.asar": {
+              "sha256": "e966285849e701a75e5f1999e29dc01d2ce608c0c8e510e37be06814a187ab13",
+              "bytes": 69078746
+            },
+            "KithMoot-win32-x64/KithMoot.exe": {
+              "sha256": "aa6d6afc23f821b4c90c11c1b91082a067bca059208b314bdfce7bb28b4b1f76",
+              "bytes": 246660608
+            }
+          }
+        },
+        {
+          "name": "KithMoot-0.1.68-linux-x64.tar.gz",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-linux-x64/kithmoot": {
+              "sha256": "8407787e90832dceaf83d751cc2ad89a92b92f90c9c5dedcc126e54258649a6f",
+              "bytes": 228367688
+            },
+            "KithMoot-linux-x64/resources/app.asar": {
+              "sha256": "e966285849e701a75e5f1999e29dc01d2ce608c0c8e510e37be06814a187ab13",
+              "bytes": 69078746
+            }
+          }
+        },
+        {
+          "name": "KithMoot-0.1.68-linux-arm64.tar.gz",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-linux-arm64/kithmoot": {
+              "sha256": "8ed0941287822db160d4072ecca983f3533657649e451d6acafcba8dfa62e3a4",
+              "bytes": 220728712
+            },
+            "KithMoot-linux-arm64/resources/app.asar": {
+              "sha256": "e966285849e701a75e5f1999e29dc01d2ce608c0c8e510e37be06814a187ab13",
+              "bytes": 69078746
+            }
+          }
+        }
+      ],
+      "allBundledCodeAndExecutablesVerified": true
+    },
+    "debPayloadProof": {
+      "sourceCommit": "2f4087ed527a88a67f7f00a0fc675e561fb39485",
+      "version": "0.1.68",
+      "debs": [
+        {
+          "name": "kithmoot_0.1.68_amd64.deb",
+          "architecture": "amd64",
+          "bytes": 133480284,
+          "sha256": "9a1d983e854af270c4e4a4e47926cc7757bcc13f9adb13e494ed5dd882946df9",
+          "exactApplicationFiles": 75,
+          "regularArchiveFiles": 78,
+          "versionStampVerified": true,
+          "setuidSandboxVerified": true,
+          "embeddedSourceVerified": true
+        },
+        {
+          "name": "kithmoot_0.1.68_arm64.deb",
+          "architecture": "arm64",
+          "bytes": 128533124,
+          "sha256": "be07475681dcd21349412ec3dd7587f1a6fcfb756023f00eb8159bbbba165432",
+          "exactApplicationFiles": 75,
+          "regularArchiveFiles": 78,
+          "versionStampVerified": true,
+          "setuidSandboxVerified": true,
+          "embeddedSourceVerified": true
+        }
+      ],
+      "allApplicationBytesVerified": true
+    },
+    "macCandidate": {
+      "sourceCommit": "2f4087ed527a88a67f7f00a0fc675e561fb39485",
+      "version": "0.1.68",
+      "pendingZipSha256": "7528331aa02abfd6d72bf8bc737d39fca0b75112e3907195123b4a471681d55c",
+      "pendingZipBytes": 176747762,
+      "m4TransferVerified": true,
+      "m4LoginKeychainUnlocked": false,
+      "developerIdSigned": true,
+      "strictSignatureVerified": true,
+      "notarisationAccepted": false,
+      "publicReleasePublished": false
+    },
+    "shellUnitChecksPassed": 95,
+    "publicReleasePublished": false,
+    "macNotarisationAccepted": false,
+    "macFinalArchiveVerified": false,
+    "physicalWindowsLinuxAcceptance": false,
+    "superseded": true,
+    "eligibleForPublication": false,
+    "supersededReason": "The delayed-agent unread badge fix changes the application payload."
+  },
+  "desktopCandidate": {
+    "version": "0.1.68",
+    "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+    "verifiedAt": "2026-10-10T07:12:13.270309+00:00",
+    "state": "notarised-packages-and-signed-feeds-awaiting-final-ci",
+    "containsVoiceMaskFix": true,
+    "containsLateAgentUnreadFix": true,
+    "exactWebFilesPerBundle": 264,
+    "exactDesktopFilesPerBundle": 22,
+    "readyArchives": [
+      {
+        "name": "KithMoot-0.1.68-mac-arm64.zip",
+        "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96",
+        "bytes": 176749486
+      },
+      {
+        "name": "KithMoot-0.1.68-linux-x64.tar.gz",
+        "bytes": 169928092,
+        "sha256": "2b79ff0b4eb9ab875aacbe7b1b5cba1f2a3c3241d50b2dc840e74c6dc5d69b8c"
+      },
+      {
+        "name": "KithMoot-0.1.68-linux-arm64.tar.gz",
+        "bytes": 171044293,
+        "sha256": "78161b6112d9ba49878ba7d7111a7843093f2a490ea2f78e14f70447ee62cf3d"
+      },
+      {
+        "name": "KithMoot-0.1.68-windows-x64.zip",
+        "bytes": 205348772,
+        "sha256": "a0b013c6d1f769d46b4343165206eeea5f0075b651547d90a26f2ce4b246463e"
+      },
+      {
+        "name": "kithmoot_0.1.68_amd64.deb",
+        "bytes": 133489680,
+        "sha256": "565cfeacc9d430d3cdf3f07111320c1af6625f9860d568fb39ebf694a2f6aaae"
+      },
+      {
+        "name": "kithmoot_0.1.68_arm64.deb",
+        "bytes": 128520636,
+        "sha256": "d08be02d305599e85fa6c3fd58a9405263881d065beb888e0cd6cab60c7285a2"
+      }
+    ],
+    "archivePayloadProof": {
+      "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "version": "0.1.68",
+      "archives": [
+        {
+          "name": "KithMoot-0.1.68-windows-x64.zip",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-win32-x64/resources/app.asar": {
+              "sha256": "85ab270c0a75d1d89809e7a87208a67adea2ec3eacd21af4bb2e228ae9ff3499",
+              "bytes": 69078775
+            },
+            "KithMoot-win32-x64/KithMoot.exe": {
+              "sha256": "b7daffb7174ca8f78de220d4da698774b32729937716352f23e67788e27b816d",
+              "bytes": 246660608
+            }
+          }
+        },
+        {
+          "name": "KithMoot-0.1.68-linux-x64.tar.gz",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-linux-x64/kithmoot": {
+              "sha256": "8407787e90832dceaf83d751cc2ad89a92b92f90c9c5dedcc126e54258649a6f",
+              "bytes": 228367688
+            },
+            "KithMoot-linux-x64/resources/app.asar": {
+              "sha256": "85ab270c0a75d1d89809e7a87208a67adea2ec3eacd21af4bb2e228ae9ff3499",
+              "bytes": 69078775
+            }
+          }
+        },
+        {
+          "name": "KithMoot-0.1.68-linux-arm64.tar.gz",
+          "codeAndExecutableMatch": true,
+          "entries": {
+            "KithMoot-linux-arm64/kithmoot": {
+              "sha256": "8ed0941287822db160d4072ecca983f3533657649e451d6acafcba8dfa62e3a4",
+              "bytes": 220728712
+            },
+            "KithMoot-linux-arm64/resources/app.asar": {
+              "sha256": "85ab270c0a75d1d89809e7a87208a67adea2ec3eacd21af4bb2e228ae9ff3499",
+              "bytes": 69078775
+            }
+          }
+        }
+      ],
+      "allBundledCodeAndExecutablesVerified": true
+    },
+    "debPayloadProof": {
+      "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "version": "0.1.68",
+      "debs": [
+        {
+          "name": "kithmoot_0.1.68_amd64.deb",
+          "architecture": "amd64",
+          "bytes": 133489680,
+          "sha256": "565cfeacc9d430d3cdf3f07111320c1af6625f9860d568fb39ebf694a2f6aaae",
+          "exactApplicationFiles": 75,
+          "regularArchiveFiles": 78,
+          "versionStampVerified": true,
+          "setuidSandboxVerified": true,
+          "embeddedSourceVerified": true
+        },
+        {
+          "name": "kithmoot_0.1.68_arm64.deb",
+          "architecture": "arm64",
+          "bytes": 128520636,
+          "sha256": "d08be02d305599e85fa6c3fd58a9405263881d065beb888e0cd6cab60c7285a2",
+          "exactApplicationFiles": 75,
+          "regularArchiveFiles": 78,
+          "versionStampVerified": true,
+          "setuidSandboxVerified": true,
+          "embeddedSourceVerified": true
+        }
+      ],
+      "allApplicationBytesVerified": true
+    },
+    "macCandidate": {
+      "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "version": "0.1.68",
+      "pendingZipSha256": "a35433a3f8040a77cb1ccff1dff140fcf8c44fdc643a28503c61e697ac957e78",
+      "pendingZipBytes": 176747893,
+      "m4TransferVerified": true,
+      "m4LoginKeychainUnlocked": false,
+      "developerIdSigned": true,
+      "strictSignatureVerified": true,
+      "notarisationAccepted": true,
+      "publicReleasePublished": false,
+      "submissionId": "d150232b-518e-434a-a35d-ea146c4faee8",
+      "dedicatedNotaryKeychainVerified": true,
+      "loginKeychainStatePreserved": true
+    },
+    "shellUnitChecksPassed": 98,
+    "publicReleasePublished": false,
+    "eligibleForPublication": false,
+    "macNotarisationAccepted": true,
+    "macFinalArchiveVerified": true,
+    "physicalWindowsLinuxAcceptance": false,
+    "macFinalProof": {
+      "verifiedAt": "2026-10-10T07:11:07.409202+00:00",
+      "version": "0.1.68",
+      "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "submission": {
+        "status": "Accepted",
+        "message": "Successfully received submission info",
+        "id": "d150232b-518e-434a-a35d-ea146c4faee8",
+        "name": "KithMoot-0.1.68-signed.zip",
+        "createdDate": "2026-10-10T07:00:45.901Z"
+      },
+      "staplerValidated": true,
+      "strictSignatureVerified": true,
+      "gatekeeper": "Notarized Developer ID",
+      "archive": {
+        "name": "KithMoot-0.1.68-mac-arm64.zip",
+        "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96",
+        "bytes": 176749486
+      },
+      "exactBundleEntries": 280,
+      "allBundleFilesAndLinksMatch": true,
+      "zipCrcVerified": true,
+      "published": false
+    },
+    "signedReleaseManifestVerified": true,
+    "squirrelFeedMatchesFinalMacArchive": true,
+    "aptSignaturesVerified": [
+      "InRelease",
+      "Release.gpg"
+    ],
+    "aptSignerFingerprint": "D6D7B42A690985CC3DDCC676F546951EDCB5E0DC",
+    "postMainMergePayloadProof": {
+      "verifiedAt": "2026-10-10T07:38:44.516550+00:00",
+      "packagedSource": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "mergedMain": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "exactWebFiles": 264,
+      "exactDesktopFiles": 22,
+      "productionPayloadUnchanged": true
+    },
+    "m1NotaryKeychainVerified": true,
+    "m4NotaryKeychainVerified": true,
+    "notaryKeychainLockStateRestored": true
+  }
 }

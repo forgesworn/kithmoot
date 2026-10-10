@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.63 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.68 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -28,7 +28,7 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 - The app serves its bundled web assets inside an isolated, persistent Electron session. No local HTTP listener is required. HTTPS is intercepted only for `/j/` on the KithMoot origin; network services such as TURN and encrypted file storage retain their normal endpoints. Browser and desktop profiles are separate.
 - Sign in with the same Nostr account using an existing supported remote signer or account option. Browser signer extensions are not installed in Electron. Project/room sync follows the existing account policies; installing the app does not copy browser keys or local history.
-- Microphone and camera start only through existing call controls and macOS consent. Screen sharing uses the native macOS 15+ picker when available and an explicit screen/window menu otherwise. Without macOS Screen Recording permission the app says so and offers to open System Settings rather than failing with "Invalid capture constraints". Because the preview is ad-hoc signed, macOS may forget that permission when the app bundle is replaced. Closing during a call asks first. Leaving a call keeps the room chat available.
+- Microphone and camera start only through existing call controls and macOS consent. Screen sharing uses the native macOS 15+ picker when available and an explicit screen/window menu otherwise. Without macOS Screen Recording permission the app says so and offers to open System Settings rather than failing with "Invalid capture constraints". Public Mac releases use the same Apple Developer ID identity; local ad-hoc previews may lose that permission when the bundle is replaced. Closing during a call asks first. Leaving a call keeps the room chat available.
 - Calls disable app suspension while joined. Closing the window ends its call; the macOS Dock app remains available to reopen. There is no incoming-call background daemon.
 - Chat and its composer fill the available width when there is no media beside them.
 - Share an area has four large corner resize handles and a draggable Move bar; focused controls support arrow keys. The pane stays above normal windows and across Mac fullscreen spaces. Its KithMoot control restores and raises the call window, then the sharing frame retakes the front when focus moves away. Drawing colours appear in a bottom legend once per author, fading with their last mark.
@@ -125,6 +125,15 @@ and, if needed, `KITHMOOT_MAC_SIGNING_KEYCHAIN` to its keychain path. The packag
 signs Electron's nested code with hardened runtime, submits the ZIP to Apple,
 requires Accepted status, staples and validates the ticket, and checks Gatekeeper
 before creating the public archive filename.
+
+For a dedicated notarisation keychain, set `KITHMOOT_MAC_NOTARY_KEYCHAIN` to
+its absolute path. It can be separate from the signing keychain. For unattended
+builds, also set `KITHMOOT_MAC_NOTARY_PASSWORD_FILE` to a file owned by the
+build user with mode `0600`, containing that dedicated keychain's password.
+The helper unlocks only this keychain for the notarytool operation and restores
+its original lock state afterwards. It passes the file path rather than the
+password on the command line. Keep the password file and credentials outside
+the repository; the login keychain and its settings need no change.
 
 For a disposable local build only, `KITHMOOT_MAC_LOCAL_PREVIEW=1 npm run package:mac`
 produces an explicitly named `-local-preview.zip`. Do not publish it as a normal
