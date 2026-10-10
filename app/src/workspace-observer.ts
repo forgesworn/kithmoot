@@ -6,6 +6,20 @@ import type { RelayTransport } from '../../src/relay-pool.js'
 import type { RoomPolicy } from '../../src/types.js'
 import { RoomWatch, type WatchedRekey } from './room-watch.js'
 import type { WorkspaceObservation } from './workspace-work.js'
+import { OWN_CREDENTIAL_PREFIX, type DeviceStore } from './device-store.js'
+import { verifyDeviceCredential } from '../../src/credential.js'
+import type { DeviceCredential } from '../../src/types.js'
+
+/** Reading with deliberately retained room keys does not renew a device's
+ * signing credential. Authenticate its saved account binding at issuance;
+ * the originating session must renew it before any later signed action. */
+export function workspaceAccountAdmission(store: Pick<DeviceStore, 'get'>, room: string, account: string, now: number): boolean {
+  try {
+    const credential = JSON.parse(store.get(OWN_CREDENTIAL_PREFIX + room) ?? 'null') as DeviceCredential | null
+    return !!credential && credential.pubkey === account && credential.created_at <= now + 120
+      && verifyDeviceCredential(credential, { roomId: room, now: credential.created_at }).ok
+  } catch { return false }
+}
 
 /** No archive, signer, presence publication or writable task storage. The
  * transport still honours the room's existing private/public route choice. */

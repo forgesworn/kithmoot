@@ -303,8 +303,7 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
 import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
-import { observeWorkspaceActivity } from './workspace-observer.js'
-import { verifyDeviceCredential } from '../../src/credential.js'
+import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { credentialSeal } from '../../src/seal.js'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
@@ -14269,12 +14268,11 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   let link: RoomLink
   try { link = parseRoomLink(room.link) } catch { return 'This room invitation is unavailable.' }
   if (isQuietPolicy(link.policy)) return 'Open this quiet conversation to read its messages and work.'
-  const credentialStore = loadOwnCredentialFor(deviceStore, room.roomId, nowSeconds()) ? deviceStore : browserDeviceStore(sessionStorage)
+  const credentialStore = workspaceAccountAdmission(deviceStore, room.roomId, account, nowSeconds()) ? deviceStore : browserDeviceStore(sessionStorage)
   const valid = (): boolean => {
     const saved = knownRoom(roomStore(), room.roomId)
-    const credential = loadOwnCredentialFor(credentialStore, room.roomId, nowSeconds())
     return account === nostrSession?.pubkey && !!saved && saved.endedAt === undefined && saved.endsAt === undefined && !saved.destruct
-      && !!credential && credential.pubkey === account && verifyDeviceCredential(credential, { roomId: room.roomId, now: nowSeconds() }).ok
+      && workspaceAccountAdmission(credentialStore, room.roomId, account, nowSeconds())
   }
   if (!valid()) return 'Open this room to refresh your account’s admission before viewing its work.'
   const secret = secretForKnownRoom(link)

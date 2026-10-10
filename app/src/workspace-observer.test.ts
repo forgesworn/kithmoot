@@ -6,7 +6,8 @@ import { deriveRoom } from '../../src/room.js'
 import { encodeChatEvent } from '../../src/chat.js'
 import { deriveEpoch, encodeRekeyEvent, generateEpochSecret } from '../../src/epoch.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
-import { observeWorkspaceActivity } from './workspace-observer.js'
+import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
+import { memoryDeviceStore, OWN_CREDENTIAL_PREFIX } from './device-store.js'
 
 const NOW = 1_800_000_000
 async function fixture(loadJournal: () => Promise<string | undefined> = async () => undefined) {
@@ -26,6 +27,20 @@ async function fixture(loadJournal: () => Promise<string | undefined> = async ()
 }
 
 describe('workspace observer lifetime and authority', () => {
+  it('keeps read access after signing-credential expiry without accepting another account or a forged binding', async () => {
+    const root = deriveRoom(generateSecretKey()), identity = localIdentity(generateSecretKey()), store = memoryDeviceStore()
+    const credential = await createDeviceCredential({ identity, devicePubkey: getPublicKey(generateSecretKey()), roomId: root.roomId,
+      expiresAt: NOW + 3600, now: () => NOW })
+    const key = OWN_CREDENTIAL_PREFIX + root.roomId
+    store.set(key, JSON.stringify(credential))
+    expect(workspaceAccountAdmission(store, root.roomId, identity.pubkey, NOW + 7200)).toBe(true)
+    expect(workspaceAccountAdmission(store, root.roomId, getPublicKey(generateSecretKey()), NOW + 7200)).toBe(false)
+    expect(workspaceAccountAdmission(store, 'f'.repeat(64), identity.pubkey, NOW + 7200)).toBe(false)
+    store.set(key, JSON.stringify({ ...credential, pubkey: getPublicKey(generateSecretKey()) }))
+    expect(workspaceAccountAdmission(store, root.roomId, credential.pubkey, NOW + 7200)).toBe(false)
+    store.set(key, JSON.stringify({ ...credential, sig: '0'.repeat(128) }))
+    expect(workspaceAccountAdmission(store, root.roomId, credential.pubkey, NOW + 7200)).toBe(false)
+  })
   it('reads bounded activity without publishing presence, signing work or writing a journal', async () => {
     const f = await fixture()
     try {

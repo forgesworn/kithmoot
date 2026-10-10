@@ -18,13 +18,19 @@ the room's existing controls and current head checks.
 
 The view requests recent chat and assignment envelopes with a limit of 128
 and a 24-hour window, without paging archives or publishing presence. It reads
-only existing, valid admission for the current account; receiving a project
+only existing admission with a verified account binding and held room keys;
+receiving a project
 invitation cannot start a room observation. Temporary meetings and scheduled
 self-destructing rooms are excluded. Quiet conversations currently require
 opening the origin rather than reading their separate transport through this
 observer. Closing the view stops its observations. Account changes, forgotten
 or ended rooms and access-changing rekeys drop its data; authoritative closure
 still follows the room's normal cleanup path.
+
+A device signing credential expiring does not erase deliberately retained
+read keys. The view verifies the saved credential's account/room binding at
+issuance without renewing it or deleting it on read. The originating room
+still checks current admission and credential validity before a signed update.
 
 The observer uses the same signed assignment operations, admission-checked room
 envelopes and canonical projection as the originating room. It can load the
