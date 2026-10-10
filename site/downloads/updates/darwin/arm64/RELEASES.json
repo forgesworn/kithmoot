@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.70",
+  "currentRelease": "0.1.71",
   "releases": [
     {
-      "version": "0.1.70",
+      "version": "0.1.71",
       "updateTo": {
-        "version": "0.1.70",
-        "pub_date": "2026-10-10T12:25:31Z",
-        "notes": "Send keeps your newest pending message in view. Accepted messages appear without waiting for a relay echo, and a waiting message stays visible until the chat shows it.",
-        "name": "0.1.70",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.70/KithMoot-0.1.70-mac-arm64.zip",
-        "sha256": "a9035e3dda6e173a539dbde13421e378b6a423e22b84b9d9dca34a700100bf32",
-        "size": 175410039
+        "version": "0.1.71",
+        "pub_date": "2026-10-10T14:59:14Z",
+        "notes": "Room creators can find Record call beside the microphone, camera and screen-share controls. Choose audio only or video with audio without opening meeting settings.",
+        "name": "0.1.71",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.71/KithMoot-0.1.71-mac-arm64.zip",
+        "sha256": "1fd725825d334f41a9e0284479e245575e4e002a2ef656c9b80c13498c86526a",
+        "size": 175410145
       }
     }
   ]

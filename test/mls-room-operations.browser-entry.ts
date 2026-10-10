@@ -20,6 +20,7 @@ import { pairingFixture } from './mls-pairing-fixture.js'
 import { encodeUnsignedBinding } from './vmls-encode.js'
 import { bindingDigest } from '../src/vmls/binding.js'
 import { createDeviceCredential } from '../src/credential.js'
+import { vmlsMemberGrantReference } from '../src/vmls-revocation-request.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
 
@@ -69,6 +70,8 @@ export async function create(decision: 'approve' | 'deny' = 'approve') {
   return result
 }
 export async function read() { return rooms.read(roomContext(), roomId) }
+export async function revocationAuthority() { return rooms.roomRevocationAuthority(roomContext(), roomId) }
+export function keeperIdentities() { return { created: persona, joined: joinKeeper } }
 export async function send(op = operation, text = 'durable hello') { return rooms.send(roomContext(), roomId, op, new TextEncoder().encode(text)) }
 export async function rename(name = 'New name') { return rooms.rename(roomContext(), roomId, name) }
 export async function update(lifetime = 86400) { return rooms.update(roomContext(), roomId, clock + lifetime, async () => 'approve') }
@@ -153,7 +156,7 @@ export async function pendingNever(operation: 'create' | 'update', end: 'invalid
   } finally { globalThis.setTimeout = timeout }
 }
 
-let guest: any, guestPlatform: any, incoming: any, guestLeaf = ''
+let guest: any, guestPlatform: any, incoming: any, guestLeaf = '', guestDevice = ''
 function receipt(slot: any) {
   const attempt = new Uint8Array(4); new DataView(attempt.buffer).setUint32(0, slot.destination.attempt)
   const digest = sha256(concatBytes(new TextEncoder().encode('VMLS/1 slot receipt'), hexToBytes(installation), slot.mailbox, attempt, sha256(slot.envelope)))
@@ -176,23 +179,25 @@ function fixturePackageClient(): BrowserMlsBoxClient {
   return new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret),
     cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, boxId, vault, ctx(), async () => 'approve', () => true)
 }
-export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient()) {
-  const wasm = await loadMlsEngine(), d = checked(await vault.credential(ctx())), guestSecret = new Uint8Array(32).fill(44), rz = hexToBytes(persona)
+export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient(), joined = false) {
+  const activeContext = joined ? joinContext() : roomContext(), activeRz = joined ? joinRz : persona, activeRzSecret = joined ? joinRzSecret : secret
+  const wasm = await loadMlsEngine(), d = checked(await vault.credential(ctx())), guestSecret = new Uint8Array(32).fill(44), rz = hexToBytes(activeRz)
   const keeperPlatform = new wasm.Platform(hexToBytes(d.device.device), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
-  guestPlatform = new wasm.Platform(schnorr.getPublicKey(guestSecret), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
-  const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', persona], ['scope', 'person'], ['device', bytesToHex(schnorr.getPublicKey(guestSecret))], ['expiration', String(clock + 7 * 86400)]] }, secret)
-  const binding = { credential: { pubkey: rz, createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
+  guestDevice = bytesToHex(schnorr.getPublicKey(guestSecret))
+  guestPlatform = new wasm.Platform(hexToBytes(guestDevice), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+  const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', persona], ['scope', 'person'], ['device', guestDevice], ['expiration', String(clock + 7 * 86400)]] }, secret)
+  const binding = { credential: { pubkey: hexToBytes(persona), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
   const joining = wasm.Session.prepareCapability(guestPlatform, BigInt(clock), { binding, expiresAt: BigInt(clock + 86400), adderRz: rz, counter: 0n })
   const ask = joining.signRequest(), dh = joining.ecdhRequest()
-  const made = joining.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, guestSecret), secp256k1.getSharedSecret(secret, concatBytes(Uint8Array.of(2), dh.peerRz)).slice(1))
+  const made = joining.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, guestSecret), secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), dh.peerRz)).slice(1))
   guest = made.session; guestAck(made.step)
   guestLeaf = bytesToHex(guest.ownLeafId())
   const introPending = wasm.prepareIntroduction(keeperPlatform, BigInt(clock), rz, 0n), req = introPending.request()
-  const intro = introPending.complete(BigInt(clock), req.operation, secp256k1.getSharedSecret(secret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
+  const intro = introPending.complete(BigInt(clock), req.operation, secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
   const capabilityEnvelope = made.step.outbound[0].envelope
-  let added = await rooms.addCapabilities(roomContext(), roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
+  let added = await rooms.addCapabilities(activeContext, roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
   if (added.state === 'transport' && (added.answer.state === 'unavailable' || added.answer.state === 'not-signed')) {
-    added = await rooms.addCapabilities(roomContext(), roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
+    added = await rooms.addCapabilities(activeContext, roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
   }
   intro.free(); introPending.free(); joining.free(); keeperPlatform.free()
   if (added.state !== 'active') {
@@ -200,24 +205,24 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
     throw new Error('fixture add held')
   }
   const slot = added.value.outbound.find((o: any) => o.destination.type === 'CommitSlot')
-  const applied = await rooms.process(roomContext(), roomId, boxInput(slot, receipt(slot)))
+  const applied = await rooms.process(activeContext, roomId, boxInput(slot, receipt(slot)))
   if (applied.state !== 'active') throw new Error('fixture add not applied')
   const welcome = applied.value.outbound.find((o: any) => o.destination.type === 'Welcome')
   if (stageWelcome) return applied.state
   const accepted = guest.process(BigInt(clock), welcome.mailbox, welcome.envelope, undefined, { homeBox: hexToBytes(boxId), installation: hexToBytes(installation) })
   guestAck(accepted.step)
-  const routed = await rooms.driverState(roomContext(), roomId)
+  const routed = await rooms.driverState(activeContext, roomId)
   if (routed.state !== 'active') throw new Error('fixture Welcome route held')
   const welcomeRecords = routed.value.outbox.filter((item: any) => item.destination.type === 'Welcome').map((item: any) => item.recordId)
   if (welcomeRecords.length) {
-    const delivered = await rooms.drive(roomContext(), roomId, { generation: routed.value.generation, homeBox: boxId, installation }, { type: 'delivered', records: welcomeRecords })
+    const delivered = await rooms.drive(activeContext, roomId, { generation: routed.value.generation, homeBox: boxId, installation }, { type: 'delivered', records: welcomeRecords })
     if (delivered.state !== 'active') throw new Error('fixture Welcome delivery held')
   }
   const updating = guest.prepareUpdate(BigInt(clock), binding)
   const updated = guest.completeUpdate(BigInt(clock), updating.operation, schnorr.sign(updating.digest, guestSecret)); guestAck(updated)
   const updateSlot = updated.outbound.find((o: any) => o.destination.type === 'CommitSlot'), signed = receipt(updateSlot)
   guestAck(guest.process(BigInt(clock), updateSlot.mailbox, updateSlot.envelope, signed, undefined).step)
-  const seen = await rooms.process(roomContext(), roomId, boxInput(updateSlot, signed))
+  const seen = await rooms.process(activeContext, roomId, boxInput(updateSlot, signed))
   if (seen.state !== 'active') throw new Error('fixture guest update held')
   const sent = guest.send(new TextEncoder().encode('received plaintext survives')); guestAck(sent)
   incoming = sent.outbound.find((o: any) => o.destination.type === 'Leaf')
@@ -226,6 +231,7 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
 export async function stageGuestWelcome(packageClient?: BrowserMlsBoxClient) { return addGuest(true, packageClient) }
 export async function receive() { return rooms.process(roomContext(), roomId, boxInput(incoming)) }
 const removalOperation = '03'.repeat(32)
+const requestRemovalOperation = '07'.repeat(32)
 export async function beginGuestRemoval(compromised = true) {
   const roster = await rooms.members(roomContext(), roomId)
   if (roster.state !== 'active') throw new Error('fixture roster held')
@@ -237,6 +243,32 @@ export async function beginGuestRemovalWithStaleRoster() {
   if (roster.state !== 'active') throw new Error('fixture roster held')
   const members = roster.value.filter(member => member.leafId === guestLeaf).map(member => ({ ...member, bindingExpiresAt: member.bindingExpiresAt + 1 }))
   return rooms.removeDevice(roomContext(), roomId, { operation: '05'.repeat(32), leafId: guestLeaf, members, grants: [], compromised: false })
+}
+export async function beginJoinedMemberRequest(mode: 'valid' | 'wrong-device' | 'wrong-keeper' | 'wrong-box' | 'other-person' = 'valid') {
+  const roster = await rooms.members(joinContext(), roomId)
+  if (roster.state !== 'active') throw new Error('fixture roster held')
+  const leaf = mode === 'other-person' ? joinInviterLeaf : guestLeaf
+  const members = roster.value.filter(member => member.leafId === leaf)
+  if (members.length !== 1) throw new Error('fixture target missing')
+  const device = mode === 'wrong-device' ? '99'.repeat(32) : members[0].device
+  const keeper = mode === 'wrong-keeper' ? getPublicKey(new Uint8Array(32).fill(47)) : joinKeeper
+  const requestBox = mode === 'wrong-box' ? '98'.repeat(32) : boxId
+  const operation = ({ valid: '07', 'wrong-device': '08', 'wrong-keeper': '09', 'other-person': '0a', 'wrong-box': '0b' } as const)[mode].repeat(32)
+  return rooms.removeDevice(joinContext(), roomId, { operation, leafId: leaf, members,
+    grants: [{ node: hexToBytes(requestBox), grant: hexToBytes(vmlsMemberGrantReference(requestBox, device)), keeper: false }], compromised: true,
+    request: { keeper, device, sessions: [roomId], boxes: [requestBox] } })
+}
+export async function markJoinedMemberRequest() {
+  return rooms.setRemovalGrants(joinContext(), roomId, requestRemovalOperation,
+    [{ grant: vmlsMemberGrantReference(boxId, guestDevice), state: { type: 'NotAuthorised', requested: true } }])
+}
+export async function damageJoinedMemberRequestKeeper() {
+  return host.transact(persona, async tx => {
+    const record = await readMlsMembership(tx), request = record.removals.find(item => item.operation === requestRemovalOperation)?.request
+    if (!request) throw new Error('missing request')
+    request.keeper = getPublicKey(new Uint8Array(32).fill(47))
+    await saveMlsMembership(tx, record)
+  }, () => true).then(result => result.state)
 }
 export async function driveGuestRemoval() { return rooms.driveRemoval(roomContext(), roomId, removalOperation) }
 export async function driveGuestRemovalFailure(code: string) {
@@ -358,9 +390,14 @@ import { base64urlnopad } from '@scure/base'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 const joinRzSecret = new Uint8Array(32).fill(43), provisionDevice = new Uint8Array(32).fill(44), inviterRzSecret = new Uint8Array(32).fill(45)
 const joinRz = getPublicKey(joinRzSecret), inviterRz = getPublicKey(inviterRzSecret), rzDatabase = 'mls-join-rendezvous-test'
+const joinKeeper = getPublicKey(new Uint8Array(32).fill(48))
 let rzVault = new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)), rzReceipt: RendezvousReceipt
-let joinOutbound: any, joinWelcome: any, inviter: any, inviterPlatform: any
+let joinOutbound: any, joinWelcome: any, inviter: any, inviterPlatform: any, joinInviterLeaf = ''
+const joinRemovalOperation = '06'.repeat(32)
 const joinContext = () => ({ vault: ctx(), rendezvousKey: joinRz, current: () => true })
+export async function joinRevocationAuthority() { return rooms.roomRevocationAuthority(joinContext(), roomId) }
+export async function addJoinedMemberDevice() { return addGuest(false, fixturePackageClient(), true) }
+export async function joinMembership() { return rooms.membership(joinContext(), roomId) }
 export async function provisionJoin(index = 1, lifetime = 600) {
   const nonce = new Uint8Array(16).fill(9), device = getPublicKey(provisionDevice)
   const plain = JSON.stringify({ v: 1, p: persona, d: device, rz: joinRz, u: 'rendezvous', i: index, n: base64urlnopad.encode(nonce), e: clock + lifetime, k: base64urlnopad.encode(joinRzSecret) })
@@ -372,7 +409,7 @@ export async function provisionJoin(index = 1, lifetime = 600) {
 }
 export async function clearJoinChild() { await new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)).clear(persona) }
 export async function typedJoin(mode = 'approve') {
-  const result = await rooms.join(joinContext(), { operation, name: 'Joined room', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault, async () => {
+  const result = await rooms.join(joinContext(), { operation, name: 'Joined room', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, keeper: joinKeeper, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault, async () => {
     if (mode === 'clear') await clearJoinChild()
     if (mode === 'replace') await provisionJoin(2)
     if (mode === 'account') generation++
@@ -396,6 +433,7 @@ export async function makeJoinWelcome() {
   inviterPlatform = new wasm.Platform(schnorr.getPublicKey(deviceSecret), hexToBytes(inviterRz), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
   const creating = wasm.Session.prepareCreate(inviterPlatform, BigInt(clock), binding, hexToBytes(installation)), ask = creating.request()
   const made = creating.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, deviceSecret)); inviter = made.session
+  joinInviterLeaf = bytesToHex(inviter.ownLeafId())
   const ack = (step: any) => { if (step.snapshot) { inviter.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
   ack(made.step); creating.free()
   const pending = wasm.prepareIntroduction(inviterPlatform, BigInt(clock), hexToBytes(joinRz), 0n), req = pending.request()
@@ -414,6 +452,20 @@ export async function firstJoinUpdate() {
   if (updated.state !== 'active') return updated
   const slot = updated.value.outbound.find((o: any) => o.destination.type === 'CommitSlot')
   return rooms.process(joinContext(), roomId, boxInput(slot, receipt(slot)))
+}
+export async function beginJoinInviterRemoval() {
+  const roster = await rooms.members(joinContext(), roomId)
+  if (roster.state !== 'active') throw new Error('fixture joined roster held')
+  const members = roster.value.filter(member => member.leafId === joinInviterLeaf)
+  return rooms.removeDevice(joinContext(), roomId, { operation: joinRemovalOperation, leafId: joinInviterLeaf, members, grants: [], compromised: true })
+}
+export async function driveJoinInviterRemoval() { return rooms.driveRemoval(joinContext(), roomId, joinRemovalOperation) }
+export async function joinMembers() { return rooms.members(joinContext(), roomId) }
+export async function applyJoinInviterRemoval() {
+  const driven = await driveJoinInviterRemoval()
+  if (driven.state !== 'active') return { driven }
+  const slot = driven.value.outbound.find((item: any) => item.destination.type === 'CommitSlot')
+  return { driven, applied: slot ? await rooms.process(joinContext(), roomId, boxInput(slot, receipt(slot))) : undefined }
 }
 export async function joinFault(at: 'stage' | 'promotion' | 'stale-close' | 'lost-advance', welcome = false) {
   const write = LockedPersonaStore.prototype.write
@@ -475,7 +527,7 @@ let joinPrompt: (() => void) | undefined, pendingJoin: Promise<any> | undefined
 export async function startWaitingJoin() {
   let entered!: () => void
   const waiting = new Promise<void>(resolve => { entered = resolve })
-  pendingJoin = rooms.join(joinContext(), { operation, name: 'Pending', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault,
+  pendingJoin = rooms.join(joinContext(), { operation, name: 'Pending', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, keeper: joinKeeper, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault,
     () => new Promise<'approve'>(resolve => { joinPrompt = () => resolve('approve'); entered() }))
   await waiting
 }

@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-10",
+  "version": "0.1.71",
+  "sourceCommit": "bbba09bae59ee8c8fd2b4a6c3d06b21264fbe9d6",
+  "recordingChange": "https://github.com/forgesworn/kithmoot/pull/345",
+  "automated": {
+    "typecheck": "passed",
+    "focusedBrowserJourneys": 14,
+    "nativeElectronSourceExportPlayback": "passed",
+    "signedMacPackageExportPlayback": "passed",
+    "syntheticMediaInputs": true
+  },
+  "packages": {
+    "exactWebFiles": 264,
+    "exactDesktopRuntimeFiles": 22,
+    "archives": [
+      {
+        "name": "KithMoot-0.1.71-mac-arm64.zip",
+        "sha256": "1fd725825d334f41a9e0284479e245575e4e002a2ef656c9b80c13498c86526a",
+        "bytes": 175410145
+      },
+      {
+        "name": "KithMoot-0.1.71-linux-x64.tar.gz",
+        "bytes": 169965056,
+        "sha256": "aef0dcd3b0f35a88bf780e013d4076d20ac75fe0dfecacf84b953aa9ab8c0401"
+      },
+      {
+        "name": "KithMoot-0.1.71-linux-arm64.tar.gz",
+        "bytes": 171085405,
+        "sha256": "83d245de2586399ba69910d8743eea12418b3f5003c0b08a94c1da18608effdd"
+      },
+      {
+        "name": "KithMoot-0.1.71-windows-x64.zip",
+        "bytes": 205364741,
+        "sha256": "da3397f32e3ba680642bd48240faf0754a7df99e33cad9468f316b2602c62674"
+      },
+      {
+        "name": "kithmoot_0.1.71_amd64.deb",
+        "bytes": 133497964,
+        "sha256": "965dd18a99e5d18d9d49b11ed56d46bfa4d39c2e162b07b8ce8ef555b06c2797"
+      },
+      {
+        "name": "kithmoot_0.1.71_arm64.deb",
+        "bytes": 128530832,
+        "sha256": "ec222521320d6a13437e06d7a9c91f9db19c9886a3c96dc03b35f10b4f0aec5e"
+      }
+    ],
+    "macNotarisation": {
+      "id": "93c2abf3-9f3f-459d-88ed-951da0882d0c",
+      "status": "Accepted",
+      "message": "Processing complete"
+    },
+    "macFinalZipMatchesStapledBundle": true,
+    "linuxArchitectures": [
+      "x64",
+      "arm64"
+    ],
+    "windows": "unsigned portable preview"
+  },
+  "publication": "pending reviewed release metadata and CI",
+  "physicalAcceptance": false,
+  "longSessionAcceptance": "separate existing evidence, not established by these short new UI journeys"
+}

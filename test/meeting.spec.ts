@@ -166,7 +166,10 @@ test('a recording is announced to everybody, before joining as well as during, a
     await joinWithMedia(b, url, 'Bob')
     await expect(a.locator('#room .participant')).toHaveCount(2, { timeout: 60_000 })
 
-    await openMeetingPanel(a)
+    await openCall(a)
+    await expect(a.locator('#recordToggle')).toBeInViewport()
+    await expect(a.locator('#callExtras')).not.toHaveAttribute('open', '')
+    await expect(b.locator('#recordToggle')).toBeHidden()
     await a.locator('#recordToggle').click()
     await expect(a.locator('#actionDialog')).toBeVisible()
     await a.locator('#actionConfirm').click()

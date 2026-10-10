@@ -59,8 +59,18 @@ async function enrolled(context: BrowserContext, room = true) {
   if (room) { const created = await run(f.page, 'M.create()'); expect(created).toMatchObject({ state: 'active' }) }
   return f
 }
+async function joinedWithMemberDevice(page: Page) {
+  await run(page, 'M.provisionJoin()')
+  expect(await run(page, 'M.typedJoin()')).toMatchObject({ state: 'active' })
+  expect(await run(page, 'M.makeJoinWelcome()')).toBe(true)
+  expect(await run(page, 'M.acceptJoinWelcome()')).toMatchObject({ state: 'active', value: { outcome: { type: 'Accepted' } } })
+  expect(await run(page, 'M.firstJoinUpdate()')).toMatchObject({ state: 'active' })
+  expect(await run(page, 'M.addJoinedMemberDevice()')).toBe('active')
+}
 test('typed creation, idempotent send and rename persist with the session', async ({ context }) => {
   const { page } = await enrolled(context)
+  const keepers = await run(page, 'M.keeperIdentities()')
+  expect(await run(page, 'M.revocationAuthority()')).toMatchObject({ state: 'active', value: { name: 'Witnessed room', keeper: keepers.created } })
   expect(await run(page, 'M.read()')).toMatchObject({ state: 'active', value: { name: 'Witnessed room', history: [], generation: '1' } })
   expect(await run(page, 'M.send()')).toMatchObject({ state: 'active' })
   const before = await run(page, 'M.read()')
@@ -175,6 +185,39 @@ test('membership journalling refuses a roster that changed after review', async 
   expect(await run(page, 'M.membership()')).toMatchObject({ state: 'active', value: [] })
   await run(page, 'M.forgetGuest()')
 })
+test('member request metadata and the requested transition are witnessed and bound to the engine grant', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await joinedWithMemberDevice(page)
+  const opened = await run(page, 'M.beginJoinedMemberRequest()')
+  expect(opened).toMatchObject({ state: 'active', value: { request: { sessions: [expect.stringMatching(/^[0-9a-f]{64}$/)], boxes: [expect.stringMatching(/^[0-9a-f]{64}$/)] },
+    grants: [{ grant: { keeper: false }, state: { type: 'NotAuthorised', requested: false } }] } })
+  await run(page, 'M.restartJoin()')
+  expect(await run(page, 'M.joinMembership()')).toMatchObject({ state: 'active', value: [{ operation: '07'.repeat(32),
+    grants: [{ state: { type: 'NotAuthorised', requested: false } }] }] })
+  expect(await run(page, 'M.markJoinedMemberRequest()')).toMatchObject({ state: 'active', value: {
+    grants: [{ state: { type: 'NotAuthorised', requested: true } }] } })
+  await run(page, 'M.forgetGuest()')
+})
+test('member requests require the retained keeper and the requesting persona own the reviewed target', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await joinedWithMemberDevice(page)
+  for (const mode of ['wrong-device', 'wrong-keeper', 'wrong-box', 'other-person']) {
+    expect(await run(page, `M.beginJoinedMemberRequest('${mode}')`)).toEqual({ state: 'refused', reason: 'malformed' })
+  }
+  expect(await run(page, 'M.joinMembership()')).toMatchObject({ state: 'active', value: [] })
+  expect(await run(page, 'M.joinMembers()')).toMatchObject({ state: 'active', value: expect.arrayContaining([
+    expect.objectContaining({ leafId: expect.stringMatching(/^[0-9a-f]{64}$/) }),
+  ]) })
+  await run(page, 'M.forgetGuest()')
+})
+test('member request metadata that no longer matches the room keeper fences the persona', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await joinedWithMemberDevice(page)
+  expect(await run(page, 'M.beginJoinedMemberRequest()')).toMatchObject({ state: 'active' })
+  expect(await run(page, 'M.damageJoinedMemberRequestKeeper()')).toBe('active')
+  expect(await run(page, 'M.joinMembership()')).toMatchObject({ state: 'fenced', reason: 'invalid-vault' })
+  await run(page, 'M.forgetGuest()')
+})
 test('a transient Remove refusal stays pending and is proposed again', async ({ context }) => {
   const { page } = await enrolled(context)
   expect(await run(page, 'M.addGuest()')).toBe('active')
@@ -269,6 +312,8 @@ test('typed join survives reload, accepts authenticated Welcome and requires its
   await run(page, 'M.provisionJoin()')
   const joining = await run(page, 'M.typedJoin()')
   expect(joining.state).toBe('active')
+  const keepers = await run(page, 'M.keeperIdentities()')
+  expect(await run(page, 'M.joinRevocationAuthority()')).toMatchObject({ state: 'active', value: { name: 'Joined room', keeper: keepers.joined } })
   const reopened = await run(page, 'M.recoverJoin()')
   expect(reopened).toMatchObject({ state: 'active', value: { phase: { type: 'PendingJoin' }, name: 'Joined room' } })
   expect(reopened.value.outbox).toEqual(joining.value.outbound)
@@ -283,6 +328,34 @@ test('typed join survives reload, accepts authenticated Welcome and requires its
   expect((await run(page, 'M.firstJoinUpdate()')).state).toBe('active')
   expect(await run(page, 'M.sendJoin()')).toMatchObject({ state: 'active' })
   expect((await run(page, 'M.recoverJoin()')).value.history).toHaveLength(1)
+})
+test('a joined session completes UpdateFirst, Update and witnessed Remove in order', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect((await run(page, 'M.typedJoin()')).state).toBe('active')
+  expect(await run(page, 'M.makeJoinWelcome()')).toBe(true)
+  expect(await run(page, 'M.acceptJoinWelcome()')).toMatchObject({ state: 'active', value: { outcome: { type: 'Accepted' } } })
+
+  const opened = await run(page, 'M.beginJoinInviterRemoval()')
+  expect(opened).toMatchObject({ state: 'active', value: { compromised: true, attempts: 0, mls: 'Pending', next: { type: 'UpdateFirst' } } })
+  expect(await run(page, 'M.driveJoinInviterRemoval()')).toMatchObject({
+    state: 'active', value: { outbound: [], membership: { attempts: 0, mls: 'Pending', next: { type: 'UpdateFirst' } } },
+  })
+  expect((await run(page, 'M.readJoin()')).value.updateRequired).toBe(true)
+
+  expect(await run(page, 'M.firstJoinUpdate()')).toMatchObject({ state: 'active', value: { outcome: { type: 'Accepted' } } })
+  expect((await run(page, 'M.readJoin()')).value.updateRequired).toBe(false)
+
+  const removed = await run(page, 'M.applyJoinInviterRemoval()')
+  expect(removed).toMatchObject({
+    driven: { state: 'active', value: { outbound: [expect.objectContaining({ destination: expect.objectContaining({ type: 'CommitSlot' }) })], membership: { attempts: 1, mls: 'Pending', next: { type: 'Wait' } } } },
+    applied: { state: 'active', value: { outcome: { type: 'Accepted' } } },
+  })
+  expect(await run(page, 'M.driveJoinInviterRemoval()')).toMatchObject({ state: 'active', value: { membership: { attempts: 1, mls: 'Committed', next: { type: 'Done' } } } })
+  const finalRoster = await run(page, 'M.joinMembers()')
+  expect(finalRoster.state).toBe('active')
+  expect(finalRoster.value).toHaveLength(1)
+  expect(finalRoster.value[0]).toMatchObject({ own: true, pending: false })
 })
 for (const mode of ['deny', 'clear', 'replace', 'account', 'invalidate', 'expiry', 'revoke', 'device']) test(`typed join refuses stale authorisation after ${mode}`, async ({ context }) => {
   const { page } = await enrolled(context, false)
