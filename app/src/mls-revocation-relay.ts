@@ -7,6 +7,9 @@ import { publicRoomOperation } from './public-room-operation.js'
 
 const hex32 = /^[0-9a-f]{64}$/
 const DIRECTORY_EVENT_LIMIT = 8
+const DIRECTORY_FRAME_LIMIT = 32
+const DIRECTORY_FRAME_CHARACTER_LIMIT = 128_000
+const DIRECTORY_TOTAL_CHARACTER_LIMIT = 512_000
 const DEFAULT_LOOKUP_MS = 8_000
 const DEFAULT_DRAIN_MS = 2_000
 
@@ -91,6 +94,8 @@ export class NostrVmlsRevocationTransport implements VmlsRevocationTransport {
     return new Promise(resolve => {
       let socket: WebSocket | undefined
       let finished = false
+      let frames = 0
+      let characters = 0
       const events = new Map<string, Event>()
       const finish = (complete: boolean) => {
         if (finished) return
@@ -111,7 +116,14 @@ export class NostrVmlsRevocationTransport implements VmlsRevocationTransport {
         socket.onerror = () => finish(false)
         socket.onclose = () => finish(false)
         socket.onmessage = message => {
-          if (typeof message.data !== 'string' || message.data.length > 128_000) return
+          if (finished) return
+          frames++
+          if (frames > DIRECTORY_FRAME_LIMIT || typeof message.data !== 'string' ||
+              message.data.length > DIRECTORY_FRAME_CHARACTER_LIMIT ||
+              (characters += message.data.length) > DIRECTORY_TOTAL_CHARACTER_LIMIT) {
+            finish(false)
+            return
+          }
           try {
             const frame: unknown = JSON.parse(message.data)
             if (!Array.isArray(frame) || frame[1] !== id) return
@@ -119,7 +131,7 @@ export class NostrVmlsRevocationTransport implements VmlsRevocationTransport {
             else if (frame[0] === 'CLOSED' && frame.length >= 2) finish(false)
             else if (frame[0] === 'EVENT' && frame.length === 3 && events.size < DIRECTORY_EVENT_LIMIT &&
                 verifiedDirectoryEvent(frame[2] as Event, keeper)) events.set((frame[2] as Event).id, frame[2] as Event)
-          } catch { /* Malformed relay material cannot complete or fill the bounded result. */ }
+          } catch { finish(false) }
         }
       } catch { finish(false) }
     })

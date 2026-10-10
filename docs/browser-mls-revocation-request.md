@@ -47,7 +47,9 @@ record. Relay refusal or uncertain publication leaves every grant at
 `NotAuthorised { requested: false }`. Only after the injected publisher confirms
 `OK true` does one witnessed transaction mark all exact request grant references
 `requested: true`. That state means the request was sent, never that the keeper
-performed revocation. Concurrent calls for one operation share one attempt. A
+performed revocation. Concurrent calls through one controller instance for one
+operation share one attempt. Separate tabs or controller instances can each
+publish while the durable requested flag remains false. A
 restart may retry a retained `requested: false` operation, while a retained
 `requested: true` operation returns without another directory read or publish.
 

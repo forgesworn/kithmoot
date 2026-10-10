@@ -16,6 +16,7 @@ class Socket {
   close(): void { this.closed = true }
   open(): void { this.onopen?.() }
   frame(value: unknown): void { this.onmessage?.({ data: JSON.stringify(value) }) }
+  raw(value: unknown): void { this.onmessage?.({ data: value }) }
 }
 
 class Pool {
@@ -72,6 +73,48 @@ describe('NostrVmlsRevocationTransport', () => {
     const found = await pending
     expect(found).toHaveLength(8)
     expect(found.map(event => event.id).sort()).toEqual(events.slice(0, 8).map(event => event.id).sort())
+  })
+
+  it('closes an incomplete directory lookup on unsupported, oversized, or malformed frames', async () => {
+    for (const hostileFrame of [new Uint8Array([1]), 'x'.repeat(128_001), '{']) {
+      const socket = new Socket()
+      const transport = new NostrVmlsRevocationTransport(['wss://directory.test'], {
+        socket: () => socket as unknown as WebSocket, lookupMs: 100,
+      })
+      const pending = transport.directory('11'.repeat(32))
+      socket.open(); socket.raw(hostileFrame)
+      await expect(pending).rejects.toThrow('did not complete')
+      expect(socket.closed).toBe(true)
+    }
+  })
+
+  it('bounds every received frame and cumulative text before EOSE', async () => {
+    const keeper = '11'.repeat(32)
+    const frameSocket = new Socket()
+    const frameTransport = new NostrVmlsRevocationTransport(['wss://frames.test'], {
+      socket: () => frameSocket as unknown as WebSocket, lookupMs: 100,
+    })
+    const framePending = frameTransport.directory(keeper)
+    frameSocket.open()
+    const id = JSON.parse(frameSocket.sent[0]!)[1]
+    const invalid = { ...directoryEvent(generateSecretKey(), 1), pubkey: keeper }
+    for (let index = 0; index < 32; index++) frameSocket.frame(['EVENT', id, invalid])
+    expect(frameSocket.closed).toBe(false)
+    frameSocket.frame(['EVENT', id, invalid])
+    await expect(framePending).rejects.toThrow('did not complete')
+    expect(frameSocket.closed).toBe(true)
+
+    const textSocket = new Socket()
+    const textTransport = new NostrVmlsRevocationTransport(['wss://characters.test'], {
+      socket: () => textSocket as unknown as WebSocket, lookupMs: 100,
+    })
+    const textPending = textTransport.directory(keeper)
+    textSocket.open()
+    for (let index = 0; index < 4; index++) textSocket.frame(['NOTICE', 'x'.repeat(120_000)])
+    expect(textSocket.closed).toBe(false)
+    textSocket.frame(['NOTICE', 'x'.repeat(120_000)])
+    await expect(textPending).rejects.toThrow('did not complete')
+    expect(textSocket.closed).toBe(true)
   })
 
   it('does not turn total directory silence into evidence that no list exists', async () => {
