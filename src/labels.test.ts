@@ -42,6 +42,7 @@ import { READ_POSITION_LABELS } from './read-position.js'
 import { ROOM_LABELS } from './room.js'
 import { ROOM_RELAYS_LABELS } from './room-relays.js'
 import { VERIFICATION_LABELS } from './verification.js'
+import { VMLS_REVOCATION_LABELS } from './vmls-revocation-request.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -96,6 +97,7 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/room-id',
   'kithmoot/v1/room-key',
   'kithmoot/v1/verify',
+  'kithmoot/vmls-member-grant/v1',
 ]
 
 /**
@@ -152,7 +154,10 @@ describe('kithmoot/ wire-format labels', () => {
 
   it('every label starts with a version segment, so a future unversioned string cannot slip in unnoticed', () => {
     for (const label of FROZEN_LABELS) {
-      expect(label).toMatch(/^kithmoot\/(v[0-9]+\/|assignment\/v[0-9]+$)/)
+      // The Vennel section 7.1 member-grant reference and the assignment
+      // protocol predate this repository's prefix-version convention; both
+      // carry their frozen version at the end instead.
+      expect(label).toMatch(/^kithmoot\/(v[0-9]+\/|assignment\/v[0-9]+$|vmls-member-grant\/v[0-9]+$)/)
     }
   })
 
@@ -195,6 +200,7 @@ const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = 
   ['read-position.ts', READ_POSITION_LABELS],
   ['room-relays.ts', ROOM_RELAYS_LABELS],
   ['verification.ts', VERIFICATION_LABELS],
+  ['vmls-revocation-request.ts', VMLS_REVOCATION_LABELS],
 ]
 
 function findLabelsInFile(file: string): string[] {
