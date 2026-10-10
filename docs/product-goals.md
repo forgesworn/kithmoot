@@ -389,8 +389,8 @@ remote work interface.
   consequences when judgement, new authority or an unresolved trade-off is
   required. Do not merely suppress requests while execution remains blocked.
 - Establish reusable, bounded execution and communication permissions explicitly.
-  Oathrun currently reviews each outgoing room draft; routine progress and
-  results need a reviewed delivery policy before they can flow automatically.
+  The isolated Oathrun assignment route has a reviewed delivery policy for
+  routine progress and results; supported live-host acceptance remains open.
   Preserve separate approval where an action exceeds the standing authority.
 - Continue from an authorised task checkpoint after an interruption. Avoid
   repeated context gathering and duplicate execution. A permission renewal,
@@ -412,9 +412,10 @@ remote work interface.
 Already implemented: shared assignment creation, progress, questions, exact
 result review, cancellation/handoff and Den links; hosted-agent discovery;
 Oathrun project policies, context verification and prompt-efficiency controls.
-Remaining work includes the assignment-to-Oathrun execution bridge, unified
-project/attention surfaces, native Android work controls, durable session
-integration and graph retrieval. This is not a new task-engine proposal.
+Remaining work includes integrated live acceptance of the assignment-to-Oathrun
+execution bridge and native Android work controls, unified project/attention
+surfaces, durable session integration and graph retrieval. This is not a new
+task-engine proposal.
 
 ## G10 — Battery optimisation backed by physical measurements
 
