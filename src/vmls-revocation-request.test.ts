@@ -81,6 +81,21 @@ describe('VMLS member revocation request wire boundary', () => {
     expect(await unwrapVmlsRevocationRequest(forged, keeper.identity, now)).toBeUndefined()
   })
 
+  it('invalidates inbound signer responses when the keeper account changes', async () => {
+    const wrapper = await wrapVmlsRevocationRequest(member.identity, request(), () => 0)
+    for (const switchOnDecrypt of [1, 2]) {
+      let current = true, decryptions = 0
+      const changing = { ...keeper.identity, decrypt: async (...args: Parameters<VmlsRevocationIdentity['decrypt']>) => {
+        const plaintext = await keeper.identity.decrypt(...args)
+        decryptions += 1
+        if (decryptions === switchOnDecrypt) current = false
+        return plaintext
+      } }
+      expect(await unwrapVmlsRevocationRequest(wrapper, changing, now, () => current)).toBeUndefined()
+      expect(decryptions).toBe(switchOnDecrypt)
+    }
+  })
+
   it('derives the member-side grant reference from the exact box and device', () => {
     const reference = vmlsMemberGrantReference('55'.repeat(32), '33'.repeat(32))
     expect(reference).toMatch(/^[0-9a-f]{64}$/)

@@ -193,16 +193,18 @@ export async function sendVmlsRevocationRequest(input: {
 
 /** Open one bounded wrapper. Invalid or unrelated relay material is dropped silently. */
 export async function unwrapVmlsRevocationRequest(wrapper: Event, identity: VmlsRevocationIdentity,
-  now = Math.floor(Date.now() / 1000)): Promise<VmlsRevocationRequest | undefined> {
+  now = Math.floor(Date.now() / 1000), current: () => boolean = () => true): Promise<VmlsRevocationRequest | undefined> {
   try {
-    if (!wrapper || wrapper.kind !== VMLS_REVOCATION_GIFT_WRAP_KIND || !Number.isSafeInteger(now) || now < 0 ||
+    if (!current() || !wrapper || wrapper.kind !== VMLS_REVOCATION_GIFT_WRAP_KIND || !Number.isSafeInteger(now) || now < 0 ||
         JSON.stringify(wrapper.tags) !== JSON.stringify([['p', identity.pubkey]]) || encoder.encode(wrapper.content).byteLength > MAX_WRAP_BYTES ||
         !verifyEventUncached(wrapper)) return
     const seal: unknown = JSON.parse(await identity.decrypt(wrapper.pubkey, wrapper.content))
-    if (!object(seal) || seal.kind !== VMLS_REVOCATION_SEAL_KIND || !hex32.test(seal.pubkey as string) || !Array.isArray(seal.tags) || seal.tags.length !== 0 ||
+    if (!current() || !object(seal) || seal.kind !== VMLS_REVOCATION_SEAL_KIND || !hex32.test(seal.pubkey as string) || !Array.isArray(seal.tags) || seal.tags.length !== 0 ||
         typeof seal.content !== 'string' || encoder.encode(seal.content).byteLength > MAX_SEAL_BYTES || !verifyEventUncached(seal as unknown as Event)) return
     const rumor = await identity.decrypt(seal.pubkey as string, seal.content)
-    return parseVmlsRevocationRumor(rumor, seal.pubkey as string, identity.pubkey, now)
+    if (!current()) return
+    const request = parseVmlsRevocationRumor(rumor, seal.pubkey as string, identity.pubkey, now)
+    return current() ? request : undefined
   } catch {
     return
   }
