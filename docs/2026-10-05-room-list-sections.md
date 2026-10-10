@@ -24,6 +24,7 @@ The order and labels are fixed:
 | Unread | `Unread` | Unpinned rooms with at least one unread message from a person (agents don't count) | No |
 | Recent | `Recent` | Unpinned, read rooms with activity in the last 7 days | No |
 | Older | `Older` | Unpinned, read rooms with no activity in 7 days | **Yes** |
+| Other | `Other rooms` | Unpinned, read rooms whose message time is unavailable, including new rooms | No |
 | Ended | `Ended` | Unpinned rooms that have ended, including conference rooms past their end | **Yes** |
 
 Rules:
@@ -31,7 +32,7 @@ Rules:
   - A pinned room stays in Pinned even when it is unread or has ended.
   - An ended room goes to Ended even when it is unread.
 - **Within a section the order is the same activity order the list uses today.**
-- **Activity:** use what the list already sorts by (web `activityAt`, Android the row's time). Seven days is `7 * 24 * 60 * 60` seconds before now.
+- **Activity:** use the latest readable conversation-message time. Reading or opening a room does not create activity. Unknown message times stay blank and go in Other rooms, outside the default folds. Seven days is `7 * 24 * 60 * 60` seconds before now.
 - **Section heading:**
   - A small heading row showing the label, plus ` · N` when the section is folded, e.g. `Older · 14`.
   - Web: `labelMedium`/`.8rem`, `--muted` colour, letter-spacing `.04em`, not uppercase.
