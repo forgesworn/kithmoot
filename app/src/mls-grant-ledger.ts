@@ -145,7 +145,7 @@ type Carrier = (record: MlsGrantRecord, identity: ParticipantIdentity) => { publ
  * route. State moves before network I/O, so uncertain replies retry the same
  * signed event and can never lose the withdrawal material. */
 export class BrowserMlsGrantLedger {
-  constructor(private identity: () => ParticipantIdentity | undefined, private link: Pick<BrowserLink, 'resume' | 'boxes' | 'openSocket'>,
+  constructor(private identity: () => ParticipantIdentity | undefined, private link: Pick<BrowserLink, 'resume' | 'boxes' | 'openSocket' | 'pairedBoxes'>,
     readonly store: Store = new BrowserMlsGrantStore(),
     private carrier: Carrier = (record, identity) => new BrowserLinkRelay(link, record.box, identity, { room: mlsGrantScope(record.device), kinds: [24242] }),
     private now: () => number = () => Math.floor(Date.now() / 1000),
@@ -156,6 +156,31 @@ export class BrowserMlsGrantLedger {
     return identity
   }
   async records(): Promise<MlsGrantRecord[]> { return this.store.all() }
+  /** Local account-bound pairing evidence only. No endpoint starts here.
+   * False means this exact route is absent, never that remote access ended. */
+  async available(authority: MlsKeeperGrantAuthority, sender: string, device: string, current: () => boolean): Promise<boolean> {
+    const expected = structuredClone(authority), keeper = this.#identity()
+    if (!hex32.test(sender) || !hex32.test(device) || sender === keeper.pubkey || !current()) throw new Error('Review this request in the current keeper account.')
+    const check = () => { if (!current()) throw new Error('The keeper account or foreground session changed.'); this.#identity(keeper.pubkey) }
+    return this.exclusive(`${expected.node}.${device}`, async () => {
+      const exactRecord = async () => {
+        check()
+        const records = await this.store.all()
+        if (!Array.isArray(records) || records.length > 256 || new Set(records.map(record => `${record.node}/${record.device}`)).size !== records.length) throw new Error('The keeper grant ledger could not be verified.')
+        records.forEach(validateMlsGrant)
+        const record = records.find(item => item.node === expected.node && item.device === device)
+        if (!record) throw new Error('The approved grant is no longer retained.')
+        this.#approvedAuthority(record, expected, keeper.pubkey, sender, device)
+        return record
+      }
+      const before = await exactRecord(), routes = await this.link.pairedBoxes(keeper.pubkey)
+      check()
+      const after = await exactRecord()
+      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('The approved grant changed while checking its pairing.')
+      if (!Array.isArray(routes) || routes.some(route => !route || typeof route.routeId !== 'string' || typeof route.eventUrl !== 'string')) throw new Error('The keeper pairings could not be verified.')
+      return routes.some(route => route.routeId === expected.box.routeId && route.eventUrl === expected.box.eventUrl)
+    })
+  }
   async install(box: PairedBox, persona: string, device: string, room: MlsGrantRoom, boxNow = this.now()): Promise<MlsGrantRecord> {
     const keeper = this.#identity(), node = mlsBoxNode(box)
     return this.exclusive(`${node}.${device}`, async () => {
@@ -215,12 +240,7 @@ export class BrowserMlsGrantLedger {
       let record = (await this.store.all()).find(item => item.node === expected.node && item.device === device)
       if (!record) throw new Error('The approved grant is no longer retained.')
       validateMlsGrant(record)
-      if (record.issuer !== keeper.pubkey || record.persona !== sender || record.grantId !== expected.grantId ||
-          mlsGrantReference(record.node, record.grantId) !== expected.reference || record.active.id !== expected.active || record.revocation.id !== expected.revocation ||
-          record.box.routeId !== expected.box.routeId || record.box.eventUrl !== expected.box.eventUrl ||
-          record.rooms.some(use => !expected.rooms.some(reviewed => reviewed.session === use.session && reviewed.leaf === use.leaf))) {
-        throw new Error('The approved grant authority or affected rooms changed. Review the request again.')
-      }
+      this.#approvedAuthority(record, expected, keeper.pubkey, sender, device)
       check()
       if (record.state === 'revoked') return { record, result: 'revoked' }
       if (record.state !== 'revoking') { record = { ...record, state: 'revoking' }; await this.store.put(record) }
@@ -231,6 +251,14 @@ export class BrowserMlsGrantLedger {
       check()
       return { record, result: 'revoked' }
     })
+  }
+  #approvedAuthority(record: MlsGrantRecord, expected: MlsKeeperGrantAuthority, keeper: string, sender: string, device: string): void {
+    if (record.issuer !== keeper || record.persona !== sender || record.device !== device || record.node !== expected.node || record.grantId !== expected.grantId ||
+        mlsGrantReference(record.node, record.grantId) !== expected.reference || record.active.id !== expected.active || record.revocation.id !== expected.revocation ||
+        record.box.routeId !== expected.box.routeId || record.box.eventUrl !== expected.box.eventUrl || expected.expiration !== undefined && record.expiration !== expected.expiration ||
+        !Array.isArray(expected.rooms) || record.rooms.some(use => !expected.rooms.some(reviewed => reviewed.session === use.session && reviewed.leaf === use.leaf))) {
+      throw new Error('The approved grant authority or affected rooms changed. Review the request again.')
+    }
   }
   async #route(record: MlsGrantRecord, keeper: ParticipantIdentity, event: Event, current: () => void = () => undefined): Promise<void> {
     current()
