@@ -26,6 +26,7 @@ import { localIdentity } from '../src/identity.js'
 import { localPeerCrypt } from '../src/dm.js'
 import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
 import { BrowserMlsGrantStore, planMlsGrant } from '../app/src/mls-grant-ledger.js'
+import { BrowserMlsKeeperDecisions } from '../app/src/mls-keeper-decisions.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
 
@@ -237,7 +238,7 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
 export async function stageGuestWelcome(packageClient?: BrowserMlsBoxClient) { return addGuest(true, packageClient) }
 const inboxGrants = new BrowserMlsGrantStore()
 const keeperInbox = () => new BrowserMlsRevocationInbox(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
-export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = false) {
+export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = false, lifetime = 7 * 86400) {
   const senderSecret = new Uint8Array(32).fill(wrongPerson ? 45 : 44)
   const sender = { ...localIdentity(senderSecret), ...localPeerCrypt(senderSecret) }
   const keeper = { ...localIdentity(secret), ...localPeerCrypt(secret) }
@@ -247,10 +248,21 @@ export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = fal
   if (ledgerOnly) { grant.rooms = []; grant.revokeAfter = clock + 86400 }
   await inboxGrants.put(grant)
   const wrapper = await wrapVmlsRevocationRequest(sender, { sender: sender.pubkey, keeper: persona, device: guestDevice,
-    sessions: ['ab'.repeat(32)], boxes: ['cd'.repeat(32)], createdAt: clock, expiration: clock + 7 * 86400 })
+    sessions: ['ab'.repeat(32)], boxes: ['cd'.repeat(32)], createdAt: clock, expiration: clock + lifetime })
   return keeperInbox().receive([wrapper], keeper)
 }
 export async function keeperRequests() { return keeperInbox().view() }
+const keeperDecisions = () => new BrowserMlsKeeperDecisions(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+export async function keeperDecisionPlan() {
+  const result = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => prompt.state === 'pending')!.operation, () => true)
+  if (result.state !== 'active') return result
+  return keeperDecisions().plan(result.value)
+}
+export async function decideKeeperRequest(approve = true) {
+  const plan = await keeperDecisionPlan()
+  if (plan.state !== 'active') return plan
+  return keeperDecisions().decide(plan.value, approve)
+}
 export async function receive() { return rooms.process(roomContext(), roomId, boxInput(incoming)) }
 const removalOperation = '03'.repeat(32)
 const requestRemovalOperation = '07'.repeat(32)

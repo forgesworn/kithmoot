@@ -123,8 +123,18 @@ class PackageRegistrationStopped extends Error {
   constructor(readonly answer: Exclude<BoxAnswer<{ fresh: boolean }>, { state: 'ok' }>) { super('MLS package registration stopped') }
 }
 async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<ReturnType<typeof loadMlsEngine>>, session: string,
-  room: MlsRoomRecord, persona: string): Promise<void> {
-  for (const record of (await readMlsMembership(tx)).removals) if (record.session === session && record.compromised) {
+  room: MlsRoomRecord, persona: string, active: Session): Promise<void> {
+  const journal = await readMlsMembership(tx)
+  // The operator's witnessed approval closes the interval before the exact
+  // Remove journal is recorded. Grant failure or request expiry cannot release
+  // this hold. The fresh witnessed roster must no longer contain the device.
+  for (const prompt of journal.inbox?.prompts ?? []) if (prompt.state === 'approved') {
+    for (const intent of prompt.approval!.rooms) if (intent.session === session && intent.action === 'remove') {
+      if (room.keeper !== persona || prompt.request.keeper !== persona) throw new InvalidPersonaRecord('Keeper send hold no longer matches its room')
+      if (memberStatuses(active).some(member => member.device === prompt.request.device)) throw new MlsRoomRefused('compromised-removal')
+    }
+  }
+  for (const record of journal.removals) if (record.session === session && record.compromised) {
     const removal = decodeRemoval(wasm, record, { keeper: room.keeper, persona })
     try { if (removal.mls() !== 'Committed') throw new MlsRoomRefused('compromised-removal') }
     finally { removal.free() }
@@ -390,7 +400,7 @@ export class BrowserMlsRoomOperations {
           if (client.box !== room.binding.homeBox || routes.some(route => route.homeBox !== room.binding.homeBox || watched.has(route.welcomeMailbox))) throw new MlsRoomRefused('invalid-package-route')
           if (known.length + routes.length > 64 || new Set([...known, ...routes].map(route => route.packageId)).size !== known.length + routes.length ||
               new Set([...known, ...routes].map(route => route.welcomeMailbox)).size !== known.length + routes.length) throw new MlsRoomRefused('package-route-full')
-          await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona)
+          await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona, session)
         }
         const checked = await scope.host.step(scope.hostContext, id, session => ({ snapshot: null, value: undefined }),
           this.#edits(scope.ctx, scope, id, async (r, tx, session) => { room = r; await validate(session, tx) }))
@@ -757,9 +767,9 @@ export class BrowserMlsRoomOperations {
         }
         message = { leaf: bytesToHex(s.ownLeafId()), epoch: String(s.epoch()) }
         return effect(s, s.send(body))
-      }, this.#edits(scope.ctx, scope, id, async (r, tx) => {
+      }, this.#edits(scope.ctx, scope, id, async (r, tx, s) => {
         room = r
-        await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona)
+        await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona, s)
       }, r => {
         if (message) appendMlsHistory(r, { id: 'sent:' + operation, direction: 'sent', ...message, body })
       }))
