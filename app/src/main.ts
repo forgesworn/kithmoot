@@ -7423,7 +7423,8 @@ interface ActiveRecording {
 let activeRecording: ActiveRecording | undefined
 /** A finished recording, held on this device until its owner shares,
  *  saves or discards it. Never uploaded without that choice. */
-let pendingRecording: { file: File; roomId: string; url: string } | undefined
+let pendingRecording: { file: File; roomId: string; url: string; addedTo?: ConversationDraft; attachment?: ChatAttachment } | undefined
+let sharingRecording = false
 const recordingStops = new Set<ActiveRecording>()
 
 /** Destruction also drops an unsaved clip, including one still finalising. */
@@ -7989,11 +7990,19 @@ function renderRecording(): void {
   const ready = $('recordingReady')
   ready.hidden = !pendingRecording
   if (pendingRecording) {
-    $('recordingReadyText').textContent = `Your recording is ready: ${pendingRecording.file.name}, ${formatBytes(pendingRecording.file.size)}. It is on this device only.`
+    const draft = drafts.get(currentChannel)
+    const waiting = !!draft.pendingFiles?.includes(pendingRecording.file)
+    const staged = pendingRecording.addedTo === draft && !!pendingRecording.attachment && draft.attachments.includes(pendingRecording.attachment)
+    $('recordingReadyText').textContent = `Your recording is ready: ${pendingRecording.file.name}, ${formatBytes(pendingRecording.file.size)}. `
+      + (staged ? 'Added to your message draft; press Send to share it. You can still save this local copy.'
+        : waiting ? 'Held on this device. Allow file storage and upload the selected file to add it to your message.'
+          : 'Save it or add it to a message. Adding it keeps this local copy until you discard it.')
     const save = $('recordingSave') as HTMLAnchorElement
     save.href = pendingRecording.url
     save.download = pendingRecording.file.name
-    ;($('recordingShare') as HTMLButtonElement).hidden = session?.roomId !== pendingRecording.roomId
+    const share = $('recordingShare') as HTMLButtonElement
+    share.hidden = session?.roomId !== pendingRecording.roomId
+    share.disabled = sharingRecording || !!draft.job || waiting || staged
   }
   renderDock()
 }
@@ -8010,16 +8019,27 @@ function discardPendingRecording(): void {
 $('recordingStop').addEventListener('click', () => { void stopRecording() })
 $('recordingPause').addEventListener('click', toggleRecordingPause)
 $('callDockRecordingPause').addEventListener('click', toggleRecordingPause)
-$('recordingShare').addEventListener('click', () => {
+$('recordingShare').addEventListener('click', async () => {
   const pending = pendingRecording
-  if (!pending || session?.roomId !== pending.roomId) return
+  if (!pending || sharingRecording || session?.roomId !== pending.roomId) return
+  if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) {
+    setStatus('Choose a conversation you can send to before adding the recording. Your local copy is kept.')
+    return
+  }
+  showMobileRoomView('chat')
+  const draft = captureDraft()
+  if (draft.job || draft.pendingFiles?.includes(pending.file)
+    || pending.addedTo === draft && !!pending.attachment && draft.attachments.includes(pending.attachment)) return
   // Through the same door as a dropped file: sealed here, and uploaded only
   // to storage this person has already allowed, or held until they do.
-  shareDroppedFiles([pending.file]).catch((err) => setStatus(describeError(err)))
-  discardPendingRecording()
+  sharingRecording = true
+  renderRecording()
+  try { await shareDroppedFiles([pending.file]) }
+  catch (err) { setStatus(describeError(err)) }
+  finally { sharingRecording = false; renderRecording() }
 })
 $('recordingDiscard').addEventListener('click', async () => {
-  if (!await confirmRoomAction({ title: 'Discard the recording?', message: 'It is on this device only, and nothing else has a copy unless you shared or saved it.', confirmLabel: 'Discard', danger: true })) return
+  if (!await confirmRoomAction({ title: 'Discard the local recording?', message: 'Files already added to a message draft remain there; remove them from that draft separately. Saved or sent copies stay.', confirmLabel: 'Discard', danger: true })) return
   discardPendingRecording()
 })
 
@@ -9001,6 +9021,7 @@ function draftChanged(draft: ConversationDraft): void {
   renderDraftBadges()
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
+  if (pendingRecording) renderRecording()
 }
 
 /**
@@ -16784,7 +16805,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     eventId = event.id
   }
   signal.throwIfAborted()
-  draft.attachments.push({
+  const attachment: ChatAttachment = {
     ...(eventId !== undefined ? { event: eventId } : {}),
     url: descriptor.url,
     sha256: descriptor.sha256,
@@ -16792,7 +16813,12 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     name: sealed.name,
     type: sealed.type,
     size: sealed.envelope.size,
-  })
+  }
+  draft.attachments.push(attachment)
+  if (pendingRecording?.file === file && pendingRecording.roomId === uploadRoomId) {
+    pendingRecording.addedTo = draft
+    pendingRecording.attachment = attachment
+  }
   draft.status = ''
   draftChanged(draft)
 }
