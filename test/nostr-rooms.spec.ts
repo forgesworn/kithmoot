@@ -476,6 +476,88 @@ test('a private conversation is started on the relays its starter listed for pri
   } finally { await ada.close(); await rowanContext.close() }
 })
 
+for (const width of [390, 1440]) {
+  test(`roster refresh keeps private-chat clicks and volume focus at ${width}px`, async ({ browser, baseURL }) => {
+    const secret = generateSecretKey()
+    const context = await device(browser, baseURL!, secret)
+    const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+    const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Roster controls', relays: [relay.href], iceUrls: [] })
+    let peerClock = Math.floor(Date.now() / 1000)
+    // A synthetic human endpoint, publishing real signed room presence.
+    const rowan = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false, now: () => peerClock })
+    try {
+      const page = await context.newPage()
+      await page.setViewportSize({ width, height: 844 })
+      await signIn(page, baseURL!)
+      await page.goto(link)
+      await page.reload()
+      await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible()
+      await openRoomDetails(page)
+      const button = page.getByRole('button', { name: 'Message Rowan privately', exact: true })
+      await expect(button).toBeVisible()
+      await button.scrollIntoViewIfNeeded()
+      await page.evaluate(() => {
+        const list = document.querySelector('#sheetRoster')!
+        list.setAttribute('data-test-refreshes', '0')
+        new MutationObserver(() => list.setAttribute('data-test-refreshes', String(Number(list.getAttribute('data-test-refreshes')) + 1)))
+          .observe(list, { childList: true, subtree: true })
+      })
+      const refresh = async () => {
+        const before = Number(await page.locator('#sheetRoster').getAttribute('data-test-refreshes'))
+        peerClock++
+        await rowan.session.announce()
+        await expect.poll(async () => Number(await page.locator('#sheetRoster').getAttribute('data-test-refreshes'))).toBeGreaterThan(before)
+      }
+      const box = await button.boundingBox()
+      if (!box) throw new Error('Private-message button has no bounds')
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await refresh()
+      await page.mouse.up()
+      await expect(page.locator('#chatLog')).toContainText('You started a private conversation with Rowan.')
+      await expect.poll(async () => page.evaluate(() => Object.keys(localStorage).filter(key => key.includes('kithmoot.room.'))
+        .map(key => { try { return JSON.parse(localStorage.getItem(key)!).link as string } catch { return '' } }))
+        .then(links => links.map(value => { try { return parseRoomLink(value) } catch { return undefined } })
+          .filter(room => room?.policy?.members?.includes(rowan.participant) && room.policy.members.includes(getPublicKey(secret))).length)).toBe(1)
+
+      const slider = page.getByRole('slider', { name: 'Volume for Rowan', exact: true })
+      await slider.focus()
+      await page.keyboard.press('Home')
+      await expect(slider).toHaveValue('0')
+      await refresh()
+      await expect(slider).toBeFocused()
+      await expect(slider).toHaveValue('0')
+      await page.keyboard.press('End')
+      await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(0)
+      await slider.scrollIntoViewIfNeeded()
+      const range = await slider.boundingBox()
+      if (!range) throw new Error('Volume slider has no bounds')
+      const maximum = Number(await slider.getAttribute('max'))
+      await page.mouse.move(range.x + range.width / 4, range.y + range.height / 2)
+      await page.mouse.down()
+      await expect.poll(async () => Number(await slider.inputValue())).toBeLessThan(maximum / 2)
+      await refresh()
+      await page.mouse.move(range.x + range.width * 3 / 4, range.y + range.height / 2, { steps: 5 })
+      await page.mouse.up()
+      await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(maximum / 2)
+      const check = page.locator('#sheetRoster .rosterRow', { has: button }).locator('.verifyChip')
+      await check.focus()
+      await refresh()
+      await expect(check).toBeFocused()
+      await page.keyboard.press('Enter')
+      await expect(page.locator('#verifyDialog')).toBeVisible()
+      await expect(page.locator('#verifyConfirm')).toBeDisabled()
+      await page.keyboard.press('Escape')
+      await expect(page.locator('#verifyDialog')).toBeHidden()
+      peerClock++
+      await rowan.leave()
+      await expect(button).toHaveCount(0)
+      await expect(slider).toHaveCount(0)
+    } finally { await context.close().catch(() => {}); await rowan.leave() }
+  })
+}
+
 test('a disconnected signer offers Reconnect before forgetting an account room, and names the signer', async ({ browser, baseURL }) => {
   let unavailable = false
   const secret = generateSecretKey()
