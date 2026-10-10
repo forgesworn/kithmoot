@@ -33,7 +33,8 @@ const e2eGroups: Record<string, { grep: RegExp[], grepInvert?: RegExp[] }> = {
     grep: [specFiles('call-stability.spec.ts', 'call-chat-divider.spec.ts', 'call-dock.spec.ts', 'call-surface.spec.ts')],
     grepInvert: [relayFaultCases],
   },
-  media: { grep: [specFiles('media.spec.ts', 'call-focus.spec.ts', 'call-layout.spec.ts', 'effects.spec.ts')] },
+  media: { grep: [specFiles('media.spec.ts', 'call-focus.spec.ts', 'call-layout.spec.ts', 'effects.spec.ts',
+    'recording-video.spec.ts', 'recording-sharing.spec.ts')] },
   rooms: {
     grep: [specFiles('peer-assist.spec.ts', 'agent.spec.ts', 'bad-relays.spec.ts', 'nostr-rooms.spec.ts', 'home.spec.ts',
       'drafts.spec.ts', 'quiet.spec.ts', 'updates.spec.ts', 'e2e.spec.ts', 'share-viewer.spec.ts', 'projects-flow.spec.ts', 'home-controls.spec.ts')],
