@@ -232,3 +232,12 @@ preview contain the same verified web and desktop runtime. The
 [preparation receipt](../docs/evidence/desktop-0.1.70-signed-build-2026-10-10.json)
 records the exact source and all six archive hashes. Publication and installed
 Mac acceptance remain separate checks.
+
+
+## Version 0.1.71 recording controls
+
+The room creator sees a labelled Record call control beside microphone, camera
+and screen sharing. Audio-only and video recording keep the existing participant
+notices, pause/export controls and explicit encrypted sharing. The focused browser
+journeys and an Electron packaged-app save/playback check passed with synthetic
+media. Physical-device and long-session acceptance remain separate.
