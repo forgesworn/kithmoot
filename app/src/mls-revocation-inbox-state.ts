@@ -22,7 +22,10 @@ export async function mlsRevocationInboxState(tx: PersonaTransaction, keeper: st
   // a short-lived pending request cannot reset the sender's hour on restart.
   if (!state.promptAfter) {
     state.promptAfter = []
-    for (const prompt of state.prompts) if (prompt.receivedAt + MLS_KEEPER_PROMPT_SECONDS > now) mlsKeeperPromptAfter(state, prompt.request.sender, prompt.receivedAt + MLS_KEEPER_PROMPT_SECONDS)
+    for (const prompt of state.prompts) {
+      const until = Math.max(prompt.receivedAt + MLS_KEEPER_PROMPT_SECONDS, prompt.deferredUntil ?? 0)
+      if (until > now) mlsKeeperPromptAfter(state, prompt.request.sender, until)
+    }
   }
   state.promptAfter = state.promptAfter.filter(item => item.until > now)
   state.seen = state.seen.filter(item => item.receivedAt + MLS_REVOCATION_SEEN_SECONDS > now)

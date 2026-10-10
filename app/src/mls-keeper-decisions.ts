@@ -65,7 +65,11 @@ export class BrowserMlsKeeperDecisions {
       if (!prompt || !['pending', 'approved'].includes(prompt.state) || JSON.stringify(prompt) !== JSON.stringify(expected.prompt)) throw new Error('The retained request changed. Check it again before choosing Later.')
       const until = state.checkedAt + MLS_KEEPER_PROMPT_SECONDS
       const group = state.prompts.filter(item => item.request.sender === prompt.request.sender && ['pending', 'approved'].includes(item.state))
-      for (const item of group) item.deferredUntil = until
+      for (const item of group) {
+        if (item.revision === Number.MAX_SAFE_INTEGER) throw new Error('The keeper prompt revision is full.')
+        item.revision = (item.revision ?? 0) + 1
+        item.deferredUntil = until
+      }
       mlsKeeperPromptAfter(state, prompt.request.sender, until)
       const journal = await readMlsMembership(tx); journal.inbox = state; await saveMlsMembership(tx, journal)
       return structuredClone(group)

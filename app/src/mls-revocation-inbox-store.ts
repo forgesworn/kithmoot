@@ -15,6 +15,7 @@ export interface MlsRevocationInboxPrompt {
   state: 'pending' | 'dismissed' | 'approved' | 'done'
   approval?: MlsKeeperApproval
   deferredUntil?: number
+  revision?: number
 }
 export interface MlsRevocationInboxState {
   keeper: string
@@ -65,13 +66,14 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     seen.add(item.id)
   }
   for (const prompt of value.prompts) {
-    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), ...(prompt.deferredUntil === undefined ? [] : ['deferredUntil']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
+    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), ...(prompt.deferredUntil === undefined ? [] : ['deferredUntil']), ...(prompt.revision === undefined ? [] : ['revision']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
         !time(prompt.receivedAt) || prompt.receivedAt > value.checkedAt || !['pending', 'dismissed', 'approved', 'done'].includes(prompt.state) || operations.has(prompt.operation)) invalid()
     try { createVmlsRevocationRumor(prompt.request) } catch { invalid() }
     if (prompt.request.keeper !== value.keeper || prompt.operation !== mlsStandaloneRevocationOperation(prompt.request.sender, value.keeper, prompt.request.device) ||
         prompt.request.createdAt > prompt.receivedAt + VMLS_REVOCATION_FUTURE_SKEW_SECONDS || prompt.request.expiration <= prompt.receivedAt) invalid()
     if (prompt.state === 'approved' && !prompt.approval || prompt.approval && !['approved', 'done'].includes(prompt.state)) invalid()
     if (prompt.deferredUntil !== undefined && (!['pending', 'approved'].includes(prompt.state) || !time(prompt.deferredUntil) || prompt.deferredUntil > value.checkedAt + MLS_KEEPER_PROMPT_SECONDS)) invalid()
+    if (prompt.revision !== undefined && (!Number.isSafeInteger(prompt.revision) || prompt.revision < 1)) invalid()
     if (prompt.approval) {
       validateMlsKeeperApproval(prompt.approval, prompt.request, prompt.operation, prompt.receivedAt)
       if (prompt.approval.approvedAt > value.checkedAt) invalid()

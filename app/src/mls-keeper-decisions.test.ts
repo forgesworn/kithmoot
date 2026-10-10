@@ -80,6 +80,7 @@ describe('witnessed keeper operator decisions', () => {
     await expect(f.restart().decide(plan.value, true)).rejects.toThrow('deferred')
     expect(f.records[0]!.state).toBe('active')
     f.clock(4_600)
+    await expect(f.restart().decide(plan.value, true)).rejects.toThrow('authority changed')
     const fresh = await f.restart().plan(f.operation)
     expect(fresh).toMatchObject({ state: 'active', value: { prompt: { state: 'pending' } } })
     if (fresh.state !== 'active') throw new Error('missing renewed plan')

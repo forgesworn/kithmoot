@@ -210,6 +210,16 @@ describe('keeper prompt admission across restart', () => {
     expect(state.prompts[1]!.deferredUntil).toBe(5_600)
     expect(state.promptAfter).toEqual([{ sender: member.pubkey, until: 5_600 }])
   })
+  it('migrates an active group deferral after the receipt hour has elapsed', async () => {
+    const f = await fixture(); await f.grant(); await f.grant(nextDevice)
+    await f.inbox.receive([await f.wrap()], keeper)
+    const old = await readMlsMembership(f.tx)
+    old.inbox!.checkedAt = 5_000; old.inbox!.prompts[0]!.deferredUntil = 8_600
+    delete old.inbox!.promptAfter; await saveMlsMembership(f.tx, old)
+    f.clock(6_000)
+    expect(await f.restart().receive([await f.wrap(nextDevice)], keeper)).toMatchObject({ value: { prompts: [], deferred: [{ prompt: { deferredUntil: 8_600 } }, { prompt: { deferredUntil: 8_600 } }] } })
+    expect((await readMlsMembership(f.tx)).inbox!.promptAfter).toEqual([{ sender: member.pubkey, until: 8_600 }])
+  })
   it('keeps another sender immediately eligible without guessing devices or using request hints', async () => {
     const f = await fixture(); await f.grant(); await f.grant(nextDevice, other.pubkey)
     expect(await f.inbox.receive([await f.wrap(), await f.wrap(nextDevice, other)], keeper)).toMatchObject({ value: { prompts: [{ conflict: false }, { conflict: false }] } })
