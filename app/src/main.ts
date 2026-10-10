@@ -1,3 +1,5 @@
+import { AdmissionPreview, AdmissionPreviewCancelled } from './admission-preview.js'
+import { admissionRequestTransport } from './admission-request-transport.js'
 import { prepareInvitationRefusal, type InvitationRefusalAttempt } from './invitation-refusal.js'
 import { ParticipantCard } from './participant-card.js'
 import { ChatArtPicker } from './chat-art-picker.js'
@@ -1910,6 +1912,7 @@ const KNOCK_KEY_PREFIX = 'kithmoot.knock.v1.'
  *  Long enough for a person to notice and press a button. */
 const KNOCK_WAIT_MS = 90_000
 let admissionController: AbortController | undefined
+let guestAdmissionPreview: AdmissionPreview | undefined
 
 function knockOn(roomId: string): boolean {
   const saved = deviceStore.get(KNOCK_KEY_PREFIX + roomId)
@@ -3454,19 +3457,42 @@ async function roomFromLocation(): Promise<boolean> {
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
-        $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : 'Waiting to be admitted'
+        $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : roomName ? `Ask to join ${roomName}` : 'Ask to join this room'
         $('arrivalLead').textContent = invitation.persistent
           ? 'Checking the room invitation…'
-          : 'Your request has been sent. Someone already in the room needs to let you in.'
+          : 'Someone in the room needs to let you in. Check your details before sending a request.'
         $('arrivalLead').hidden = false
-        setStatus(invitation.persistent ? 'Getting you in…' : 'Asking to be let in…', 'progress')
+        setStatus(invitation.persistent ? 'Getting you in…' : '', 'progress')
         if (!invitation.persistent) showDoorWhileSwitching()
-        const transport = configuredPool(relays)
         admissionController?.abort()
+        guestAdmissionPreview?.close()
+        guestAdmissionPreview = undefined
         const pending = new AbortController()
         admissionController = pending
-        const identityAtRequest = identityGeneration
+        let transport: ManagedRelayPool | undefined
+        let preview: AdmissionPreview | undefined
         try {
+          if (!invitation.persistent) {
+            disarmStopOpening()
+            pendingJoin = false
+            $('joinRoomForm').hidden = false; $('joinRoomForm').inert = false; $('join').hidden = true
+            $('arrivalActions').hidden = true
+            renderIdentity()
+            preview = new AdmissionPreview({ root: $('admissionPreview'), name: $('displayName') as HTMLInputElement,
+              status: $('admissionPreviewStatus'), request: $('requestAdmission') as HTMLButtonElement,
+              cancel: $('cancelAdmission') as HTMLButtonElement, camera: $('previewAdmissionCamera') as HTMLButtonElement,
+              mic: $('previewAdmissionMic') as HTMLButtonElement, video: $('admissionPreviewVideo') as HTMLVideoElement,
+              meter: $('admissionPreviewMeter') as HTMLMeterElement, signal: pending.signal, cancelRequest: () => pending.abort() })
+            guestAdmissionPreview = preview
+            await preview.ready
+            if (pending.signal.aborted) throw new AdmissionPreviewCancelled(preview.requested)
+            $('arrivalTitle').textContent = 'Waiting to be admitted'
+            $('arrivalLead').textContent = 'Your details are ready. Someone in the room needs to accept your request.'
+            armStopOpening()
+          }
+          const identityAtRequest = identityGeneration, generationAtRequest = roomGeneration, hashAtRequest = location.hash
+          const deadline = Date.now() + KNOCK_WAIT_MS
+          transport = configuredPool(relays)
           // A temporary room's link is answered by a person, who may have
           // been asked first: the request says who is asking, and the wait
           // is long enough for somebody to read a card and press a button.
@@ -3476,11 +3502,18 @@ async function roomFromLocation(): Promise<boolean> {
           // proof. Use only the matching live signer or local identity.
           const proofIdentity = askedFrom === nostrSession?.pubkey ? nostrSession?.signer
             : askedFrom && !expectedAccount && !isPairedSecondary(deviceStore) ? localIdentity(participantKey()) : undefined
+          preview?.phase(proofIdentity && nostrSession ? 'signing' : 'preparing')
+          const requestTransport = admissionRequestTransport(transport, {
+            current: () => !pending.signal.aborted && identityAtRequest === identityGeneration &&
+              generationAtRequest === roomGeneration && hashAtRequest === location.hash &&
+              roomInvitationCapability === invitation && Date.now() < deadline,
+            phase: phase => preview?.phase(phase),
+          })
           let foundFurther: string[] = []
           const admission = invitation.persistent
             ? await admitFromGroupInvitation(invitation, parsedLink.relays, transport, wider => { foundFurther = wider })
             : await requestRoomAdmissionCapability({
-              transport, invitation, timeoutMs: KNOCK_WAIT_MS,
+              transport: requestTransport, invitation, timeoutMs: KNOCK_WAIT_MS,
               signal: pending.signal,
               ...(askedAs !== undefined ? { name: askedAs } : {}),
               ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
@@ -3511,9 +3544,15 @@ async function roomFromLocation(): Promise<boolean> {
           // could not tell while a line saying "in progress" sat under a
           // button that was ready to be pressed.
           setStatus('You are on the list. Go in when you are ready.', 'done')
+        } catch (error) {
+          if (pending.signal.aborted) throw new AdmissionPreviewCancelled(preview?.requested ?? false)
+          throw error
         } finally {
+          pending.abort()
+          preview?.close()
+          if (guestAdmissionPreview === preview) guestAdmissionPreview = undefined
           if (admissionController === pending) admissionController = undefined
-          transport.close()
+          transport?.close()
         }
         serveCurrentInvitation()
       }
@@ -13515,6 +13554,8 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
 function resetRoomState(): void {
   admissionController?.abort()
   admissionController = undefined
+  guestAdmissionPreview?.close()
+  guestAdmissionPreview = undefined
   for (const opened of openedAttachments.values()) if ('url' in opened) URL.revokeObjectURL(opened.url)
   attachmentViewer.close()
   openedAttachments.clear()
@@ -15562,6 +15603,7 @@ function tryPendingJoin(): void {
 }
 $('joinRoomForm').addEventListener('submit', event => {
   event.preventDefault()
+  if (guestAdmissionPreview) { guestAdmissionPreview.request(); return }
   const join = $('join') as HTMLButtonElement
   if (session || joining) return
   if (join.hidden || join.disabled || loginBusy) {
@@ -17491,6 +17533,18 @@ roomArrival
   .catch(showArrivalFailure)
 
 function showArrivalFailure(err: unknown): void {
+  if (err instanceof AdmissionPreviewCancelled) {
+    $('arrivalTitle').textContent = err.requested ? 'Your request was cancelled' : 'Invitation closed'
+    $('arrivalLead').textContent = err.requested
+      ? 'You have not entered the room. Your details are kept here; request again when you are ready.'
+      : 'No request was sent. Your details are kept here if you choose to try again.'
+    $('arrivalLead').hidden = false
+    $('joinRoomForm').hidden = true; $('identityMore').hidden = true
+    $('arrivalActions').hidden = false; $('retryArrival').hidden = false
+    $('arrivalRelays').hidden = true
+    setStatus('')
+    return
+  }
   const declined = err instanceof InvitationDeclinedError
   const reason = describeError(err)
   let valid = false

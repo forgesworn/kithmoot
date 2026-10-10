@@ -2810,6 +2810,12 @@ label.note {
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
 .recordingChoices { margin: 1rem 0 0; padding: .5rem; min-width: 0; }
+.admissionPreview { margin: 1rem 0; padding: .75rem; min-width: 0; }
+.admissionPreview[hidden], .admissionPreview [hidden] { display: none; }
+.admissionPreviewButtons { display: flex; flex-wrap: wrap; gap: .5rem; }
+.admissionPreviewButtons button { min-height: 44px; }
+.admissionPreview video { width: 100%; max-height: 180px; object-fit: contain; margin: .75rem 0; background: #111; }
+.admissionPreview meter { display: block; width: 100%; height: 24px; margin: .75rem 0; }
 .actionDialog:has(.recordingChoices) { box-sizing: border-box; overflow-y: auto; }
 .recordingChoices label { display: flex; align-items: center; gap: .65rem; min-height: 44px; margin: .25rem 0; }
 .recordingChoices input { flex: 0 0 auto; }

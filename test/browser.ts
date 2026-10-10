@@ -555,3 +555,9 @@ export async function closeCallView(page: Page): Promise<void> {
   if (await page.locator('#callExtras #callView').count() === 0) return
   if (await more.evaluate(el => (el as HTMLDetailsElement).open)) await more.locator(':scope > summary').click()
 }
+
+/** A temporary invitation sends nothing until the guest chooses to ask. */
+export async function requestAdmission(page: Page): Promise<void> {
+  await expect(page.locator("#requestAdmission")).toBeVisible()
+  await page.locator("#requestAdmission").click()
+}
