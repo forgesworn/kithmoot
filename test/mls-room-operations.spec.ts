@@ -451,6 +451,22 @@ test('completed creation cleanup failure releases no effects and preserves witne
   expect(await run(page, 'M.read()')).toMatchObject({ state: 'active', value: { generation: '1' } })
 })
 
+for (const mode of ['clock-ok', 'clock-server-ahead', 'clock-refused', 'clock-installation', 'clock-account', 'clock-rewind']) test(`keeper clock probe with real vault and WASM: ${mode}`, async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  const result = await page.evaluate(({ route, mode }) => (window as any).M.boxClientScenario(route, mode), { route: pairingFixture(new Uint8Array(32).fill(76)).route, mode })
+  if (mode === 'clock-ok' || mode === 'clock-server-ahead') {
+    expect(result.evidence).toMatchObject({ installation: '79'.repeat(32), reference: expect.stringMatching(/^[0-9a-f]{64}$/), phoneTime: expect.any(Number), boxTime: expect.any(Number) })
+    expect(result.evidence.boxTime - result.evidence.phoneTime).toBe(mode === 'clock-server-ahead' ? 30 * 86400 : 0)
+    expect(result.lapsed).toBe(false)
+    expect(result.calls.map((c: any) => c.path)).toEqual(['/vmls/v1/capabilities', '/vmls/v1/fetch', '/vmls/v1/capabilities'])
+    expect(result.distinctEvents).toBe(3)
+  } else if (mode === 'clock-rewind') expect(result.error).toContain('trusted keeper time')
+  else {
+    expect(result.evidence).toBeNull()
+    expect(result.calls).toHaveLength(mode === 'clock-installation' ? 3 : 2)
+  }
+})
+
 for (const mode of ['routes', 'caps-invalid', 'denied', 'stale-consent', 'late-reply', 'lost-reply', 'bad-receipt', 'cancel-consent', 'timeout-consent']) test(`strict box client with real vault and WASM: ${mode}`, async ({ context }) => {
   const { page } = await enrolled(context, false)
   const result = await page.evaluate(({ route, mode }) => (window as any).M.boxClientScenario(route, mode), { route: pairingFixture(new Uint8Array(32).fill(76)).route, mode })

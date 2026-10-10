@@ -8,6 +8,7 @@ import { bytesToHex, hexToBytes, randomBytes, concatBytes } from '@noble/hashes/
 import { finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { base32 } from '@scure/base'
 import { BrowserMlsBoxClient } from '../app/src/mls-box-client.js'
+import { BrowserMlsKeeperBoxClock } from '../app/src/mls-keeper-box-clock.js'
 import type { LinkRequest } from '../app/src/browser-link-types.js'
 import { BrowserMlsPersonaStore, LockedPersonaStore, type PersonaWitnessRoute } from '../app/src/mls-persona-store.js'
 import { BrowserPersonaCoordinator } from '../app/src/mls-persona-coordinator.js'
@@ -420,7 +421,7 @@ export async function completedCleanup() {
 /** Wire/signing integration with the real typed vault and WASM parser. The
  * transport is an in-process fixture, not a live Bothy acceptance claim. */
 export async function boxClientScenario(route: PersonaWitnessRoute, mode: string) {
-  const calls: { path: string; event: string }[] = [], encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
+  const calls: { path: string; event: string; body: string }[] = [], encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
   const mailbox = new Uint8Array(32).fill(11), envelope = Uint8Array.of(1, 2, 3), hash = bytesToHex(sha256(envelope))
   const box = bytesToHex(hexToBytes(route.card).subarray(5, 37))
   const caps = { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation }
@@ -432,11 +433,17 @@ export async function boxClientScenario(route: PersonaWitnessRoute, mode: string
         ['u', `http://${base32.encode(hexToBytes(box)).replace(/=+$/, '').toLowerCase()}${req.path}`],
         ['method', req.method], ['payload', bytesToHex(sha256(req.body))],
       ])) throw new Error('Invalid fixture authentication')
-    calls.push({ path: req.path, event: event.id })
+    calls.push({ path: req.path, event: event.id, body: bytesToHex(req.body) })
+    if (mode === 'clock-account' && req.path.endsWith('/fetch')) generation++
     if (mode === 'late-reply') generation++
     if (mode === 'lost-reply' && calls.length === 1) throw new Error('reply lost')
-    if (req.path.endsWith('/capabilities')) return response(200, mode === 'caps-invalid' ? encode({ ...caps, extra: 1 }) : encode(caps))
-    if (req.path.endsWith('/fetch')) return response(200, encode({ v: 1, code: 'ok', server_time: clock, records: [{ mailbox: bytesToHex(mailbox), receipt: mode === 'bad-receipt' ? '00'.repeat(32) : hash, envelope: base64Encode(envelope) }], next: null }))
+    if (req.path.endsWith('/capabilities')) return response(200, mode === 'caps-invalid' ? encode({ ...caps, extra: 1 }) : encode({ ...caps, ...(mode === 'clock-installation' && calls.length === 3 ? { installation: '88'.repeat(32) } : {}) }))
+    if (req.path.endsWith('/fetch')) {
+      if (mode === 'clock-refused') return response(503, encode({ v: 1, code: 'clock-unsafe', server_time: clock + 30 * 86400 }))
+      if (mode === 'clock-rewind') clock--
+      return response(200, encode({ v: 1, code: 'ok', server_time: clock + (mode === 'clock-server-ahead' ? 30 * 86400 : 0),
+        records: mode.startsWith('clock-') ? [] : [{ mailbox: bytesToHex(mailbox), receipt: mode === 'bad-receipt' ? '00'.repeat(32) : hash, envelope: base64Encode(envelope) }], next: null }))
+    }
     if (req.path.endsWith('/ack')) return response(200, encode({ v: 1, code: 'marked', server_time: clock, acked: 1 }))
     if (req.path.includes('/packages/')) return response(req.method === 'DELETE' ? 200 : 201, encode({ v: 1, code: req.method === 'DELETE' ? 'withdrawn' : 'registered', server_time: clock }))
     return response(201, encode({ v: 1, code: 'stored', server_time: clock, receipt: hash }))
@@ -451,6 +458,17 @@ export async function boxClientScenario(route: PersonaWitnessRoute, mode: string
     if (mode === 'stale-consent') generation++
     return mode === 'denied' ? 'deny' : 'approve'
   }, () => true, mode === 'timeout-consent' ? 1000 : 20_000)
+  if (mode.startsWith('clock-')) {
+    const grant = await planMlsGrant(localIdentity(secret), { routeId: route.routeId, eventUrl: `ws://${base32.encode(hexToBytes(box)).replace(/=+$/, '').toLowerCase()}/events` },
+      getPublicKey(new Uint8Array(32).fill(43)), '33'.repeat(32), { session: '44'.repeat(32), name: 'Clock fixture', leaf: '55'.repeat(32) }, clock)
+    const probe = new BrowserMlsKeeperBoxClock(client, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+    try {
+      const evidence = await probe.probe(grant)
+      return { evidence, calls, distinctEvents: new Set(calls.map(c => c.event)).size,
+        lapsed: evidence !== null && grant.expiration <= Math.min(evidence.phoneTime, evidence.boxTime) }
+    } catch (error) { return { error: (error as Error).message, calls } }
+    finally { probe.invalidate(); client.invalidate() }
+  }
   const first = client.capabilities()
   if (mode === 'cancel-consent' || mode === 'timeout-consent') {
     await entering
