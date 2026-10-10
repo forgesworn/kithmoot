@@ -37,6 +37,19 @@
       "passed": 14,
       "log": "/tmp/kithmoot-unread-m4-final-workspace.log",
       "beforeFinalVisibilityGuard": true
+    },
+    "webkit": {
+      "passed": 1,
+      "log": "/tmp/kithmoot-unread-m4-visibility-webkit.log"
+    },
+    "integratedWorkspaceSuite": {
+      "passed": 14,
+      "log": "/tmp/kithmoot-unread-m4-integrated-workspace.log",
+      "includesMergedRosterFix": true
+    },
+    "appTypecheck": {
+      "passed": true,
+      "log": "/tmp/kithmoot-unread-m4-integrated-type.log"
     }
   },
   "fixtures": {
