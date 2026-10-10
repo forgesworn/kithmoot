@@ -1,14 +1,15 @@
 {
-  "recordedAt": "2026-10-10T08:58:36.334656+00:00",
+  "recordedAt": "2026-10-10T10:10:51.916235+00:00",
   "scope": "Room-details roster interaction continuity across signed presence refreshes",
   "goal": "G17",
   "goalComplete": false,
-  "baseSource": "f5c68dbb90b7bdd1c476e29edd0a775253f760af",
+  "baseSource": "29c6696ff195e7c43dd30964aeb050d7a3272b0b",
   "sourceWasDirty": true,
   "sourceFilesSha256": {
-    "app/src/main.ts": "28aefbfb4b2613ed554f137524904933ceda28ec7f46c17322068e22ec8d0387",
+    "app/src/main.ts": "35d47fa9380bf67bd9f518f098a1c307e9ff5404bb69a504e42401c878b901e1",
     "app/src/style.css": "6b9a07c7fc7be0efde60eef5b65947102310e62104ed4f9e8675b4a348b65240",
-    "test/nostr-rooms.spec.ts": "b63601ec59512595cf8c2cb649f51691dd45845596a2acf156813ad27a024343"
+    "test/nostr-rooms.spec.ts": "b63601ec59512595cf8c2cb649f51691dd45845596a2acf156813ad27a024343",
+    "test/meeting.spec.ts": "6202be2581fca01efc865d15980cc366b6ab8359c425c6b6c36047f169100b5b"
   },
   "environment": {
     "node": "24.21.0",
@@ -60,9 +61,39 @@
       "initialMissingExecutableAttemptExcluded": true,
       "count": 4,
       "elapsed": "4.0m"
+    },
+    "webkit": {
+      "result": "passed",
+      "count": 2,
+      "elapsed": "14.7s",
+      "host": "M4 Mac",
+      "os": "26.6.2",
+      "node": "24.14.0",
+      "playwright": "1.62.1",
+      "revision": "2336",
+      "viewportWidths": [
+        390,
+        1440
+      ],
+      "unchangedButtonLabelNodesPreserved": true
+    },
+    "integratedChromium": {
+      "result": "passed",
+      "count": 4,
+      "elapsed": "3.7m",
+      "baseIncludesBrowserMlsMembership": true,
+      "covers": [
+        "390px and 1440px interrupted private-message clicks, volume drags and identity-check focus",
+        "exported recording duration excludes the paused interval",
+        "saved-room unread counts clear on reading"
+      ]
     }
   },
-  "hostedChecks": "pending",
+  "hostedChecks": {
+    "initialRun": 38039898865,
+    "initialResult": "10 passed; WebKit roster clicks and Chromium recording duration failed",
+    "updatedHead": "not yet submitted"
+  },
   "published": false,
   "nativeAndroidIncluded": false,
   "desktopPackageIncluded": false,
@@ -72,5 +103,12 @@
     "Narrow browser viewport uses mouse and keyboard; it is not a physical touch or screen-reader check.",
     "No new admission states or grant acknowledgements are established by this regression.",
     "Raw test traces remain local and are not included in the public receipt."
-  ]
+  ],
+  "recordingRegression": {
+    "initialDecodedSeconds": 6.18,
+    "initialDisplayedSeconds": 4,
+    "stopClickMs": 568.6,
+    "comparison": "Decoded audio against actual MediaRecorder start/pause/resume/stop boundaries, within one second; paused interval excluded",
+    "updatedResult": "passed"
+  }
 }

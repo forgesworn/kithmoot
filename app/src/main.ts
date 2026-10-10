@@ -6478,14 +6478,16 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     const mayDm = view.participant !== me && (!view.agent || mayDmAgent) && !dmPeer(roomPolicy, me)
     const dm = action('private', mayDm)
     if (dm) {
-      dm.textContent = 'Message privately'
+      // WebKit also loses a pressed native button when its unchanged text
+      // is replaced: keeping the element alone does not keep the gesture.
+      if (dm.textContent !== 'Message privately') dm.textContent = 'Message privately'
       dm.setAttribute('aria-label', `Message ${shown.name ?? shown.short} privately`)
       dm.onclick = () => { void startDirectMessage(view.participant, shown.name, false) }
     }
     // The same room of two, with its chat in drops. See src/quiet.ts.
     const hush = action('quiet', mayDm)
     if (hush) {
-      hush.textContent = 'Message quietly'
+      if (hush.textContent !== 'Message quietly') hush.textContent = 'Message quietly'
       hush.title = QUIET_MEANING
       hush.setAttribute('aria-label', `Message ${shown.name ?? shown.short} quietly`)
       hush.onclick = () => { void startDirectMessage(view.participant, shown.name, true) }
@@ -6497,7 +6499,7 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     // and people you chose.
     const invite = action('invite', view.participant !== me && !view.agent)
     if (invite) {
-      invite.textContent = 'Invite to a room'
+      if (invite.textContent !== 'Invite to a room') invite.textContent = 'Invite to a room'
       invite.setAttribute('aria-label', `Invite ${shown.name ?? shown.short} to a room`)
       invite.onclick = () => openInviteToRoom(view.participant, shown.name)
     }
@@ -10298,15 +10300,16 @@ function verifyChip(view: ParticipantView, name: string, existing?: HTMLButtonEl
     : { status: 'unknown' }
   const shown = contactCheckView(grantedContactView, view.participant, seen)
   chip.classList.add(shown.status)
-  chip.textContent = shown.label
+  let label = shown.label
   chip.title = shown.title
 
   try {
     if (channelChecks?.list(view.participant).some(row => !row.state && !row.declined && row.request.expiresAt > Math.floor(Date.now() / 1000))) {
-      chip.textContent = 'check requested'
+      label = 'check requested'
       chip.title = 'They asked to compare words. Open to accept or decline.'
     }
   } catch { /* Saved protocol failure is explained when the dialog opens. */ }
+  if (chip.textContent !== label) chip.textContent = label
   chip.onclick = () => showVerification(view, name, seen.status)
   return chip
 }
