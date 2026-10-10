@@ -110,6 +110,7 @@ describe('standalone browser revocation outbox', () => {
     raw.requests[0].operation = mlsStandaloneRevocationOperation(other.pubkey, raw.requests[0].keeper, raw.requests[0].device)
     f.tx.vault.set(key, new TextEncoder().encode(JSON.stringify(raw)))
     const transport = { directory: vi.fn(), publish: vi.fn() }
+    await expect(f.outbox.records()).rejects.toBeInstanceOf(InvalidPersonaRecord)
     await expect(f.outbox.send(raw.requests[0].operation, { identity: member, transport: transport as any })).rejects.toBeInstanceOf(InvalidPersonaRecord)
     expect(transport.directory).not.toHaveBeenCalled(); expect(transport.publish).not.toHaveBeenCalled()
   })

@@ -2,6 +2,7 @@ import { BrowserMlsAccount, type MlsAccountContext, type MlsAccountView } from '
 import type { ConsentScope, ConsentPrompt, VaultResult, SignLeafBindingRequest } from './mls-vault.js'
 import type { BoxRequest } from './mls-coordinated-vault.js'
 import { confirmAction } from './confirm-action.js'
+import type { VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 
 /** Development-preview controls. Opening reads local state only. Pairing,
  * genesis and every witness exchange require separate explicit actions. */
@@ -13,7 +14,8 @@ export class BrowserMlsPanel {
   #idle: Promise<void> = Promise.resolve()
   #last?: MlsAccountView
   constructor(private readonly context: () => MlsAccountContext | undefined,
-    private readonly account = new BrowserMlsAccount(context), private readonly root: Document = document) {
+    private readonly account = new BrowserMlsAccount(context), private readonly root: Document = document,
+    private readonly revocationTransport?: () => VmlsRevocationTransport) {
     this.dialog = root.createElement('dialog')
     this.dialog.id = 'mlsWitnessSettings'; this.dialog.className = 'profileSettings'
     this.dialog.setAttribute('aria-labelledby', 'mlsWitnessTitle')
@@ -55,6 +57,11 @@ export class BrowserMlsPanel {
         <button id="mlsWitnessPermissionApprove" type="button">Review permission</button>
         <div id="mlsWitnessPermissions"></div>
       </fieldset>
+      <fieldset id="mlsWitnessRevocationFields"><legend>Lost or compromised devices</legend>
+        <p>Check retained requests with the witness, even when this browser no longer has a device in the room. Only your previously observed devices and their authenticated keepers appear here.</p>
+        <button id="mlsWitnessRevocationRead" type="button">Check retained requests</button>
+        <div id="mlsWitnessRevocations" role="status" aria-live="polite"></div>
+      </fieldset>
       <details id="mlsWitnessRecovery"><summary>Clear and recovery</summary>
         <p>Clearing destroys this installation’s MLS keys and messages. It does not retire its registration on Bothy. A known retirement duty is retained until it can finish.</p>
         <button id="mlsWitnessClear" type="button" class="danger">Clear local MLS keys</button>
@@ -88,6 +95,7 @@ export class BrowserMlsPanel {
       return this.#afterVault(await this.account.approveScope({ principal: location.origin, persona: device.persona, device: device.device, homeBox, method }, this.consent))
     }) }
     this.button('VaultRead').onclick = () => { void this.#run(() => this.account.vaultState()) }
+    this.button('RevocationRead').onclick = () => { void this.#run(() => this.account.revocationRecords()) }
     for (const action of ['New', 'Migrate', 'Replace', 'Revoke'] as const) {
       this.button(`Device${action}`).onclick = () => { void this.#run(async current => {
         const saved = this.#last?.vault, device = saved?.ok ? saved.value?.device : undefined
@@ -213,6 +221,7 @@ export class BrowserMlsPanel {
       ? `Old subject from sealed state: ${retirement.subject}`
       : `Recorded old subject: ${retirement.subject}. Its seal is unavailable. Confirm it independently with the keeper before retirement.`
     this.input('RetiredSubject').value = ''; this.input('RetiredAcknowledged').checked = false
+    this.#renderRevocations(value)
     if (this.context()?.mode !== 'normal') this.message(`${this.el('NetworkStatus').textContent} Witness connections are held in quiet and Tor-only modes.`)
   }
   #controls(): void {
@@ -228,6 +237,8 @@ export class BrowserMlsPanel {
       DeviceRevoke: !device || device.revoked, PermissionApprove: !device || device.revoked || device.device.credentialExpiresAt <= Math.floor(Date.now() / 1000) })
     this.fieldset('VaultFields').hidden = state !== 'genesis'
     this.fieldset('VaultFields').disabled = busy || mode !== 'normal'
+    this.fieldset('RevocationFields').hidden = state !== 'genesis'
+    this.fieldset('RevocationFields').disabled = busy || mode !== 'normal'
     this.el('DeviceChoice').hidden = !vault?.ok || vault.value !== null
     this.button('DeviceReplace').hidden = !device; this.button('DeviceRevoke').hidden = !device
     for (const [name, off] of Object.entries(disabled)) this.button(name).disabled = busy || off || (['Pair', 'Check'].includes(name) && mode !== 'normal')
@@ -239,11 +250,44 @@ export class BrowserMlsPanel {
     this.button('Check').hidden = state !== 'genesis' && state !== 'fenced'
     this.el('Recovery').hidden = !state || state === 'empty' || state === 'stale'
   }
+  #renderRevocations(value: MlsAccountView): void {
+    const root = this.el('Revocations'), result = value.revocations
+    root.replaceChildren()
+    const message = (text: string) => { const p = this.root.createElement('p'); p.textContent = text; return p }
+    if (!result) { root.append(message('Retained requests have not been checked in this view.')); return }
+    if (result.state !== 'active') {
+      root.append(message(result.state === 'fenced' ? 'Saved requests could not be verified. Use the installation recovery controls.'
+        : 'The witness has not confirmed the retained requests. Check again when it is available.')); return
+    }
+    if (!result.value.length) { root.append(message('No retained device requests are recorded for this account.')); return }
+    for (const record of result.value) {
+      const article = this.root.createElement('article')
+      article.className = 'mlsWitnessIdentifier'
+      article.dataset.mlsStandaloneRequest = record.operation
+      article.append(message(`Device: ${record.device}`), message(`Keeper: ${record.keeper}`),
+        message(`Observed room hints: ${record.sessions.join(', ')}`), message(`Observed box hints: ${record.boxes.join(', ')}`))
+      if (record.sentAt !== null) article.append(message('Request sent to a keeper relay. Keeper receipt, removal and grant revocation are unconfirmed.'))
+      else {
+        article.append(message('Ask this keeper to remove your lost or compromised device and revoke its grants now. Room and box hints are retained observations; the keeper must check its current ledger. Public DM relays can see the recipient, your connection address, timing and volume. Sending does not prove that the keeper read or performed the request.'))
+        const button = this.root.createElement('button')
+        button.type = 'button'; button.textContent = 'Send request to keeper'
+        button.disabled = !this.revocationTransport || !this.context()?.revocationIdentity
+        button.onclick = () => { void this.#run(() => {
+          if (!this.revocationTransport) throw new VaultActionError('No keeper relay transport is available.')
+          return this.account.sendRevocation(record.operation, this.revocationTransport())
+        }) }
+        article.append(button)
+        if (!this.context()?.revocationIdentity) article.append(message('Connect this account’s signer with private-message encryption before sending.'))
+      }
+      root.append(article)
+    }
+  }
   #installation(): string | undefined {
     const state = this.#last?.enrolment
     return state && 'installation' in state ? state.installation : this.#last?.installation
   }
   #reset(): void {
+    this.el('Revocations').replaceChildren()
     this.#last = undefined
     for (const name of ['Account', 'LocalStatus', 'Identity', 'NetworkStatus', 'Retirement', 'Device', 'Permissions']) this.el(name).textContent = ''
     for (const name of ['Code', 'Relays', 'RetiredSubject', 'PermissionBox']) this.input(name).value = ''

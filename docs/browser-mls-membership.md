@@ -123,3 +123,26 @@ An uncertain grant withdrawal can also remain `revoking` past its signed
 expiration: renewal deliberately refuses to overwrite it, and expiry is never
 treated as evidence that Bothy accepted the tombstone. Production activation
 needs an explicit recovery or rotation ceremony for that state.
+
+## Retained member requests in the development preview
+
+The account's MLS settings offer **Check retained requests** as a separate
+foreground witness action. Opening the settings reads local enrolment only;
+it does not read the outbox, discover a keeper or publish a request. A verified
+outbox read lists the exact device, authenticated keeper and retained room/box
+hints, even without an open room or a local MLS device.
+
+Each unsent record has its own **Send request to keeper** action. It needs the
+current account's event signer and private-message encryption, uses the bounded
+unauthenticated keeper-directory and relay transport, and repeats the witnessed
+outbox checks before marking success. Public-relay recipient, address, timing
+and volume disclosure is shown before the action. Relay refusal stays retryable;
+the displayed success says only that a request reached a keeper relay. Keeper
+receipt, MLS removal and grant revocation remain unconfirmed.
+
+Account, mode, room or panel lifecycle invalidation clears displayed evidence
+immediately and holds late results. Quiet and Tor-only modes disable the
+network actions. Reopening settings requires another explicit witness check;
+a previously witnessed sent marker suppresses another send. This account
+action uses the existing development-only preview gate; production room
+composition, the keeper inbox and acceptance flow remain open.

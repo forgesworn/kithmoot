@@ -9,10 +9,36 @@ import { BrowserMlsPersonaStore, type PersonaWitnessRoute } from '../app/src/mls
 import { BrowserPersonaLinks } from '../app/src/mls-persona-link.js'
 import { BrowserPersonaEnrolment } from '../app/src/mls-persona-enrolment.js'
 import { BrowserPersonaCoordinator } from '../app/src/mls-persona-coordinator.js'
+import { rememberStandaloneRevocations } from '../app/src/mls-revocation-outbox.js'
+import { localPeerCrypt } from '../src/dm.js'
+import { dmRelayListTemplate } from '../src/dm-relays.js'
+import { unwrapVmlsRevocationRequest } from '../src/vmls-revocation-request.js'
 
 declare global { interface Window { panelWitness(request: number[]): Promise<{ status: number; body: number[]; witnessRefused: boolean }> } }
 let context: MlsAccountContext | undefined = { persona: '21'.repeat(32), generation: '0', mode: 'normal' }
 let panel: BrowserMlsPanel, account: BrowserMlsAccount
+let coordinator: BrowserPersonaCoordinator
+let rejectPublish = false, directoryWait: Promise<void> | undefined, releaseDirectory: (() => void) | undefined
+const transportCalls: string[] = []
+const keeperSecret = new Uint8Array(32).fill(43)
+const keeper = { pubkey: getPublicKey(keeperSecret), signEvent: async (event: any) => finalizeEvent(event, keeperSecret), ...localPeerCrypt(keeperSecret) }
+const transport = {
+  directory: async (pubkey: string) => {
+    transportCalls.push(`directory:${pubkey}`); await directoryWait
+    return [await keeper.signEvent(dmRelayListTemplate(['wss://keeper.test'], Math.floor(Date.now() / 1000)))]
+  },
+  publish: async (publication: any) => {
+    transportCalls.push('publish')
+    const request = await unwrapVmlsRevocationRequest(publication.event, keeper)
+    if (!request || request.sender !== identity.pubkey || request.device !== '34'.repeat(32) || request.keeper !== keeper.pubkey ||
+        JSON.stringify(request.sessions) !== JSON.stringify(['12'.repeat(32)]) || JSON.stringify(request.boxes) !== JSON.stringify(['56'.repeat(32)])) throw new Error('Wrong retained request wire payload')
+    if (rejectPublish) throw new Error('Keeper relay refused the request')
+  },
+}
+export function revocationSeen() { return transportCalls }
+export function refuseRevocation(value: boolean) { rejectPublish = value }
+export function holdDirectory() { directoryWait = new Promise(resolve => { releaseDirectory = resolve }) }
+export function finishDirectory() { releaseDirectory?.(); directoryWait = undefined }
 const events: string[] = [], writers: string[] = []
 let pausePair: Promise<void> | undefined, finishPair: (() => void) | undefined
 export function holdPair() { pausePair = new Promise(resolve => { finishPair = resolve }) }
@@ -31,8 +57,9 @@ export function start(route: PersonaWitnessRoute) {
     }, openSocket: async () => { throw new Error('No events socket belongs to the witness panel.') },
     removeRoute: async () => {}, retireRoute: async () => {}, finalizeRoute: async () => {}, stop: async () => { events.push('stop') } }
   })
-  account = new BrowserMlsAccount(() => context, () => ({ store, links, enrolment: new BrowserPersonaEnrolment(store, links), coordinator: new BrowserPersonaCoordinator(store, links.channels) }))
-  panel = new BrowserMlsPanel(() => context, account)
+  coordinator = new BrowserPersonaCoordinator(store, links.channels)
+  account = new BrowserMlsAccount(() => context, () => ({ store, links, enrolment: new BrowserPersonaEnrolment(store, links), coordinator }))
+  panel = new BrowserMlsPanel(() => context, account, document, () => transport)
 }
 export async function open() { await panel.open() }
 export function seen() { return { events, writers } }
@@ -64,7 +91,15 @@ const identity = { pubkey: getPublicKey(secret), async signEvent(e: any) {
   if (rejectSigner) throw new Error('declined')
   return finalizeEvent(e, secret)
 } }
-export async function useIdentity() { context = { persona: identity.pubkey, generation: 'identity', mode: 'normal', identity }; await panel.invalidate() }
+export async function useIdentity() { context = { persona: identity.pubkey, generation: 'identity', mode: 'normal', identity, revocationIdentity: { ...identity, ...localPeerCrypt(secret) } }; await panel.invalidate() }
+export async function seedRevocation() {
+  return coordinator.transact(identity.pubkey, tx => rememberStandaloneRevocations(tx, identity.pubkey, keeper.pubkey, '12'.repeat(32),
+    [{ identity: identity.pubkey, device: '34'.repeat(32), homeBox: '56'.repeat(32), own: false, pending: false }], Math.floor(Date.now() / 1000)), () => true)
+}
+export async function removeEncryption() {
+  context = { ...context!, generation: 'no-encryption', revocationIdentity: undefined }
+  await panel.invalidate(); await panel.open()
+}
 export function denySigner(value = true) { rejectSigner = value }
 export function holdSigner() { signerWait = new Promise(resolve => { releaseSigner = resolve }) }
 export function finishSigner() { releaseSigner?.(); signerWait = undefined }
