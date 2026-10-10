@@ -228,7 +228,13 @@ export class BrowserMlsGrantLedger {
         }
         if (record?.state === 'revoking') throw new Error('Finish revoking this VMLS grant before renewing it.')
         if (!record || record.state === 'revoked' || record.expiration <= Math.min(boxNow, this.now())) {
-          record = await planMlsGrant(this.#identity(keeper.pubkey), box, persona, device, room, boxNow, record, this.now())
+          const signer: ParticipantIdentity = { pubkey: keeper.pubkey, signEvent: async template => {
+            check()
+            const signed = await this.#identity(keeper.pubkey).signEvent(template)
+            check()
+            return signed
+          } }
+          record = await planMlsGrant(signer, box, persona, device, room, boxNow, record, this.now())
           check()
           await this.store.put(record)
           check()

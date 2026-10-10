@@ -103,6 +103,19 @@ describe('witnessed keeper grant admission', () => {
     await expect(f.ledger().install(box, member.pubkey, device, room)).rejects.toBeInstanceOf(InvalidPersonaRecord)
     expect(f.signer.signEvent).not.toHaveBeenCalled(); expect(f.store.put).not.toHaveBeenCalled(); expect(f.publish).not.toHaveBeenCalled()
   })
+  it('does not request the second signature or persist after an account or foreground change during signing', async () => {
+    for (const mode of ['account', 'foreground'] as const) {
+      const f = await fixture()
+      f.signer.signEvent.mockImplementationOnce(async template => {
+        const signed = await keeper.signEvent(template)
+        if (mode === 'account') f.changeAccount(); else f.hide()
+        return signed
+      })
+      await expect(f.ledger().install(box, member.pubkey, device, room)).rejects.toThrow('account or foreground session changed')
+      expect(f.signer.signEvent).toHaveBeenCalledOnce(); expect(f.store.put).not.toHaveBeenCalled()
+      expect(f.resume).not.toHaveBeenCalled(); expect(f.publish).not.toHaveBeenCalled(); expect(f.records).toEqual([])
+    }
+  })
   it('has no default-allow path when the admission owner is omitted', async () => {
     const f = await fixture(), ledger = new BrowserMlsGrantLedger(() => f.signer, {} as any, f.store,
       undefined, undefined, async (_key, work) => work(), async (_device, _mode, work) => work())
