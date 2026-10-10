@@ -1,5 +1,14 @@
 import { test, expect, type Page } from '@playwright/test'
 import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia } from './browser.js'
+import { execFileSync } from 'node:child_process'
+import { readFile, stat, writeFile } from 'node:fs/promises'
+import { arch, hostname, platform, totalmem } from 'node:os'
+
+// Opt-in real-time stress run. Ordinary CI retains the short journeys.
+const soakSeconds = Number(process.env.RECORDING_SOAK_SECONDS ?? 0)
+if (!Number.isSafeInteger(soakSeconds) || soakSeconds < 0 || soakSeconds > 3600) {
+  throw new Error('RECORDING_SOAK_SECONDS must be an integer from 0 to 3600')
+}
 
 test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
 
@@ -88,6 +97,8 @@ for (const { layout, phone } of [
   { layout: 'speaker', phone: false }, { layout: 'screen-camera', phone: false },
 ] as const) {
   test(`${layout} recording exports chosen video and call audio on one timeline (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }, info) => {
+    const soak = layout === 'gallery' && !phone && soakSeconds > 0
+    if (soak) test.setTimeout(soakSeconds * 2200 + 180_000)
     const aContext = await newDeviceContext(browser, baseURL!, phone ? { isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } } : {})
     const bContext = await newDeviceContext(browser, baseURL!)
     try {
@@ -123,6 +134,34 @@ for (const { layout, phone } of [
       await expect(b.locator('#recordingBannerText')).toContainText('Ada')
       await expect(b.locator('#recordingBannerText')).toContainText(layout === 'screen-camera' ? 'screen share with camera' : `${layout} video`)
       await expect(a.locator('#recordingElapsed')).toBeVisible()
+      if (soak) {
+        const cdp = await browser.newBrowserCDPSession()
+        const samples: unknown[] = []
+        const started = Date.now()
+        const progressPath = info.outputPath('recording-soak-progress.json')
+        const runtimeCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+        const host = { name: hostname(), platform: platform(), architecture: arch(), memoryBytes: totalmem(), browserVersion: browser.version() }
+        try {
+          while (Date.now() - started < soakSeconds * 1000) {
+            await expect(a.locator('#recordingPause')).toHaveText('Pause recording')
+            const processes = await cdp.send('SystemInfo.getProcessInfo')
+            // Encoded Blob storage is outside the JavaScript heap. Include
+            // browser-process RSS instead of presenting heap alone as memory.
+            const pids = processes.processInfo.map(p => p.id).filter(pid => pid > 0)
+            const rss = execFileSync('ps', ['-o', 'rss=', '-p', pids.join(',')], { encoding: 'utf8' })
+              .trim().split(/\s+/).map(Number).reduce((sum, kib) => sum + kib * 1024, 0)
+            const heap = await a.evaluate(() => {
+              const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory
+              return memory ? { used: memory.usedJSHeapSize, allocated: memory.totalJSHeapSize } : undefined
+            })
+            samples.push({ wallSeconds: (Date.now() - started) / 1000, elapsed: await a.locator('#recordingElapsed').textContent(), browserRssBytes: rss, heap })
+            await writeFile(progressPath, JSON.stringify({ runtimeCommit, host, requestedSeconds: soakSeconds, syntheticInputs: true, physicalPhoneAcceptance: false, phase: 'recording', samples }, null, 2))
+            console.log(`Recording stress: ${Math.floor((Date.now() - started) / 1000)}s; browser RSS ${Math.round(rss / 1024 / 1024)} MiB`)
+            await a.waitForTimeout(Math.min(60_000, Math.max(0, soakSeconds * 1000 - (Date.now() - started))))
+          }
+          await info.attach('recording-soak-progress.json', { path: progressPath, contentType: 'application/json' })
+        } finally { await cdp.detach() }
+      }
       await a.waitForTimeout(2400)
       // Pausing gallery DOM views must not freeze the independent export.
       if (layout === 'gallery') {
@@ -152,7 +191,22 @@ for (const { layout, phone } of [
       await a.locator('#recordingStop').click()
       await expect(a.locator('#recordingReady')).toBeVisible()
       await expect(b.locator('#recordingBanner')).toBeHidden()
+      if (soak) {
+        const downloadPromise = a.waitForEvent('download')
+        await a.locator('#recordingSave').click()
+        await (await downloadPromise).saveAs(info.outputPath('recording-soak.webm'))
+        const file = await stat(info.outputPath('recording-soak.webm'))
+        expect(file.size).toBeGreaterThan(0)
+        expect(file.size).toBeLessThan(256 * 1024 * 1024)
+        const path = info.outputPath('recording-soak-progress.json')
+        const progress = JSON.parse(await readFile(path, 'utf8'))
+        await writeFile(path, JSON.stringify({ ...progress, phase: 'playback', exportedBytes: file.size }, null, 2))
+      }
       const exported = await exportedMedia(a)
+      if (soak) await info.attach('recording-soak-export.json', {
+        body: JSON.stringify({ requestedSeconds: soakSeconds, elapsedSeconds: elapsed, ...exported, preview: undefined, syntheticInputs: true, physicalPhoneAcceptance: false }),
+        contentType: 'application/json',
+      })
       await info.attach('export-last-frame.png', { body: Buffer.from(exported.preview.split(',')[1]!, 'base64'), contentType: 'image/png' })
       expect(exported.width).toBe(1280); expect(exported.height).toBe(720)
       expect(exported.duration).toBeGreaterThan(elapsed - 1)
@@ -167,6 +221,19 @@ for (const { layout, phone } of [
         expect(exported.blue).toBeGreaterThan(3000)
         expect(exported.red).toBeLessThan(1000)
       }
+      if (soak) {
+        const path = info.outputPath('recording-soak-progress.json')
+        const progress = JSON.parse(await readFile(path, 'utf8'))
+        await writeFile(path, JSON.stringify({ ...progress, phase: 'passed', audioDuration: exported.duration, videoDuration: exported.videoDuration }, null, 2))
+        await info.attach('recording-soak-receipt.json', { path, contentType: 'application/json' })
+      }
+    } catch (error) {
+      if (soak) {
+        const path = info.outputPath('recording-soak-progress.json')
+        const progress = JSON.parse(await readFile(path, 'utf8').catch(() => '{}'))
+        await writeFile(path, JSON.stringify({ ...progress, phase: 'failed' }, null, 2))
+      }
+      throw error
     } finally { await aContext.close(); await bContext.close() }
   })
 }
