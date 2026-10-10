@@ -63,7 +63,8 @@ describe('browser VMLS grant ledger', () => {
     f.records[0] = installed
     f.link.pairedBoxes.mockRejectedValueOnce(new Error('pairing vault unavailable'))
     await expect(f.ledger.available(authority, persona, device, () => live)).rejects.toThrow('pairing vault unavailable')
-    const otherIdentity = signer(), otherLedger = new BrowserMlsGrantLedger(() => otherIdentity, f.link as any, f.store)
+    const otherIdentity = signer(), otherLedger = new BrowserMlsGrantLedger(() => otherIdentity, f.link as any, f.store,
+      undefined, () => 1_000, async (_key, work) => work())
     await expect(otherLedger.available(authority, persona, device, () => true)).rejects.toThrow('authority or affected rooms changed')
     expect(f.published).toEqual([installed.active.id])
   })
