@@ -1,8 +1,9 @@
 # Private room and project logos
 
-G15 remains open. This branch introduces the image and protocol foundations;
-upload/crop controls, client storage, rendering, Android parity and physical
-acceptance are still required before the feature can be shipped.
+G15 remains open. This branch introduces the image and protocol foundations,
+the shared local crop editor and browser/desktop room overrides. Project logo
+storage and editing, inheritance, Android parity, recovery and physical
+acceptance still need completion before the whole feature can be shipped.
 
 ## Images
 
@@ -11,9 +12,10 @@ per side and 16 KiB of encoded image bytes. It includes intrinsic dimensions
 and a SHA-256 integrity hash. URLs, SVG, animation and embedded EXIF/XMP/ICC
 metadata are rejected. Images are neither identity claims nor access proofs.
 
-An editor must decode a local file, draw the chosen square crop onto a fresh
-sRGB canvas and package that new encoding. Browser canvas WebP encoders may
-add an ICC profile; `logoFromCanvasEncoding` removes ancillary chunks from
+The editor decodes a local file, draws the chosen square crop onto a fresh
+sRGB canvas and packages that new encoding. Browser canvas WebP encoders may
+add an ICC profile, while WebKit falls back to PNG and adds EXIF to its fresh
+canvas. `logoFromCanvasEncoding` removes ancillary chunks from
 that freshly generated encoding before applying the strict reader checks.
 Recipients must never use this repair on untrusted signed input. The container
 checks are not a pixel decoder: renderers must handle local decode failures
@@ -38,6 +40,25 @@ member may carry the winning image or removal into a new epoch, retaining
 its original ordering key without attributing authorship to the carrier.
 Followers must attach before the first rekey, as room-name followers do.
 Read-only logs cannot publish; closing a follower prevents further changes.
+
+In the browser and desktop UI, Room details offers **Change room logo** to an
+admitted writer in a regular room. The shared editor accepts local PNG, JPEG
+and still WebP files up to 8 MiB/16 megapixels, inspects dimensions before
+decode, then offers square crop, zoom and horizontal/vertical position. It
+previews the fresh crop and supports cancellation, replacement and removal.
+Closing during decode releases late bitmaps. A room/epoch change invalidates
+the editing target before publication. Private/quiet conversations keep their
+person identity treatment rather than offering room-brand editing.
+
+Headers, the rooms list and the originating-call label use inline images with
+initials on failure. The read-only room watch follows changes while the room
+is closed without announcing another participant. Logos never change chat
+activity or unread timestamps. Cached records retain their epoch; a cache
+seed does not count as a live relay copy. Optional persistent thumbnails are
+capped at 64 rooms without deleting admission records. Temporary and
+self-destructing room thumbnails remain in memory, and forgetting/room cleanup
+clears their cache and follower. These are local room-cache rules, not complete
+account recovery or the anonymous no-history goal's acceptance.
 
 Older clients ignore the unfamiliar control operation and keep reading the
 room. The underlying credential, channel and circle primitives are unchanged.
@@ -66,18 +87,24 @@ or new fields are added to bearer invitation links.
 
 ## Remaining acceptance
 
-- Wire the shared editor to authorised project and room controls, with crop,
-  preview, replace/remove, clear failure feedback and sensible file limits.
+- Wire the shared editor to authorised project controls.
 - Implement locked project companion storage, conflicts, immutable retries,
   authority refresh and recoverable offline state.
-- Render logos in navigation, headers and originating-call labels with names
-  intact; render admission branding only from authorised local state.
-- Keep temporary no-history logos in memory and delete retained room assets
-  on expiry, forgetting and private-history removal.
+- Implement project inheritance and navigation, and render admission branding
+  only from authorised local state.
+- Qualify temporary-room expiry, invalid compressed pixel fallback and all
+  permission/identity changes in the complete client journey.
 - Add Android codecs and UI, with cross-client vectors and member/removal tests.
 - Test light/dark, small phone layouts, invalid compressed pixels, permission
   changes, reload/recovery, cancelled editing and physical devices.
 
-The initial qualification passed 18 focused image/project/room cases, full
-typechecking and all 3,905 unit tests in 276 files. This establishes protocol
-behaviour in the simulator, not an installed or publicly shipped logo feature.
+The initial protocol qualification passed 18 focused cases and all 3,905 unit
+tests in 276 files. The room editor revision passes full typechecking and all
+3,910 unit tests in 277 files, including real browser encoder fixtures for
+Chromium's ICC and WebKit's EXIF. Twelve browser journeys pass across Chromium,
+Firefox and WebKit: two admitted members share/crop/replace/remove, restore after
+reload, receive changes while the room is closed without changing activity time,
+cancel pending bitmap decoding, and use 320-pixel light/dark editors that reject
+SVG and oversized inputs without external image requests. The existing call-dock
+continuity journey also passes. The same four logo journeys pass against the desktop build (16 logo
+journeys in total). Installed desktop and physical phone acceptance remain open. This is not an installed or publicly shipped logo feature.

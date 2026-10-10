@@ -247,6 +247,10 @@ import {
   MAX_INVITATION_RELAYS,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
+import { RoomLogoCache } from './room-logo-store.js'
+import { openLogoEditor } from './logo-editor.js'
+import { renderLogo } from './logo-view.js'
+import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
@@ -830,6 +834,7 @@ function disconnectedAccountRooms(): KnownRoom[] {
 // `device-store.ts` for why a relay must never see one device key across
 // two rooms. The single shared key this replaces is forgotten on load.
 const deviceStore = browserDeviceStore(localStorage)
+const roomLogoCache = new RoomLogoCache(deviceStore)
 forgetLegacyStorage(deviceStore)
 
 const nowSeconds = () => Math.floor(Date.now() / 1000)
@@ -4910,6 +4915,7 @@ function renderRoomTitle(): void {
   const roomId = currentRoomId()
   title.textContent = ''
   title.hidden = roomId === undefined
+  renderCurrentRoomLogo()
   if (!roomId) return
   const me = meParticipant || currentParticipant()
   const peer = me ? dmPeer(roomPolicy, me) : undefined
@@ -7059,7 +7065,55 @@ function scheduleRoomRelaysRepost(s: RoomSession): void {
 
 const ROOM_NAME_PREFIX = 'kithmoot.room-name.v1.'
 const roomNameFollowers = new WeakMap<RoomSession, RoomNameFollower>()
+const roomLogoFollowers = new WeakMap<RoomSession, RoomLogoFollower>()
 let roomNameCarryTimer: ReturnType<typeof setTimeout> | undefined
+
+function logoForRoom(roomId: string): RoomLogoRecord | undefined {
+  const s = session?.roomId === roomId ? session : dockedCall?.session.roomId === roomId ? dockedCall.session : undefined
+  return s ? roomLogoFollowers.get(s)?.current() ?? roomLogoCache.get(roomId)?.record : roomLogoCache.get(roomId)?.record
+}
+
+function renderCurrentRoomLogo(): void {
+  const me = meParticipant || currentParticipant()
+  const show = !!session && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me))
+  const icon = $('roomLogo')
+  icon.hidden = !show
+  if (show) renderLogo(icon, logoForRoom(session!.roomId)?.image, currentRoomLabel())
+  else icon.replaceChildren()
+}
+
+function renderRoomLogoControls(): void {
+  const s = session, me = meParticipant || currentParticipant()
+  const permitted = !!s && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
+  $('roomLogoControls').hidden = !permitted
+  if (permitted) renderLogo($('roomLogoPreview'), logoForRoom(s!.roomId)?.image, currentRoomLabel())
+  else $('roomLogoPreview').replaceChildren()
+}
+
+function adoptSharedRoomLogo(s: RoomSession, record: RoomLogoRecord | undefined): void {
+  const temporary = s.endsAt !== undefined || roomIsDestruct(s.roomId) ||
+    (session === s ? roomDestruct : dockedCall?.session === s && dockedCall.ui.roomDestruct)
+  if (record) roomLogoCache.keep(s.roomId, record, s.epoch, !temporary)
+  else roomLogoCache.forget(s.roomId)
+  if (session === s) { renderCurrentRoomLogo(); renderRoomLogoControls() }
+  renderRooms(); renderDock()
+}
+
+function followSharedRoomLogo(s: RoomSession): void {
+  if (isQuietPolicy(roomPolicy) || dmPeer(roomPolicy, s.participant)) return
+  let follower = roomLogoFollowers.get(s)
+  if (!follower) {
+    const seed = roomLogoCache.get(s.roomId)
+    follower = followRoomLogo(s, { seed: seed?.record, seedEpoch: seed?.epoch,
+      onLogo: record => adoptSharedRoomLogo(s, record) })
+    roomLogoFollowers.set(s, follower)
+  }
+  adoptSharedRoomLogo(s, follower.current())
+}
+
+function closeRoomLogo(s: RoomSession): void {
+  roomLogoFollowers.get(s)?.close(); roomLogoFollowers.delete(s)
+}
 
 function loadRoomNameRecord(roomId: string): Pick<RoomNameRecord, 'name' | 'id' | 'at'> | undefined {
   try {
@@ -7159,6 +7213,7 @@ function keepWatchedRekey(roomId: string, roomSecret: Uint8Array, moved: Watched
  *  followed, show the name it holds now. */
 function followSharedRoomName(s: RoomSession): void {
   rememberRoomEpoch(s)
+  followSharedRoomLogo(s)
   let follower = roomNameFollowers.get(s)
   if (!follower) {
     follower = followRoomName(s, {
@@ -7183,6 +7238,7 @@ function scheduleRoomNameCarry(s: RoomSession, minMs: number, spreadMs: number):
   roomNameCarryTimer = setTimeout(() => {
     if (session !== s) return
     roomNameFollowers.get(s)?.carryIfDue().catch(() => { /* Tried again on the next visit or rekey. */ })
+    roomLogoFollowers.get(s)?.carryIfDue().catch(() => { /* Retry on the next visit or rekey. */ })
   }, minMs + Math.random() * spreadMs)
 }
 
@@ -7199,6 +7255,7 @@ async function renameRoomForEveryone(name: string): Promise<void> {
 /** The rename form in the room's details: the current name, and hidden in a
  *  direct message, whose title is the other person. */
 function renderRoomRename(): void {
+  renderRoomLogoControls()
   const form = $('roomRename') as HTMLFormElement
   const me = meParticipant || currentParticipant()
   form.hidden = !session || (me ? dmPeer(roomPolicy, me) !== undefined : false)
@@ -7400,6 +7457,7 @@ function onEpochChange(notice: RekeyNotice): void {
   if (s) {
     rememberRoomEpoch(s)
     roomNameFollowers.get(s)?.refresh()
+    roomLogoFollowers.get(s)?.refresh()
     if (!notice.closed) scheduleRoomNameCarry(s, 3_000, 12_000)
   }
   // Joining replays old rekeys; a state grant includes everyone ever
@@ -12303,12 +12361,20 @@ function watchKnownRoom(room: KnownRoom): void {
     named = name
     adoptWatchedRoomName(roomId, name)
   }
+  const followLogo = (): void => {
+    if (session?.roomId === roomId) return
+    const logo = watch.roomLogo(), kept = roomLogoCache.get(roomId)
+    if (!logo) { if (kept && kept.epoch < watch.epoch) roomLogoCache.forget(roomId); return }
+    if (kept?.epoch === watch.epoch && compareRoomLogos(logo, kept.record) === 0) return
+    roomLogoCache.keep(roomId, logo, watch.epoch, room.endsAt === undefined && !room.destruct)
+  }
   const watch = new RoomWatch({
     transport: pool,
     roomId,
     roomKey,
     policy: link.policy,
     quiet: isQuietPolicy(link.policy),
+    logo: roomLogoCache.get(roomId),
     ...(epoch ? { epoch } : {}),
     ...(pastEpochs.length ? { pastEpochs } : {}),
     // Following the authority's rekeys, so a room not opened since its key
@@ -12335,11 +12401,13 @@ function watchKnownRoom(room: KnownRoom): void {
     onChange: () => {
       // The name first, so the redraw below shows it.
       followName()
+      followLogo()
       renderRooms()
       notify(watch.messages())
     },
   })
   followName()
+  followLogo()
   notify(watch.messages())
   roomWatches.set(room.roomId, { pool, watch })
   followReadPositions(roomId, roomKey, room.endsAt)
@@ -12711,6 +12779,7 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   avatar.setAttribute('aria-hidden', 'true')
   avatar.textContent = avatarInitial(label)
   const peer = dmPeerOf(room)
+  if (!peer) renderLogo(avatar, logoForRoom(room.roomId)?.image, label)
   const picture = peer ? profiles.get(peer)?.picture : undefined
   if (picture) {
     const image = document.createElement('img')
@@ -13499,6 +13568,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // but free the controls immediately. Never clean up global connections later:
   // by then they may belong to the newly opened room.
   if (old && old === dockedCall?.session) return
+  if (old) closeRoomLogo(old)
   const farewell = old?.leave() ?? Promise.resolve()
   const own = old ? sessionConnections.get(old) : undefined
   for (const [key, pc] of openConnections) {
@@ -13671,6 +13741,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   if (key && reason === 'user') callTabLock.release(key)
   if (c.iceRefreshTimer !== undefined) clearInterval(c.iceRefreshTimer)
   tearDownCallMedia()
+  closeRoomLogo(c.session)
   tileLiveness.retain([])
   $('agentsRow').replaceChildren()
   autoplayBanner.hide()
@@ -13711,6 +13782,9 @@ function renderDock(): void {
   $('callSurfaceHeader').hidden = !live
   const origin = callOrigin(owner)
   const originText = origin ? `Call in ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
+  $('callSurfaceLogo').hidden = !live || !owner
+  if (live && owner) renderLogo($('callSurfaceLogo'), logoForRoom(owner.roomId)?.image, origin?.roomName ?? 'Call')
+  else $('callSurfaceLogo').replaceChildren()
   if ($('callSurfaceOrigin').textContent !== originText) $('callSurfaceOrigin').textContent = originText
   const collapse = $('callGalleryCollapse')
   collapse.textContent = galleryCollapsed ? 'Show gallery' : 'Hide gallery'
@@ -13853,6 +13927,9 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
  *  The browser's own list entry goes too, or it would be offered straight
  *  back as a room "already here" to add to the account. */
 function forgetLocally(roomId: string): void {
+  roomLogoCache.forget(roomId)
+  if (session?.roomId === roomId) closeRoomLogo(session)
+  if (dockedCall?.session.roomId === roomId) closeRoomLogo(dockedCall.session)
   workspaceWork?.forget(roomId)
   stopWatching(roomId)
   // The room is not this browser's any more: no more read positions for it.
@@ -16875,6 +16952,21 @@ $('roomRename').addEventListener('submit', (event) => {
     .then(() => { input.blur(); setStatus(`Renamed the room to “${name}” for everyone.`) })
     .catch((err) => setStatus(describeError(err)))
     .finally(() => { button.disabled = false; renderRoomRename() })
+})
+
+$('roomLogoEdit').addEventListener('click', () => {
+  const s = session, follower = s ? roomLogoFollowers.get(s) : undefined
+  if (!s || !follower || s.channel(CONTROL_CHANNEL).readOnly) return
+  const epoch = s.epoch, me = s.participant
+  openLogoEditor({ name: currentRoomLabel(), image: follower.current()?.image,
+    removeLabel: 'Remove room logo',
+    save: async image => {
+      if (session !== s || s.epoch !== epoch || s.participant !== me || roomLogoFollowers.get(s) !== follower || conferenceEnded(s.endsAt, nowSeconds())) {
+        throw new Error('This room changed while you were editing. Close the editor and try again.')
+      }
+      const record = await follower.replace(image)
+      if (session === s) adoptSharedRoomLogo(s, record)
+    } })
 })
 
 $('channelNew').addEventListener('submit', (event) => {

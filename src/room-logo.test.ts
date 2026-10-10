@@ -72,6 +72,17 @@ describe('private room logo wire boundary', () => {
 })
 
 describe('shared room logo state', () => {
+  it('retains the cache epoch without mistaking a seed for a live relay copy', () => {
+    const book = new RoomLogoBook()
+    const record: RoomLogoRecord = { image, id: ID, at: NOW * 1000, sentAt: NOW }
+    book.seed(record, 0)
+    expect(book.carryDue(0, NOW)?.image).toEqual(image)
+    expect(book.add(record, 0)).toBe(true)
+    expect(book.carryDue(0, NOW)).toBeUndefined()
+    const removed = new RoomLogoBook()
+    removed.seed({ ...record, at: (NOW + 700) * 1000, sentAt: NOW + 700 }, 0)
+    expect(removed.current(1, { rekeyedAt: () => NOW + 100 })).toBeUndefined()
+  })
   it('discounts removed-member writes, keeps removals through rekey and never lends a mutable cache to a renderer', () => {
     const book = new RoomLogoBook()
     const record: RoomLogoRecord = { image, id: ID, at: NOW * 1000, sentAt: NOW }

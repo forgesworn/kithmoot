@@ -6,6 +6,7 @@ import { createLogoImage, logoDataUrl, logoFromCanvasEncoding, MAX_LOGO_BYTES, r
 const png = new Uint8Array(readFileSync(new URL('../desktop/icons/kithmoot-128.png', import.meta.url)))
 const fixture = JSON.parse(readFileSync(new URL('../test/fixtures/logo-canvas-webp.json', import.meta.url), 'utf8'))
 const rawWebp = base64.decode(fixture.canvasWebp)
+const webkitCanvas = JSON.parse(readFileSync(new URL('../test/fixtures/logo-canvas-webkit.json', import.meta.url), 'utf8'))[0]
 
 describe('bounded private logo images', () => {
   it('keeps a real local PNG inline with its intrinsic dimensions and integrity hash', () => {
@@ -20,6 +21,16 @@ describe('bounded private logo images', () => {
     const image = logoFromCanvasEncoding(rawWebp, 'image/webp')
     expect(image.width).toBe(2); expect(image.height).toBe(2)
     expect(Buffer.from(base64.decode(image.data)).includes(Buffer.from('ICCP'))).toBe(false)
+    expect(readLogoImage(image)).toEqual(image)
+  })
+  it('handles WebKit PNG fallback by stripping the EXIF added to its fresh canvas output', () => {
+    expect(webkitCanvas.requested).toBe('image/webp'); expect(webkitCanvas.mime).toBe('image/png')
+    const png = base64.decode(webkitCanvas.data)
+    expect(Buffer.from(png).includes(Buffer.from('eXIf'))).toBe(true)
+    expect(() => createLogoImage(png, 'image/png')).toThrow()
+    const image = logoFromCanvasEncoding(png, 'image/png')
+    expect(image.width).toBe(2); expect(image.height).toBe(2)
+    expect(Buffer.from(base64.decode(image.data)).includes(Buffer.from('eXIf'))).toBe(false)
     expect(readLogoImage(image)).toEqual(image)
   })
   it('refuses remote sources, SVG, extra fields and tampered hashes or dimensions', () => {

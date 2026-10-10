@@ -121,11 +121,32 @@ export function logoDataUrl(value: unknown): string | undefined {
 }
 
 /** Use only after decoding locally and drawing onto a fresh sRGB canvas.
- * Browser WebP encoders can add an ICC profile even to that fresh canvas.
+ * WebP encoders can add ICC profiles, and WebKit PNG encoders add EXIF even
+ * to that fresh canvas.
  * Strip ancillary chunks before packaging; recipients never run this repair
  * on an untrusted signed image, which must already satisfy readLogoImage. */
 export function logoFromCanvasEncoding(bytes: Uint8Array, mime: LogoImage['mime']): LogoImage {
-  if (mime === 'image/png') return createLogoImage(bytes, mime)
+  if (mime !== 'image/png' && mime !== 'image/webp') throw new Error('Invalid canvas logo encoding')
+  if (mime === 'image/png') {
+    if (bytes.length > 512 * 1024 || bytes.length < 45 || bytes.subarray(0, 8).some((byte, i) => byte !== [137, 80, 78, 71, 13, 10, 26, 10][i])) {
+      throw new Error('Invalid canvas logo encoding')
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), chunks: Uint8Array[] = [bytes.slice(0, 8)]
+    let offset = 8
+    while (offset + 12 <= bytes.length) {
+      const length = view.getUint32(offset), type = ascii(bytes, offset + 4, 4), end = offset + 12 + length
+      if (end > bytes.length) throw new Error('Invalid canvas logo encoding')
+      if (['acTL', 'fcTL', 'fdAT'].includes(type)) throw new Error('Use a still logo image')
+      if (['IHDR', 'PLTE', 'tRNS', 'sRGB', 'gAMA', 'cHRM', 'IDAT', 'IEND'].includes(type)) chunks.push(bytes.slice(offset, end))
+      else if (!/^[a-z]/.test(type)) throw new Error('Invalid canvas logo encoding')
+      offset = end
+    }
+    if (offset !== bytes.length) throw new Error('Invalid canvas logo encoding')
+    const cleaned = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0))
+    let at = 0
+    for (const chunk of chunks) { cleaned.set(chunk, at); at += chunk.length }
+    return createLogoImage(cleaned, mime)
+  }
   if (bytes.length > 512 * 1024 || bytes.length < 20 || ascii(bytes, 0, 4) !== 'RIFF' || ascii(bytes, 8, 4) !== 'WEBP') {
     throw new Error('Invalid canvas logo encoding')
   }

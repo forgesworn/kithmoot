@@ -57,6 +57,7 @@
       <div id="workspaceContent">
       <section id="callSurface" aria-label="Call surface" hidden>
         <div id="callSurfaceHeader" hidden>
+          <span id="callSurfaceLogo" class="privateLogo" hidden></span>
           <strong id="callSurfaceOrigin"></strong>
           <button id="callGalleryCollapse" type="button" aria-expanded="true" aria-controls="callStage">Hide gallery</button>
         </div>
@@ -311,6 +312,7 @@
                they answer the same question and a reader who wants more
                about either taps the thing they are looking at. -->
           <button id="roomIdentity" type="button" class="roomIdentity" aria-haspopup="dialog">
+            <span id="roomLogo" class="privateLogo" hidden></span>
             <span id="roomTitle" class="roomTitle"></span>
             <span id="roomEndsLine" class="roomEndsLine" hidden></span>
             <span id="roomWho" class="roomWho"></span>
@@ -1145,6 +1147,11 @@
                  aria-label="Room name" />
           <button type="submit" id="roomRenameSave">Rename for everyone</button>
         </form>
+        <div id="roomLogoControls" class="roomLogoControls" hidden>
+          <span id="roomLogoPreview" class="privateLogo"></span>
+          <button id="roomLogoEdit" type="button" aria-haspopup="dialog">Change room logo</button>
+          <p class="note">Shared with everyone in this room. Removing the logo restores the default.</p>
+        </div>
         <p id="roomLockState" class="note" hidden></p>
         <!-- A self-destructing room says once what that can and cannot do. -->
         <p id="roomDestructState" class="note" hidden></p>

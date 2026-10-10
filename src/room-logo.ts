@@ -42,16 +42,17 @@ export function compareRoomLogos(a: RoomLogoRecord, b: RoomLogoRecord): number {
 }
 
 export class RoomLogoBook {
-  readonly #entries: { record: RoomLogoRecord; epoch: number | undefined }[] = []
+  readonly #entries: { record: RoomLogoRecord; epoch: number | undefined; cached?: true }[] = []
   add(record: RoomLogoRecord, epoch: number): boolean {
-    if (this.#entries.some(entry => entry.epoch === epoch && entry.record.sentAt === record.sentAt && identity(entry.record) === identity(record))) return false
+    if (this.#entries.some(entry => !entry.cached && entry.epoch === epoch && entry.record.sentAt === record.sentAt && identity(entry.record) === identity(record))) return false
     this.#entries.push({ record: structuredClone(record), epoch }); return true
   }
-  seed(record: RoomLogoRecord): void {
+  seed(record: RoomLogoRecord, epoch?: number): void {
     try {
       roomLogoOp(record.image, record.at, record.id)
+      if (epoch !== undefined && (!Number.isSafeInteger(epoch) || epoch < 0)) return
       if (!Number.isSafeInteger(record.sentAt) || Math.floor(record.at / 1000) > record.sentAt) return
-      this.#entries.push({ record: structuredClone(record), epoch: undefined })
+      this.#entries.push({ record: structuredClone(record), epoch, cached: true })
     } catch { /* Invalid caches never become a renderer source. */ }
   }
   current(epoch: number, epochs: RoomNameEpochs = {}): RoomLogoRecord | undefined {
@@ -69,7 +70,7 @@ export class RoomLogoBook {
   carryDue(epoch: number, now: number, epochs: RoomNameEpochs = {}): RoomLogoRecord | undefined {
     const best = this.current(epoch, epochs)
     if (!best) return
-    const copies = this.#entries.filter(entry => entry.epoch === epoch && identity(entry.record) === identity(best))
+    const copies = this.#entries.filter(entry => !entry.cached && entry.epoch === epoch && identity(entry.record) === identity(best))
     return !copies.some(entry => entry.record.sentAt >= now - ROOM_NAME_REPOST_SECONDS) ? best : undefined
   }
 }
@@ -85,12 +86,12 @@ export interface RoomLogoFollower {
 /** Attach before the first rekey: each newly read message is filed under the
  * session's current epoch, as for the shared room name. */
 export function followRoomLogo(session: RoomLogoSession, options: {
-  seed?: RoomLogoRecord; nowMs?: () => number; onLogo?: (record: RoomLogoRecord | undefined) => void
+  seed?: RoomLogoRecord; seedEpoch?: number; nowMs?: () => number; onLogo?: (record: RoomLogoRecord | undefined) => void
 } = {}): RoomLogoFollower {
   const log = session.channel(CONTROL_CHANNEL), book = new RoomLogoBook(), seen = new Set<string>()
   const epochs = { rekeyedAt: (epoch: number) => session.rekeyedAt?.(epoch) }, now = options.nowMs ?? Date.now
   let closed = false, shown: string | undefined
-  if (options.seed) book.seed(options.seed)
+  if (options.seed) book.seed(options.seed, options.seedEpoch)
   const settle = () => {
     const current = book.current(session.epoch, epochs), next = current ? identity(current) : undefined
     if (shown === next) return
