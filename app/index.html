@@ -64,6 +64,7 @@
           <span id="callDockText" class="callDockText" aria-live="polite"></span>
           <span id="callDockRecordingNotice" role="status" hidden></span>
           <span id="callDockRecordingElapsed" aria-live="off" hidden></span>
+          <span id="callDockRecordingHint" class="note" hidden></span>
           <span class="callDockActions">
             <button id="callDockMic" type="button" aria-pressed="false">Microphone</button>
             <button id="callDockCamera" type="button" aria-pressed="false">Camera</button>
@@ -127,6 +128,7 @@
                  toggle made from the keyboard: a click already carries its
                  own feedback through focus and `aria-pressed`. -->
             <div id="callShortcutAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+            <p id="recordingAuthorityHint" class="note" hidden>Only the person who created this room can record its calls.</p>
             <p id="micIndicator" class="indicator"></p>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>

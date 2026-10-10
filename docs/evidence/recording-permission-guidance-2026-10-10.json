@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-10",
+  "sourceBase": "0c8685fe81c9913f96a7b8fe9e226c8b8d32d49a",
+  "change": "Show Record call and explain existing creator-only authority in the Call view and originating call dock",
+  "automated": {
+    "typecheck": "passed",
+    "unitTests": 3834,
+    "unitFiles": 272,
+    "recordingSharingMeetingAndCallSurface": { "passed": 20, "skipped": 2 },
+    "additionalParticipantDockNavigation": { "passed": 4, "skipped": 0 },
+    "browserProjects": ["chromium", "chromium-desktop"],
+    "syntheticMediaInputs": true,
+    "recordingAuthorityGuardRetained": true,
+    "disabledParticipantSyntheticClickRejected": true
+  },
+  "publication": "pending pull request CI and release",
+  "physicalAcceptance": false,
+  "nativeAndroidRecording": false,
+  "longSessionAcceptance": "not established by these short browser checks"
+}

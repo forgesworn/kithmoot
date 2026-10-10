@@ -8253,14 +8253,18 @@ function renderMeeting(): void {
   const record = $('recordToggle') as HTMLButtonElement
   const recordingHere = activeRecording?.session === session && activeRecording !== undefined
   const recordLabel = recordingHere ? 'Stop recording' : 'Record call'
-  record.hidden = !moderator && !recordingHere
+  record.hidden = !session && !recordingHere
   record.querySelector('.callWord')!.textContent = recordLabel
   record.setAttribute('aria-label', recordLabel)
   record.setAttribute('aria-pressed', String(recordingHere))
   record.dataset.on = String(recordingHere)
   const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
-  record.disabled = !recordingHere && (!session?.call || mediaSession() !== session || !canRecord)
-  record.title = recordingHere ? 'Stop recording' : record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : 'Record audio or video'
+  record.disabled = !recordingHere && (!moderator || !session?.call || mediaSession() !== session || !canRecord)
+  const authorityHint = $('recordingAuthorityHint')
+  authorityHint.hidden = moderator || recordingHere || !session
+  if (!authorityHint.hidden) record.setAttribute('aria-describedby', 'recordingAuthorityHint')
+  else record.removeAttribute('aria-describedby')
+  record.title = recordingHere ? 'Stop recording' : !moderator ? authorityHint.textContent! : record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : 'Record audio or video'
 
   const panel = $('meetingPanel') as HTMLDetailsElement
   panel.hidden = !moderator
@@ -13737,8 +13741,17 @@ function renderDock(): void {
   notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? activeRecording!.recorder.paused ? 'Your recording is paused.' : `You are recording this call. ${recordingCaptureDescription(c.session)}` : `This call is being recorded. ${recordingCaptureDescription(c.session)}`
   renderRecordingPause('callDockRecordingPause', !!recordingMine)
   renderRecordingElapsed()
-  const recording = $('callDockRecording')
-  recording.hidden = !recordingMine && !callRecordingAuthority()
+  const recording = $('callDockRecording') as HTMLButtonElement
+  const recordingAuthority = !!callRecordingAuthority()
+  const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
+  recording.hidden = false
+  recording.disabled = !recordingMine && (!recordingAuthority || !canRecord)
+  const recordingHint = $('callDockRecordingHint')
+  recordingHint.hidden = !recording.disabled
+  recordingHint.textContent = !recordingAuthority ? 'Only the person who created this call’s room can record it.' : 'This browser cannot record calls.'
+  recording.title = recording.disabled ? recordingHint.textContent : recordingMine ? 'Stop recording' : 'Record audio or video'
+  if (recording.disabled) recording.setAttribute('aria-describedby', 'callDockRecordingHint')
+  else recording.removeAttribute('aria-describedby')
   recording.textContent = recordingMine ? 'Stop recording' : 'Record call'
   recording.setAttribute('aria-label', `${recordingMine ? 'Stop recording' : 'Record the call'} in ${c.label}`)
   $('callDockBack').setAttribute('aria-label', `Back to the call in ${c.label}`)
