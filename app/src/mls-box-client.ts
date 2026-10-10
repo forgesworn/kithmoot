@@ -35,7 +35,7 @@ type Json = Record<string, unknown>
  * must keep this verified paired route installed, invalidate before replacing
  * it, and await endpoint shutdown on account/privacy changes. Never borrow the
  * dedicated witness endpoint outside its persona lock. No constructor I/O.
- * This client verifies wire facts; the future driver must compare capabilities
+ * This client verifies wire facts; the driver must compare capabilities
  * on open/replies and feed signed slot labels to the engine before acting. */
 export class BrowserMlsBoxClient {
   readonly box: string
@@ -58,15 +58,18 @@ export class BrowserMlsBoxClient {
    * its durable outbox must survive for fresh-authentication reconciliation. */
   invalidate(): void { this.#epoch++; for (const cancel of this.#pending) cancel() }
 
-  capabilities(): Promise<BoxAnswer<{ installation: string }>> {
+  /** Current account/privacy scope, also used by the owner of a round. */
+  isCurrent(): boolean { return this.current() && this.vault.current(this.#context) }
+
+  capabilities(current: () => boolean = () => true): Promise<BoxAnswer<{ installation: string }>> {
     return this.#request('GET', '/vmls/v1/capabilities', new Uint8Array(), MAX_JSON, async (status, raw) => {
       if (status !== 200) return undefined
       const wasm = await loadMlsEngine()
       try { return { value: { installation: bytesToHex(wasm.parseCapabilities(raw)) }, serverTime: null } }
       catch { return undefined }
-    })
+    }, current)
   }
-  deposit(mailbox: Uint8Array, envelope: Uint8Array): Promise<BoxAnswer<Deposited>> {
+  deposit(mailbox: Uint8Array, envelope: Uint8Array, current: () => boolean = () => true): Promise<BoxAnswer<Deposited>> {
     const id = idOf(mailbox); envelope = bounded(envelope, MAX_MLS_ENVELOPE)
     const hash = bytesToHex(sha256(envelope))
     return this.#request('PUT', `/vmls/v1/mailboxes/${id}/records`, envelope, MAX_JSON, (status, raw) => {
@@ -78,9 +81,9 @@ export class BrowserMlsBoxClient {
         welcomeAcknowledged = a.welcome.acknowledged
       }
       return parsed(a, { duplicate: a.code === 'duplicate', receipt: hexToBytes(hash), welcomeAcknowledged })
-    })
+    }, current)
   }
-  depositSlot(slot: Uint8Array, attempt: number, envelope: Uint8Array): Promise<BoxAnswer<SlotDeposited>> {
+  depositSlot(slot: Uint8Array, attempt: number, envelope: Uint8Array, current: () => boolean = () => true): Promise<BoxAnswer<SlotDeposited>> {
     const id = idOf(slot); uint(attempt, 0xffff_ffff); envelope = bounded(envelope, MAX_MLS_ENVELOPE)
     const hash = bytesToHex(sha256(envelope))
     return this.#request('PUT', `/vmls/v1/slots/${id}/${attempt}`, envelope, MAX_JSON, (status, raw) => {
@@ -91,9 +94,9 @@ export class BrowserMlsBoxClient {
       const signed = 'signed_receipt' in a ? binary(a.signed_receipt, 197) : null
       if ('signed_receipt' in a && (!signed || !this.#receipt(signed, id, a.attempt, a.receipt))) return
       return parsed(a, { outcome: a.code as SlotDeposited['outcome'], attempt: a.attempt, receipt: hexToBytes(a.receipt), signedReceipt: signed ?? null })
-    })
+    }, current)
   }
-  slotStatus(slot: Uint8Array, attempt: number): Promise<BoxAnswer<SlotState>> {
+  slotStatus(slot: Uint8Array, attempt: number, current: () => boolean = () => true): Promise<BoxAnswer<SlotState>> {
     const id = idOf(slot); uint(attempt, 0xffff_ffff)
     return this.#request<SlotState>('POST', `/vmls/v1/slots/${id}/${attempt}/status`, json({ v: 1 }), MAX_FETCH, (status, raw) => {
       if (status !== 200) return
@@ -110,9 +113,9 @@ export class BrowserMlsBoxClient {
         if (!envelope || bytesToHex(sha256(envelope)) !== a.receipt) return
       } else if ('envelope' in a) return
       return parsed(a, { state: a.code as SlotState['state'], attempt: a.attempt, receipt: hexToBytes(a.receipt), signedReceipt: signed, ...(envelope ? { envelope } : {}) })
-    })
+    }, current)
   }
-  fetch(mailboxes: readonly Uint8Array[], after?: string): Promise<BoxAnswer<{ records: FetchRecord[]; next: string | null }>> {
+  fetch(mailboxes: readonly Uint8Array[], after?: string, current: () => boolean = () => true): Promise<BoxAnswer<{ records: FetchRecord[]; next: string | null }>> {
     if (mailboxes.length < 1 || mailboxes.length > 16) throw new Error('Invalid MLS mailbox count.')
     const ids = mailboxes.map(idOf), asked = new Set(ids)
     if (asked.size !== ids.length || (after !== undefined && !CURSOR.test(after))) throw new Error('Invalid MLS fetch cursor or mailboxes.')
@@ -128,9 +131,9 @@ export class BrowserMlsBoxClient {
         seen.add(key); records.push({ mailbox: hexToBytes(r.mailbox), receipt: hexToBytes(r.receipt), envelope })
       }
       return parsed(a, { records, next: typeof a.next === 'string' ? a.next : null })
-    })
+    }, current)
   }
-  ack(items: readonly AckItem[]): Promise<BoxAnswer<{ deleted: boolean; acked: number }>> {
+  ack(items: readonly AckItem[], current: () => boolean = () => true): Promise<BoxAnswer<{ deleted: boolean; acked: number }>> {
     if (items.length < 1 || items.length > 64) throw new Error('Invalid MLS acknowledgement count.')
     const records = items.map(r => ({ mailbox: idOf(r.mailbox), receipt: idOf(r.receipt) }))
     if (new Set(records.map(r => `${r.mailbox}:${r.receipt}`)).size !== records.length) throw new Error('Duplicate MLS acknowledgement.')
@@ -138,7 +141,7 @@ export class BrowserMlsBoxClient {
       const a = answer(raw, ['acked'])
       if (status !== 200 || !a || !['deleted', 'marked'].includes(a.code) || !isUint(a.acked, records.length)) return
       return parsed(a, { deleted: a.code === 'deleted', acked: a.acked })
-    })
+    }, current)
   }
   registerPackage(packageId: Uint8Array, welcomeMailbox: Uint8Array, expiresAt: number, serverTime: number): Promise<BoxAnswer<{ fresh: boolean }>> {
     const id = idOf(packageId), mailbox = idOf(welcomeMailbox)
@@ -164,12 +167,12 @@ export class BrowserMlsBoxClient {
       bytesToHex(signed.subarray(101, 133)) === receipt
   }
   async #request<T>(method: LinkRequest['method'], path: string, input: Uint8Array, limit: number,
-    parse: (status: number, raw: Uint8Array) => { value: T; serverTime: number | null } | undefined | Promise<{ value: T; serverTime: number | null } | undefined>): Promise<BoxAnswer<T>> {
+    parse: (status: number, raw: Uint8Array) => { value: T; serverTime: number | null } | undefined | Promise<{ value: T; serverTime: number | null } | undefined>, requestCurrent: () => boolean = () => true): Promise<BoxAnswer<T>> {
     if (this.#occupied >= 32) return { state: 'not-signed', reason: 'busy' }
     const body = input.slice(), epoch = this.#epoch
     const request = Object.freeze({ v: 1 as const, box: this.box, method, path, payload: bytesToHex(sha256(body)) })
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined, wake!: () => void
-    const active = () => !cancelled && epoch === this.#epoch && this.current() && this.vault.current(this.#context)
+    const active = () => !cancelled && epoch === this.#epoch && requestCurrent() && this.current() && this.vault.current(this.#context)
     const waiting = new Promise<BoxAnswer<T>>(resolve => { wake = () => { cancelled = true; resolve({ state: 'unavailable' }) } })
     this.#pending.add(wake)
     this.#occupied++

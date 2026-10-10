@@ -62,19 +62,19 @@ send retries, received plaintext recovery, deduplication and storage bounds.
 A fixture-only guest creates real Add/Welcome/Update and encrypted message input;
 that guest is not a separately persisted or independently accepted client.
 
-`process()` expects its future driver to authenticate box replies, mailbox and
+`process()` expects its driver to authenticate box replies, mailbox and
 receipt framing, and capabilities. It checks the room's box identity, passes
 installation changes to the engine, and persists engine results. It does not
 establish transport authenticity itself. Creation similarly requires a box and
 installation supplied from authenticated capabilities.
 
 The [strict box client prerequisite](browser-mls-box-client.md) now supplies
-authenticated request construction and bounded reply parsing, with no caller.
+authenticated request construction and bounded reply parsing.
 The [typed join follow-up](browser-mls-join.md) adds provisioned-child custody,
 pending metadata, Welcome persistence and operation-id recovery.
-Still required: membership operations; a box driver
-with capabilities and installation checks on every reply, Gap fetching, outbox
-ordering and lost-reply reconciliation; encrypted drafts and explicit offline
+The [message driver](browser-mls-message-driver.md) adds guarded transport steps,
+clock/expiry, Gap fetching, outbox ordering and lost-reply reconciliation.
+Still required: membership operations; encrypted drafts and explicit offline
 history policy; UI/account wiring; real-Bothy, Android/browser and physical-device
 acceptance; and production enablement review. No automated fixture here is a
 live-room or physical acceptance claim.

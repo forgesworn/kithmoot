@@ -1,10 +1,10 @@
 # Browser MLS box client (P3-03c prerequisite)
 
 `BrowserMlsBoxClient` is a development-only client for the existing Bothy VMLS
-routes. It has no application, room-operation or network caller. Construction
+routes. The development-only [message driver](browser-mls-message-driver.md) now
+uses it; there is no application or production caller. Construction
 does not load WASM, sign, open storage or connect. Production MLS remains disabled.
-This slice does not implement typed join or the session driver, and does not close
-P3-03c or P3-06.
+This client alone does not close P3-03c or P3-06.
 
 ## Authentication and ownership
 
@@ -14,7 +14,7 @@ Link's full verifier. The caller owns that endpoint and route: keep the same
 verified route installed, invalidate this client before replacement, and await
 endpoint shutdown on account/privacy changes. Never borrow the dedicated witness
 writer outside its existing persona-lock lifetime. This client neither starts nor
-stops a Link endpoint; the future account/driver integration must supply that
+stops a Link endpoint; account integration must supply that
 lifetime and its current-context predicate.
 
 Each request copies its input and hashes those exact bytes. The coordinated vault
@@ -27,7 +27,7 @@ At most 32 underlying operations may remain outstanding in one client, including
 timed-out work until its signer/transport settles. Signing and transport share a bounded
 20-second default deadline (configurable from 1 ms to 60 seconds); invalidation
 wakes waiters. A late consent result cannot dispatch a request. A dispatched request
-may still reach the box after timeout or invalidation, so future drivers must retain
+may still reach the box after timeout or invalidation, so drivers must retain
 the durable outbox and reconcile with a fresh signature. A consent answer that
 arrives after cancellation is treated as denial and cannot save a new approval.
 
@@ -61,9 +61,9 @@ use the real witnessed vault, verify its NIP-98 signatures, and use the real WAS
 capabilities parser. Their transport is simulated; this is not live Bothy, cross-
 client or physical-device acceptance.
 
-The next slice must provide typed join with current provisioned-rendezvous-child
-custody and a driver that owns the box Link lifetime, checks installation on open
-and replies, serialises rounds, persists before acknowledging, keeps per-leaf
-outbox order, fetches Gap evidence and reconciles uncertain deposits. No change
-here supplies those duties. Offline policy, room/account UI, membership, real-box
-composition and production-enablement review also remain open.
+The [typed join](browser-mls-join.md) and [message driver](browser-mls-message-driver.md)
+now supply the room-side ceremony and driving rules. Request methods accept an
+additional lifetime predicate, checked through signing and dispatch, for pending
+join/evidence expiry. `isCurrent()` exposes account/privacy validity to the driver.
+Endpoint creation and app wiring, membership, offline policy, real-box composition
+and production-enablement review remain open.

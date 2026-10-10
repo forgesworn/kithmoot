@@ -38,5 +38,104 @@
   "localWebkitAvailable": false,
   "localWebkitError": "Playwright 1.62.1/macOS 14.6.1 fallback WebKit rejects PushAPIEnabled before page creation.",
   "physicalAcceptance": false,
-  "completeG9": false
+  "completeG9": false,
+  "mergedSourceCommit": "139fc20207c22cfebff42470b1e9c4157ecac7a9",
+  "testedPrSource": "56fe80f02e6f0e9a7d790696d6f9165a65fb9a09",
+  "requiredHostedChecksPassed": 12,
+  "ciRun": 38030274498,
+  "publicWeb": {
+    "verifiedAt": "2026-10-10T06:41:38.950983+00:00",
+    "sourceCommit": "139fc20207c22cfebff42470b1e9c4157ecac7a9",
+    "remoteRelease": "/var/www/kithmoot/releases/20261010T064054Z",
+    "remoteExactFileCount": 305,
+    "httpFiles": [
+      {
+        "url": "https://kithmoot.app/android-release.json",
+        "path": "android-release.json",
+        "bytes": 804,
+        "sha256": "5823fd9cac4d8e9c42dc99faad05e14fa7d96e22a7b4c4e2b6a921f4c8cc9c5c"
+      },
+      {
+        "url": "https://kithmoot.app/android-release.json.sig",
+        "path": "android-release.json.sig",
+        "bytes": 89,
+        "sha256": "f6376caeb2355971e518df3d4b5ce3665d963142f7b0c286c77a8cd66600086f"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json",
+        "path": "downloads/release.json",
+        "bytes": 1298,
+        "sha256": "75b62ba1c3418b25c0e2b9da5f0ade5d224e386dd8b8c5c2736f2dc39937b824"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json.sig",
+        "path": "downloads/release.json.sig",
+        "bytes": 89,
+        "sha256": "062d0efa01a09ac21c17c78108ae0f8c7148c99fd170857f0a69c913fa723f38"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/updates/darwin/arm64/RELEASES.json",
+        "path": "downloads/updates/darwin/arm64/RELEASES.json",
+        "bytes": 698,
+        "sha256": "23f73ec9a0d023177ac3238d5bd854683e1efe100ce05fed755081562bb1cbbe"
+      },
+      {
+        "url": "https://kithmoot.app/index.html",
+        "path": "index.html",
+        "bytes": 17551,
+        "sha256": "57c15574d578de551cee11ebeafc38262072b0728a91544fd74a8b4ac05d77f8"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/assets/index-CrJYmV90.js",
+        "path": "j/assets/index-CrJYmV90.js",
+        "bytes": 1840890,
+        "sha256": "e2fc69462e0554a5c69a072e60f7d43b0a3da758969ff31f92e3e8c5a009bfa4"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/assets/index-DHp9En8m.css",
+        "path": "j/assets/index-DHp9En8m.css",
+        "bytes": 145614,
+        "sha256": "c679923b215ba563e2cbcb9c1ab7941597f4794be22e3e1854134619f423338b"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/chat-art/angry.gif",
+        "path": "j/chat-art/angry.gif",
+        "bytes": 210310,
+        "sha256": "bd53ad9314598158057d073a8404685388f0939ee6490899956c272a3f49ccf2"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/chat-art/celebrate.gif",
+        "path": "j/chat-art/celebrate.gif",
+        "bytes": 166280,
+        "sha256": "c358c8bbe184fd188280af476fa87a7febf50d584fca2f87225ba9242772c8ef"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/index.html",
+        "path": "j/index.html",
+        "bytes": 109888,
+        "sha256": "c9d5981894225c90d2a7ccb051f33ce38cb11750723146a064e6cb4b1d65a881"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/manifest.webmanifest",
+        "path": "j/manifest.webmanifest",
+        "bytes": 433,
+        "sha256": "ee59592fae43776c378d5cd6d321463fb98b5ac54896a3521e0f9069ff6e0f61"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/sw.js",
+        "path": "j/sw.js",
+        "bytes": 17271,
+        "sha256": "bedfcbb60ce6da88ce3e205dd64cfd4121406d22947a7859aa577b19dbe1372c"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/voice-worklet.js",
+        "path": "j/voice-worklet.js",
+        "bytes": 4887,
+        "sha256": "27db35c2dbdca12611cad6248f766ecc7ac5683fabc6b6f69b444c8026fc4c77"
+      }
+    ],
+    "androidVersion": "0.6.77",
+    "nativeAndroidInboxWorkShipped": true,
+    "physicalAcceptance": false
+  }
 }

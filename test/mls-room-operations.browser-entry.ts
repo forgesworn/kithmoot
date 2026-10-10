@@ -417,3 +417,10 @@ export async function forgedJoinSignature() {
   vault.signLeafBindingV1 = async (...args) => { const answer = await sign(...args); return answer.ok ? { ok: true, value: { ...answer.value } } : answer }
   try { return await typedJoin() } finally { vault.signLeafBindingV1 = sign }
 }
+
+/** Test-only handles for the driver integration harness, never app exports. */
+export function messageDriverFixture(join = false) {
+  return { rooms, vault, host, context: join ? joinContext() : roomContext(), roomId, boxId, installation, nodeKey,
+    now: () => clock, advance: (seconds: number) => { clock += seconds }, stale: () => { generation++ },
+    incoming: join ? joinWelcome : incoming, receipt, persona }
+}
