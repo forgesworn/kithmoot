@@ -126,7 +126,21 @@ keeps source, signed artefact and publication gates distinct. Hosted release CI,
 public website/GitHub/Zapstore readbacks and physical/client acceptance require
 their own evidence; this preparation paragraph does not claim publication.
 
-Latest verified publication, 9 October 2026 at 23:44 UTC: version **0.6.76**,
+Latest verified publication, 10 October 2026: **0.6.77**, code **100**, channel
+`main`, APK SHA-256
+`8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234`,
+79,305,374 bytes. The [production receipt](evidence/android-0.6.77-publication-2026-10-10.json)
+records all four native release gates, exact merged/build tree equality, website
+main `5a59381`, all twelve publication checks and release
+`20261010T052716Z`. All 305 deployed files and thirteen public assets matched;
+the downloaded stable APK passed full signature and lineage verification.
+GitHub and the Zapstore CDN returned the same immutable bytes. Signed Zapstore
+release `4656e5b24f1f6997c38ab85ddf2c702b43437240cb0df1ffd09790571705af77`
+references asset `53c77ab91055bea62b48ab2b191a4d9e3cf6ade3d8ec7ca1efffe9d60c836f4e`
+under the existing publisher. Relay EOSE, signatures and the entire CDN download
+were verified. Physical installation and Zapstore-client acceptance remain open.
+
+Previous verified publication, 9 October 2026 at 23:44 UTC: version **0.6.76**,
 code **99**, channel `main`, APK SHA-256
 `733a1a778e53edfe083d59b5480279dbc18126b3b38634f1b55206b0d6c474d5`,
 79,137,438 bytes. Signed release
