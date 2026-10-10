@@ -103,5 +103,16 @@
     "A transmitted request cannot be retracted and can remain in the host queue until expiry",
     "Cancelling on the guest does not revoke an already issued capability",
     "Synthetic media does not establish physical permission, suspension, capture or call acceptance"
-  ]
+  ],
+  "homeScreenRegression": {
+    "passed": 30,
+    "skipped": 0,
+    "duration": "1.4m",
+    "browserProjects": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "retryJourney": "An unanswered invitation retains the name, reopens preview and requires another explicit request"
+  }
 }
