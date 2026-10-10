@@ -53,6 +53,12 @@ export interface VmlsRevocationPublication {
   authenticate: false
 }
 
+/** Network dependency kept outside the protocol and witnessed journal. */
+export interface VmlsRevocationTransport {
+  directory(keeper: string): Promise<readonly Event[]>
+  publish(publication: VmlsRevocationPublication): Promise<void>
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }

@@ -118,8 +118,15 @@ for (const { layout, phone } of [
         await expect(a.getByRole('button', { name: 'Expand screen share from Bob', exact: true })).toBeVisible()
       }
       await openCall(a)
-      await a.locator('#callExtras > summary').click()
-      await a.locator('#meetingPanel > summary').click()
+      await expect(a.locator('#callExtras')).not.toHaveAttribute('open', '')
+      await expect(a.locator('#recordToggle')).toBeInViewport()
+      await expect(a.locator('#recordToggle')).toBeEnabled()
+      await expect(a.locator('#recordToggle .callWord')).toBeVisible()
+      const bounds = await a.locator('#recordToggle').boundingBox()
+      expect(bounds!.width).toBeGreaterThanOrEqual(44)
+      expect(bounds!.height).toBeGreaterThanOrEqual(44)
+      await info.attach('record-control.png', { body: await a.screenshot(), contentType: 'image/png' })
+      await expect(b.locator('#recordToggle')).toBeHidden()
       await a.locator('#recordToggle').click()
       if (layout === 'gallery' && !phone) {
         await expect(a.locator('#actionCancel')).toBeFocused()

@@ -1,6 +1,11 @@
 # Local video recording
 
-The PWA's recording confirmation offers audio only, gallery with audio,
+The room creator can press **Record call** beside microphone, camera and
+screen sharing. Joining the call enables it; meeting mode is not required.
+This control is available in the desktop client and browser, including the
+phone Call view.
+
+The recording confirmation offers audio only, gallery with audio,
 speaker with audio, or a selected screen share with that sharer's camera and
 audio. It states local retention, paused-timeline behaviour, unsupported
 capabilities and the changed retention promise in a self-destructing room.

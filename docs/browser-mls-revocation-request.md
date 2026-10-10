@@ -31,17 +31,59 @@ request unrecorded.
 `vmlsMemberGrantReference` derives the member-side stable reference as
 `SHA-256(UTF8("kithmoot/vmls-member-grant/v1") || box32 || device32)`.
 
+## Active-room sender durability
+
+The development MLS room record now retains the authenticated keeper identity
+used at creation or join. A current member may journal removal of another one
+of their account's devices with exact keeper, device, session, box and
+`keeper:false` grant-reference bindings. The witnessed membership transaction
+rejects a request that names a different roster device, omits the current
+session, targets the requesting account as keeper, or differs from the engine's
+non-keeper grants. Invalid caller input is refused without fencing a healthy
+persona; a later mismatch in sealed persisted state fences it.
+
+`requestRevocation` creates a fresh seven-day envelope from that witnessed
+record. Relay refusal or uncertain publication leaves every grant at
+`NotAuthorised { requested: false }`. Only after the injected publisher confirms
+`OK true` does one witnessed transaction mark all exact request grant references
+`requested: true`. That state means the request was sent, never that the keeper
+performed revocation. Concurrent calls through one controller instance for one
+operation share one attempt. Separate tabs or controller instances can each
+publish while the durable requested flag remains false. A
+restart may retry a retained `requested: false` operation, while a retained
+`requested: true` operation returns without another directory read or publish.
+
+`NostrVmlsRevocationTransport` is the concrete, still-unwired browser network
+dependency. It asks at most six configured discovery relays for only the exact
+keeper's kind 10050 events, with a per-relay event cap and finite deadline. An
+empty result counts only after at least one relay returns EOSE; total silence is
+an uncertain lookup and sends nothing. It drops wrong-author, wrong-kind and
+invalidly signed directory events. The write opens a fresh pool containing only
+the verified latest list selected by the protocol boundary, with an explicit
+empty NIP-42 authentication set. The shared pool's 20-second silence budget
+retries unanswered sockets; explicit `OK false` is never retried. The transport
+waits at most two further seconds for slower targets after the first `OK true`,
+then closes every socket. Both phases participate in the public-route barrier.
+
+A crash after a relay's `OK true` and before the witnessed `requested: true`
+commit can cause an at-least-once duplicate on explicit retry. The keeper inbox
+must therefore deduplicate and validate requests; this slice does not turn an
+uncertain acknowledgement into a sent claim.
+
 ## Evidence and remaining work
 
 Unit coverage exercises strict framing and time bounds, NIP-59 round trips,
 outer metadata minimisation, signer and author binding, hostile relay input,
 verified kind 10050 selection, absence of fallback and identity AUTH, refused
-publication, account invalidation, and the member grant reference. The
-production build is byte-for-byte identical to its clean base build.
+publication, account invalidation, and the member grant reference. Browser
+coverage exercises keeper persistence, real-engine non-keeper grants, restart
+recovery, atomic requested-state persistence, refusal of a mismatched target
+device without persona damage, and fencing of altered stored bindings across
+Chromium, Firefox and WebKit.
 
-This is the protocol and sender dependency boundary only. It does not add a
-production import, UI action, encrypted request journal, automatic retry,
-directory network lookup, keeper inbox, dedicated endpoint lifecycle, operator
-prompt, or MLS/grant revocation. Those remain open P3-08 work, and this module
-must not be wired into production before their gate evidence and the production
-security review are complete.
+This remains a development-only sender boundary. It does not add a production
+import, UI action, automatic background retry, requests after all local devices
+have left, keeper inbox, dedicated endpoint lifecycle, operator prompt, or
+MLS/grant revocation. Those remain open P3-08 work, and this module must not be
+wired into production before their gate evidence and the production security
+review are complete.

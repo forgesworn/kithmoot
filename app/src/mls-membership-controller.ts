@@ -1,5 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import type { VmlsGrantState } from '../public/vmls-wasm/vmls_wasm.js'
+import { sendVmlsRevocationRequest, vmlsMemberGrantReference, VMLS_REVOCATION_REQUEST_SECONDS,
+  type VmlsRevocationIdentity, type VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 import { BrowserMlsGrantLedger, grantRecordByReference, mlsGrantReference, removalGrantRefs } from './mls-grant-ledger.js'
 import type { BrowserMlsRoomOperations, MlsMemberStatus, MlsRemovalStatus, MlsRoomContext } from './mls-room-operations.js'
 
@@ -9,12 +11,14 @@ export interface MlsRemovalPlan {
   target: string
   room: { session: string; principal: string; persona: string; generation: number; revision: string; rendezvousKey: string; account: string }
   members: MlsMemberStatus[]
-  grants: { node: string; reference: string; device: string; rooms: { session: string; name: string; leaf: string }[]; action: 'retain' | 'grace' | 'revoke' }[]
+  grants: { node: string; reference: string; device: string; rooms: { session: string; name: string; leaf: string }[]; action: 'retain' | 'grace' | 'revoke' | 'request' }[]
   compromised: boolean
+  request?: { keeper: string; device: string; sessions: string[]; boxes: string[] }
 }
 export interface MlsMembershipView { members: MlsMemberStatus[]; removals: MlsRemovalStatus[] }
 
-type Operations = Pick<BrowserMlsRoomOperations, 'members' | 'membership' | 'removeDevice' | 'removePerson' | 'driveRemoval' | 'retryRemoval' | 'setRemovalGrant'>
+type Operations = Pick<BrowserMlsRoomOperations, 'members' | 'membership' | 'removeDevice' | 'removePerson' | 'driveRemoval' | 'retryRemoval' |
+  'setRemovalGrant' | 'setRemovalGrants' | 'roomRevocationAuthority'>
 type RoomSnapshot = { context: MlsRoomContext; session: string; account: string; binding: MlsRemovalPlan['room'] }
 const unavailable = (result: { state: string; reason?: string }): string => result.reason ?? result.state
 
@@ -22,9 +26,10 @@ const unavailable = (result: { state: string; reason?: string }): string => resu
  * The engine remains the only source of permitted claim text and component
  * state. A failed box write never changes a grant to Revoked. */
 export class BrowserMlsMembershipController {
+  readonly #revocationRequests = new Map<string, Promise<MlsRemovalStatus>>()
   constructor(private operations: Operations, private grants: BrowserMlsGrantLedger,
     private context: () => MlsRoomContext | undefined, private session: () => string | undefined,
-    private persona: () => string | undefined) {}
+    private persona: () => string | undefined, private now: () => number = () => Math.floor(Date.now() / 1000)) {}
   #room(): RoomSnapshot {
     const context = this.context(), session = this.session(), account = this.persona()
     if (!context || !session || !account || !context.current()) throw new Error('Open a current MLS room before changing membership.')
@@ -59,6 +64,19 @@ export class BrowserMlsMembershipController {
       .sort((a, b) => a.leafId.localeCompare(b.leafId))
     if (!members.length) throw new Error('That member is no longer in this MLS room.')
     if (members.some(member => member.own)) throw new Error(kind === 'person' ? 'Remove another device separately before removing your whole identity.' : 'This device cannot remove its own active leaf.')
+    if (kind === 'device' && members.every(member => member.identity === room.account)) {
+      const authority = await this.operations.roomRevocationAuthority(room.context, room.session)
+      this.#assertRoom(room)
+      if (authority.state !== 'active') throw new Error(`The room keeper is unavailable: ${unavailable(authority)}`)
+      const keeper = authority.value.keeper
+      if (!keeper || keeper === room.account) throw new Error('This room has no separate authenticated keeper to ask.')
+      const devices = [...new Set(members.map(member => member.device))], boxes = [...new Set(members.map(member => member.homeBox))].sort()
+      if (devices.length !== 1) throw new Error('The reviewed MLS leaf does not identify one device.')
+      const request = { keeper, device: devices[0]!, sessions: [room.session], boxes }
+      return { operation, kind, target, room: room.binding, members, compromised, request,
+        grants: boxes.map(node => ({ node, reference: vmlsMemberGrantReference(node, request.device), device: request.device,
+          rooms: [{ session: room.session, name: authority.value.name, leaf: target }], action: 'request' })) }
+    }
     const records = await this.grants.records(), refs = removalGrantRefs(room.account, members.map(member => member.device), records)
     this.#assertRoom(room)
     return { operation, kind, target, room: room.binding, members, compromised, grants: refs.map(ref => {
@@ -76,11 +94,12 @@ export class BrowserMlsMembershipController {
     if (JSON.stringify(room.binding) !== JSON.stringify(plan.room)) throw new Error('The MLS room or account changed. Review the removal again.')
     const fresh = await this.#plan(room, plan.kind, plan.target, plan.compromised, plan.operation)
     if (JSON.stringify(fresh) !== JSON.stringify(plan)) throw new Error('Membership or grant authority changed. Review the removal again.')
-    const refs = fresh.grants.map(grant => ({ node: hexToBytes(grant.node), grant: hexToBytes(grant.reference), keeper: true }))
+    const refs = fresh.grants.map(grant => ({ node: hexToBytes(grant.node), grant: hexToBytes(grant.reference), keeper: grant.action !== 'request' }))
     this.#assertRoom(room)
     const result = plan.kind === 'person'
       ? await this.operations.removePerson(room.context, room.session, { operation: plan.operation, identity: plan.target, members: fresh.members, grants: refs, compromised: plan.compromised })
-      : await this.operations.removeDevice(room.context, room.session, { operation: plan.operation, leafId: plan.target, members: fresh.members, grants: refs, compromised: plan.compromised })
+      : await this.operations.removeDevice(room.context, room.session, { operation: plan.operation, leafId: plan.target, members: fresh.members, grants: refs,
+        compromised: plan.compromised, ...(fresh.request ? { request: fresh.request } : {}) })
     if (result.state !== 'active') throw new Error(`The removal was not recorded: ${unavailable(result)}`)
     return result.value
   }
@@ -106,6 +125,49 @@ export class BrowserMlsMembershipController {
       await Promise.allSettled(grants(applied))
     }
     return await this.#status(operation)
+  }
+  async requestRevocation(operation: string, options: {
+    identity: VmlsRevocationIdentity
+    transport: VmlsRevocationTransport
+    random?: () => number
+  }): Promise<MlsRemovalStatus> {
+    const existing = this.#revocationRequests.get(operation)
+    if (existing) return existing
+    const pending = this.#requestRevocation(operation, options)
+    this.#revocationRequests.set(operation, pending)
+    void pending.then(() => { if (this.#revocationRequests.get(operation) === pending) this.#revocationRequests.delete(operation) },
+      () => { if (this.#revocationRequests.get(operation) === pending) this.#revocationRequests.delete(operation) })
+    return pending
+  }
+  async #requestRevocation(operation: string, options: {
+    identity: VmlsRevocationIdentity
+    transport: VmlsRevocationTransport
+    random?: () => number
+  }): Promise<MlsRemovalStatus> {
+    const room = this.#room(), before = await this.#status(operation), request = before.request
+    if (!request) throw new Error('That removal has no member revocation request.')
+    const expected = request.boxes.map(node => ({ node, reference: vmlsMemberGrantReference(node, request.device) }))
+    const requestGrants = before.grants.filter(item => !item.grant.keeper)
+    const actual = requestGrants.map(item => ({ node: bytesToHex(item.grant.node), reference: bytesToHex(item.grant.grant) }))
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('The member revocation request no longer matches its journal.')
+    if (requestGrants.some(item => item.state.type !== 'NotAuthorised')) throw new Error('The member revocation request has an invalid grant state.')
+    const requested = requestGrants.map(item => (item.state as { type: 'NotAuthorised'; requested: boolean }).requested)
+    if (requested.every(Boolean)) return before
+    if (requested.some(Boolean)) throw new Error('The member revocation request has a partial sent state.')
+    if (options.identity.pubkey !== room.account) throw new Error('Sign in as the requesting member.')
+    const directoryEvents = await options.transport.directory(request.keeper)
+    this.#assertRoom(room)
+    const createdAt = this.now()
+    if (!Number.isSafeInteger(createdAt) || createdAt < 0) throw new Error('A trusted request time is unavailable.')
+    const current = () => { try { this.#assertRoom(room); return true } catch { return false } }
+    await sendVmlsRevocationRequest({ identity: options.identity, request: { sender: room.account, keeper: request.keeper,
+      device: request.device, sessions: request.sessions, boxes: request.boxes, createdAt, expiration: createdAt + VMLS_REVOCATION_REQUEST_SECONDS },
+    directoryEvents, publish: publication => options.transport.publish(publication), current, random: options.random })
+    this.#assertRoom(room)
+    const changed = await this.operations.setRemovalGrants(room.context, room.session, operation,
+      expected.map(item => ({ grant: item.reference, state: { type: 'NotAuthorised' as const, requested: true } })))
+    if (changed.state !== 'active') throw new Error(`The sent revocation request was not recorded: ${unavailable(changed)}`)
+    return changed.value
   }
   async #revoke(room: { context: MlsRoomContext; session: string }, operation: string, leaves: readonly string[], compromised: boolean, nodeBytes: Uint8Array, refBytes: Uint8Array): Promise<void> {
     const node = bytesToHex(nodeBytes), reference = bytesToHex(refBytes), records = await this.grants.records()
