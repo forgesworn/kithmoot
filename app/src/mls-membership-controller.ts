@@ -1,8 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
-import type { Event } from 'nostr-tools/pure'
 import type { VmlsGrantState } from '../public/vmls-wasm/vmls_wasm.js'
 import { sendVmlsRevocationRequest, vmlsMemberGrantReference, VMLS_REVOCATION_REQUEST_SECONDS,
-  type VmlsRevocationIdentity, type VmlsRevocationPublication } from '../../src/vmls-revocation-request.js'
+  type VmlsRevocationIdentity, type VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 import { BrowserMlsGrantLedger, grantRecordByReference, mlsGrantReference, removalGrantRefs } from './mls-grant-ledger.js'
 import type { BrowserMlsRoomOperations, MlsMemberStatus, MlsRemovalStatus, MlsRoomContext } from './mls-room-operations.js'
 
@@ -27,6 +26,7 @@ const unavailable = (result: { state: string; reason?: string }): string => resu
  * The engine remains the only source of permitted claim text and component
  * state. A failed box write never changes a grant to Revoked. */
 export class BrowserMlsMembershipController {
+  readonly #revocationRequests = new Map<string, Promise<MlsRemovalStatus>>()
   constructor(private operations: Operations, private grants: BrowserMlsGrantLedger,
     private context: () => MlsRoomContext | undefined, private session: () => string | undefined,
     private persona: () => string | undefined, private now: () => number = () => Math.floor(Date.now() / 1000)) {}
@@ -128,22 +128,41 @@ export class BrowserMlsMembershipController {
   }
   async requestRevocation(operation: string, options: {
     identity: VmlsRevocationIdentity
-    directoryEvents: readonly Event[]
-    publish: (publication: VmlsRevocationPublication) => Promise<void>
+    transport: VmlsRevocationTransport
+    random?: () => number
+  }): Promise<MlsRemovalStatus> {
+    const existing = this.#revocationRequests.get(operation)
+    if (existing) return existing
+    const pending = this.#requestRevocation(operation, options)
+    this.#revocationRequests.set(operation, pending)
+    void pending.then(() => { if (this.#revocationRequests.get(operation) === pending) this.#revocationRequests.delete(operation) },
+      () => { if (this.#revocationRequests.get(operation) === pending) this.#revocationRequests.delete(operation) })
+    return pending
+  }
+  async #requestRevocation(operation: string, options: {
+    identity: VmlsRevocationIdentity
+    transport: VmlsRevocationTransport
     random?: () => number
   }): Promise<MlsRemovalStatus> {
     const room = this.#room(), before = await this.#status(operation), request = before.request
     if (!request) throw new Error('That removal has no member revocation request.')
     const expected = request.boxes.map(node => ({ node, reference: vmlsMemberGrantReference(node, request.device) }))
-    const actual = before.grants.filter(item => !item.grant.keeper)
-      .map(item => ({ node: bytesToHex(item.grant.node), reference: bytesToHex(item.grant.grant) }))
+    const requestGrants = before.grants.filter(item => !item.grant.keeper)
+    const actual = requestGrants.map(item => ({ node: bytesToHex(item.grant.node), reference: bytesToHex(item.grant.grant) }))
     if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('The member revocation request no longer matches its journal.')
+    if (requestGrants.some(item => item.state.type !== 'NotAuthorised')) throw new Error('The member revocation request has an invalid grant state.')
+    const requested = requestGrants.map(item => (item.state as { type: 'NotAuthorised'; requested: boolean }).requested)
+    if (requested.every(Boolean)) return before
+    if (requested.some(Boolean)) throw new Error('The member revocation request has a partial sent state.')
+    if (options.identity.pubkey !== room.account) throw new Error('Sign in as the requesting member.')
+    const directoryEvents = await options.transport.directory(request.keeper)
+    this.#assertRoom(room)
     const createdAt = this.now()
     if (!Number.isSafeInteger(createdAt) || createdAt < 0) throw new Error('A trusted request time is unavailable.')
     const current = () => { try { this.#assertRoom(room); return true } catch { return false } }
     await sendVmlsRevocationRequest({ identity: options.identity, request: { sender: room.account, keeper: request.keeper,
       device: request.device, sessions: request.sessions, boxes: request.boxes, createdAt, expiration: createdAt + VMLS_REVOCATION_REQUEST_SECONDS },
-    directoryEvents: options.directoryEvents, publish: options.publish, current, random: options.random })
+    directoryEvents, publish: publication => options.transport.publish(publication), current, random: options.random })
     this.#assertRoom(room)
     const changed = await this.operations.setRemovalGrants(room.context, room.session, operation,
       expected.map(item => ({ grant: item.reference, state: { type: 'NotAuthorised' as const, requested: true } })))
