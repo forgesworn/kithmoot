@@ -26,7 +26,8 @@ import { wrapVmlsRevocationRequest } from '../src/vmls-revocation-request.js'
 import { localIdentity } from '../src/identity.js'
 import { localPeerCrypt } from '../src/dm.js'
 import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
-import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant } from '../app/src/mls-grant-ledger.js'
+import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant, mlsGrantReference } from '../app/src/mls-grant-ledger.js'
+import { mlsKeeperGrantAuthority } from '../app/src/mls-revocation-decision-store.js'
 import { BrowserMlsKeeperDecisions, type MlsKeeperDecisionPlan } from '../app/src/mls-keeper-decisions.js'
 import { BrowserMlsKeeperRequestController, type MlsKeeperRequestProgress } from '../app/src/mls-keeper-request-controller.js'
 import { BrowserMlsKeeperAdmission } from '../app/src/mls-keeper-admission.js'
@@ -300,6 +301,27 @@ export async function holdKeeperDevice() {
   await began
 }
 export async function releaseHeldKeeperDevice() { releaseKeeperDevice?.(); return heldKeeperDevice }
+const heldKeeperWithdrawals = new Map<string, Promise<unknown>>(), keeperWithdrawalPublications: string[] = []
+let keeperWithdrawalPause: Promise<void> | undefined, releaseKeeperWithdrawal: (() => void) | undefined, keeperWithdrawalRefused = false
+export function pauseKeeperWithdrawals(refused = false) {
+  keeperWithdrawalRefused = refused
+  keeperWithdrawalPause = new Promise<void>(resolve => { releaseKeeperWithdrawal = resolve })
+}
+export function resumeKeeperWithdrawals() { releaseKeeperWithdrawal?.(); keeperWithdrawalPause = undefined }
+export async function beginKeeperWithdrawal(kind = 'requested') {
+  const record = (await inboxGrants.all())[0]!, keeper = localIdentity(secret)
+  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [record.box], pairedBoxes: async () => [] } as any, inboxGrants,
+    () => ({ publish: async event => { keeperWithdrawalPublications.push(event.id); await keeperWithdrawalPause; if (keeperWithdrawalRefused) throw new Error('fixture uncertain withdrawal') }, close: () => undefined }), () => clock)
+  const key = `${kind}/${heldKeeperWithdrawals.size}`
+  heldKeeperWithdrawals.set(key, (kind === 'room' ? ledger.withdraw(record.node, record.device, mlsGrantReference(record.node, record.grantId), roomId, [guestLeaf], true) :
+    ledger.withdrawRequestedDevice(mlsKeeperGrantAuthority(record), record.persona, record.device, () => true))
+    .then(result => ({ state: result.record.state, result: result.result }), error => ({ error: error.message })))
+  return key
+}
+export async function finishKeeperWithdrawal(key: string) { return heldKeeperWithdrawals.get(key) }
+export async function keeperWithdrawalSnapshot() {
+  return { publications: keeperWithdrawalPublications.slice(), records: (await inboxGrants.all()).map(record => ({ node: record.node, state: record.state })) }
+}
 export async function beginKeeperInstall(stage = '', wait = true) {
   let started!: () => void, entered = false
   const began = new Promise<void>(resolve => { started = resolve })

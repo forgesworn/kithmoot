@@ -24,9 +24,11 @@ continues to enforce approved/done device holds after gate release. Neither
 completion nor the callback installs or re-enters the device gate. A stale
 caller waiting for the gate cannot commit using an earlier persona snapshot.
 
-The gate alone does not quiesce old clients or raw ledger writers. Existing
-withdrawal paths still use their node/device locks and do not yet share this
-outer gate; exact stability against those writers needs further composition.
+The gate alone does not quiesce old clients or raw ledger writers. Both
+[withdrawal paths](browser-mls-keeper-withdrawal-gate.md) now participate in the
+shared outer gate through their actual settlement, before their node/device
+locks. They cannot mutate a grant while participating completion owns the gate
+exclusively. Direct store writers and old clients remain outside that guarantee.
 Lapsed requests therefore remain approved and retain Send/Add holds even after
 genuine MLS commit. The old-client/schema barrier, prospective Add binding,
 pruning, renewal, UI, persona replacement and live/handset/independent acceptance

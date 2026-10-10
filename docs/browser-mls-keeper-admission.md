@@ -42,8 +42,10 @@ persona and device to this admission check. Runtime composition must use one
 coordinator and the intended keeper context. No production UI imports or
 enables these development owners in this change.
 
-All completion paths still need exclusive verification and an old-client
-quiescence barrier before terminal lapse can be enabled. Atomic pruning,
+All [completion paths](browser-mls-keeper-completion-gate.md) now use exclusive
+verification, and both [withdrawal paths](browser-mls-keeper-withdrawal-gate.md)
+participate in the shared outer gate. An old-client/schema quiescence barrier
+is still required before terminal lapse can be enabled. Atomic pruning,
 retained tombstone ordering, expired revoking renewal, historical missing-record
 recovery, persona replacement, operator UI, live Bothy, handset and independent
 production acceptance remain open. Real-browser locks, encrypted storage and

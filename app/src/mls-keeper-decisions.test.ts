@@ -470,7 +470,7 @@ describe('keeper acceptance with the genuine signed grant ledger', () => {
     } }
     const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [f.records[0]!.box] } as any, store,
       () => ({ publish: async event => { events.push(event.id); await publishHook?.(); if (refused) throw new Error('box refused') }, close: () => undefined }), () => 1_000,
-      async (_key, work) => work())
+      async (_key, work) => work(), async (_device, _mode, work) => work())
     const operations = new Proxy({}, { get: () => () => { throw new Error('A ledger-only request must not invoke room operations.') } }) as any
     const controller = () => new BrowserMlsKeeperRequestController(f.restart(), operations, ledger, f.context)
     const plan = await f.decisions.plan(f.operation)
