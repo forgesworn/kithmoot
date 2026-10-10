@@ -308,6 +308,14 @@ desktop browser builds passed against an offline relay. This covers navigation
 and directory recovery; it does not establish physical-phone, live executor,
 cross-project Inbox/Work or representative performance acceptance.
 
+The [cross-project Inbox/Work receipt](evidence/workspace-inbox-2026-10-10.json)
+records browser navigation through three deliberately admitted projects: agent
+questions and exact-result reviews, human mentions and replies, source routing,
+project filters and retained drafts. The PWA uses bounded read-only activity and
+the originating room controls for signed decisions. Native Android parity,
+fresh-device summary delivery, older work coverage, live execution and physical
+acceptance remain open; this does not complete G9.
+
 ### Proposed navigation
 
 - **Inbox:** decisions needing this person's judgement, alongside human mentions
