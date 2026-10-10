@@ -5,6 +5,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import type { ParticipantIdentity } from '../../src/identity.js'
 import { BrowserMlsGrantLedger, mlsBoxNode, mlsGrantReference, mlsGrantScope, planMlsGrant, removalGrantRefs, type MlsGrantRecord, type MlsGrantInstallationGate } from './mls-grant-ledger.js'
 import { mlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
+import { BrowserMlsKeeperAdmission } from './mls-keeper-admission.js'
 
 const node = new Uint8Array(32).fill(31)
 const box = { routeId: 'bothy-one', eventUrl: `ws://${base32nopad.encode(node).toLowerCase()}/events` }
@@ -13,6 +14,13 @@ const room = { session: '66'.repeat(32), name: 'Planning room', leaf }
 function signer(): ParticipantIdentity {
   const key = generateSecretKey()
   return { pubkey: getPublicKey(key), signEvent: async template => finalizeEvent(template, key) }
+}
+function admissionFor(identity: ParticipantIdentity) {
+  return new BrowserMlsKeeperAdmission({ transact: async (_persona: string, work: any, current: () => boolean) => {
+    if (!current()) return { state: 'pending', reason: 'stale', refused: false }
+    const value = await work({ readVault: async () => undefined })
+    return { state: 'active', value, marks: new Map() }
+  } } as any, () => ({ vault: { principal: 'https://keeper.test', persona: identity.pubkey, generation: 0, revision: 'fixture' }, current: () => true, foreground: () => true }))
 }
 function fixture() {
   const identity = signer(), records: MlsGrantRecord[] = [], snapshots: MlsGrantRecord[] = [], published: string[] = []
@@ -23,7 +31,7 @@ function fixture() {
   const link = { resume: vi.fn(async () => [box]), boxes: () => [box], pairedBoxes: vi.fn(async (_keeper: string) => [box]), openSocket: vi.fn() }
   const ledger = new BrowserMlsGrantLedger(() => identity, link as any, store, record => ({
     publish: async event => { published.push(event.id); if (fail) throw new Error('lost OK') }, close: () => undefined,
-  }), () => now, async (_key, work) => work(), async (_device, _mode, work) => work())
+  }), () => now, async (_key, work) => work(), async (_device, _mode, work) => work(), admissionFor(identity))
   return { identity, records, snapshots, published, ledger, link, store, fail: (value: boolean) => { fail = value }, clock: (value: number) => { now = value } }
 }
 
@@ -80,7 +88,7 @@ describe('browser VMLS grant ledger', () => {
       const ledger = new BrowserMlsGrantLedger(() => identity, f.link as any, store, () => ({
         publish: async () => { check('publish'); await Promise.resolve(); check('published'); if (refused) throw new Error('uncertain') },
         close: () => check('close'),
-      }), () => 1_000, async (_key, action) => action(), gate)
+      }), () => 1_000, async (_key, action) => action(), gate, admissionFor(identity))
       if (refused) await expect(ledger.install(box, persona, device, room)).rejects.toThrow('uncertain')
       else expect((await ledger.install(box, persona, device, room)).state).toBe('active')
       expect(held).toBe(false); expect(phases).toEqual(expect.arrayContaining(['read', 'sign', 'signed', 'installing', 'saved-installing', 'publish', 'published', 'close']))

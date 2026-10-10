@@ -41,21 +41,37 @@ async function fixture() {
   const operation = mlsStandaloneRevocationOperation(member.pubkey, keeper.pubkey, device)
   await saveMlsMembership(tx, { version: 1, removals: [], requests: [], inbox: { keeper: keeper.pubkey, checkedAt: now, seen: [], prompts: [{ operation, receivedAt: now, state: 'pending',
     request: { sender: member.pubkey, keeper: keeper.pubkey, device, sessions: [session], boxes: ['aa'.repeat(32)], createdAt: now, expiration: now + 7 * 86400 } }] } })
-  const grants = { all: async () => { readHook?.(); return structuredClone(records) } }
+  const grants = { all: async () => { readHook?.(); return structuredClone(records) }, put: async (record: MlsGrantRecord) => {
+    records.splice(0, records.length, ...records.filter(item => item.node !== record.node || item.device !== record.device), structuredClone(record))
+  } }
+  const installations = new BrowserMlsGrantLedger(() => keeper, {} as any, grants, undefined, () => now,
+    async (_key, work) => work(), async (_device, _mode, work) => work())
   let boxTime: number | undefined
   const client = { isCurrent: () => true, usesBinding: (_route: string, _node: string, binding: unknown) => JSON.stringify(binding) === JSON.stringify(context().vault),
     capabilities: vi.fn(async () => ({ state: 'ok', value: { installation: '79'.repeat(32) } })),
     fetch: vi.fn(async () => ({ state: 'ok', serverTime: boxTime ?? now, value: { records: [] } })) }
   const boxClock = new BrowserMlsKeeperBoxClock(client as any, context, () => now)
-  const decisions = new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, undefined, node => node === grant.node ? boxClock : undefined)
+  const decisions = new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, undefined, node => node === grant.node ? boxClock : undefined, installations)
   const inbox = new BrowserMlsRevocationInbox(host as any, grants, context, () => now)
   return { tx, records, operation, decisions, inbox, context, host, grants, boxClock, client, boxTime: (at: number) => { boxTime = at },
-    restart: (routes?: ConstructorParameters<typeof BrowserMlsKeeperDecisions>[4]) => new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, routes, node => node === grant.node ? boxClock : undefined),
+    restart: (routes?: ConstructorParameters<typeof BrowserMlsKeeperDecisions>[4]) => new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, routes, node => node === grant.node ? boxClock : undefined, installations),
     clock: (v: number) => { now = v }, changeAccount: () => { generation++ }, hide: () => { foreground = false },
     hold: () => { unavailable = true }, onRead: (fn: () => void) => { readHook = fn }, beforeCommit: (fn: () => void) => { commitHook = fn } }
 }
 
 describe('witnessed keeper operator decisions', () => {
+  it('requires the exact concrete installation owner for approval but permits dismissal without one', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    const missing = new BrowserMlsKeeperDecisions(f.host as any, f.grants, f.context, () => 1_000)
+    await expect(missing.decide(plan.value, true)).rejects.toThrow('grant-install hold')
+    const otherStore = { all: f.grants.all, put: f.grants.put }
+    const other = new BrowserMlsGrantLedger(() => keeper, {} as any, otherStore)
+    const mismatched = new BrowserMlsKeeperDecisions(f.host as any, f.grants, f.context, () => 1_000, undefined, undefined, other)
+    await expect(mismatched.decide(plan.value, true)).rejects.toThrow('different ledger')
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('pending')
+    expect(await missing.decide(plan.value, false)).toMatchObject({ state: 'active', value: { state: 'dismissed' } })
+  })
   it('requires both clocks at the signed expiration boundary and records lapse without a revoked claim', async () => {
     for (const [phoneOffset, boxOffset] of [[-1, 0], [0, -1], [0, 0]]) {
       const f = await fixture(), plan = await f.decisions.plan(f.operation)
@@ -389,7 +405,7 @@ describe('witnessed keeper operator decisions', () => {
       const f = await fixture(), plan = await f.decisions.plan(f.operation)
       if (plan.state !== 'active') throw new Error('missing plan')
       f.onRead(() => action === 'account' ? f.changeAccount() : f.hide())
-      expect(await f.decisions.decide(plan.value, true)).toMatchObject({ state: 'pending', reason: 'stale' })
+      await expect(f.decisions.decide(plan.value, true)).rejects.toThrow('keeper account or foreground session changed')
       expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('pending')
     }
   })

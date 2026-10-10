@@ -10,7 +10,7 @@ let bundle: string
 test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-room-operations.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'M', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })
 async function fixture(context: BrowserContext) {
   const key = new Uint8Array(32).fill(91)
-  const witness = { seq: 0n, digest: new Uint8Array(32), offline: false, refused: false, loseAdvance: false, wrongKey: false, replay: false, retired: false, advances: 0, reads: 0, last: undefined as number[] | undefined }
+  const witness = { seq: 0n, digest: new Uint8Array(32), offline: false, refused: false, loseAdvance: false, wrongKey: false, replay: false, retired: false, advances: 0, reads: 0, last: undefined as number[] | undefined, advancePause: undefined as Promise<void> | undefined }
   await context.exposeBinding('loseNextWitnessAdvance', () => { witness.loseAdvance = true })
   await context.exposeBinding('witnessExchange', async (_, method: string, input: number[]) => {
     if (witness.offline) return { type: 'unavailable' }
@@ -20,6 +20,7 @@ async function fixture(context: BrowserContext) {
     let status = witness.retired ? 2 : 0
     if (method === 'advance') {
       witness.advances++
+      await witness.advancePause
       // These bounded fixtures stay below the one-byte CBOR integer boundary.
       const expected = BigInt(request[39])
       if (!witness.retired && witness.seq === expected && bytesToHex(witness.digest) === bytesToHex(request.subarray(43, 75))) { witness.seq++; witness.digest = request.slice(78, 110) }
@@ -139,6 +140,55 @@ test('same-node installs remain serial while another node can publish under the 
   await run(page, 'M.resumeFencePublications()')
   for (const key of [first, repeated, other]) expect(await page.evaluate(key => (window as any).M.finishFenceInstall(key), key)).toMatchObject({ state: 'installed' })
   expect((await run(page, 'M.fenceSnapshot()')).publications).toHaveLength(2)
+})
+for (const stage of ['sign', 'installing', 'publish', 'active']) test(`keeper approval waits for ${stage} installation settlement and rejects the stale reviewed authority`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.receiveKeeperRequest()')
+  const plan = await run(page, 'M.keeperDecisionPlan()')
+  expect(plan.state).toBe('active')
+  await page.evaluate(stage => (window as any).M.beginKeeperInstall(stage), stage)
+  await page.evaluate(plan => (window as any).M.beginKeeperApproval(plan), plan.value)
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'exclusive'))).toBe(true)
+  expect(await run(page, 'M.keeperApprovals(true)')).toMatchObject({ value: [] })
+  expect(await run(page, 'M.finishKeeperInstall()')).toEqual({ state: 'active' })
+  expect(await run(page, 'M.finishKeeperApproval()')).toMatchObject({ error: expect.stringContaining('authority changed') })
+  expect(await run(page, 'M.decideKeeperRequest()')).toMatchObject({ state: 'active', value: { state: 'approved' } })
+  await run(page, 'M.forgetGuest()')
+})
+test('a queued install sees the durable hold only after keeper approval witness settlement', async ({ context }) => {
+  const { page, witness } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.receiveKeeperRequest()')
+  const plan = await run(page, 'M.keeperDecisionPlan()'), before = witness.advances
+  let release!: () => void
+  witness.advancePause = new Promise<void>(resolve => { release = resolve })
+  await page.evaluate(plan => (window as any).M.beginKeeperApproval(plan), plan.value)
+  await expect.poll(() => witness.advances).toBeGreaterThan(before)
+  await run(page, "M.beginKeeperInstall('', false)")
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'shared'))).toBe(true)
+  release(); witness.advancePause = undefined
+  expect(await run(page, 'M.finishKeeperApproval()')).toMatchObject({ result: { state: 'active', value: { state: 'approved' } } })
+  expect(await run(page, 'M.finishKeeperInstall()')).toMatchObject({ error: expect.stringContaining('retained keeper revocation hold') })
+  expect(await run(page, "M.keeperInstallAttempt('new')")).toMatchObject({ error: expect.stringContaining('retained keeper revocation hold'), signed: 0, writes: 0, published: 0 })
+  await run(page, 'M.forgetGuest()')
+})
+for (const terminal of [false, true]) test(`keeper ${terminal ? 'done' : 'approved deferred'} device hold blocks existing and new nodes after restart and request expiry`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.receiveKeeperRequest(false, true, 60)')
+  if (terminal) {
+    await run(page, 'M.approveKeeperRequest()'); await run(page, 'M.applyKeeperRemoval()')
+    expect(await run(page, 'M.continueKeeperRequest()')).toMatchObject({ state: 'done' })
+  } else { await run(page, 'M.decideKeeperRequest()'); await run(page, 'M.deferKeeperRequest()') }
+  await run(page, 'M.restart(); M.advance(61)')
+  for (const node of ['current', 'new']) expect(await page.evaluate(node => (window as any).M.keeperInstallAttempt(node), node)).toMatchObject({ error: expect.stringContaining('retained keeper revocation hold'), signed: 0, writes: 0, published: 0 })
+  await run(page, 'M.forgetGuest()')
+})
+test('keeper admission witness outage refuses an install before signing, writing or publishing', async ({ context }) => {
+  const { page, witness } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.receiveKeeperRequest()')
+  witness.offline = true
+  expect(await run(page, "M.keeperInstallAttempt('new')")).toMatchObject({ error: expect.stringContaining('fresh witnessed keeper admission'), signed: 0, writes: 0, published: 0 })
+  witness.offline = false
+  await run(page, 'M.forgetGuest()')
 })
 test('keeper acceptance retains failed exact withdrawal across restart and expiry while Remove commits independently', async ({ context }) => {
   const { page } = await enrolled(context)
