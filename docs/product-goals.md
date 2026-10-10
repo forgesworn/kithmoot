@@ -464,6 +464,13 @@ Acceptance:
 Existing speaking analysis and optional media processing are investigation
 starting points. The P4 battery gate remains open until measurements exist.
 
+The [opt-in workload collector](performance-qualification.md) now covers
+foreground idle, chat, audio, video and one screen share, plus docked calls and
+one live share popout. Its [short synthetic runs](evidence/performance-workloads-2026-10-10.json)
+verify per-stream, renderer and transport collection without retaining message
+contents or network addresses. They provide no battery/thermal qualification;
+background/locked operation and the named physical-device runs remain open.
+
 ## G11 — Audio and video recording people can use confidently
 
 Offer audio-only and video recording, with clear controls and an explicit

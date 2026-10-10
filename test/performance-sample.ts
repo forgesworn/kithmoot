@@ -32,7 +32,7 @@ export async function performanceSample() {
     } catch { error = 'getStats failed' }
     return { connection, state: pc.connectionState, streams, paths, error }
   }))
-  const videos = Array.from(document.querySelectorAll<HTMLVideoElement>('#room video')).map((video, index) => {
+  const videos = Array.from(document.querySelectorAll<HTMLVideoElement>('#room video, .shareViewer video')).map((video, index) => {
     const frames = video.getVideoPlaybackQuality?.()
     const rect = video.getBoundingClientRect()
     return { index, width: video.videoWidth, height: video.videoHeight, time: video.currentTime, paused: video.paused, readyState: video.readyState, visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight, frames: frames?.totalVideoFrames ?? null, dropped: frames?.droppedVideoFrames ?? null }
