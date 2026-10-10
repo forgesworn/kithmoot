@@ -1,6 +1,7 @@
 import { InvalidPersonaRecord } from './mls-persona-coordinator.js'
 import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 import { createVmlsRevocationRumor, VMLS_REVOCATION_FUTURE_SKEW_SECONDS, type VmlsRevocationRequest } from '../../src/vmls-revocation-request.js'
+import { validateMlsKeeperApproval, type MlsKeeperApproval } from './mls-revocation-decision-store.js'
 
 export const MAX_MLS_REVOCATION_SEEN = 256
 export const MAX_MLS_REVOCATION_PROMPTS = 64
@@ -9,7 +10,8 @@ export interface MlsRevocationInboxPrompt {
   operation: string
   request: VmlsRevocationRequest
   receivedAt: number
-  state: 'pending' | 'dismissed' | 'done'
+  state: 'pending' | 'dismissed' | 'approved' | 'done'
+  approval?: MlsKeeperApproval
 }
 export interface MlsRevocationInboxState {
   keeper: string
@@ -33,11 +35,16 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     seen.add(item.id)
   }
   for (const prompt of value.prompts) {
-    if (!prompt || typeof prompt !== 'object' || !exact(prompt, 'operation,receivedAt,request,state') || !hex32(prompt.operation) ||
-        !time(prompt.receivedAt) || prompt.receivedAt > value.checkedAt || !['pending', 'dismissed', 'done'].includes(prompt.state) || operations.has(prompt.operation)) invalid()
+    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
+        !time(prompt.receivedAt) || prompt.receivedAt > value.checkedAt || !['pending', 'dismissed', 'approved', 'done'].includes(prompt.state) || operations.has(prompt.operation)) invalid()
     try { createVmlsRevocationRumor(prompt.request) } catch { invalid() }
     if (prompt.request.keeper !== value.keeper || prompt.operation !== mlsStandaloneRevocationOperation(prompt.request.sender, value.keeper, prompt.request.device) ||
         prompt.request.createdAt > prompt.receivedAt + VMLS_REVOCATION_FUTURE_SKEW_SECONDS || prompt.request.expiration <= prompt.receivedAt) invalid()
+    if (prompt.state === 'approved' && !prompt.approval || prompt.approval && !['approved', 'done'].includes(prompt.state)) invalid()
+    if (prompt.approval) {
+      validateMlsKeeperApproval(prompt.approval, prompt.request, prompt.operation, prompt.receivedAt)
+      if (prompt.approval.approvedAt > value.checkedAt) invalid()
+    }
     operations.add(prompt.operation)
   }
 }

@@ -123,8 +123,18 @@ class PackageRegistrationStopped extends Error {
   constructor(readonly answer: Exclude<BoxAnswer<{ fresh: boolean }>, { state: 'ok' }>) { super('MLS package registration stopped') }
 }
 async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<ReturnType<typeof loadMlsEngine>>, session: string,
-  room: MlsRoomRecord, persona: string): Promise<void> {
-  for (const record of (await readMlsMembership(tx)).removals) if (record.session === session && record.compromised) {
+  room: MlsRoomRecord, persona: string, active: Session): Promise<void> {
+  const journal = await readMlsMembership(tx)
+  // The operator's witnessed approval closes the interval before the exact
+  // Remove journal is recorded. Grant failure or request expiry cannot release
+  // this hold. The fresh witnessed roster must no longer contain the device.
+  for (const prompt of journal.inbox?.prompts ?? []) if (prompt.approval && ['approved', 'done'].includes(prompt.state)) {
+    for (const intent of prompt.approval.rooms) if (intent.session === session) {
+      if (room.keeper !== persona || prompt.request.keeper !== persona) throw new InvalidPersonaRecord('Keeper send hold no longer matches its room')
+      if (memberStatuses(active).some(member => member.device === prompt.request.device)) throw new MlsRoomRefused('compromised-removal')
+    }
+  }
+  for (const record of journal.removals) if (record.session === session && record.compromised) {
     const removal = decodeRemoval(wasm, record, { keeper: room.keeper, persona })
     try { if (removal.mls() !== 'Committed') throw new MlsRoomRefused('compromised-removal') }
     finally { removal.free() }
@@ -390,7 +400,7 @@ export class BrowserMlsRoomOperations {
           if (client.box !== room.binding.homeBox || routes.some(route => route.homeBox !== room.binding.homeBox || watched.has(route.welcomeMailbox))) throw new MlsRoomRefused('invalid-package-route')
           if (known.length + routes.length > 64 || new Set([...known, ...routes].map(route => route.packageId)).size !== known.length + routes.length ||
               new Set([...known, ...routes].map(route => route.welcomeMailbox)).size !== known.length + routes.length) throw new MlsRoomRefused('package-route-full')
-          await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona)
+          await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona, session)
         }
         const checked = await scope.host.step(scope.hostContext, id, session => ({ snapshot: null, value: undefined }),
           this.#edits(scope.ctx, scope, id, async (r, tx, session) => { room = r; await validate(session, tx) }))
@@ -429,7 +439,24 @@ export class BrowserMlsRoomOperations {
     return this.#beginRemoval(context, id, { ...options, kind: 'person', target: options.identity })
   }
 
-  #beginRemoval(context: MlsRoomContext, id: string, options: { operation: string; kind: 'device' | 'person'; target: string; members: MlsMemberStatus[]; grants: VmlsGrantRef[]; compromised: boolean; request?: MlsRemovalRecord['request'] }): Promise<MlsRoomResult<MlsRemovalStatus>> {
+  /** Receiver-side removal is bound to the exact witnessed operator approval
+   * in the same transaction that creates or reopens its engine journal. */
+  async removeRequestedDevice(context: MlsRoomContext, id: string, approval: string, leafId: string): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    let options: { operation: string; leafId: string; members: MlsMemberStatus[]; grants: VmlsGrantRef[]; compromised: boolean } | undefined
+    const read = await this.#using<void>(context, async scope => {
+      return scope.host.step(scope.hostContext, id, () => ({ snapshot: null, value: undefined }), this.#edits(scope.ctx, scope, id, async (room, tx) => {
+        const journal = await readMlsMembership(tx), prompt = journal.inbox?.prompts.find(item => item.operation === approval)
+        const intent = prompt?.approval?.rooms.find(item => item.session === id && item.member.leafId === leafId && item.action === 'remove')
+        if (!prompt || prompt.state !== 'approved' || !intent || room.keeper !== scope.ctx.persona || prompt.request.keeper !== scope.ctx.persona || room.binding.rendezvousKey !== intent.rendezvousKey) throw new MlsRoomRefused('unapproved-request')
+        options = { operation: intent.operation, leafId, members: [structuredClone(intent.member)], compromised: true,
+          grants: prompt.approval!.grants.filter(grant => grant.node === intent.member.homeBox).map(grant => ({ node: hexToBytes(grant.node), grant: hexToBytes(grant.reference), keeper: true })) }
+      }))
+    })
+    if (read.state !== 'active') return read
+    return this.#beginRemoval(context, id, { ...options!, kind: 'device', target: leafId, keeperApproval: approval })
+  }
+
+  #beginRemoval(context: MlsRoomContext, id: string, options: { operation: string; kind: 'device' | 'person'; target: string; members: MlsMemberStatus[]; grants: VmlsGrantRef[]; compromised: boolean; request?: MlsRemovalRecord['request']; keeperApproval?: string }): Promise<MlsRoomResult<MlsRemovalStatus>> {
     if (options.request !== undefined && !validRequest(options.request)) return Promise.resolve({ state: 'refused', reason: 'malformed' })
     const grants = options.grants.map(grant => ({ node: grant.node.slice(), grant: grant.grant.slice(), keeper: grant.keeper }))
     const members = structuredClone(options.members).sort((a, b) => a.leafId.localeCompare(b.leafId))
@@ -469,6 +496,14 @@ export class BrowserMlsRoomOperations {
         }, this.#edits(scope.ctx, scope, id, async (value, tx) => {
           room = value
           journal = await readMlsMembership(tx)
+          if (options.keeperApproval) {
+            const prompt = journal.inbox?.prompts.find(item => item.operation === options.keeperApproval)
+            const intent = prompt?.approval?.rooms.find(item => item.session === id && item.operation === options.operation && item.action === 'remove')
+            const expected = prompt?.approval?.grants.filter(grant => grant.node === intent?.member.homeBox).map(grant => ({ node: grant.node, grant: grant.reference, keeper: true }))
+            if (!prompt || prompt.state !== 'approved' || !intent || room.keeper !== scope.ctx.persona || prompt.request.keeper !== scope.ctx.persona ||
+                room.binding.rendezvousKey !== intent.rendezvousKey || options.kind !== 'device' || options.target !== intent.member.leafId || !options.compromised || options.request ||
+                JSON.stringify(options.members) !== JSON.stringify([intent.member]) || JSON.stringify(grants.map(grantKey)) !== JSON.stringify(expected)) throw new MlsRoomRefused('unapproved-request')
+          }
           record = journal.removals.find(item => item.operation === options.operation)
           if (record && (record.session !== id || record.kind !== options.kind || record.target !== options.target || record.compromised !== options.compromised)) throw new MlsRoomRefused('replay')
           if (!record && journal.removals.length >= MAX_MLS_REMOVALS) throw new MlsRoomRefused('membership-full')
@@ -757,9 +792,9 @@ export class BrowserMlsRoomOperations {
         }
         message = { leaf: bytesToHex(s.ownLeafId()), epoch: String(s.epoch()) }
         return effect(s, s.send(body))
-      }, this.#edits(scope.ctx, scope, id, async (r, tx) => {
+      }, this.#edits(scope.ctx, scope, id, async (r, tx, s) => {
         room = r
-        await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona)
+        await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona, s)
       }, r => {
         if (message) appendMlsHistory(r, { id: 'sent:' + operation, direction: 'sent', ...message, body })
       }))

@@ -38,7 +38,7 @@ export class BrowserMlsRevocationInbox {
         const grants = await this.#authority(tx, prompt.request, ledger, rosters)
         if (grants.length) prompts.push({ prompt: structuredClone(prompt), grants: structuredClone(grants), conflict: false })
       }
-      for (const item of prompts) item.conflict = prompts.some(other => other.prompt.request.sender === item.prompt.request.sender && other.prompt.request.device !== item.prompt.request.device)
+      for (const item of prompts) item.conflict = state.prompts.some(other => (other.state === 'pending' || other.state === 'approved') && other.request.sender === item.prompt.request.sender && other.request.device !== item.prompt.request.device)
       return { prompts }
     }, current)
   }
@@ -81,7 +81,7 @@ export class BrowserMlsRevocationInbox {
               const existing = state.prompts.find(item => item.operation === operation)
               if (!existing && state.prompts.length >= MAX_MLS_REVOCATION_PROMPTS) throw new MlsRevocationInboxFull('The keeper request inbox is full.')
               if (!existing) state.prompts.push({ operation, request: structuredClone(request), receivedAt: state.checkedAt, state: 'pending' })
-              else if (existing.state !== 'done' && request.createdAt > existing.request.createdAt) {
+              else if (existing.state !== 'done' && existing.state !== 'approved' && request.createdAt > existing.request.createdAt) {
                 existing.request = structuredClone(request); existing.receivedAt = state.checkedAt; existing.state = 'pending'
               }
             }
@@ -105,7 +105,7 @@ export class BrowserMlsRevocationInbox {
     state.seen = state.seen.filter(item => item.receivedAt + MLS_REVOCATION_SEEN_SECONDS > now)
     // Done device tombstones are permanent. Expired unanswered requests no
     // longer authorise a prompt; their wrap ids retain the longer replay bound.
-    state.prompts = state.prompts.filter(item => item.state === 'done' || item.request.expiration > now)
+    state.prompts = state.prompts.filter(item => item.state === 'done' || item.state === 'approved' || item.request.expiration > now)
     if (before !== JSON.stringify(state)) {
       journal.inbox = state; await saveMlsMembership(tx, journal)
     }

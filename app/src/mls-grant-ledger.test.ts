@@ -4,6 +4,7 @@ import { bytesToHex } from '@noble/hashes/utils.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import type { ParticipantIdentity } from '../../src/identity.js'
 import { BrowserMlsGrantLedger, mlsBoxNode, mlsGrantReference, mlsGrantScope, planMlsGrant, removalGrantRefs, type MlsGrantRecord } from './mls-grant-ledger.js'
+import { mlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
 
 const node = new Uint8Array(32).fill(31)
 const box = { routeId: 'bothy-one', eventUrl: `ws://${base32nopad.encode(node).toLowerCase()}/events` }
@@ -27,6 +28,34 @@ function fixture() {
 }
 
 describe('browser VMLS grant ledger', () => {
+  it('revokes an approved ledger-only device immediately and retries the same immutable tombstone after uncertainty', async () => {
+    const f = fixture(), installed = await f.ledger.install(box, persona, device, room)
+    const stored = f.records[0]!; stored.rooms = []; stored.revokeAfter = 1_000 + 86400
+    const authority = mlsKeeperGrantAuthority(stored)
+    f.fail(true)
+    await expect(f.ledger.withdrawRequestedDevice(authority, persona, device, () => true)).rejects.toThrow('lost OK')
+    expect(f.records[0]!.state).toBe('revoking')
+    f.fail(false)
+    expect(await f.ledger.withdrawRequestedDevice(authority, persona, device, () => true)).toMatchObject({ result: 'revoked', record: { state: 'revoked' } })
+    expect(f.published.slice(-2)).toEqual([installed.revocation.id, installed.revocation.id])
+  })
+  it('does not revoke replacement, foreign-person or expanded-room authority through an old approval', async () => {
+    const f = fixture(), installed = await f.ledger.install(box, persona, device, room), authority = mlsKeeperGrantAuthority(installed)
+    await expect(f.ledger.withdrawRequestedDevice(authority, '88'.repeat(32), device, () => true)).rejects.toThrow('authority or affected rooms changed')
+    await f.ledger.install(box, persona, device, { session: '77'.repeat(32), name: 'Unreviewed room', leaf })
+    await expect(f.ledger.withdrawRequestedDevice(authority, persona, device, () => true)).rejects.toThrow('authority or affected rooms changed')
+    const replacement = await planMlsGrant(f.identity, box, persona, device, room, 1_002, { ...installed, state: 'revoked' })
+    f.records[0] = replacement
+    await expect(f.ledger.withdrawRequestedDevice(authority, persona, device, () => true)).rejects.toThrow('authority or affected rooms changed')
+    expect(f.published).not.toContain(replacement.revocation.id)
+  })
+  it('leaves an account-invalidated withdrawal retryable instead of reporting revocation', async () => {
+    const f = fixture(), installed = await f.ledger.install(box, persona, device, room), authority = mlsKeeperGrantAuthority(installed)
+    let checks = 0
+    await expect(f.ledger.withdrawRequestedDevice(authority, persona, device, () => ++checks < 4)).rejects.toThrow('session changed')
+    expect(f.records[0]!.state).toBe('revoking')
+    expect(f.published).toEqual([installed.active.id])
+  })
   it('signs a device-wide VMLS scope and a retained withdrawal before use', async () => {
     const identity = signer(), record = await planMlsGrant(identity, box, persona, device, room, 1000)
     expect(record.node).toBe(bytesToHex(node))
