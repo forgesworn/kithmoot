@@ -14,6 +14,8 @@ export interface MlsRevocationInboxPrompt {
   receivedAt: number
   state: 'pending' | 'dismissed' | 'approved' | 'done'
   approval?: MlsKeeperApproval
+  /** Terminal observations about frozen authority, never about replacement grants. */
+  grantOutcomes?: { node: string; reference: string; at: number; outcome: 'revoked' | 'route-unavailable' }[]
   deferredUntil?: number
   revision?: number
 }
@@ -66,7 +68,7 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     seen.add(item.id)
   }
   for (const prompt of value.prompts) {
-    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), ...(prompt.deferredUntil === undefined ? [] : ['deferredUntil']), ...(prompt.revision === undefined ? [] : ['revision']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
+    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), ...(prompt.grantOutcomes === undefined ? [] : ['grantOutcomes']), ...(prompt.deferredUntil === undefined ? [] : ['deferredUntil']), ...(prompt.revision === undefined ? [] : ['revision']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
         !time(prompt.receivedAt) || prompt.receivedAt > value.checkedAt || !['pending', 'dismissed', 'approved', 'done'].includes(prompt.state) || operations.has(prompt.operation)) invalid()
     try { createVmlsRevocationRumor(prompt.request) } catch { invalid() }
     if (prompt.request.keeper !== value.keeper || prompt.operation !== mlsStandaloneRevocationOperation(prompt.request.sender, value.keeper, prompt.request.device) ||
@@ -77,6 +79,14 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     if (prompt.approval) {
       validateMlsKeeperApproval(prompt.approval, prompt.request, prompt.operation, prompt.receivedAt)
       if (prompt.approval.approvedAt > value.checkedAt) invalid()
+    }
+    if (prompt.grantOutcomes !== undefined) {
+      const outcomes = prompt.grantOutcomes
+      if (!prompt.approval || !['approved', 'done'].includes(prompt.state) || !Array.isArray(outcomes) || outcomes.length > 256 ||
+        outcomes.some((item, index) => !item || !exact(item, 'at,node,outcome,reference') || !hex32(item.node) || !hex32(item.reference) ||
+          !time(item.at) || item.at < prompt.approval!.approvedAt || item.at > value.checkedAt || !['revoked','route-unavailable'].includes(item.outcome) ||
+          index > 0 && outcomes[index - 1]!.reference >= item.reference || !prompt.approval!.grants.some(grant => grant.node === item.node && grant.reference === item.reference)) ||
+        prompt.state === 'done' && outcomes.length !== prompt.approval.grants.length) invalid()
     }
     operations.add(prompt.operation)
   }

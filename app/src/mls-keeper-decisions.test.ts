@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { base32nopad } from '@scure/base'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { localIdentity } from '../../src/identity.js'
@@ -43,12 +43,95 @@ async function fixture() {
   const grants = { all: async () => { readHook?.(); return structuredClone(records) } }
   const decisions = new BrowserMlsKeeperDecisions(host as any, grants, context, () => now)
   const inbox = new BrowserMlsRevocationInbox(host as any, grants, context, () => now)
-  return { tx, records, operation, decisions, inbox, context, restart: () => new BrowserMlsKeeperDecisions(host as any, grants, context, () => now),
+  return { tx, records, operation, decisions, inbox, context, restart: (routes?: ConstructorParameters<typeof BrowserMlsKeeperDecisions>[4]) => new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, routes),
     clock: (v: number) => { now = v }, changeAccount: () => { generation++ }, hide: () => { foreground = false },
     hold: () => { unavailable = true }, onRead: (fn: () => void) => { readHook = fn }, beforeCommit: (fn: () => void) => { commitHook = fn } }
 }
 
 describe('witnessed keeper operator decisions', () => {
+  it('persists exact unavailable authority across restart and route restoration without publication or a revoked claim', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    await f.decisions.decide(plan.value, true)
+    const routes = { available: vi.fn(async () => false) }, decisions = f.restart(routes)
+    const execution = await decisions.execution(f.operation)
+    expect(execution).toMatchObject({ state: 'active', value: { revoked: [], unavailable: [plan.value.grants[0]!.reference], prompt: { state: 'approved', grantOutcomes: [{ outcome: 'route-unavailable' }] } } })
+    expect(f.records[0]!.state).toBe('active')
+    routes.available.mockResolvedValue(true)
+    const effects = { withdrawRequestedDevice: vi.fn(async () => { throw new Error('must not publish') }) }
+    const operations = new Proxy({}, { get: () => vi.fn(() => { throw new Error('must not mutate room grants') }) }) as any
+    const controller = new BrowserMlsKeeperRequestController(f.restart(routes), operations, effects as any, f.context)
+    expect(await controller.advance(f.operation)).toMatchObject({ state: 'done', grants: [{ state: 'unavailable', access: 'unconfirmed' }] })
+    expect(await controller.advance(f.operation)).toMatchObject({ state: 'done', grants: [{ state: 'unavailable', access: 'unconfirmed' }] })
+    expect(routes.available).toHaveBeenCalledTimes(1); expect(effects.withdrawRequestedDevice).not.toHaveBeenCalled()
+    expect((await f.restart().retained(f.operation) as any).value.grantOutcomes).toEqual((execution as any).value.prompt.grantOutcomes)
+  })
+  it('holds missing authority and failed or malformed pairing evidence without recording unavailable', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    await f.decisions.decide(plan.value, true)
+    const original = f.records[0]!, routes = { available: vi.fn(async () => false) }
+    f.records.length = 0
+    await expect(f.restart(routes).execution(f.operation)).rejects.toThrow('no longer matches')
+    expect(routes.available).not.toHaveBeenCalled(); f.records.push(original)
+    routes.available.mockRejectedValueOnce(new Error('local vault unavailable'))
+    await expect(f.restart(routes).execution(f.operation)).rejects.toThrow('local vault unavailable')
+    routes.available.mockResolvedValueOnce(undefined as any)
+    await expect(f.restart(routes).execution(f.operation)).rejects.toThrow('pairing evidence could not be verified')
+    expect((await f.decisions.retained(f.operation) as any).value.grantOutcomes).toBeUndefined()
+    expect(await f.restart().execution(f.operation)).toMatchObject({ value: { revoked: [], unavailable: [] } })
+    await expect(f.decisions.complete(f.operation)).rejects.toThrow('still pending')
+  })
+  it('catches concurrent replacement after pairing evidence and withholds late account or commit changes', async () => {
+    for (const change of ['replacement', 'account', 'foreground', 'commit'] as const) {
+      const f = await fixture(), plan = await f.decisions.plan(f.operation)
+      if (plan.state !== 'active') throw new Error('missing plan')
+      await f.decisions.decide(plan.value, true)
+      const routes = { available: vi.fn(async () => {
+        if (change === 'replacement') f.records[0] = await planMlsGrant(keeper, f.records[0]!.box, member.pubkey, device, { session, name: 'Replacement', leaf: '55'.repeat(32) }, 1_001, { ...f.records[0]!, state: 'revoked' })
+        if (change === 'account') f.changeAccount()
+        if (change === 'foreground') f.hide()
+        if (change === 'commit') f.beforeCommit(f.changeAccount)
+        return false
+      }) }
+      if (change === 'commit') expect(await f.restart(routes).execution(f.operation)).toMatchObject({ state: 'pending' })
+      else await expect(f.restart(routes).execution(f.operation)).rejects.toThrow(change === 'replacement' ? 'authority changed while checking' : 'session changed')
+      expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.grantOutcomes).toBeUndefined()
+    }
+  })
+  it('refuses a rewound or unsafe clock after asynchronous pairing evidence and records the final checked time', async () => {
+    for (const at of [999, Number.MAX_SAFE_INTEGER, 1_001]) {
+      const f = await fixture(), plan = await f.decisions.plan(f.operation)
+      if (plan.state !== 'active') throw new Error('missing plan')
+      await f.decisions.decide(plan.value, true)
+      const decisions = f.restart({ available: async () => { f.clock(at); return false } })
+      if (at !== 1_001) {
+        await expect(decisions.execution(f.operation)).rejects.toThrow('trusted request time')
+        expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.grantOutcomes).toBeUndefined()
+      } else {
+        expect(await decisions.execution(f.operation)).toMatchObject({ value: { prompt: { grantOutcomes: [{ at }] } } })
+        expect((await readMlsMembership(f.tx)).inbox!.checkedAt).toBe(at)
+      }
+    }
+  })
+  it('migrates legacy expiration only from exact signed authority and fences forged terminal outcomes', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    await f.decisions.decide(plan.value, true)
+    const journal = await readMlsMembership(f.tx), prompt = journal.inbox!.prompts[0]!
+    delete prompt.approval!.grants[0]!.expiration; await saveMlsMembership(f.tx, journal)
+    expect(await f.restart().execution(f.operation)).toMatchObject({ value: { prompt: { approval: { grants: [{ expiration: f.records[0]!.expiration }] } } } })
+    const saved = await readMlsMembership(f.tx), target = saved.inbox!.prompts[0]!
+    for (const outcomes of [
+      [{ node: f.records[0]!.node, reference: 'ff'.repeat(32), at: 1_000, outcome: 'route-unavailable' }],
+      [{ node: f.records[0]!.node, reference: plan.value.grants[0]!.reference, at: 999, outcome: 'route-unavailable' }],
+      [{ node: f.records[0]!.node, reference: plan.value.grants[0]!.reference, at: 1_001, outcome: 'route-unavailable' }],
+      [{ node: f.records[0]!.node, reference: plan.value.grants[0]!.reference, at: 1_000, outcome: 'no-live' }],
+    ]) {
+      target.grantOutcomes = outcomes as any
+      await expect(saveMlsMembership(f.tx, saved)).rejects.toBeInstanceOf(InvalidPersonaRecord)
+    }
+  })
   it('freezes exact signed ledger-only scope on explicit approval and retains it across restart and expiry', async () => {
     const f = await fixture(), plan = await f.decisions.plan(f.operation)
     expect(plan).toMatchObject({ state: 'active', value: { conflict: false, rooms: [], grants: [{ active: f.records[0]!.active.id, revocation: f.records[0]!.revocation.id }] } })

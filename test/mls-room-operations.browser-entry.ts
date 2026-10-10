@@ -275,14 +275,24 @@ export async function decideKeeperRequest(approve = true) {
 }
 export async function decideReviewedKeeperRequest(plan: MlsKeeperDecisionPlan) { return keeperDecisions().decide(plan, true) }
 let keeperWithdrawalFails = false, keeperProgress: MlsKeeperRequestProgress | undefined
+let keeperRouteForgotten = false
+const secondKeeperBox = { routeId: 'keeper-second-fixture', eventUrl: `ws://${base32.encode(new Uint8Array(32).fill(77)).replace(/=+$/, '').toLowerCase()}/events` }
+export function forgetKeeperRoute(value = true) { keeperRouteForgotten = value }
+export async function addSecondKeeperGrant() {
+  const previous = (await inboxGrants.all())[0]!
+  const grant = await planMlsGrant(localIdentity(secret), secondKeeperBox, previous.persona, previous.device, { session: roomId, name: 'Witnessed room', leaf: guestLeaf }, clock)
+  grant.state = 'active'; grant.rooms = []; await inboxGrants.put(grant)
+}
 const keeperWithdrawals: string[] = []
 export function failKeeperWithdrawal(value: boolean) { keeperWithdrawalFails = value }
 export function keeperWithdrawalAttempts() { return keeperWithdrawals.slice() }
 const keeperController = () => {
   const keeper = localIdentity(secret), box = { routeId: 'keeper-inbox-fixture', eventUrl: `ws://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}/events` }
-  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [box] } as any, inboxGrants,
+  const routes = () => [...(keeperRouteForgotten ? [] : [box]), secondKeeperBox]
+  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: routes, pairedBoxes: async () => routes() } as any, inboxGrants,
     () => ({ publish: async event => { keeperWithdrawals.push(event.id); if (keeperWithdrawalFails) throw new Error('fixture box withdrawal refused') }, close: () => undefined }), () => clock)
-  return new BrowserMlsKeeperRequestController(keeperDecisions(), rooms, ledger, () => ({ vault: ctx(), current: () => true, foreground: () => true }))
+  const context = () => ({ vault: ctx(), current: () => true, foreground: () => true })
+  return new BrowserMlsKeeperRequestController(new BrowserMlsKeeperDecisions(host, inboxGrants, context, () => clock, ledger), rooms, ledger, context)
 }
 export async function approveKeeperRequest(failRemove = false) {
   const plan = await keeperDecisionPlan()

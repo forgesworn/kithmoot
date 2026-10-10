@@ -21,12 +21,14 @@ export interface MlsKeeperDecisionPlan {
 }
 export interface MlsKeeperExecutionPlan extends MlsKeeperDecisionPlan {
   revoked: string[]
+  unavailable: string[]
 }
 /** Explicit operator decisions only. Approval records intent before any
  * future room or box effect. This class itself cannot publish or remove. */
 export class BrowserMlsKeeperDecisions {
   constructor(private coordinator: Pick<BrowserPersonaCoordinator, 'transact'>, private grants: Pick<BrowserMlsGrantStore, 'all'>,
-    private context: () => MlsRevocationInboxContext | undefined, private now: () => number = () => Math.floor(Date.now() / 1000)) {}
+    private context: () => MlsRevocationInboxContext | undefined, private now: () => number = () => Math.floor(Date.now() / 1000),
+    private routes?: { available(authority: MlsKeeperGrantAuthority, sender: string, device: string, current: () => boolean): Promise<boolean> }) {}
 
   plan(operation: string): Promise<CoordinationResult<MlsKeeperDecisionPlan>> {
     const scope = this.#scope()
@@ -107,7 +109,7 @@ export class BrowserMlsKeeperDecisions {
     const scope = this.#scope()
     return this.coordinator.transact(scope.vault.persona, async tx => {
       const current = await this.#execution(tx, scope, operation)
-      if (current.revoked.length !== current.grants.length || current.rooms.some(room => room.action === 'remove')) throw new Error('The approved removal or grant withdrawal is still pending.')
+      if (current.revoked.length + current.unavailable.length !== current.grants.length || current.rooms.some(room => room.action === 'remove')) throw new Error('The approved removal or grant withdrawal is still pending.')
       const journal = await readMlsMembership(tx), prompt = journal.inbox!.prompts.find(item => item.operation === operation)!
       // A target can disappear before its journal catches up. Do not clear
       // an engine-owned compromised hold until that journal is witnessed.
@@ -125,7 +127,7 @@ export class BrowserMlsKeeperDecisions {
           const expected = prompt.approval!.grants.filter(grant => grant.node === intent.member.homeBox).map(grant => ({ node: grant.node, reference: grant.reference }))
           const actual = removal.grants().map(item => ({ node: bytesToHex(item.grant.node), reference: bytesToHex(item.grant.grant) }))
           if (JSON.stringify(actual) !== JSON.stringify(expected) || removal.grants().some(item => !item.grant.keeper)) throw new InvalidPersonaRecord('Keeper removal grant journal binding differs')
-          if (removal.grants().some(item => item.state.type !== 'Revoked')) throw new Error('The confirmed withdrawal journal update is still pending.')
+          if (removal.grants().some(item => current.revoked.includes(bytesToHex(item.grant.grant)) && item.state.type !== 'Revoked')) throw new Error('The confirmed withdrawal journal update is still pending.')
         } finally { bytes.fill(0); removal?.free() }
       }
       prompt.state = 'done'
@@ -147,7 +149,7 @@ export class BrowserMlsKeeperDecisions {
     const current = await this.#review(tx, scope, operation, true, value => { records = value }), approved = prompt.approval
     for (const grant of current.grants) {
       const frozen = approved.grants.find(item => item.node === grant.node)
-      if (!frozen || grant.reference !== frozen.reference || grant.active !== frozen.active || grant.revocation !== frozen.revocation || JSON.stringify(grant.box) !== JSON.stringify(frozen.box) ||
+      if (!frozen || grant.reference !== frozen.reference || grant.active !== frozen.active || grant.revocation !== frozen.revocation || JSON.stringify(grant.box) !== JSON.stringify(frozen.box) || frozen.expiration !== undefined && frozen.expiration !== grant.expiration ||
           grant.rooms.some(use => !frozen.rooms.some(item => item.session === use.session && item.leaf === use.leaf))) throw new Error('The approved grant authority changed. Review the request again.')
     }
     if (approved.grants.some(grant => !current.grants.some(item => item.node === grant.node))) throw new Error('An approved grant is no longer retained. Its access cannot be confirmed here.')
@@ -159,7 +161,43 @@ export class BrowserMlsKeeperDecisions {
     }
     const revoked = current.grants.filter(grant => records.some(record => record.node === grant.node && record.device === prompt.request.device && record.state === 'revoked' &&
       record.issuer === scope.vault.persona && record.persona === prompt.request.sender && record.active.id === grant.active && record.revocation.id === grant.revocation)).map(grant => grant.reference)
-    return { ...current, grants: structuredClone(approved.grants), revoked }
+    const saved = await readMlsMembership(tx), retained = saved.inbox!.prompts.find(item => item.operation === operation)!, before = JSON.stringify(retained)
+    // New approvals freeze expiry; legacy migration requires the exact signed
+    // record. This slice never interprets expiry from the browser clock.
+    for (const frozen of retained.approval!.grants) if (frozen.expiration === undefined) frozen.expiration = current.grants.find(grant => grant.reference === frozen.reference)!.expiration
+    const outcomes = retained.grantOutcomes ??= []
+    const recorded = new Set(outcomes.map(item => item.reference))
+    for (const frozen of retained.approval!.grants) {
+      const terminal = outcomes.find(item => item.reference === frozen.reference)
+      if (terminal) {
+        if (terminal.outcome === 'revoked' && !revoked.includes(frozen.reference)) throw new Error('The confirmed grant authority changed. Review the request again.')
+        continue
+      }
+      if (revoked.includes(frozen.reference)) outcomes.push({ node: frozen.node, reference: frozen.reference, at: saved.inbox!.checkedAt, outcome: 'revoked' })
+      else if (this.routes) {
+        const available = await this.routes.available(structuredClone(frozen), retained.request.sender, retained.request.device, () => this.#current(scope))
+        if (typeof available !== 'boolean') throw new Error('The keeper pairing evidence could not be verified.')
+        if (!this.#current(scope)) throw new Error('The keeper account or foreground session changed.')
+        // The grant and pairing stores have separate locks. Recheck the full
+        // ledger before recording a fact about this frozen old authority.
+        // Unavailable means access unconfirmed, never no live remote access.
+        const latest = await this.grants.all()
+        if (!Array.isArray(latest)) throw new Error('The keeper grant ledger could not be verified.')
+        latest.forEach(validateMlsGrant)
+        if (JSON.stringify(latest) !== JSON.stringify(records)) throw new Error('The approved grant authority changed while checking its pairing.')
+        if (!available) outcomes.push({ node: frozen.node, reference: frozen.reference, at: saved.inbox!.checkedAt, outcome: 'route-unavailable' })
+      }
+    }
+    const at = this.#time()
+    if (at < saved.inbox!.checkedAt || at > Number.MAX_SAFE_INTEGER - MLS_KEEPER_PROMPT_SECONDS) throw new Error('A trusted request time is unavailable.')
+    if (!this.#current(scope)) throw new Error('The keeper account or foreground session changed.')
+    for (const outcome of outcomes) if (!recorded.has(outcome.reference)) outcome.at = at
+    saved.inbox!.checkedAt = at
+    outcomes.sort((a, b) => a.reference.localeCompare(b.reference))
+    if (before !== JSON.stringify(retained)) await saveMlsMembership(tx, saved)
+    const unavailable = outcomes.filter(item => item.outcome === 'route-unavailable').map(item => item.reference)
+    return { ...current, prompt: structuredClone(retained), grants: structuredClone(retained.approval!.grants),
+      revoked: outcomes.filter(item => item.outcome === 'revoked').map(item => item.reference), unavailable }
   }
   async #review(tx: PersonaTransaction, scope: MlsRevocationInboxContext, operation: string, approved = false, verified?: (records: MlsGrantRecord[]) => void): Promise<MlsKeeperDecisionPlan> {
     const at = this.#time(), inbox = await mlsRevocationInboxState(tx, scope.vault.persona, at)

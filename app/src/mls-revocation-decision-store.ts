@@ -11,6 +11,8 @@ export interface MlsKeeperGrantAuthority {
   grantId: string
   active: string
   revocation: string
+  /** Omitted only by legacy frozen approvals. Never a browser-clock lapse claim. */
+  expiration?: number
   box: MlsGrantRecord['box']
   rooms: MlsGrantRoom[]
 }
@@ -45,11 +47,11 @@ export function validateMlsKeeperApproval(value: MlsKeeperApproval, request: Vml
       !Array.isArray(value.grants) || value.grants.length < 1 || value.grants.length > 256 || !Array.isArray(value.rooms) || value.rooms.length > 64) invalid()
   const nodes = new Set<string>(), operations = new Set<string>()
   for (const grant of value.grants) {
-    if (!grant || typeof grant !== 'object' || !exact(grant, 'active,box,grantId,node,reference,revocation,rooms') ||
+    if (!grant || typeof grant !== 'object' || !exact(grant, ['active','box','grantId','node','reference','revocation','rooms', ...(grant.expiration === undefined ? [] : ['expiration'])].sort().join(',')) ||
         !hex(grant.node) || !hex(grant.reference) || !hex(grant.active) || !hex(grant.revocation) || grant.active === grant.revocation ||
         typeof grant.grantId !== 'string' || !/^[0-9a-f]{32}$/.test(grant.grantId) || grant.reference !== mlsGrantReference(grant.node, grant.grantId) ||
         !grant.box || !exact(grant.box, 'eventUrl,routeId') || typeof grant.box.routeId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(grant.box.routeId) ||
-        !Array.isArray(grant.rooms) || grant.rooms.length > 64 || nodes.has(grant.node)) invalid()
+        !Array.isArray(grant.rooms) || grant.rooms.length > 64 || nodes.has(grant.node) || grant.expiration !== undefined && (!time(grant.expiration) || grant.expiration < 1)) invalid()
     try { if (mlsBoxNode(grant.box) !== grant.node) invalid() } catch { invalid() }
     const uses = new Set<string>()
     for (const room of grant.rooms) {
@@ -71,5 +73,5 @@ export function validateMlsKeeperApproval(value: MlsKeeperApproval, request: Vml
 
 export function mlsKeeperGrantAuthority(record: MlsGrantRecord): MlsKeeperGrantAuthority {
   return { node: record.node, reference: mlsGrantReference(record.node, record.grantId), grantId: record.grantId,
-    active: record.active.id, revocation: record.revocation.id, box: structuredClone(record.box), rooms: structuredClone(record.rooms) }
+    active: record.active.id, revocation: record.revocation.id, expiration: record.expiration, box: structuredClone(record.box), rooms: structuredClone(record.rooms) }
 }

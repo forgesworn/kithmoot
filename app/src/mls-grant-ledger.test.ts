@@ -20,14 +20,54 @@ function fixture() {
   const store = { all: async () => structuredClone(records), put: async (record: MlsGrantRecord) => {
     records.splice(0, records.length, ...records.filter(item => item.node !== record.node || item.device !== record.device), structuredClone(record)); snapshots.push(structuredClone(record))
   } }
-  const link = { resume: vi.fn(async () => [box]), boxes: () => [box], openSocket: vi.fn() }
+  const link = { resume: vi.fn(async () => [box]), boxes: () => [box], pairedBoxes: vi.fn(async (_keeper: string) => [box]), openSocket: vi.fn() }
   const ledger = new BrowserMlsGrantLedger(() => identity, link as any, store, record => ({
     publish: async event => { published.push(event.id); if (fail) throw new Error('lost OK') }, close: () => undefined,
   }), () => now, async (_key, work) => work())
-  return { identity, records, snapshots, published, ledger, fail: (value: boolean) => { fail = value }, clock: (value: number) => { now = value } }
+  return { identity, records, snapshots, published, ledger, link, store, fail: (value: boolean) => { fail = value }, clock: (value: number) => { now = value } }
 }
 
 describe('browser VMLS grant ledger', () => {
+  it('reads exact account-bound pairings without starting Link or publishing a withdrawal', async () => {
+    const f = fixture(), installed = await f.ledger.install(box, persona, device, room), authority = mlsKeeperGrantAuthority(installed)
+    f.link.resume.mockClear()
+    expect(await f.ledger.available(authority, persona, device, () => true)).toBe(true)
+    expect(f.link.pairedBoxes).toHaveBeenCalledWith(f.identity.pubkey)
+    for (const routes of [[], [{ ...box, routeId: 'another-route' }], [{ ...box, eventUrl: 'ws://different/events' }]]) {
+      f.link.pairedBoxes.mockResolvedValueOnce(routes)
+      expect(await f.ledger.available(authority, persona, device, () => true)).toBe(false)
+    }
+    expect(f.link.resume).not.toHaveBeenCalled(); expect(f.link.openSocket).not.toHaveBeenCalled()
+    expect(f.published).toEqual([installed.active.id]); expect(f.records[0]!.state).toBe('active')
+  })
+  it('never turns missing, replaced or malformed grant storage into an absent route claim', async () => {
+    const f = fixture(), installed = await f.ledger.install(box, persona, device, room), authority = mlsKeeperGrantAuthority(installed)
+    f.records.length = 0
+    await expect(f.ledger.available(authority, persona, device, () => true)).rejects.toThrow('no longer retained')
+    f.records.push(await planMlsGrant(f.identity, box, persona, device, room, 1_001, { ...installed, state: 'revoked' }))
+    await expect(f.ledger.available(authority, persona, device, () => true)).rejects.toThrow('authority or affected rooms changed')
+    f.records[0] = { ...installed, active: { ...installed.active, sig: '00'.repeat(64) } }
+    await expect(f.ledger.available(authority, persona, device, () => true)).rejects.toThrow('Invalid saved')
+    expect(f.link.pairedBoxes).not.toHaveBeenCalled(); expect(f.published).toEqual([installed.active.id])
+  })
+  it('rechecks current account and exact authority after the asynchronous pairing read', async () => {
+    const f = fixture(), installed = await f.ledger.install(box, persona, device, room), authority = mlsKeeperGrantAuthority(installed)
+    let live = true
+    f.link.pairedBoxes.mockImplementationOnce(async () => { live = false; return [] })
+    await expect(f.ledger.available(authority, persona, device, () => live)).rejects.toThrow('session changed')
+    live = true
+    f.link.pairedBoxes.mockImplementationOnce(async () => {
+      f.records[0] = await planMlsGrant(f.identity, box, persona, device, room, 1_001, { ...installed, state: 'revoked' }); return []
+    })
+    await expect(f.ledger.available(authority, persona, device, () => live)).rejects.toThrow('authority or affected rooms changed')
+    f.records[0] = installed
+    f.link.pairedBoxes.mockRejectedValueOnce(new Error('pairing vault unavailable'))
+    await expect(f.ledger.available(authority, persona, device, () => live)).rejects.toThrow('pairing vault unavailable')
+    const otherIdentity = signer(), otherLedger = new BrowserMlsGrantLedger(() => otherIdentity, f.link as any, f.store,
+      undefined, () => 1_000, async (_key, work) => work())
+    await expect(otherLedger.available(authority, persona, device, () => true)).rejects.toThrow('authority or affected rooms changed')
+    expect(f.published).toEqual([installed.active.id])
+  })
   it('revokes an approved ledger-only device immediately and retries the same immutable tombstone after uncertainty', async () => {
     const f = fixture(), installed = await f.ledger.install(box, persona, device, room)
     const stored = f.records[0]!; stored.rooms = []; stored.revokeAfter = 1_000 + 86400
