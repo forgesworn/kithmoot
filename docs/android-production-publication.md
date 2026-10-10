@@ -114,7 +114,22 @@ The APK's Android signature and lineage remain the responsibility of
 that Zapstore's Android client has indexed the update or that a physical phone
 has installed and accepted it; the receipt leaves those gates explicitly open.
 
-Verified on 9 October 2026 at 21:22 UTC: version **0.6.75**, code **98**, channel
+Latest verified publication, 9 October 2026 at 23:44 UTC: version **0.6.76**,
+code **99**, channel `main`, APK SHA-256
+`733a1a778e53edfe083d59b5480279dbc18126b3b38634f1b55206b0d6c474d5`,
+79,137,438 bytes. Signed release
+`6158b03a5c051967200e2878eb59d506f3758799adcf226fa8b55ea907d9d939`
+references asset
+`984be9a9e7124073a2cc50d3d184b22aea43618c4a85998a6ddc896ecfd08db9`.
+The existing publisher, both event signatures, release reference, certificate,
+version/code and complete CDN download matched the production manifest. The
+same APK was independently downloaded from the
+[GitHub release](https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.76)
+and matched its recorded hash and size. Zapstore-client indexing and physical
+installation remain unverified. This Android release adds signed capture notices;
+it does not provide native recording/export.
+
+Earlier verification, 9 October 2026 at 21:22 UTC: version **0.6.75**, code **98**, channel
 `main`, APK SHA-256
 `9eeb8ef7a301568455247b94f791153cb8ba99153258ad95085d45e05d5f78db`,
 79,088,286 bytes. The signed release event is
