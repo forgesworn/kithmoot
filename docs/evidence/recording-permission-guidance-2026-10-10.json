@@ -35,6 +35,16 @@
         "Room-bar geometry measured after committed room entry",
         "Gallery audio/video export and originating-call navigation retained"
       ]
+    },
+    "finalRecordingNoticeAndExportRegression": {
+      "passed": 2,
+      "skipped": 0,
+      "duration": "29.6s",
+      "projects": [
+        "chromium",
+        "chromium-desktop"
+      ],
+      "scope": "Visible stop label and accessible name; signed notices, late-joiner warning, pause/resume, local audio decode/export"
     }
   },
   "publication": "pending pull request CI and release",
@@ -45,5 +55,11 @@
     "run": "https://github.com/forgesworn/kithmoot/actions/runs/38087081629",
     "passedChecks": 11,
     "remainingJob": "Chromium rest stopped at20minute limit; phone overlap and gallery-height failures reproduced and repaired"
+  },
+  "finalCiFollowup": {
+    "run": "https://github.com/forgesworn/kithmoot/actions/runs/38091050574",
+    "finding": "Chromium rest stopped at20minutes after167of168 cases; its recording test expected the combined hidden and visible label text",
+    "repair": "Assert the accessible stop name and the actually visible desktop or phone label; both full recording journeys pass. Chromium rest receives30minutes for MLS gates plus168 acceptance cases; individual test timeouts remain unchanged.",
+    "hostedQualification": "pending new final-head CI"
   }
 }

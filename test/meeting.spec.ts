@@ -175,7 +175,8 @@ test('a recording is announced to everybody, before joining as well as during, a
     await a.locator('#recordToggle').click()
     await expect(a.locator('#actionDialog')).toBeVisible()
     await a.locator('#actionConfirm').click()
-    await expect(a.locator('#recordToggle')).toHaveText('Stop recording')
+    await expect(a.locator('#recordToggle')).toHaveAttribute('aria-label', 'Stop recording')
+    await expect(a.locator('#recordToggle .callWord:visible, #recordToggle .callShort:visible')).toHaveText(/^(Stop recording|Stop)$/)
     await expect(a.locator('#recordingBanner')).toBeVisible()
     await expect(a.locator('#recordingBannerText')).toContainText('You are recording')
 
