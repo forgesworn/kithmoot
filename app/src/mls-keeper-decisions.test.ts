@@ -23,12 +23,13 @@ class MemoryTransaction implements PersonaTransaction {
 }
 async function fixture() {
   const tx = new MemoryTransaction(), records: MlsGrantRecord[] = []
-  let now = 1_000, generation = 1, foreground = true, unavailable = false, readHook: (() => void) | undefined
+  let now = 1_000, generation = 1, foreground = true, unavailable = false, readHook: (() => void) | undefined, commitHook: (() => void) | undefined
   const context = () => ({ vault: { principal: 'https://keeper.test', persona: keeper.pubkey, generation, revision: 'current' }, current: () => true, foreground: () => foreground })
   const host = { transact: async (_persona: string, work: (tx: PersonaTransaction) => Promise<unknown>, current: () => boolean) => {
     if (unavailable || !current()) return { state: 'pending', reason: 'witness-unavailable', refused: false }
     const candidate = new MemoryTransaction(new Map([...tx.vault].map(([k, v]) => [k, v.slice()])))
     const value = await work(candidate)
+    commitHook?.()
     if (!current()) return { state: 'pending', reason: 'stale', refused: false }
     tx.vault.clear(); for (const [key, value] of candidate.vault) tx.vault.set(key, value)
     return { state: 'active', value, marks: new Map() }
@@ -44,7 +45,7 @@ async function fixture() {
   const inbox = new BrowserMlsRevocationInbox(host as any, grants, context, () => now)
   return { tx, records, operation, decisions, inbox, context, restart: () => new BrowserMlsKeeperDecisions(host as any, grants, context, () => now),
     clock: (v: number) => { now = v }, changeAccount: () => { generation++ }, hide: () => { foreground = false },
-    hold: () => { unavailable = true }, onRead: (fn: () => void) => { readHook = fn } }
+    hold: () => { unavailable = true }, onRead: (fn: () => void) => { readHook = fn }, beforeCommit: (fn: () => void) => { commitHook = fn } }
 }
 
 describe('witnessed keeper operator decisions', () => {
@@ -66,6 +67,75 @@ describe('witnessed keeper operator decisions', () => {
     expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.approval).toBeUndefined()
     expect(f.records[0]!.state).toBe('active')
     await expect(f.decisions.decide(plan.value, true)).rejects.toThrow('no longer awaiting')
+  })
+  it('persists one-hour Later for the sender group and refuses a stale pending approval until that hour ends', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    const journal = await readMlsMembership(f.tx), next = structuredClone(journal.inbox!.prompts[0]!)
+    next.request.device = '34'.repeat(32); next.operation = mlsStandaloneRevocationOperation(member.pubkey, keeper.pubkey, next.request.device)
+    journal.inbox!.prompts.push(next); await saveMlsMembership(f.tx, journal)
+    const deferred = await f.decisions.defer(plan.value)
+    expect(deferred).toMatchObject({ state: 'active', value: [{ deferredUntil: 4_600, state: 'pending' }, { deferredUntil: 4_600, state: 'pending' }] })
+    expect(await f.inbox.view()).toMatchObject({ value: { prompts: [], deferred: [{ prompt: { deferredUntil: 4_600 } }] } })
+    await expect(f.restart().decide(plan.value, true)).rejects.toThrow('deferred')
+    expect(f.records[0]!.state).toBe('active')
+    f.clock(4_600)
+    const fresh = await f.restart().plan(f.operation)
+    expect(fresh).toMatchObject({ state: 'active', value: { prompt: { state: 'pending' } } })
+    if (fresh.state !== 'active') throw new Error('missing renewed plan')
+    expect(fresh.value.prompt.deferredUntil).toBeUndefined()
+    expect((await readMlsMembership(f.tx)).inbox!.promptAfter).toEqual([{ sender: member.pubkey, until: 8_200 }])
+    expect(await f.restart().decide(fresh.value, true)).toMatchObject({ state: 'active', value: { state: 'approved' } })
+  })
+  it('defers an approved prompt across restart and request expiry without losing approval or claiming cancellation', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    await f.decisions.decide(plan.value, true)
+    f.clock(1_000 + 8 * 86400)
+    const retained = await f.decisions.retained(f.operation)
+    if (retained.state !== 'active') throw new Error('missing retained approval')
+    const approval = structuredClone(retained.value.approval)
+    expect(await f.decisions.defer({ binding: f.context().vault, prompt: retained.value })).toMatchObject({ state: 'active', value: [{ state: 'approved' }] })
+    expect(await f.restart().approvals()).toMatchObject({ state: 'active', value: [] })
+    expect(await f.restart().approvals(true)).toMatchObject({ state: 'active', value: [{ state: 'approved', approval }] })
+    // Later affects prompts, not the authority of an already explicit approval.
+    expect(await f.restart().execution(f.operation)).toMatchObject({ state: 'active', value: { prompt: { state: 'approved', approval } } })
+    f.clock(1_000 + 8 * 86400 + 3_600)
+    expect(await f.restart().approvals()).toMatchObject({ state: 'active', value: [{ state: 'approved', approval }] })
+    expect(f.records[0]!.state).toBe('active')
+  })
+  it('cannot defer a replaced request, a terminal record or a different account binding', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    const altered = structuredClone(plan.value); altered.prompt.request.expiration--
+    await expect(f.decisions.defer(altered)).rejects.toThrow('retained request changed')
+    const rebound = structuredClone(plan.value); rebound.binding = { ...rebound.binding, generation: rebound.binding.generation + 1 }
+    await expect(f.decisions.defer(rebound)).rejects.toThrow('current keeper account')
+    await f.decisions.decide(plan.value, false)
+    await expect(f.decisions.defer(plan.value)).rejects.toThrow('retained request changed')
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.deferredUntil).toBeUndefined()
+  })
+  it('holds Later at an unavailable witness and rejects invalid persisted cooldown or deferral metadata', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    f.hold(); expect(await f.decisions.defer(plan.value)).toMatchObject({ state: 'pending' })
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.deferredUntil).toBeUndefined()
+    const corrupt = await fixture(), journal = await readMlsMembership(corrupt.tx)
+    journal.inbox!.promptAfter = [{ sender: member.pubkey, until: 4_601 }]
+    await expect(saveMlsMembership(corrupt.tx, journal)).rejects.toBeInstanceOf(InvalidPersonaRecord)
+    delete journal.inbox!.promptAfter; journal.inbox!.prompts[0]!.deferredUntil = 4_601
+    await expect(saveMlsMembership(corrupt.tx, journal)).rejects.toBeInstanceOf(InvalidPersonaRecord)
+    journal.inbox!.prompts[0]!.deferredUntil = 4_600; journal.inbox!.prompts[0]!.state = 'dismissed'
+    await expect(saveMlsMembership(corrupt.tx, journal)).rejects.toBeInstanceOf(InvalidPersonaRecord)
+  })
+  it.each(['account', 'foreground'] as const)('does not persist Later when %s changes before the witnessed commit', async change => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    const before = await readMlsMembership(f.tx)
+    f.beforeCommit(change === 'account' ? f.changeAccount : f.hide)
+    expect(await f.decisions.defer(plan.value)).toMatchObject({ state: 'pending', reason: 'stale' })
+    expect(await readMlsMembership(f.tx)).toEqual(before)
+    expect(f.records[0]!.state).toBe('active')
   })
   it('reopens frozen approval after expiry and completes only exact witnessed withdrawals', async () => {
     const f = await fixture(), review = await f.decisions.plan(f.operation)

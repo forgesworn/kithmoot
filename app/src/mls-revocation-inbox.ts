@@ -4,8 +4,8 @@ import { unwrapVmlsRevocationRequest, VMLS_REVOCATION_GIFT_WRAP_KIND, type VmlsR
 import { verifyEventUncached } from '../../src/verify.js'
 import { InvalidPersonaRecord, type BrowserPersonaCoordinator, type CoordinationResult, type PersonaTransaction } from './mls-persona-coordinator.js'
 import { readMlsMembership, saveMlsMembership, mlsStandaloneRevocationOperation } from './mls-membership-store.js'
-import { MAX_MLS_REVOCATION_PROMPTS, MAX_MLS_REVOCATION_SEEN, type MlsRevocationInboxState, type MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
-import { mlsRevocationInboxState } from './mls-revocation-inbox-state.js'
+import { MAX_MLS_REVOCATION_PROMPTS, MAX_MLS_REVOCATION_SEEN, MLS_KEEPER_PROMPT_SECONDS, type MlsRevocationInboxState, type MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
+import { mlsRevocationInboxState, mlsKeeperPromptAfter } from './mls-revocation-inbox-state.js'
 import { validateMlsGrant, type BrowserMlsGrantStore, type MlsGrantRecord } from './mls-grant-ledger.js'
 import { readMlsRoom, mlsRoomIds } from './mls-room-store.js'
 import { loadMlsEngine } from './mls-engine.js'
@@ -17,7 +17,7 @@ export const MAX_MLS_REVOCATION_DECRYPTIONS = 8
 export class MlsRevocationInboxFull extends Error {}
 export interface MlsRevocationInboxContext { vault: VaultContext; current(): boolean; foreground(): boolean }
 export interface MlsKeeperRequestView { prompt: MlsRevocationInboxPrompt; grants: MlsGrantRecord[]; conflict: boolean }
-export interface MlsRevocationInboxView { prompts: MlsKeeperRequestView[] }
+export interface MlsRevocationInboxView { prompts: MlsKeeperRequestView[]; deferred?: MlsKeeperRequestView[] }
 type Coordinator = Pick<BrowserPersonaCoordinator, 'transact'>
 const hex32 = /^[0-9a-f]{64}$/
 type RosterCache = Map<string, { device: string; identity: string }[]>
@@ -40,7 +40,8 @@ export class BrowserMlsRevocationInbox {
         if (grants.length) prompts.push({ prompt: structuredClone(prompt), grants: structuredClone(grants), conflict: false })
       }
       for (const item of prompts) item.conflict = state.prompts.some(other => (other.state === 'pending' || other.state === 'approved') && other.request.sender === item.prompt.request.sender && other.request.device !== item.prompt.request.device)
-      return { prompts }
+      const deferred = prompts.filter(item => item.prompt.deferredUntil !== undefined && item.prompt.deferredUntil > state.checkedAt)
+      return { prompts: prompts.filter(item => !deferred.includes(item)), ...(deferred.length ? { deferred } : {}) }
     }, current)
   }
 
@@ -86,9 +87,17 @@ export class BrowserMlsRevocationInbox {
               const operation = mlsStandaloneRevocationOperation(request.sender, request.keeper, request.device)
               const existing = state.prompts.find(item => item.operation === operation)
               if (!existing && state.prompts.length >= MAX_MLS_REVOCATION_PROMPTS) throw new MlsRevocationInboxFull('The keeper request inbox is full.')
-              if (!existing) state.prompts.push({ operation, request: structuredClone(request), receivedAt: state.checkedAt, state: 'pending' })
+              if (!existing) {
+                const until = state.promptAfter?.find(item => item.sender === request.sender)?.until
+                state.prompts.push({ operation, request: structuredClone(request), receivedAt: state.checkedAt, state: 'pending', ...(until && until > state.checkedAt ? { deferredUntil: until } : {}) })
+                if (!until || until <= state.checkedAt) mlsKeeperPromptAfter(state, request.sender, state.checkedAt + MLS_KEEPER_PROMPT_SECONDS)
+              }
               else if (existing.state !== 'done' && existing.state !== 'approved' && request.createdAt > existing.request.createdAt) {
-                existing.request = structuredClone(request); existing.receivedAt = state.checkedAt; existing.state = 'pending'
+                const pending = existing.state === 'pending', until = pending ? existing.deferredUntil : state.promptAfter?.find(item => item.sender === request.sender)?.until
+                existing.request = { ...structuredClone(request), expiration: Math.max(request.expiration, existing.request.expiration) }
+                existing.receivedAt = state.checkedAt; existing.state = 'pending'
+                if (until && until > state.checkedAt) existing.deferredUntil = until
+                else { delete existing.deferredUntil; if (!pending) mlsKeeperPromptAfter(state, request.sender, state.checkedAt + MLS_KEEPER_PROMPT_SECONDS) }
               }
             }
           }

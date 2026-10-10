@@ -254,6 +254,14 @@ export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = fal
 }
 export async function keeperRequests() { return keeperInbox().view() }
 const keeperDecisions = () => new BrowserMlsKeeperDecisions(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+export async function deferKeeperRequest() {
+  const read = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => ['pending', 'approved'].includes(prompt.state))!.operation, () => true)
+  if (read.state !== 'active') return read
+  const retained = await keeperDecisions().retained(read.value)
+  if (retained.state !== 'active') return retained
+  return keeperDecisions().defer({ binding: ctx(), prompt: retained.value })
+}
+export async function keeperApprovals(includeDeferred = false) { return keeperDecisions().approvals(includeDeferred) }
 export async function keeperDecisionPlan() {
   const result = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => prompt.state === 'pending')!.operation, () => true)
   if (result.state !== 'active') return result
