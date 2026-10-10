@@ -8,6 +8,7 @@ import type { VmlsGrantRef } from '../public/vmls-wasm/vmls_wasm.js'
 import { BrowserLinkRelay } from './browser-link-relay.js'
 import type { BrowserLink, PairedBox } from './browser-link.js'
 import { BrowserRendezvousVaultStorage, type RendezvousVaultStorage } from './rendezvous-vault.js'
+import type { MlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
 
 export const VMLS_GRANT_TERM = 30 * 86400
 export const VMLS_GRANT_CEILING = 64 * 1024 * 1024
@@ -203,12 +204,42 @@ export class BrowserMlsGrantLedger {
       record = { ...record, state: 'revoked' }; await this.store.put(record); return { record, result: 'revoked' }
     })
   }
-  async #route(record: MlsGrantRecord, keeper: ParticipantIdentity, event: Event): Promise<void> {
+  /** Exact, already-reviewed device authority. No room leaf or grace is
+   * required; the caller must witness explicit operator intent before use. */
+  async withdrawRequestedDevice(authority: MlsKeeperGrantAuthority, sender: string, device: string, current: () => boolean): Promise<MlsGrantWithdrawal> {
+    const expected = structuredClone(authority), keeper = this.#identity()
+    if (!hex32.test(sender) || !hex32.test(device) || sender === keeper.pubkey || !current()) throw new Error('Review this request in the current keeper account.')
+    const check = () => { if (!current()) throw new Error('The keeper account or foreground session changed.'); this.#identity(keeper.pubkey) }
+    return this.exclusive(`${expected.node}.${device}`, async () => {
+      check()
+      let record = (await this.store.all()).find(item => item.node === expected.node && item.device === device)
+      if (!record) throw new Error('The approved grant is no longer retained.')
+      validateMlsGrant(record)
+      if (record.issuer !== keeper.pubkey || record.persona !== sender || record.grantId !== expected.grantId ||
+          mlsGrantReference(record.node, record.grantId) !== expected.reference || record.active.id !== expected.active || record.revocation.id !== expected.revocation ||
+          record.box.routeId !== expected.box.routeId || record.box.eventUrl !== expected.box.eventUrl ||
+          record.rooms.some(use => !expected.rooms.some(reviewed => reviewed.session === use.session && reviewed.leaf === use.leaf))) {
+        throw new Error('The approved grant authority or affected rooms changed. Review the request again.')
+      }
+      check()
+      if (record.state === 'revoked') return { record, result: 'revoked' }
+      if (record.state !== 'revoking') { record = { ...record, state: 'revoking' }; await this.store.put(record) }
+      check()
+      await this.#route(record, keeper, record.revocation, check)
+      check()
+      record = { ...record, state: 'revoked' }; await this.store.put(record)
+      check()
+      return { record, result: 'revoked' }
+    })
+  }
+  async #route(record: MlsGrantRecord, keeper: ParticipantIdentity, event: Event, current: () => void = () => undefined): Promise<void> {
+    current()
     await this.link.resume(keeper.pubkey)
+    current()
     this.#identity(keeper.pubkey)
     if (!this.link.boxes().some(box => box.routeId === record.box.routeId && box.eventUrl === record.box.eventUrl)) throw new Error('The saved Bothy pairing is unavailable.')
     const relay = this.carrier(record, keeper)
-    try { await relay.publish(event) } finally { relay.close() }
+    try { current(); await relay.publish(event); current() } finally { relay.close() }
     this.#identity(keeper.pubkey)
   }
 }

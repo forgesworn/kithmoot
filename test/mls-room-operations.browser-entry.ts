@@ -21,6 +21,13 @@ import { encodeUnsignedBinding } from './vmls-encode.js'
 import { bindingDigest } from '../src/vmls/binding.js'
 import { createDeviceCredential } from '../src/credential.js'
 import { vmlsMemberGrantReference } from '../src/vmls-revocation-request.js'
+import { wrapVmlsRevocationRequest } from '../src/vmls-revocation-request.js'
+import { localIdentity } from '../src/identity.js'
+import { localPeerCrypt } from '../src/dm.js'
+import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
+import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant } from '../app/src/mls-grant-ledger.js'
+import { BrowserMlsKeeperDecisions } from '../app/src/mls-keeper-decisions.js'
+import { BrowserMlsKeeperRequestController, type MlsKeeperRequestProgress } from '../app/src/mls-keeper-request-controller.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
 
@@ -179,14 +186,15 @@ function fixturePackageClient(): BrowserMlsBoxClient {
   return new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret),
     cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, boxId, vault, ctx(), async () => 'approve', () => true)
 }
-export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient(), joined = false) {
+export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient(), joined = false, separatePerson = false) {
   const activeContext = joined ? joinContext() : roomContext(), activeRz = joined ? joinRz : persona, activeRzSecret = joined ? joinRzSecret : secret
   const wasm = await loadMlsEngine(), d = checked(await vault.credential(ctx())), guestSecret = new Uint8Array(32).fill(44), rz = hexToBytes(activeRz)
   const keeperPlatform = new wasm.Platform(hexToBytes(d.device.device), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
   guestDevice = bytesToHex(schnorr.getPublicKey(guestSecret))
   guestPlatform = new wasm.Platform(hexToBytes(guestDevice), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
-  const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', persona], ['scope', 'person'], ['device', guestDevice], ['expiration', String(clock + 7 * 86400)]] }, secret)
-  const binding = { credential: { pubkey: hexToBytes(persona), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
+  const personSecret = separatePerson ? guestSecret : secret, person = getPublicKey(personSecret)
+  const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', person], ['scope', 'person'], ['device', guestDevice], ['expiration', String(clock + 7 * 86400)]] }, personSecret)
+  const binding = { credential: { pubkey: hexToBytes(person), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
   const joining = wasm.Session.prepareCapability(guestPlatform, BigInt(clock), { binding, expiresAt: BigInt(clock + 86400), adderRz: rz, counter: 0n })
   const ask = joining.signRequest(), dh = joining.ecdhRequest()
   const made = joining.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, guestSecret), secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), dh.peerRz)).slice(1))
@@ -229,6 +237,65 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   return seen.state
 }
 export async function stageGuestWelcome(packageClient?: BrowserMlsBoxClient) { return addGuest(true, packageClient) }
+const inboxGrants = new BrowserMlsGrantStore()
+const keeperInbox = () => new BrowserMlsRevocationInbox(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = false, lifetime = 7 * 86400) {
+  const senderSecret = new Uint8Array(32).fill(wrongPerson ? 45 : 44)
+  const sender = { ...localIdentity(senderSecret), ...localPeerCrypt(senderSecret) }
+  const keeper = { ...localIdentity(secret), ...localPeerCrypt(secret) }
+  const box = { routeId: 'keeper-inbox-fixture', eventUrl: `ws://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}/events` }
+  const grant = await planMlsGrant(keeper, box, sender.pubkey, guestDevice, { session: roomId, name: 'Witnessed room', leaf: guestLeaf }, clock)
+  grant.state = 'active'
+  if (ledgerOnly) { grant.rooms = []; grant.revokeAfter = clock + 86400 }
+  await inboxGrants.put(grant)
+  const wrapper = await wrapVmlsRevocationRequest(sender, { sender: sender.pubkey, keeper: persona, device: guestDevice,
+    sessions: ['ab'.repeat(32)], boxes: ['cd'.repeat(32)], createdAt: clock, expiration: clock + lifetime })
+  return keeperInbox().receive([wrapper], keeper)
+}
+export async function keeperRequests() { return keeperInbox().view() }
+const keeperDecisions = () => new BrowserMlsKeeperDecisions(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+export async function keeperDecisionPlan() {
+  const result = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => prompt.state === 'pending')!.operation, () => true)
+  if (result.state !== 'active') return result
+  return keeperDecisions().plan(result.value)
+}
+export async function decideKeeperRequest(approve = true) {
+  const plan = await keeperDecisionPlan()
+  if (plan.state !== 'active') return plan
+  return keeperDecisions().decide(plan.value, approve)
+}
+let keeperWithdrawalFails = false, keeperProgress: MlsKeeperRequestProgress | undefined
+const keeperWithdrawals: string[] = []
+export function failKeeperWithdrawal(value: boolean) { keeperWithdrawalFails = value }
+export function keeperWithdrawalAttempts() { return keeperWithdrawals.slice() }
+const keeperController = () => {
+  const keeper = localIdentity(secret), box = { routeId: 'keeper-inbox-fixture', eventUrl: `ws://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}/events` }
+  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [box] } as any, inboxGrants,
+    () => ({ publish: async event => { keeperWithdrawals.push(event.id); if (keeperWithdrawalFails) throw new Error('fixture box withdrawal refused') }, close: () => undefined }), () => clock)
+  return new BrowserMlsKeeperRequestController(keeperDecisions(), rooms, ledger, () => ({ vault: ctx(), current: () => true, foreground: () => true }))
+}
+export async function approveKeeperRequest(failRemove = false) {
+  const plan = await keeperDecisionPlan()
+  if (plan.state !== 'active') return plan
+  const wasm = await loadMlsEngine(), original = wasm.Session.prototype.remove
+  if (failRemove) wasm.Session.prototype.remove = function () { throw { kind: 'engine', code: 'RemoveFailed' } }
+  try { return keeperProgress = await keeperController().approve(plan.value) } finally { wasm.Session.prototype.remove = original }
+}
+export async function continueKeeperRequest() {
+  const read = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => !!prompt.approval)!.operation, () => true)
+  if (read.state !== 'active') return read
+  return keeperProgress = await keeperController().advance(read.value)
+}
+export async function applyKeeperRemoval() {
+  const slot = keeperProgress?.rooms.flatMap(room => room.effect?.outbound ?? []).find((item: any) => item.destination.type === 'CommitSlot')
+  if (!slot) throw new Error('fixture keeper Remove has no commit slot')
+  return rooms.process(roomContext(), roomId, boxInput(slot, receipt(slot)))
+}
+export async function unapprovedKeeperRemoval() {
+  const plan = await keeperDecisionPlan()
+  if (plan.state !== 'active') return plan
+  return rooms.removeRequestedDevice(roomContext(), roomId, plan.value.prompt.operation, guestLeaf)
+}
 export async function receive() { return rooms.process(roomContext(), roomId, boxInput(incoming)) }
 const removalOperation = '03'.repeat(32)
 const requestRemovalOperation = '07'.repeat(32)

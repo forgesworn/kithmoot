@@ -146,3 +146,92 @@ network actions. Reopening settings requires another explicit witness check;
 a previously witnessed sent marker suppresses another send. This account
 action uses the existing development-only preview gate; production room
 composition, the keeper inbox and acceptance flow remain open.
+
+## Keeper request intake foundation
+
+`BrowserMlsRevocationInbox` accepts an already-fetched foreground batch. It has
+no network subscription, signer approval UI, membership action or grant
+withdrawal capability. Its caller must supply the current account context and
+foreground state; production imports and account UI wiring remain absent.
+
+One pass considers at most 64 candidate wraps and decrypts at most eight
+previously unseen, correctly signed, bounded keeper-addressed wraps. The
+existing protocol validates the seal, sender, recipient, rumour lifetime and
+inner identity. A fresh witnessed transaction checks replay ids before any
+signer decryption; account or foreground changes withhold late results.
+
+The encrypted membership record retains up to 256 wrap ids for nine days and
+64 stable sender/keeper/device prompts. Unanswered prompts expire with the
+seven-day request. Full journals return an ordinary capacity refusal without
+eviction or a persona fence. The inbox shares the existing membership vault
+slot and does not reduce the 60-room quota.
+
+Only the keeper's own signed grant ledger can identify affected grants;
+request-supplied session and box hints confer no authority. Every retained
+room owned by this keeper is checked against its genuine witnessed WASM snapshot,
+even when the signed grant's saved room list is empty or stale.
+A device currently bound to another person is silently excluded. Missing
+room state must be restored before a prompt can be displayed. A signed grant
+without any remaining room use can still yield a ledger-only prompt.
+Different target devices requested by one sender are flagged as conflicting.
+Reading a prompt revalidates both the ledger and roster; it never means that
+the keeper has accepted or performed anything.
+
+Unit checks cover malformed/forged wraps, issuer/person/device mismatches,
+signer work limits, expiry, clock rollback, capacity, duplicate grant rows,
+unavailable witnesses and account/foreground changes during decryption.
+Real-WASM Chromium, Firefox and WebKit cases cover a signed ledger entry
+conflicting with the actual roster, a valid request, ledger-only intake and
+retention across coordinator restart. These use simulated witnesses and
+local NIP-44 identities. Network fetching, the operator prompt and explicit
+acceptance, live relay and authenticated production-browser acceptance remain
+open. Intake cannot clear the existing compromised-device hold or mark a
+grant revoked; production MLS remains disabled.
+
+## Keeper decision and advancement foundation
+
+`BrowserMlsKeeperDecisions` separately reviews the actual keeper-owned room
+snapshots and all matching signed grants. Explicit approval freezes exact
+active and withdrawal event ids, canonical box routes and grant references,
+room rendezvous bindings and device leaves in the witnessed membership record.
+An explicit dismissal stores no approval and causes no external effect. A
+fresh transaction must reproduce the reviewed plan before either decision is
+saved. Pending and approved requests for different devices of one sender are
+flagged together; this channel cannot prove which device sent the request.
+
+An approval survives request expiry and restart. Every advancement rechecks
+all current keeper-owned rosters and resolves only the frozen grant authority;
+new grants or leaves, changed credentials and missing snapshots refuse the old
+scope. Retained approvals have a separate witnessed listing so failed work
+stays visible even after grants are revoked. That listing confers no authority
+to perform an effect.
+
+`BrowserMlsKeeperRequestController` composes explicit approval or retry with
+the existing room and grant journals. Receiver-side Remove creation verifies
+the saved approval in the same witnessed transaction as the engine journal.
+Send/Add is held from approval while the device remains in an affected roster,
+including before a Remove journal exists, after expiry or a box failure, and
+if a ledger-only room later becomes active. Own Update and normal delivery
+remain possible so the existing driver can progress an engine-required Update.
+The room driver still delivers and acknowledges the persisted MLS outbox.
+
+Each exact device grant is marked `revoking` before its saved signed withdrawal
+is published, without the normal 24-hour grace. A refused or uncertain reply
+retains the approval and exact statement for retry. Account or foreground
+changes stop further work and withhold terminal claims. A failed MLS Remove
+does not delay these withdrawals. Room commits, ledger-only handling and box
+withdrawals are reported separately; a journal update cannot invent a revoked
+grant. Completion requires a fresh witness, exact retained grant outcomes and
+committed engine journals where they exist. Confirmed terminal grants are not
+republished.
+
+Local signed-ledger tests cover witness refusal, exact retry, restart after
+expiry, duplicate retry coalescing and account changes during publication.
+Real-WASM cases cover approval and dismissal, send holds before journalling,
+refused withdrawal followed by committed Remove and restart, failed Remove
+with immediate withdrawal, and a ledger-only request with no fabricated Remove.
+Box publication uses an injected local carrier and the witness is simulated.
+There is no relay fetcher or operator UI in this foundation. Scope replacement,
+pruned-grant completion, forgotten-route terminal handling, deferred prompts,
+live relay, authenticated app, process-kill and physical acceptance remain open.
+Production MLS remains disabled.
