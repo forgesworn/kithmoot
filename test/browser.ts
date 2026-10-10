@@ -472,7 +472,13 @@ export async function expectToSeeAndHear(page: Page, who: string): Promise<void>
   // Wired up for sound. This half holds whatever the microphone is doing:
   // the element is what the bug removed, and its absence is what made the
   // room silent.
-  expect(await page.evaluate(remoteAudioCount), `${who} has no remote <audio> element`).toBeGreaterThan(0)
+  // Audio can finish its own renegotiation after the camera is already
+  // carrying frames. Wait for its sink just as we wait for the video sink;
+  // a permanently missing element still fails, and decoded sound is checked
+  // separately below.
+  await expect.poll(() => page.evaluate(remoteAudioCount), {
+    message: `${who} has no remote <audio> element`, timeout: 30_000,
+  }).toBeGreaterThan(0)
 
   // Actually carrying sound. `totalAudioEnergy` is reported for audio that
   // reached a sink, so it stays at exactly zero when nothing was attached -
