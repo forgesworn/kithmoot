@@ -1,5 +1,5 @@
 /**
- * The home list's sections: Pinned, Unread, Recent, Older and Ended.
+ * The home list's sections: Pinned, Unread, Recent, Older, Other rooms and Ended.
  *
  * docs/2026-10-05-room-list-sections.md is the design, shared with the
  * Android app, which groups its list by the same rules. A short list, or a
@@ -7,15 +7,16 @@
  * first, and a search never hides a match behind a closed fold.
  */
 
-export type RoomSection = 'pinned' | 'unread' | 'recent' | 'older' | 'ended'
+export type RoomSection = 'pinned' | 'unread' | 'recent' | 'older' | 'other' | 'ended'
 
-export const SECTION_ORDER: readonly RoomSection[] = ['pinned', 'unread', 'recent', 'older', 'ended']
+export const SECTION_ORDER: readonly RoomSection[] = ['pinned', 'unread', 'recent', 'older', 'other', 'ended']
 
 export const SECTION_LABELS: Record<RoomSection, string> = {
   pinned: 'Pinned',
   unread: 'Unread',
   recent: 'Recent',
   older: 'Older',
+  other: 'Other rooms',
   ended: 'Ended',
 }
 
@@ -41,6 +42,9 @@ export function sectionOf(facts: SectionFacts, now: number): RoomSection {
   if (facts.pinned) return 'pinned'
   if (facts.ended) return 'ended'
   if (facts.unread > 0) return 'unread'
+  // Unknown message time must not hide a new or unavailable conversation
+  // behind the default Older fold, or invent activity from its read clock.
+  if (facts.activity <= 0) return 'other'
   return facts.activity >= now - RECENT_SECONDS ? 'recent' : 'older'
 }
 

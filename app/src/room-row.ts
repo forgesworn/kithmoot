@@ -12,25 +12,23 @@ export interface ActivityMessage {
   sentAt: number
 }
 
-/** The moment a room last had something happen in it: the newest message
- *  this device can read, or - with none, or none this device holds the key
- *  for - the last time this device opened it. Rooms never reorder on their
- *  own while the list has focus or the pointer in it; that is enforced by
- *  the caller, not here. */
-export function activityAt(room: { openedAt?: number }, messages: readonly ActivityMessage[]): number {
+/** Latest readable message time. Opening a room is a read action, not new
+ * conversation activity. Zero means no readable message time is known. */
+export function activityAt(_room: { openedAt?: number }, messages: readonly ActivityMessage[]): number {
   let latest = 0
   for (const message of messages) if (message.sentAt > latest) latest = message.sentAt
-  return Math.max(latest, room.openedAt ?? 0)
+  return latest
 }
 
 /** Newest activity first, like Signal and WhatsApp - not alphabetical. */
-export function sortByActivity<T>(rooms: readonly T[], activityOf: (room: T) => number): T[] {
-  return [...rooms].sort((a, b) => activityOf(b) - activityOf(a))
+export function sortByActivity<T extends { roomId: string }>(rooms: readonly T[], activityOf: (room: T) => number): T[] {
+  return [...rooms].sort((a, b) => activityOf(b) - activityOf(a) || a.roomId.localeCompare(b.roomId))
 }
 
 /** en-GB time for a row's second line: today's clock time, `Yesterday`,
  *  a weekday out to six days, then `19 Sept`. */
 export function formatActivityTime(seconds: number, now: number = Date.now() / 1000): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
   const at = new Date(seconds * 1000)
   const today = new Date(now * 1000)
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()

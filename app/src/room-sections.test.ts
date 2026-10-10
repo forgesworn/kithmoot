@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RECENT_SECONDS, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type SectionFacts } from './room-sections.js'
+import { FOLDABLE, RECENT_SECONDS, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type SectionFacts } from './room-sections.js'
 
 const now = 1_800_000_000
 const facts = (overrides: Partial<SectionFacts> = {}): SectionFacts => ({ pinned: false, ended: false, unread: 0, activity: now, ...overrides })
@@ -18,6 +18,12 @@ describe('sectionOf', () => {
   it('splits recent from older at seven days', () => {
     expect(sectionOf(facts({ activity: now - RECENT_SECONDS }), now)).toBe('recent')
     expect(sectionOf(facts({ activity: now - RECENT_SECONDS - 1 }), now)).toBe('older')
+  })
+  it('keeps rooms without readable message times outside the default folds', () => {
+    expect(sectionOf(facts({ activity: 0 }), now)).toBe('other')
+    expect(FOLDABLE.other).toBeUndefined()
+    const rooms = Array.from({ length: 12 }, (_, i) => i)
+    expect(groupRooms(rooms, () => 'other', false)).toEqual([{ section: 'other', rooms }])
   })
 })
 
