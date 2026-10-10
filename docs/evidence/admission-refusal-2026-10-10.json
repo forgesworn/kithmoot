@@ -1,0 +1,36 @@
+{
+  "testedBase": "e7efc73",
+  "foldKitSource": "dc51766b7e6a141d5ba8aa0e5421df86432a7412",
+  "foldKitVersion": "0.12.0",
+  "unitTests": 3788,
+  "unitFiles": 269,
+  "browserTests": 60,
+  "browserProjects": [
+    "firefox",
+    "webkit",
+    "chromium",
+    "chromium-desktop"
+  ],
+  "typecheckPassed": true,
+  "syntheticOnly": true,
+  "productionPublication": false,
+  "physicalAcceptance": false,
+  "fullG17Acceptance": false,
+  "remainingBeforeBrowserRelease": [
+    "Final-head hosted CI and review",
+    "Merge, release and publication verification"
+  ],
+  "remainingG17": [
+    "Guest preview, cancel, offline/reconnecting states",
+    "Admission from another conversation",
+    "Complete browser/native admission journeys",
+    "Unfamiliar guest/host and physical acceptance"
+  ],
+  "browserDurationDisplay": "60 passed (3.3m)",
+  "writeGuardUnitCases": 20,
+  "delayedSocketWritesGuarded": true,
+  "backgroundPublicationCancelledAfterFirstAck": true,
+  "authenticationPreservedAndWithdrawalTested": true,
+  "delegationAndRoomExpiryGuarded": true,
+  "sourceHashProof": "final-web-source-hashes.json"
+}

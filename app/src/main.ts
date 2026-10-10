@@ -1,3 +1,4 @@
+import { prepareInvitationRefusal, type InvitationRefusalAttempt } from './invitation-refusal.js'
 import { ParticipantCard } from './participant-card.js'
 import { ChatArtPicker } from './chat-art-picker.js'
 import { catalogueArtwork } from './media-catalogue.js'
@@ -132,6 +133,7 @@ import {
   deriveInvitationId,
   hostRoomInvitation,
   requestRoomAdmissionCapability,
+  InvitationDeclinedError,
   requestPersistentRoomAdmission,
   encodePersistentInvitation,
   deriveChannel,
@@ -1898,8 +1900,8 @@ function setKeepRoomChoice(on: boolean): void {
 // A temporary room's link makes a newcomer ask, and any device in the room
 // holding the invitation answers. With this switch on, that device asks its
 // owner first: a card names who is asking, with Let in and Decline. There is
-// no refusal on the wire; a declined person sees the room not answer, and
-// the door tells them somebody has to accept them. Remembered per room on
+// an explicit decline sends a request-bound encrypted refusal. Publication
+// failure remains visible and retry sends the same response. Remembered per room on
 // this device, because it is this device's owner who is asked.
 // ---------------------------------------------------------------------------
 
@@ -1927,6 +1929,8 @@ interface Knock extends InvitationRequest {
   roomId: string
   kind: 'invitation' | 'member'
   state: 'waiting' | 'sending' | 'failed'
+  declining?: boolean
+  refusal?: InvitationRefusalAttempt
   timer?: ReturnType<typeof setTimeout>
   resolve: (yes: boolean) => void
 }
@@ -1974,8 +1978,15 @@ function askAboutUnknown(asking: RoomSession, asker: { participant: string; devi
 
 function answerKnock(knock: Knock, yes: boolean): void {
   if (knocks.get(knock.request) !== knock || knock.state !== 'waiting') return
-  if (knock.roomId !== currentRoomId()) yes = false
-  if (knock.participant && contactIsBlocked(knock.participant)) yes = false
+  if (knock.roomId !== currentRoomId() || (knock.participant && contactIsBlocked(knock.participant))) {
+    knocks.delete(knock.request); clearTimeout(knock.timer); knock.resolve(false); renderApprovals(); return
+  }
+  if (!yes && knock.kind === 'invitation') {
+    knock.declining = true
+    knock.resolve(false) // The legacy host hook must not send a grant.
+    void sendKnockRefusal(knock)
+    return
+  }
   if (yes && knock.kind === 'invitation') knock.state = 'sending'
   else {
     knocks.delete(knock.request)
@@ -1988,6 +1999,41 @@ function answerKnock(knock: Knock, yes: boolean): void {
       : `You approved ${knockLabel(knock)}’s access from this device.`
     : `You declined ${knockLabel(knock)}.`)
   if (yes && knock.kind === 'invitation') setStatus(`Sending the invitation to ${knockLabel(knock)}…`, 'progress')
+  renderApprovals()
+}
+
+async function sendKnockRefusal(knock: Knock): Promise<void> {
+  if (knocks.get(knock.request) !== knock || knock.state === 'sending' || !knock.declining) return
+  knock.state = 'sending'
+  setStatus(`Sending the refusal to ${knockLabel(knock)}…`, 'progress')
+  renderApprovals()
+  try {
+    if (!knock.refusal) {
+      const invitation = roomInvitationCapability, transport = invitationTransport, authority = invitationAuthoritySk
+      const delegation = invitationDelegation
+      const decidingSession = session, generation = roomGeneration, epoch = decidingSession?.epoch
+      if (!invitation || !transport || !authority) throw new Error('The invitation is no longer available.')
+      knock.refusal = prepareInvitationRefusal({ invitation, transport, inviterSk: authority,
+        delegation, requester: knock.device, request: knock.request,
+        expiresAt: Math.min(knock.at + KNOCK_WAIT_MS / 1000, roomEndsAt ?? Infinity), now: nowSeconds,
+        stillCurrent: () => knocks.get(knock.request) === knock && currentRoomId() === knock.roomId &&
+          roomGeneration === generation && session === decidingSession && session?.epoch === epoch &&
+          roomInvitationCapability === invitation && invitationTransport === transport &&
+          invitationAuthoritySk === authority && invitationDelegation === delegation &&
+          !decidingSession?.closed && (roomEndsAt === undefined || nowSeconds() < roomEndsAt) &&
+          !(knock.participant && contactIsBlocked(knock.participant)),
+      })
+    }
+    await knock.refusal.send()
+    if (knocks.get(knock.request) !== knock) return
+    knocks.delete(knock.request); clearTimeout(knock.timer)
+    addSystemLine(`You declined ${knockLabel(knock)}. A relay accepted the refusal.`)
+    setStatus(`Refusal sent to ${knockLabel(knock)}.`, 'done')
+  } catch {
+    if (knocks.get(knock.request) !== knock || knock.roomId !== currentRoomId()) return
+    knock.state = 'failed'
+    setStatus('The refusal was not confirmed. The guest may still have received it; retry sends the same refusal.')
+  }
   renderApprovals()
 }
 
@@ -8395,8 +8441,8 @@ function renderApprovals(): void {
     else who.append(knock.name ?? 'Somebody')
     who.append(' wants to join.')
     const status = card.querySelector<HTMLElement>('.knockStatus')!
-    const statusText = knock.state === 'sending' ? 'Sending invitation…'
-      : knock.state === 'failed' ? 'Invitation could not be sent. Check your connection and ask the guest to retry.' : ''
+    const statusText = knock.state === 'sending' ? knock.declining ? 'Sending refusal…' : 'Sending invitation…'
+      : knock.state === 'failed' ? knock.declining ? 'Refusal was not confirmed. The guest may still have received it.' : 'Invitation could not be sent. Check your connection and ask the guest to retry.' : ''
     if (status.textContent !== statusText) status.textContent = statusText
     const options = card.querySelector<HTMLElement>('.options')!
     if (knock.state === 'failed' && card.dataset.state !== 'failed') {
@@ -8411,6 +8457,11 @@ function renderApprovals(): void {
         renderApprovals()
       })
       options.append(dismiss)
+      if (knock.declining) {
+        const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry decline'
+        retry.addEventListener('click', () => { void sendKnockRefusal(knock) })
+        options.append(retry)
+      }
     }
     for (const button of options.querySelectorAll<HTMLButtonElement>('button')) button.disabled = knock.state === 'sending'
     card.dataset.state = knock.state
@@ -17440,6 +17491,7 @@ roomArrival
   .catch(showArrivalFailure)
 
 function showArrivalFailure(err: unknown): void {
+  const declined = err instanceof InvitationDeclinedError
   const reason = describeError(err)
   let valid = false
   try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
@@ -17466,8 +17518,10 @@ function showArrivalFailure(err: unknown): void {
   const retired = ended || reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
   if (ended) markLinkEnded(location.href)
-  $('arrivalTitle').textContent = ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
-  $('arrivalLead').textContent = conference
+  $('arrivalTitle').textContent = declined ? 'Your request was declined' : ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
+  $('arrivalLead').textContent = declined
+    ? 'Someone in the room declined this request. Ask them before trying again. Your details are still on this device.'
+    : conference
     ? `${reason} Nobody can join it any more.`
     : ended
     ? 'It was ended by the person who started it, so nobody can join it any more.'
