@@ -297,6 +297,7 @@ test('an unavailable witness hides older request actions and never reaches the d
 test('account change during directory lookup clears retained identifiers and prevents publication', async ({ context }) => {
   const f = await deviceFixture(context); await f.page.evaluate('P.seedRevocation()')
   await f.button('RevocationRead').click(); await f.page.evaluate('P.holdDirectory()')
+  await expect(f.page.getByRole('button', { name: 'Send request to keeper' })).toBeEnabled()
   await f.page.evaluate(() => {
     const button = document.querySelector<HTMLButtonElement>('[data-mls-standalone-request] button')!
     button.click(); button.click()
