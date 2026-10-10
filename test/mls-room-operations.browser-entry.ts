@@ -195,13 +195,15 @@ function fixturePackageClient(timeoutMs = 20_000): BrowserMlsBoxClient {
   return new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret),
     cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, boxId, vault, ctx(), async () => 'approve', () => true, timeoutMs)
 }
-export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient(), joined = false, separatePerson = false, retryUncertain = true) {
+let pendingCandidateSlot: any, competingCandidateSlot: any
+export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient(), joined = false, separatePerson = false, retryUncertain = true, proposalOnly = false, competing = false, competingUpdate = false) {
   const activeContext = joined ? joinContext() : roomContext(), activeRz = joined ? joinRz : persona, activeRzSecret = joined ? joinRzSecret : secret
-  const wasm = await loadMlsEngine(), d = checked(await vault.credential(ctx())), guestSecret = new Uint8Array(32).fill(44), rz = hexToBytes(activeRz)
+  const previousGuest = competing ? guest : undefined, previousPlatform = competing ? guestPlatform : undefined
+  const wasm = await loadMlsEngine(), d = checked(await vault.credential(ctx())), guestSecret = new Uint8Array(32).fill(competing ? 46 : 44), rz = hexToBytes(activeRz)
   const keeperPlatform = new wasm.Platform(hexToBytes(d.device.device), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
   guestDevice = bytesToHex(schnorr.getPublicKey(guestSecret))
   guestPlatform = new wasm.Platform(hexToBytes(guestDevice), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
-  const personSecret = separatePerson ? guestSecret : secret, person = getPublicKey(personSecret)
+  const personSecret = separatePerson ? new Uint8Array(32).fill(44) : secret, person = getPublicKey(personSecret)
   const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', person], ['scope', 'person'], ['device', guestDevice], ['expiration', String(clock + 7 * 86400)]] }, personSecret)
   const binding = { credential: { pubkey: hexToBytes(person), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
   const joining = wasm.Session.prepareCapability(guestPlatform, BigInt(clock), { binding, expiresAt: BigInt(clock + 86400), adderRz: rz, counter: 0n })
@@ -212,6 +214,27 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   const introPending = wasm.prepareIntroduction(keeperPlatform, BigInt(clock), rz, 0n), req = introPending.request()
   const intro = introPending.complete(BigInt(clock), req.operation, secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
   const capabilityEnvelope = made.step.outbound[0].envelope
+  if (competing) {
+    if (!previousGuest) throw new Error('fixture competing commit needs an existing different roster device')
+    const made = await host.transact(persona, async tx => {
+      const saved = await tx.readSession(roomId)
+      if (!saved) throw new Error('fixture competitor has no snapshot')
+      saved.plaintext.fill(0)
+      try {
+        let step: any
+        if (competingUpdate) {
+          const device = getPublicKey(new Uint8Array(32).fill(44)), person = getPublicKey(new Uint8Array(32).fill(44))
+          const credential = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', person], ['scope', 'person'], ['device', device], ['expiration', String(clock + 7 * 86400)]] }, new Uint8Array(32).fill(44))
+          const request = previousGuest.prepareUpdate(BigInt(clock), { credential: { pubkey: hexToBytes(person), createdAt: BigInt(clock), tags: credential.tags, content: '', sig: hexToBytes(credential.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) })
+          step = previousGuest.completeUpdate(BigInt(clock), request.operation, schnorr.sign(request.digest, new Uint8Array(32).fill(44)))
+        } else step = previousGuest.add(BigInt(clock), [intro.openCapability(BigInt(clock), capabilityEnvelope)])
+        step.snapshot?.plaintext.fill(0)
+        return step.outbound.find((item: any) => item.destination.type === 'CommitSlot')
+      } finally { previousGuest.free(); previousPlatform.free() }
+    }, () => true)
+    if (made.state !== 'active') throw new Error('fixture competitor has no witnessed predecessor')
+    competingCandidateSlot = made.value
+  }
   const opened = intro.openCapability(BigInt(clock), capabilityEnvelope)
   candidatePrepared = true
   await candidateStartPause
@@ -225,6 +248,7 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
     throw new Error('fixture add held')
   }
   const slot = added.value.outbound.find((o: any) => o.destination.type === 'CommitSlot')
+  if (proposalOnly) { pendingCandidateSlot = slot; return added.state }
   const applied = await rooms.process(activeContext, roomId, boxInput(slot, receipt(slot)))
   if (applied.state !== 'active') throw new Error('fixture add not applied')
   const welcome = applied.value.outbound.find((o: any) => o.destination.type === 'Welcome')
@@ -269,6 +293,24 @@ export function beginCandidateAdd(conflict = false, timeoutMs = 20_000, retryUnc
 }
 export async function finishCandidateAdd() { return candidateAddTask }
 export function invalidateCandidateAdd() { rooms.invalidate() }
+export async function proposeCandidateAdd(conflict = false) { return addGuest(true, fixturePackageClient(), false, !conflict, true, true) }
+export async function proposeCompetingCandidateAdd() { return addGuest(true, fixturePackageClient(), false, true, true, true, true) }
+export async function proposeLosingCandidateAdd() { return addGuest(true, fixturePackageClient(), false, true, true, true, true, true) }
+export async function applyCandidateAdd() { return rooms.process(roomContext(), roomId, boxInput(pendingCandidateSlot, receipt(pendingCandidateSlot))) }
+export async function applyCompetingCandidateAdd() { return rooms.process(roomContext(), roomId, boxInput(competingCandidateSlot, receipt(competingCandidateSlot))) }
+export async function redepositCandidateAdd() {
+  const state = await rooms.driverState(roomContext(), roomId)
+  if (state.state !== 'active') return state
+  const slot = pendingCandidateSlot, labelled = { ...slot, destination: { ...slot.destination, attempt: slot.destination.attempt + 1 } }
+  const result = await rooms.drive(roomContext(), roomId, { generation: state.value.generation, homeBox: boxId, installation },
+    { type: 'slot', attempt: slot.destination.attempt, status: 'Void', receipt: receipt(labelled) })
+  if (result.state === 'active') pendingCandidateSlot = result.value.outbound.find((item: any) => item.destination.type === 'CommitSlot')
+  return result
+}
+export async function pendingAddRecords() { return host.transact(persona, async tx => (await readMlsRoom(tx, roomId)).pendingAdds, () => true) }
+export async function removePendingAddRoutes(legacy = false) {
+  return host.transact(persona, async tx => { const room = await readMlsRoom(tx, roomId); if (legacy) delete room.pendingAdds; else delete room.packages; await saveMlsRoom(tx, room) }, () => true)
+}
 const inboxGrants = new BrowserMlsGrantStore()
 const keeperInbox = () => new BrowserMlsRevocationInbox(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
 export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = false, lifetime = 7 * 86400) {

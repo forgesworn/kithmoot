@@ -8,7 +8,7 @@ export interface MlsKeeperRequestProgress {
   state: 'approved' | 'done'
   rooms: { session: string; operation: string; state: 'pending' | 'committed' | 'ledger-only' | 'absent'; failure?: string; effect?: MlsRemovalEffect }[]
   grants: { node: string; reference: string; state: 'pending' | 'revoked' | 'unavailable' | 'no-live'; access?: 'unconfirmed'; failure?: string }[]
-  completion?: 'awaiting-grant-install-hold'
+  completion?: 'awaiting-grant-install-hold' | 'awaiting-pending-add-readback' | 'awaiting-legacy-add-proof'
 }
 type Operations = Pick<BrowserMlsRoomOperations, 'removeRequestedDevice' | 'driveRemoval' | 'membership' | 'retryRemoval' | 'setRemovalGrants'>
 const failure = (error: unknown): string => error instanceof Error ? error.message : 'The operation could not be confirmed.'
@@ -54,9 +54,11 @@ export class BrowserMlsKeeperRequestController {
     const roomContext = (rendezvousKey: string): MlsRoomContext => ({ vault: { ...binding }, rendezvousKey, current })
     // Record each exact Remove intent before attempting proposals. Approval
     // itself already holds Send/Add if a journal cannot yet be written.
-    for (const intent of plan.prompt.approval!.rooms) {
-      const row: MlsKeeperRequestProgress['rooms'][number] = { session: intent.session, operation: intent.operation, state: intent.action === 'ledger-only' ? 'ledger-only' : 'absent' }
+    for (const frozen of plan.prompt.approval!.rooms) {
+      const intent = plan.rooms.find(room => room.operation === frozen.operation) ?? frozen
+      const row: MlsKeeperRequestProgress['rooms'][number] = { session: intent.session, operation: intent.operation, state: intent.action === 'pending-add' ? 'pending' : intent.action === 'ledger-only' ? 'ledger-only' : 'absent' }
       progress.rooms.push(row)
+      if (intent.action === 'pending-add') { progress.completion = 'awaiting-pending-add-readback'; continue }
       if (intent.action === 'ledger-only' || progress.state === 'done') continue
       try {
         plan = await execution()
@@ -99,7 +101,7 @@ export class BrowserMlsKeeperRequestController {
         plan = await execution()
         if (!plan.revoked.includes(authority.reference)) throw new Error('The exact grant withdrawal is not confirmed in the keeper ledger.')
         row.state = 'revoked'
-        for (const intent of plan.prompt.approval!.rooms.filter(item => item.action === 'remove' && item.member.homeBox === authority.node)) {
+        for (const intent of plan.prompt.approval!.rooms.filter(item => (item.action === 'remove' || item.pendingAdd) && item.member.homeBox === authority.node)) {
           const context = roomContext(intent.rendezvousKey), statuses = await this.operations.membership(context, intent.session)
           check()
           if (statuses.state !== 'active') continue
@@ -113,7 +115,8 @@ export class BrowserMlsKeeperRequestController {
     }
     plan = await execution()
     if (progress.grants.every(grant => grant.state !== 'pending') && progress.rooms.every(room => room.state !== 'pending')) {
-      if (plan.lapsed.length) progress.completion = 'awaiting-grant-install-hold'
+      if (plan.unresolvedLegacyAddRooms?.length || plan.prompt.approval!.unresolvedLegacyAddRooms?.length) progress.completion = 'awaiting-legacy-add-proof'
+      else if (plan.lapsed.length) progress.completion = 'awaiting-grant-install-hold'
       else {
         const done = await this.decisions.complete(operation)
         check()
