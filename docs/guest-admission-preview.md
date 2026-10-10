@@ -38,3 +38,9 @@ preview parity, anonymous temporary-meeting creation, admission while a host
 views another conversation, and unfamiliar-person/physical-device acceptance
 remain separate work. Browser emulation and synthetic media do not establish
 physical camera, microphone, suspension or mobile permission behaviour.
+
+The [automation receipt](evidence/guest-admission-preview-2026-10-10.json) records
+the tested revisions and scopes: current-main type checking and 3,843 unit
+cases, the wider admission regression, final preview/private-room checks in
+four browser projects, direct outbound-event/peer-media checks and light/dark
+phone measurements. Physical acceptance and production publication remain open.
