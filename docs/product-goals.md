@@ -288,6 +288,11 @@ only an explicitly selected Off permits raw capture. This does not complete G8:
 Android masking, physical-device interruptions, temporary admission/storage,
 agent retention and authoritative teardown still need their full journeys.
 
+The browser voice-mask fix is [published and verified](evidence/voice-mask-publication-2026-10-10.json)
+from web main `5a59381`: all twelve hosted checks passed, deployed assets match,
+and a fresh phone-sized browser loaded the public home. That home check uses
+blocked relays and does not prove a live call or physical-device interruption.
+
 ## G9 — One workspace for projects, people and remote agent work
 
 Make KithMoot the single daily control surface across all of a person's
@@ -313,9 +318,11 @@ The [cross-project Inbox/Work receipt](evidence/workspace-inbox-2026-10-10.json)
 records browser navigation through three deliberately admitted projects: agent
 questions and exact-result reviews, human mentions and replies, source routing,
 project filters and retained drafts. The PWA uses bounded read-only activity and
-the originating room controls for signed decisions. Native Android parity,
-fresh-device summary delivery, older work coverage, live execution and physical
-acceptance remain open; this does not complete G9.
+the originating room controls for signed decisions. Android 0.6.77 now supplies native Inbox/All work views and originating-room
+routing, with its own JVM/emulator checks and [verified production channels](evidence/android-0.6.77-publication-2026-10-10.json).
+Combined signed-project/call acceptance, fresh-device summaries, older work
+coverage, live execution and physical acceptance remain open; this does not
+complete G9.
 
 ### Proposed navigation
 

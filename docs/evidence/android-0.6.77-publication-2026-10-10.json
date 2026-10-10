@@ -1,0 +1,133 @@
+{
+  "version": "0.6.77",
+  "versionCode": 100,
+  "signedApk": {
+    "sourceCommit": "e4b080cb37acfdeb5e1d204bb28291971a4f545d",
+    "unsignedSha256": "09bf3b256aa81f404ea0fe323b486bfa72cc8c93698ff5e6d26f8b9bf0aed466",
+    "unsignedBytes": 79290262,
+    "tests": {
+      "protocol": {
+        "tests": 392,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "appDebug": {
+        "tests": 1847,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "appRelease": {
+        "tests": 1847,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "sourceFilesVerified": 1203,
+    "versionName": "0.6.77",
+    "versionCode": 100,
+    "apkSha256": "8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234",
+    "apkBytes": 79305374,
+    "ownerCertificateVerified": true,
+    "signatureSchemes": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "published": false,
+    "physicalAcceptance": false
+  },
+  "mergedSource": {
+    "testedBuildCommit": "e4b080cb37acfdeb5e1d204bb28291971a4f545d",
+    "mergedCommit": "26a043ddf02ae0e706e904f87cfbb4bbf6fb665b",
+    "tree": "aedb36d8a6b2b64a39ffe402c01350c3f2502478",
+    "exactTreeMatch": true
+  },
+  "github": {
+    "channel": "GitHub",
+    "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.77/kithmoot-0.6.77-production.apk",
+    "apkSha256": "8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234",
+    "apkBytes": 79305374,
+    "exactSignedArtifactMatch": true,
+    "physicalAcceptance": false
+  },
+  "zapstore": {
+    "verifiedAt": "2026-10-10T05:03:24.946Z",
+    "relay": "wss://relay.zapstore.dev",
+    "eoseReceived": true,
+    "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+    "packageId": "dev.forgesworn.kithmoot",
+    "version": "0.6.77",
+    "versionCode": 100,
+    "channel": "main",
+    "applicationEventId": "1ca760246e1df482eebd8656f8cac5c023241e58d6c181187e63561a3b03c092",
+    "releaseEventId": "4656e5b24f1f6997c38ab85ddf2c702b43437240cb0df1ffd09790571705af77",
+    "assetEventId": "53c77ab91055bea62b48ab2b191a4d9e3cf6ade3d8ec7ca1efffe9d60c836f4e",
+    "releaseCreatedAt": "2026-10-10T05:01:54.000Z",
+    "nostrSignaturesVerified": true,
+    "releaseReferencesVerifiedAsset": true,
+    "apk": {
+      "url": "https://cdn.zapstore.dev/8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234",
+      "bytes": 79305374,
+      "sha256": "8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234",
+      "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+      "publicDownloadVerified": true
+    },
+    "published": true,
+    "physicalAndroidAcceptance": false,
+    "zapstoreClientAcceptance": false
+  },
+  "websitePublished": true,
+  "physicalAndroidAcceptance": false,
+  "zapstoreClientAcceptance": false,
+  "website": {
+    "deployedRelease": "/var/www/kithmoot/releases/20261010T052716Z",
+    "sourceCommit": "5a593810493c2e871170930643d76cffce33cb25",
+    "remoteFilesVerified": 305,
+    "httpFilesVerified": 13,
+    "apk": {
+      "path": "/var/www/kithmoot/apk/kithmoot-0.6.77-production.apk",
+      "sha256": "8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234",
+      "bytes": 79305374
+    },
+    "httpSha256": {
+      "index.html": "57c15574d578de551cee11ebeafc38262072b0728a91544fd74a8b4ac05d77f8",
+      "downloads/index.html": "cfee20bd144ed2e13c816c3522d90f014885c101890ffa4010ada0e13665761c",
+      "android-release.json": "5823fd9cac4d8e9c42dc99faad05e14fa7d96e22a7b4c4e2b6a921f4c8cc9c5c",
+      "android-release.json.sig": "f6376caeb2355971e518df3d4b5ce3665d963142f7b0c286c77a8cd66600086f",
+      "downloads/release.json": "75b62ba1c3418b25c0e2b9da5f0ade5d224e386dd8b8c5c2736f2dc39937b824",
+      "downloads/release.json.sig": "062d0efa01a09ac21c17c78108ae0f8c7148c99fd170857f0a69c913fa723f38",
+      "downloads/versions.json": "cb3417dc87b967fd2373723d2742605f85ff825302200d66e992bb5eca5e6d45",
+      "j/index.html": "075eae329559a3692f96a6ca17c15b651f8d6cd8252b13f81bc0cc0021c09d5b",
+      "j/sw.js": "d1ea992b0e56b8a07a7e4694dcf4235fa6fa4ea5eb9557ca75452970b2ec4370",
+      "j/voice-worklet.js": "27db35c2dbdca12611cad6248f766ecc7ac5683fabc6b6f69b444c8026fc4c77",
+      "j/assets/index-DK-tI44V.js": "39f7c0dfb545bfd27716d8fbf8bbbfeace9c9dfde5ae5a1342476d0b7cd2e5d8",
+      "j/assets/index-DHp9En8m.css": "c679923b215ba563e2cbcb9c1ab7941597f4794be22e3e1854134619f423338b",
+      "j/manifest.webmanifest": "ee59592fae43776c378d5cd6d321463fb98b5ac54896a3521e0f9069ff6e0f61"
+    },
+    "physicalAcceptance": false
+  },
+  "publicBrowser": {
+    "publicWebsiteStatus": 200,
+    "publicAppStatus": 200,
+    "version": "0.6.77",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "homeVisible": true,
+    "actionsVisible": true,
+    "overflow": false,
+    "freshProfile": true,
+    "relayConnectionsBlocked": true,
+    "physicalAcceptance": false
+  },
+  "publicWebsiteApkVerified": true,
+  "websiteApkVerificationLogSha256": "1bd0fe0fd3bc2430957763d5206cb77a6979b2a294f271851b0f038a5bfcddba",
+  "websiteHostedChecksPassed": 12,
+  "nativeHostedChecksPassed": 4,
+  "browserVoiceFixHostedChecksPassed": 12,
+  "allProductionChannelsPublishedAndVerified": true
+}

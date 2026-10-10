@@ -37,3 +37,8 @@ interruptions and device changes, temporary identity/admission/storage,
 retention controls, partition handling and authoritative teardown remain open.
 Source checks, hosted CI, deployed availability and physical acceptance remain
 separate gates.
+
+The [publication receipt](evidence/voice-mask-publication-2026-10-10.json) records
+all twelve hosted checks and the exact public web readback. The
+desktop 0.1.68 candidate has been rebuilt with this fix and remains awaiting
+Apple notarisation; its packages are not published.
