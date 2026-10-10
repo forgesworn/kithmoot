@@ -1,5 +1,4 @@
 import {
-  IDENTITY_VOICE_SETTINGS,
   VoiceMasker,
   clampVoiceSettings,
   type VoiceSettings,
@@ -14,9 +13,8 @@ import {
  * worklet does not resolve in any shipping browser. Everything it needs is
  * inlined, which is also why `src/voice-effects.ts` has no dependencies.
  *
- * Nothing here allocates once it is running. A garbage collection on the
- * audio thread is a dropout, and a dropout on a masked voice is
- * indistinguishable from the masking having broken.
+ * DSP uses preallocated buffers. A small progress message is sent twice a
+ * second so a stopped processor cannot hide behind a running context clock.
  */
 
 // The `AudioWorkletGlobalScope` is not in lib.dom, so its three globals are
@@ -30,16 +28,11 @@ declare function registerProcessor(name: string, processor: unknown): void
 
 export const VOICE_WORKLET_NAME = 'kithmoot-voice-mask'
 
-interface SettingsMessage {
-  type: 'settings'
-  settings: VoiceSettings
-}
-
 interface StopMessage {
   type: 'stop'
 }
 
-type WorkletMessage = SettingsMessage | StopMessage
+type WorkletMessage = StopMessage
 
 class VoiceMaskProcessor extends AudioWorkletProcessor {
   /** One masker per channel. A conference microphone is mono and this is
@@ -47,17 +40,20 @@ class VoiceMaskProcessor extends AudioWorkletProcessor {
    *  get channel 0 duplicated across both ears, which is a different sound
    *  from the one the person previewed. */
   readonly #maskers: VoiceMasker[] = []
-  #settings: VoiceSettings = IDENTITY_VOICE_SETTINGS
+  #settings: VoiceSettings | undefined
   #alive = true
+  #frames = 0
+  #lastReport = 0
 
-  constructor() {
+  constructor(options?: { processorOptions?: { settings?: VoiceSettings } }) {
     super()
+    const settings = options?.processorOptions?.settings
+    if (settings && Number.isFinite(settings.semitones) && Number.isFinite(settings.formantRatio)) {
+      this.#settings = clampVoiceSettings(settings)
+    }
     this.port.onmessage = (event: MessageEvent<WorkletMessage>) => {
       const message = event.data
-      if (message.type === 'settings') {
-        this.#settings = clampVoiceSettings(message.settings)
-        for (const masker of this.#maskers) masker.setSettings(this.#settings)
-      } else if (message.type === 'stop') {
+      if (message.type === 'stop') {
         this.#alive = false
       }
     }
@@ -66,9 +62,18 @@ class VoiceMaskProcessor extends AudioWorkletProcessor {
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const input = inputs[0]
     const output = outputs[0]
-    if (!input || !output) return this.#alive
+    if (!output) return this.#alive
+    if (!this.#alive || !this.#settings) {
+      for (const target of output) target.fill(0)
+      return this.#alive
+    }
+    this.#frames += output[0]?.length ?? 0
+    if (this.#frames - this.#lastReport >= sampleRate / 2) {
+      this.#lastReport = this.#frames
+      this.port.postMessage({ type: 'rendered', frames: this.#frames })
+    }
     for (let channel = 0; channel < output.length; channel += 1) {
-      const source = input[channel] ?? input[0]
+      const source = input?.[channel] ?? input?.[0]
       const target = output[channel]
       if (!target) continue
       if (!source) {

@@ -371,11 +371,11 @@ the [workspace delivery](docs/workspace-delivery.md).
   <pubkey>` names who may ask, and the app shows those people a Host panel
   with Remove, Mute and Close room. Mute is a request the other client
   honours; Remove and Close are enforced by the key. See `docs/decisions.md`.
-- **A stopped speaker does not stop the microphone.** The masking graph is
-  clocked by the machine's audio output device; when that device stalls,
-  the graph runs and produces nothing, and nobody hears you. The pipeline
-  watches its own clock and hands the raw microphone over when it stops,
-  saying so in red. Masking is lost; the voice is not.
+- **A failed selected voice mask mutes the microphone.** The browser checks
+  both the audio clock and actual processor progress. If masking fails or
+  stalls, it keeps the selected preset and stops outgoing speech, with a
+  visible retry notice. Only an explicitly selected Off may use raw capture
+  when the audio graph is unavailable.
 - **Agents, as members.** `kithmoot-agent` joins a room from the same link a
   person was sent, with no browser involved: in the roster (marked
   `agent`), in the chat, on a channel of their own that every person can
@@ -616,6 +616,14 @@ disguise, less like a person.
 "Hear yourself" records three seconds of the outgoing audio and plays it
 back, so you hear what the room hears rather than what your own skull tells
 you.
+
+Choose a preset before switching the microphone on. A selected mask is
+configured before the first processed audio block. Startup failure, a stopped
+processor or a stalled audio clock mutes capture; it never switches the preset
+to Off for you. Press Microphone to retry the same mask, or deliberately choose
+Off and unmute to use your own voice. The [failure checks](docs/voice-mask-failure.md)
+record the source and browser evidence; Android masking and physical-device
+acceptance remain open.
 
 Measured added latency, at 48kHz: **0ms on off** (a real bypass, not the
 vocoder configured to do nothing) and **16ms on every other preset**

@@ -4367,6 +4367,7 @@ function stopLocalMedia(): void {
   pendingMedia.clear()
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
+  $('voiceFailureNotice').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   shareMayShowItself = false
   clearShareError()
@@ -5022,9 +5023,9 @@ function onMicEnded(): void {
 /**
  * Publish whatever the pipeline now says the microphone is.
  *
- * The pipeline hands over a different track when its masking graph has
- * stopped rendering - see `MicPipeline` - and everybody has to be sent the
- * new one: `publishActiveTracks` removes the old sender and adds the new,
+ * An explicitly selected Off may use raw capture when its audio graph
+ * fails. A selected mask instead mutes its output. A changed track must
+ * still be sent to every peer: `publishActiveTracks` removes the old sender and adds the new,
  * and the roster restates the advert under the new id.
  */
 function adoptMicTrack(): void {
@@ -5050,11 +5051,13 @@ async function toggleMic(): Promise<void> {
   if (!micTrack) callWanted = true
   if ([...pendingMedia].some(pipeline => pipeline instanceof MicPipeline)) return
   // An ended output cannot be unmuted. A deliberate press reopens capture.
-  if (micTrack?.readyState === 'ended') {
-    micTrack.removeEventListener('ended', onMicEnded)
+  if (mic?.state.blocked || micTrack?.readyState === 'ended') {
+    micTrack?.removeEventListener('ended', onMicEnded)
     mic?.stop()
     mic = undefined
     micTrack = undefined
+    publishActiveTracks()
+    updateUi()
   }
   if (!micTrack) {
     const pipeline = new MicPipeline({
@@ -5064,6 +5067,7 @@ async function toggleMic(): Promise<void> {
         if (generation !== callGeneration) return
         renderVoiceState(state)
         adoptMicTrack()
+        if (mic === pipeline && state.blocked) { publishActiveTracks(); updateUi() }
       },
     })
     pendingMedia.add(pipeline)
@@ -5283,16 +5287,23 @@ function renderEffectFailureNotice(): void {
 function renderVoiceState(state: MicState): void {
   $('voiceMode').textContent = state.preset
   markSegmented('voicePresets', 'preset', state.preset)
+  const notice = $('voiceFailureNotice')
+  notice.hidden = !state.blocked
+  notice.textContent = state.blocked ? 'Microphone muted: voice masking failed. Press Microphone to retry. You can choose Off in More settings to use your own voice.' : ''
   const line = $('voiceStatus')
   line.classList.remove('broken', 'working')
   if (state.status === 'degraded') {
-    line.textContent = `Voice masking is off: ${state.error ?? 'the audio worklet would not load'}. Your own voice is going out.`
+    line.textContent = state.blocked
+      ? `Microphone muted because voice masking failed: ${state.error ?? 'the voice processor stopped'}. Press Microphone to try again, or choose Off and unmute to use your own voice.`
+      : `Masking is set to Off. The browser's audio graph is unavailable; your own voice is available when unmuted.`
     line.classList.add('broken')
     return
   }
   line.classList.add('working')
   line.textContent =
-    state.preset === 'off'
+    state.status === 'idle'
+      ? (state.preset === 'off' ? 'Your own voice when the microphone is on.' : 'Mask selected. Turn the microphone on to hear a preview.')
+      : state.preset === 'off'
       ? 'Your own voice, with nothing added to it.'
       : `Adds ${state.addedLatencyMs.toFixed(0)}ms of delay on top of the ${state.baseLatencyMs.toFixed(0)}ms this browser already costs.`
 }
@@ -5918,7 +5929,8 @@ function updateUi(): void {
   // off has to be visible without hunting for it, and the paragraph saying
   // what neither effect can do is worth as much as the buttons above it.
   revealEffects('cameraEffects', !!camera)
-  revealEffects('voiceEffects', !!mic)
+  revealEffects('voiceEffects', true)
+  ;($('voicePreview') as HTMLButtonElement).disabled = !mic || mic.state.blocked
   if (camera) renderBackgroundChoices()
   if (session || dockedCall) {
     repaint()
@@ -15244,9 +15256,12 @@ $('voicePresets').addEventListener('click', (event) => {
   const preset = (event.target as HTMLElement).closest('button')?.dataset.preset as
     | VoicePreset
     | undefined
-  if (!preset || !mic) return
-  mic.setPreset(preset)
+  if (!preset) return
+  savedVoicePreset = preset
   storeVoicePreset(deviceStore, preset)
+  const pipeline = mic ?? [...pendingMedia].find((pending): pending is MicPipeline => pending instanceof MicPipeline)
+  if (pipeline) pipeline.setPreset(preset)
+  else renderVoiceState({ preset, status: 'idle', blocked: false, addedLatencyMs: 0, baseLatencyMs: 0 })
 })
 
 $('voicePreview').addEventListener('click', () => {
@@ -17156,7 +17171,7 @@ $('chatInput').addEventListener('input', showPasteSize)
 // to stay one line to change.
 const savedEffectMode = loadEffectMode(deviceStore) ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off')
 const savedBlurStrength = loadBlurStrength(deviceStore) ?? DEFAULT_BLUR_STRENGTH
-const savedVoicePreset = loadVoicePreset(deviceStore) ?? DEFAULT_VOICE_PRESET
+let savedVoicePreset = loadVoicePreset(deviceStore) ?? DEFAULT_VOICE_PRESET
 const savedBackgroundId = loadBackgroundId(deviceStore)
 if (savedBackgroundId && BACKGROUNDS.some((b) => b.id === savedBackgroundId)) backgroundId = savedBackgroundId
 ;($('blurStrength') as HTMLInputElement).value = String(Math.round(savedBlurStrength * 100))
