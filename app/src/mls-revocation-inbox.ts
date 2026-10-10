@@ -38,7 +38,7 @@ export class BrowserMlsRevocationInbox {
         const grants = await this.#authority(tx, prompt.request, ledger, rosters)
         if (grants.length) prompts.push({ prompt: structuredClone(prompt), grants: structuredClone(grants), conflict: false })
       }
-      for (const item of prompts) item.conflict = prompts.some(other => other.prompt.request.sender === item.prompt.request.sender && other.prompt.request.device !== item.prompt.request.device)
+      for (const item of prompts) item.conflict = state.prompts.some(other => (other.state === 'pending' || other.state === 'approved') && other.request.sender === item.prompt.request.sender && other.request.device !== item.prompt.request.device)
       return { prompts }
     }, current)
   }

@@ -25,8 +25,9 @@ import { wrapVmlsRevocationRequest } from '../src/vmls-revocation-request.js'
 import { localIdentity } from '../src/identity.js'
 import { localPeerCrypt } from '../src/dm.js'
 import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
-import { BrowserMlsGrantStore, planMlsGrant } from '../app/src/mls-grant-ledger.js'
+import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant } from '../app/src/mls-grant-ledger.js'
 import { BrowserMlsKeeperDecisions } from '../app/src/mls-keeper-decisions.js'
+import { BrowserMlsKeeperRequestController, type MlsKeeperRequestProgress } from '../app/src/mls-keeper-request-controller.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
 
@@ -262,6 +263,38 @@ export async function decideKeeperRequest(approve = true) {
   const plan = await keeperDecisionPlan()
   if (plan.state !== 'active') return plan
   return keeperDecisions().decide(plan.value, approve)
+}
+let keeperWithdrawalFails = false, keeperProgress: MlsKeeperRequestProgress | undefined
+const keeperWithdrawals: string[] = []
+export function failKeeperWithdrawal(value: boolean) { keeperWithdrawalFails = value }
+export function keeperWithdrawalAttempts() { return keeperWithdrawals.slice() }
+const keeperController = () => {
+  const keeper = localIdentity(secret), box = { routeId: 'keeper-inbox-fixture', eventUrl: `ws://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}/events` }
+  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [box] } as any, inboxGrants,
+    () => ({ publish: async event => { keeperWithdrawals.push(event.id); if (keeperWithdrawalFails) throw new Error('fixture box withdrawal refused') }, close: () => undefined }), () => clock)
+  return new BrowserMlsKeeperRequestController(keeperDecisions(), rooms, ledger, () => ({ vault: ctx(), current: () => true, foreground: () => true }))
+}
+export async function approveKeeperRequest(failRemove = false) {
+  const plan = await keeperDecisionPlan()
+  if (plan.state !== 'active') return plan
+  const wasm = await loadMlsEngine(), original = wasm.Session.prototype.remove
+  if (failRemove) wasm.Session.prototype.remove = function () { throw { kind: 'engine', code: 'RemoveFailed' } }
+  try { return keeperProgress = await keeperController().approve(plan.value) } finally { wasm.Session.prototype.remove = original }
+}
+export async function continueKeeperRequest() {
+  const read = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => !!prompt.approval)!.operation, () => true)
+  if (read.state !== 'active') return read
+  return keeperProgress = await keeperController().advance(read.value)
+}
+export async function applyKeeperRemoval() {
+  const slot = keeperProgress?.rooms.flatMap(room => room.effect?.outbound ?? []).find((item: any) => item.destination.type === 'CommitSlot')
+  if (!slot) throw new Error('fixture keeper Remove has no commit slot')
+  return rooms.process(roomContext(), roomId, boxInput(slot, receipt(slot)))
+}
+export async function unapprovedKeeperRemoval() {
+  const plan = await keeperDecisionPlan()
+  if (plan.state !== 'active') return plan
+  return rooms.removeRequestedDevice(roomContext(), roomId, plan.value.prompt.operation, guestLeaf)
 }
 export async function receive() { return rooms.process(roomContext(), roomId, boxInput(incoming)) }
 const removalOperation = '03'.repeat(32)

@@ -187,3 +187,51 @@ local NIP-44 identities. Network fetching, the operator prompt and explicit
 acceptance, live relay and authenticated production-browser acceptance remain
 open. Intake cannot clear the existing compromised-device hold or mark a
 grant revoked; production MLS remains disabled.
+
+## Keeper decision and advancement foundation
+
+`BrowserMlsKeeperDecisions` separately reviews the actual keeper-owned room
+snapshots and all matching signed grants. Explicit approval freezes exact
+active and withdrawal event ids, canonical box routes and grant references,
+room rendezvous bindings and device leaves in the witnessed membership record.
+An explicit dismissal stores no approval and causes no external effect. A
+fresh transaction must reproduce the reviewed plan before either decision is
+saved. Pending and approved requests for different devices of one sender are
+flagged together; this channel cannot prove which device sent the request.
+
+An approval survives request expiry and restart. Every advancement rechecks
+all current keeper-owned rosters and resolves only the frozen grant authority;
+new grants or leaves, changed credentials and missing snapshots refuse the old
+scope. Retained approvals have a separate witnessed listing so failed work
+stays visible even after grants are revoked. That listing confers no authority
+to perform an effect.
+
+`BrowserMlsKeeperRequestController` composes explicit approval or retry with
+the existing room and grant journals. Receiver-side Remove creation verifies
+the saved approval in the same witnessed transaction as the engine journal.
+Send/Add is held from approval while the device remains in an affected roster,
+including before a Remove journal exists, after expiry or a box failure, and
+if a ledger-only room later becomes active. Own Update and normal delivery
+remain possible so the existing driver can progress an engine-required Update.
+The room driver still delivers and acknowledges the persisted MLS outbox.
+
+Each exact device grant is marked `revoking` before its saved signed withdrawal
+is published, without the normal 24-hour grace. A refused or uncertain reply
+retains the approval and exact statement for retry. Account or foreground
+changes stop further work and withhold terminal claims. A failed MLS Remove
+does not delay these withdrawals. Room commits, ledger-only handling and box
+withdrawals are reported separately; a journal update cannot invent a revoked
+grant. Completion requires a fresh witness, exact retained grant outcomes and
+committed engine journals where they exist. Confirmed terminal grants are not
+republished.
+
+Local signed-ledger tests cover witness refusal, exact retry, restart after
+expiry, duplicate retry coalescing and account changes during publication.
+Real-WASM cases cover approval and dismissal, send holds before journalling,
+refused withdrawal followed by committed Remove and restart, failed Remove
+with immediate withdrawal, and a ledger-only request with no fabricated Remove.
+Box publication uses an injected local carrier and the witness is simulated.
+There is no relay fetcher or operator UI in this foundation. Scope replacement,
+pruned-grant completion, forgotten-route terminal handling, deferred prompts,
+live relay, authenticated app, process-kill and physical acceptance remain open.
+Production MLS remains disabled.
