@@ -99,9 +99,15 @@ test('the home page leads with room actions, fits both themes and starts a named
       (await page.locator('#room .participant').boundingBox())?.width ?? 0
     await expect.poll(readableTileWidth).toBeGreaterThanOrEqual(256)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    const tools = (await page.locator('.conversationTools').boundingBox())!
-    const chat = (await page.locator('#chatViewport').boundingBox())!
-    expect(tools.y + tools.height).toBeLessThanOrEqual(chat.y + 1)
+    // Revealing the gallery can move both panels between browser requests.
+    // Measure them in one frame and wait for the final layout, retaining the
+    // same one-pixel allowance and requiring both panels to have visible area.
+    await expect.poll(() => page.evaluate(() => {
+      const tools = document.querySelector('.conversationTools')!.getBoundingClientRect()
+      const chat = document.querySelector('#chatViewport')!.getBoundingClientRect()
+      if (!tools.width || !tools.height || !chat.width || !chat.height) return Infinity
+      return tools.bottom - chat.top
+    })).toBeLessThanOrEqual(1)
   } finally { await context.close() }
 })
 
