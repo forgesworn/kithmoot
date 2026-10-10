@@ -284,6 +284,34 @@ test('typed join survives reload, accepts authenticated Welcome and requires its
   expect(await run(page, 'M.sendJoin()')).toMatchObject({ state: 'active' })
   expect((await run(page, 'M.recoverJoin()')).value.history).toHaveLength(1)
 })
+test('a joined session completes UpdateFirst, Update and witnessed Remove in order', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()')
+  expect((await run(page, 'M.typedJoin()')).state).toBe('active')
+  expect(await run(page, 'M.makeJoinWelcome()')).toBe(true)
+  expect(await run(page, 'M.acceptJoinWelcome()')).toMatchObject({ state: 'active', value: { outcome: { type: 'Accepted' } } })
+
+  const opened = await run(page, 'M.beginJoinInviterRemoval()')
+  expect(opened).toMatchObject({ state: 'active', value: { compromised: true, attempts: 0, mls: 'Pending', next: { type: 'UpdateFirst' } } })
+  expect(await run(page, 'M.driveJoinInviterRemoval()')).toMatchObject({
+    state: 'active', value: { outbound: [], membership: { attempts: 0, mls: 'Pending', next: { type: 'UpdateFirst' } } },
+  })
+  expect((await run(page, 'M.readJoin()')).value.updateRequired).toBe(true)
+
+  expect(await run(page, 'M.firstJoinUpdate()')).toMatchObject({ state: 'active', value: { outcome: { type: 'Accepted' } } })
+  expect((await run(page, 'M.readJoin()')).value.updateRequired).toBe(false)
+
+  const removed = await run(page, 'M.applyJoinInviterRemoval()')
+  expect(removed).toMatchObject({
+    driven: { state: 'active', value: { outbound: [expect.objectContaining({ destination: expect.objectContaining({ type: 'CommitSlot' }) })], membership: { attempts: 1, mls: 'Pending', next: { type: 'Wait' } } } },
+    applied: { state: 'active', value: { outcome: { type: 'Accepted' } } },
+  })
+  expect(await run(page, 'M.driveJoinInviterRemoval()')).toMatchObject({ state: 'active', value: { membership: { attempts: 1, mls: 'Committed', next: { type: 'Done' } } } })
+  const finalRoster = await run(page, 'M.joinMembers()')
+  expect(finalRoster.state).toBe('active')
+  expect(finalRoster.value).toHaveLength(1)
+  expect(finalRoster.value[0]).toMatchObject({ own: true, pending: false })
+})
 for (const mode of ['deny', 'clear', 'replace', 'account', 'invalidate', 'expiry', 'revoke', 'device']) test(`typed join refuses stale authorisation after ${mode}`, async ({ context }) => {
   const { page } = await enrolled(context, false)
   await run(page, 'M.provisionJoin()')

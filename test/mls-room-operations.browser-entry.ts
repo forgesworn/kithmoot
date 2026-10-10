@@ -359,7 +359,8 @@ import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 const joinRzSecret = new Uint8Array(32).fill(43), provisionDevice = new Uint8Array(32).fill(44), inviterRzSecret = new Uint8Array(32).fill(45)
 const joinRz = getPublicKey(joinRzSecret), inviterRz = getPublicKey(inviterRzSecret), rzDatabase = 'mls-join-rendezvous-test'
 let rzVault = new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)), rzReceipt: RendezvousReceipt
-let joinOutbound: any, joinWelcome: any, inviter: any, inviterPlatform: any
+let joinOutbound: any, joinWelcome: any, inviter: any, inviterPlatform: any, joinInviterLeaf = ''
+const joinRemovalOperation = '06'.repeat(32)
 const joinContext = () => ({ vault: ctx(), rendezvousKey: joinRz, current: () => true })
 export async function provisionJoin(index = 1, lifetime = 600) {
   const nonce = new Uint8Array(16).fill(9), device = getPublicKey(provisionDevice)
@@ -396,6 +397,7 @@ export async function makeJoinWelcome() {
   inviterPlatform = new wasm.Platform(schnorr.getPublicKey(deviceSecret), hexToBytes(inviterRz), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
   const creating = wasm.Session.prepareCreate(inviterPlatform, BigInt(clock), binding, hexToBytes(installation)), ask = creating.request()
   const made = creating.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, deviceSecret)); inviter = made.session
+  joinInviterLeaf = bytesToHex(inviter.ownLeafId())
   const ack = (step: any) => { if (step.snapshot) { inviter.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
   ack(made.step); creating.free()
   const pending = wasm.prepareIntroduction(inviterPlatform, BigInt(clock), hexToBytes(joinRz), 0n), req = pending.request()
@@ -414,6 +416,20 @@ export async function firstJoinUpdate() {
   if (updated.state !== 'active') return updated
   const slot = updated.value.outbound.find((o: any) => o.destination.type === 'CommitSlot')
   return rooms.process(joinContext(), roomId, boxInput(slot, receipt(slot)))
+}
+export async function beginJoinInviterRemoval() {
+  const roster = await rooms.members(joinContext(), roomId)
+  if (roster.state !== 'active') throw new Error('fixture joined roster held')
+  const members = roster.value.filter(member => member.leafId === joinInviterLeaf)
+  return rooms.removeDevice(joinContext(), roomId, { operation: joinRemovalOperation, leafId: joinInviterLeaf, members, grants: [], compromised: true })
+}
+export async function driveJoinInviterRemoval() { return rooms.driveRemoval(joinContext(), roomId, joinRemovalOperation) }
+export async function joinMembers() { return rooms.members(joinContext(), roomId) }
+export async function applyJoinInviterRemoval() {
+  const driven = await driveJoinInviterRemoval()
+  if (driven.state !== 'active') return { driven }
+  const slot = driven.value.outbound.find((item: any) => item.destination.type === 'CommitSlot')
+  return { driven, applied: slot ? await rooms.process(joinContext(), roomId, boxInput(slot, receipt(slot))) : undefined }
 }
 export async function joinFault(at: 'stage' | 'promotion' | 'stale-close' | 'lost-advance', welcome = false) {
   const write = LockedPersonaStore.prototype.write
