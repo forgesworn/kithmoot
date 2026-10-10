@@ -1910,12 +1910,16 @@ const KNOCK_WAIT_MS = 90_000
 let admissionController: AbortController | undefined
 
 function knockOn(roomId: string): boolean {
-  return deviceStore.get(KNOCK_KEY_PREFIX + roomId) === 'true'
+  const saved = deviceStore.get(KNOCK_KEY_PREFIX + roomId)
+  if (saved === 'true') return true
+  if (saved === 'false') return false
+  // A temporary invitation asks people to enter. An admitted member is
+  // another host, so their first visit must keep that manual decision.
+  return !!roomInvitationCapability && !roomInvitationCapability.persistent
 }
 
 function setKnock(roomId: string, on: boolean): void {
-  if (on) deviceStore.set(KNOCK_KEY_PREFIX + roomId, 'true')
-  else deviceStore.remove(KNOCK_KEY_PREFIX + roomId)
+  deviceStore.set(KNOCK_KEY_PREFIX + roomId, String(on))
 }
 
 interface Knock extends InvitationRequest {
@@ -3339,7 +3343,7 @@ async function roomFromLocation(): Promise<boolean> {
   const parsedLink = parseRoomLink(location.href)
   // A returning account restores its live signer asynchronously. Do not
   // issue an unproved guest request while that matching signer is arriving.
-  if (identityRestoring && expectedAccount) await identityReady
+  if (parsedLink.invitation && !parsedLink.invitation.persistent && identityRestoring && expectedAccount) await identityReady
   if (browserMlsPanel) await pauseBrowserMls()
 
   // The room's name, when the link says. Text a stranger wrote, so it gets

@@ -166,6 +166,57 @@ test('another same-name request preserves the first request’s focused and pres
   } finally { await hostContext.close(); await guestContext.close(); await otherContext.close() }
 })
 
+test('an explicit open-door choice survives reopening a temporary room', async ({ browser, baseURL }) => {
+  const { hostContext, guestContext, host, guest } = await askedRoom(browser, baseURL!)
+  const nextContext = await newDeviceContext(browser, baseURL!)
+  try {
+    const first = await startAskedRoom(host, guest, baseURL!)
+    const link = guest.url()
+    await first.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await guestContext.close()
+    await host.locator('#roomMenu').click()
+    await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'true')
+    await host.locator('#toggleKnock').click()
+    await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
+    await host.reload()
+    await host.locator('#join').click()
+    await expect(host.locator('#roomArea')).toBeVisible()
+    await host.locator('#roomMenu').click()
+    await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
+    const next = await nextContext.newPage()
+    await next.goto(link)
+    await expect(next.locator('#status')).toContainText('You are on the list')
+    await expect(host.locator('#approvals .approvalCard.knock')).toHaveCount(0)
+  } finally { await nextContext.close(); await guestContext.close(); await hostContext.close() }
+})
+
+test('an admitted member asks before passing a closed-room invitation to another guest', async ({ browser, baseURL }) => {
+  const { hostContext, guestContext, host, guest } = await askedRoom(browser, baseURL!)
+  const nextContext = await newDeviceContext(browser, baseURL!)
+  try {
+    const first = await startAskedRoom(host, guest, baseURL!)
+    const link = guest.url()
+    await first.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await guest.locator('#join').click()
+    await expect(guest.locator('#roomArea')).toBeVisible()
+    const next = await nextContext.newPage()
+    await next.addInitScript(() => localStorage.setItem('kithmoot.name', 'Later guest'))
+    await next.goto(link)
+    const memberQueue = guest.locator('#approvals .approvalCard.knock')
+    await expect(memberQueue).toContainText('Later guest wants to join')
+    await expect(next.locator('#join')).toBeHidden()
+    await expect(next.locator('#roomArea')).toBeHidden()
+    // A delegated member can admit deliberately; being admitted does not
+    // silently turn their device into an automatic invitation responder.
+    await memberQueue.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(next.locator('#status')).toContainText('You are on the list')
+    await next.locator('#join').click()
+    await expect(next.locator('#roomArea')).toBeVisible()
+  } finally { await nextContext.close(); await guestContext.close(); await hostContext.close() }
+})
+
 // A room where people with the link ask, and somebody in it lets them in.
 // The creator picks that at the start form; a joiner opening the link waits
 // on the door; the creator sees who is asking, with their name, and either

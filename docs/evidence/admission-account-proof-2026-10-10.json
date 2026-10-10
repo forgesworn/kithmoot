@@ -12,7 +12,7 @@
   "consumer": {
     "typecheckPassed": true,
     "unitTestsPassed": 3724,
-    "browserJourneysPassed": 62,
+    "browserJourneysPassed": 124,
     "browsers": [
       "Chromium",
       "Firefox",
@@ -23,7 +23,10 @@
       "An unproved claim to an invited account waits for the host decision and can be admitted manually.",
       "A matching signed proof for the request device and invitation admits an invited account automatically.",
       "A saved NIP-07 account restores its matching signer before requesting admission.",
-      "A delayed synthetic account signature cannot publish after Stop opening, sign-out or the shared deadline."
+      "A delayed synthetic account signature cannot publish after Stop opening, sign-out or the shared deadline.",
+      "An admitted member asks before admitting another guest to a temporary room.",
+      "An explicit open-door choice survives reopening the temporary room.",
+      "A legacy direct room link still lets the visitor press Join while the saved signer reconnects."
     ],
     "automaticAdmissionUses": "verifiedParticipant",
     "memberDeskAccountAdmissionUses": "verifiedParticipant",
@@ -45,12 +48,16 @@
       "admission-account-claim",
       "knock",
       "private-room",
-      "room-list-sections"
+      "room-list-sections",
+      "nostr-rooms"
     ],
-    "combinedMain": "e1ecab85f89d7a61ada917e4530e7333ac116d23"
+    "combinedMain": "e1ecab85f89d7a61ada917e4530e7333ac116d23",
+    "originalDelegatedResponderFailsManualDecisionJourney": true,
+    "temporaryInvitationsAskByDefaultOnEveryAdmittedDevice": true,
+    "explicitOpenDoorChoiceRetained": true
   },
   "remaining": [
-    "Native Android invitation-account-proof parity.",
+    "Native Android closed-room decision queue and end-to-end admission parity.",
     "Physical external signer cancellation and connected-device acceptance.",
     "Complete G17 admission and interface acceptance."
   ]
