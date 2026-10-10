@@ -53,7 +53,7 @@
     "nativeAndroidInboxWorkShipped": false,
     "physicalAcceptance": false
   },
-  "desktopCandidate": {
+  "desktopCandidateBeforeVoiceMaskFix": {
     "version": "0.1.68",
     "sourceCommit": "2aea3489aad8ed33a531387d6fd6f3d9cfaa76fe",
     "exactWebFilesPerBundle": 264,
@@ -168,6 +168,18 @@
         }
       ],
       "allApplicationBytesVerified": true
-    }
+    },
+    "supersededByVoiceMaskFix": true,
+    "eligibleForPublication": false
+  },
+  "desktopCandidate": {
+    "version": "0.1.68",
+    "applicationSourceCommit": "0c41a65",
+    "includesVoiceMaskFailureFix": true,
+    "payloadRebuildRequired": true,
+    "publicReleasePublished": false,
+    "macNotarisationAccepted": false,
+    "macFinalArchiveVerified": false,
+    "physicalWindowsLinuxAcceptance": false
   }
 }
