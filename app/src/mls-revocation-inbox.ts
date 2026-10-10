@@ -4,7 +4,8 @@ import { unwrapVmlsRevocationRequest, VMLS_REVOCATION_GIFT_WRAP_KIND, type VmlsR
 import { verifyEventUncached } from '../../src/verify.js'
 import { InvalidPersonaRecord, type BrowserPersonaCoordinator, type CoordinationResult, type PersonaTransaction } from './mls-persona-coordinator.js'
 import { readMlsMembership, saveMlsMembership, mlsStandaloneRevocationOperation } from './mls-membership-store.js'
-import { MAX_MLS_REVOCATION_PROMPTS, MAX_MLS_REVOCATION_SEEN, MLS_REVOCATION_SEEN_SECONDS, type MlsRevocationInboxState, type MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
+import { MAX_MLS_REVOCATION_PROMPTS, MAX_MLS_REVOCATION_SEEN, type MlsRevocationInboxState, type MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
+import { mlsRevocationInboxState } from './mls-revocation-inbox-state.js'
 import { validateMlsGrant, type BrowserMlsGrantStore, type MlsGrantRecord } from './mls-grant-ledger.js'
 import { readMlsRoom, mlsRoomIds } from './mls-room-store.js'
 import { loadMlsEngine } from './mls-engine.js'
@@ -53,6 +54,7 @@ export class BrowserMlsRevocationInbox {
     try {
       for (const candidate of wrappers.slice()) {
         if (!current()) return { state: 'pending', reason: 'stale', refused: false }
+        if (decryptions >= MAX_MLS_REVOCATION_DECRYPTIONS) break
         // Every candidate consumes the 64-frame pass budget, including bad
         // signatures and malformed data. Never prompt a signer for those.
         if (!this.#outer(candidate, scope.vault.persona)) continue
@@ -61,19 +63,23 @@ export class BrowserMlsRevocationInbox {
         const before = await this.coordinator.transact(scope.vault.persona, async tx => {
           const state = await this.#state(tx, scope)
           if (state.seen.some(item => item.id === wrapper.id)) return false
-          if (state.seen.length >= MAX_MLS_REVOCATION_SEEN) throw new MlsRevocationInboxFull('The request replay journal is full.')
+          state.attempts = (state.attempts ?? []).filter(at => at + 60 > state.checkedAt)
+          if (state.attempts.length >= MAX_MLS_REVOCATION_DECRYPTIONS) return false
+          // Reserve the entire wrap attempt before invoking either decryption.
+          // A crash or refused signer cannot reset the allowance after restart.
+          state.attempts.push(state.checkedAt)
+          state.seen.push({ id: wrapper.id, receivedAt: state.checkedAt })
+          state.seen = state.seen.slice(-MAX_MLS_REVOCATION_SEEN)
+          const journal = await readMlsMembership(tx); journal.inbox = state; await saveMlsMembership(tx, journal)
           return true
         }, current)
         if (before.state !== 'active') return before
         if (!before.value) continue
-        if (decryptions >= MAX_MLS_REVOCATION_DECRYPTIONS) break
         decryptions++
         const request = await unwrapVmlsRevocationRequest(wrapper, identity, this.#time(), current)
         if (!current()) return { state: 'pending', reason: 'stale', refused: false }
         const saved = await this.coordinator.transact(scope.vault.persona, async tx => {
           const state = await this.#state(tx, scope)
-          if (state.seen.some(item => item.id === wrapper.id)) return
-          if (state.seen.length >= MAX_MLS_REVOCATION_SEEN) throw new MlsRevocationInboxFull('The request replay journal is full.')
           if (request && request.keeper === scope.vault.persona && request.expiration > state.checkedAt) {
             const ledger = await this.#ledger(), grants = await this.#authority(tx, request, ledger)
             if (grants.length) {
@@ -86,7 +92,6 @@ export class BrowserMlsRevocationInbox {
               }
             }
           }
-          state.seen.push({ id: wrapper.id, receivedAt: state.checkedAt })
           const journal = await readMlsMembership(tx); journal.inbox = state; await saveMlsMembership(tx, journal)
         }, current)
         if (saved.state !== 'active') return saved
@@ -97,19 +102,7 @@ export class BrowserMlsRevocationInbox {
   }
 
   async #state(tx: PersonaTransaction, scope: MlsRevocationInboxContext): Promise<MlsRevocationInboxState> {
-    const journal = await readMlsMembership(tx), previous = journal.inbox, before = JSON.stringify(previous), now = this.#time()
-    if (previous && previous.keeper !== scope.vault.persona) throw new InvalidPersonaRecord('Keeper inbox belongs to another persona')
-    if (previous && now < previous.checkedAt) throw new Error('A trusted request time is unavailable.')
-    const state = previous ?? { keeper: scope.vault.persona, checkedAt: now, seen: [], prompts: [] }
-    state.checkedAt = now
-    state.seen = state.seen.filter(item => item.receivedAt + MLS_REVOCATION_SEEN_SECONDS > now)
-    // Done device tombstones are permanent. Expired unanswered requests no
-    // longer authorise a prompt; their wrap ids retain the longer replay bound.
-    state.prompts = state.prompts.filter(item => item.state === 'done' || item.state === 'approved' || item.request.expiration > now)
-    if (before !== JSON.stringify(state)) {
-      journal.inbox = state; await saveMlsMembership(tx, journal)
-    }
-    return state
+    return mlsRevocationInboxState(tx, scope.vault.persona, this.#time())
   }
   async #ledger(): Promise<MlsGrantRecord[]> {
     const records = structuredClone(await this.grants.all())
@@ -161,6 +154,7 @@ export class BrowserMlsRevocationInbox {
       typeof event.pubkey === 'string' && event.pubkey.length === 64 && hex32.test(event.pubkey) &&
       typeof event.sig === 'string' && event.sig.length === 128 && /^[0-9a-f]{128}$/.test(event.sig) && event.kind === VMLS_REVOCATION_GIFT_WRAP_KIND &&
       Number.isSafeInteger(event.created_at) && event.created_at >= 0 &&
+      event.created_at <= this.#time() &&
       typeof event.content === 'string' && event.content.length <= 40_000 && new TextEncoder().encode(event.content).length <= 40_000 &&
       Array.isArray(event.tags) && event.tags.length === 1 && Array.isArray(event.tags[0]) && event.tags[0].length === 2 && event.tags[0][0] === 'p' && event.tags[0][1] === keeper &&
       verifyEventUncached(event) } catch { return false }
