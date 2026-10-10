@@ -93,10 +93,11 @@ jobs:
   acceptance:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # Chromium rest now includes the MLS storage suites before 168 acceptance
-    # cases. Its measured CI run reaches the final cases at the old 20-minute
-    # limit. Individual test timeouts still catch hung journeys.
-    timeout-minutes: ${{ matrix.name == 'chromium rest' && 30 || 20 }}
+    # Chromium rest includes MLS storage suites before its acceptance cases.
+    # Desktop reached case 65 of 69 at the old 20-minute job limit, with its
+    # recording notice/export case passing. Allow both suites to finish;
+    # individual test timeouts still catch hung journeys.
+    timeout-minutes: ${{ (matrix.name == 'chromium rest' || matrix.name == 'chromium desktop') && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
