@@ -40,6 +40,7 @@ test('a phone guest reviews details before one deliberate request, and retry nee
   try {
     await f.guest.goto(f.link)
     await expect(f.guest.locator('#requestAdmission')).toBeVisible()
+    await expect(f.guest.locator('#identityMore')).toBeHidden()
     await f.guest.locator('#displayName').fill('Synthetic visitor')
     await f.guest.evaluate(() => { document.documentElement.style.fontSize = '20px' })
     await f.guest.locator('#requestAdmission').scrollIntoViewIfNeeded()
@@ -92,11 +93,22 @@ test('cancelling while an acknowledged grant is delayed cannot cache access or o
 test('permission denial explains the local check without preventing a request', async ({ browser, baseURL }) => {
   const f = await setup(browser, baseURL!)
   try {
-    await f.guest.addInitScript(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Synthetic permission denied', 'NotAllowedError') } })
-    await f.guest.goto(f.link); await f.guest.locator('#previewAdmissionCamera').click()
+    await f.guest.goto(f.link)
+    await expect(f.guest.locator('#requestAdmission')).toBeVisible()
+    await f.guest.bringToFront()
+    await f.guest.evaluate(() => {
+      const audit = { calls: 0 }; Object.assign(window, { previewPermissionAudit: audit })
+      // WebKit continued using its native API with an instance-only override.
+      // Cover every wrapper and prove the denied fixture was actually called.
+      Object.defineProperty(MediaDevices.prototype, 'getUserMedia', { configurable: true,
+        value: async () => { audit.calls++; throw new DOMException('Synthetic permission denied', 'NotAllowedError') } })
+    })
+    await f.guest.locator('#previewAdmissionCamera').click()
+    expect(await f.guest.evaluate(() => (window as unknown as { previewPermissionAudit: { calls: number } }).previewPermissionAudit.calls)).toBe(1)
     await expect(f.guest.locator('#admissionPreviewStatus')).toContainText('Check camera permission')
     await f.guest.locator('#previewAdmissionMic').click()
     await expect(f.guest.locator('#admissionPreviewStatus')).toContainText('Check microphone permission')
+    expect(await f.guest.evaluate(() => (window as unknown as { previewPermissionAudit: { calls: number } }).previewPermissionAudit.calls)).toBe(2)
     expect(f.requests).toEqual([]); await requestAdmission(f.guest)
     await expect(f.host.locator('#approvals .approvalCard.knock')).toHaveCount(1)
   } finally { await f.close() }

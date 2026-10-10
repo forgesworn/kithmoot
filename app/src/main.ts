@@ -3476,6 +3476,7 @@ async function roomFromLocation(): Promise<boolean> {
             disarmStopOpening()
             pendingJoin = false
             $('joinRoomForm').hidden = false; $('joinRoomForm').inert = false; $('join').hidden = true
+            $('identityMore').hidden = true
             $('arrivalActions').hidden = true
             renderIdentity()
             preview = new AdmissionPreview({ root: $('admissionPreview'), name: $('displayName') as HTMLInputElement,

@@ -695,6 +695,11 @@ Acceptance:
 
 ## Delivery and evidence
 
+The [guest admission preview](guest-admission-preview.md) provides the browser
+and desktop review screen, local camera/microphone checks, deliberate request,
+cancel/retry and relay connection feedback. It does not establish native parity,
+authenticated host availability or unfamiliar-person physical acceptance.
+
 The [closed-room feedback foundation](closed-room-admission-ui.md) distinguishes
 approval, grant publication and send failure, preserves pending controls during
 new requests and checks the originating room after a decision. Its
