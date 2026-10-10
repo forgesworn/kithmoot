@@ -24,10 +24,20 @@ interface EngineStep { snapshot: VmlsSnapshot | null; events: any[]; outbound: a
 export interface MlsRoomEffect { events: any[]; outbound: any[]; ack?: any; outcome?: any; session: string; generation: string }
 export interface MlsRemovalStatus {
   operation: string; session: string; kind: 'device' | 'person'; target: string; compromised: boolean; createdAt: number
+  leaves: string[]
   attempts: number; failure: string | null; mls: VmlsMlsState; credential: VmlsCredentialState; grants: VmlsGrant[]
   claim: VmlsClaim; claimCopy: string | undefined; next: VmlsNextRemoval
 }
 export interface MlsRemovalEffect extends MlsRoomEffect { membership: MlsRemovalStatus }
+export interface MlsMemberStatus {
+  leafId: string
+  identity: string
+  device: string
+  homeBox: string
+  bindingExpiresAt: number
+  own: boolean
+  pending: boolean
+}
 const hex = (v: string) => /^[0-9a-f]{64}(?![\s\S])/.test(v)
 const checked = <T>(r: VaultResult<T>): T => { if (!r.ok) throw new MlsRoomRefused(r.refusal); return r.value }
 const request = (r: VmlsSignRequest): SignLeafBindingRequest => ({ v: 1, operation: bytesToHex(r.operation), body: base64Encode(r.body), digest: bytesToHex(r.digest), expires_at: Number(r.expiresAt) })
@@ -35,9 +45,14 @@ const effect = (s: Session, step: EngineStep, extra = {}): HostedMlsStep<MlsRoom
 const grantKey = (grant: VmlsGrantRef) => ({ node: bytesToHex(grant.node), grant: bytesToHex(grant.grant), keeper: grant.keeper })
 const removalStatus = (record: MlsRemovalRecord, removal: VmlsRemoval, session: Session): MlsRemovalStatus => ({
   operation: record.operation, session: record.session, kind: record.kind, target: record.target, compromised: record.compromised,
+  leaves: removal.leafIds().map(bytesToHex).sort(),
   createdAt: record.createdAt, attempts: record.attempts, failure: record.failure, mls: removal.mls(), credential: removal.credential(),
   grants: removal.grants(), claim: removal.claim(), claimCopy: removal.claimCopy(), next: removal.next(session),
 })
+const memberStatuses = (session: Session): MlsMemberStatus[] => (session.members() as any[]).map(info => ({
+  leafId: bytesToHex(info.member.leafId), identity: bytesToHex(info.member.identity), device: bytesToHex(info.member.device),
+  homeBox: bytesToHex(info.homeBox), bindingExpiresAt: Number(info.bindingExpiresAt), own: info.own, pending: info.pending,
+}))
 const removalEffectValue = (session: Session, removal: VmlsRemoval, record: MlsRemovalRecord): MlsRemovalEffect => ({
   session: bytesToHex(session.id()), generation: String(session.generation()), events: [], outbound: [], membership: removalStatus(record, removal, session),
 })
@@ -368,17 +383,18 @@ export class BrowserMlsRoomOperations {
     } finally { if (!consumed) freeCapabilities(capabilities) }
   }
 
-  removeDevice(context: MlsRoomContext, id: string, options: { operation: string; leafId: string; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
+  removeDevice(context: MlsRoomContext, id: string, options: { operation: string; leafId: string; members: MlsMemberStatus[]; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
     return this.#beginRemoval(context, id, { ...options, kind: 'device', target: options.leafId })
   }
 
-  removePerson(context: MlsRoomContext, id: string, options: { operation: string; identity: string; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
+  removePerson(context: MlsRoomContext, id: string, options: { operation: string; identity: string; members: MlsMemberStatus[]; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
     return this.#beginRemoval(context, id, { ...options, kind: 'person', target: options.identity })
   }
 
-  #beginRemoval(context: MlsRoomContext, id: string, options: { operation: string; kind: 'device' | 'person'; target: string; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
+  #beginRemoval(context: MlsRoomContext, id: string, options: { operation: string; kind: 'device' | 'person'; target: string; members: MlsMemberStatus[]; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
     const grants = options.grants.map(grant => ({ node: grant.node.slice(), grant: grant.grant.slice(), keeper: grant.keeper }))
-    options = { ...options, grants }
+    const members = structuredClone(options.members).sort((a, b) => a.leafId.localeCompare(b.leafId))
+    options = { ...options, members, grants }
     return this.#using<MlsRemovalStatus>(context, async scope => {
       if (!hex(options.operation) || !hex(options.target) || typeof options.compromised !== 'boolean') throw new MlsRoomRefused('malformed')
       let journal!: Awaited<ReturnType<typeof readMlsMembership>>, record: MlsRemovalRecord | undefined, removal: VmlsRemoval | undefined, encoded: Uint8Array | undefined
@@ -389,6 +405,9 @@ export class BrowserMlsRoomOperations {
             const expected = grants.map(grantKey), actual = removal.grants().map(item => grantKey(item.grant))
             if (JSON.stringify(expected) !== JSON.stringify(actual)) throw new MlsRoomRefused('replay')
           } else {
+            const actual = memberStatuses(session).filter(member => options.kind === 'person' ? member.identity === options.target : member.leafId === options.target)
+              .sort((a, b) => a.leafId.localeCompare(b.leafId))
+            if (!members.length || JSON.stringify(actual) !== JSON.stringify(members)) throw new MlsRoomRefused('replay')
             removal = options.kind === 'device'
               ? scope.wasm.removalDevice(session, hexToBytes(options.target), grants)
               : scope.wasm.removalPerson(session, hexToBytes(options.target), grants)
@@ -426,6 +445,15 @@ export class BrowserMlsRoomOperations {
         records = (await readMlsMembership(tx)).removals.filter(record => record.session === id)
       }))
     })
+  }
+
+  /** Current verified group bindings for membership controls. The browser
+   * never derives this roster from presence, profiles or saved invitations. */
+  members(context: MlsRoomContext, id: string): Promise<MlsRoomResult<MlsMemberStatus[]>> {
+    return this.#using<MlsMemberStatus[]>(context, async scope => scope.host.step(scope.hostContext, id, session => ({
+      snapshot: null,
+      value: memberStatuses(session),
+    }), this.#edits(scope.ctx, scope, id, () => undefined)))
   }
 
   driveRemoval(context: MlsRoomContext, id: string, operation: string): Promise<MlsRoomResult<MlsRemovalEffect>> {

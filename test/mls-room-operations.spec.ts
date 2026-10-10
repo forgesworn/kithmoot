@@ -153,6 +153,10 @@ test('accepted remote plaintext is witnessed with the receive ratchet and duplic
 test('a compromised-device removal is journalled, blocks sends and resumes only after witnessed Remove readback', async ({ context }) => {
   const { page } = await enrolled(context)
   expect(await run(page, 'M.addGuest()')).toBe('active')
+  expect(await run(page, 'M.members()')).toMatchObject({ state: 'active', value: [
+    { own: true, pending: false, leafId: expect.stringMatching(/^[0-9a-f]{64}$/), identity: expect.stringMatching(/^[0-9a-f]{64}$/), device: expect.stringMatching(/^[0-9a-f]{64}$/), homeBox: expect.stringMatching(/^[0-9a-f]{64}$/) },
+    { own: false, pending: false, leafId: expect.stringMatching(/^[0-9a-f]{64}$/), identity: expect.stringMatching(/^[0-9a-f]{64}$/), device: expect.stringMatching(/^[0-9a-f]{64}$/), homeBox: expect.stringMatching(/^[0-9a-f]{64}$/) },
+  ] })
   const opened = await run(page, 'M.beginGuestRemoval()')
   expect(opened).toMatchObject({ state: 'active', value: { compromised: true, attempts: 0, mls: 'Pending', claim: 'ComponentsOnly', next: { type: 'Propose' } } })
   expect(await run(page, 'M.beginGuestRemoval()')).toEqual(opened)
@@ -162,6 +166,13 @@ test('a compromised-device removal is journalled, blocks sends and resumes only 
   expect(committed).toMatchObject({ state: 'active', value: { membership: { attempts: 1, mls: 'Committed', claim: 'RemoveApplied', next: { type: 'Done' } } } })
   expect(await run(page, 'M.membership()')).toMatchObject({ state: 'active', value: [{ operation: '03'.repeat(32), mls: 'Committed' }] })
   expect(await run(page, `M.send('${'04'.repeat(32)}', 'released')`)).toMatchObject({ state: 'active' })
+  await run(page, 'M.forgetGuest()')
+})
+test('membership journalling refuses a roster that changed after review', async ({ context }) => {
+  const { page } = await enrolled(context)
+  expect(await run(page, 'M.addGuest()')).toBe('active')
+  expect(await run(page, 'M.beginGuestRemovalWithStaleRoster()')).toEqual({ state: 'refused', reason: 'replay' })
+  expect(await run(page, 'M.membership()')).toMatchObject({ state: 'active', value: [] })
   await run(page, 'M.forgetGuest()')
 })
 test('a transient Remove refusal stays pending and is proposed again', async ({ context }) => {
