@@ -1162,8 +1162,11 @@ export class ChatLog {
         throw new Error(CONVERSATION_MOVED)
       }
       await this.#opts.transport.publish(event)
-      // Kept once a relay has it, whether or not a relay echoes it back.
+      // An acknowledgement need not be followed by a subscription echo.
+      // Decode our accepted event through the same credential, policy and
+      // rate checks as history, without inventing a relay/lane attribution.
       this.#opts.archive?.keep(event, this.#archiveMeta())
+      if (!this.#closed && this.#epoch === epoch && this.#ingest(event, undefined, true)) this.#notify()
     } }
   }
 

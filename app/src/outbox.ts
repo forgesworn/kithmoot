@@ -10,6 +10,8 @@ import { artworkCards, artworkMessageText } from './chat-artwork.js'
  */
 export class Outbox {
   readonly #root: HTMLElement
+  #roomId?: string
+  #ids = new Set<string>()
 
   /** `sending` is what a row says while its publish is in flight: a relay
    *  takes an ordinary message in a moment, a quiet room's at its next slot,
@@ -32,12 +34,20 @@ export class Outbox {
   render(): void {
     const roomId = this.room()
     const items = roomId ? this.queue.items(roomId) : []
+    const added = roomId !== this.#roomId || items.some(item => !this.#ids.has(item.id))
+    const scrollTop = this.#root.scrollTop
+    const follow = this.#root.scrollHeight - this.#root.clientHeight - scrollTop < 48
+    this.#roomId = roomId
+    this.#ids = new Set(items.map(item => item.id))
     // Keep the focus on a button that survives a redraw.
     const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-pending-id]')
     const focusedId = focused?.dataset.pendingId
     const focusedAction = (document.activeElement as HTMLElement | null)?.dataset.action
     this.#root.replaceChildren(...items.map(item => this.#row(item)))
     this.#root.hidden = items.length === 0
+    // Sending must show the new row even when older pending messages fill
+    // this scrollbox. Status-only redraws preserve someone reading above it.
+    this.#root.scrollTop = added || follow ? this.#root.scrollHeight : scrollTop
     if (focusedId && focusedAction) this.#root.querySelector<HTMLElement>(`[data-pending-id="${focusedId}"] [data-action="${focusedAction}"]`)?.focus()
   }
 

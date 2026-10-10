@@ -76,9 +76,6 @@ export interface PendingSendsOptions {
 
 /** Seconds before each automatic retry, the last repeating. */
 export const RETRY_SECONDS = [5, 15, 30, 60]
-/** How long an acknowledged row waits for its message to appear before it
- *  goes anyway: a relay that takes an event does not always echo it. */
-export const ECHO_GRACE_MS = 5_000
 /** How often a message waiting for a connection looks for one. */
 export const CONNECT_POLL_MS = 1_000
 const PREFIX = 'kithmoot.pending.'
@@ -269,7 +266,8 @@ export class PendingSends {
       item.durable = false
       this.#persist(item.roomId)
       this.#opts.onChange()
-      this.#schedule(() => { if (this.#items.get(item.id) === item) this.arrived([item.id]) }, ECHO_GRACE_MS)
+      // Keep the visible accepted row until the conversation has rendered
+      // its message. A timer must never leave neither row nor message.
     } catch (error) {
       if (this.#items.get(item.id) !== item) return
       console.error('send failed:', message(error))

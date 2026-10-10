@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Event } from 'nostr-tools/pure'
 import { memoryDeviceStore } from './device-store.js'
-import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, ECHO_GRACE_MS, CONNECT_POLL_MS, type PendingSend } from './pending-sends.js'
+import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, CONNECT_POLL_MS, type PendingSend } from './pending-sends.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
 
 const ROOM = 'a'.repeat(64)
@@ -68,13 +68,16 @@ describe('unsent messages', () => {
     expect(publish).toHaveBeenCalledOnce()
   })
 
-  it('stays listed until its message arrives in the chat, or a short grace passes', async () => {
+  it('keeps an accepted row until its message is on screen, even without an echo', async () => {
     const h = harness()
     add(h.pending, 'one', async () => {}); add(h.pending, 'two', async () => {})
     await flush()
     h.pending.arrived(['one'])
     expect(h.pending.items(ROOM).map(item => item.id)).toEqual(['two'])
-    await h.advance(ECHO_GRACE_MS)
+    await h.advance(60_000)
+    expect(h.pending.items(ROOM).map(item => item.id)).toEqual(['two'])
+    expect(h.pending.items(ROOM)[0]!.acknowledged).toBe(true)
+    h.pending.arrived(['two'])
     expect(h.pending.items(ROOM)).toEqual([])
   })
 
