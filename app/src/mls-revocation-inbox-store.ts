@@ -6,12 +6,16 @@ import { validateMlsKeeperApproval, type MlsKeeperApproval } from './mls-revocat
 export const MAX_MLS_REVOCATION_SEEN = 1024
 export const MAX_MLS_REVOCATION_PROMPTS = 64
 export const MLS_REVOCATION_SEEN_SECONDS = 9 * 86400
+export const MLS_KEEPER_PROMPT_SECONDS = 3600
+export const MAX_MLS_KEEPER_PROMPT_COOLDOWNS = 1024
 export interface MlsRevocationInboxPrompt {
   operation: string
   request: VmlsRevocationRequest
   receivedAt: number
   state: 'pending' | 'dismissed' | 'approved' | 'done'
   approval?: MlsKeeperApproval
+  deferredUntil?: number
+  revision?: number
 }
 export interface MlsRevocationInboxState {
   keeper: string
@@ -22,6 +26,7 @@ export interface MlsRevocationInboxState {
   attempts?: number[]
   scan?: MlsKeeperInboxScan
   directory?: { at: number; complete: boolean; relays: string[] }
+  promptAfter?: { sender: string; until: number }[]
 }
 export interface MlsKeeperInboxScan {
   lastPageAt: number | null
@@ -37,9 +42,12 @@ const relay = (v: unknown): v is string => typeof v === 'string' && v.length <= 
  * than an additional vault slot that would reduce the room quota. */
 export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void {
   const invalid = (): never => { throw new InvalidPersonaRecord('Invalid MLS revocation inbox') }
-  if (!value || typeof value !== 'object' || !exact(value, ['checkedAt', 'keeper', 'prompts', 'seen', ...(value.attempts === undefined ? [] : ['attempts']), ...(value.scan === undefined ? [] : ['scan']), ...(value.directory === undefined ? [] : ['directory'])].sort().join(',')) || !hex32(value.keeper) || !time(value.checkedAt) ||
+  if (!value || typeof value !== 'object' || !exact(value, ['checkedAt', 'keeper', 'prompts', 'seen', ...(value.attempts === undefined ? [] : ['attempts']), ...(value.scan === undefined ? [] : ['scan']), ...(value.directory === undefined ? [] : ['directory']), ...(value.promptAfter === undefined ? [] : ['promptAfter'])].sort().join(',')) || !hex32(value.keeper) || !time(value.checkedAt) ||
       !Array.isArray(value.seen) || value.seen.length > MAX_MLS_REVOCATION_SEEN || !Array.isArray(value.prompts) || value.prompts.length > MAX_MLS_REVOCATION_PROMPTS) invalid()
   const seen = new Set<string>(), operations = new Set<string>()
+  if (value.promptAfter !== undefined && (!Array.isArray(value.promptAfter) || value.promptAfter.length > MAX_MLS_KEEPER_PROMPT_COOLDOWNS ||
+      value.promptAfter.some(item => !item || !exact(item, 'sender,until') || !hex32(item.sender) || item.sender === value.keeper || !time(item.until) || item.until > value.checkedAt + MLS_KEEPER_PROMPT_SECONDS) ||
+      new Set(value.promptAfter.map(item => item.sender)).size !== value.promptAfter.length)) invalid()
   if (value.attempts !== undefined && (!Array.isArray(value.attempts) || value.attempts.length > 8 || value.attempts.some((at, index) => !time(at) || at > value.checkedAt || index > 0 && at < value.attempts![index - 1]!))) invalid()
   if (value.scan !== undefined) {
     const scan = value.scan
@@ -58,12 +66,14 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     seen.add(item.id)
   }
   for (const prompt of value.prompts) {
-    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
+    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), ...(prompt.deferredUntil === undefined ? [] : ['deferredUntil']), ...(prompt.revision === undefined ? [] : ['revision']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
         !time(prompt.receivedAt) || prompt.receivedAt > value.checkedAt || !['pending', 'dismissed', 'approved', 'done'].includes(prompt.state) || operations.has(prompt.operation)) invalid()
     try { createVmlsRevocationRumor(prompt.request) } catch { invalid() }
     if (prompt.request.keeper !== value.keeper || prompt.operation !== mlsStandaloneRevocationOperation(prompt.request.sender, value.keeper, prompt.request.device) ||
         prompt.request.createdAt > prompt.receivedAt + VMLS_REVOCATION_FUTURE_SKEW_SECONDS || prompt.request.expiration <= prompt.receivedAt) invalid()
     if (prompt.state === 'approved' && !prompt.approval || prompt.approval && !['approved', 'done'].includes(prompt.state)) invalid()
+    if (prompt.deferredUntil !== undefined && (!['pending', 'approved'].includes(prompt.state) || !time(prompt.deferredUntil) || prompt.deferredUntil > value.checkedAt + MLS_KEEPER_PROMPT_SECONDS)) invalid()
+    if (prompt.revision !== undefined && (!Number.isSafeInteger(prompt.revision) || prompt.revision < 1)) invalid()
     if (prompt.approval) {
       validateMlsKeeperApproval(prompt.approval, prompt.request, prompt.operation, prompt.receivedAt)
       if (prompt.approval.approvedAt > value.checkedAt) invalid()

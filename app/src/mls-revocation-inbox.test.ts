@@ -5,8 +5,9 @@ import { localIdentity } from '../../src/identity.js'
 import { localPeerCrypt } from '../../src/dm.js'
 import { wrapVmlsRevocationRequest, type VmlsRevocationIdentity } from '../../src/vmls-revocation-request.js'
 import { InvalidPersonaRecord, type PersonaTransaction } from './mls-persona-coordinator.js'
+import { BrowserMlsKeeperDecisions } from './mls-keeper-decisions.js'
 import { readMlsMembership, saveMlsMembership, mlsStandaloneRevocationOperation } from './mls-membership-store.js'
-import { MAX_MLS_REVOCATION_SEEN, MAX_MLS_REVOCATION_PROMPTS, MLS_REVOCATION_SEEN_SECONDS } from './mls-revocation-inbox-store.js'
+import { MAX_MLS_REVOCATION_SEEN, MAX_MLS_REVOCATION_PROMPTS, MLS_REVOCATION_SEEN_SECONDS, MAX_MLS_KEEPER_PROMPT_COOLDOWNS } from './mls-revocation-inbox-store.js'
 import { BrowserMlsRevocationInbox, MAX_MLS_REVOCATION_DECRYPTIONS, MlsRevocationInboxFull } from './mls-revocation-inbox.js'
 import { planMlsGrant, type MlsGrantRecord } from './mls-grant-ledger.js'
 
@@ -43,11 +44,13 @@ async function fixture() {
     record.state = 'active'; record.rooms = []; record.revokeAfter = now + 86400
     records.push(record); return record
   }
-  async function wrap(target = device, sender = member) {
+  async function wrap(target = device, sender = member, lifetime = 7 * 86400) {
     return wrapVmlsRevocationRequest(sender, { sender: sender.pubkey, keeper: keeper.pubkey, device: target,
-      sessions: ['aa'.repeat(32)], boxes: ['bb'.repeat(32)], createdAt: now, expiration: now + 7 * 86400 }, () => 0, () => true)
+      sessions: ['aa'.repeat(32)], boxes: ['bb'.repeat(32)], createdAt: now, expiration: now + lifetime }, () => 0, () => true)
   }
-  return { tx, inbox, records, grants, grant, wrap, context, clock: (value: number) => { now = value },
+  const restart = () => new BrowserMlsRevocationInbox(coordinator as any, grants, context, () => now)
+  const decisions = () => new BrowserMlsKeeperDecisions(coordinator as any, grants, context, () => now)
+  return { tx, inbox, records, grants, grant, wrap, context, restart, decisions, clock: (value: number) => { now = value },
     hide: () => { foreground = false }, changeAccount: () => { generation++ }, holdWitness: () => { pending = true } }
 }
 
@@ -72,7 +75,7 @@ describe('foreground keeper revocation inbox', () => {
   it('shows conflicting targets from one person together without granting withdrawal authority', async () => {
     const f = await fixture(); await f.grant(); await f.grant(nextDevice)
     const result = await f.inbox.receive([await f.wrap(), await f.wrap(nextDevice)], keeper)
-    expect(result).toMatchObject({ state: 'active', value: { prompts: [{ conflict: true }, { conflict: true }] } })
+    expect(result).toMatchObject({ state: 'active', value: { prompts: [{ conflict: true }], deferred: [{ conflict: true, prompt: { deferredUntil: 5_600 } }] } })
     expect(f.records.map(record => record.state)).toEqual(['active', 'active'])
   })
   it('cannot reopen a dismissed request by replaying its rumour in a fresh wrap; only newer requests reopen it', async () => {
@@ -81,8 +84,8 @@ describe('foreground keeper revocation inbox', () => {
     expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [] } })
     expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('dismissed')
     f.clock(2_001)
-    expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [{ prompt: { state: 'pending', request: { createdAt: 2_001 } } }] } })
-    const done = await readMlsMembership(f.tx); done.inbox!.prompts[0]!.state = 'done'; await saveMlsMembership(f.tx, done)
+    expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [], deferred: [{ prompt: { state: 'pending', request: { createdAt: 2_001 } } }] } })
+    const done = await readMlsMembership(f.tx); done.inbox!.prompts[0]!.state = 'done'; delete done.inbox!.prompts[0]!.deferredUntil; await saveMlsMembership(f.tx, done)
     f.clock(2_002)
     expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [] } })
     expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('done')
@@ -172,5 +175,64 @@ describe('foreground keeper revocation inbox', () => {
     const unrestored = await fixture(); await unrestored.grant(); unrestored.records[0]!.rooms = [{ session, leaf: '77'.repeat(32), name: 'Previous room' }]; unrestored.records[0]!.revokeAfter = null
     await expect(unrestored.inbox.receive([await unrestored.wrap()], keeper)).rejects.toThrow('must be restored')
     expect((await readMlsMembership(unrestored.tx)).inbox?.prompts).toEqual([])
+  })
+})
+
+describe('keeper prompt admission across restart', () => {
+  it('retains a later target quietly, preserves conflict advice, and reserves a new hour when the group resurfaces', async () => {
+    const f = await fixture(), third = '35'.repeat(32)
+    await f.grant(); await f.grant(nextDevice); await f.grant(third)
+    await f.inbox.receive([await f.wrap(), await f.wrap(nextDevice)], keeper)
+    expect(await f.restart().view()).toMatchObject({ value: { prompts: [{ conflict: true, prompt: { request: { device } } }], deferred: [{ prompt: { request: { device: nextDevice }, deferredUntil: 5_600 } }] } })
+    f.clock(5_600)
+    expect(await f.restart().view()).toMatchObject({ value: { prompts: [{ conflict: true }, { conflict: true }] } })
+    const current = await readMlsMembership(f.tx)
+    expect(current.inbox!.prompts.every(prompt => prompt.deferredUntil === undefined)).toBe(true)
+    expect(current.inbox!.promptAfter).toEqual([{ sender: member.pubkey, until: 9_200 }])
+    f.clock(5_601)
+    expect(await f.restart().receive([await f.wrap(third)], keeper)).toMatchObject({ value: { prompts: [{ conflict: true }, { conflict: true }], deferred: [{ prompt: { request: { device: third }, deferredUntil: 9_200 } }] } })
+  })
+  it('does not let short expiry or restart reset the identity cooldown, including migration of a retained older record', async () => {
+    const f = await fixture(); await f.grant(); await f.grant(nextDevice)
+    await f.inbox.receive([await f.wrap(device, member, 1)], keeper)
+    const old = await readMlsMembership(f.tx); delete old.inbox!.promptAfter; await saveMlsMembership(f.tx, old)
+    f.clock(2_002)
+    expect(await f.restart().receive([await f.wrap(nextDevice)], keeper)).toMatchObject({ value: { prompts: [], deferred: [{ prompt: { deferredUntil: 5_600 } }] } })
+    expect((await readMlsMembership(f.tx)).inbox!.prompts).toHaveLength(1)
+  })
+  it('preserves the later pending expiration and original deferral when a newer request asks for a shorter lifetime', async () => {
+    const f = await fixture(); await f.grant(); await f.grant(nextDevice)
+    await f.inbox.receive([await f.wrap(), await f.wrap(nextDevice)], keeper)
+    f.clock(2_001)
+    await f.restart().receive([await f.wrap(device, member, 600), await f.wrap(nextDevice, member, 600)], keeper)
+    const state = (await readMlsMembership(f.tx)).inbox!
+    expect(state.prompts.map(prompt => prompt.request.expiration)).toEqual([2_000 + 7 * 86400, 2_000 + 7 * 86400])
+    expect(state.prompts[1]!.deferredUntil).toBe(5_600)
+    expect(state.promptAfter).toEqual([{ sender: member.pubkey, until: 5_600 }])
+  })
+  it('migrates an active group deferral after the receipt hour has elapsed', async () => {
+    const f = await fixture(); await f.grant(); await f.grant(nextDevice)
+    await f.inbox.receive([await f.wrap()], keeper)
+    const old = await readMlsMembership(f.tx)
+    old.inbox!.checkedAt = 5_000; old.inbox!.prompts[0]!.deferredUntil = 8_600
+    delete old.inbox!.promptAfter; await saveMlsMembership(f.tx, old)
+    f.clock(6_000)
+    expect(await f.restart().receive([await f.wrap(nextDevice)], keeper)).toMatchObject({ value: { prompts: [], deferred: [{ prompt: { deferredUntil: 8_600 } }, { prompt: { deferredUntil: 8_600 } }] } })
+    expect((await readMlsMembership(f.tx)).inbox!.promptAfter).toEqual([{ sender: member.pubkey, until: 8_600 }])
+  })
+  it('keeps another sender immediately eligible without guessing devices or using request hints', async () => {
+    const f = await fixture(); await f.grant(); await f.grant(nextDevice, other.pubkey)
+    expect(await f.inbox.receive([await f.wrap(), await f.wrap(nextDevice, other)], keeper)).toMatchObject({ value: { prompts: [{ conflict: false }, { conflict: false }] } })
+    expect((await readMlsMembership(f.tx)).inbox!.promptAfter).toHaveLength(2)
+  })
+  it('refuses a full cooldown journal without dropping retained cooldowns or creating an immediate prompt', async () => {
+    const f = await fixture(); await f.grant(); await f.inbox.view()
+    const journal = await readMlsMembership(f.tx)
+    journal.inbox!.promptAfter = Array.from({ length: MAX_MLS_KEEPER_PROMPT_COOLDOWNS }, (_, index) => ({ sender: index.toString(16).padStart(64, '0'), until: 5_600 }))
+    await saveMlsMembership(f.tx, journal)
+    await expect(f.restart().receive([await f.wrap()], keeper)).rejects.toThrow('cooldown journal is full')
+    const after = await readMlsMembership(f.tx)
+    expect(after.inbox!.prompts).toEqual([]); expect(after.inbox!.promptAfter).toEqual(journal.inbox!.promptAfter)
+    expect(after.inbox!.seen).toHaveLength(1)
   })
 })
