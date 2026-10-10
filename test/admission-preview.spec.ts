@@ -16,12 +16,13 @@ async function setup(browser: Browser, baseURL: string, phone = false) {
   const link = await host.locator('#shareUrl').inputValue()
   await host.locator('#displayName').fill('Synthetic host'); await host.locator('#join').click()
   await expect(host.locator('#roomArea')).toBeVisible()
-  const requests: string[] = [], replies: Array<() => void> = []
+  const requests: string[] = [], replies: Array<() => void> = [], kinds: number[] = []
   let holdReplies = false
   await guestContext.routeWebSocket(relay, ws => {
     const upstream = ws.connectToServer()
     ws.onMessage(raw => {
       const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT') kinds.push(frame[1].kind)
       if (frame[0] === 'EVENT' && frame[1].kind === 20466) requests.push(frame[1].id)
       upstream.send(raw)
     })
@@ -31,7 +32,7 @@ async function setup(browser: Browser, baseURL: string, phone = false) {
       ws.send(raw)
     })
   })
-  return { host, guest, link, requests, replies, hold: () => { holdReplies = true },
+  return { host, guest, link, requests, replies, kinds, hold: () => { holdReplies = true },
     close: async () => { await guestContext.close(); await hostContext.close() } }
 }
 
@@ -152,11 +153,18 @@ for (const action of ['request', 'cancel', 'hide'] as const) test(`local device 
     await f.guest.locator('#previewAdmissionMic').click()
     await expect.poll(() => f.guest.locator('#admissionPreviewMeter').evaluate(meter => (meter as HTMLMeterElement).value)).toBeGreaterThan(0.05)
     expect(f.requests).toEqual([]); await expect(f.guest.locator('#roomArea')).toBeHidden()
-    if (action === 'request') await requestAdmission(f.guest)
+    expect(f.kinds).toEqual([])
+    expect(await f.guest.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)).toBe(0)
+    if (action === 'request') {
+      await requestAdmission(f.guest)
+      await expect(f.host.locator('#approvals .approvalCard.knock')).toHaveCount(1)
+    }
     else if (action === 'cancel') await f.guest.locator('#cancelAdmission').click()
     else await f.guest.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')) })
     await expect.poll(() => f.guest.evaluate(() => (window as unknown as { previewTestDevices: { calls: number; tracks: MediaStreamTrack[]; release(): void } }).previewTestDevices.tracks.every((track: MediaStreamTrack) => track.readyState === 'ended'))).toBe(true)
     await expect(f.guest.locator('#admissionPreviewVideo')).toBeHidden(); await expect(f.guest.locator('#admissionPreviewMeter')).toBeHidden()
+    expect(f.kinds.every(kind => kind === 20466)).toBe(true)
+    expect(await f.guest.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)).toBe(0)
   } finally { await f.close() }
 })
 
