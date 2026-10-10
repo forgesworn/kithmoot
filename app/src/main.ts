@@ -302,6 +302,9 @@ import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
+import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
+import { observeWorkspaceActivity } from './workspace-observer.js'
+import { verifyDeviceCredential } from '../../src/credential.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { credentialSeal } from '../../src/seal.js'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
@@ -1225,6 +1228,7 @@ async function signInWithNostr(): Promise<void> {
   contextPanel.close()
   if (loginBusy) return
   if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
+  workspaceWork?.reset()
   loginBusy = true
   identityGeneration++
   clearImportedHistorySearch()
@@ -1281,6 +1285,7 @@ async function signOutOfNostr(): Promise<void> {
   await browserLinkPanel.stop()
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
+  workspaceWork?.reset()
   // A signed-out account must not leave its device-specific rendezvous child
   // behind. Do this before changing the visible account state: a storage
   // failure keeps the account connected rather than pretending the clear won.
@@ -1360,6 +1365,7 @@ async function forgetThisBrowser(): Promise<void> {
   identityGeneration++
   clearImportedHistorySearch()
   const s = session
+  workspaceWork?.reset()
   session = undefined
   sessionTransport = undefined
   resetIncomingCall()
@@ -11977,6 +11983,7 @@ $('chatLog').addEventListener('scroll', () => {
 // ---------------------------------------------------------------------------
 
 const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
+let workspaceWork: WorkspaceWorkPanel | undefined
 let roomsTimer: ReturnType<typeof setInterval> | undefined
 /** Whether the list is what is on screen. Nothing below draws, or keeps a
  *  relay open, when it is not. */
@@ -12166,6 +12173,7 @@ function renderRooms(): void {
   // And a self-destructing one is tidied away, here as at launch.
   if (!destructRun && dueDestructRooms().some(room => !destructing.has(room.roomId))) void runDueDestructs()
   retryFileDeletes()
+  workspaceWork?.sync()
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (!roomsListShown) return
@@ -13588,6 +13596,7 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
  *  The browser's own list entry goes too, or it would be offered straight
  *  back as a room "already here" to add to the account. */
 function forgetLocally(roomId: string): void {
+  workspaceWork?.forget(roomId)
   stopWatching(roomId)
   // The room is not this browser's any more: no more read positions for it.
   readSync?.forget(roomId)
@@ -14244,6 +14253,73 @@ const assignmentPanel = new AssignmentPanel(document, () => {
       ...(p.agent && p.devices.length ? { ownerDevice: [...p.devices].sort()[0] } : {}) }
   })
 }, refreshRoomNavigation)
+
+function workspaceActivityRooms(): KnownRoom[] {
+  return navigationRooms().filter(room => {
+    if (room.endedAt !== undefined || room.endsAt !== undefined || room.destruct) return false
+    try { const link = parseRoomLink(room.link); return !link.invitation || link.invitation.persistent === true }
+    catch { return false }
+  })
+}
+
+function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceObservation | string {
+  const account = nostrSession?.pubkey
+  const held = knownRoom(roomStore(), room.roomId)
+  if (!account || !held || held.openedAt <= 0) return 'Join this room before viewing its work. A project invitation does not grant room access.'
+  let link: RoomLink
+  try { link = parseRoomLink(room.link) } catch { return 'This room invitation is unavailable.' }
+  if (isQuietPolicy(link.policy)) return 'Open this quiet conversation to read its messages and work.'
+  const credentialStore = loadOwnCredentialFor(deviceStore, room.roomId, nowSeconds()) ? deviceStore : browserDeviceStore(sessionStorage)
+  const valid = (): boolean => {
+    const saved = knownRoom(roomStore(), room.roomId)
+    const credential = loadOwnCredentialFor(credentialStore, room.roomId, nowSeconds())
+    return account === nostrSession?.pubkey && !!saved && saved.endedAt === undefined && saved.endsAt === undefined && !saved.destruct
+      && !!credential && credential.pubkey === account && verifyDeviceCredential(credential, { roomId: room.roomId, now: nowSeconds() }).ok
+  }
+  if (!valid()) return 'Open this room to refresh your account’s admission before viewing its work.'
+  const secret = secretForKnownRoom(link)
+  if (!secret) return 'Open this room to recover its admission on this device.'
+  const root = deriveRoom(secret)
+  if (root.roomId !== room.roomId) return 'The saved admission does not open this room.'
+  const pool = relayConnections.pool(`room:${room.roomId}`, link.relays)
+  return observeWorkspaceActivity({ ...root, participant: account, name: joiningName() ?? '', transport: pool, policy: link.policy,
+    epoch: loadRoomEpoch(room.roomId), authority: link.invitation?.inviter,
+    deviceSk: loadDeviceKeyFor(credentialStore, room.roomId), sealSks: () => loadOwnSealKeysFor(credentialStore, room.roomId).reverse(),
+    loadJournal: async () => localStorage.getItem(`kithmoot.assignments.v1.${account}.${room.roomId}`) ?? undefined,
+    isBlocked: contactIsBlocked, valid, changed, now: nowSeconds,
+    onEpoch: moved => keepWatchedRekey(room.roomId, secret, moved),
+    onClosed: destruct => {
+      if (destruct) { markRoomDestruct(room.roomId); destructSecrets.set(room.roomId, secret) }
+      for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, room.roomId, nowSeconds())
+      queueMicrotask(() => { renderRooms(); if (destruct) void runDueDestructs() })
+    },
+  })
+}
+
+workspaceWork = new WorkspaceWorkPanel(document, {
+  account: () => nostrSession?.pubkey, rooms: workspaceActivityRooms, label: knownRoomLabel,
+  projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
+  projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
+  agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
+  showMobileNavigation: () => !!nostrSession && workspaceActivityRooms().some(room => room.roomId === currentRoomId()),
+  openProjects: from => sharedProjects.open(from),
+  signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
+  openOrigin: async (room, target) => {
+    const account = nostrSession?.pubkey, generation = identityGeneration
+    await switchRoom(room)
+    if (account !== nostrSession?.pubkey || generation !== identityGeneration) throw new Error('Your account changed while opening the room.')
+    if (!session || currentRoomId() !== room.roomId) throw new Error('Complete admission in the originating room before viewing this item.')
+    if ('assignment' in target) { await assignmentPanel.openAssignment(target.assignment || undefined); return }
+    selectChannel(undefined); showMobileRoomView('chat')
+    for (let i = 0; i < 100; i++) {
+      if (account !== nostrSession?.pubkey || generation !== identityGeneration || currentRoomId() !== room.roomId) return
+      const row = [...$('chatLog').querySelectorAll<HTMLElement>('[data-message-id]')].find(el => el.dataset.messageId === target.message.messageId && el.dataset.messageAuthor === target.message.participant)
+      if (row) { row.tabIndex = -1; row.scrollIntoView({ block: 'center' }); row.focus({ preventScroll: true }); return }
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    setStatus('The message is outside the room history currently available. Search or restore older history in this room.')
+  },
+})
 
 const contextPanel = new ContextPanel(document, {
   identity: () => { const crypt = peerCrypt(); if (!crypt) return undefined; const identity = currentIdentity(); return { pubkey: identity.pubkey, signEvent: event => identity.signEvent(event), ...crypt } },
