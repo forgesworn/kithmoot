@@ -58,7 +58,11 @@ export class BrowserMlsRevocationOutbox {
 
   async records(): Promise<CoordinationResult<MlsStandaloneRevocationRecord[]>> {
     const scope = this.#scope()
-    return this.coordinator.transact(scope.vault.persona, async tx => structuredClone((await readMlsMembership(tx)).requests), () => this.#current(scope))
+    return this.coordinator.transact(scope.vault.persona, async tx => {
+      const records = (await readMlsMembership(tx)).requests
+      for (const record of records) this.#assertRecord(record, record.operation, scope.vault.persona)
+      return structuredClone(records)
+    }, () => this.#current(scope))
   }
 
   send(operation: string, options: { identity: VmlsRevocationIdentity; transport: VmlsRevocationTransport; random?: () => number }): Promise<CoordinationResult<MlsStandaloneRevocationRecord>> {

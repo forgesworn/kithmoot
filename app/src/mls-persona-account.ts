@@ -3,17 +3,21 @@ import { BrowserPersonaLinks } from './mls-persona-link.js'
 import { BrowserPersonaEnrolment, type PersonaEnrolment } from './mls-persona-enrolment.js'
 import { BrowserPersonaCoordinator, type CoordinationResult } from './mls-persona-coordinator.js'
 import { CoordinatedMlsVault, type VaultOverview, type BoxRequest, type BoxReply, BrowserCoordinatedVaultSignals } from './mls-coordinated-vault.js'
+import { BrowserMlsRevocationOutbox } from './mls-revocation-outbox.js'
+import type { MlsStandaloneRevocationRecord } from './mls-membership-store.js'
+import type { VmlsRevocationIdentity, VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 
 import type { ParticipantIdentity } from '../../src/identity.js'
 import { MlsVault, BrowserMlsVaultStorage, type VaultContext, type VaultResult, type ConsentScope, type ConsentPrompt, type SignLeafBindingRequest, type SignLeafBindingReply } from './mls-vault.js'
 
-export interface MlsAccountContext { identity?: ParticipantIdentity; persona: string; generation: string; mode: 'normal' | 'quiet' | 'tor-only' }
+export interface MlsAccountContext { identity?: ParticipantIdentity; revocationIdentity?: VmlsRevocationIdentity; persona: string; generation: string; mode: 'normal' | 'quiet' | 'tor-only' }
 export interface MlsAccountView {
   enrolment: PersonaEnrolment
   check?: CoordinationResult<void>
   vault?: VaultResult<VaultOverview | null>
   installation?: string
   retirement?: { subject: string; installation: string; verified: boolean }
+  revocations?: CoordinationResult<MlsStandaloneRevocationRecord[]>
 }
 interface Services { store: BrowserMlsPersonaStore; links: BrowserPersonaLinks; enrolment: BrowserPersonaEnrolment; coordinator: BrowserPersonaCoordinator }
 
@@ -109,6 +113,29 @@ export class BrowserMlsAccount {
       vault: await this.#typed(s).overview(this.#typed(s).context(globalThis.location.origin, c.persona)),
       enrolment: await s.enrolment.status(c.persona, current),
     }), true)
+  }
+  /** Retained evidence is checked explicitly with the witness. No room or
+   * local MLS device is needed to ask about an earlier observed device. */
+  revocationRecords(): Promise<MlsAccountView> {
+    return this.#run(async (s, c, current) => ({
+      revocations: await this.#outbox(s, c, current).records(),
+      enrolment: await s.enrolment.status(c.persona, current),
+    }), true)
+  }
+  sendRevocation(operation: string, transport: VmlsRevocationTransport): Promise<MlsAccountView> {
+    return this.#run(async (s, c, current) => {
+      const identity = c.revocationIdentity
+      if (!identity || identity.pubkey !== c.persona) throw new Error('This account needs a signer with private-message encryption to send the request.')
+      const outbox = this.#outbox(s, c, current), sent = await outbox.send(operation, { identity, transport })
+      return { revocations: sent.state === 'active' ? await outbox.records() : sent,
+        enrolment: await s.enrolment.status(c.persona, current) }
+    }, true, true)
+  }
+  #outbox(s: Services, c: MlsAccountContext, current: () => boolean): BrowserMlsRevocationOutbox {
+    const vault = this.#typed(s)
+    return new BrowserMlsRevocationOutbox(s.coordinator, () => ({
+      vault: vault.context(globalThis.location.origin, c.persona), current,
+    }))
   }
   enrolDevice(expiresAt: number, replace = false, expectedDevice?: string) {
     return this.#vaultRun((vault, ctx, c) => c.identity

@@ -14472,12 +14472,16 @@ if (browserMlsPreview) {
   $('mlsWitnessSettingsOpen').hidden = false
   $('mlsWitnessSettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => {
     const account = nostrSession, generation = identityGeneration
-    void import('./mls-persona-panel.js').then(async ({ BrowserMlsPanel }) => {
+    void Promise.all([import('./mls-persona-panel.js'), import('./mls-revocation-relay.js')]).then(async ([{ BrowserMlsPanel }, { NostrVmlsRevocationTransport }]) => {
       if (nostrSession !== account || identityGeneration !== generation) return
-      browserMlsPanel ??= new BrowserMlsPanel(() => nostrSession ? {
-        persona: nostrSession.pubkey, identity: { pubkey: nostrSession.pubkey, signEvent: nostrSession.signer.signEvent.bind(nostrSession.signer) }, generation: `${identityGeneration}:${roomGeneration}`,
-        mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal',
-      } : undefined)
+      browserMlsPanel ??= new BrowserMlsPanel(() => {
+        const account = nostrSession
+        if (!account) return undefined
+        const identity = { pubkey: account.pubkey, signEvent: account.signer.signEvent.bind(account.signer) }, crypt = peerCrypt()
+        return { persona: account.pubkey, identity, revocationIdentity: crypt ? { ...identity, ...crypt } : undefined,
+          generation: `${identityGeneration}:${roomGeneration}`,
+          mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal' }
+      }, undefined, document, () => new NostrVmlsRevocationTransport(relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)))
       await browserMlsPanel.open()
     }).catch(() => setStatus('MLS witness settings could not be opened.'))
   }))
