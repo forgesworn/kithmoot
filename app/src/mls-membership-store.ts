@@ -19,6 +19,7 @@ export interface MlsRemovalRecord {
   attempts: number
   failure: string | null
   journal: string
+  request?: { keeper: string; device: string; sessions: string[]; boxes: string[] }
 }
 export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[] }
 
@@ -27,12 +28,17 @@ function validate(record: MlsMembershipJournal): void {
       !Array.isArray(record.removals) || record.removals.length > MAX_MLS_REMOVALS) invalid()
   const operations = new Set<string>()
   for (const removal of record.removals) {
-    if (!removal || typeof removal !== 'object' || !exact(removal, 'attempts,compromised,createdAt,failure,journal,kind,operation,session,target') ||
+    if (!removal || typeof removal !== 'object' || !exact(removal, ['attempts','compromised','createdAt','failure','journal','kind','operation', ...(removal.request ? ['request'] : []), 'session','target'].sort().join(',')) ||
         !hex32(removal.operation) || !hex32(removal.session) || !['device', 'person'].includes(removal.kind) || !hex32(removal.target) ||
         typeof removal.compromised !== 'boolean' || !Number.isSafeInteger(removal.createdAt) || removal.createdAt < 0 ||
         !Number.isSafeInteger(removal.attempts) || removal.attempts < 0 || removal.attempts > 1000 ||
         !(removal.failure === null || typeof removal.failure === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(removal.failure)) ||
         !byteHex(removal.journal) || operations.has(removal.operation)) invalid()
+    if (removal.request && (!exact(removal.request, 'boxes,device,keeper,sessions') || !hex32(removal.request.keeper) ||
+        !hex32(removal.request.device) || !Array.isArray(removal.request.sessions) || removal.request.sessions.length < 1 || removal.request.sessions.length > 64 ||
+        !removal.request.sessions.every(hex32) || new Set(removal.request.sessions).size !== removal.request.sessions.length ||
+        !Array.isArray(removal.request.boxes) || removal.request.boxes.length < 1 || removal.request.boxes.length > 64 ||
+        !removal.request.boxes.every(hex32) || new Set(removal.request.boxes).size !== removal.request.boxes.length)) invalid()
     operations.add(removal.operation)
   }
 }

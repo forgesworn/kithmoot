@@ -31,17 +31,38 @@ request unrecorded.
 `vmlsMemberGrantReference` derives the member-side stable reference as
 `SHA-256(UTF8("kithmoot/vmls-member-grant/v1") || box32 || device32)`.
 
+## Active-room sender durability
+
+The development MLS room record now retains the authenticated keeper identity
+used at creation or join. A current member may journal removal of another one
+of their account's devices with exact keeper, device, session, box and
+`keeper:false` grant-reference bindings. The witnessed membership transaction
+rejects a request that names a different roster device, omits the current
+session, targets the requesting account as keeper, or differs from the engine's
+non-keeper grants. Invalid caller input is refused without fencing a healthy
+persona; a later mismatch in sealed persisted state fences it.
+
+`requestRevocation` creates a fresh seven-day envelope from that witnessed
+record. Relay refusal or uncertain publication leaves every grant at
+`NotAuthorised { requested: false }`. Only after the injected publisher confirms
+`OK true` does one witnessed transaction mark all exact request grant references
+`requested: true`. That state means the request was sent, never that the keeper
+performed revocation.
+
 ## Evidence and remaining work
 
 Unit coverage exercises strict framing and time bounds, NIP-59 round trips,
 outer metadata minimisation, signer and author binding, hostile relay input,
 verified kind 10050 selection, absence of fallback and identity AUTH, refused
-publication, account invalidation, and the member grant reference. The
-production build is byte-for-byte identical to its clean base build.
+publication, account invalidation, and the member grant reference. Browser
+coverage exercises keeper persistence, real-engine non-keeper grants, restart
+recovery, atomic requested-state persistence, refusal of a mismatched target
+device without persona damage, and fencing of altered stored bindings across
+Chromium, Firefox and WebKit.
 
-This is the protocol and sender dependency boundary only. It does not add a
-production import, UI action, encrypted request journal, automatic retry,
-directory network lookup, keeper inbox, dedicated endpoint lifecycle, operator
+This remains a development-only sender boundary. It does not add a production
+import, UI action, automatic retry, directory network lookup, requests after all
+local devices have left, keeper inbox, dedicated endpoint lifecycle, operator
 prompt, or MLS/grant revocation. Those remain open P3-08 work, and this module
 must not be wired into production before their gate evidence and the production
 security review are complete.
