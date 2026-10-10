@@ -3,7 +3,7 @@ import { base32nopad } from '@scure/base'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import type { ParticipantIdentity } from '../../src/identity.js'
-import { BrowserMlsGrantLedger, mlsBoxNode, mlsGrantReference, mlsGrantScope, planMlsGrant, removalGrantRefs, type MlsGrantRecord } from './mls-grant-ledger.js'
+import { BrowserMlsGrantLedger, mlsBoxNode, mlsGrantReference, mlsGrantScope, planMlsGrant, removalGrantRefs, type MlsGrantRecord, type MlsGrantInstallationGate } from './mls-grant-ledger.js'
 import { mlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
 
 const node = new Uint8Array(32).fill(31)
@@ -23,11 +23,71 @@ function fixture() {
   const link = { resume: vi.fn(async () => [box]), boxes: () => [box], pairedBoxes: vi.fn(async (_keeper: string) => [box]), openSocket: vi.fn() }
   const ledger = new BrowserMlsGrantLedger(() => identity, link as any, store, record => ({
     publish: async event => { published.push(event.id); if (fail) throw new Error('lost OK') }, close: () => undefined,
-  }), () => now, async (_key, work) => work())
+  }), () => now, async (_key, work) => work(), async (_device, _mode, work) => work())
   return { identity, records, snapshots, published, ledger, link, store, fail: (value: boolean) => { fail = value }, clock: (value: number) => { now = value } }
 }
 
 describe('browser VMLS grant ledger', () => {
+  it('refuses mismatched stores, malformed devices and stale foreground before acquiring an install hold', async () => {
+    const f = fixture(), work = vi.fn(async () => 'unsafe'), gate = vi.fn(async (_device, _mode, action) => action())
+    const ledger = new BrowserMlsGrantLedger(() => f.identity, f.link as any, f.store, undefined, undefined, undefined, gate as MlsGrantInstallationGate)
+    await expect(ledger.withDeviceInstallHold({ all: f.store.all }, f.identity.pubkey, device, () => true, work)).rejects.toThrow('different ledger')
+    await expect(ledger.withDeviceInstallHold(f.store, f.identity.pubkey, device.toUpperCase() + 'x', () => true, work)).rejects.toThrow('different ledger')
+    await expect(ledger.withDeviceInstallHold(f.store, '00', device, () => true, work)).rejects.toThrow('different ledger')
+    await expect(ledger.withDeviceInstallHold(f.store, f.identity.pubkey, device, () => false, work)).rejects.toThrow('session changed')
+    expect(gate).not.toHaveBeenCalled(); expect(work).not.toHaveBeenCalled()
+  })
+  it('rechecks keeper identity after waiting for the exclusive install gate', async () => {
+    const f = fixture(), work = vi.fn(async () => 'unsafe')
+    let current = f.identity, release!: () => void
+    const wait = new Promise<void>(resolve => { release = resolve })
+    const gate: MlsGrantInstallationGate = async (_device, mode, action) => { expect(mode).toBe('exclusive'); await wait; return action() }
+    const ledger = new BrowserMlsGrantLedger(() => current, f.link as any, f.store, undefined, undefined, undefined, gate)
+    const pending = ledger.withDeviceInstallHold(f.store, f.identity.pubkey, device, () => true, work)
+    current = signer(); release()
+    await expect(pending).rejects.toThrow('session changed'); expect(work).not.toHaveBeenCalled()
+  })
+  it('keeps the exclusive gate through full callback settlement and rechecks foreground afterwards', async () => {
+    const f = fixture()
+    let held = false, live = true, release!: () => void, started!: () => void
+    const wait = new Promise<void>(resolve => { release = resolve }), began = new Promise<void>(resolve => { started = resolve })
+    const gate: MlsGrantInstallationGate = async (_device, mode, action) => {
+      expect(mode).toBe('exclusive'); held = true
+      try { return await action() } finally { held = false }
+    }
+    const ledger = new BrowserMlsGrantLedger(() => f.identity, f.link as any, f.store, undefined, undefined, undefined, gate)
+    const pending = ledger.withDeviceInstallHold(f.store, f.identity.pubkey, device, () => live, async current => {
+      started(); await wait; expect(held).toBe(true); expect(current()).toBe(false); return 'settled'
+    })
+    await began; live = false; await Promise.resolve(); expect(held).toBe(true); release()
+    await expect(pending).rejects.toThrow('session changed'); expect(held).toBe(false)
+  })
+  it('retains shared ownership through signing, installing save, uncertain publication, cleanup and final active save', async () => {
+    for (const refused of [false, true]) {
+      const f = fixture(), phases: string[] = []
+      let held = false
+      const check = (phase: string) => { expect(held).toBe(true); phases.push(phase) }
+      const identity = { pubkey: f.identity.pubkey, signEvent: async (template: Parameters<ParticipantIdentity['signEvent']>[0]) => {
+        check('sign'); await Promise.resolve(); check('signed'); return f.identity.signEvent(template)
+      } }
+      const store = { all: async () => { check('read'); await Promise.resolve(); return f.store.all() }, put: async (record: MlsGrantRecord) => {
+        check(record.state); await f.store.put(record); check(`saved-${record.state}`)
+      } }
+      const gate: MlsGrantInstallationGate = async (key, mode, action) => {
+        expect(key).toBe(device); expect(mode).toBe('shared'); held = true
+        try { return await action() } finally { held = false }
+      }
+      const ledger = new BrowserMlsGrantLedger(() => identity, f.link as any, store, () => ({
+        publish: async () => { check('publish'); await Promise.resolve(); check('published'); if (refused) throw new Error('uncertain') },
+        close: () => check('close'),
+      }), () => 1_000, async (_key, action) => action(), gate)
+      if (refused) await expect(ledger.install(box, persona, device, room)).rejects.toThrow('uncertain')
+      else expect((await ledger.install(box, persona, device, room)).state).toBe('active')
+      expect(held).toBe(false); expect(phases).toEqual(expect.arrayContaining(['read', 'sign', 'signed', 'installing', 'saved-installing', 'publish', 'published', 'close']))
+      expect(f.records[0]!.state).toBe(refused ? 'installing' : 'active')
+      if (!refused) expect(phases.slice(-2)).toEqual(['active', 'saved-active'])
+    }
+  })
   it('reads exact account-bound pairings without starting Link or publishing a withdrawal', async () => {
     const f = fixture(), installed = await f.ledger.install(box, persona, device, room), authority = mlsKeeperGrantAuthority(installed)
     f.link.resume.mockClear()
