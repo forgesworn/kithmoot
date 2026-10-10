@@ -22,11 +22,18 @@ function setup() {
     createMediaStreamDestination: () => ({ stream: stream(output) }),
   }
   const capture = vi.fn(async () => stream(raw))
+  const nodes: FakeNode[] = []
+  class FakeNode extends EventTarget {
+    port = { postMessage: vi.fn(), close: vi.fn(), onmessage: null as ((event: { data: unknown }) => void) | null }
+    connect = vi.fn()
+    disconnect = vi.fn()
+    constructor(_context: unknown, _name: string, readonly options?: AudioWorkletNodeOptions) { super(); nodes.push(this) }
+  }
   vi.stubGlobal('document', { hidden: false })
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: capture } })
   vi.stubGlobal('AudioContext', class { constructor() { return context } })
-  vi.stubGlobal('AudioWorkletNode', class { port = { postMessage: vi.fn() }; connect = vi.fn(); disconnect = vi.fn() })
-  return { raw, output, context, capture }
+  vi.stubGlobal('AudioWorkletNode', FakeNode)
+  return { raw, output, context, capture, nodes, source }
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
@@ -93,6 +100,122 @@ describe('microphone interruption recovery', () => {
     expect(pipeline.state.status).toBe('ready')
     expect(pipeline.preset).toBe(preset)
     expect(pipeline.track).toBe(fake.output)
+    pipeline.stop()
+  })
+})
+
+describe('selected voice masks fail closed', () => {
+  it('rejects failed worklet startup without publishing or previewing raw capture', async () => {
+    const fake = setup()
+    fake.context.audioWorklet.addModule.mockRejectedValue(new Error('worklet unavailable'))
+    const pipeline = new MicPipeline({ preset: 'deep' })
+    await expect(pipeline.start()).rejects.toThrow('Microphone muted because voice masking failed')
+    expect(pipeline.track).toBeUndefined()
+    expect(fake.raw.enabled).toBe(false)
+    expect(pipeline.state).toMatchObject({ preset: 'deep', status: 'degraded', blocked: true })
+    await expect(pipeline.preview()).rejects.toThrow('Microphone muted')
+    pipeline.stop()
+  })
+  it('bounds an unavailable audio device without changing the selected mask', async () => {
+    vi.useFakeTimers()
+    const fake = setup()
+    fake.context.state = 'suspended'
+    fake.context.resume.mockImplementation(() => new Promise(() => {}))
+    const pipeline = new MicPipeline({ preset: 'deep' })
+    const rejected = expect(pipeline.start()).rejects.toThrow('Microphone muted')
+    await vi.advanceTimersByTimeAsync(4000)
+    await rejected
+    expect(fake.raw.enabled).toBe(false)
+    expect(pipeline.preset).toBe('deep')
+    expect(pipeline.track).toBeUndefined()
+    pipeline.stop()
+  })
+  it('disconnects and mutes a selected mask when the context clock stalls', async () => {
+    vi.useFakeTimers()
+    const fake = setup()
+    const pipeline = new MicPipeline({ preset: 'deep' })
+    await pipeline.start()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(pipeline.track).toBe(fake.output)
+    expect(fake.output.enabled).toBe(false)
+    expect(fake.raw.enabled).toBe(false)
+    expect(fake.source.disconnect).toHaveBeenCalled()
+    expect(pipeline.state).toMatchObject({ preset: 'deep', blocked: true })
+    await expect(pipeline.resume()).rejects.toThrow('Microphone muted')
+    expect(fake.capture).toHaveBeenCalledOnce()
+    pipeline.stop()
+  })
+  it('checks processor progress separately from a running context', async () => {
+    vi.useFakeTimers()
+    const fake = setup()
+    const pipeline = new MicPipeline({ preset: 'higher' })
+    await pipeline.start()
+    for (let second = 1; second <= 2; second++) {
+      fake.context.currentTime = second
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+    expect(pipeline.state).toMatchObject({ preset: 'higher', blocked: true, error: 'the voice processor stopped rendering' })
+    expect(fake.output.enabled).toBe(false)
+    pipeline.stop()
+  })
+  it('mutes immediately on a processor error and permits Off only while still muted', async () => {
+    const fake = setup()
+    const pipeline = new MicPipeline({ preset: 'neutral' })
+    await pipeline.start()
+    fake.nodes[0]!.dispatchEvent(new Event('processorerror'))
+    expect(pipeline.state.blocked).toBe(true)
+    expect(fake.output.enabled).toBe(false)
+    pipeline.setPreset('off')
+    expect(pipeline.track).toBe(fake.raw)
+    expect(fake.raw.enabled).toBe(false)
+    expect(pipeline.state.blocked).toBe(false)
+    pipeline.stop()
+  })
+  it('allows raw fallback for Off but stops it before selecting a mask', async () => {
+    const fake = setup()
+    fake.context.audioWorklet.addModule.mockRejectedValue(new Error('worklet unavailable'))
+    const pipeline = new MicPipeline({ preset: 'off' })
+    expect(await pipeline.start()).toBe(fake.raw)
+    pipeline.setPreset('deep')
+    expect(fake.raw.enabled).toBe(false)
+    expect(fake.raw.readyState).toBe('ended')
+    expect(pipeline.track).toBeUndefined()
+    expect(pipeline.state.blocked).toBe(true)
+    pipeline.stop()
+  })
+  it('configures the first masked render and discards old processor buffers on a preset change', async () => {
+    const fake = setup()
+    const pipeline = new MicPipeline({ preset: 'deep' })
+    const track = await pipeline.start()
+    expect(fake.nodes[0]!.options?.processorOptions.settings).toEqual({ semitones: -8, formantRatio: 0.78 })
+    pipeline.setPreset('higher')
+    expect(pipeline.track).toBe(track)
+    expect(fake.nodes[0]!.disconnect).toHaveBeenCalled()
+    expect(fake.nodes[0]!.port.close).toHaveBeenCalled()
+    expect(fake.nodes[1]!.options?.processorOptions.settings).toEqual({ semitones: 4, formantRatio: 1.14 })
+    // A late failure from a disconnected processor cannot disrupt the new one.
+    fake.nodes[0]!.dispatchEvent(new Event('processorerror'))
+    expect(pipeline.state.blocked).toBe(false)
+    pipeline.stop()
+  })
+  it('keeps a rendering mask and the muted output through source recovery', async () => {
+    vi.useFakeTimers()
+    const fake = setup()
+    const pipeline = new MicPipeline({ preset: 'deep' })
+    await pipeline.start()
+    fake.output.enabled = false
+    for (let second = 1; second <= 3; second++) {
+      fake.context.currentTime = second
+      fake.nodes[0]!.port.onmessage!({ data: { type: 'rendered', frames: second * 48000 } })
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+    expect(pipeline.state.blocked).toBe(false)
+    fake.raw.stop()
+    fake.capture.mockResolvedValue(stream())
+    await pipeline.resume()
+    expect(pipeline.preset).toBe('deep')
+    expect(pipeline.track).toBe(fake.output)
+    expect(fake.output.enabled).toBe(false)
     pipeline.stop()
   })
 })

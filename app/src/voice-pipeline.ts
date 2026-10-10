@@ -35,6 +35,8 @@ export interface MicPipelineOptions {
 export interface MicState {
   preset: VoicePreset
   status: 'idle' | 'loading' | 'ready' | 'degraded'
+  /** A failed selected mask must stay silent until deliberately reopened. */
+  blocked: boolean
   /** Latency the masking itself adds, in milliseconds. */
   addedLatencyMs: number
   /** What the browser says its own output path costs, for context. */
@@ -48,8 +50,7 @@ export interface MicState {
 const CLOCK_CHECK_MS = 1_000
 const MIN_CLOCK_ADVANCE_S = 0.2
 const STALLED_CHECKS = 2
-/** How long starting the audio graph may take before the raw microphone
- *  goes out instead. */
+/** Bound graph startup without exposing an unmasked fallback. */
 const START_BOUND_MS = 4_000
 
 function withinMs<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
@@ -81,7 +82,9 @@ export class MicPipeline {
   #preset: VoicePreset = DEFAULT_VOICE_PRESET
   #status: MicState['status'] = 'idle'
   #error: string | undefined
-  /** The raw microphone, once the masking graph has been seen to stop. */
+  #blocked = false
+  #rendered = 0
+  /** Raw audio is available only while the person explicitly selects Off. */
   #fallback: MediaStreamTrack | null = null
   #watchdog: ReturnType<typeof setInterval> | undefined
   /** Which microphone is feeding the pipeline right now, read off the raw
@@ -103,16 +106,16 @@ export class MicPipeline {
     return this.#preset
   }
 
-  /** The track to publish: the masked one while the graph runs, the raw
-   *  microphone once the graph has been seen to stop - see `#watch`. */
+  /** A selected mask never exposes the raw capture as a publication track. */
   get track(): MediaStreamTrack | undefined {
-    return this.#fallback ?? this.#destination?.stream.getAudioTracks()[0] ?? this.#stream?.getAudioTracks()[0]
+    return (this.#preset === 'off' ? this.#fallback : undefined) ?? this.#destination?.stream.getAudioTracks()[0]
   }
 
   get state(): MicState {
     return {
       preset: this.#preset,
       status: this.#status,
+      blocked: this.#blocked,
       addedLatencyMs: this.addedLatencyMs,
       baseLatencyMs: (this.#context?.baseLatency ?? 0) * 1000,
       error: this.#error,
@@ -129,13 +132,12 @@ export class MicPipeline {
   /**
    * Open the microphone and return the track to publish.
    *
-   * If the worklet will not load, this returns the *unmasked* microphone
-   * track rather than nothing: a broken effect must not take the call down.
-   * The state goes to `degraded` and the UI says the voice is not masked,
-   * which is the only honest thing to do with a control that has failed.
+   * A failed selected mask rejects startup and mutes capture. Off may use
+   * the raw microphone if the browser's audio graph is unavailable.
    */
   async start(opts: { deviceId?: string } = {}): Promise<MediaStreamTrack> {
     if (this.#stopped) throw new Error('Microphone was stopped.')
+    if (this.#blocked) throw new Error(this.#failureMessage())
     if (this.track) return this.track
     const stream = await this.#openMic(opts.deviceId)
     if (this.#stopped) {
@@ -152,36 +154,30 @@ export class MicPipeline {
       this.#setStatus('loading')
       const context = new AudioContext()
       this.#context = context
-      // Bounded, because on a stalled output device `resume()` never
-      // resolves - and a microphone that never comes on is worse than one
-      // that comes on unmasked. See `#watch` for the same device stalling
-      // after the graph is up.
+      // An unavailable output device must not change the selected preset.
       if (context.state !== 'running' && context.state !== 'closed') await withinMs(context.resume(), START_BOUND_MS, 'the audio device did not start')
       if (this.#stopped) throw new Error('Microphone was stopped.')
       await withinMs(context.audioWorklet.addModule(`${import.meta.env.BASE_URL}voice-worklet.js`), START_BOUND_MS, 'the audio worklet did not load')
       if (this.#stopped) throw new Error('Microphone was stopped.')
-      this.#node = new AudioWorkletNode(context, WORKLET_NAME)
       this.#source = context.createMediaStreamSource(this.#stream)
       this.#destination = context.createMediaStreamDestination()
-      this.#source.connect(this.#node)
-      this.#node.connect(this.#destination)
-      this.#post()
+      this.#connectProcessor()
       this.#setStatus('ready')
       const track = this.#destination.stream.getAudioTracks()[0]
       if (!track) throw new Error('the audio graph produced no track')
-      this.#watch(context, raw)
+      this.#watch(context)
       return track
     } catch (err) {
       if (this.#stopped) throw err
-      this.#error = err instanceof Error ? err.message : String(err)
-      this.#setStatus('degraded')
-      this.#preset = 'off'
-      return raw
+      this.#fail(err instanceof Error ? err.message : String(err))
+      if (this.#blocked) throw new Error(this.#failureMessage())
+      return raw // Only an explicitly selected Off can reach this path.
     }
   }
 
   /**
-   * Notice a graph that has stopped rendering, and step out of its way.
+   * Notice a stopped clock or processor. A selected mask fails silently;
+   * only an explicitly selected Off can bypass the failed graph.
    *
    * An AudioContext is clocked by the machine's audio OUTPUT device. When
    * that device is asleep, absent or stalled - measured on a Mac mini whose
@@ -189,13 +185,12 @@ export class MicPipeline {
    * and a half - the context still reports `running`, the worklet still
    * loads, and the destination track is `live`, unmuted and enabled, while
    * producing no samples at all. WebRTC then sends no audio, and nobody
-   * hears the person, with nothing on their screen to say why. The raw
-   * microphone track is clocked by the input device and is unaffected, so
-   * when the clock stops this hands that track over instead, says so in
-   * red, and the app republishes it. Masking is lost; the voice is not.
+   * hears the person. Processor progress is checked separately: a running
+   * context does not prove that its masking worklet is still rendering.
    */
-  #watch(context: AudioContext, raw: MediaStreamTrack): void {
+  #watch(context: AudioContext): void {
     let last = context.currentTime
+    let rendered = this.#rendered
     let stalls = 0
     this.#watchdog = setInterval(() => {
       if (this.#context !== context) return
@@ -203,26 +198,66 @@ export class MicPipeline {
       // the page is hidden or the audio session belongs to another app.
       if (document.hidden || context.state !== 'running' || this.#recovery) {
         last = context.currentTime
+        rendered = this.#rendered
         stalls = 0
         return
       }
       const now = context.currentTime
       const advanced = now - last
       last = now
-      if (advanced >= MIN_CLOCK_ADVANCE_S) {
+      const processed = this.#rendered > rendered
+      rendered = this.#rendered
+      if (advanced >= MIN_CLOCK_ADVANCE_S && processed) {
         stalls = 0
         return
       }
       if (++stalls < STALLED_CHECKS) return
-      clearInterval(this.#watchdog)
-      this.#watchdog = undefined
-      this.#error = 'the audio device this browser plays through is not running, so the voice goes out unmasked'
-      this.#node?.disconnect()
-      this.#source?.disconnect()
-      this.#fallback = this.#stream?.getAudioTracks()[0] ?? raw
-      this.#preset = 'off'
-      this.#setStatus('degraded')
+      this.#fail(advanced < MIN_CLOCK_ADVANCE_S ? 'the audio device stopped rendering' : 'the voice processor stopped rendering')
     }, CLOCK_CHECK_MS)
+  }
+
+  #failureMessage(): string {
+    return `Microphone muted because voice masking failed: ${this.#error ?? 'the voice processor stopped'}. Try the microphone again, or choose Off to use your own voice.`
+  }
+
+  #fail(reason: string): void {
+    if (this.#stopped) return
+    if (this.#watchdog !== undefined) clearInterval(this.#watchdog)
+    this.#watchdog = undefined
+    this.#node?.disconnect()
+    this.#source?.disconnect()
+    this.#error = reason
+    this.#blocked = this.#preset !== 'off'
+    const raw = this.#stream?.getAudioTracks()[0]
+    if (this.#blocked) {
+      if (raw) raw.enabled = false
+      for (const track of this.#destination?.stream.getAudioTracks() ?? []) track.enabled = false
+      this.#fallback = null
+    } else this.#fallback = raw ?? null
+    this.#setStatus('degraded')
+  }
+
+  /** Configure the first render through processorOptions. Replacing only the
+   * processor discards the old preset's buffered samples before reconnecting;
+   * the published destination track stays the same. */
+  #connectProcessor(): void {
+    const context = this.#context
+    if (!context || !this.#source || !this.#destination) throw new Error('the audio graph is unavailable')
+    this.#source.disconnect()
+    this.#node?.disconnect()
+    this.#node?.port.postMessage({ type: 'stop' })
+    this.#node?.port.close()
+    const node = new AudioWorkletNode(context, WORKLET_NAME, { processorOptions: { settings: VOICE_PRESETS[this.#preset] } })
+    this.#node = node
+    this.#rendered = 0
+    node.port.onmessage = (event: MessageEvent<{ type: string; frames: number }>) => {
+      if (!this.#stopped && this.#node === node && event.data.type === 'rendered') this.#rendered = event.data.frames
+    }
+    node.addEventListener('processorerror', () => {
+      if (!this.#stopped && this.#node === node) this.#fail('the voice processor failed')
+    })
+    this.#source.connect(node)
+    node.connect(this.#destination)
   }
 
   #watchSource(raw: MediaStreamTrack): void {
@@ -252,16 +287,20 @@ export class MicPipeline {
   resume(): Promise<void> {
     if (this.#stopped) return Promise.resolve()
     if (this.#recovery) return this.#recovery
-    this.#recovery = this.#resume().finally(() => { this.#recovery = undefined })
+    this.#recovery = this.#resume().catch(err => {
+      if (!this.#stopped && !this.#blocked && this.#preset !== 'off') this.#fail(err instanceof Error ? err.message : String(err))
+      throw err
+    }).finally(() => { this.#recovery = undefined })
     return this.#recovery
   }
 
   async #resume(): Promise<void> {
+    if (this.#blocked) throw new Error(this.#failureMessage())
     const context = this.#context
-    if (context?.state === 'closed' || (!this.#fallback && this.#destination?.stream.getAudioTracks()[0]?.readyState === 'ended')) {
+    if (!this.#fallback && (context?.state === 'closed' || this.#destination?.stream.getAudioTracks()[0]?.readyState === 'ended')) {
       throw new Error('The microphone output ended. Switch the microphone off and on to reopen it.')
     }
-    if (context && context.state !== 'running') {
+    if (context && !this.#fallback && context.state !== 'running') {
       await withinMs(context.resume(), START_BOUND_MS, 'Tap Resume call media to restore audio.')
     }
     if (this.#stopped) return
@@ -282,6 +321,7 @@ export class MicPipeline {
       this.#source = this.#context.createMediaStreamSource(stream)
       this.#source.connect(this.#node)
     } else {
+      if (this.#preset !== 'off') { next.stop(); this.#fail('the masking graph is unavailable'); throw new Error(this.#failureMessage()) }
       next.enabled = enabled
       this.#fallback = next
     }
@@ -291,7 +331,19 @@ export class MicPipeline {
 
   setPreset(preset: VoicePreset): void {
     this.#preset = preset
-    this.#post()
+    if (this.#blocked && preset === 'off') {
+      this.#blocked = false
+      this.#fallback = this.#stream?.getAudioTracks()[0] ?? null
+      // Deliberately choosing Off permits raw speech, but still requires unmute.
+      if (this.#fallback) this.#fallback.enabled = false
+    } else if (this.#fallback && preset !== 'off') {
+      this.#fallback.enabled = false
+      this.#fallback.stop()
+      this.#fail('the masking graph needs reopening')
+    } else if (!this.#blocked && this.#source && this.#destination) {
+      try { this.#connectProcessor() }
+      catch (err) { this.#fail(err instanceof Error ? err.message : String(err)) }
+    }
     this.#emit()
   }
 
@@ -301,6 +353,7 @@ export class MicPipeline {
     this.#watchdog = undefined
     this.#fallback = null
     this.#node?.port.postMessage({ type: 'stop' })
+    this.#node?.port.close()
     this.#node?.disconnect()
     this.#source?.disconnect()
     for (const t of this.#stream?.getTracks() ?? []) t.stop()
@@ -324,8 +377,10 @@ export class MicPipeline {
    * it hears.
    */
   async preview(seconds = PREVIEW_SECONDS): Promise<Blob> {
-    const stream = this.#destination?.stream ?? this.#stream
-    if (!stream) throw new Error('the microphone is not on')
+    if (this.#blocked) throw new Error(this.#failureMessage())
+    const track = this.track
+    if (!track) throw new Error('the microphone is not on')
+    const stream = new MediaStream([track])
     if (typeof MediaRecorder === 'undefined') {
       throw new Error('this browser cannot record, so there is no way to play your voice back to you')
     }
@@ -342,10 +397,6 @@ export class MicPipeline {
     await new Promise((resolve) => setTimeout(resolve, seconds * 1000))
     recorder.stop()
     return done
-  }
-
-  #post(): void {
-    this.#node?.port.postMessage({ type: 'settings', settings: VOICE_PRESETS[this.#preset] })
   }
 
   #setStatus(status: MicState['status']): void {

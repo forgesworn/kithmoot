@@ -282,10 +282,11 @@ explicitly permits indefinite relay storage of expired events, so expiration
 alone cannot establish erasure.
 
 Existing temporary admission and ephemeral presence events do not establish
-this complete lifecycle. The current [voice-mask fallback](../README.md)
-prioritises continued speech and can revert to raw audio on a stalled output
-clock; G8 requires a fail-closed privacy behaviour. Inspect storage, transport,
-agent and teardown paths before claiming this mode meets the goal.
+this complete lifecycle. The browser's [voice-mask failure handling](voice-mask-failure.md)
+keeps a selected mask and mutes capture on startup, clock or processor failure;
+only an explicitly selected Off permits raw capture. This does not complete G8:
+Android masking, physical-device interruptions, temporary admission/storage,
+agent retention and authoritative teardown still need their full journeys.
 
 ## G9 — One workspace for projects, people and remote agent work
 
