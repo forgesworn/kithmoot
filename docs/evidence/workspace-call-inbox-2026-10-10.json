@@ -21,5 +21,14 @@
     "Fresh-device summaries, older work completeness, native combined-call acceptance and representative scale/battery checks remain open. G9 is incomplete."
   ],
   "publiclyShipped": false,
-  "physicalAcceptance": false
+  "physicalAcceptance": false,
+  "hostedCI": {
+    "runId": 38034832115,
+    "finalHead": "83412a0b620b626a199e644dbadd058403b5f544",
+    "mergedSource": "51e693e46705e8b0dd39315abad971311bf01b92",
+    "allTwelveChecksPassed": true,
+    "attempt": 2,
+    "firstAttemptFailure": "Existing Firefox NIP-17 private-conversation test timed out after its button click produced no visible status. Trace retained; no new call/Inbox case failed.",
+    "retry": "Only the failed job was rerun on unchanged source; no assertion weakened."
+  }
 }

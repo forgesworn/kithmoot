@@ -325,9 +325,15 @@ records four local Chromium phone/desktop journeys, including a Release call
 retained while answering and reviewing work in Design. Both participants keep
 receiving audio and video at routing checkpoints, the call's origin and media
 connections stay stable, and Leave still acts on Release while Design is open.
-Hosted validation of this combined test, fresh-device summaries, older work
+All twelve hosted checks passed, including an unchanged-source rerun of an
+existing Firefox private-conversation failure. Fresh-device summaries, older work
 coverage, native combined-call acceptance, live execution and physical
 acceptance remain open; this does not complete G9.
+
+Desktop 0.1.68 is [published and publicly verified](evidence/workspace-inbox-2026-10-10.json):
+all six archive downloads match, the Mac bundle is notarised and Gatekeeper
+verified, both APT signatures verify, and the site/update feeds match the release.
+Physical upgrade, call and capture acceptance remains separate and open.
 
 The [delayed-agent unread regression](evidence/agent-unread-reclassification-2026-10-10.json)
 now clears a human unread badge when signed agent presence catches up with its
