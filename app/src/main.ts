@@ -8129,19 +8129,24 @@ function renderMeeting(): void {
           : 'Meeting mode: only speakers can talk or show video.'
   }
 
+  const record = $('recordToggle') as HTMLButtonElement
+  const recordingHere = activeRecording?.session === session && activeRecording !== undefined
+  const recordLabel = recordingHere ? 'Stop recording' : 'Record call'
+  record.hidden = !moderator && !recordingHere
+  record.querySelector('.callWord')!.textContent = recordLabel
+  record.setAttribute('aria-label', recordLabel)
+  record.setAttribute('aria-pressed', String(recordingHere))
+  record.dataset.on = String(recordingHere)
+  const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
+  record.disabled = !recordingHere && (!session?.call || mediaSession() !== session || !canRecord)
+  record.title = recordingHere ? 'Stop recording' : record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : 'Record audio or video'
+
   const panel = $('meetingPanel') as HTMLDetailsElement
   panel.hidden = !moderator
   if (!moderator) return
   const mode = $('meetingModeToggle') as HTMLButtonElement
   mode.textContent = on ? 'End meeting mode' : 'Start meeting mode'
   mode.setAttribute('aria-pressed', String(on))
-  const record = $('recordToggle') as HTMLButtonElement
-  const recordingHere = activeRecording !== undefined
-  record.textContent = recordingHere ? 'Stop recording' : 'Record the call'
-  record.setAttribute('aria-pressed', String(recordingHere))
-  const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
-  record.disabled = !recordingHere && (!session?.call || !canRecord)
-  record.title = record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : ''
 
   const list = $('meetingPeople')
   list.replaceChildren()
