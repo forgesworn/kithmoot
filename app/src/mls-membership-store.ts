@@ -7,6 +7,9 @@ import { validateMlsRevocationInbox, type MlsRevocationInboxState } from './mls-
 export const MAX_MLS_REMOVALS = 64
 export const MAX_MLS_STANDALONE_REVOCATIONS = 64
 export const MAX_MLS_MEMBERSHIP_BYTES = 1024 * 1024
+// Keep room for all 1024 verified attempt IDs, including safe-integer times.
+// Seen bytes already present consume this reserve rather than paying twice.
+export const MLS_MEMBERSHIP_SEEN_RESERVE_BYTES = 110 * 1024
 const RECORD = bytesToHex(new TextEncoder().encode('kithmoot.mls-membership.v1'))
 const hex32 = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
 const byteHex = (value: unknown): value is string => typeof value === 'string' && /^(?:[0-9a-f]{2})+$/.test(value) && value.length <= 131_072
@@ -90,7 +93,9 @@ export async function saveMlsMembership(tx: PersonaTransaction, record: MlsMembe
   validate(record)
   const bytes = new TextEncoder().encode(JSON.stringify(record))
   try {
-    if (bytes.length > MAX_MLS_MEMBERSHIP_BYTES) throw new Error('MLS membership journal is full')
+    // Validated seen fields contain ASCII hex, decimal integers and fixed keys.
+    const seenBytes = record.inbox ? JSON.stringify(record.inbox.seen).length - 2 : 0
+    if (bytes.length + Math.max(0, MLS_MEMBERSHIP_SEEN_RESERVE_BYTES - seenBytes) > MAX_MLS_MEMBERSHIP_BYTES) throw new Error('MLS membership journal is full')
     await tx.putVault(RECORD, bytes)
   } finally { bytes.fill(0) }
 }
