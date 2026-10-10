@@ -72,7 +72,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
     // the host acknowledgement rather than the transient door status.
     await expect(rowan.locator('#roomArea')).toBeVisible({ timeout: 90_000 })
     await expect(ada.locator('#approvals .approvalCard.knock')).toHaveCount(0)
-    await expect(ada.locator('#chatLog')).toContainText('Rowan came in on your invite.')
+    await expect(ada.locator('#chatLog')).toContainText('Invitation sent to Rowan.')
     await expect(rowan.locator('#roomArea')).toBeVisible()
     await expect(rowan.locator('#roomTitle')).toHaveText('Private build')
   } finally { await a.close(); await b.close() }

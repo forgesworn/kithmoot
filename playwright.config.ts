@@ -175,7 +175,7 @@ export default defineConfig({
       // rather than quietly skipping - a layout spec that skips is exactly
       // how the last two attempts at this "passed".
       name: 'chromium-desktop',
-      testMatch: ['send-feedback.spec.ts', 'voice-mask.spec.ts', 'call-surface.spec.ts', 'desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'rail-divider.spec.ts', 'self-destruct.spec.ts', 'workspace-work.spec.ts', 'projects-flow.spec.ts', 'home-controls.spec.ts'],
+      testMatch: ['knock.spec.ts', 'private-room.spec.ts', 'send-feedback.spec.ts', 'voice-mask.spec.ts', 'call-surface.spec.ts', 'desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'rail-divider.spec.ts', 'self-destruct.spec.ts', 'workspace-work.spec.ts', 'projects-flow.spec.ts', 'home-controls.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: process.env.E2E_DESKTOP_BASE_URL ?? `https://localhost:${appPort + 1}/j/`,

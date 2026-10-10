@@ -1914,7 +1914,14 @@ function setKnock(roomId: string, on: boolean): void {
   else deviceStore.remove(KNOCK_KEY_PREFIX + roomId)
 }
 
-interface Knock extends InvitationRequest { at: number; resolve: (yes: boolean) => void }
+interface Knock extends InvitationRequest {
+  at: number
+  roomId: string
+  kind: 'invitation' | 'member'
+  state: 'waiting' | 'sending' | 'failed'
+  timer?: ReturnType<typeof setTimeout>
+  resolve: (yes: boolean) => void
+}
 const knocks = new Map<string, Knock>()
 
 function knockLabel(knock: InvitationRequest): string {
@@ -1922,22 +1929,23 @@ function knockLabel(knock: InvitationRequest): string {
   return knock.name ?? `Somebody (${shortKey(knock.device)})`
 }
 
-function askToLetIn(request: InvitationRequest): Promise<boolean> {
+function askToLetIn(request: InvitationRequest, kind: Knock['kind'] = 'invitation'): Promise<boolean> {
   if (request.participant && contactIsBlocked(request.participant)) return Promise.resolve(false)
   // Somebody this device invited is not asked about: inviting them was
   // the answer. Anybody else with the link gets the card.
   const roomId = currentRoomId()
+  if (!roomId) return Promise.resolve(false)
   if (roomId && request.participant && invitedTo(roomId).has(request.participant)) {
-    addSystemLine(`${knockLabel(request)} came in on your invite.`)
     return Promise.resolve(true)
   }
   return new Promise((resolve) => {
-    const knock: Knock = { ...request, at: nowSeconds(), resolve }
+    const knock: Knock = { ...request, at: nowSeconds(), roomId, kind, state: 'waiting', resolve }
     knocks.set(knock.request, knock)
     setStatus(`${knockLabel(knock)} wants to join. Let them in from the card above the conversation.`)
     renderApprovals()
-    setTimeout(() => {
-      if (!knocks.delete(knock.request)) return
+    knock.timer = setTimeout(() => {
+      if (knocks.get(knock.request) !== knock) return
+      knocks.delete(knock.request)
       resolve(false)
       renderApprovals()
     }, KNOCK_WAIT_MS)
@@ -1950,17 +1958,47 @@ function askToLetIn(request: InvitationRequest): Promise<boolean> {
 function askAboutUnknown(asking: RoomSession, asker: { participant: string; device: string }): void {
   const request = `known:${asker.participant}`
   if (asking !== session || knocks.has(request)) return
-  void askToLetIn({ request, device: asker.device, participant: asker.participant }).then((yes) => {
+  void askToLetIn({ request, device: asker.device, participant: asker.participant }, 'member').then((yes) => {
     if (yes && session === asking) asking.letIn(asker.participant)
   })
 }
 
 function answerKnock(knock: Knock, yes: boolean): void {
+  if (knocks.get(knock.request) !== knock || knock.state !== 'waiting') return
+  if (knock.roomId !== currentRoomId()) yes = false
   if (knock.participant && contactIsBlocked(knock.participant)) yes = false
-  if (!knocks.delete(knock.request)) return
+  if (yes && knock.kind === 'invitation') knock.state = 'sending'
+  else {
+    knocks.delete(knock.request)
+    clearTimeout(knock.timer)
+  }
   knock.resolve(yes)
-  addSystemLine(yes ? `You let ${knockLabel(knock)} in.` : `You declined ${knockLabel(knock)}.`)
+  addSystemLine(yes
+    ? knock.kind === 'invitation'
+      ? `You approved ${knockLabel(knock)}’s request. Sending their invitation…`
+      : `You approved ${knockLabel(knock)}’s access from this device.`
+    : `You declined ${knockLabel(knock)}.`)
   renderApprovals()
+}
+
+/** A host's decision is not the transport's acknowledgement, and neither
+ * proves the guest has received the grant or joined. Match the exact request
+ * and originating room before changing its pending card. */
+function finishKnockGrant(request: InvitationRequest, sent: boolean): boolean {
+  const knock = knocks.get(request.request)
+  if (!knock || knock.kind !== 'invitation' || knock.state !== 'sending' || knock.roomId !== currentRoomId()) return false
+  if (sent) {
+    knocks.delete(knock.request)
+    clearTimeout(knock.timer)
+    addSystemLine(`Invitation sent to ${knockLabel(knock)}. They can join when ready.`)
+    setStatus(`Invitation sent to ${knockLabel(knock)}. Waiting for them to join.`, 'done')
+  } else {
+    knock.state = 'failed'
+    addSystemLine(`The invitation to ${knockLabel(knock)} could not be sent. Ask them to retry their request.`)
+    setStatus('The invitation could not be sent. Check your connection and ask the guest to retry.')
+  }
+  renderApprovals()
+  return true
 }
 
 // People this device invited to a room, by room. A knock from one of them
@@ -2040,7 +2078,7 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
 }
 
 function forgetKnocks(): void {
-  for (const knock of knocks.values()) knock.resolve(false)
+  for (const knock of knocks.values()) { clearTimeout(knock.timer); knock.resolve(false) }
   knocks.clear()
 }
 
@@ -2172,7 +2210,12 @@ function serveCurrentInvitation(): void {
       epoch: () => session?.epoch ?? expectedEpoch ?? 0,
       admit: async request => {
         if (currentRoomId() !== admissionRoom || (request.participant && contactIsBlocked(request.participant))) return false
+        const decidingSession = session
         const yes = knockOn(admissionRoom) ? await askToLetIn(request) : true
+        // A decision can settle while navigation or contact policy changes.
+        // It must never authorise the session opened in another room.
+        if (currentRoomId() !== admissionRoom || session !== decidingSession || roomInvitationCapability !== invitation ||
+            (request.participant && contactIsBlocked(request.participant))) return false
         // Whoever this device lets in through the link, the room knows: its
         // member desk hands them the key even after a removal (#207).
         if (yes && request.participant) session?.letIn(request.participant)
@@ -2182,9 +2225,16 @@ function serveCurrentInvitation(): void {
       // lenient relay, including requests for people already admitted on a
       // different delegation branch. Serving those again is harmless, but it
       // must not overwrite this member's own "Invitation accepted" state.
-      ...(invitationDelegation.length === 0
-        ? { onAdmitted: () => setStatus('Someone used the current room link.') }
-        : {}),
+      onGrantPublished: request => {
+        if (currentRoomId() !== admissionRoom || roomInvitationCapability !== invitation) return
+        if (finishKnockGrant(request, true)) return
+        if (request.participant && invitedTo(admissionRoom).has(request.participant)) addSystemLine(`Invitation sent to ${knockLabel(request)}. They can join when ready.`)
+        if (invitationDelegation.length === 0) setStatus('An invitation was sent using this room link.')
+      },
+      onGrantFailed: request => {
+        if (currentRoomId() !== admissionRoom || roomInvitationCapability !== invitation) return
+        if (!finishKnockGrant(request, false)) setStatus('A room invitation could not be sent. Check your connection and ask the guest to retry.')
+      },
       onRetired: () => {
         if (roomInvitationCapability !== invitation) return
         stopInvitationHost()
@@ -8237,7 +8287,11 @@ function verdictSentence(by: string, verdict: string, request: OpenApproval): st
 
 function renderApprovals(): void {
   const box = $('approvals')
-  box.innerHTML = ''
+  // Keep pending join controls connected when another request arrives,
+  // including between pointer-down and pointer-up or while using Tab.
+  const existingKnocks = new Map(Array.from(box.querySelectorAll<HTMLElement>('.approvalCard.knock'), card => [card.dataset.request, card]))
+  const focusedKnock = document.activeElement?.closest<HTMLElement>('.approvalCard.knock')
+  for (const child of Array.from(box.children)) if (!child.classList.contains('knock')) child.remove()
   const now = nowSeconds()
   let soonest: number | undefined
   for (const request of approvals.values()) {
@@ -8271,29 +8325,70 @@ function renderApprovals(): void {
       options.append(button)
     }
     card.append(who, text, options)
-    box.append(card)
+    box.insertBefore(card, box.querySelector('.approvalCard.knock'))
   }
   for (const knock of knocks.values()) {
     if (knock.participant && contactIsBlocked(knock.participant)) continue
-    const card = document.createElement('div')
-    card.className = 'approvalCard knock'
-    const who = document.createElement('span')
-    who.className = 'who'
+    let card = existingKnocks.get(knock.request)
+    existingKnocks.delete(knock.request)
+    if (!card) {
+      card = document.createElement('div')
+      card.className = 'approvalCard knock'
+      card.dataset.request = knock.request
+      card.tabIndex = -1
+      const who = document.createElement('span')
+      who.className = 'who'
+      const evidence = document.createElement('span')
+      evidence.className = 'note knockEvidence'
+      evidence.textContent = `Device ${shortKey(knock.device)} · ${knock.participant ? 'Account claimed by the guest; not verified for this request.' : 'Name supplied by the guest.'}`
+      const status = document.createElement('span')
+      status.className = 'note knockStatus'
+      status.setAttribute('role', 'status')
+      const options = document.createElement('div')
+      options.className = 'options'
+      for (const [label, yes] of [['Let in', true], ['Decline', false]] as const) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.textContent = label
+        if (yes) button.classList.add('primary')
+        button.addEventListener('click', () => answerKnock(knock, yes))
+        options.append(button)
+      }
+      card.append(who, evidence, status, options)
+      box.append(card)
+    }
+    card.setAttribute('role', 'group')
+    card.setAttribute('aria-label', `${knockLabel(knock)}’s join request`)
+    const who = card.querySelector<HTMLElement>('.who')!
+    who.replaceChildren()
     if (knock.participant) who.append(identityRun(shownAs(knock.participant, knock.name), false))
     else who.append(knock.name ?? 'Somebody')
     who.append(' wants to join.')
-    const options = document.createElement('div')
-    options.className = 'options'
-    for (const [label, yes] of [['Let in', true], ['Decline', false]] as const) {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.textContent = label
-      if (yes) button.classList.add('primary')
-      button.addEventListener('click', () => answerKnock(knock, yes))
-      options.append(button)
+    const status = card.querySelector<HTMLElement>('.knockStatus')!
+    const statusText = knock.state === 'sending' ? 'Sending invitation…'
+      : knock.state === 'failed' ? 'Invitation could not be sent. Check your connection and ask the guest to retry.' : ''
+    if (status.textContent !== statusText) status.textContent = statusText
+    const options = card.querySelector<HTMLElement>('.options')!
+    if (knock.state === 'failed' && card.dataset.state !== 'failed') {
+      options.replaceChildren()
+      const dismiss = document.createElement('button')
+      dismiss.type = 'button'
+      dismiss.textContent = 'Dismiss'
+      dismiss.addEventListener('click', () => {
+        if (knocks.get(knock.request) !== knock) return
+        knocks.delete(knock.request)
+        clearTimeout(knock.timer)
+        renderApprovals()
+      })
+      options.append(dismiss)
     }
-    card.append(who, options)
-    box.append(card)
+    for (const button of options.querySelectorAll<HTMLButtonElement>('button')) button.disabled = knock.state === 'sending'
+    card.dataset.state = knock.state
+  }
+  for (const card of existingKnocks.values()) card.remove()
+  if (focusedKnock && (!focusedKnock.isConnected || !focusedKnock.contains(document.activeElement))) {
+    const next = focusedKnock.isConnected ? focusedKnock : box.querySelector<HTMLElement>('.knock button:not([disabled])') ?? $('chatInput')
+    next.focus({ preventScroll: true })
   }
   // A card leaves on its own when its question expires.
   if (approvalTimer !== undefined) clearTimeout(approvalTimer)

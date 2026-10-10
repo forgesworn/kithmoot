@@ -204,6 +204,8 @@ describe('invitation exchange', () => {
       invitation: root.invitation,
       now,
     })
+    // Guest delivery may precede the host's publication acknowledgement.
+    await expect.poll(() => memberAdmissions).toBe(1)
     member.close()
 
     expect(bytesToHex(second)).toBe(bytesToHex(roomSecret))
