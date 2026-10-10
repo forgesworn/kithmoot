@@ -241,3 +241,10 @@ and screen sharing. Audio-only and video recording keep the existing participant
 notices, pause/export controls and explicit encrypted sharing. The focused browser
 journeys and an Electron packaged-app save/playback check passed with synthetic
 media. Physical-device and long-session acceptance remain separate.
+
+Desktop 0.1.72 keeps conversation order and timestamps tied to actual messages,
+with unknown history visible under Other rooms. Temporary-room admission uses
+fresh matching account proofs; other guests await a member decision. Record call
+remains visible beside microphone and camera for the room creator after joining.
+The signed build and pending publication gates are recorded in
+[release evidence](../docs/evidence/conversation-admission-release-2026-10-10.json).
