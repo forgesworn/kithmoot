@@ -172,7 +172,7 @@
     "supersededByVoiceMaskFix": true,
     "eligibleForPublication": false
   },
-  "desktopCandidate": {
+  "desktopCandidateBeforeAgentUnreadFix": {
     "version": "0.1.68",
     "sourceCommit": "2f4087ed527a88a67f7f00a0fc675e561fb39485",
     "includesVoiceMaskFailureFix": true,
@@ -300,6 +300,19 @@
     "publicReleasePublished": false,
     "macNotarisationAccepted": false,
     "macFinalArchiveVerified": false,
-    "physicalWindowsLinuxAcceptance": false
+    "physicalWindowsLinuxAcceptance": false,
+    "superseded": true,
+    "eligibleForPublication": false,
+    "supersededReason": "The delayed-agent unread badge fix changes the application payload."
+  },
+  "desktopCandidate": {
+    "version": "0.1.68",
+    "sourceCommit": "ba312c3bcf518bd039ef93c776c6c56f5fcf9c60",
+    "state": "rebuild-pending",
+    "published": false,
+    "eligibleForPublication": false,
+    "containsVoiceMaskFix": true,
+    "containsLateAgentUnreadFix": true,
+    "physicalAcceptance": false
   }
 }
