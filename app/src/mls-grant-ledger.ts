@@ -16,6 +16,7 @@ export const VMLS_REMOVAL_GRACE = 24 * 60 * 60
 const aad = new TextEncoder().encode('kithmoot.vmls-grant-ledger.v1')
 const scopeLabel = new TextEncoder().encode('VMLS/1 box grant')
 const refLabel = new TextEncoder().encode('kithmoot/vmls-removal-grant/v1')
+const snapshotLabel = new TextEncoder().encode('kithmoot/vmls-keeper-grant-snapshot/v1')
 const hex32 = /^[0-9a-f]{64}$/
 const hex16 = /^[0-9a-f]{32}$/
 const exact = (value: object, keys: string) => Object.keys(value).sort().join(',') === keys
@@ -40,6 +41,11 @@ export interface MlsGrantWithdrawal { record: MlsGrantRecord; result: 'retained'
 
 export const mlsGrantScope = (device: string): string => bytesToHex(sha256(concatBytes(scopeLabel, hexToBytes(device))))
 export const mlsGrantReference = (node: string, grantId: string): string => bytesToHex(sha256(concatBytes(refLabel, hexToBytes(node), hexToBytes(grantId))))
+/** Exact local record identity for a witnessed lapse; never remote revocation proof. */
+export function mlsKeeperGrantRecordDigest(record: MlsGrantRecord): string {
+  validateMlsGrant(record)
+  return bytesToHex(sha256(concatBytes(snapshotLabel, new TextEncoder().encode(JSON.stringify(record)))))
+}
 export function mlsBoxNode(box: PairedBox): string {
   let bytes: Uint8Array
   try {

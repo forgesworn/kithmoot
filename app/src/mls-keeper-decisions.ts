@@ -1,7 +1,8 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { readMlsMembership, saveMlsMembership } from './mls-membership-store.js'
 import { InvalidPersonaRecord, type BrowserPersonaCoordinator, type CoordinationResult, type PersonaTransaction } from './mls-persona-coordinator.js'
-import { validateMlsGrant, type BrowserMlsGrantStore, type MlsGrantRecord } from './mls-grant-ledger.js'
+import { validateMlsGrant, mlsKeeperGrantRecordDigest, type BrowserMlsGrantStore, type MlsGrantRecord } from './mls-grant-ledger.js'
+import type { BrowserMlsKeeperBoxClock, MlsKeeperBoxClockEvidence } from './mls-keeper-box-clock.js'
 import { readMlsRoom, mlsRoomIds } from './mls-room-store.js'
 import { loadMlsEngine } from './mls-engine.js'
 import { mlsKeeperRemovalOperation, mlsKeeperGrantAuthority, validateMlsKeeperApproval, type MlsKeeperApproval, type MlsKeeperGrantAuthority, type MlsKeeperRoomIntent } from './mls-revocation-decision-store.js'
@@ -22,13 +23,50 @@ export interface MlsKeeperDecisionPlan {
 export interface MlsKeeperExecutionPlan extends MlsKeeperDecisionPlan {
   revoked: string[]
   unavailable: string[]
+  lapsed: string[]
 }
 /** Explicit operator decisions only. Approval records intent before any
  * future room or box effect. This class itself cannot publish or remove. */
 export class BrowserMlsKeeperDecisions {
   constructor(private coordinator: Pick<BrowserPersonaCoordinator, 'transact'>, private grants: Pick<BrowserMlsGrantStore, 'all'>,
     private context: () => MlsRevocationInboxContext | undefined, private now: () => number = () => Math.floor(Date.now() / 1000),
-    private routes?: { available(authority: MlsKeeperGrantAuthority, sender: string, device: string, current: () => boolean): Promise<boolean> }) {}
+    private routes?: { available(authority: MlsKeeperGrantAuthority, sender: string, device: string, current: () => boolean): Promise<boolean> },
+    private clockFor?: (node: string) => BrowserMlsKeeperBoxClock | undefined) {}
+
+  /** The caller probes its independent endpoint before entering this witness.
+   * This records expiry only; it neither deletes nor publishes a tombstone. */
+  async lapse(operation: string, record: MlsGrantRecord, evidence: MlsKeeperBoxClockEvidence): Promise<CoordinationResult<MlsRevocationInboxPrompt>> {
+    const scope = this.#scope(), expected = structuredClone(record)
+    validateMlsGrant(expected)
+    const clock = this.clockFor?.(expected.node)
+    let floor = evidence.phoneTime
+    const current = () => { const at = this.now(); return this.#current(scope) && Number.isSafeInteger(at) && at >= floor }
+    try { return await this.coordinator.transact(scope.vault.persona, async tx => {
+      const plan = await this.#execution(tx, scope, operation)
+      const authority = plan.grants.find(grant => grant.node === expected.node && grant.reference === evidence.reference)
+      if (!authority || expected.issuer !== scope.vault.persona || expected.persona !== plan.prompt.request.sender || expected.device !== plan.prompt.request.device ||
+          authority.expiration !== expected.expiration || plan.prompt.grantOutcomes?.some(item => item.reference === authority.reference)) throw new Error('This exact grant is not awaiting a lapse decision.')
+      const records = await this.grants.all()
+      if (!Array.isArray(records) || records.length > 256 || new Set(records.map(item => `${item.node}/${item.device}`)).size !== records.length) throw new Error('The keeper grant ledger could not be verified.')
+      records.forEach(validateMlsGrant)
+      const retained = records.find(item => item.node === expected.node && item.device === expected.device)
+      if (JSON.stringify(retained) !== JSON.stringify(expected)) throw new Error('The probed grant changed before its lapse was witnessed.')
+      if (!clock) throw new Error('An authenticated keeper clock observation is required.')
+      const accepted = clock.acceptEvidence(expected, evidence)
+      const journal = await readMlsMembership(tx), inbox = journal.inbox!, prompt = inbox.prompts.find(item => item.operation === operation)!
+      const at = this.#time()
+      if (!this.#current(scope) || JSON.stringify(accepted.binding) !== JSON.stringify(scope.vault)) throw new Error('The keeper account or foreground session changed.')
+      if (at < inbox.checkedAt || at < accepted.phoneTime || at > Number.MAX_SAFE_INTEGER - MLS_KEEPER_PROMPT_SECONDS) throw new Error('A trusted request time is unavailable.')
+      if (expected.expiration > Math.min(accepted.phoneTime, accepted.boxTime)) throw new Error('Both authenticated clocks must confirm the exact grant expired.')
+      inbox.checkedAt = at
+      floor = at
+      prompt.grantOutcomes ??= []
+      prompt.grantOutcomes.push({ node: expected.node, reference: authority.reference, at, outcome: 'no-live', evidence: structuredClone(accepted), recordDigest: mlsKeeperGrantRecordDigest(expected) })
+      prompt.grantOutcomes.sort((a, b) => a.reference.localeCompare(b.reference))
+      await saveMlsMembership(tx, journal)
+      return structuredClone(prompt)
+    }, current) } finally { clock?.invalidate() }
+  }
 
   plan(operation: string): Promise<CoordinationResult<MlsKeeperDecisionPlan>> {
     const scope = this.#scope()
@@ -109,7 +147,11 @@ export class BrowserMlsKeeperDecisions {
     const scope = this.#scope()
     return this.coordinator.transact(scope.vault.persona, async tx => {
       const current = await this.#execution(tx, scope, operation)
-      if (current.revoked.length + current.unavailable.length !== current.grants.length || current.rooms.some(room => room.action === 'remove')) throw new Error('The approved removal or grant withdrawal is still pending.')
+      // A ledger read and persona witness are different atomic domains.
+      // Until affected-device installation is held across this commit, a
+      // replacement could arrive after the last read. Keep the approval hold.
+      if (current.lapsed.length) throw new Error('Lapsed grant completion awaits the affected-device grant-install hold.')
+      if (current.revoked.length + current.unavailable.length + current.lapsed.length !== current.grants.length || current.rooms.some(room => room.action === 'remove')) throw new Error('The approved removal or grant withdrawal is still pending.')
       const journal = await readMlsMembership(tx), prompt = journal.inbox!.prompts.find(item => item.operation === operation)!
       // A target can disappear before its journal catches up. Do not clear
       // an engine-owned compromised hold until that journal is witnessed.
@@ -152,7 +194,12 @@ export class BrowserMlsKeeperDecisions {
       if (!frozen || grant.reference !== frozen.reference || grant.active !== frozen.active || grant.revocation !== frozen.revocation || JSON.stringify(grant.box) !== JSON.stringify(frozen.box) || frozen.expiration !== undefined && frozen.expiration !== grant.expiration ||
           grant.rooms.some(use => !frozen.rooms.some(item => item.session === use.session && item.leaf === use.leaf))) throw new Error('The approved grant authority changed. Review the request again.')
     }
-    if (approved.grants.some(grant => !current.grants.some(item => item.node === grant.node))) throw new Error('An approved grant is no longer retained. Its access cannot be confirmed here.')
+    for (const frozen of approved.grants) {
+      const terminal = prompt.grantOutcomes?.find(item => item.reference === frozen.reference && item.outcome === 'no-live')
+      const record = records.find(item => item.node === frozen.node && item.device === prompt.request.device)
+      if (!current.grants.some(item => item.node === frozen.node) && (!terminal || record)) throw new Error('An approved grant is no longer retained. Its access cannot be confirmed here.')
+      if (terminal?.outcome === 'no-live' && record && mlsKeeperGrantRecordDigest(record) !== terminal.recordDigest) throw new Error('The witnessed lapsed grant record changed. Review the request again.')
+    }
     for (const room of current.rooms) {
       const frozen = approved.rooms.find(item => item.session === room.session && item.member.leafId === room.member.leafId)
       if (!frozen || frozen.rendezvousKey !== room.rendezvousKey || frozen.member.device !== room.member.device || frozen.member.identity !== room.member.identity ||
@@ -197,7 +244,8 @@ export class BrowserMlsKeeperDecisions {
     if (before !== JSON.stringify(retained)) await saveMlsMembership(tx, saved)
     const unavailable = outcomes.filter(item => item.outcome === 'route-unavailable').map(item => item.reference)
     return { ...current, prompt: structuredClone(retained), grants: structuredClone(retained.approval!.grants),
-      revoked: outcomes.filter(item => item.outcome === 'revoked').map(item => item.reference), unavailable }
+      revoked: outcomes.filter(item => item.outcome === 'revoked').map(item => item.reference), unavailable,
+      lapsed: outcomes.filter(item => item.outcome === 'no-live').map(item => item.reference) }
   }
   async #review(tx: PersonaTransaction, scope: MlsRevocationInboxContext, operation: string, approved = false, verified?: (records: MlsGrantRecord[]) => void): Promise<MlsKeeperDecisionPlan> {
     const at = this.#time(), inbox = await mlsRevocationInboxState(tx, scope.vault.persona, at)
@@ -209,7 +257,7 @@ export class BrowserMlsKeeperDecisions {
     records.forEach(validateMlsGrant)
     verified?.(records)
     const request = prompt.request, selected = records.filter(record => record.issuer === scope.vault.persona && record.persona === request.sender && record.device === request.device && (approved || record.state !== 'revoked'))
-    if (!selected.length) throw new Error('This request no longer matches the keeper grant ledger.')
+    if (!selected.length && !(approved && prompt.approval!.grants.every(grant => prompt.grantOutcomes?.some(item => item.reference === grant.reference && item.outcome === 'no-live')))) throw new Error('This request no longer matches the keeper grant ledger.')
     const grants: MlsKeeperGrantAuthority[] = selected.map(mlsKeeperGrantAuthority).sort((a, b) => a.node.localeCompare(b.node))
     const ids = await mlsRoomIds(tx), rooms: MlsKeeperRoomIntent[] = []
     if (selected.some(grant => grant.rooms.some(use => !ids.includes(use.session)))) throw new Error('A keeper room must be restored before reviewing this request.')

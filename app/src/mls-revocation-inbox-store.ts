@@ -2,6 +2,7 @@ import { InvalidPersonaRecord } from './mls-persona-coordinator.js'
 import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 import { createVmlsRevocationRumor, VMLS_REVOCATION_FUTURE_SKEW_SECONDS, type VmlsRevocationRequest } from '../../src/vmls-revocation-request.js'
 import { validateMlsKeeperApproval, type MlsKeeperApproval } from './mls-revocation-decision-store.js'
+import type { MlsKeeperBoxClockEvidence } from './mls-keeper-box-clock.js'
 
 export const MAX_MLS_REVOCATION_SEEN = 1024
 export const MAX_MLS_REVOCATION_PROMPTS = 64
@@ -15,10 +16,14 @@ export interface MlsRevocationInboxPrompt {
   state: 'pending' | 'dismissed' | 'approved' | 'done'
   approval?: MlsKeeperApproval
   /** Terminal observations about frozen authority, never about replacement grants. */
-  grantOutcomes?: { node: string; reference: string; at: number; outcome: 'revoked' | 'route-unavailable' }[]
+  grantOutcomes?: MlsKeeperGrantOutcome[]
   deferredUntil?: number
   revision?: number
 }
+export type MlsKeeperGrantOutcome = { node: string; reference: string; at: number } & (
+  { outcome: 'revoked' | 'route-unavailable' } |
+  { outcome: 'no-live'; evidence: MlsKeeperBoxClockEvidence; recordDigest: string }
+)
 export interface MlsRevocationInboxState {
   keeper: string
   checkedAt: number
@@ -83,10 +88,22 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     if (prompt.grantOutcomes !== undefined) {
       const outcomes = prompt.grantOutcomes
       if (!prompt.approval || !['approved', 'done'].includes(prompt.state) || !Array.isArray(outcomes) || outcomes.length > 256 ||
-        outcomes.some((item, index) => !item || !exact(item, 'at,node,outcome,reference') || !hex32(item.node) || !hex32(item.reference) ||
-          !time(item.at) || item.at < prompt.approval!.approvedAt || item.at > value.checkedAt || !['revoked','route-unavailable'].includes(item.outcome) ||
+        outcomes.some((item, index) => !item || !exact(item, item.outcome === 'no-live' ? 'at,evidence,node,outcome,recordDigest,reference' : 'at,node,outcome,reference') || !hex32(item.node) || !hex32(item.reference) ||
+          !time(item.at) || item.at < prompt.approval!.approvedAt || item.at > value.checkedAt || !['revoked','route-unavailable','no-live'].includes(item.outcome) ||
           index > 0 && outcomes[index - 1]!.reference >= item.reference || !prompt.approval!.grants.some(grant => grant.node === item.node && grant.reference === item.reference)) ||
-        prompt.state === 'done' && outcomes.length !== prompt.approval.grants.length) invalid()
+        prompt.state === 'done' && (outcomes.length !== prompt.approval.grants.length || outcomes.some(item => item.outcome === 'no-live'))) invalid()
+      for (const item of outcomes) if (item.outcome === 'no-live') {
+        const evidence = item.evidence, binding = evidence?.binding
+        const grant = prompt.approval!.grants.find(grant => grant.reference === item.reference)!
+        if (!hex32(item.recordDigest) || !evidence || !exact(evidence, 'binding,boxTime,expiration,installation,node,observedAt,phoneTime,reference') ||
+            !binding || !exact(binding, 'generation,persona,principal,revision') || binding.persona !== value.keeper ||
+            typeof binding.principal !== 'string' || !binding.principal || binding.principal.length > 2048 ||
+            !time(binding.generation) || typeof binding.revision !== 'string' || !binding.revision || binding.revision.length > 256 ||
+            evidence.node !== item.node || evidence.reference !== item.reference || !hex32(evidence.installation) ||
+            !time(evidence.expiration) || evidence.expiration < 1 || evidence.expiration !== grant.expiration ||
+            !time(evidence.boxTime) || !time(evidence.phoneTime) || !time(evidence.observedAt) || evidence.observedAt !== evidence.phoneTime ||
+            evidence.observedAt > item.at || evidence.expiration > Math.min(evidence.phoneTime, evidence.boxTime)) invalid()
+      }
     }
     operations.add(prompt.operation)
   }
