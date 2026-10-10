@@ -475,6 +475,17 @@
       "InRelease",
       "Release.gpg"
     ],
-    "aptSignerFingerprint": "D6D7B42A690985CC3DDCC676F546951EDCB5E0DC"
+    "aptSignerFingerprint": "D6D7B42A690985CC3DDCC676F546951EDCB5E0DC",
+    "postMainMergePayloadProof": {
+      "verifiedAt": "2026-10-10T07:38:44.516550+00:00",
+      "packagedSource": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "mergedMain": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "exactWebFiles": 264,
+      "exactDesktopFiles": 22,
+      "productionPayloadUnchanged": true
+    },
+    "m1NotaryKeychainVerified": true,
+    "m4NotaryKeychainVerified": true,
+    "notaryKeychainLockStateRestored": true
   }
 }

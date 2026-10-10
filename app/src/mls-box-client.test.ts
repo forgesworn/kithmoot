@@ -210,4 +210,15 @@ describe('strict browser MLS box client', () => {
     f.response.body.fill(0)
     expect(await task).toMatchObject({ state: 'ok', value: { installation } })
   })
+  for (const at of ['before', 'signing', 'reply'] as const) it(`checks the driver lifetime ${at}`, async () => {
+    const f = setup(201, body('stored', { receipt: hash }))
+    let live = at !== 'before'
+    const sign = f.vault.signBoxRequestV1.getMockImplementation()!
+    f.vault.signBoxRequestV1.mockImplementation(async (...args) => { const answer = await sign(...args); if (at === 'signing') live = false; return answer })
+    f.transport.request.mockImplementation(async req => { f.calls.push(req); if (at === 'reply') live = false; return f.response })
+    expect(await f.client.deposit(id, env, () => live)).toEqual({ state: 'unavailable' })
+    expect(f.calls).toHaveLength(at === 'reply' ? 1 : 0)
+    if (at === 'before') expect(f.signed).toHaveLength(0)
+  })
+
 })

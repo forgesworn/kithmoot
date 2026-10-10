@@ -192,10 +192,11 @@ writer lock, withheld effects through cleanup, durable outbox recovery and
 witnessed session-id tombstones. It has no app or network caller. The subsequent
 [room operations](browser-mls-room-operations.md) add typed create/Update and
 atomic metadata/history persistence. The [strict box client](browser-mls-box-client.md)
-adds pinned request signing and bounded reply parsing, with no caller. The
+adds pinned request signing and bounded reply parsing. The
 [typed join](browser-mls-join.md) adds current provisioned-child custody and
-witnessed pending/Welcome recovery. The box driver and endpoint lifetime, app
-wiring and room acceptance remain open.
+witnessed pending/Welcome recovery. The [message driver](browser-mls-message-driver.md)
+adds guarded authenticated rounds and durable receipt queries. Dedicated endpoint
+composition, app wiring, membership and live room acceptance remain open.
 
 ## Remaining integration and acceptance
 
@@ -209,9 +210,10 @@ wiring and room acceptance remain open.
 3. Expand full-app account/mode-transition acceptance against real Bothy.
    The pairing and pending/fenced controls now have a disposable real-daemon
    lab; the app host's lifecycle wiring still has separate offline acceptance.
-4. Complete room operations and connect the driver and box client: installation checks on open and
-   every reply, watched Gap mailboxes, exact witnessed generations before
-   commit acknowledgement or network/plaintext release, and offline drafts.
+4. Connect the room operations and message driver to the app with a dedicated box
+   endpoint, membership destination metadata and explicit offline draft/history
+   policy. Guarded rounds, Gap fetching and witnessed receive are implemented
+   and tested through fixtures; live composition remains open.
 5. Complete the remaining real-box/physical acceptance and obtain a fresh
    client security review of vault/room integration before production enablement.
    The foundation-only merge review is recorded separately above.
