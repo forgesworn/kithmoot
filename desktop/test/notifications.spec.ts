@@ -15,7 +15,9 @@ const relay = 'ws://127.0.0.1:17777'
 
 test('background saved room delivery, private notification clicks and unread badge track reading rather than focus', async () => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-notify-'))
-  const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
+  const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop,
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+  ], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
   const rooms = ['Studio', 'Workshop'].map(name => {
     const secret = generateRoomSecret()
     return { name, roomId: deriveRoom(secret).roomId, link: encodeRoomLink(HOME, { secret, name, relays: [relay], iceUrls: [] }), openedAt: Date.now() / 1000, readAt: 0 }
@@ -56,7 +58,7 @@ test('background saved room delivery, private notification clicks and unread bad
     await page.locator('#displayName').fill('Synthetic desktop reader')
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    writer = await RoomAgent.join({ link: rooms[1]!.link, identity: localIdentity(generateSecretKey()), relays: [relay], name: 'Synthetic sender' })
+    writer = await RoomAgent.join({ link: rooms[1]!.link, identity: localIdentity(generateSecretKey()), relays: [relay], name: 'Synthetic sender', agent: false })
     await writer.chat.send('Private content must stay out of the banner')
     await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(1)
     await expect(page).toHaveTitle('(1) KithMoot')
@@ -81,6 +83,32 @@ test('background saved room delivery, private notification clicks and unread bad
     await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(0)
     await expect(page).toHaveTitle('KithMoot')
     await expect.poll(() => app.evaluate(({ app }) => app.getBadgeCount())).toBe(0)
+    await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('')
+
+    // Focused does not mean read when a call has hidden its conversation.
+    await page.locator('#callToggle').click()
+    await page.locator('#toggleCamera').click()
+    await expect(page.locator('html')).toHaveAttribute('data-call-first', '')
+    if (await page.locator('#callChatToggle').getAttribute('aria-expanded') === 'true') await page.locator('#callChatToggle').click()
+    await expect(page.locator('#chatLog')).toBeHidden()
+    await writer.chat.send('Still unread behind the gallery')
+    await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(1)
+    await expect.poll(() => app.evaluate(({ app }) => app.getBadgeCount())).toBe(1)
+    await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('1')
+    await expect(page.locator('#workspaceRooms .workspaceRoom[data-room="' + rooms[1]!.roomId + '"] .unread:not(.agent)')).toHaveText('1')
+    await page.locator('#callChatToggle').click()
+    await expect(page.locator('#chatLog')).toBeVisible()
+    await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(0)
+    await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('')
+
+    await page.locator('#roomMenu').click()
+    await expect(page.locator('#roomSheet')).toBeVisible()
+    await writer.chat.send('Still unread behind Room details')
+    await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(1)
+    await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('1')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#roomSheet')).toBeHidden()
+    await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(0)
     await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('')
     expect(errors).toEqual([])
   } finally {

@@ -9180,22 +9180,49 @@ function conversationUnreadSplit(name: string | undefined): UnreadSplit {
   return { people, agents }
 }
 
+/** All unread conversations in the open room, including hidden call chat. */
+function currentRoomUnreadSplit(): UnreadSplit {
+  const total = { people: 0, agents: 0 }
+  if (session) for (const [name] of conversationTabs()) {
+    const split = conversationUnreadSplit(name)
+    total.people += split.people
+    total.agents += split.agents
+  }
+  return total
+}
+
 function nextUnreadConversation(): [string | undefined, string] | undefined {
   const tabs = conversationTabs()
   const index = tabs.findIndex(([name]) => name === currentChannel)
   return [...tabs.slice(index + 1), ...tabs.slice(0, index)].find(([name]) => conversationUnread(name) > 0)
 }
 
-function markConversationRead(): boolean {
-  if (chatScroll.restoring || (window.kithmootDesktop && !document.hasFocus())) return false
+/** A message behind a closed call-chat panel or a dialog has not been read. */
+function canReadVisibleChat(): boolean {
   const log = $('chatLog')
-  if ($('roomArea').hidden || document.visibilityState !== 'visible' || document.querySelector('dialog[open], #messageActionPanel:popover-open') || log.scrollHeight - log.scrollTop - log.clientHeight > 48) return false
+  return !chatScroll.restoring && !(window.kithmootDesktop && !document.hasFocus())
+    && !$('roomArea').hidden && document.visibilityState === 'visible'
+    && log.getClientRects().length > 0 && log.clientHeight > 0
+    && getComputedStyle(log).visibility === 'visible'
+    && !document.querySelector('dialog[open], #messageActionPanel:popover-open')
+    && log.scrollHeight - log.scrollTop - log.clientHeight < 48
+}
+
+function markConversationRead(): boolean {
+  if (!canReadVisibleChat()) return false
   const key = currentChannel ?? ''
   const messages = conversationMessages(currentChannel)
   const previous = conversationRead.get(key)
   if (previous?.size === messages.length && messages.every(message => previous.has(message.id))) return false
   conversationRead.set(key, new Set(messages.map(message => message.id)))
   return true
+}
+
+/** Reading updates both the local badge and the position shared with other devices. */
+function readVisibleConversation(): void {
+  const changed = markConversationRead()
+  if (session && currentChannel === undefined) noteChatRead(session.chat.messages())
+  if (changed) renderConversationNav()
 }
 
 /**
@@ -9235,7 +9262,7 @@ function unreadBadge(className: string, count: number, label: string, opts: { st
 }
 
 function renderConversationNav(): void {
-  updateDesktopUnread()
+  renderWorkspace()
   renderedTabKey = navTabs().map(([name]) => name ?? '').join('\n')
   const next = nextUnreadConversation()
   $('nextUnread').hidden = !next
@@ -11946,9 +11973,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
  * count on the rooms list is measured against.
  */
 function noteChatRead(messages: ChatMessage[]): void {
-  if ((window.kithmootDesktop && !document.hasFocus()) || document.visibilityState !== 'visible' || currentChannel !== undefined || $('roomArea').hidden) return
-  const log = $('chatLog')
-  if (log.scrollHeight - log.clientHeight - log.scrollTop >= 48) return
+  if (currentChannel !== undefined || !canReadVisibleChat()) return
   const roomId = currentRoomId()
   if (!roomId) return
   let newest = 0
@@ -12876,16 +12901,16 @@ function renderWorkspace(): void {
       }
       const children: HTMLElement[] = [button]
       if (room.endsAt !== undefined && !roomIsEnded(room)) children.push(fusePill(room.endsAt, room.startsAt, !!room.destruct, row.querySelector<HTMLElement>('.fusePill') ?? undefined))
-      // What each other room has waiting, counted exactly as the rooms list
-      // and the window's own badge count it: from the watch this device
-      // keeps on every room while the installed window is open, against the
-      // room's read position. The room on screen is read where it is shown.
+      // Match the window badge: the open room may still have unread chat
+      // hidden by its call or another conversation. Other rooms use their
+      // watch against the saved read position.
       // Beside the button rather than in it, so its name stays the room's.
       const watched = room.roomId === current ? undefined : roomWatches.get(room.roomId)
+      const split = session && room.roomId === current ? currentRoomUnreadSplit()
+        : watched?.watch.readsChat ? watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds) : undefined
       row.classList.remove('hasUnread')
-      if (watched?.watch.readsChat) {
+      if (split) {
         const label = knownRoomLabel(room)
-        const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
         row.classList.toggle('hasUnread', split.people > 0)
         if (split.people > 0) children.push(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
         if (split.agents > 0) children.push(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
@@ -13779,18 +13804,12 @@ window.kithmootDesktop?.onOpenRoom(roomId => {
 function updateDesktopUnread(): void {
   const self = meParticipant || currentParticipant() || ''
   const selfName = joiningName()
-  let people = 0
-  let agents = 0
+  let { people, agents } = currentRoomUnreadSplit()
   for (const room of knownRooms(roomStore())) {
     if (session && room.roomId === currentRoomId()) continue
     const watched = roomWatches.get(room.roomId)
     if (!watched) continue
     const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
-    people += split.people
-    agents += split.agents
-  }
-  if (session) for (const [name] of conversationTabs()) {
-    const split = conversationUnreadSplit(name)
     people += split.people
     agents += split.agents
   }
@@ -14113,13 +14132,16 @@ $('copyAgentInvite').addEventListener('click', async () => {
     ? 'Room link copied. Paste it into kithmoot-agent join on the computer running your bot.'
     : 'Automatic copy was unavailable. Copy the invite link under Invite people and give it to kithmoot-agent join.'
 })
-$('chatLog').addEventListener('scroll', () => { if (markConversationRead()) renderConversationNav() }, { passive: true })
-document.addEventListener('visibilitychange', () => { if (markConversationRead()) renderConversationNav() })
-document.addEventListener('kithmoot:confirmation-closed', () => { if (markConversationRead()) renderConversationNav() })
-$('messageActionPanel').addEventListener('toggle', () => { if (markConversationRead()) renderConversationNav() })
+$('chatLog').addEventListener('scroll', readVisibleConversation, { passive: true })
+document.addEventListener('visibilitychange', readVisibleConversation)
+document.addEventListener('kithmoot:confirmation-closed', readVisibleConversation)
+$('messageActionPanel').addEventListener('toggle', readVisibleConversation)
 for (const dialog of document.querySelectorAll('dialog')) {
-  dialog.addEventListener('close', () => { if (markConversationRead()) renderConversationNav() })
+  dialog.addEventListener('close', readVisibleConversation)
 }
+// Opening call chat, restoring the gallery or changing drawer size can
+// reveal messages without receiving another message or scrolling the log.
+new ResizeObserver(readVisibleConversation).observe($('chatLog'))
 $('conversationNav').addEventListener('keydown', event => {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   const buttons = Array.from($('conversationNav').querySelectorAll<HTMLButtonElement>('button'))

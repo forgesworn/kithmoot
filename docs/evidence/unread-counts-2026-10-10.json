@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-10",
+  "scope": "Keep hidden current-room messages unread in room rows, title and native Dock badge",
+  "before": {
+    "roomDetails": "Persistent readAt incorrectly advanced while the dialog covered chat",
+    "closedCallChat": "Unread total incorrectly became zero",
+    "activeRoomRail": "Active row omitted its unread badge",
+    "nativeDesktop": "visibility:hidden retains layout; dimensions alone incorrectly counted it as read"
+  },
+  "after": {
+    "nativeElectron": {
+      "passed": 1,
+      "log": "/tmp/kithmoot-unread-m4-visibility-native.log",
+      "checks": [
+        "saved-room delivery",
+        "native IPC",
+        "app badge",
+        "Dock badge",
+        "unfocused current room",
+        "closed call chat",
+        "Room details",
+        "clear only when revealed"
+      ]
+    },
+    "chromium": {
+      "passed": 2,
+      "log": "/tmp/kithmoot-unread-m4-visibility-browser.log",
+      "checks": [
+        "covered chat does not advance persistent readAt",
+        "100 real encrypted human messages cap visual count at 99+",
+        "switch away and return preserves unread",
+        "opening chat clears when read"
+      ]
+    },
+    "earlierWorkspaceSuite": {
+      "passed": 14,
+      "log": "/tmp/kithmoot-unread-m4-final-workspace.log",
+      "beforeFinalVisibilityGuard": true
+    }
+  },
+  "fixtures": {
+    "accounts": "Synthetic only",
+    "call": "Synthetic camera and microphone",
+    "hundredMessages": "Four human writers stay under per-device rate limits"
+  },
+  "excludedAttempts": [
+    "M1 Electron launch timed out under severe memory pressure",
+    "One-writer burst hit the expected 30-message rate limit",
+    "Original writer defaulted to agent presence; corrected to human"
+  ],
+  "physicalReported99PlusCaseVerified": false,
+  "published": false,
+  "goals": [
+    "G2 remains open: locked physical phone notification acceptance is separate"
+  ]
+}
