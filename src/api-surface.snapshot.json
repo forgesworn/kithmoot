@@ -138,6 +138,7 @@
     "AssignmentOperation",
     "AssignmentPayload",
     "AssignmentProjection",
+    "AssignmentReaderOptions",
     "AssignmentStatus",
     "AssignmentStorage",
     "AssistBlock",
