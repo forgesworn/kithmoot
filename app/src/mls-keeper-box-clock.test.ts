@@ -112,6 +112,50 @@ describe('explicit authenticated keeper box clock', () => {
     await expect(f.clock.probe(f.grant)).rejects.toThrow('trusted keeper time')
     expect(f.calls).toHaveLength(3)
   })
+  it('binds the client constructor account before any signing or transport', async () => {
+    const f = await fixture(); f.account()
+    await expect(f.clock.probe(f.grant)).rejects.toThrow('exact box')
+    expect(f.calls).toEqual([]); expect(f.vault.signBoxRequestV1).not.toHaveBeenCalled()
+  })
+  it('issues immutable evidence and consumes its exact object once without network work', async () => {
+    const f = await fixture(), evidence = await f.clock.probe(f.grant)
+    if (!evidence) throw new Error('missing evidence')
+    expect(Object.isFrozen(evidence)).toBe(true); expect(Object.isFrozen(evidence.binding)).toBe(true)
+    expect(() => { (evidence as any).boxTime++ }).toThrow()
+    expect(f.clock.acceptEvidence(f.grant, evidence)).toBe(evidence)
+    expect(() => f.clock.acceptEvidence(f.grant, evidence)).toThrow('no longer current')
+    expect(f.calls).toHaveLength(3)
+  })
+  it('refuses copied evidence, consumes failed admission and detects changed signed-grant state', async () => {
+    for (const kind of ['clone', 'grant'] as const) {
+      const f = await fixture(), evidence = await f.clock.probe(f.grant)
+      if (!evidence) throw new Error('missing evidence')
+      if (kind === 'grant') f.grant.state = 'revoking'
+      expect(() => f.clock.acceptEvidence(f.grant, kind === 'clone' ? structuredClone(evidence) : evidence)).toThrow('no longer current')
+      expect(() => f.clock.acceptEvidence(f.grant, evidence)).toThrow('no longer current')
+      expect(f.calls).toHaveLength(3)
+    }
+  })
+  it.each(['account', 'hide', 'stale', 'invalidate', 'clock'] as const)('fences %s changes on evidence admission', async change => {
+    const f = await fixture(), evidence = await f.clock.probe(f.grant)
+    if (!evidence) throw new Error('missing evidence')
+    if (change === 'invalidate') f.clock.invalidate()
+    else if (change === 'clock') f.time(999)
+    else f[change]()
+    expect(() => f.clock.acceptEvidence(f.grant, evidence)).toThrow(change === 'clock' ? 'trusted keeper time' : 'no longer current')
+    expect(f.calls).toHaveLength(3)
+  })
+  it('clears prior evidence when another probe fails or a newer observation replaces it', async () => {
+    for (const failed of [false, true]) {
+      const f = await fixture(), previous = await f.clock.probe(f.grant)
+      if (!previous) throw new Error('missing evidence')
+      if (failed) f.transport.request.mockRejectedValueOnce(new Error('fixture offline'))
+      else f.responses.push(caps(), f.responses[1]!, caps())
+      const next = await f.clock.probe(f.grant)
+      expect(next === null).toBe(failed)
+      expect(() => f.clock.acceptEvidence(f.grant, previous)).toThrow('no longer current')
+    }
+  })
   it('ignores and wipes returned probe records without following their cursor or acknowledging them', async () => {
     const f = await fixture(), original = f.transport.request.getMockImplementation()!, envelope = Uint8Array.of(7, 8, 9)
     let retained: any

@@ -63,7 +63,9 @@ export class BrowserMlsBoxClient {
   isCurrent(): boolean { return this.current() && this.vault.current(this.#context) }
 
   /** Compare immutable constructor bindings before a caller trusts this route. */
-  usesRoute(routeId: string, box: string): boolean { return routeId === this.#routeId && box === this.box }
+  usesBinding(routeId: string, box: string, context: VaultContext): boolean {
+    return routeId === this.#routeId && box === this.box && JSON.stringify(context) === JSON.stringify(this.#context)
+  }
 
   capabilities(current: () => boolean = () => true): Promise<BoxAnswer<{ installation: string }>> {
     return this.#request('GET', '/vmls/v1/capabilities', new Uint8Array(), MAX_JSON, async (status, raw) => {

@@ -464,6 +464,11 @@ export async function boxClientScenario(route: PersonaWitnessRoute, mode: string
     const probe = new BrowserMlsKeeperBoxClock(client, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
     try {
       const evidence = await probe.probe(grant)
+      if (evidence) {
+        if (mode === 'clock-admission-account') generation++
+        if (mode === 'clock-admission-grant') grant.state = 'revoking'
+        probe.acceptEvidence(grant, mode === 'clock-admission-clone' ? structuredClone(evidence) : evidence)
+      }
       return { evidence, calls, distinctEvents: new Set(calls.map(c => c.event)).size,
         lapsed: evidence !== null && grant.expiration <= Math.min(evidence.phoneTime, evidence.boxTime) }
     } catch (error) { return { error: (error as Error).message, calls } }

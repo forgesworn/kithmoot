@@ -12,8 +12,8 @@ transitions. Never borrow the persona witness endpoint or run this probe inside
 a persona transaction. Actual endpoint/account composition remains separate.
 
 The probe copies and validates the signed grant, binds its issuer to the current
-foreground keeper, and compares the box client's immutable route ID and box
-identity. One capabilities read precedes a valid fetch of a domain-separated,
+foreground keeper, and compares the box client's immutable route ID, box
+identity and constructor vault/account context. One capabilities read precedes a valid fetch of a domain-separated,
 deterministic probe mailbox. Another capabilities read follows. Both must
 succeed with the same installation. Only a positive authenticated fetch's
 `server_time` becomes box-time evidence. Capabilities carry no time; refusal
@@ -28,6 +28,14 @@ grant expiration/reference, box identity, installation and captured vault
 binding. It is an authenticated local observation, not a signed box receipt.
 The phone clock is an explicit trust assumption; its lifetime floor is not a
 persistent witness floor or a detector of a frozen/slow clock.
+
+Only one immutable issued observation is retained for admission. The synchronous
+`acceptEvidence(grant, evidence)` consumes that exact object and checks the full
+signed-grant snapshot, epoch, current account/foreground, client binding and
+final nonregressing phone time. A copied or reconstructed object cannot pass.
+New probes and invalidation discard prior provenance; failed admission consumes
+it too. A refused or aborted witnessed action requires a fresh explicit probe.
+This admission check performs no signing, transport or storage work.
 
 The whole probe has a bounded 20-second default deadline (1 ms to 60 seconds
 configurable). Only one underlying probe may remain outstanding. Timeout or

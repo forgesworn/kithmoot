@@ -451,7 +451,7 @@ test('completed creation cleanup failure releases no effects and preserves witne
   expect(await run(page, 'M.read()')).toMatchObject({ state: 'active', value: { generation: '1' } })
 })
 
-for (const mode of ['clock-ok', 'clock-server-ahead', 'clock-refused', 'clock-installation', 'clock-account', 'clock-rewind']) test(`keeper clock probe with real vault and WASM: ${mode}`, async ({ context }) => {
+for (const mode of ['clock-ok', 'clock-server-ahead', 'clock-refused', 'clock-installation', 'clock-account', 'clock-rewind', 'clock-admission-clone', 'clock-admission-account', 'clock-admission-grant']) test(`keeper clock probe with real vault and WASM: ${mode}`, async ({ context }) => {
   const { page } = await enrolled(context, false)
   const result = await page.evaluate(({ route, mode }) => (window as any).M.boxClientScenario(route, mode), { route: pairingFixture(new Uint8Array(32).fill(76)).route, mode })
   if (mode === 'clock-ok' || mode === 'clock-server-ahead') {
@@ -461,6 +461,7 @@ for (const mode of ['clock-ok', 'clock-server-ahead', 'clock-refused', 'clock-in
     expect(result.calls.map((c: any) => c.path)).toEqual(['/vmls/v1/capabilities', '/vmls/v1/fetch', '/vmls/v1/capabilities'])
     expect(result.distinctEvents).toBe(3)
   } else if (mode === 'clock-rewind') expect(result.error).toContain('trusted keeper time')
+  else if (mode.startsWith('clock-admission-')) { expect(result.error).toContain('no longer current'); expect(result.calls).toHaveLength(3) }
   else {
     expect(result.evidence).toBeNull()
     expect(result.calls).toHaveLength(mode === 'clock-installation' ? 3 : 2)
