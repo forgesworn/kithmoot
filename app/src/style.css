@@ -2911,6 +2911,8 @@ label.note {
   font-size: 0.95rem;
 }
 
+.rosterIdentity { display: contents; }
+
 .rosterRow .avatar,
 .rosterRow .donorRing {
   width: 1.2rem;

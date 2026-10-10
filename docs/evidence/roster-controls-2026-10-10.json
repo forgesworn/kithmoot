@@ -1,0 +1,76 @@
+{
+  "recordedAt": "2026-10-10T08:58:36.334656+00:00",
+  "scope": "Room-details roster interaction continuity across signed presence refreshes",
+  "goal": "G17",
+  "goalComplete": false,
+  "baseSource": "f5c68dbb90b7bdd1c476e29edd0a775253f760af",
+  "sourceWasDirty": true,
+  "sourceFilesSha256": {
+    "app/src/main.ts": "28aefbfb4b2613ed554f137524904933ceda28ec7f46c17322068e22ec8d0387",
+    "app/src/style.css": "6b9a07c7fc7be0efde60eef5b65947102310e62104ed4f9e8675b4a348b65240",
+    "test/nostr-rooms.spec.ts": "b63601ec59512595cf8c2cb649f51691dd45845596a2acf156813ad27a024343"
+  },
+  "environment": {
+    "node": "24.21.0",
+    "playwright": "1.62.1",
+    "os": "14.6.1",
+    "architecture": "arm64",
+    "relay": "deterministic local offline fixture",
+    "identities": "synthetic; signing keys held by test fixtures"
+  },
+  "before": {
+    "browser": "Chromium 151.0.7922.34",
+    "viewportWidth": 390,
+    "signedPresenceDuringRealMousePress": true,
+    "failedAssertion": "Private-conversation success line absent for 30 seconds after pointer release",
+    "result": "failed",
+    "initialSetupTimeoutExcluded": true
+  },
+  "after": {
+    "typecheck": "passed",
+    "chromiumRelatedJourneys": {
+      "result": "passed",
+      "count": 6,
+      "elapsed": "2.2m",
+      "covers": [
+        "private-conversation NIP-17 relay selection",
+        "390px and 1440px interrupted private-message clicks; exactly one two-member conversation",
+        "volume keyboard focus and value after refresh",
+        "identity-check keyboard focus and explicit unverified dialog",
+        "departed participant controls removed",
+        "invited guest entering a closed room",
+        "two-party identity verification",
+        "one volume control for paired devices and no effect on other people"
+      ]
+    },
+    "chromiumExtendedDrag": {
+      "result": "passed",
+      "count": 2,
+      "elapsed": "1.3m",
+      "viewportWidths": [
+        390,
+        1440
+      ],
+      "input": "real mouse range drag continuing through signed presence refresh"
+    },
+    "firefox": {
+      "result": "passed",
+      "browser": "153.0",
+      "revision": "1538",
+      "initialMissingExecutableAttemptExcluded": true,
+      "count": 4,
+      "elapsed": "4.0m"
+    }
+  },
+  "hostedChecks": "pending",
+  "published": false,
+  "nativeAndroidIncluded": false,
+  "desktopPackageIncluded": false,
+  "physicalPhoneAcceptance": false,
+  "unfamiliarGuestHostAcceptance": false,
+  "limits": [
+    "Narrow browser viewport uses mouse and keyboard; it is not a physical touch or screen-reader check.",
+    "No new admission states or grant acknowledgements are established by this regression.",
+    "Raw test traces remain local and are not included in the public receipt."
+  ]
+}

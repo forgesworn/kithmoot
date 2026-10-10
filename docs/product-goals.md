@@ -650,6 +650,14 @@ existing home page or claim that shortening the current payload is already done.
 Make closed-room entry understandable for both the waiting guest and the person
 admitting them, then apply the same clarity throughout the workspace.
 
+The [roster-control regression](evidence/roster-controls-2026-10-10.json)
+reproduces a presence refresh swallowing a private-message click in Room details.
+The repair keeps action, identity-check and volume controls connected while
+updating their handlers and removing departed or newly disallowed controls.
+Narrow and wide browser journeys cover interrupted clicks, keyboard focus and
+volume dragging. This is one control repair; the admission states, wider
+accessibility review and unfamiliar guest/host acceptance below remain open.
+
 Acceptance:
 
 - Give guests a clear room identity where permitted, device preview, request

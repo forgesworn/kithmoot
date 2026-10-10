@@ -6407,35 +6407,66 @@ function renderRoomWho(): void {
  */
 function renderSheetRoster(views: ParticipantView[], me: string): void {
   const list = $('sheetRoster')
-  list.innerHTML = ''
-  for (const view of views) {
-    const row = document.createElement('div')
-    row.className = 'rosterRow'
+  // Presence can arrive between pointer-down and pointer-up, or while a
+  // keyboard user adjusts volume. Keep controls connected across refreshes.
+  const previous = new Map(Array.from(list.children, child => {
+    const row = child as HTMLElement
+    return [row.dataset.participant, row] as const
+  }))
+  for (const [index, view] of views.entries()) {
+    let row = previous.get(view.participant)
+    previous.delete(view.participant)
+    if (!row) {
+      row = document.createElement('div')
+      row.className = 'rosterRow'
+      row.dataset.participant = view.participant
+      const identity = document.createElement('span')
+      identity.className = 'rosterIdentity'
+      row.append(identity)
+    }
+    const identity = row.querySelector<HTMLElement>('.rosterIdentity')!
+    identity.replaceChildren()
     const shown = shownAs(view.participant, view.name)
-    row.append(identityRun(shown, view.participant === me))
+    identity.append(identityRun(shown, view.participant === me))
     if (view.agent) {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
       badge.textContent = 'agent'
       badge.title = 'An agent, not a person'
-      row.append(badge)
-      if (view.owner) row.append(ownerRun(view.owner))
-      else if (view.ownerClaim) row.append(ownerClaimRun(view.ownerClaim))
+      identity.append(badge)
+      if (view.owner) identity.append(ownerRun(view.owner))
+      else if (view.ownerClaim) identity.append(ownerClaimRun(view.ownerClaim))
     }
     if (view.devices.length > 1) {
       const badge = document.createElement('span')
       badge.className = 'badge'
       badge.textContent = 'one person'
-      row.append(badge)
+      identity.append(badge)
     }
-    if (view.participant !== me) row.append(verifyChip(view, shown.name ?? ''))
+    const existingCheck = row.querySelector<HTMLButtonElement>('.verifyChip')
+    if (view.participant !== me) {
+      const check = verifyChip(view, shown.name ?? '', existingCheck ?? undefined)
+      if (!existingCheck) row.append(check)
+    } else existingCheck?.remove()
     const card = view.participant !== me ? contactFor(deviceStore, view.participant) : undefined
     if (card) {
       const badge = document.createElement('span')
       badge.className = 'badge card'
       badge.textContent = `card: ${contactLabel(card)}`
       badge.title = `You hold this person's contact card, read ${new Date(card.readAt * 1000).toLocaleDateString()}. Its name is theirs to claim, like any other; the key is what the card binds.`
-      row.append(badge)
+      identity.append(badge)
+    }
+    const action = (key: string, allowed: boolean): HTMLButtonElement | undefined => {
+      let button = row.querySelector<HTMLButtonElement>(`[data-roster-action="${key}"]`)
+      if (!allowed) { button?.remove(); return }
+      if (!button) {
+        button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'dmButton quiet'
+        button.dataset.rosterAction = key
+        row.insertBefore(button, row.querySelector('.volumeRow'))
+      }
+      return button
     }
     // A word in private, from the room you are both in. A DM is a room of
     // two; see docs/messages.md. Not offered on a room that already is one.
@@ -6444,50 +6475,53 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     // rule at its end (`--dm` in kithmoot-agent), so the button is only
     // shown where it can work.
     const mayDmAgent = view.agent === true && (view.owner?.principal === me || admins.has(me))
-    if (view.participant !== me && (!view.agent || mayDmAgent) && !dmPeer(roomPolicy, me)) {
-      const dm = document.createElement('button')
-      dm.type = 'button'
-      dm.className = 'dmButton quiet'
+    const mayDm = view.participant !== me && (!view.agent || mayDmAgent) && !dmPeer(roomPolicy, me)
+    const dm = action('private', mayDm)
+    if (dm) {
       dm.textContent = 'Message privately'
       dm.setAttribute('aria-label', `Message ${shown.name ?? shown.short} privately`)
-      dm.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name, false) })
-      row.append(dm)
-      // The same room of two, with its chat in drops. See src/quiet.ts.
-      const hush = document.createElement('button')
-      hush.type = 'button'
-      hush.className = 'dmButton quiet'
+      dm.onclick = () => { void startDirectMessage(view.participant, shown.name, false) }
+    }
+    // The same room of two, with its chat in drops. See src/quiet.ts.
+    const hush = action('quiet', mayDm)
+    if (hush) {
       hush.textContent = 'Message quietly'
       hush.title = QUIET_MEANING
       hush.setAttribute('aria-label', `Message ${shown.name ?? shown.short} quietly`)
-      hush.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name, true) })
-      row.append(hush)
+      hush.onclick = () => { void startDirectMessage(view.participant, shown.name, true) }
     }
     // Bring them into another room of yours. The invite travels sealed to
     // them in this conversation, the same way a private conversation
     // starts, and a room that asks first lets somebody you invited straight
     // in. That pair is what a private room is: a link nobody is handed,
     // and people you chose.
-    if (view.participant !== me && !view.agent) {
-      const invite = document.createElement('button')
-      invite.type = 'button'
-      invite.className = 'dmButton quiet'
+    const invite = action('invite', view.participant !== me && !view.agent)
+    if (invite) {
       invite.textContent = 'Invite to a room'
       invite.setAttribute('aria-label', `Invite ${shown.name ?? shown.short} to a room`)
-      invite.addEventListener('click', () => openInviteToRoom(view.participant, shown.name))
-      row.append(invite)
+      invite.onclick = () => openInviteToRoom(view.participant, shown.name)
     }
     // How loud this person is, on this device only - one slider for the
     // person, whatever it takes to merge their devices into this one tile.
     // See the "Per-person volume" section above.
     if (view.participant !== me) {
-      const volumeRow = document.createElement('div')
-      volumeRow.className = 'volumeRow'
-      const label = document.createElement('span')
-      label.className = 'volumeLabel'
-      label.textContent = 'Volume'
-      const slider = document.createElement('input')
-      slider.type = 'range'
-      slider.className = 'volumeSlider'
+      let volumeRow = row.querySelector<HTMLElement>('.volumeRow')
+      if (!volumeRow) {
+        volumeRow = document.createElement('div')
+        volumeRow.className = 'volumeRow'
+        const label = document.createElement('span')
+        label.className = 'volumeLabel'
+        label.textContent = 'Volume'
+        const slider = document.createElement('input')
+        slider.type = 'range'
+        slider.className = 'volumeSlider'
+        const out = document.createElement('output')
+        out.className = 'volumeValue'
+        volumeRow.append(label, slider, out)
+        row.append(volumeRow)
+      }
+      const slider = volumeRow.querySelector<HTMLInputElement>('.volumeSlider')!
+      const out = volumeRow.querySelector<HTMLOutputElement>('.volumeValue')!
       slider.min = '0'
       // A level above 100% needs the gain path; where that has actually
       // failed the slider is capped rather than offering a promise the
@@ -6497,14 +6531,12 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       slider.setAttribute('list', 'volumeNotch')
       slider.dataset.participant = view.participant
       slider.setAttribute('aria-label', `Volume for ${shown.name ?? shown.short}`)
-      const out = document.createElement('output')
-      out.className = 'volumeValue'
       const describe = (percent: number) => (percent === 0 ? 'Silenced for you' : `${percent}%`)
       const startPercent = Math.round(volumeLevel(view.participant) * 100)
       slider.value = String(startPercent)
       out.textContent = describe(startPercent)
       slider.setAttribute('aria-valuetext', describe(startPercent))
-      slider.addEventListener('input', () => {
+      slider.oninput = () => {
         let percent = Number(slider.value)
         // A little magnetism at 100%, the untouched level, so landing back
         // on it does not need a pixel-perfect drag.
@@ -6512,19 +6544,22 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
         out.textContent = describe(percent)
         slider.setAttribute('aria-valuetext', describe(percent))
         previewVolumeLevel(view, percent / 100)
-      })
-      slider.addEventListener('change', () => commitVolumeLevel(view.participant))
-      volumeRow.append(label, slider, out)
-      row.append(volumeRow)
-      if (!remoteVolume.gainAvailable) {
+      }
+      slider.onchange = () => commitVolumeLevel(view.participant)
+      const existingNote = row.querySelector('.volumeUnavailable')
+      if (!remoteVolume.gainAvailable && !existingNote) {
         const note = document.createElement('p')
-        note.className = 'note'
+        note.className = 'note volumeUnavailable'
         note.textContent = 'Above 100% needs Web Audio, which is not available here, so this stays capped at 100%.'
         row.append(note)
-      }
+      } else if (remoteVolume.gainAvailable) existingNote?.remove()
+    } else {
+      row.querySelector('.volumeRow')?.remove()
+      row.querySelector('.volumeUnavailable')?.remove()
     }
-    list.append(row)
+    if (list.children[index] !== row) list.insertBefore(row, list.children[index] ?? null)
   }
+  for (const row of previous.values()) row.remove()
 }
 
 // ---------------------------------------------------------------------------
@@ -10249,8 +10284,8 @@ const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamT
  * they do and do not prove - the panel says so too, because a verification
  * story that overclaims is worse than none.
  */
-function verifyChip(view: ParticipantView, name: string): HTMLElement {
-  const chip = document.createElement('button')
+function verifyChip(view: ParticipantView, name: string, existing?: HTMLButtonElement): HTMLButtonElement {
+  const chip = existing ?? document.createElement('button')
   chip.type = 'button'
   chip.className = 'verifyChip'
   // A tile can be painted while this device has no identity in the room on
@@ -10272,7 +10307,7 @@ function verifyChip(view: ParticipantView, name: string): HTMLElement {
       chip.title = 'They asked to compare words. Open to accept or decline.'
     }
   } catch { /* Saved protocol failure is explained when the dialog opens. */ }
-  chip.addEventListener('click', () => showVerification(view, name, seen.status))
+  chip.onclick = () => showVerification(view, name, seen.status)
   return chip
 }
 
