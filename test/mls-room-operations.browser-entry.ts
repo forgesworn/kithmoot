@@ -1,6 +1,6 @@
 import { BrowserMlsRoomOperations } from '../app/src/mls-room-operations.js'
-import { BrowserMlsSessionHost } from '../app/src/mls-session-host.js'
 import { readMlsRoom, saveMlsRoom, MAX_ROOM_MESSAGES } from '../app/src/mls-room-store.js'
+import { readMlsMembership, saveMlsMembership } from '../app/src/mls-membership-store.js'
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
@@ -16,6 +16,7 @@ import { CoordinatedMlsVault, BOX_METHOD, type BoxRequest } from '../app/src/mls
 import { MlsVault, BrowserMlsVaultStorage, SIGN_METHOD, base64Encode, type ConsentScope, type SignLeafBindingRequest } from '../app/src/mls-vault.js'
 import { loadMlsEngine } from '../app/src/mls-engine.js'
 import type { WitnessAnswer } from '../app/src/mls-witness-link.js'
+import { pairingFixture } from './mls-pairing-fixture.js'
 import { encodeUnsignedBinding } from './vmls-encode.js'
 import { bindingDigest } from '../src/vmls/binding.js'
 import { createDeviceCredential } from '../src/credential.js'
@@ -152,7 +153,7 @@ export async function pendingNever(operation: 'create' | 'update', end: 'invalid
   } finally { globalThis.setTimeout = timeout }
 }
 
-let guest: any, guestPlatform: any, incoming: any
+let guest: any, guestPlatform: any, incoming: any, guestLeaf = ''
 function receipt(slot: any) {
   const attempt = new Uint8Array(4); new DataView(attempt.buffer).setUint32(0, slot.destination.attempt)
   const digest = sha256(concatBytes(new TextEncoder().encode('VMLS/1 slot receipt'), hexToBytes(installation), slot.mailbox, attempt, sha256(slot.envelope)))
@@ -160,7 +161,22 @@ function receipt(slot: any) {
 }
 function guestAck(step: any) { if (step.snapshot) { guest.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
 function boxInput(record: any, signed?: Uint8Array) { return { homeBox: boxId, installation, mailbox: record.mailbox, envelope: record.envelope, receipt: signed } }
-export async function addGuest() {
+function fixturePackageClient(): BrowserMlsBoxClient {
+  const route = pairingFixture(nodeKey).route, encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
+  const transport = { request: async (request: LinkRequest) => {
+    const event = JSON.parse(atob(request.authorization.slice(6)))
+    if (!verifyEvent(event) || event.pubkey !== deviceId || event.kind !== 27235 || !request.path.startsWith('/vmls/v1/packages/') ||
+        JSON.stringify(event.tags) !== JSON.stringify([
+          ['u', `http://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}${request.path}`],
+          ['method', 'PUT'], ['payload', bytesToHex(sha256(request.body))],
+        ])) throw new Error('Invalid fixture package registration')
+    return { status: 201, body: encode({ v: 1, code: 'registered', server_time: clock }), witnessRefused: false,
+      path: { status: 'up' as const, relay: null, direct: null, cause: '' } }
+  } }
+  return new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret),
+    cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, boxId, vault, ctx(), async () => 'approve', () => true)
+}
+export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBoxClient = fixturePackageClient()) {
   const wasm = await loadMlsEngine(), d = checked(await vault.credential(ctx())), guestSecret = new Uint8Array(32).fill(44), rz = hexToBytes(persona)
   const keeperPlatform = new wasm.Platform(hexToBytes(d.device.device), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
   guestPlatform = new wasm.Platform(schnorr.getPublicKey(guestSecret), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
@@ -170,21 +186,33 @@ export async function addGuest() {
   const ask = joining.signRequest(), dh = joining.ecdhRequest()
   const made = joining.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, guestSecret), secp256k1.getSharedSecret(secret, concatBytes(Uint8Array.of(2), dh.peerRz)).slice(1))
   guest = made.session; guestAck(made.step)
+  guestLeaf = bytesToHex(guest.ownLeafId())
   const introPending = wasm.prepareIntroduction(keeperPlatform, BigInt(clock), rz, 0n), req = introPending.request()
   const intro = introPending.complete(BigInt(clock), req.operation, secp256k1.getSharedSecret(secret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
-  const sessionHost = new BrowserMlsSessionHost(host, (id, plain, mark) => wasm.Session.open(keeperPlatform, id, plain, mark))
-  const added = await sessionHost.step({ persona, current: () => true }, roomId, s => {
-    const st = s.add(BigInt(clock), [intro.openCapability(BigInt(clock), made.step.outbound[0].envelope)])
-    return { snapshot: st.snapshot, value: { outbound: st.outbound } }
-  }, { persist: async (tx, s) => { const r = await readMlsRoom(tx, roomId); r.generation = String(s.generation()); await saveMlsRoom(tx, r) } })
+  const capabilityEnvelope = made.step.outbound[0].envelope
+  let added = await rooms.addCapabilities(roomContext(), roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
+  if (added.state === 'transport' && (added.answer.state === 'unavailable' || added.answer.state === 'not-signed')) {
+    added = await rooms.addCapabilities(roomContext(), roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
+  }
   intro.free(); introPending.free(); joining.free(); keeperPlatform.free()
-  if (added.state !== 'active') throw new Error('fixture add held')
+  if (added.state !== 'active') {
+    if (stageWelcome) return added as any
+    throw new Error('fixture add held')
+  }
   const slot = added.value.outbound.find((o: any) => o.destination.type === 'CommitSlot')
   const applied = await rooms.process(roomContext(), roomId, boxInput(slot, receipt(slot)))
   if (applied.state !== 'active') throw new Error('fixture add not applied')
   const welcome = applied.value.outbound.find((o: any) => o.destination.type === 'Welcome')
+  if (stageWelcome) return applied.state
   const accepted = guest.process(BigInt(clock), welcome.mailbox, welcome.envelope, undefined, { homeBox: hexToBytes(boxId), installation: hexToBytes(installation) })
   guestAck(accepted.step)
+  const routed = await rooms.driverState(roomContext(), roomId)
+  if (routed.state !== 'active') throw new Error('fixture Welcome route held')
+  const welcomeRecords = routed.value.outbox.filter((item: any) => item.destination.type === 'Welcome').map((item: any) => item.recordId)
+  if (welcomeRecords.length) {
+    const delivered = await rooms.drive(roomContext(), roomId, { generation: routed.value.generation, homeBox: boxId, installation }, { type: 'delivered', records: welcomeRecords })
+    if (delivered.state !== 'active') throw new Error('fixture Welcome delivery held')
+  }
   const updating = guest.prepareUpdate(BigInt(clock), binding)
   const updated = guest.completeUpdate(BigInt(clock), updating.operation, schnorr.sign(updating.digest, guestSecret)); guestAck(updated)
   const updateSlot = updated.outbound.find((o: any) => o.destination.type === 'CommitSlot'), signed = receipt(updateSlot)
@@ -195,7 +223,43 @@ export async function addGuest() {
   incoming = sent.outbound.find((o: any) => o.destination.type === 'Leaf')
   return seen.state
 }
+export async function stageGuestWelcome(packageClient?: BrowserMlsBoxClient) { return addGuest(true, packageClient) }
 export async function receive() { return rooms.process(roomContext(), roomId, boxInput(incoming)) }
+const removalOperation = '03'.repeat(32)
+export async function beginGuestRemoval(compromised = true) {
+  return rooms.removeDevice(roomContext(), roomId, { operation: removalOperation, leafId: guestLeaf, grants: [], compromised })
+}
+export async function driveGuestRemoval() { return rooms.driveRemoval(roomContext(), roomId, removalOperation) }
+export async function driveGuestRemovalFailure(code: string) {
+  const wasm = await loadMlsEngine(), original = wasm.Session.prototype.remove
+  wasm.Session.prototype.remove = function () { throw { kind: 'engine', code } }
+  try { return await driveGuestRemoval() } finally { wasm.Session.prototype.remove = original }
+}
+export async function applyGuestRemoval() {
+  const driven = await driveGuestRemoval()
+  if (driven.state !== 'active') return driven
+  const slot = driven.value.outbound.find((item: any) => item.destination.type === 'CommitSlot')
+  return slot ? rooms.process(roomContext(), roomId, boxInput(slot, receipt(slot))) : driven
+}
+export async function markGuestRemovalFailed() {
+  const wasm = await loadMlsEngine()
+  return host.transact(persona, async tx => {
+    const journal = await readMlsMembership(tx), record = journal.removals.find(item => item.operation === removalOperation)
+    if (!record) throw new Error('fixture removal missing')
+    const bytes = hexToBytes(record.journal), removal = wasm.removalDecode(bytes)
+    try { removal.setMls('Failed'); record.failure = 'RemoveFailed'; record.journal = bytesToHex(removal.encode()) }
+    finally { removal.free(); bytes.fill(0) }
+    await saveMlsMembership(tx, journal)
+  }, () => true).then(result => result.state)
+}
+export async function damageGuestRemovalJournal() {
+  return host.transact(persona, async tx => {
+    const journal = await readMlsMembership(tx), record = journal.removals.find(item => item.operation === removalOperation)
+    if (!record) throw new Error('fixture removal missing')
+    record.journal = '00'; await saveMlsMembership(tx, journal)
+  }, () => true).then(result => result.state)
+}
+export async function membership() { return rooms.membership(roomContext(), roomId) }
 export function forgetGuest() { guest?.free(); guest = undefined; guestPlatform?.free(); guestPlatform = undefined }
 function checked<T>(r: { ok: true; value: T } | { ok: false; refusal: string }): T { if (!r.ok) throw new Error(r.refusal); return r.value }
 

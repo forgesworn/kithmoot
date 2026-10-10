@@ -30,8 +30,10 @@ export class Capability {
     }
     /**
      * `{ packageId, expiresAt, identity, device, leafId, homeBox,
-     * bindingExpiresAt, credentialId, credentialExpiresAt }`. No key.
-     * @returns {any}
+     * bindingExpiresAt, credentialId, credentialExpiresAt, welcomeMailbox }`.
+     * `welcomeMailbox` is the address the keeper registers for this package;
+     * neither field is a key.
+     * @returns {VmlsCapabilityInfo}
      */
     info() {
         const ret = wasm.capability_info(this.__wbg_ptr);
@@ -1080,6 +1082,185 @@ export class Staged {
 if (Symbol.dispose) Staged.prototype[Symbol.dispose] = Staged.prototype.free;
 
 /**
+ * One removal at one session. The bytes from `encode()` belong in the
+ * sealed, witnessed persona record and are reopened with `removalDecode`.
+ */
+export class VmlsRemoval {
+    static __wrap(ptr) {
+        const obj = Object.create(VmlsRemoval.prototype);
+        obj.__wbg_ptr = ptr;
+        VmlsRemovalFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        VmlsRemovalFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_vmlsremoval_free(ptr, 0);
+    }
+    /**
+     * @returns {string | undefined}
+     */
+    claimCopy() {
+        const ret = wasm.vmlsremoval_claimCopy(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {VmlsClaim}
+     */
+    claim() {
+        const ret = wasm.vmlsremoval_claim(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {VmlsCredentialState}
+     */
+    credential() {
+        const ret = wasm.vmlsremoval_credential(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    encode() {
+        const ret = wasm.vmlsremoval_encode(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {VmlsGrant[]}
+     */
+    grants() {
+        const ret = wasm.vmlsremoval_grants(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {Uint8Array[]}
+     */
+    leafIds() {
+        const ret = wasm.vmlsremoval_leafIds(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * MLS reaches `Committed` only from applied session readback and the
+     * coordinator's witnessed mark, never from platform-supplied numbers.
+     * @param {Session} session
+     * @param {Coordinator} coordinator
+     */
+    mlsCommitted(session, coordinator) {
+        _assertClass(session, Session);
+        _assertClass(coordinator, Coordinator);
+        const ret = wasm.vmlsremoval_mlsCommitted(this.__wbg_ptr, session.__wbg_ptr, coordinator.__wbg_ptr);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @returns {VmlsMlsState}
+     */
+    mls() {
+        const ret = wasm.vmlsremoval_mls(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * The Remove loop's next step, derived from the live session itself.
+     * @param {Session} session
+     * @returns {VmlsNextRemoval}
+     */
+    next(session) {
+        _assertClass(session, Session);
+        const ret = wasm.vmlsremoval_next(this.__wbg_ptr, session.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {bigint}
+     */
+    openedEpoch() {
+        const ret = wasm.vmlsremoval_openedEpoch(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {Uint8Array | undefined}
+     */
+    personIdentity() {
+        const ret = wasm.vmlsremoval_personIdentity(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    sessionId() {
+        const ret = wasm.vmlsremoval_sessionId(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @param {VmlsCredentialState} state
+     */
+    setCredential(state) {
+        const ret = wasm.vmlsremoval_setCredential(this.__wbg_ptr, state);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {Uint8Array} grant
+     * @param {VmlsGrantState} state
+     */
+    setGrant(grant, state) {
+        const ret = wasm.vmlsremoval_setGrant(this.__wbg_ptr, grant, state);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {VmlsMlsState} state
+     */
+    setMls(state) {
+        const ret = wasm.vmlsremoval_setMls(this.__wbg_ptr, state);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+}
+if (Symbol.dispose) VmlsRemoval.prototype[Symbol.dispose] = VmlsRemoval.prototype.free;
+
+/**
  * A new installation's genesis for the keeper's enrolment:
  * `{ state, digest }`. `subject` is the enrolment's; `installation` the
  * vault's own; `witness` the pinned witness key.
@@ -1160,6 +1341,52 @@ export function prepareIntroduction(platform, now, peer_rz, counter) {
     }
     return PendingIntroduction.__wrap(ret[0]);
 }
+
+/**
+ * A removal from the bytes in the sealed persona record.
+ * @param {Uint8Array} bytes
+ * @returns {VmlsRemoval}
+ */
+export function removalDecode(bytes) {
+    const ret = wasm.removalDecode(bytes);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return VmlsRemoval.__wrap(ret[0]);
+}
+
+/**
+ * Removing one device of `session`'s group. Persist the returned journal
+ * before acting on it.
+ * @param {Session} session
+ * @param {Uint8Array} leaf_id
+ * @param {VmlsGrantRef[]} grants
+ * @returns {VmlsRemoval}
+ */
+export function removalDevice(session, leaf_id, grants) {
+    _assertClass(session, Session);
+    const ret = wasm.removalDevice(session.__wbg_ptr, leaf_id, grants);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return VmlsRemoval.__wrap(ret[0]);
+}
+
+/**
+ * Removing every leaf of one person in `session`'s group.
+ * @param {Session} session
+ * @param {Uint8Array} identity
+ * @param {VmlsGrantRef[]} grants
+ * @returns {VmlsRemoval}
+ */
+export function removalPerson(session, identity, grants) {
+    _assertClass(session, Session);
+    const ret = wasm.removalPerson(session.__wbg_ptr, identity, grants);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return VmlsRemoval.__wrap(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -1168,6 +1395,11 @@ function __wbg_get_imports() {
             const ret = typeof(v) === 'bigint' ? v : undefined;
             getDataViewMemory0().setBigInt64(arg0 + 8 * 1, isLikeNone(ret) ? BigInt(0) : ret, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+        },
+        __wbg___wbindgen_boolean_get_5b446f51afd21013: function(arg0) {
+            const v = arg0;
+            const ret = typeof(v) === 'boolean' ? v : undefined;
+            return isLikeNone(ret) ? 0xFFFFFF : ret ? 1 : 0;
         },
         __wbg___wbindgen_is_bigint_b123553bed3bb382: function(arg0) {
             const ret = typeof(arg0) === 'bigint';
@@ -1426,6 +1658,9 @@ const SessionFinalization = (typeof FinalizationRegistry === 'undefined')
 const StagedFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_staged_free(ptr, 1));
+const VmlsRemovalFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_vmlsremoval_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();

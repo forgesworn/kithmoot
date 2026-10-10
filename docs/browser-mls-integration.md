@@ -12,10 +12,10 @@ review does not authorise production enablement or close browser integration.
 
 ## Foundation verified
 
-- Self-hosted WASM built from Vennel `d91a23d1978ef08c22709181e16ab158d95c98cd`
+- Self-hosted WASM built from Vennel `64c669bed8e11ed6f63c23d851e7dd24b9dffb2f`
   with Rust 1.94.1 and wasm-bindgen 0.2.129. The manifest pins exact asset
   hashes; the build checks them. Loading is explicit and excluded from PWA
-  precaching. WASM: 2,023,494 bytes, 630,341 bytes with deterministic gzip.
+  precaching. WASM: 2,071,633 bytes, 646,650 bytes with deterministic gzip.
 - The witness carrier matches Android's `WitnessLink`: a dedicated pinned
   route, empty authorisation, bounded read/advance bodies, 20-second timeout,
   and receipt/status matching. Only a Link-marked witness 403 is a refusal.
@@ -196,7 +196,9 @@ adds pinned request signing and bounded reply parsing. The
 [typed join](browser-mls-join.md) adds current provisioned-child custody and
 witnessed pending/Welcome recovery. The [message driver](browser-mls-message-driver.md)
 adds guarded authenticated rounds and durable receipt queries. Dedicated endpoint
-composition, app wiring, membership and live room acceptance remain open.
+composition and app wiring remain open. The [membership slice](browser-mls-membership.md)
+adds D5 registration-before-Add, durable Welcome routing and the witnessed
+removal journal; grant transport, UI and live room acceptance remain open.
 
 ## Remaining integration and acceptance
 
@@ -211,9 +213,9 @@ composition, app wiring, membership and live room acceptance remain open.
    The pairing and pending/fenced controls now have a disposable real-daemon
    lab; the app host's lifecycle wiring still has separate offline acceptance.
 4. Connect the room operations and message driver to the app with a dedicated box
-   endpoint, membership destination metadata and explicit offline draft/history
-   policy. Guarded rounds, Gap fetching and witnessed receive are implemented
-   and tested through fixtures; live composition remains open.
+   endpoint and explicit offline draft/history policy. Guarded rounds, Gap
+   fetching, witnessed receive, Add/Welcome routing and the Remove loop are
+   implemented and tested through fixtures; live composition remains open.
 5. Complete the remaining real-box/physical acceptance and obtain a fresh
    client security review of vault/room integration before production enablement.
    The foundation-only merge review is recorded separately above.

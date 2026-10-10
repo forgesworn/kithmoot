@@ -1,9 +1,9 @@
 export * from './mls-room-operations.browser-entry.js'
-import { messageDriverFixture, restart, restartJoin, update, read, send, readJoin } from './mls-room-operations.browser-entry.js'
+import { messageDriverFixture, restart, restartJoin, update, read, send, readJoin, stageGuestWelcome } from './mls-room-operations.browser-entry.js'
 import { BrowserMlsMessageDriver } from '../app/src/mls-message-driver.js'
 import { BrowserMlsBoxClient } from '../app/src/mls-box-client.js'
 import { readMlsRoom, saveMlsRoom } from '../app/src/mls-room-store.js'
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
+import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { verifyEvent } from 'nostr-tools/pure'
 import { base32 } from '@scure/base'
@@ -23,9 +23,9 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
   const joining = mode.startsWith('join'), f = messageDriverFixture(joining)
   if (mode === 'update' || mode === 'lost-deposit' || mode === 'restart-replay' || mode === 'bad-slot') await update()
   if (mode === 'join-expired') f.advance(86401)
-  const before = await f.rooms.driverState(f.context, f.roomId)
-  if (before.state !== 'active') return { result: before }
-  const outgoing = before.value.outbox, slots = new Map<string, any>(), mail = new Map<string, any>()
+  let outgoing: any[] = []
+  const slots = new Map<string, any>(), mail = new Map<string, any>()
+  const packages = new Map<string, { mailbox: string; expiresAt: number }>()
   if (f.incoming) mail.set(bytesToHex(f.incoming.mailbox), f.incoming)
   const calls: { path: string; body: string; event: string }[] = []
   const eventIds = new Set<string>()
@@ -50,6 +50,19 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
     if (req.method === 'PUT') {
       if (eventIds.has(event.id)) return response(401, reply('replay'))
       eventIds.add(event.id)
+      if (req.path.startsWith('/vmls/v1/packages/')) {
+        const packageId = req.path.split('/')[4], value = JSON.parse(new TextDecoder().decode(req.body))
+        if (value.v !== 1 || !/^[0-9a-f]{64}$/.test(value.welcome_mailbox) || !Number.isSafeInteger(value.expires_at) ||
+            value.ciphertext !== base64Encode(sha256(concatBytes(new TextEncoder().encode('VMLS/1 package'), hexToBytes(packageId), hexToBytes(value.welcome_mailbox))))) {
+          throw new Error('Invalid Welcome package registration')
+        }
+        const previous = packages.get(packageId)
+        if (previous && (previous.mailbox !== value.welcome_mailbox || previous.expiresAt !== value.expires_at)) throw new Error('Package registration changed')
+        if (mode === 'inviter-welcome-registration-refused') return response(403, reply('authority'))
+        packages.set(packageId, { mailbox: value.welcome_mailbox, expiresAt: value.expires_at })
+        if (mode === 'inviter-welcome-lost-registration' && !lost) { lost = true; f.advance(1); throw new Error('Registered but reply lost') }
+        return response(previous ? 200 : 201, reply(previous ? 'unchanged' : 'registered'))
+      }
       const out = outgoing.find((o: any) => bytesToHex(o.mailbox) === req.path.split('/')[4])
       if (!out || bytesToHex(out.envelope) !== bytesToHex(req.body)) throw new Error('Outbox bytes changed')
       if (out.destination.type === 'CommitSlot') slots.set(bytesToHex(out.mailbox), out)
@@ -58,7 +71,9 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
         const signed = f.receipt(out); if (mode === 'bad-slot') signed[196] ^= 1
         return response(201, reply('won', { receipt: bytesToHex(sha256(out.envelope)), attempt: out.destination.attempt, signed_receipt: base64Encode(signed) }))
       }
-      return response(201, reply('stored', { receipt: bytesToHex(sha256(out.envelope)) }))
+      const registered = out.destination.type === 'Welcome' ? packages.get(bytesToHex(out.destination.packageId)) : undefined
+      if (out.destination.type === 'Welcome' && registered?.mailbox !== bytesToHex(out.mailbox)) throw new Error('Welcome deposited before registration')
+      return response(201, reply('stored', { receipt: bytesToHex(sha256(out.envelope)), ...(registered ? { welcome: { acknowledged: true } } : {}) }))
     }
     if (req.path.endsWith('/fetch')) {
       const wanted: string[] = JSON.parse(new TextDecoder().decode(req.body)).mailboxes
@@ -80,12 +95,22 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
     }
     throw new Error('Unexpected driver route')
   } }
+  const makeClient = () => {
+    const actual = messageDriverFixture(joining)
+    return new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret), cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, f.boxId,
+      actual.vault, actual.context.vault, async () => 'approve', () => true)
+  }
   const make = () => {
     const actual = messageDriverFixture(joining)
-    const client = new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret), cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, f.boxId,
-      actual.vault, actual.context.vault, async () => 'approve', () => true)
-    return new BrowserMlsMessageDriver(actual.rooms, client, actual.context, f.roomId, async () => { closed++ }, navigator.locks, f.now)
+    return new BrowserMlsMessageDriver(actual.rooms, makeClient(), actual.context, f.roomId, async () => { closed++ }, navigator.locks, f.now)
   }
+  if (mode.startsWith('inviter-welcome')) {
+    const registrar = makeClient(), staged = await stageGuestWelcome(registrar); registrar.invalidate()
+    if (staged !== 'active') return { result: staged, calls, driverAfter: await f.rooms.driverState(f.context, f.roomId) }
+  }
+  const before = await f.rooms.driverState(f.context, f.roomId)
+  if (before.state !== 'active') return { result: before }
+  outgoing = before.value.outbox
   driver = make()
   const result = await driver.round(), firstAcked = acked
   let recovered: any
@@ -94,8 +119,9 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
     driver = make(); recovered = await driver.round()
   }
   const after = mode === 'account-fetch' ? undefined : joining ? await readJoin() : await read()
+  const driverAfter = mode === 'account-fetch' ? undefined : await f.rooms.driverState(f.context, f.roomId)
   await driver.close()
-  return { result, recovered, firstAcked, acked, after, calls, closed, distinctEvents: new Set(calls.map(c => c.event)).size }
+  return { result, recovered, firstAcked, acked, after, driverAfter, calls, closed, distinctEvents: new Set(calls.map(c => c.event)).size }
 }
 
 /** Guard and encrypted metadata tests use a real engine and coordinator. */
