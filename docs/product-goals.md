@@ -113,6 +113,12 @@ Acceptance:
 This extends the existing M5 optional nudger direction. Open-tab notifications
 or a Nostr nudge alone do not close this goal.
 
+The [hidden-chat unread regression](evidence/unread-counts-2026-10-10.json)
+keeps incoming messages unread while a call hides chat or Room details covers
+it. The active room row, title and native macOS Dock badge track the same
+count; only a visible conversation at the bottom advances its read position.
+Synthetic browser and Electron checks do not close physical phone acceptance.
+
 ## G3 — Durable history and useful search
 
 Let a person find and recover their conversations beyond the current

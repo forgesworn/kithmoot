@@ -26,6 +26,10 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Behaviour
 
+Unread room counts and the Dock badge clear when the conversation is visible,
+uncovered and at the bottom. Focusing the app or receiving a message behind
+Room details or a closed call chat does not mark it read.
+
 - The app serves its bundled web assets inside an isolated, persistent Electron session. No local HTTP listener is required. HTTPS is intercepted only for `/j/` on the KithMoot origin; network services such as TURN and encrypted file storage retain their normal endpoints. Browser and desktop profiles are separate.
 - Sign in with the same Nostr account using an existing supported remote signer or account option. Browser signer extensions are not installed in Electron. Project/room sync follows the existing account policies; installing the app does not copy browser keys or local history.
 - Microphone and camera start only through existing call controls and macOS consent. Screen sharing uses the native macOS 15+ picker when available and an explicit screen/window menu otherwise. Without macOS Screen Recording permission the app says so and offers to open System Settings rather than failing with "Invalid capture constraints". Public Mac releases use the same Apple Developer ID identity; local ad-hoc previews may lose that permission when the bundle is replaced. Closing during a call asks first. Leaving a call keeps the room chat available.
