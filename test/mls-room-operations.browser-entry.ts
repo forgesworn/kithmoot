@@ -28,6 +28,7 @@ import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
 import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant } from '../app/src/mls-grant-ledger.js'
 import { BrowserMlsKeeperDecisions, type MlsKeeperDecisionPlan } from '../app/src/mls-keeper-decisions.js'
 import { BrowserMlsKeeperRequestController, type MlsKeeperRequestProgress } from '../app/src/mls-keeper-request-controller.js'
+import { BrowserMlsRevocationOutbox } from '../app/src/mls-revocation-outbox.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
 
@@ -475,7 +476,8 @@ export async function joinRevocationAuthority() { return rooms.roomRevocationAut
 export async function addJoinedMemberDevice() { return addGuest(false, fixturePackageClient(), true) }
 export async function joinMembership() { return rooms.membership(joinContext(), roomId) }
 export async function standaloneRequests() {
-  return host.transact(persona, async tx => structuredClone((await readMlsMembership(tx)).requests), () => true)
+  const outbox = new BrowserMlsRevocationOutbox(host, () => ({ vault: ctx(), current: () => true }), () => clock)
+  return outbox.records()
 }
 export async function provisionJoin(index = 1, lifetime = 600) {
   const nonce = new Uint8Array(16).fill(9), device = getPublicKey(provisionDevice)

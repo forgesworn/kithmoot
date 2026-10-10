@@ -3,6 +3,8 @@ import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 export { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 import { InvalidPersonaRecord, type PersonaReader, type PersonaTransaction } from './mls-persona-coordinator.js'
 import { validateMlsRevocationInbox, type MlsRevocationInboxState } from './mls-revocation-inbox-store.js'
+import { validateMlsStandaloneState, type MlsStandaloneState } from './mls-revocation-outbox-store.js'
+import { VMLS_REVOCATION_REQUEST_SECONDS } from '../../src/vmls-revocation-request.js'
 
 export const MAX_MLS_REMOVALS = 64
 export const MAX_MLS_STANDALONE_REVOCATIONS = 64
@@ -38,11 +40,15 @@ export interface MlsStandaloneRevocationRecord {
   createdAt: number
   sentAt: number | null
 }
-export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[]; requests: MlsStandaloneRevocationRecord[]; inbox?: MlsRevocationInboxState }
+export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[]; requests: MlsStandaloneRevocationRecord[]; inbox?: MlsRevocationInboxState; standalone?: MlsStandaloneState }
 
-function validate(record: MlsMembershipJournal | (Omit<MlsMembershipJournal, 'requests'> & { requests?: MlsStandaloneRevocationRecord[] })): void {
-  if (!record || typeof record !== 'object' || !exact(record, [...(record.inbox === undefined ? [] : ['inbox']), 'removals', ...(record.requests === undefined ? [] : ['requests']), 'version'].sort().join(',')) || record.version !== 1 ||
+function validate(record: MlsMembershipJournal | (Omit<MlsMembershipJournal, 'requests'> & { requests?: MlsStandaloneRevocationRecord[] }), input = false): void {
+  if (!record || typeof record !== 'object' || !exact(record, [...(record.inbox === undefined ? [] : ['inbox']), ...(record.standalone === undefined ? [] : ['standalone']), 'removals', ...(record.requests === undefined ? [] : ['requests']), 'version'].sort().join(',')) || record.version !== 1 ||
       !Array.isArray(record.removals) || record.removals.length > MAX_MLS_REMOVALS) invalid()
+  if (record.standalone !== undefined) {
+    if (record.requests !== undefined && (!input || record.requests.length !== 0)) invalid()
+    validateMlsStandaloneState(record.standalone)
+  }
   if (record.inbox !== undefined) validateMlsRevocationInbox(record.inbox)
   const operations = new Set<string>()
   for (const removal of record.removals) {
@@ -71,7 +77,7 @@ function validate(record: MlsMembershipJournal | (Omit<MlsMembershipJournal, 're
         !Array.isArray(request.boxes) || request.boxes.length < 1 || request.boxes.length > 64 || !request.boxes.every(hex32) ||
         new Set(request.boxes).size !== request.boxes.length || request.boxes.some((value, index) => index > 0 && request.boxes[index - 1]! >= value) ||
         !Number.isSafeInteger(request.createdAt) || request.createdAt < 0 ||
-        !(request.sentAt === null || Number.isSafeInteger(request.sentAt) && request.sentAt >= request.createdAt) ||
+        !(request.sentAt === null || Number.isSafeInteger(request.sentAt) && request.sentAt >= request.createdAt && request.sentAt <= Number.MAX_SAFE_INTEGER - VMLS_REVOCATION_REQUEST_SECONDS) ||
         requestOperations.has(request.operation) || targets.has(`${request.sender}/${request.keeper}/${request.device}`)) invalid()
     requestOperations.add(request.operation); targets.add(`${request.sender}/${request.keeper}/${request.device}`)
   }
@@ -90,8 +96,9 @@ export async function readMlsMembership(tx: PersonaReader): Promise<MlsMembershi
 }
 
 export async function saveMlsMembership(tx: PersonaTransaction, record: MlsMembershipJournal): Promise<void> {
-  validate(record)
-  const bytes = new TextEncoder().encode(JSON.stringify(record))
+  validate(record, true)
+  const { requests, ...rest } = record
+  const bytes = new TextEncoder().encode(JSON.stringify(record.standalone ? rest : record))
   try {
     // Validated seen fields contain ASCII hex, decimal integers and fixed keys.
     const seenBytes = record.inbox ? JSON.stringify(record.inbox.seen).length - 2 : 0

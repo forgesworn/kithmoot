@@ -273,16 +273,41 @@ test('retained requests need an explicit witness check and send without an open 
   expect((await f.page.evaluate('P.vaultState()') as any).vault.value).toBeNull()
 })
 
-test('a refused retained request stays unsent and can be retried explicitly', async ({ context }) => {
+test('a refused retained request stays uncertain and needs an explicit fresh retry', async ({ context }) => {
   const f = await deviceFixture(context); await f.page.evaluate('P.seedRevocation()')
   await f.button('RevocationRead').click()
   await f.page.evaluate('P.refuseRevocation(true)')
   const send = f.page.getByRole('button', { name: 'Send request to keeper' })
-  await send.click(); await expect(f.page.locator('#mlsWitnessNetworkStatus')).toContainText('could not be confirmed')
-  await expect(send).toBeEnabled(); await expect(f.page.locator('#mlsWitnessRevocations')).not.toContainText('Request sent to a keeper relay.')
-  await f.page.evaluate('P.refuseRevocation(false)'); await send.click()
+  await send.click(); await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('The send was not confirmed.')
+  await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('An earlier attempt may have reached a relay.')
+  const retry = f.page.getByRole('button', { name: 'Send a fresh request to keeper' })
+  await expect(retry).toBeEnabled(); await expect(f.page.locator('#mlsWitnessRevocations')).not.toContainText('Request sent to a keeper relay.')
+  await f.button('RevocationRead').click(); expect((await f.page.evaluate('P.revocationSeen()') as string[])).toHaveLength(2)
+  await f.page.evaluate('P.refuseRevocation(false)'); await retry.click()
   await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('Request sent to a keeper relay.')
   expect((await f.page.evaluate('P.revocationSeen()') as string[])).toHaveLength(4)
+})
+
+test('expiry across restart removes the transport attempt and keeps device evidence for an explicit fresh request', async ({ context }) => {
+  const f = await deviceFixture(context); await f.page.evaluate('P.seedRevocation()'); await f.button('RevocationRead').click()
+  await f.page.getByRole('button', { name: 'Send request to keeper' }).click()
+  await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('Request sent to a keeper relay.')
+  const [first] = await f.page.evaluate('P.revocationPublications()') as { id: string; createdAt: number; expiration: number }[]
+  await f.page.reload()
+  await f.page.evaluate(({ route, time }) => { (window as any).P.revocationTime(time); (window as any).P.start(route) }, { route: f.pairing.route, time: first.expiration })
+  await f.page.evaluate('P.useIdentity()'); await f.open()
+  expect(await f.page.evaluate('P.revocationSeen()')).toEqual([])
+  await f.button('RevocationRead').click()
+  await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('No current confirmed request is retained.')
+  await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('Device: ' + '34'.repeat(32))
+  await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('Observed room hints: ' + '12'.repeat(32))
+  expect(await f.page.evaluate('P.revocationSeen()')).toEqual([])
+  expect((await f.page.evaluate('P.vaultState()') as any).vault.value).toBeNull()
+  await f.page.getByRole('button', { name: 'Send a fresh request to keeper' }).click()
+  await expect(f.page.locator('#mlsWitnessRevocations')).toContainText('Request sent to a keeper relay.')
+  const [fresh] = await f.page.evaluate('P.revocationPublications()') as typeof first[]
+  expect(fresh.id).not.toBe(first.id); expect(fresh.createdAt).toBe(first.expiration); expect(fresh.expiration).toBe(first.expiration + 7 * 86400)
+  expect((await f.page.evaluate('P.revocationSeen()') as string[])).toHaveLength(2)
 })
 
 test('an unavailable witness hides older request actions and never reaches the directory', async ({ context }) => {
