@@ -1,9 +1,14 @@
 import { BrowserMlsMembershipController, removalComponentCopy, type MlsMembershipView, type MlsRemovalPlan } from './mls-membership-controller.js'
 import type { MlsMemberStatus, MlsRemovalStatus } from './mls-room-operations.js'
+import type { VmlsRevocationIdentity, VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 
 export interface MlsMembershipLabels {
   person(identity: string): string
   device(member: MlsMemberStatus): string
+}
+export interface MlsMembershipRevocationSender {
+  identity(): VmlsRevocationIdentity | undefined
+  transport: VmlsRevocationTransport
 }
 const short = (value: string) => `${value.slice(0, 12)}…`
 
@@ -16,7 +21,8 @@ export class BrowserMlsMembershipPanel {
   #reviewGeneration = 0
   readonly dialog: HTMLDialogElement
   constructor(private controller: BrowserMlsMembershipController, readonly root: HTMLElement,
-    private labels: MlsMembershipLabels = { person: short, device: member => short(member.device) }) {
+    private labels: MlsMembershipLabels = { person: short, device: member => short(member.device) },
+    private revocation?: MlsMembershipRevocationSender) {
     this.dialog = root.ownerDocument.createElement('dialog')
     this.dialog.className = 'mlsMembershipConfirm'
     this.dialog.innerHTML = `<form method="dialog">
@@ -87,6 +93,18 @@ export class BrowserMlsMembershipPanel {
     }
     const claim = doc.createElement('p'); claim.className = 'mlsMembershipClaim'; claim.textContent = copy.claim
     article.append(heading, list, claim)
+    const requestGrants = removal.grants.filter(grant => !grant.grant.keeper)
+    const requestReady = removal.request && removal.mls === 'Committed' && requestGrants.length > 0 && requestGrants.every(grant =>
+      grant.state.type === 'NotAuthorised' && !(grant.state as { type: 'NotAuthorised'; requested: boolean }).requested)
+    if (requestReady && this.revocation) {
+      const note = this.#message('Send a private request to the keeper’s public DM relays. Relays can see the recipient, your connection address, timing and volume. A sent request is not proof that the keeper read it or revoked the grant.')
+      note.className = 'note'
+      const status = this.#message('', 'status'); status.setAttribute('aria-live', 'polite')
+      const request = doc.createElement('button'); request.type = 'button'; request.textContent = 'Send request to keeper'
+      request.dataset.mlsRequestRevocation = removal.operation
+      request.onclick = () => { void this.#requestRevocation(removal.operation, request, status) }
+      article.append(note, status, request)
+    }
     if (removal.mls !== 'Committed' || removal.grants.some(grant => grant.state.type === 'Pending' || grant.state.type === 'Failed')) {
       const retry = doc.createElement('button'); retry.type = 'button'; retry.textContent = 'Continue removal'; retry.dataset.mlsContinue = removal.operation
       retry.onclick = () => { void this.#advance(removal.operation) }; article.append(retry)
@@ -147,5 +165,18 @@ export class BrowserMlsMembershipPanel {
     try { await this.controller.advance(operation) }
     catch (error) { const message = this.#message((error as Error).message, 'alert'); this.root.prepend(message) }
     finally { this.#busy = false; this.root.removeAttribute('aria-busy'); await this.open() }
+  }
+  async #requestRevocation(operation: string, button: HTMLButtonElement, status: HTMLElement): Promise<void> {
+    if (this.#busy || !this.revocation) return
+    this.#busy = true; this.root.setAttribute('aria-busy', 'true'); button.disabled = true
+    status.setAttribute('role', 'status'); status.textContent = 'Preparing the private request for the keeper…'
+    try {
+      const identity = this.revocation.identity()
+      if (!identity) throw new Error('Sign in as the requesting member.')
+      await this.controller.requestRevocation(operation, { identity, transport: this.revocation.transport })
+      await this.open()
+    } catch (error) {
+      status.setAttribute('role', 'alert'); status.textContent = (error as Error).message; button.disabled = false
+    } finally { this.#busy = false; this.root.removeAttribute('aria-busy') }
   }
 }

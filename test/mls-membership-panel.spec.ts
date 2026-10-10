@@ -41,3 +41,34 @@ test('a cancelled plan cannot be confirmed after the next review fails', async (
   await expect(page.getByRole('button', { name: 'Record and start removal' })).toBeDisabled()
   expect(await page.evaluate(() => (window as any).M.history())).toEqual([])
 })
+
+test('sends an explicit member request only after the Remove is committed and keeps the claim bounded', async ({ page }) => {
+  await page.evaluate(() => (window as any).M.seedRequest(false, false))
+  await expect(page.getByRole('button', { name: 'Send request to keeper' })).toHaveCount(0)
+  await page.evaluate(() => (window as any).M.seedRequest(false, true))
+  await expect(page.getByText(/Relays can see the recipient, your connection address, timing and volume/)).toBeVisible()
+  await page.getByRole('button', { name: 'Send request to keeper' }).click()
+  await expect(page.getByText('Grant at box 2c2c2c2c2c2c…: revocation requested from its keeper; not performed.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send request to keeper' })).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).M.history())).toEqual([`request:${'aa'.repeat(32)}`])
+})
+
+test('keeps a refused request retryable without claiming it was sent', async ({ page }) => {
+  await page.evaluate(() => (window as any).M.seedRequest())
+  await page.evaluate(() => (window as any).M.rejectRequest())
+  const send = page.getByRole('button', { name: 'Send request to keeper' })
+  await send.click()
+  await expect(page.getByRole('alert')).toHaveText('keeper relay refused the request')
+  await expect(send).toBeEnabled()
+  await expect(page.getByText('Grant at box 2c2c2c2c2c2c…: not yours to revoke.')).toBeVisible()
+})
+
+test('requires the requesting account identity before any transport call', async ({ page }) => {
+  await page.evaluate(() => (window as any).M.seedRequest())
+  await page.evaluate(() => (window as any).M.signOut())
+  const send = page.getByRole('button', { name: 'Send request to keeper' })
+  await send.click()
+  await expect(page.getByRole('alert')).toHaveText('Sign in as the requesting member.')
+  await expect(send).toBeEnabled()
+  expect(await page.evaluate(() => (window as any).M.history())).toEqual([])
+})

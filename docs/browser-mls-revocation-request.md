@@ -70,6 +70,18 @@ commit can cause an at-least-once duplicate on explicit retry. The keeper inbox
 must therefore deduplicate and validate requests; this slice does not turn an
 uncertain acknowledgement into a sent claim.
 
+## Development UI action
+
+The production-disabled membership panel offers `Send request to keeper` only
+for a witnessed active-room request whose MLS Remove is committed and whose
+non-keeper grant rows all remain `requested: false`. It states that the public
+DM relays see the recipient, connection address, timing and volume, and that a
+sent request is not proof of receipt or revocation. The click obtains the
+currently selected account identity, uses the injected bounded transport, and
+leaves the action enabled for explicit retry after refusal or uncertainty.
+After witnessed `requested: true` state, the action disappears and the engine's
+bounded `requested, not performed` claim remains visible.
+
 ## Evidence and remaining work
 
 Unit coverage exercises strict framing and time bounds, NIP-59 round trips,
@@ -82,8 +94,8 @@ device without persona damage, and fencing of altered stored bindings across
 Chromium, Firefox and WebKit.
 
 This remains a development-only sender boundary. It does not add a production
-import, UI action, automatic background retry, requests after all local devices
-have left, keeper inbox, dedicated endpoint lifecycle, operator prompt, or
-MLS/grant revocation. Those remain open P3-08 work, and this module must not be
-wired into production before their gate evidence and the production security
-review are complete.
+app import or room wiring, automatic background retry, requests after all local
+devices have left, keeper inbox, dedicated endpoint lifecycle, operator prompt,
+or MLS/grant revocation. Those remain open P3-08 work, and these modules must
+not be wired into production before their gate evidence and the production
+security review are complete.
