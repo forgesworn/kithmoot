@@ -12,7 +12,7 @@
   "consumer": {
     "typecheckPassed": true,
     "unitTestsPassed": 3724,
-    "browserJourneysPassed": 124,
+    "browserJourneysPassed": 142,
     "browsers": [
       "Chromium",
       "Firefox",
@@ -49,12 +49,37 @@
       "knock",
       "private-room",
       "room-list-sections",
-      "nostr-rooms"
+      "nostr-rooms",
+      "persistent-groups"
     ],
-    "combinedMain": "e1ecab85f89d7a61ada917e4530e7333ac116d23",
+    "combinedMain": "7b4e3f2bb921fbff781ec4f67916b3f6fc8e50e7",
     "originalDelegatedResponderFailsManualDecisionJourney": true,
     "temporaryInvitationsAskByDefaultOnEveryAdmittedDevice": true,
-    "explicitOpenDoorChoiceRetained": true
+    "explicitOpenDoorChoiceRetained": true,
+    "temporaryToPersistentConversionRequestsAdmission": true,
+    "combinedMainMlsStandaloneBrowserJourneysPassed": 24,
+    "browserQualification": {
+      "combinedRun": {
+        "passed": 140,
+        "failed": 2,
+        "log": "/tmp/kithmoot-admission-final-current-main-browser.log"
+      },
+      "targetedRecheck": {
+        "passed": 6,
+        "failed": 0,
+        "log": "/tmp/kithmoot-admission-final-targeted-recheck.log"
+      },
+      "conversionSuite": {
+        "passed": 18,
+        "failed": 0,
+        "log": "/tmp/kithmoot-admission-groups-current.log"
+      },
+      "initialFailures": [
+        "WebKit navigation timed out before the pin assertion.",
+        "Chromium cleanup reported link-key records remaining; all three targeted cleanup journeys subsequently passed."
+      ],
+      "wholeCombinedRunGreen": false
+    }
   },
   "remaining": [
     "Native Android closed-room decision queue and end-to-end admission parity.",
