@@ -105,15 +105,18 @@ WebCrypto, typed NIP-98 signing and a separately signed simulated witness and
 box. They cover registration before Add, lost registration recovery, permanent
 registration refusal, exact Welcome routing, route retirement, compromised
 holds, transient Remove refusal, failed-to-done catch-up, verified roster reads
-and malformed-journal fencing. The membership panel's confirmation, component
-states and exact claim copy run in Chromium, Firefox and WebKit.
+and malformed-journal fencing. A complete joined-session case journals removal
+of the inviter, observes `UpdateFirst` without a proposal, applies and witnesses
+the required own Update, then proposes, applies and witnesses the Remove in
+order. The membership panel's confirmation, component states and exact claim
+copy run in Chromium, Firefox and WebKit.
 
 These are browser automation results, not a live Bothy room, process-kill,
 physical-device or production acceptance claim. The production app's MLS room
 lifecycle and automatic driver rounds remain open, as do the P3-08
 member-to-keeper request channel and dedicated endpoint lifecycle. Abandoned
-Welcome cleanup is covered; a full joined-session `UpdateFirst` -> Update ->
-Remove automation case remains open. Production MLS stays off until those gates
+Welcome cleanup and the joined-session `UpdateFirst` -> Update -> Remove
+automation case are covered. Production MLS stays off until the remaining gates
 and the production review are complete.
 
 An uncertain grant withdrawal can also remain `revoking` past its signed
