@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.66",
+  "currentRelease": "0.1.67",
   "releases": [
     {
-      "version": "0.1.66",
+      "version": "0.1.67",
       "updateTo": {
-        "version": "0.1.66",
-        "pub_date": "2026-10-09T15:51:25Z",
-        "notes": "Three original Donkey animations made in Blender: laugh, facepalm and Bitcoin coin toss. Four GIFs and 27 stickers, with local search, reduced-motion stills and encrypted references without image uploads.",
-        "name": "0.1.66",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.66/KithMoot-0.1.66-mac-arm64.zip",
-        "sha256": "79826621b8e2dccd40066cba04883bbf7098dd4e75d60737a4243af574d75b57",
-        "size": 176736864
+        "version": "0.1.67",
+        "pub_date": "2026-10-10T00:13:29Z",
+        "notes": "Record gallery, speaker or a selected screen share with camera and mixed call audio. Everyone sees named capture notices. Add to message keeps your local recording through storage refusal, upload failure and retry; Send remains a separate choice.",
+        "name": "0.1.67",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.67/KithMoot-0.1.67-mac-arm64.zip",
+        "sha256": "c9084e7d531c790c5fcf90fa1d2e7f51dbaeee9352f1e0706497b013a4e74515",
+        "size": 176742721
       }
     }
   ]
