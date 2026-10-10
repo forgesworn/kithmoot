@@ -1,5 +1,5 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
-import type { Coordinator, Staged } from '../public/vmls-wasm/vmls_wasm.js'
+import type { Coordinator, Session, Staged, VmlsRemoval } from '../public/vmls-wasm/vmls_wasm.js'
 import { loadMlsEngine } from './mls-engine.js'
 import { BrowserMlsPersonaStore, PersonaStorageError, personaManifest,
   type LockedPersonaStore, type PersonaSnapshot, type PersonaObjects, type PersonaWitnessRoute } from './mls-persona-store.js'
@@ -29,6 +29,12 @@ export interface PersonaTransaction extends PersonaReader {
   putSession(id: string, generation: bigint, value: Uint8Array): Promise<void>
   dropVault(id: string): Promise<void>
   dropSession(id: string): Promise<void>
+}
+/** A capability valid only while one reconciled persona transaction owns the
+ * coordinator. It binds an MLS readback to the exact witnessed generation;
+ * retaining it beyond the callback is refused. */
+export interface PersonaMlsWitness {
+  mlsCommitted(removal: VmlsRemoval, session: Session): void
 }
 type Engine = Awaited<ReturnType<typeof loadMlsEngine>>
 type Mark = { session: Uint8Array; generation: bigint }
@@ -165,7 +171,7 @@ export class BrowserPersonaCoordinator {
    * opened through the transaction are wiped before returning; copy only the
    * intended result. `current` fences replies from an obsolete account context.
    */
-  async transact<T>(persona: string, change: (tx: PersonaTransaction) => Promise<T>, current: () => boolean,
+  async transact<T>(persona: string, change: (tx: PersonaTransaction, witness: PersonaMlsWitness) => Promise<T>, current: () => boolean,
     activated?: (marks: ReadonlyMap<string, bigint>) => undefined): Promise<CoordinationResult<T>> {
     this.invalidate(persona)
     if (!current()) return pending('stale')
@@ -203,8 +209,17 @@ export class BrowserPersonaCoordinator {
         if (ready !== undefined) return ready
         if (!current()) return pending('stale')
         const tx = new Transaction(store, run.file.data.installation, run.file.data.active)
+        let witnessCurrent = true
+        const witness: PersonaMlsWitness = Object.freeze({
+          mlsCommitted(removal: VmlsRemoval, session: Session): void {
+            if (!witnessCurrent || !current()) throw new Error('MLS witness capability expired')
+            if (!(removal instanceof wasm.VmlsRemoval)) throw new Error('Invalid MLS removal witness')
+            wasm.VmlsRemoval.prototype.mlsCommitted.call(removal, session, core!)
+          },
+        })
         try {
-          const value = await change(tx)
+          let value: T
+          try { value = await change(tx, witness) } finally { witnessCurrent = false }
           await tx.finish()
           if (!current()) return pending('stale')
           const held = await run.commit(tx.candidate())

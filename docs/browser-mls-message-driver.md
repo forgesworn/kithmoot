@@ -3,7 +3,8 @@
 `BrowserMlsMessageDriver` connects the witnessed room API to the authenticated
 Bothy client. It is development-only: no app or production caller starts it.
 Production MLS remains disabled. Membership, account/room UI and live acceptance
-remain separate gates.
+state now has its own reviewed slice; grant transport, account/room UI and live
+acceptance remain separate gates.
 
 ## A round and its authority
 
@@ -78,16 +79,23 @@ optional metadata remain readable.
 This driver serves one explicit box. Other destinations remain held and counted.
 An Introduction requires the saved ceremony's matching peer and resolved box;
 it is never inferred from the group's box. Welcome deposits remain held because
-the inviter's package-to-box mapping is not implemented. Package registration,
-Add/remove/revocation and keeper Welcome delivery are the next membership slice.
-The WASM join API still exposes no group-id pin.
+their Add-persisted package route must name that exact box and mailbox. The
+membership API registers every package successfully before `Session.add`; a
+permanent registration refusal never admits the leaf, and an uncertain answer
+is retried only by reopening the same capability. Successful Welcome delivery
+removes its route atomically with the durable outbox record; `tick` removes
+expired routes once no Welcome still references them. No home-box fallback is
+used. Grant revocation transport remains separate. The WASM join API still
+exposes no group-id pin.
 
 Unit tests exercise ordering, bounded paging, stale replies, cancellation and
 buffer ownership. Browser tests use real WASM, IndexedDB, WebCrypto, typed NIP-98
 signatures and an independently signed simulated witness/box. They cover Update
 slot reconciliation, join/Welcome/expiry, exact lost-deposit recovery, replay
 status, received history before acknowledgement, stale account/room replies,
-query persistence/verification/lost witness, and actual two-tab round exclusion.
+query persistence/verification/lost witness, registration-before-Add including
+lost replies and permanent refusal, routed keeper Welcome delivery, and actual
+two-tab round exclusion.
 The query-capacity test instruments the effect stream around a real engine send
 and verifies atomic refusal/retry; it does not claim to create cryptographic
 fork evidence itself. These are automated fixture results, not live Bothy room,

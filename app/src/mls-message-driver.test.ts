@@ -9,7 +9,7 @@ const active = (value: any) => ({ state: 'active' as const, value: structuredClo
 const leaf = (n: number, recipient = 9): MlsOutbound => ({ recordId: id(n), mailbox: id(n + 30), envelope: id(n), destination: { type: 'Leaf', leafId: id(recipient), homeBox: id(1) } })
 function fixture() {
   const s: MlsDriverState = { generation: '1', phase: { type: 'Active' }, epoch: 1n,
-    binding: { device: hex(2), credentialId: hex(3), rendezvousKey: hex(4), homeBox: hex(), installation: hex(5) }, ordering: [], outbox: [], watch: [] }
+    binding: { device: hex(2), credentialId: hex(3), rendezvousKey: hex(4), homeBox: hex(), installation: hex(5) }, packages: [], ordering: [], outbox: [], watch: [] }
   let valid = true, now = 100
   const commands: MlsDriverCommand[] = []
   const bump = () => { s.generation = String(BigInt(s.generation) + 1n) }
@@ -39,6 +39,7 @@ function fixture() {
     fetch: vi.fn(async (): Promise<any> => ok({ records: [], next: null })),
     slotStatus: vi.fn(async (): Promise<any> => ok({ state: 'empty' })),
     ack: vi.fn(async (): Promise<any> => ok({ deleted: true, acked: 1 })),
+    registerPackage: vi.fn(async (_packageId: Uint8Array, _mailbox: Uint8Array, _expiresAt: number, _now: number): Promise<any> => ok({ fresh: true })),
   }
   const context = { vault: { persona: hex(2), principal: 'https://test', generation: 0 } as any, rendezvousKey: hex(4), current: () => valid }
   const locks = { request: vi.fn(async (_: any, __: any, work: any) => work()) } as any
@@ -93,6 +94,22 @@ describe('witnessed browser MLS message driver', () => {
     f.s.outbox = [out, { ...leaf(11), destination: { type: 'Welcome', packageId: id(8) } }, { ...leaf(12), destination: { type: 'Introduction', peerRz: id(8) } }]
     f.s.join = { operation: hex(), counter: '0', adderRz: hex(9), introductionBox: hex(), expiresAt: 200 }
     expect(await f.driver.round()).toMatchObject({ held: 3, delivered: 0 }); expect(f.client.deposit).not.toHaveBeenCalled()
+  })
+  for (const acknowledged of [false, true]) it(`delivers a pre-registered routed Welcome, acknowledged: ${acknowledged}`, async () => {
+    const f = fixture(), packageId = id(8), mailbox = id(40)
+    f.s.packages = [{ packageId: hex(8), welcomeMailbox: hex(40), homeBox: hex(), leafId: hex(9), expiresAt: 200 }]
+    f.s.outbox = [{ ...leaf(11), mailbox, destination: { type: 'Welcome', packageId } }]
+    f.client.deposit.mockResolvedValue(ok({ duplicate: false, receipt: id(7), welcomeAcknowledged: acknowledged }))
+    expect(await f.driver.round()).toMatchObject({ state: 'done', delivered: 1 })
+    expect(f.commands.filter(command => command.type === 'confirm')).toHaveLength(acknowledged ? 1 : 0)
+    expect(f.s.outbox).toEqual([])
+  })
+  it('refuses a Welcome whose package route names another mailbox', async () => {
+    const f = fixture()
+    f.s.packages = [{ packageId: hex(8), welcomeMailbox: hex(41), homeBox: hex(), leafId: hex(9), expiresAt: 200 }]
+    f.s.outbox = [{ ...leaf(11), mailbox: id(40), destination: { type: 'Welcome', packageId: id(8) } }]
+    expect(await f.driver.round()).toMatchObject({ held: 1, delivered: 0 })
+    expect(f.client.deposit).not.toHaveBeenCalled()
   })
   it('uses the persisted Introduction destination and checks expiry at dispatch', async () => {
     const f = fixture(); f.s.phase = { type: 'PendingJoin' }; f.s.binding.installation = null

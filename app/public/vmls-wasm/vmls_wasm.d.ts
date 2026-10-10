@@ -52,6 +52,39 @@ export interface VmlsError extends Error {
     recovery?: string;
 }
 
+export interface VmlsCapabilityInfo {
+    packageId: Uint8Array;
+    expiresAt: bigint;
+    identity: Uint8Array;
+    device: Uint8Array;
+    leafId: Uint8Array;
+    homeBox: Uint8Array;
+    bindingExpiresAt: bigint;
+    credentialId: Uint8Array;
+    credentialExpiresAt: bigint;
+    welcomeMailbox: Uint8Array;
+}
+
+export type VmlsMlsState = "Pending" | "Committed" | "Failed";
+export type VmlsCredentialState = "Unchanged" | "Revoked" | "Pending" | "Failed";
+export type VmlsGrantState =
+| { type: "Pending" | "Revoked" | "Failed" }
+| { type: "NotAuthorised", requested: boolean };
+export interface VmlsGrantRef {
+    node: Uint8Array;
+    grant: Uint8Array;
+    keeper: boolean;
+}
+export interface VmlsGrant {
+    grant: VmlsGrantRef;
+    state: VmlsGrantState;
+}
+export type VmlsNextRemoval =
+| { type: "Propose", leafIds: Uint8Array[] }
+| { type: "Wait" | "UpdateFirst" | "Done" };
+export type VmlsClaim = "BoxAccessEnded" | "RemoveApplied" | "BothComplete" |
+"CredentialTombstoned" | "RevocationRequested" | "ComponentsOnly";
+
 
 
 /**
@@ -65,9 +98,11 @@ export class Capability {
     [Symbol.dispose](): void;
     /**
      * `{ packageId, expiresAt, identity, device, leafId, homeBox,
-     * bindingExpiresAt, credentialId, credentialExpiresAt }`. No key.
+     * bindingExpiresAt, credentialId, credentialExpiresAt, welcomeMailbox }`.
+     * `welcomeMailbox` is the address the keeper registers for this package;
+     * neither field is a key.
      */
-    info(): any;
+    info(): VmlsCapabilityInfo;
 }
 
 /**
@@ -362,6 +397,38 @@ export class Staged {
 }
 
 /**
+ * One removal at one session. The bytes from `encode()` belong in the
+ * sealed, witnessed persona record and are reopened with `removalDecode`.
+ */
+export class VmlsRemoval {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    claimCopy(): string | undefined;
+    claim(): VmlsClaim;
+    credential(): VmlsCredentialState;
+    encode(): Uint8Array;
+    grants(): VmlsGrant[];
+    leafIds(): Uint8Array[];
+    /**
+     * MLS reaches `Committed` only from applied session readback and the
+     * coordinator's witnessed mark, never from platform-supplied numbers.
+     */
+    mlsCommitted(session: Session, coordinator: Coordinator): void;
+    mls(): VmlsMlsState;
+    /**
+     * The Remove loop's next step, derived from the live session itself.
+     */
+    next(session: Session): VmlsNextRemoval;
+    openedEpoch(): bigint;
+    personIdentity(): Uint8Array | undefined;
+    sessionId(): Uint8Array;
+    setCredential(state: VmlsCredentialState): void;
+    setGrant(grant: Uint8Array, state: VmlsGrantState): void;
+    setMls(state: VmlsMlsState): void;
+}
+
+/**
  * A new installation's genesis for the keeper's enrolment:
  * `{ state, digest }`. `subject` is the enrolment's; `installation` the
  * vault's own; `witness` the pinned witness key.
@@ -392,6 +459,22 @@ export function parseCapabilities(body: any): any;
  */
 export function prepareIntroduction(platform: Platform, now: any, peer_rz: any, counter: any): PendingIntroduction;
 
+/**
+ * A removal from the bytes in the sealed persona record.
+ */
+export function removalDecode(bytes: Uint8Array): VmlsRemoval;
+
+/**
+ * Removing one device of `session`'s group. Persist the returned journal
+ * before acting on it.
+ */
+export function removalDevice(session: Session, leaf_id: Uint8Array, grants: VmlsGrantRef[]): VmlsRemoval;
+
+/**
+ * Removing every leaf of one person in `session`'s group.
+ */
+export function removalPerson(session: Session, identity: Uint8Array, grants: VmlsGrantRef[]): VmlsRemoval;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -406,6 +489,7 @@ export interface InitOutput {
     readonly __wbg_promotion_free: (a: number, b: number) => void;
     readonly __wbg_session_free: (a: number, b: number) => void;
     readonly __wbg_staged_free: (a: number, b: number) => void;
+    readonly __wbg_vmlsremoval_free: (a: number, b: number) => void;
     readonly capability_info: (a: number) => [number, number, number];
     readonly coordinatorGenesis: (a: any, b: any, c: any, d: any) => [number, number, number];
     readonly coordinatorObjectHash: (a: any) => [number, number, number];
@@ -447,6 +531,9 @@ export interface InitOutput {
     readonly platform_new: (a: any, b: any, c: any) => [number, number, number];
     readonly prepareIntroduction: (a: number, b: any, c: any, d: any) => [number, number, number];
     readonly promotion_state: (a: number) => [number, number, number];
+    readonly removalDecode: (a: any) => [number, number, number];
+    readonly removalDevice: (a: number, b: any, c: any) => [number, number, number];
+    readonly removalPerson: (a: number, b: any, c: any) => [number, number, number];
     readonly session_ackedGeneration: (a: number) => [number, number, number];
     readonly session_add: (a: number, b: any, c: any) => [number, number, number];
     readonly session_appliedCommits: (a: number) => [number, number, number];
@@ -481,6 +568,21 @@ export interface InitOutput {
     readonly session_updateRequired: (a: number) => [number, number, number];
     readonly session_watchList: (a: number) => [number, number, number];
     readonly staged_state: (a: number) => [number, number, number];
+    readonly vmlsremoval_claim: (a: number) => [number, number, number];
+    readonly vmlsremoval_claimCopy: (a: number) => [number, number, number];
+    readonly vmlsremoval_credential: (a: number) => [number, number, number];
+    readonly vmlsremoval_encode: (a: number) => [number, number, number];
+    readonly vmlsremoval_grants: (a: number) => [number, number, number];
+    readonly vmlsremoval_leafIds: (a: number) => [number, number, number];
+    readonly vmlsremoval_mls: (a: number) => [number, number, number];
+    readonly vmlsremoval_mlsCommitted: (a: number, b: number, c: number) => [number, number];
+    readonly vmlsremoval_next: (a: number, b: number) => [number, number, number];
+    readonly vmlsremoval_openedEpoch: (a: number) => [number, number, number];
+    readonly vmlsremoval_personIdentity: (a: number) => [number, number, number];
+    readonly vmlsremoval_sessionId: (a: number) => [number, number, number];
+    readonly vmlsremoval_setCredential: (a: number, b: any) => [number, number];
+    readonly vmlsremoval_setGrant: (a: number, b: any, c: any) => [number, number];
+    readonly vmlsremoval_setMls: (a: number, b: any) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
