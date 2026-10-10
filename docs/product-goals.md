@@ -296,9 +296,17 @@ control tools. Project membership, authority and context remain explicit.
 
 The PWA [shared project directory](shared-projects.md) supplies signed project
 identities, deliberate membership joins and encrypted device synchronisation.
-Its Oathrun authority mapping, native Android directory and physical-phone
-journey remain acceptance work; directory membership grants no task or context
-authority by itself.
+Oathrun authority mapping and a native Android directory are implemented;
+their integrated physical-phone journey remains acceptance work. Directory
+membership grants no task or context authority by itself.
+
+The [10 October browser journey](evidence/workspace-project-membership-2026-10-10.json)
+checks three projects with overlapping and disjoint human/agent directory
+membership, deliberate joins, recovery on a fresh phone-sized profile, and
+separate unsent drafts retained while switching projects. Both ordinary and
+desktop browser builds passed against an offline relay. This covers navigation
+and directory recovery; it does not establish physical-phone, live executor,
+cross-project Inbox/Work or representative performance acceptance.
 
 ### Proposed navigation
 
@@ -381,8 +389,8 @@ remote work interface.
   consequences when judgement, new authority or an unresolved trade-off is
   required. Do not merely suppress requests while execution remains blocked.
 - Establish reusable, bounded execution and communication permissions explicitly.
-  Oathrun currently reviews each outgoing room draft; routine progress and
-  results need a reviewed delivery policy before they can flow automatically.
+  The isolated Oathrun assignment route has a reviewed delivery policy for
+  routine progress and results; supported live-host acceptance remains open.
   Preserve separate approval where an action exceeds the standing authority.
 - Continue from an authorised task checkpoint after an interruption. Avoid
   repeated context gathering and duplicate execution. A permission renewal,
@@ -404,9 +412,10 @@ remote work interface.
 Already implemented: shared assignment creation, progress, questions, exact
 result review, cancellation/handoff and Den links; hosted-agent discovery;
 Oathrun project policies, context verification and prompt-efficiency controls.
-Remaining work includes the assignment-to-Oathrun execution bridge, unified
-project/attention surfaces, native Android work controls, durable session
-integration and graph retrieval. This is not a new task-engine proposal.
+Remaining work includes integrated live acceptance of the assignment-to-Oathrun
+execution bridge and native Android work controls, unified project/attention
+surfaces, durable session integration and graph retrieval. This is not a new
+task-engine proposal.
 
 ## G10 — Battery optimisation backed by physical measurements
 
