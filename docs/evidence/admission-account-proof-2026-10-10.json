@@ -11,8 +11,8 @@
   },
   "consumer": {
     "typecheckPassed": true,
-    "unitTestsPassed": 3714,
-    "browserJourneysPassed": 20,
+    "unitTestsPassed": 3724,
+    "browserJourneysPassed": 62,
     "browsers": [
       "Chromium",
       "Firefox",
@@ -39,7 +39,15 @@
     "productionBuildPassed": true,
     "restoresMatchingSignerBeforeAdmission": true,
     "syntheticSignOutControl": "The invitation door hides Settings; the test invokes its existing handler, then uses the visible sign-out action.",
-    "originalBootFailsRestoredSignerJourney": true
+    "originalBootFailsRestoredSignerJourney": true,
+    "accountProofAndCancellationJourneysPassed": 20,
+    "combinedBrowserSuites": [
+      "admission-account-claim",
+      "knock",
+      "private-room",
+      "room-list-sections"
+    ],
+    "combinedMain": "e1ecab85f89d7a61ada917e4530e7333ac116d23"
   },
   "remaining": [
     "Native Android invitation-account-proof parity.",
