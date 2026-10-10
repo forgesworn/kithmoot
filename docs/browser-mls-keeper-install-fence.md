@@ -4,6 +4,13 @@ Development only. Production MLS remains disabled. Lapsed requests still stay
 approved and keep Send/Add held; this change does not relax the witnessed
 completion gate or permit persisted `done/no-live` records.
 
+This describes the original guard-only foundation. Subsequent
+[admission/approval](browser-mls-keeper-admission.md),
+[completion](browser-mls-keeper-completion-gate.md) and
+[withdrawal](browser-mls-keeper-withdrawal-gate.md) composition now use this gate;
+their documents state the remaining old-client, direct-writer and terminal
+enablement limits.
+
 Every `BrowserMlsGrantLedger.install()` holds a shared Web Lock for the affected
 device, then its existing exclusive node/device lock. The shared device lock
 spans ledger reads, signing, encrypted persistence, publication and its actual

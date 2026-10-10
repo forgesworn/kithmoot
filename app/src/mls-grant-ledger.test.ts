@@ -5,6 +5,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import type { ParticipantIdentity } from '../../src/identity.js'
 import { BrowserMlsGrantLedger, mlsBoxNode, mlsGrantReference, mlsGrantScope, planMlsGrant, removalGrantRefs, type MlsGrantRecord, type MlsGrantInstallationGate } from './mls-grant-ledger.js'
 import { mlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
+import { BrowserMlsKeeperAdmission } from './mls-keeper-admission.js'
 
 const node = new Uint8Array(32).fill(31)
 const box = { routeId: 'bothy-one', eventUrl: `ws://${base32nopad.encode(node).toLowerCase()}/events` }
@@ -13,6 +14,13 @@ const room = { session: '66'.repeat(32), name: 'Planning room', leaf }
 function signer(): ParticipantIdentity {
   const key = generateSecretKey()
   return { pubkey: getPublicKey(key), signEvent: async template => finalizeEvent(template, key) }
+}
+function admissionFor(identity: ParticipantIdentity) {
+  return new BrowserMlsKeeperAdmission({ transact: async (_persona: string, work: any, current: () => boolean) => {
+    if (!current()) return { state: 'pending', reason: 'stale', refused: false }
+    const value = await work({ readVault: async () => undefined })
+    return { state: 'active', value, marks: new Map() }
+  } } as any, () => ({ vault: { principal: 'https://keeper.test', persona: identity.pubkey, generation: 0, revision: 'fixture' }, current: () => true, foreground: () => true }))
 }
 function fixture() {
   const identity = signer(), records: MlsGrantRecord[] = [], snapshots: MlsGrantRecord[] = [], published: string[] = []
@@ -23,11 +31,70 @@ function fixture() {
   const link = { resume: vi.fn(async () => [box]), boxes: () => [box], pairedBoxes: vi.fn(async (_keeper: string) => [box]), openSocket: vi.fn() }
   const ledger = new BrowserMlsGrantLedger(() => identity, link as any, store, record => ({
     publish: async event => { published.push(event.id); if (fail) throw new Error('lost OK') }, close: () => undefined,
-  }), () => now, async (_key, work) => work(), async (_device, _mode, work) => work())
+  }), () => now, async (_key, work) => work(), async (_device, _mode, work) => work(), admissionFor(identity))
   return { identity, records, snapshots, published, ledger, link, store, fail: (value: boolean) => { fail = value }, clock: (value: number) => { now = value } }
 }
 
 describe('browser VMLS grant ledger', () => {
+  it('refuses noncanonical device-lock bindings and truthy compromised values before taking any lock or reading authority', async () => {
+    const f = fixture(), gate = vi.fn(async (_device, _mode, work) => work()), all = vi.fn(f.store.all), put = vi.fn(f.store.put)
+    const ledger = new BrowserMlsGrantLedger(() => f.identity, f.link as any, { all, put }, undefined, undefined, undefined, gate as MlsGrantInstallationGate)
+    const valid: any[] = [bytesToHex(node), device, '55'.repeat(32), room.session, [leaf], true]
+    for (const [index, value] of [[0, 'AA'.repeat(32)], [1, { toString: () => device }], [2, undefined], [3, 'wrong-room'], [4, { length: 1, some: () => false }], [5, 'false']] as const) {
+      const args = [...valid]; args[index] = value
+      await expect(ledger.withdraw(...args as [string, string, string, string, readonly string[], boolean])).rejects.toThrow('Invalid VMLS grant withdrawal')
+    }
+    const grant = await planMlsGrant(f.identity, box, persona, device, room, 1_000)
+    await expect(ledger.withdrawRequestedDevice({ ...mlsKeeperGrantAuthority(grant), node: 'AA'.repeat(32) }, persona, device, () => true)).rejects.toThrow('current keeper account')
+    expect(gate).not.toHaveBeenCalled(); expect(all).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(f.link.resume).not.toHaveBeenCalled()
+  })
+  it('keeps both withdrawal paths shared through persistence, uncertain publication and actual cleanup', async () => {
+    for (const kind of ['room', 'requested'] as const) for (const refused of [false, true]) {
+      const f = fixture(), installed = await f.ledger.install(box, persona, device, room), phases: string[] = []
+      let held = false
+      const check = (phase: string) => { expect(held).toBe(true); phases.push(phase) }
+      const store = { all: async () => { check('read'); return f.store.all() }, put: async (record: MlsGrantRecord) => {
+        check(record.state); await f.store.put(record); check(`saved-${record.state}`)
+      } }
+      const gate: MlsGrantInstallationGate = async (key, mode, work) => {
+        expect(key).toBe(device); expect(mode).toBe('shared'); held = true
+        try { return await work() } finally { held = false }
+      }
+      const ledger = new BrowserMlsGrantLedger(() => f.identity, { ...f.link, resume: async () => { check('resume') } } as any, store,
+        () => ({ publish: async () => { check('publish'); await Promise.resolve(); check('published'); if (refused) throw new Error('uncertain') }, close: () => check('close') }),
+        () => 1_000, async (_key, work) => { check('node-lock'); return work() }, gate)
+      const pending = kind === 'room' ? ledger.withdraw(installed.node, device, mlsGrantReference(installed.node, installed.grantId), room.session, [leaf], true) :
+        ledger.withdrawRequestedDevice(mlsKeeperGrantAuthority(installed), persona, device, () => true)
+      if (refused) await expect(pending).rejects.toThrow('uncertain')
+      else expect(await pending).toMatchObject({ result: 'revoked', record: { state: 'revoked' } })
+      expect(held).toBe(false); expect(f.records[0]!.state).toBe(refused ? 'revoking' : 'revoked')
+      expect(phases).toEqual(expect.arrayContaining(['node-lock', 'read', 'revoking', 'saved-revoking', 'resume', 'publish', 'published', 'close']))
+      if (!refused) expect(phases.slice(-2)).toEqual(['revoked', 'saved-revoked'])
+    }
+  })
+  it('rechecks the captured keeper after a queued shared withdrawal and before any ledger read', async () => {
+    for (const kind of ['room', 'requested'] as const) {
+      const f = fixture(), installed = await f.ledger.install(box, persona, device, room)
+      const before = structuredClone(f.records[0])
+      let identity = f.identity, release!: () => void
+      const wait = new Promise<void>(resolve => { release = resolve }), all = vi.fn(f.store.all), publish = vi.fn(async () => undefined)
+      const ledger = new BrowserMlsGrantLedger(() => identity, f.link as any, { ...f.store, all }, () => ({ publish, close: () => undefined }),
+        () => 1_000, async (_key, work) => work(), async (_device, mode, work) => { expect(mode).toBe('shared'); await wait; return work() })
+      const pending = kind === 'room' ? ledger.withdraw(installed.node, device, mlsGrantReference(installed.node, installed.grantId), room.session, [leaf], true) :
+        ledger.withdrawRequestedDevice(mlsKeeperGrantAuthority(installed), persona, device, () => true)
+      identity = signer(); release()
+      await expect(pending).rejects.toThrow('keeper'); expect(all).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled()
+      expect(f.records[0]).toEqual(before)
+    }
+  })
+  it('never reports a foreign account revoked grant as this keeper withdrawal', async () => {
+    const f = fixture(), installed = await f.ledger.install(box, persona, device, room)
+    f.records[0]!.state = 'revoked'
+    const identity = signer(), foreign = new BrowserMlsGrantLedger(() => identity, f.link as any, f.store, undefined, undefined,
+      async (_key, work) => work(), async (_device, _mode, work) => work())
+    await expect(foreign.withdraw(installed.node, device, mlsGrantReference(installed.node, installed.grantId), room.session, [leaf], true)).rejects.toThrow('did not issue')
+    expect(f.published).toEqual([installed.active.id])
+  })
   it('refuses mismatched stores, malformed devices and stale foreground before acquiring an install hold', async () => {
     const f = fixture(), work = vi.fn(async () => 'unsafe'), gate = vi.fn(async (_device, _mode, action) => action())
     const ledger = new BrowserMlsGrantLedger(() => f.identity, f.link as any, f.store, undefined, undefined, undefined, gate as MlsGrantInstallationGate)
@@ -80,7 +147,7 @@ describe('browser VMLS grant ledger', () => {
       const ledger = new BrowserMlsGrantLedger(() => identity, f.link as any, store, () => ({
         publish: async () => { check('publish'); await Promise.resolve(); check('published'); if (refused) throw new Error('uncertain') },
         close: () => check('close'),
-      }), () => 1_000, async (_key, action) => action(), gate)
+      }), () => 1_000, async (_key, action) => action(), gate, admissionFor(identity))
       if (refused) await expect(ledger.install(box, persona, device, room)).rejects.toThrow('uncertain')
       else expect((await ledger.install(box, persona, device, room)).state).toBe('active')
       expect(held).toBe(false); expect(phases).toEqual(expect.arrayContaining(['read', 'sign', 'signed', 'installing', 'saved-installing', 'publish', 'published', 'close']))
@@ -151,8 +218,10 @@ describe('browser VMLS grant ledger', () => {
   })
   it('leaves an account-invalidated withdrawal retryable instead of reporting revocation', async () => {
     const f = fixture(), installed = await f.ledger.install(box, persona, device, room), authority = mlsKeeperGrantAuthority(installed)
-    let checks = 0
-    await expect(f.ledger.withdrawRequestedDevice(authority, persona, device, () => ++checks < 4)).rejects.toThrow('session changed')
+    let live = true
+    const put = f.store.put
+    f.store.put = async record => { await put(record); if (record.state === 'revoking') live = false }
+    await expect(f.ledger.withdrawRequestedDevice(authority, persona, device, () => live)).rejects.toThrow('session changed')
     expect(f.records[0]!.state).toBe('revoking')
     expect(f.published).toEqual([installed.active.id])
   })

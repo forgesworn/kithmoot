@@ -6,7 +6,7 @@ import { BrowserMlsKeeperDecisions } from './mls-keeper-decisions.js'
 import { BrowserMlsKeeperRequestController } from './mls-keeper-request-controller.js'
 import { BrowserMlsRevocationInbox } from './mls-revocation-inbox.js'
 import { mlsStandaloneRevocationOperation, readMlsMembership, saveMlsMembership } from './mls-membership-store.js'
-import { BrowserMlsGrantLedger, planMlsGrant, type MlsGrantRecord } from './mls-grant-ledger.js'
+import { BrowserMlsGrantLedger, planMlsGrant, type MlsGrantRecord, type MlsGrantInstallationGate } from './mls-grant-ledger.js'
 import { InvalidPersonaRecord, type PersonaTransaction } from './mls-persona-coordinator.js'
 import { BrowserMlsKeeperBoxClock } from './mls-keeper-box-clock.js'
 
@@ -22,15 +22,15 @@ class MemoryTransaction implements PersonaTransaction {
   async putSession() {}
   async dropSession() {}
 }
-async function fixture() {
+async function fixture(gate: MlsGrantInstallationGate = async (_device, _mode, work) => work()) {
   const tx = new MemoryTransaction(), records: MlsGrantRecord[] = []
-  let now = 1_000, generation = 1, foreground = true, unavailable = false, readHook: (() => void) | undefined, commitHook: (() => void) | undefined
+  let now = 1_000, generation = 1, foreground = true, unavailable = false, readHook: (() => void) | undefined, commitHook: (() => Promise<void> | void) | undefined
   const context = () => ({ vault: { principal: 'https://keeper.test', persona: keeper.pubkey, generation, revision: 'current' }, current: () => true, foreground: () => foreground })
   const host = { transact: async (_persona: string, work: (tx: PersonaTransaction) => Promise<unknown>, current: () => boolean) => {
     if (unavailable || !current()) return { state: 'pending', reason: 'witness-unavailable', refused: false }
     const candidate = new MemoryTransaction(new Map([...tx.vault].map(([k, v]) => [k, v.slice()])))
     const value = await work(candidate)
-    commitHook?.()
+    await commitHook?.()
     if (!current()) return { state: 'pending', reason: 'stale', refused: false }
     tx.vault.clear(); for (const [key, value] of candidate.vault) tx.vault.set(key, value)
     return { state: 'active', value, marks: new Map() }
@@ -41,21 +41,79 @@ async function fixture() {
   const operation = mlsStandaloneRevocationOperation(member.pubkey, keeper.pubkey, device)
   await saveMlsMembership(tx, { version: 1, removals: [], requests: [], inbox: { keeper: keeper.pubkey, checkedAt: now, seen: [], prompts: [{ operation, receivedAt: now, state: 'pending',
     request: { sender: member.pubkey, keeper: keeper.pubkey, device, sessions: [session], boxes: ['aa'.repeat(32)], createdAt: now, expiration: now + 7 * 86400 } }] } })
-  const grants = { all: async () => { readHook?.(); return structuredClone(records) } }
+  const grants = { all: async () => { readHook?.(); return structuredClone(records) }, put: async (record: MlsGrantRecord) => {
+    records.splice(0, records.length, ...records.filter(item => item.node !== record.node || item.device !== record.device), structuredClone(record))
+  } }
+  const installations = new BrowserMlsGrantLedger(() => keeper, {} as any, grants, undefined, () => now,
+    async (_key, work) => work(), gate)
   let boxTime: number | undefined
   const client = { isCurrent: () => true, usesBinding: (_route: string, _node: string, binding: unknown) => JSON.stringify(binding) === JSON.stringify(context().vault),
     capabilities: vi.fn(async () => ({ state: 'ok', value: { installation: '79'.repeat(32) } })),
     fetch: vi.fn(async () => ({ state: 'ok', serverTime: boxTime ?? now, value: { records: [] } })) }
   const boxClock = new BrowserMlsKeeperBoxClock(client as any, context, () => now)
-  const decisions = new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, undefined, node => node === grant.node ? boxClock : undefined)
+  const decisions = new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, undefined, node => node === grant.node ? boxClock : undefined, installations)
   const inbox = new BrowserMlsRevocationInbox(host as any, grants, context, () => now)
   return { tx, records, operation, decisions, inbox, context, host, grants, boxClock, client, boxTime: (at: number) => { boxTime = at },
-    restart: (routes?: ConstructorParameters<typeof BrowserMlsKeeperDecisions>[4]) => new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, routes, node => node === grant.node ? boxClock : undefined),
+    restart: (routes?: ConstructorParameters<typeof BrowserMlsKeeperDecisions>[4]) => new BrowserMlsKeeperDecisions(host as any, grants, context, () => now, routes, node => node === grant.node ? boxClock : undefined, installations),
     clock: (v: number) => { now = v }, changeAccount: () => { generation++ }, hide: () => { foreground = false },
-    hold: () => { unavailable = true }, onRead: (fn: () => void) => { readHook = fn }, beforeCommit: (fn: () => void) => { commitHook = fn } }
+    hold: () => { unavailable = true }, onRead: (fn: () => void) => { readHook = fn }, beforeCommit: (fn: () => Promise<void> | void) => { commitHook = fn } }
 }
 
 describe('witnessed keeper operator decisions', () => {
+  it('requires a concrete exact-store installation owner for every completion', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    await f.decisions.decide(plan.value, true); f.records[0]!.state = 'revoked'
+    const missing = new BrowserMlsKeeperDecisions(f.host as any, f.grants, f.context, () => 1_000)
+    await expect(missing.complete(f.operation)).rejects.toThrow('completion requires')
+    const other = new BrowserMlsGrantLedger(() => keeper, {} as any, { all: f.grants.all, put: f.grants.put })
+    const mismatched = new BrowserMlsKeeperDecisions(f.host as any, f.grants, f.context, () => 1_000, undefined, undefined, other)
+    await expect(mismatched.complete(f.operation)).rejects.toThrow('different ledger')
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('approved')
+  })
+  it('rechecks retained approval after waiting outside the preliminary persona transaction', async () => {
+    let block = false, release!: () => void, started!: () => void
+    const wait = new Promise<void>(resolve => { release = resolve }), began = new Promise<void>(resolve => { started = resolve })
+    const f = await fixture(async (_device, mode, work) => { expect(mode).toBe('exclusive'); if (block) { started(); await wait } return work() })
+    const plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    await f.decisions.decide(plan.value, true); f.records[0]!.state = 'revoked'; block = true
+    const completion = f.decisions.complete(f.operation)
+    await began
+    expect(await f.decisions.defer({ binding: f.context().vault, prompt: (await readMlsMembership(f.tx)).inbox!.prompts[0]! })).toMatchObject({ state: 'active' })
+    release()
+    await expect(completion).rejects.toThrow('request changed while waiting')
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('approved')
+  })
+  it('retains exclusive completion ownership through actual witness settlement', async () => {
+    let held = false, release!: () => void, started!: () => void, commits = 0
+    const wait = new Promise<void>(resolve => { release = resolve }), began = new Promise<void>(resolve => { started = resolve })
+    const f = await fixture(async (_device, mode, work) => {
+      expect(mode).toBe('exclusive'); held = true
+      try { return await work() } finally { held = false }
+    })
+    const plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    await f.decisions.decide(plan.value, true); f.records[0]!.state = 'revoked'
+    f.beforeCommit(async () => { if (++commits === 2) { expect(held).toBe(true); started(); await wait } else expect(held).toBe(false) })
+    const completion = f.decisions.complete(f.operation)
+    await began
+    expect(held).toBe(true); expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('approved')
+    release()
+    expect(await completion).toMatchObject({ state: 'active', value: { state: 'done' } }); expect(held).toBe(false)
+  })
+  it('requires the exact concrete installation owner for approval but permits dismissal without one', async () => {
+    const f = await fixture(), plan = await f.decisions.plan(f.operation)
+    if (plan.state !== 'active') throw new Error('missing plan')
+    const missing = new BrowserMlsKeeperDecisions(f.host as any, f.grants, f.context, () => 1_000)
+    await expect(missing.decide(plan.value, true)).rejects.toThrow('grant-install hold')
+    const otherStore = { all: f.grants.all, put: f.grants.put }
+    const other = new BrowserMlsGrantLedger(() => keeper, {} as any, otherStore)
+    const mismatched = new BrowserMlsKeeperDecisions(f.host as any, f.grants, f.context, () => 1_000, undefined, undefined, other)
+    await expect(mismatched.decide(plan.value, true)).rejects.toThrow('different ledger')
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('pending')
+    expect(await missing.decide(plan.value, false)).toMatchObject({ state: 'active', value: { state: 'dismissed' } })
+  })
   it('requires both clocks at the signed expiration boundary and records lapse without a revoked claim', async () => {
     for (const [phoneOffset, boxOffset] of [[-1, 0], [0, -1], [0, 0]]) {
       const f = await fixture(), plan = await f.decisions.plan(f.operation)
@@ -389,7 +447,7 @@ describe('witnessed keeper operator decisions', () => {
       const f = await fixture(), plan = await f.decisions.plan(f.operation)
       if (plan.state !== 'active') throw new Error('missing plan')
       f.onRead(() => action === 'account' ? f.changeAccount() : f.hide())
-      expect(await f.decisions.decide(plan.value, true)).toMatchObject({ state: 'pending', reason: 'stale' })
+      await expect(f.decisions.decide(plan.value, true)).rejects.toThrow('keeper account or foreground session changed')
       expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('pending')
     }
   })
@@ -412,7 +470,7 @@ describe('keeper acceptance with the genuine signed grant ledger', () => {
     } }
     const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [f.records[0]!.box] } as any, store,
       () => ({ publish: async event => { events.push(event.id); await publishHook?.(); if (refused) throw new Error('box refused') }, close: () => undefined }), () => 1_000,
-      async (_key, work) => work())
+      async (_key, work) => work(), async (_device, _mode, work) => work())
     const operations = new Proxy({}, { get: () => () => { throw new Error('A ledger-only request must not invoke room operations.') } }) as any
     const controller = () => new BrowserMlsKeeperRequestController(f.restart(), operations, ledger, f.context)
     const plan = await f.decisions.plan(f.operation)
