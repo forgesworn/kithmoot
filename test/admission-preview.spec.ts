@@ -41,6 +41,7 @@ test('a phone guest reviews details before one deliberate request, and retry nee
     await f.guest.goto(f.link)
     await expect(f.guest.locator('#requestAdmission')).toBeVisible()
     await expect(f.guest.locator('#identityMore')).toBeHidden()
+    await expect(f.guest.locator('#notify')).toBeHidden()
     await f.guest.locator('#displayName').fill('Synthetic visitor')
     await f.guest.evaluate(() => { document.documentElement.style.fontSize = '20px' })
     await f.guest.locator('#requestAdmission').scrollIntoViewIfNeeded()

@@ -2813,6 +2813,7 @@ label.note {
 .admissionPreview { margin: 1rem 0; padding: .75rem; min-width: 0; }
 .admissionPreview[hidden], .admissionPreview [hidden] { display: none; }
 .admissionPreviewButtons { display: flex; flex-wrap: wrap; gap: .5rem; }
+main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .admissionPreviewButtons button { min-height: 44px; }
 .admissionPreview video { width: 100%; max-height: 180px; object-fit: contain; margin: .75rem 0; background: #111; }
 .admissionPreview meter { display: block; width: 100%; height: 24px; margin: .75rem 0; }
