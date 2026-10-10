@@ -1941,7 +1941,7 @@ function askToLetIn(request: InvitationRequest, kind: Knock['kind'] = 'invitatio
   return new Promise((resolve) => {
     const knock: Knock = { ...request, at: nowSeconds(), roomId, kind, state: 'waiting', resolve }
     knocks.set(knock.request, knock)
-    setStatus(`${knockLabel(knock)} wants to join. Let them in from the card above the conversation.`)
+    setStatus(`${knockLabel(knock)} wants to join. Let them in from the card above the conversation.`, 'progress')
     renderApprovals()
     knock.timer = setTimeout(() => {
       if (knocks.get(knock.request) !== knock) return
@@ -1978,6 +1978,7 @@ function answerKnock(knock: Knock, yes: boolean): void {
       ? `You approved ${knockLabel(knock)}’s request. Sending their invitation…`
       : `You approved ${knockLabel(knock)}’s access from this device.`
     : `You declined ${knockLabel(knock)}.`)
+  if (yes && knock.kind === 'invitation') setStatus(`Sending the invitation to ${knockLabel(knock)}…`, 'progress')
   renderApprovals()
 }
 

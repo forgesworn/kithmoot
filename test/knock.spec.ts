@@ -50,6 +50,7 @@ test('grant feedback waits for publication, then the guest can join', async ({ b
     await expect.poll(() => releases.length).toBe(1)
     await expect(host.locator('#chatLog')).not.toContainText('You let Rowan in.')
     await expect(card).toContainText('Sending invitation')
+    await expect(host.locator('#status')).toContainText('Sending the invitation to Rowan')
     await expect(card.getByRole('button', { name: 'Let in', exact: true })).toBeDisabled()
     await expect(guest.locator('#join')).toBeHidden()
     await expect(guest.locator('#roomArea')).toBeHidden()
