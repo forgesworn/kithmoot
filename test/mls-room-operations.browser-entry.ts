@@ -275,6 +275,47 @@ export async function decideKeeperRequest(approve = true) {
   return keeperDecisions().decide(plan.value, approve)
 }
 export async function decideReviewedKeeperRequest(plan: MlsKeeperDecisionPlan) { return keeperDecisions().decide(plan, true) }
+/** Short signed lifetime keeps the real room live while its grant lapses. */
+export async function shortenKeeperGrant(seconds = 60, revoking = false) {
+  const grant = (await inboxGrants.all())[0]!, keeper = localIdentity(secret)
+  grant.expiration = clock + seconds
+  for (const key of ['active', 'revocation'] as const) {
+    const event = grant[key]
+    grant[key] = await keeper.signEvent({ kind: event.kind, created_at: event.created_at, content: event.content,
+      tags: event.tags.map(tag => tag[0] === 'expiration' ? ['expiration', String(grant.expiration)] : tag) })
+  }
+  if (revoking) grant.state = 'revoking'
+  await inboxGrants.put(grant)
+}
+export async function lapseKeeperRequest(route: PersonaWitnessRoute, mode = 'ok') {
+  const grant = (await inboxGrants.all())[0]!, calls: string[] = []
+  const retained = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => !!prompt.approval)!.operation, () => true)
+  if (retained.state !== 'active') return { result: retained, calls }
+  const context = () => ({ vault: ctx(), current: () => true, foreground: () => true })
+  const transport = { request: async (req: LinkRequest) => {
+    const event = JSON.parse(atob(req.authorization.slice(6)))
+    if (!verifyEvent(event) || event.pubkey !== deviceId || event.kind !== 27235 || JSON.stringify(event.tags) !== JSON.stringify([
+      ['u', `http://${base32.encode(hexToBytes(grant.node)).replace(/=+$/, '').toLowerCase()}${req.path}`],
+      ['method', req.method], ['payload', bytesToHex(sha256(req.body))],
+    ])) throw new Error('Invalid fixture clock authentication')
+    calls.push(req.path)
+    const refused = mode === 'refused' && req.path.endsWith('/fetch')
+    const body = req.path.endsWith('/capabilities') ? { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation } :
+      { v: 1, code: refused ? 'clock-unsafe' : 'ok', server_time: clock + (mode === 'behind' ? -1 : 0), ...(refused ? {} : { records: [], next: null }) }
+    return { status: refused ? 503 : 200, body: new TextEncoder().encode(JSON.stringify(body)), witnessRefused: false,
+      path: { status: 'up' as const, relay: null, direct: null, cause: '' } }
+  } }
+  const client = new BrowserMlsBoxClient(transport, { routeId: grant.box.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret),
+    cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, grant.node, vault, ctx(), async () => 'approve', () => true)
+  const probe = new BrowserMlsKeeperBoxClock(client, context, () => clock)
+  const decisions = new BrowserMlsKeeperDecisions(host, inboxGrants, context, () => clock, undefined, node => node === grant.node ? probe : undefined)
+  try {
+    const evidence = await probe.probe(grant)
+    if (!evidence) return { result: { state: 'held' }, calls }
+    return { result: await decisions.lapse(retained.value, grant, evidence), calls }
+  } catch (error) { return { error: (error as Error).message, calls } }
+  finally { probe.invalidate(); client.invalidate() }
+}
 let keeperWithdrawalFails = false, keeperProgress: MlsKeeperRequestProgress | undefined
 let keeperRouteForgotten = false
 const secondKeeperBox = { routeId: 'keeper-second-fixture', eventUrl: `ws://${base32.encode(new Uint8Array(32).fill(77)).replace(/=+$/, '').toLowerCase()}/events` }
