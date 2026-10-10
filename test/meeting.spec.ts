@@ -137,12 +137,26 @@ test('meeting mode locks an attendee, and holds when the attendee\'s app ignores
   }
 })
 
-test('a recording is announced to everybody, before joining as well as during, and stays on the recorder\'s device', async ({ browser, baseURL }) => {
+test('a recording is announced to everybody, before joining as well as during, and stays on the recorder\'s device', async ({ browser, baseURL }, info) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
   const aContext = await newDeviceContext(browser, baseURL!)
   const bContext = await newDeviceContext(browser, baseURL!)
   const cContext = await newDeviceContext(browser, baseURL!)
   try {
+    // Measure the browser recorder's actual capture intervals. The displayed
+    // clock rounds down and refreshes once a second; reading it before a
+    // delayed Stop click is not the duration of the exported file.
+    await aContext.addInitScript(() => {
+      const calls: Array<{ method: string; at: number }> = []
+      Object.assign(window, { testRecordingCalls: calls })
+      for (const method of ['start', 'pause', 'resume', 'stop'] as const) {
+        const original = MediaRecorder.prototype[method]
+        MediaRecorder.prototype[method] = function (...args: unknown[]) {
+          Reflect.apply(original, this, args)
+          calls.push({ method, at: performance.now() })
+        }
+      }
+    })
     const a = await aContext.newPage()
     const b = await bContext.newPage()
     const c = await cContext.newPage()
@@ -198,7 +212,6 @@ test('a recording is announced to everybody, before joining as well as during, a
     await a.locator('#recordingPause').click()
     await expect(a.locator('#recordingPause')).toHaveText('Pause recording')
     await expect.poll(elapsedSeconds).toBeGreaterThanOrEqual(heldTime + 2)
-    const recordedSeconds = await elapsedSeconds()
 
     // Stopped: the notice comes down everywhere, and the file waits on
     // Ada's device for her to decide.
@@ -216,8 +229,16 @@ test('a recording is announced to everybody, before joining as well as during, a
       try { return (await context.decodeAudioData(bytes)).duration }
       finally { await context.close() }
     })
+    const calls = await a.evaluate(() => (window as unknown as {
+      testRecordingCalls: Array<{ method: string; at: number }>
+    }).testRecordingCalls)
+    expect(calls.map(call => call.method)).toEqual(['start', 'pause', 'resume', 'stop'])
+    const recordedSeconds = ((calls[1]!.at - calls[0]!.at) + (calls[3]!.at - calls[2]!.at)) / 1000
+    await info.attach('recording-timeline', { contentType: 'application/json', body: JSON.stringify({
+      recordedSeconds, decodedSeconds: duration, pausedSeconds: (calls[2]!.at - calls[1]!.at) / 1000,
+    }) })
     expect(duration).toBeGreaterThan(recordedSeconds - 1)
-    expect(duration).toBeLessThan(recordedSeconds + 2)
+    expect(duration).toBeLessThan(recordedSeconds + 1)
   } finally {
     await aContext.close()
     await bContext.close()
