@@ -8,6 +8,7 @@ import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { createRoomInvitation } from '../src/invitation.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
+import { KINDS } from '../src/kinds.js'
 
 async function setup(browser: Browser, base: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
@@ -106,6 +107,48 @@ test('local groups organise rooms, filter by name, survive reload and remain rea
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await expect(page.locator('#roomList')).toContainText('Release planning')
   } finally { await context.close() }
+})
+
+for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'phone', width: 390, height: 844 }])
+test(`delayed agent presence reclassifies an unread badge without another message on ${viewport.name}`, async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  await page.setViewportSize(viewport)
+  let holdPresence = false
+  const held: (() => void)[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    upstream.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (holdPresence && frame[0] === 'EVENT' && frame[2]?.kind === KINDS.ROSTER) held.push(() => ws.send(raw))
+      else ws.send(raw)
+    })
+  })
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Delayed presence', relays: [TEST_RELAY_WS] })
+  let agent: RoomAgent | undefined
+  try {
+    await join(page, withRelays(keeper.url, [relay]))
+    await expect(page.locator('#agentActivityTitle')).toHaveText('1 agent in this room')
+    await keeper.setChannel('design-review', true)
+    const review = page.locator('#conversationNav button[data-channel=design-review]')
+    await expect(review).toBeVisible()
+    await page.locator('#chatInput').fill('Keep this unsent draft')
+    await review.focus()
+    // Keep an existing agent/tab present while the new sender's signed
+    // presence is delayed. Receiving that role cannot change the tab list.
+    holdPresence = true
+    agent = await RoomAgent.join({ link: keeper.url, name: 'Reviewer' })
+    await agent.session.channel('design-review').send('The navigation review is ready.')
+    await expect(review.locator('.conversationUnread')).toHaveText('1')
+    await expect.poll(() => held.length).toBeGreaterThan(0)
+    holdPresence = false
+    for (const deliver of held.splice(0)) deliver()
+    await expect(page.locator('#agentActivityTitle')).toHaveText('2 agents in this room')
+    await expect(review.locator('.conversationUnread')).toHaveCount(0)
+    await expect(review).toBeFocused()
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this unsent draft')
+    await agent.session.channel('design-review').send('@Ada, please review this decision.')
+    await expect(review.locator('.conversationUnread.agent')).toHaveText('1')
+  } finally { await context.close(); await agent?.leave(); await keeper.leave() }
 })
 
 test('agent exchanges arrive in visible navigation and can be watched or joined without opening settings', async ({ browser, baseURL }, testInfo) => {
