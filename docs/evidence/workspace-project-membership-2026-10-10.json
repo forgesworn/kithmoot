@@ -1,0 +1,97 @@
+{
+  "verifiedAt": "2026-10-10T00:31:07.517908+00:00",
+  "applicationSourceCommit": "96214ecf992fac553546af83f765db5cac23851a",
+  "fixtureSha256": "17c0f2eafbd6086c2f05190280d251c2d4a43f058533880567dbf076755c181a",
+  "sourceFiles": {
+    "src/project-directory.ts": "678ff8cdf800d8ade418988a0701d45bd9ee6263d91c2c70a2e6193897e30952",
+    "app/src/shared-projects.ts": "681f31a2ad9096dd28226ce1f0dc70ad6f3737cc22eb45dc3e3d16f3d0e4fd1a",
+    "app/src/main.ts": "6720b69d9252291dfc7deaa61a07464a140511d8cd862b8b6aa8dfbc68fb5756"
+  },
+  "host": {
+    "platform": "Darwin",
+    "architecture": "arm64"
+  },
+  "command": "E2E_PORT=4882 npx playwright test test/projects-flow.spec.ts --project=chromium --project=chromium-desktop --grep \"three projects deliver\"",
+  "result": "2 passed",
+  "journeys": [
+    {
+      "syntheticInputs": true,
+      "browserProject": "chromium",
+      "recoveredViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "intendedMembershipsOnly": true,
+      "explicitJoins": true,
+      "encryptedDirectoryRecovery": true,
+      "draftsRetainedAcrossProjects": true,
+      "physicalPhoneAcceptance": false,
+      "liveExecutorAcceptance": false,
+      "switches": [
+        {
+          "project": "Release project",
+          "room": "Release conversation",
+          "milliseconds": 590
+        },
+        {
+          "project": "Private project",
+          "room": "Private conversation",
+          "milliseconds": 439
+        },
+        {
+          "project": "Release project",
+          "room": "Release conversation",
+          "milliseconds": 492
+        },
+        {
+          "project": "Private project",
+          "room": "Private conversation",
+          "milliseconds": 357
+        }
+      ]
+    },
+    {
+      "syntheticInputs": true,
+      "browserProject": "chromium-desktop",
+      "recoveredViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "intendedMembershipsOnly": true,
+      "explicitJoins": true,
+      "encryptedDirectoryRecovery": true,
+      "draftsRetainedAcrossProjects": true,
+      "physicalPhoneAcceptance": false,
+      "liveExecutorAcceptance": false,
+      "switches": [
+        {
+          "project": "Release project",
+          "room": "Release conversation",
+          "milliseconds": 501
+        },
+        {
+          "project": "Private project",
+          "room": "Private conversation",
+          "milliseconds": 203
+        },
+        {
+          "project": "Release project",
+          "room": "Release conversation",
+          "milliseconds": 198
+        },
+        {
+          "project": "Private project",
+          "room": "Private conversation",
+          "milliseconds": 392
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Synthetic Nostr signers and an offline loopback relay.",
+    "Phone viewport is automated browser coverage, not a physical device.",
+    "The agent role receives directory membership; no live executor or task control was exercised.",
+    "Switch timings are four small-fixture observations per build, not representative performance qualification.",
+    "Cross-project Inbox/Work summaries and a physical Android-to-Oathrun journey remain open."
+  ]
+}

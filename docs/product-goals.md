@@ -296,9 +296,17 @@ control tools. Project membership, authority and context remain explicit.
 
 The PWA [shared project directory](shared-projects.md) supplies signed project
 identities, deliberate membership joins and encrypted device synchronisation.
-Its Oathrun authority mapping, native Android directory and physical-phone
-journey remain acceptance work; directory membership grants no task or context
-authority by itself.
+Oathrun authority mapping and a native Android directory are implemented;
+their integrated physical-phone journey remains acceptance work. Directory
+membership grants no task or context authority by itself.
+
+The [10 October browser journey](evidence/workspace-project-membership-2026-10-10.json)
+checks three projects with overlapping and disjoint human/agent directory
+membership, deliberate joins, recovery on a fresh phone-sized profile, and
+separate unsent drafts retained while switching projects. Both ordinary and
+desktop browser builds passed against an offline relay. This covers navigation
+and directory recovery; it does not establish physical-phone, live executor,
+cross-project Inbox/Work or representative performance acceptance.
 
 ### Proposed navigation
 
