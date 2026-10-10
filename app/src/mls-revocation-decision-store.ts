@@ -4,7 +4,7 @@ import { InvalidPersonaRecord } from './mls-persona-coordinator.js'
 import { mlsBoxNode, mlsGrantReference, type MlsGrantRecord, type MlsGrantRoom } from './mls-grant-ledger.js'
 import type { MlsMemberStatus } from './mls-room-operations.js'
 import type { VmlsRevocationRequest } from '../../src/vmls-revocation-request.js'
-import { validateMlsPendingAdd, mlsPendingAddMatches, type MlsPendingAdd } from './mls-pending-add.js'
+import { validateMlsPendingAdd, mlsPendingAddMatches, validateMlsPriorAddRemoval, type MlsPendingAdd, type MlsPriorAddRemoval } from './mls-pending-add.js'
 
 export interface MlsKeeperGrantAuthority {
   node: string
@@ -25,6 +25,7 @@ export interface MlsKeeperRoomIntent {
   member: MlsMemberStatus
   action: 'remove' | 'ledger-only' | 'pending-add'
   pendingAdd?: Omit<MlsPendingAdd, 'readback' | 'carrier'>
+  priorRemoval?: MlsPriorAddRemoval
 }
 export interface MlsKeeperApproval {
   approvedAt: number
@@ -67,7 +68,7 @@ export function validateMlsKeeperApproval(value: MlsKeeperApproval, request: Vml
   }
   for (const room of value.rooms) {
     const m = room?.member
-    if (!room || typeof room !== 'object' || !exact(room, ['action', 'member', 'name', 'operation', ...(room.pendingAdd ? ['pendingAdd'] : []), 'rendezvousKey', 'session'].join(',')) || !hex(room.session) || !name(room.name) ||
+    if (!room || typeof room !== 'object' || !exact(room, ['action', 'member', 'name', 'operation', ...(room.pendingAdd ? ['pendingAdd'] : []), ...(room.priorRemoval ? ['priorRemoval'] : []), 'rendezvousKey', 'session'].join(',')) || !hex(room.session) || !name(room.name) ||
         !hex(room.rendezvousKey) || !hex(room.operation) || !['remove', 'ledger-only', 'pending-add'].includes(room.action) || !m ||
         !exact(m, 'bindingExpiresAt,device,homeBox,identity,leafId,own,pending') || !hex(m.leafId) || !hex(m.homeBox) ||
         m.device !== request.device || m.identity !== request.sender || m.own !== false || typeof m.pending !== 'boolean' || !time(m.bindingExpiresAt) ||
@@ -75,7 +76,11 @@ export function validateMlsKeeperApproval(value: MlsKeeperApproval, request: Vml
     operations.add(room.operation)
     if (room.pendingAdd) {
       validateMlsPendingAdd(room.pendingAdd)
-      if ('readback' in room.pendingAdd || 'carrier' in room.pendingAdd || !mlsPendingAddMatches(room.pendingAdd, m) || room.action === 'ledger-only') invalid()
+      if ('readback' in room.pendingAdd || 'carrier' in room.pendingAdd || !mlsPendingAddMatches(room.pendingAdd, m) || room.action === 'ledger-only' && !room.priorRemoval) invalid()
+    }
+    if (room.priorRemoval) {
+      validateMlsPriorAddRemoval(room.priorRemoval)
+      if (!room.pendingAdd || room.action !== 'ledger-only' || room.priorRemoval.operation === room.operation) invalid()
     }
     if (room.action === 'pending-add' && (!room.pendingAdd || !m.pending)) invalid()
   }

@@ -355,7 +355,12 @@ export function beginKeeperApproval(plan: MlsKeeperDecisionPlan) {
 }
 export async function finishKeeperApproval() { return heldKeeperApproval }
 let heldKeeperCompletion: Promise<unknown> | undefined, heldKeeperDevice: Promise<unknown> | undefined, releaseKeeperDevice: (() => void) | undefined, keeperCompletionStatus: unknown
-export async function beginKeeperCompletion() {
+export async function beginKeeperCompletion(operation?: string) {
+  if (operation) {
+    keeperCompletionStatus = undefined
+    heldKeeperCompletion = keeperDecisions().complete(operation).then(result => keeperCompletionStatus = { result }, error => keeperCompletionStatus = { error: error.message })
+    return
+  }
   const retained = await keeperDecisions().approvals(true)
   if (retained.state !== 'active' || !retained.value[0]) throw new Error('fixture approval missing')
   keeperCompletionStatus = undefined
@@ -563,6 +568,23 @@ export async function beginGuestRemoval(compromised = true) {
   if (roster.state !== 'active') throw new Error('fixture roster held')
   const members = roster.value.filter(member => member.leafId === guestLeaf)
   return rooms.removeDevice(roomContext(), roomId, { operation: removalOperation, leafId: guestLeaf, members, grants: [], compromised })
+}
+export async function alterPriorAddRemoval(mode: 'missing' | 'changed' | 'readback') {
+  return host.transact(persona, async tx => {
+    if (mode === 'readback') {
+      const room = await readMlsRoom(tx, roomId)
+      const candidate = room.pendingAdds?.find(item => item.route.leafId === guestLeaf)
+      if (!candidate?.readback) throw new Error('fixture prior Add readback missing')
+      candidate.readback.envelopeHash = 'fa'.repeat(32)
+      await saveMlsRoom(tx, room)
+      return
+    }
+    const journal = await readMlsMembership(tx), record = journal.removals.find(item => item.operation === removalOperation)
+    if (!record) throw new Error('fixture prior removal missing')
+    if (mode === 'missing') journal.removals = journal.removals.filter(item => item !== record)
+    else record.attempts++
+    await saveMlsMembership(tx, journal)
+  }, () => true)
 }
 export async function beginGuestRemovalWithStaleRoster() {
   const roster = await rooms.members(roomContext(), roomId)

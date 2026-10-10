@@ -12,7 +12,7 @@ import type { MlsRevocationInboxContext } from './mls-revocation-inbox.js'
 import type { MlsMemberStatus } from './mls-room-operations.js'
 import type { Platform, Session } from '../public/vmls-wasm/vmls_wasm.js'
 import type { VaultContext } from './mls-vault.js'
-import { mlsPendingAddMatches, mlsPendingAddMember } from './mls-pending-add.js'
+import { mlsPendingAddMatches, mlsPendingAddMember, mlsPriorAddRemoval, mlsPriorAddRemovalCommitted, verifyMlsPriorAddRemoval } from './mls-pending-add.js'
 
 export interface MlsKeeperDecisionPlan {
   binding: VaultContext
@@ -176,6 +176,15 @@ export class BrowserMlsKeeperDecisions {
       // A target can disappear before its journal catches up. Do not clear
       // an engine-owned compromised hold until that journal is witnessed.
       for (const intent of prompt.approval!.rooms) {
+        if (intent.priorRemoval) {
+          const wasm = await loadMlsEngine()
+          const room = await readMlsRoom(tx, intent.session), candidate = room.pendingAdds?.find(item =>
+            JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(item)) === JSON.stringify(intent.pendingAdd))
+          if (!candidate) throw new InvalidPersonaRecord('Prior Add closure lost its authenticated candidate')
+          verifyMlsPriorAddRemoval(wasm, intent.priorRemoval, candidate, intent.session,
+            journal.removals.find(item => item.operation === intent.priorRemoval!.operation), prompt.approval!.approvedAt)
+          continue
+        }
         const record = journal.removals.find(item => item.operation === intent.operation)
         if (!record) {
           if (intent.pendingAdd) throw new Error('The approved pending Add requires its exact committed Remove journal; absence alone cannot complete it.')
@@ -229,8 +238,8 @@ export class BrowserMlsKeeperDecisions {
     for (const room of current.rooms) {
       const frozen = approved.rooms.find(item => item.session === room.session && item.member.leafId === room.member.leafId)
       if (!frozen || frozen.rendezvousKey !== room.rendezvousKey || frozen.member.device !== room.member.device || frozen.member.identity !== room.member.identity ||
-          frozen.member.homeBox !== room.member.homeBox || frozen.member.bindingExpiresAt !== room.member.bindingExpiresAt || JSON.stringify(frozen.pendingAdd) !== JSON.stringify(room.pendingAdd) ||
-          frozen.action === 'remove' && room.action !== 'remove' && !(frozen.pendingAdd && room.action === 'ledger-only') || frozen.action === 'ledger-only' && room.action !== 'ledger-only') throw new Error('The approved keeper roster changed. Review the request again.')
+          frozen.member.homeBox !== room.member.homeBox || frozen.member.bindingExpiresAt !== room.member.bindingExpiresAt || JSON.stringify(frozen.pendingAdd) !== JSON.stringify(room.pendingAdd) || JSON.stringify(frozen.priorRemoval) !== JSON.stringify(room.priorRemoval) ||
+          frozen.action === 'remove' && room.action !== 'remove' && !(frozen.pendingAdd && ['ledger-only', 'pending-add'].includes(room.action)) || frozen.action === 'ledger-only' && room.action !== 'ledger-only') throw new Error('The approved keeper roster changed. Review the request again.')
       if (frozen.action === 'ledger-only' || frozen.action === 'remove' && !frozen.pendingAdd) room.action = frozen.action
     }
     const revoked = current.grants.filter(grant => records.some(record => record.node === grant.node && record.device === prompt.request.device && record.state === 'revoked' &&
@@ -324,8 +333,21 @@ export class BrowserMlsKeeperDecisions {
           const { readback: _readback, carrier: _carrier, ...stable } = candidate
           const removalOperation = mlsKeeperRemovalOperation(operation, id, candidate.route.leafId)
           let action: MlsKeeperRoomIntent['action'] = 'pending-add'
+          const removals = (await readMlsMembership(tx)).removals
+          // Only pre-consent closure may use an ordinary journal. Once a
+          // prospective intent is approved, a later ordinary Remove cannot
+          // substitute for that request's own removal operation.
+          const frozen = approved && prompt.approval!.rooms.find(intent => intent.session === id && intent.member.leafId === candidate.route.leafId)
+          const priorRecord = !approved && candidate.readback && removals.find(item => item.session === id && item.kind === 'device' && item.target === candidate.route.leafId && !item.request)
+          let prior = frozen ? frozen.priorRemoval : priorRecord ? mlsPriorAddRemoval(priorRecord, candidate) : undefined
+          if (!approved && prior && !mlsPriorAddRemovalCommitted(wasm, prior, candidate, id, priorRecord || undefined, at)) prior = undefined
+          if (prior) {
+            if (!candidate.readback) throw new InvalidPersonaRecord('Prior Add closure lost its authenticated readback')
+            verifyMlsPriorAddRemoval(wasm, prior, candidate, id, removals.find(item => item.operation === prior.operation), approved ? prompt.approval!.approvedAt : at)
+            action = 'ledger-only'
+          }
           const record = approved && candidate.readback && (await readMlsMembership(tx)).removals.find(item => item.operation === removalOperation)
-          if (record) {
+          if (record && !prior) {
             const bytes = hexToBytes(record.journal)
             let removal: ReturnType<typeof wasm.removalDecode> | undefined
             try {
@@ -336,7 +358,7 @@ export class BrowserMlsKeeperDecisions {
             } finally { bytes.fill(0); removal?.free() }
           }
           rooms.push({ session: id, name: room.name, rendezvousKey: room.binding.rendezvousKey, operation: mlsKeeperRemovalOperation(operation, id, candidate.route.leafId),
-            member: mlsPendingAddMember(candidate), pendingAdd: structuredClone(stable), action })
+            member: mlsPendingAddMember(candidate), pendingAdd: structuredClone(stable), ...(prior ? { priorRemoval: structuredClone(prior) } : {}), action })
         }
       } finally { saved.plaintext.fill(0); try { session?.free() } finally { platform?.free() } }
     }

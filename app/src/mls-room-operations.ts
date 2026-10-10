@@ -15,7 +15,7 @@ import { MlsRevocationOutboxFull, rememberStandaloneRevocations } from './mls-re
 import { BrowserMlsBoxClient, type BoxAnswer } from './mls-box-client.js'
 import { vmlsMemberGrantReference } from '../../src/vmls-revocation-request.js'
 import { withMlsDeviceAdmissionGate } from './mls-device-admission-gate.js'
-import { mlsPendingAddMatches, type MlsPendingAdd } from './mls-pending-add.js'
+import { mlsPendingAddMatches, verifyMlsPriorAddRemoval, type MlsPendingAdd } from './mls-pending-add.js'
 
 export interface MlsRoomContext { vault: VaultContext; rendezvousKey: string; current(): boolean }
 export interface MlsJoinOptions {
@@ -141,8 +141,12 @@ async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<
       if (prompt.state === 'approved' && prompt.grantOutcomes?.some(item => item.outcome === 'no-live')) throw new MlsRoomRefused('compromised-removal')
       if (intent.pendingAdd) {
         const candidate = room.pendingAdds?.find(candidate => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(candidate)) === JSON.stringify(intent.pendingAdd))
-        const record = journal.removals.find(item => item.operation === intent.operation)
+        const record = journal.removals.find(item => item.operation === (intent.priorRemoval?.operation ?? intent.operation))
         if (!candidate?.readback || !record) throw new MlsRoomRefused('compromised-removal')
+        if (intent.priorRemoval) {
+          verifyMlsPriorAddRemoval(wasm, intent.priorRemoval, candidate, session, record, prompt.approval.approvedAt)
+          continue
+        }
         if (record.session !== session || record.kind !== 'device' || record.target !== intent.member.leafId || !record.compromised || record.request) throw new InvalidPersonaRecord('Pending Add mutation hold removal binding differs')
         const removal = decodeRemoval(wasm, record, { keeper: room.keeper, persona })
         try {

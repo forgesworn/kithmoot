@@ -45,6 +45,21 @@ No pending record is evicted or cleared; the 64-record limit refuses another
 Add before package registration. Safe retirement needs separate proof and
 remains future work.
 
+There is one explicit pre-consent historical closure: if the Add already has
+genuine readback, the fresh roster lacks its exact leaf, and an ordinary device
+Remove journal is genuinely Committed before approval, review can freeze
+`priorRemoval` alongside the stable candidate as a ledger-only intent. That
+proof binds the ordinary operation, a digest of every retained journal
+record field and a separate digest of the exact authenticated readback tuple.
+Execution, completion and Send/Add reverify the exact candidate,
+readback, journal digest, session/leaf and genuine Committed state. This proves
+only MLS closure; urgent grant withdrawal still needs its own confirmation.
+Changed or missing proof refuses progress, and later same-device roster
+presence retains the global mutation hold. It does not delete historical Add
+evidence. A journal still pending at consent, or an ordinary Remove performed
+after a prospective intent was approved, cannot become this exception; that
+request stays held until its own exact removal can be proved.
+
 Legacy package routes without authenticated candidate records freeze an
 explicit unresolved-room fact in approval. Urgent withdrawals can proceed,
 but completion and Send/Add remain held even if the route later disappears.

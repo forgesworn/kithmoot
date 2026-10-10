@@ -1,11 +1,33 @@
 import { describe, expect, it } from 'vitest'
-import { validateMlsPendingAdd, mlsPendingAddMember, mlsPendingAddMatches, type MlsPendingAdd } from './mls-pending-add.js'
+import { validateMlsPendingAdd, mlsPendingAddMember, mlsPendingAddMatches, validateMlsPriorAddRemoval, mlsPriorAddRemoval, type MlsPendingAdd } from './mls-pending-add.js'
+import type { MlsRemovalRecord } from './mls-membership-store.js'
 
 const hex = (byte: string) => byte.repeat(32)
 const candidate = (): MlsPendingAdd => ({ identity: hex('11'), device: hex('22'), credentialId: hex('33'), credentialExpiresAt: 2000, bindingExpiresAt: 1800,
   route: { packageId: hex('44'), welcomeMailbox: hex('55'), homeBox: hex('66'), leafId: hex('77'), expiresAt: 1600 },
   proposal: { generation: '4', recordId: hex('88'), mailbox: hex('99'), envelopeHash: hex('aa'), epoch: '2', attempt: 0 } })
 describe('authenticated pending Add records', () => {
+  it('bounds the frozen prior removal proof to three canonical primitive hashes', () => {
+    const proof = { operation: hex('11'), recordDigest: hex('22'), readbackDigest: hex('33') }
+    validateMlsPriorAddRemoval(proof)
+    for (const malformed of [{ ...proof, operation: proof.operation + '\n' }, { ...proof, recordDigest: new String(proof.recordDigest) },
+      { ...proof, recordDigest: hex('AA') }, { ...proof, committed: true }, { operation: proof.operation }]) {
+      expect(() => validateMlsPriorAddRemoval(malformed as any)).toThrow('Invalid prior Add removal proof')
+    }
+  })
+  it('binds every retained ordinary removal field without relying on object key insertion order', () => {
+    const record: MlsRemovalRecord = { operation: hex('11'), session: hex('22'), kind: 'device', target: hex('33'), compromised: true,
+      createdAt: 1000, attempts: 1, failure: null, journal: 'abcd' }
+    const value = candidate(); value.readback = { kind: 'proposal-committed', generation: '5', envelopeHash: hex('ee') }
+    const proof = mlsPriorAddRemoval(record, value)
+    expect(mlsPriorAddRemoval(Object.fromEntries(Object.entries(record).reverse()) as MlsRemovalRecord, value)).toEqual(proof)
+    const changes = { operation: hex('44'), session: hex('44'), kind: 'person', target: hex('44'), compromised: false,
+      createdAt: 1001, attempts: 2, failure: 'Failed', journal: 'abce', request: { keeper: hex('44'), device: hex('33'), sessions: [hex('22')], boxes: [hex('55')] } }
+    for (const [key, field] of Object.entries(changes)) expect(mlsPriorAddRemoval({ ...record, [key]: field }, value).recordDigest).not.toBe(proof.recordDigest)
+    for (const readback of [{ ...value.readback, kind: 'current-observed' as const }, { ...value.readback, generation: '6' }, { ...value.readback, envelopeHash: hex('ff') }]) {
+      expect(mlsPriorAddRemoval(record, { ...value, readback }).readbackDigest).not.toBe(proof.readbackDigest)
+    }
+  })
   it('retains immutable candidate/proposal binding alongside separate carrier and witnessed readback facts', () => {
     const value = candidate(), frozen = structuredClone(value)
     validateMlsPendingAdd(value)
