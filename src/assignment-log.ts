@@ -32,6 +32,19 @@ export interface AssignmentLogOptions {
    *  expiration. See `withExpiration`. */
   expiresAt?: number
 }
+/** Navigation can observe work in an already admitted room without a signer,
+ * presence announcement or permission to execute it. The bounded replay is
+ * deliberately incomplete: open the origin room before making a decision. */
+export interface AssignmentReaderOptions extends Pick<AssignmentLogOptions,
+  'roomId' | 'roomKey' | 'transport' | 'policy' | 'epoch' | 'now'> {
+  readOnly: true
+  participant: string
+  storage: Pick<AssignmentStorage, 'load'>
+  /** Maximum initial historical envelopes, from 1 to 512. Defaults to 128. */
+  historyLimit?: number
+  /** Only request recent envelopes. Defaults to the last 24 hours. */
+  since?: number
+}
 interface Pending { inner: Event; outer: Event }
 export interface AssignmentLogSnapshot {
   assignments: Assignment[]
@@ -39,6 +52,8 @@ export interface AssignmentLogSnapshot {
   error?: string
   pendingHistory: number
   pendingSends: number
+  /** Bounded navigation readers must never imply that unseen work is absent. */
+  historyComplete: boolean
 }
 
 /** Durable assignment history is separate from the 500-message chat window.
@@ -46,7 +61,7 @@ export interface AssignmentLogSnapshot {
  * reporting changes. The relay still controls availability; EOSE is not a
  * promise of permanent retention or proof that a malicious relay omitted nothing. */
 export class AssignmentLog {
-  readonly #opts: AssignmentLogOptions
+  readonly #opts: AssignmentLogOptions | AssignmentReaderOptions
   readonly #events = new Map<string, Event>()
   readonly #outbox = new Map<string, Pending>()
   readonly #listeners = new Set<() => void>()
@@ -59,13 +74,21 @@ export class AssignmentLog {
   #opened = false
   #generation = 0
 
-  constructor(opts: AssignmentLogOptions) { this.#opts = opts; this.#epoch = opts.epoch }
-  get participant(): string { return this.#opts.identity?.pubkey ?? this.#opts.credential()?.pubkey ?? '' }
+  constructor(opts: AssignmentLogOptions | AssignmentReaderOptions) {
+    if ('readOnly' in opts) {
+      const limit = opts.historyLimit ?? 128
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 512) throw new Error('Invalid assignment history limit')
+      if (opts.since !== undefined && (!Number.isSafeInteger(opts.since) || opts.since < 0)) throw new Error('Invalid assignment history start')
+    }
+    this.#opts = opts; this.#epoch = opts.epoch
+  }
+  get participant(): string { return 'readOnly' in this.#opts ? this.#opts.participant : this.#opts.identity?.pubkey ?? this.#opts.credential()?.pubkey ?? '' }
   get roomId(): string { return this.#opts.roomId }
   snapshot(): AssignmentLogSnapshot {
     const p = projectAssignments([...this.#events.values()], this.roomId)
     return { assignments: p.assignments, ready: this.#ready && !this.#error && !this.#closed && p.pending.length === 0,
-      ...(this.#error ? { error: this.#error } : {}), pendingHistory: p.pending.length, pendingSends: this.#outbox.size }
+      ...(this.#error ? { error: this.#error } : {}), pendingHistory: p.pending.length, pendingSends: this.#outbox.size,
+      historyComplete: !('readOnly' in this.#opts) && this.#ready && !this.#error && !this.#closed && p.pending.length === 0 }
   }
   onChange(cb: () => void): () => void { this.#listeners.add(cb); return () => this.#listeners.delete(cb) }
   #emit(): void { for (const cb of this.#listeners) cb() }
@@ -81,6 +104,7 @@ export class AssignmentLog {
     this.#opened = true
     try {
       const stored = await this.#opts.storage.load()
+      if (this.#closed) return
       if (stored) {
         const cache = JSON.parse(stored) as { v: number; events: string[]; outbox: string[] }
         if (cache.v !== 1 || !Array.isArray(cache.events) || !Array.isArray(cache.outbox) || cache.events.length > 20_000 || cache.outbox.length > 100) throw new Error('Invalid assignment cache')
@@ -96,8 +120,11 @@ export class AssignmentLog {
           this.#outbox.set(p.request, pending)
         }
       }
-      this.#subscribe()
-    } catch (e) { this.#fail(e); throw e }
+      if (!this.#closed) this.#subscribe()
+    } catch (e) {
+      if ('readOnly' in this.#opts) { this.#events.clear(); this.#outbox.clear() }
+      this.#fail(e); throw e
+    }
   }
 
   #subscribe(): void {
@@ -105,20 +132,27 @@ export class AssignmentLog {
     const generation = ++this.#generation
     const root = this.#epoch ?? { id: this.roomId, key: this.#opts.roomKey }
     const { id } = deriveChannel(root.id, root.key, ASSIGNMENT_CHANNEL)
-    this.#unsub = this.#opts.transport.subscribe([{ kinds: [KINDS.CHAT], '#d': [id] }], outer => {
+    const bounded = 'readOnly' in this.#opts
+      ? { limit: this.#opts.historyLimit ?? 128, since: this.#opts.since ?? Math.max(0, this.#now() - 86_400) } : undefined
+    let historical = true
+    let received = 0
+    this.#unsub = this.#opts.transport.subscribe([{ kinds: [KINDS.CHAT], '#d': [id], ...bounded }], outer => {
       if (generation !== this.#generation || this.#closed) return
+      if (bounded && historical && (++received > bounded.limit || outer.created_at < bounded.since)) return
       const message = decodeChatEvent(outer, { roomId: this.roomId, roomKey: this.#opts.roomKey, channel: ASSIGNMENT_CHANNEL,
         epoch: this.#epoch, policy: this.#opts.policy, now: this.#now() })
       if (!message?.assignment) return
       const event = message.assignment
       void this.#serial(async () => {
+        if (generation !== this.#generation || this.#closed) return
         if (this.#events.has(event.id)) return
         if (this.#events.size >= 20_000) throw new Error('Assignment history is full; export it before continuing')
         const candidate = new Map(this.#events).set(event.id, event)
-        await this.#persist(candidate, this.#outbox)
+        if (!('readOnly' in this.#opts)) await this.#persist(candidate, this.#outbox)
         this.#events.set(event.id, event); this.#emit()
       }).catch(e => this.#fail(e))
     }, () => {
+      historical = false
       void this.#serial(async () => {
         if (generation !== this.#generation || this.#closed) return
         this.#ready = true; this.#emit()
@@ -128,6 +162,7 @@ export class AssignmentLog {
 
   #now(): number { return (this.#opts.now ?? (() => Math.floor(Date.now() / 1000)))() }
   async #persist(events: Map<string, Event>, outbox: Map<string, Pending>): Promise<void> {
+    if ('readOnly' in this.#opts) throw new Error('This assignment reader is read-only')
     await this.#opts.storage.save(JSON.stringify({ v: 1,
       events: [...events.values()].map(e => nip44.v2.encrypt(JSON.stringify(e), this.#opts.roomKey)),
       outbox: [...outbox.values()].map(e => nip44.v2.encrypt(JSON.stringify(e), this.#opts.roomKey)),
@@ -137,9 +172,11 @@ export class AssignmentLog {
   /** Stable request IDs are mandatory at this boundary. Failed/ambiguous sends
    * remain in the encrypted outbox and retry the exact same signed operation. */
   async submit(assignment: string | undefined, operation: AssignmentOperation, request: string, expectedHead?: string | null): Promise<Assignment> {
+    const opts = this.#opts
+    if ('readOnly' in opts) throw new Error('Open the origin room to update this assignment')
     const pending = await this.#serial(async () => {
       if (!this.snapshot().ready) throw new Error(this.#error ?? 'Wait for assignment history to finish loading')
-      const identity = this.#opts.identity
+      const identity = opts.identity
       if (!identity) throw new Error('This device cannot sign assignment updates')
       const existing = [...this.#events.values()].find(e => e.pubkey === identity.pubkey && assignmentPayload(e, this.roomId)?.request === request)
       const retry = this.#outbox.get(request)
@@ -157,17 +194,17 @@ export class AssignmentLog {
       // Compare inside the serial update, after any queued incoming saves.
       // A host approval for one head must never sign against a newer head.
       if (expectedHead !== undefined && (before?.head ?? null) !== expectedHead) throw new Error('Assignment version changed')
-      const inner = await signAssignment(identity, this.roomId, { v: 1, assignment: id, request, previous: before?.head ?? null, device: getPublicKey(this.#opts.deviceSk), operation }, this.#now())
+      const inner = await signAssignment(identity, this.roomId, { v: 1, assignment: id, request, previous: before?.head ?? null, device: getPublicKey(opts.deviceSk), operation }, this.#now())
       const projected = projectAssignments([...this.#events.values(), inner], this.roomId)
       const next = projected.assignments.find(s => s.id === id)
       if (!next || next.head !== inner.id || next.status === 'conflicted' || projected.pending.includes(inner.id)) throw new Error('This update is not permitted in the current assignment state')
-      const credential = this.#opts.credential()
+      const credential = opts.credential()
       if (!credential || credential.pubkey !== identity.pubkey) throw new Error('No current room credential')
-      const outer = encodeChatEvent({ id: bytesToHex(randomBytes(16)), participant: identity.pubkey, device: getPublicKey(this.#opts.deviceSk),
+      const outer = encodeChatEvent({ id: bytesToHex(randomBytes(16)), participant: identity.pubkey, device: getPublicKey(opts.deviceSk),
         credential, text: `Assignment ${operation.op}`, sentAt: this.#now(), assignment: inner,
-        ...(this.#opts.name ? { name: this.#opts.name } : {}), ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
-        ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
-      }, { roomId: this.roomId, roomKey: this.#opts.roomKey, deviceSk: this.#opts.deviceSk, channel: ASSIGNMENT_CHANNEL, epoch: this.#epoch, expiresAt: this.#opts.expiresAt })
+        ...(opts.name ? { name: opts.name } : {}), ...(opts.proof ? { proof: opts.proof } : {}),
+        ...(opts.owner ? { owner: opts.owner } : {}),
+      }, { roomId: this.roomId, roomKey: opts.roomKey, deviceSk: opts.deviceSk, channel: ASSIGNMENT_CHANNEL, epoch: this.#epoch, expiresAt: opts.expiresAt })
       const candidate = new Map(this.#outbox).set(request, { inner, outer })
       await this.#persist(this.#events, candidate)
       this.#outbox.set(request, { inner, outer }); this.#emit()
@@ -191,11 +228,15 @@ export class AssignmentLog {
   }
 
   async retry(): Promise<void> {
+    if ('readOnly' in this.#opts) throw new Error('Open the origin room to retry assignment updates')
     for (const [request, pending] of [...this.#outbox]) {
       const p = assignmentPayload(pending.inner, this.roomId)!
       await this.submit(p.operation.op === 'create' ? undefined : p.assignment, p.operation, request)
     }
   }
-  rekey(epoch: EpochRoot): void { this.#epoch = epoch; if (this.#opened) this.#subscribe() }
-  close(): void { this.#closed = true; ++this.#generation; this.#unsub?.(); this.#listeners.clear() }
+  rekey(epoch: EpochRoot): void { if (this.#closed) return; this.#epoch = epoch; if (this.#opened) this.#subscribe() }
+  close(): void {
+    this.#closed = true; ++this.#generation; this.#unsub?.(); this.#listeners.clear()
+    if ('readOnly' in this.#opts) { this.#events.clear(); this.#outbox.clear() }
+  }
 }
