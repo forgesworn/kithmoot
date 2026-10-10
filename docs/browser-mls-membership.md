@@ -51,18 +51,67 @@ that room. Required own Updates, receiving and driver recovery continue so an
 `UpdateFirst` removal can make progress. The hold fails closed when the journal
 cannot be read.
 
+## Grant ledger and membership controls
+
+`BrowserMlsRoomOperations.members` reads verified bindings from the live,
+witnessed MLS session. The UI may attach profile labels, but presence, profiles
+and invitations never decide which leaf is removed.
+
+`BrowserMlsGrantLedger` keeps one device-wide VMLS grant per Bothy node. Its
+scope is `SHA-256("VMLS/1 box grant" || device)`, it reads kind 1460, writes no
+event kinds and carries the 64 MiB VMLS ceiling. The exact signed withdrawal is
+encrypted and saved before the active grant is published. Installation and
+withdrawal use the paired Link route, NIP-42 authentication and an `OK true`
+reply. An uncertain reply retries the same signed event. A local clock or an
+expired record never becomes evidence that the box revoked a grant.
+
+The encrypted ledger also keeps the bounded, named MLS-room uses of that
+node-wide grant, each bound to the exact MLS leaf admitted there. Pending
+installation recovery and expired renewal preserve the complete inventory. An
+ordinary removal drops only its reviewed leaf's use, and only after its MLS
+Remove is committed. The grant stays live while another saved room uses it;
+after the last room, a durable 24-hour grace lets the removed device fetch its
+Remove before the retained withdrawal is published. An explicitly confirmed
+compromised-device removal publishes the withdrawal promptly. Every withdrawal
+checks the exact reviewed grant reference under the same node/device lock, so a
+replacement grant cannot be substituted. Re-admission has a new leaf, so an old
+removal retry cannot detach that new use or restart its grace.
+
+`BrowserMlsMembershipController` binds confirmation to the account, room,
+vault generation/revision, exact verified target leaves and exact grant
+references. The room operation compares those leaves again inside the witnessed
+journal transaction. It records the engine removal journal before external
+changes. Compromised withdrawals then progress beside the Remove; ordinary
+grant handling begins only after the Remove is committed.
+A box failure is recorded as `Failed`, never `Revoked`; retry uses the retained
+withdrawal. The compromised-device choice activates the existing send/Add hold
+until the Remove is applied and witnessed.
+
+`BrowserMlsMembershipPanel` shows the MLS, credential and grant components
+separately. Its final sentence is the engine's `claimCopy` verbatim. Before
+confirmation it names every saved affected room and states whether a VMLS grant
+will remain shared, enter the 24-hour grace, or be revoked promptly. It also
+states that delivered message history is not erased.
+
 ## Evidence and remaining boundary
 
 Automated Chromium fixtures use the real pinned WASM, encrypted IndexedDB,
 WebCrypto, typed NIP-98 signing and a separately signed simulated witness and
 box. They cover registration before Add, lost registration recovery, permanent
 registration refusal, exact Welcome routing, route retirement, compromised
-holds, transient Remove refusal, failed-to-done catch-up and malformed-journal
-fencing. The wider MLS browser suite also runs on Firefox and WebKit.
+holds, transient Remove refusal, failed-to-done catch-up, verified roster reads
+and malformed-journal fencing. The membership panel's confirmation, component
+states and exact claim copy run in Chromium, Firefox and WebKit.
 
 These are browser automation results, not a live Bothy room, process-kill,
-physical-device or production acceptance claim. Credential/grant state changes
-are journal APIs only: keeper grant discovery, authenticated revocation and UI
-composition remain open, as do dedicated endpoint lifecycle and app wiring.
-Abandoned expired Welcome cleanup and a full joined-session
-`UpdateFirst` -> Update -> Remove automation case also remain open.
+physical-device or production acceptance claim. The production app's MLS room
+lifecycle and automatic driver rounds remain open, as do the P3-08
+member-to-keeper request channel and dedicated endpoint lifecycle. Abandoned
+expired Welcome cleanup and a full joined-session `UpdateFirst` -> Update ->
+Remove automation case also remain open. Production MLS stays off until those
+gates and the production review are complete.
+
+An uncertain grant withdrawal can also remain `revoking` past its signed
+expiration: renewal deliberately refuses to overwrite it, and expiry is never
+treated as evidence that Bothy accepted the tombstone. Production activation
+needs an explicit recovery or rotation ceremony for that state.

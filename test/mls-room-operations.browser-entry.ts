@@ -227,7 +227,16 @@ export async function stageGuestWelcome(packageClient?: BrowserMlsBoxClient) { r
 export async function receive() { return rooms.process(roomContext(), roomId, boxInput(incoming)) }
 const removalOperation = '03'.repeat(32)
 export async function beginGuestRemoval(compromised = true) {
-  return rooms.removeDevice(roomContext(), roomId, { operation: removalOperation, leafId: guestLeaf, grants: [], compromised })
+  const roster = await rooms.members(roomContext(), roomId)
+  if (roster.state !== 'active') throw new Error('fixture roster held')
+  const members = roster.value.filter(member => member.leafId === guestLeaf)
+  return rooms.removeDevice(roomContext(), roomId, { operation: removalOperation, leafId: guestLeaf, members, grants: [], compromised })
+}
+export async function beginGuestRemovalWithStaleRoster() {
+  const roster = await rooms.members(roomContext(), roomId)
+  if (roster.state !== 'active') throw new Error('fixture roster held')
+  const members = roster.value.filter(member => member.leafId === guestLeaf).map(member => ({ ...member, bindingExpiresAt: member.bindingExpiresAt + 1 }))
+  return rooms.removeDevice(roomContext(), roomId, { operation: '05'.repeat(32), leafId: guestLeaf, members, grants: [], compromised: false })
 }
 export async function driveGuestRemoval() { return rooms.driveRemoval(roomContext(), roomId, removalOperation) }
 export async function driveGuestRemovalFailure(code: string) {
@@ -260,6 +269,7 @@ export async function damageGuestRemovalJournal() {
   }, () => true).then(result => result.state)
 }
 export async function membership() { return rooms.membership(roomContext(), roomId) }
+export async function members() { return rooms.members(roomContext(), roomId) }
 export function forgetGuest() { guest?.free(); guest = undefined; guestPlatform?.free(); guestPlatform = undefined }
 function checked<T>(r: { ok: true; value: T } | { ok: false; refusal: string }): T { if (!r.ok) throw new Error(r.refusal); return r.value }
 
