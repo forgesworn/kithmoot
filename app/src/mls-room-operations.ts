@@ -1,14 +1,17 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import type { Session, VmlsSignRequest, VmlsEcdhRequest, VmlsSnapshot } from '../public/vmls-wasm/vmls_wasm.js'
+import type { Capability, Session, VmlsSignRequest, VmlsEcdhRequest, VmlsSnapshot, VmlsRemoval, VmlsGrantRef, VmlsGrant,
+  VmlsMlsState, VmlsCredentialState, VmlsGrantState, VmlsClaim, VmlsNextRemoval } from '../public/vmls-wasm/vmls_wasm.js'
 import type { RendezvousReceipt, RendezvousVault } from './rendezvous-vault.js'
 import { withMlsRendezvous } from './mls-rendezvous-custody.js'
 import { loadMlsEngine } from './mls-engine.js'
 import { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import { base64Encode, type ConsentPrompt, type SignLeafBindingRequest, type SignLeafBindingReply, type VaultContext, type VaultResult } from './mls-vault.js'
-import { BrowserPersonaCoordinator, InvalidPersonaRecord } from './mls-persona-coordinator.js'
+import { BrowserPersonaCoordinator, InvalidPersonaRecord, type PersonaReader } from './mls-persona-coordinator.js'
 import { BrowserMlsSessionHost, StaleMlsOperation, type HostedMlsResult, type HostedMlsStep, type MlsSessionContext, type MlsSessionEdits } from './mls-session-host.js'
-import { appendMlsHistory, rememberMlsOrdering, createMlsRoom, readMlsRoom, saveMlsRoom, mlsHistory, mlsRoomIds, MlsRoomRefused, type MlsRoomRecord } from './mls-room-store.js'
+import { appendMlsHistory, rememberMlsOrdering, createMlsRoom, readMlsRoom, saveMlsRoom, mlsHistory, mlsRoomIds, MlsRoomRefused, type MlsPackageRoute, type MlsRoomRecord } from './mls-room-store.js'
+import { MAX_MLS_REMOVALS, readMlsMembership, removalBytes, saveMlsMembership, type MlsRemovalRecord } from './mls-membership-store.js'
+import { BrowserMlsBoxClient, type BoxAnswer } from './mls-box-client.js'
 
 export interface MlsRoomContext { vault: VaultContext; rendezvousKey: string; current(): boolean }
 export interface MlsJoinOptions {
@@ -16,12 +19,65 @@ export interface MlsJoinOptions {
   rendezvous: RendezvousReceipt
 }
 export type MlsRoomResult<T> = HostedMlsResult<T> | { state: 'refused'; reason: string }
+export type MlsAddResult = MlsRoomResult<MlsRoomEffect> | { state: 'transport'; answer: Exclude<BoxAnswer<{ fresh: boolean }>, { state: 'ok' }> }
 interface EngineStep { snapshot: VmlsSnapshot | null; events: any[]; outbound: any[] }
 export interface MlsRoomEffect { events: any[]; outbound: any[]; ack?: any; outcome?: any; session: string; generation: string }
+export interface MlsRemovalStatus {
+  operation: string; session: string; kind: 'device' | 'person'; target: string; compromised: boolean; createdAt: number
+  attempts: number; failure: string | null; mls: VmlsMlsState; credential: VmlsCredentialState; grants: VmlsGrant[]
+  claim: VmlsClaim; claimCopy: string | undefined; next: VmlsNextRemoval
+}
+export interface MlsRemovalEffect extends MlsRoomEffect { membership: MlsRemovalStatus }
 const hex = (v: string) => /^[0-9a-f]{64}(?![\s\S])/.test(v)
 const checked = <T>(r: VaultResult<T>): T => { if (!r.ok) throw new MlsRoomRefused(r.refusal); return r.value }
 const request = (r: VmlsSignRequest): SignLeafBindingRequest => ({ v: 1, operation: bytesToHex(r.operation), body: base64Encode(r.body), digest: bytesToHex(r.digest), expires_at: Number(r.expiresAt) })
 const effect = (s: Session, step: EngineStep, extra = {}): HostedMlsStep<MlsRoomEffect> => ({ snapshot: step.snapshot, value: { session: bytesToHex(s.id()), generation: String(s.generation()), events: step.events, outbound: step.outbound, ...extra } })
+const grantKey = (grant: VmlsGrantRef) => ({ node: bytesToHex(grant.node), grant: bytesToHex(grant.grant), keeper: grant.keeper })
+const removalStatus = (record: MlsRemovalRecord, removal: VmlsRemoval, session: Session): MlsRemovalStatus => ({
+  operation: record.operation, session: record.session, kind: record.kind, target: record.target, compromised: record.compromised,
+  createdAt: record.createdAt, attempts: record.attempts, failure: record.failure, mls: removal.mls(), credential: removal.credential(),
+  grants: removal.grants(), claim: removal.claim(), claimCopy: removal.claimCopy(), next: removal.next(session),
+})
+const removalEffectValue = (session: Session, removal: VmlsRemoval, record: MlsRemovalRecord): MlsRemovalEffect => ({
+  session: bytesToHex(session.id()), generation: String(session.generation()), events: [], outbound: [], membership: removalStatus(record, removal, session),
+})
+const removalEffect = (session: Session, step: EngineStep, membership: MlsRemovalStatus): HostedMlsStep<MlsRemovalEffect> => ({
+  snapshot: step.snapshot, value: { session: bytesToHex(session.id()), generation: String(session.generation()), events: step.events, outbound: step.outbound, membership },
+})
+function decodeRemoval(wasm: Awaited<ReturnType<typeof loadMlsEngine>>, record: MlsRemovalRecord): VmlsRemoval {
+  const bytes = removalBytes(record)
+  let removal: VmlsRemoval | undefined
+  try {
+    removal = wasm.removalDecode(bytes)
+    const person = removal.personIdentity(), leaves = removal.leafIds().map(bytesToHex)
+    if (bytesToHex(removal.sessionId()) !== record.session ||
+        (record.kind === 'device' && (person !== undefined || leaves.length !== 1 || leaves[0] !== record.target)) ||
+        (record.kind === 'person' && (person === undefined || bytesToHex(person) !== record.target))) {
+      throw new InvalidPersonaRecord('Membership journal binding differs')
+    }
+    return removal
+  } catch (error) {
+    try { removal?.free() } catch { /* preserve the record failure */ }
+    if (error instanceof InvalidPersonaRecord) throw error
+    throw new InvalidPersonaRecord('Membership journal cannot be decoded')
+  } finally { bytes.fill(0) }
+}
+const DEFERRED_REMOVAL = new Set(['CommitInFlight', 'UpdateRequired', 'AwaitingCommitAck', 'OutboxFull', 'Callback'])
+function freeCapabilities(capabilities: Capability[]): void {
+  let failure: unknown
+  for (const capability of capabilities) try { capability.free() } catch (error) { failure ??= error }
+  if (failure) throw failure
+}
+class PackageRegistrationStopped extends Error {
+  constructor(readonly answer: Exclude<BoxAnswer<{ fresh: boolean }>, { state: 'ok' }>) { super('MLS package registration stopped') }
+}
+async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<ReturnType<typeof loadMlsEngine>>, session: string): Promise<void> {
+  for (const record of (await readMlsMembership(tx)).removals) if (record.session === session && record.compromised) {
+    const removal = decodeRemoval(wasm, record)
+    try { if (removal.mls() !== 'Committed') throw new MlsRoomRefused('compromised-removal') }
+    finally { removal.free() }
+  }
+}
 
 /** Development-only room operations. This is not a box driver: authenticated
  * capability/reply transport, invitation admission and UI remain separate.
@@ -230,7 +286,8 @@ export class BrowserMlsRoomOperations {
   }
 
   #edits<T>(ctx: VaultContext, expected: { device: string; credentialId: string; rz: string }, id: string,
-    use: (room: MlsRoomRecord) => void, persist?: (room: MlsRoomRecord, session: Session, value: T) => void,
+    use: (room: MlsRoomRecord, tx: Parameters<NonNullable<MlsSessionEdits<Session, T>['before']>>[0], session: Session) => void | Promise<void>,
+    persist?: (room: MlsRoomRecord, session: Session, value: T, tx: Parameters<NonNullable<MlsSessionEdits<Session, T>['persist']>>[0]) => void | Promise<void>,
     needsConsent: () => boolean = () => false): MlsSessionEdits<Session, T> {
     let room: MlsRoomRecord
     return {
@@ -241,16 +298,222 @@ export class BrowserMlsRoomOperations {
         if (room.generation !== String(session.generation()) || bytesToHex(session.homeBox()) !== (b.installation === null ? '00'.repeat(32) : b.homeBox) || (installation === null ? null : bytesToHex(installation)) !== b.installation) throw new InvalidPersonaRecord('Room and session binding differ')
         if (b.device !== expected.device || b.credentialId !== expected.credentialId || b.rendezvousKey !== expected.rz) throw new MlsRoomRefused('stale-device')
         checked(await this.vault.checkRoomDevice(tx, ctx, b.device, b.credentialId, needsConsent() ? b.homeBox : undefined))
-        use(room)
+        await use(room, tx, session)
       },
       persist: async (tx, session, value) => {
         const events = (value as Partial<MlsRoomEffect> | undefined)?.events
         if (events) rememberMlsOrdering(room, events)
-        persist?.(room, session, value)
+        await persist?.(room, session, value, tx)
         room.generation = String(session.generation())
         await saveMlsRoom(tx, room)
       },
     }
+  }
+
+  /** Register and add capabilities already opened through the invitation's
+   * authenticated Introduction. This method takes ownership immediately,
+   * snapshots metadata through the genuine WASM method, registers every D5
+   * package before opening the Add transaction, then rechecks the snapshots
+   * against the handles consumed by Session.add. */
+  async addCapabilities(context: MlsRoomContext, id: string, supplied: Capability[], client: BrowserMlsBoxClient, boxNow: number): Promise<MlsAddResult> {
+    const capabilities = [...supplied]
+    let consumed = false
+    try {
+      return await this.#using<MlsRoomEffect>(context, async scope => {
+        if (!(client instanceof BrowserMlsBoxClient) || !Number.isSafeInteger(boxNow) || boxNow < 0 ||
+            capabilities.length < 1 || capabilities.length > 64 || capabilities.some(capability => !(capability instanceof scope.wasm.Capability))) throw new MlsRoomRefused('malformed')
+        const routes = capabilities.map(capability => {
+          const info = scope.wasm.Capability.prototype.info.call(capability), expiresAt = Number(info.expiresAt)
+          const route: MlsPackageRoute = { packageId: bytesToHex(info.packageId), welcomeMailbox: bytesToHex(info.welcomeMailbox),
+            homeBox: bytesToHex(info.homeBox), leafId: bytesToHex(info.leafId), expiresAt }
+          if (![route.packageId, route.welcomeMailbox, route.homeBox, route.leafId].every(hex) || !Number.isSafeInteger(expiresAt) ||
+              expiresAt <= boxNow || expiresAt - boxNow > 7 * 86400 || expiresAt <= this.now()) throw new MlsRoomRefused('invalid-package-route')
+          return Object.freeze(route)
+        })
+        let room: MlsRoomRecord
+        const validate = async (session: Session, tx: PersonaReader) => {
+          const watched = new Set((session.watchList() as MlsWatch[]).map(item => bytesToHex(item.mailbox))), known = room.packages ?? []
+          if (room.binding.installation === null) throw new MlsRoomRefused('not-joined')
+          if (client.box !== room.binding.homeBox || routes.some(route => route.homeBox !== room.binding.homeBox || watched.has(route.welcomeMailbox))) throw new MlsRoomRefused('invalid-package-route')
+          if (known.length + routes.length > 64 || new Set([...known, ...routes].map(route => route.packageId)).size !== known.length + routes.length ||
+              new Set([...known, ...routes].map(route => route.welcomeMailbox)).size !== known.length + routes.length) throw new MlsRoomRefused('package-route-full')
+          await assertMembershipMutationAllowed(tx, scope.wasm, id)
+        }
+        const checked = await scope.host.step(scope.hostContext, id, session => ({ snapshot: null, value: undefined }),
+          this.#edits(scope.ctx, scope, id, async (r, tx, session) => { room = r; await validate(session, tx) }))
+        if (checked.state !== 'active') return checked
+        for (const route of routes) {
+          if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
+          const packageId = hexToBytes(route.packageId), mailbox = hexToBytes(route.welcomeMailbox)
+          try {
+            const answer = await BrowserMlsBoxClient.prototype.registerPackage.call(client, packageId, mailbox, route.expiresAt, boxNow)
+            if (answer.state !== 'ok') throw new PackageRegistrationStopped(answer)
+          } finally { packageId.fill(0); mailbox.fill(0) }
+        }
+        if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
+        return scope.host.step(scope.hostContext, id, session => {
+          capabilities.forEach((capability, index) => {
+            const info = scope.wasm.Capability.prototype.info.call(capability), expected = routes[index]
+            if (bytesToHex(info.packageId) !== expected.packageId || bytesToHex(info.welcomeMailbox) !== expected.welcomeMailbox ||
+                bytesToHex(info.homeBox) !== expected.homeBox || bytesToHex(info.leafId) !== expected.leafId || Number(info.expiresAt) !== expected.expiresAt) throw new MlsRoomRefused('invalid-package-route')
+          })
+          consumed = true
+          return effect(session, session.add(BigInt(this.now()), capabilities))
+        }, this.#edits(scope.ctx, scope, id, async (r, tx, session) => { room = r; await validate(session, tx) },
+          r => { r.packages = [...(r.packages ?? []), ...routes] }))
+      })
+    } catch (error) {
+      if (error instanceof PackageRegistrationStopped) return { state: 'transport', answer: error.answer }
+      throw error
+    } finally { if (!consumed) freeCapabilities(capabilities) }
+  }
+
+  removeDevice(context: MlsRoomContext, id: string, options: { operation: string; leafId: string; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    return this.#beginRemoval(context, id, { ...options, kind: 'device', target: options.leafId })
+  }
+
+  removePerson(context: MlsRoomContext, id: string, options: { operation: string; identity: string; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    return this.#beginRemoval(context, id, { ...options, kind: 'person', target: options.identity })
+  }
+
+  #beginRemoval(context: MlsRoomContext, id: string, options: { operation: string; kind: 'device' | 'person'; target: string; grants: VmlsGrantRef[]; compromised: boolean }): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    const grants = options.grants.map(grant => ({ node: grant.node.slice(), grant: grant.grant.slice(), keeper: grant.keeper }))
+    options = { ...options, grants }
+    return this.#using<MlsRemovalStatus>(context, async scope => {
+      if (!hex(options.operation) || !hex(options.target) || typeof options.compromised !== 'boolean') throw new MlsRoomRefused('malformed')
+      let journal!: Awaited<ReturnType<typeof readMlsMembership>>, record: MlsRemovalRecord | undefined, removal: VmlsRemoval | undefined, encoded: Uint8Array | undefined
+      try {
+        return await scope.host.step(scope.hostContext, id, session => {
+          if (record) {
+            removal = decodeRemoval(scope.wasm, record)
+            const expected = grants.map(grantKey), actual = removal.grants().map(item => grantKey(item.grant))
+            if (JSON.stringify(expected) !== JSON.stringify(actual)) throw new MlsRoomRefused('replay')
+          } else {
+            removal = options.kind === 'device'
+              ? scope.wasm.removalDevice(session, hexToBytes(options.target), grants)
+              : scope.wasm.removalPerson(session, hexToBytes(options.target), grants)
+            encoded = removal.encode()
+            record = { operation: options.operation, session: id, kind: options.kind, target: options.target, compromised: options.compromised,
+              createdAt: this.now(), attempts: 0, failure: null, journal: bytesToHex(encoded) }
+          }
+          return { snapshot: null, value: removalStatus(record, removal, session) }
+        }, this.#edits(scope.ctx, scope, id, async (_room, tx) => {
+          journal = await readMlsMembership(tx)
+          record = journal.removals.find(item => item.operation === options.operation)
+          if (record && (record.session !== id || record.kind !== options.kind || record.target !== options.target || record.compromised !== options.compromised)) throw new MlsRoomRefused('replay')
+          if (!record && journal.removals.length >= MAX_MLS_REMOVALS) throw new MlsRoomRefused('membership-full')
+        }, async (_room, _session, _value, tx) => {
+          if (record && !journal.removals.some(item => item.operation === record!.operation)) {
+            journal.removals.push(record)
+            await saveMlsMembership(tx, journal)
+          }
+        }))
+      } finally { removal?.free(); encoded?.fill(0) }
+    }).finally(() => { for (const grant of grants) { grant.node.fill(0); grant.grant.fill(0) } })
+  }
+
+  membership(context: MlsRoomContext, id: string): Promise<MlsRoomResult<MlsRemovalStatus[]>> {
+    return this.#using<MlsRemovalStatus[]>(context, async scope => {
+      let records: MlsRemovalRecord[] = []
+      return scope.host.step(scope.hostContext, id, session => {
+        const statuses: MlsRemovalStatus[] = []
+        for (const record of records) {
+          const removal = decodeRemoval(scope.wasm, record)
+          try { statuses.push(removalStatus(record, removal, session)) } finally { removal.free() }
+        }
+        return { snapshot: null, value: statuses }
+      }, this.#edits(scope.ctx, scope, id, async (_room, tx) => {
+        records = (await readMlsMembership(tx)).removals.filter(record => record.session === id)
+      }))
+    })
+  }
+
+  driveRemoval(context: MlsRoomContext, id: string, operation: string): Promise<MlsRoomResult<MlsRemovalEffect>> {
+    return this.#using<MlsRemovalEffect>(context, async scope => {
+      if (!hex(operation)) throw new MlsRoomRefused('malformed')
+      let journal!: Awaited<ReturnType<typeof readMlsMembership>>, record!: MlsRemovalRecord, removal: VmlsRemoval | undefined
+      let driven: HostedMlsResult<MlsRemovalEffect>
+      try {
+        driven = await scope.host.step<MlsRemovalEffect>(scope.hostContext, id, session => {
+          removal = decodeRemoval(scope.wasm, record)
+          let step: EngineStep = { snapshot: null, events: [], outbound: [] }
+          const next = removal.next(session)
+          if (removal.mls() === 'Failed') {
+            if (next.type !== 'Done') return removalEffect(session, step, removalStatus(record, removal, session))
+            removal.setMls('Pending'); record.failure = null
+          }
+          if (next.type === 'Propose') {
+            if (record.attempts >= 1000) {
+              removal.setMls('Failed'); record.failure = 'AttemptLimit'
+            } else {
+              record.attempts++
+              try { step = session.remove(BigInt(this.now()), next.leafIds) }
+              catch (error) {
+                const failure = typeof (error as any)?.code === 'string' ? (error as any).code : 'RemoveFailed'
+                if (DEFERRED_REMOVAL.has(failure)) record.attempts--
+                else { removal.setMls('Failed'); record.failure = failure }
+              }
+            }
+          }
+          record.journal = bytesToHex(removal.encode())
+          return removalEffect(session, step, removalStatus(record, removal, session))
+        }, this.#edits(scope.ctx, scope, id, async (_room, tx) => {
+          journal = await readMlsMembership(tx)
+          const found = journal.removals.find(item => item.operation === operation && item.session === id)
+          if (!found) throw new MlsRoomRefused('unknown-removal')
+          record = found
+        }, async (_room, _session, _value, tx) => { await saveMlsMembership(tx, journal) }))
+      } finally { removal?.free(); removal = undefined }
+      if (driven.state !== 'active' || driven.value.membership.mls !== 'Pending' || driven.value.membership.next.type !== 'Done') return driven
+      return scope.host.witnessed<MlsRemovalEffect>(scope.hostContext, id, async (session, witness, tx) => {
+        const stored = await readMlsMembership(tx), found = stored.removals.find(item => item.operation === operation && item.session === id)
+        if (!found) throw new MlsRoomRefused('unknown-removal')
+        const committed = decodeRemoval(scope.wasm, found)
+        try {
+          witness.mlsCommitted(committed, session)
+          found.failure = null; found.journal = bytesToHex(committed.encode())
+          await saveMlsMembership(tx, stored)
+          return removalEffectValue(session, committed, found)
+        } finally { committed.free() }
+      })
+    })
+  }
+
+  retryRemoval(context: MlsRoomContext, id: string, operation: string): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    return this.#changeRemoval(context, id, operation, removal => removal.setMls('Pending'))
+  }
+
+  setRemovalCredential(context: MlsRoomContext, id: string, operation: string, state: VmlsCredentialState): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    return this.#changeRemoval(context, id, operation, removal => {
+      if (!['Unchanged', 'Revoked', 'Pending', 'Failed'].includes(state)) throw new MlsRoomRefused('malformed')
+      removal.setCredential(state)
+    })
+  }
+
+  setRemovalGrant(context: MlsRoomContext, id: string, operation: string, grant: string, state: VmlsGrantState): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    return this.#changeRemoval(context, id, operation, removal => {
+      if (!hex(grant)) throw new MlsRoomRefused('malformed')
+      removal.setGrant(hexToBytes(grant), state)
+    })
+  }
+
+  #changeRemoval(context: MlsRoomContext, id: string, operation: string, change: (removal: VmlsRemoval) => void): Promise<MlsRoomResult<MlsRemovalStatus>> {
+    return this.#using<MlsRemovalStatus>(context, async scope => {
+      if (!hex(operation)) throw new MlsRoomRefused('malformed')
+      let journal!: Awaited<ReturnType<typeof readMlsMembership>>, record!: MlsRemovalRecord, removal: VmlsRemoval | undefined
+      try {
+        return await scope.host.step(scope.hostContext, id, session => {
+          removal = decodeRemoval(scope.wasm, record); change(removal)
+          record.failure = null; record.journal = bytesToHex(removal.encode())
+          return { snapshot: null, value: removalStatus(record, removal, session) }
+        }, this.#edits(scope.ctx, scope, id, async (_room, tx) => {
+          journal = await readMlsMembership(tx)
+          const found = journal.removals.find(item => item.operation === operation && item.session === id)
+          if (!found) throw new MlsRoomRefused('unknown-removal')
+          record = found
+        }, async (_room, _session, _value, tx) => { await saveMlsMembership(tx, journal) }))
+      } finally { removal?.free() }
+    })
   }
 
   update(context: MlsRoomContext, id: string, expiresAt: number, consent: ConsentPrompt): Promise<MlsRoomResult<MlsRoomEffect>> {
@@ -282,7 +545,7 @@ export class BrowserMlsRoomOperations {
       let room: MlsRoomRecord
       return scope.host.step(scope.hostContext, id, s => ({ snapshot: null, value: {
         generation: String(s.generation()), phase: s.phase(), epoch: s.epoch() as bigint | null,
-        binding: room.binding, join: room.join, ordering: room.ordering ?? [], outbox: s.outbox() as MlsOutbound[], watch: s.watchList() as MlsWatch[],
+        binding: room.binding, join: room.join, packages: room.packages ?? [], ordering: room.ordering ?? [], outbox: s.outbox() as MlsOutbound[], watch: s.watchList() as MlsWatch[],
       } }), this.#edits(scope.ctx, scope, id, r => { room = r }))
     })
   }
@@ -314,7 +577,7 @@ export class BrowserMlsRoomOperations {
   drive(context: MlsRoomContext, id: string, guard: MlsDriverGuard, command: MlsDriverCommand): Promise<MlsRoomResult<MlsRoomEffect>> {
     guard = { ...guard }; command = structuredClone(command)
     return this.#using<MlsRoomEffect>(context, async scope => {
-      let room: MlsRoomRecord
+      let room: MlsRoomRecord, deliveredPackages: string[] = [], pendingPackages = new Set<string>()
       return scope.host.step(scope.hostContext, id, s => {
         if (guard.generation !== String(s.generation())) throw new StaleMlsOperation()
         if (guard.homeBox !== room.binding.homeBox || !hex(guard.installation)) throw new MlsRoomRefused('wrong-box')
@@ -324,10 +587,17 @@ export class BrowserMlsRoomOperations {
           switch (command.type) {
             case 'installation': return effect(s, ['Active', 'NeedsRecovery'].includes(s.phase().type) ? s.observeInstallation(now, hexToBytes(guard.installation)) : { snapshot: null, events: [], outbound: [] })
             case 'tick': return effect(s, s.tick(now))
+            case 'prune-packages':
+              pendingPackages = new Set(s.outbox().filter((outbound: MlsOutbound) => outbound.destination.type === 'Welcome')
+                .map((outbound: MlsOutbound) => bytesToHex((outbound.destination as Extract<MlsDestination, { type: 'Welcome' }>).packageId)))
+              return effect(s, { snapshot: null, events: [], outbound: [] })
             case 'delivered':
               if (!command.records.length || command.records.some(id => !s.outbox().some((r: MlsOutbound) => bytesToHex(r.recordId) === bytesToHex(id)))) throw new StaleMlsOperation()
+              deliveredPackages = s.outbox().filter((outbound: MlsOutbound) => command.records.some(record => bytesToHex(record) === bytesToHex(outbound.recordId)) && outbound.destination.type === 'Welcome')
+                .map((outbound: MlsOutbound) => bytesToHex((outbound.destination as Extract<MlsDestination, { type: 'Welcome' }>).packageId))
               return effect(s, s.outboundDelivered(command.records))
             case 'deposit': return effect(s, s.depositResult(now, command.attempt, command.receipt))
+            case 'confirm': return effect(s, s.confirmMember(command.packageId))
             case 'slot': return effect(s, s.slotStatus(now, command.attempt, command.status, command.receipt))
             case 'receipt':
               if (command.receipt.length !== 197 || bytesToHex(command.receipt.subarray(65, 97)) !== command.slot) throw new MlsRoomRefused('wrong-slot')
@@ -340,8 +610,10 @@ export class BrowserMlsRoomOperations {
           if ((error as any)?.kind === 'engine') throw new MlsRoomRefused('engine:' + (error as any).code)
           throw error
         }
-      }, this.#edits<MlsRoomEffect>(scope.ctx, scope, id, r => { room = r }, r => {
+      }, this.#edits<MlsRoomEffect>(scope.ctx, scope, id, r => { room = r }, (r, s) => {
         if (command.type === 'receipt') r.ordering = r.ordering?.filter(q => q.slot !== command.slot || q.attempt !== command.attempt)
+        if (deliveredPackages.length) r.packages = r.packages?.filter(route => !deliveredPackages.includes(route.packageId))
+        if (command.type === 'prune-packages') r.packages = r.packages?.filter(route => route.expiresAt > this.now() || pendingPackages.has(route.packageId))
       }))
     }).finally(() => wipe(command))
   }
@@ -370,7 +642,10 @@ export class BrowserMlsRoomOperations {
         }
         message = { leaf: bytesToHex(s.ownLeafId()), epoch: String(s.epoch()) }
         return effect(s, s.send(body))
-      }, this.#edits(scope.ctx, scope, id, r => { room = r }, r => {
+      }, this.#edits(scope.ctx, scope, id, async (r, tx) => {
+        room = r
+        await assertMembershipMutationAllowed(tx, scope.wasm, id)
+      }, r => {
         if (message) appendMlsHistory(r, { id: 'sent:' + operation, direction: 'sent', ...message, body })
       }))
     }).finally(() => body.fill(0))
@@ -411,9 +686,10 @@ function wipe(value: unknown): void {
 
 export interface MlsDriverGuard { generation: string; homeBox: string; installation: string }
 export type MlsDriverCommand =
-  | { type: 'installation' | 'tick' }
+  | { type: 'installation' | 'tick' | 'prune-packages' }
   | { type: 'delivered'; records: Uint8Array[] }
   | { type: 'deposit'; attempt: number; receipt: Uint8Array }
+  | { type: 'confirm'; packageId: Uint8Array }
   | { type: 'slot'; attempt: number; status: 'Expired' | 'Void'; receipt: Uint8Array }
   | { type: 'receipt'; slot: string; attempt: number; receipt: Uint8Array }
   | { type: 'drained'; mailbox: Uint8Array }
@@ -425,4 +701,4 @@ export type MlsDestination =
   | { type: 'Welcome'; packageId: Uint8Array }
 export interface MlsOutbound { recordId: Uint8Array; mailbox: Uint8Array; envelope: Uint8Array; destination: MlsDestination }
 export interface MlsWatch { mailbox: Uint8Array; homeBox: Uint8Array | null; kind: { type: 'OwnLeaf' | 'RetainedLeaf' | 'ForkEvidence' | 'Welcome' } | { type: 'CommitSlot'; epoch: bigint; attempt: number } }
-export interface MlsDriverState { generation: string; phase: { type: string; reason?: string }; epoch: bigint | null; binding: MlsRoomRecord['binding']; join?: MlsRoomRecord['join']; ordering: { slot: string; attempt: number }[]; outbox: MlsOutbound[]; watch: MlsWatch[] }
+export interface MlsDriverState { generation: string; phase: { type: string; reason?: string }; epoch: bigint | null; binding: MlsRoomRecord['binding']; join?: MlsRoomRecord['join']; packages: MlsPackageRoute[]; ordering: { slot: string; attempt: number }[]; outbox: MlsOutbound[]; watch: MlsWatch[] }

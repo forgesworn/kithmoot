@@ -115,6 +115,7 @@ export class BrowserMlsMessageDriver {
       stopPhase(await refresh())
       await stepped({ type: 'tick' })
       let s = await refresh(); stopPhase(s)
+      if (s.packages.some(route => route.expiresAt <= this.now())) { await stepped({ type: 'prune-packages' }); s = await refresh(); stopPhase(s) }
       // Keep a bounded list of exact witnessed records, never step.outbound
       // from an uncertain call. Generation guards stop any competing edit.
       const outgoing = structuredClone(s.outbox.slice(0, this.maxRecords)); owned.push(outgoing)
@@ -128,14 +129,15 @@ export class BrowserMlsMessageDriver {
           await stepped({ type: 'delivered', records: [out.recordId] }); done.delivered++; continue
         }
         if (d.type === 'CommitSlot' && s.phase.type !== 'Active') continue
+        const packageRoute = d.type === 'Welcome' ? s.packages.find(route => route.packageId === bytesToHex(d.packageId)) : undefined
         const box = d.type === 'Introduction'
           ? s.join && bytesToHex(d.peerRz) === s.join.adderRz ? s.join.introductionBox : undefined
-          : d.type === 'Welcome' ? undefined : bytesToHex(d.homeBox)
-        // Welcome requires inviter/package destination metadata not yet in
-        // the room API. There is deliberately no implicit home-box fallback.
+          : d.type === 'Welcome' ? packageRoute?.homeBox : bytesToHex(d.homeBox)
         if (box !== this.client.box) { done.held++; if (leaf) heldLeaves.add(leaf); continue }
-        const expires = d.type === 'Introduction' ? s.join!.expiresAt : d.type === 'ForkEvidence' ? Number(d.expiresAt) : Infinity
+        if (d.type === 'Welcome' && (!packageRoute || bytesToHex(out.mailbox) !== packageRoute.welcomeMailbox)) { done.held++; continue }
+        const expires = d.type === 'Introduction' ? s.join!.expiresAt : d.type === 'Welcome' ? packageRoute!.expiresAt : d.type === 'ForkEvidence' ? Number(d.expiresAt) : Infinity
         const valid = () => live() && this.now() < expires
+        if (!valid()) { done.held++; continue }
         const answer = d.type === 'CommitSlot'
           ? await authenticated(() => this.client.depositSlot(out.mailbox, d.attempt, out.envelope, valid))
           : await authenticated(() => this.client.deposit(out.mailbox, out.envelope, valid))
@@ -152,6 +154,11 @@ export class BrowserMlsMessageDriver {
           // Framing alone is no receipt proof. No durable signed answer:
           // retain exact bytes; the status read may decide the slot below.
           if (!receipt || !await stepped({ type: 'deposit', attempt: d.attempt, receipt }, true)) continue
+        }
+        if (d.type === 'Welcome') {
+          const acknowledgement = (answer.value as { welcomeAcknowledged: boolean | null }).welcomeAcknowledged
+          if (acknowledgement === null) { done.held++; continue }
+          if (acknowledgement) await stepped({ type: 'confirm', packageId: d.packageId })
         }
         await stepped({ type: 'delivered', records: [out.recordId] }); done.delivered++
       }

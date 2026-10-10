@@ -79,6 +79,31 @@ test('uncertain deposit recovers exact bytes with fresh authentication', async (
   const puts = r.calls.filter((c: any) => c.path.startsWith('/vmls/v1/slots/') && !c.path.endsWith('/status'))
   expect(puts).toHaveLength(2); expect(puts[0].body).toBe(puts[1].body); expect(puts[0].event).not.toBe(puts[1].event)
 })
+for (const mode of ['inviter-welcome', 'inviter-welcome-lost-registration']) test(`driver ${mode} registers the exact Add route before Welcome delivery`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  const r = await drive(page, mode)
+  expect(r.result).toMatchObject({ state: 'done', delivered: 2 })
+  const registrations = r.calls.filter((c: any) => c.path.startsWith('/vmls/v1/packages/'))
+  const deposits = r.calls.filter((c: any) => c.path.startsWith('/vmls/v1/mailboxes/'))
+  expect(registrations).toHaveLength(mode === 'inviter-welcome-lost-registration' ? 2 : 1)
+  if (mode === 'inviter-welcome-lost-registration') {
+    expect(registrations[0].body).toBe(registrations[1].body)
+    expect(registrations[0].event).not.toBe(registrations[1].event)
+  }
+  expect(deposits).toHaveLength(1)
+  expect(r.calls.indexOf(registrations.at(-1))).toBeLessThan(r.calls.indexOf(deposits[0]))
+  expect(r.after.value.outbox.some((o: any) => o.destination.type === 'Welcome')).toBe(false)
+  expect(r.driverAfter.value.packages).toEqual([])
+})
+test('a permanent package-registration refusal never admits the guest', async ({ context }) => {
+  const { page } = await enrolled(context)
+  const r = await drive(page, 'inviter-welcome-registration-refused')
+  expect(r.result).toMatchObject({ state: 'transport', answer: { state: 'refused', status: 403, code: 'authority' } })
+  expect(r.calls.filter((c: any) => c.path.startsWith('/vmls/v1/packages/'))).toHaveLength(1)
+  expect(r.calls.some((c: any) => c.path.startsWith('/vmls/v1/mailboxes/'))).toBe(false)
+  expect(r.driverAfter.value.packages).toEqual([])
+  expect(r.driverAfter.value.outbox.some((o: any) => o.destination.type === 'Welcome')).toBe(false)
+})
 test('driver refuses unverified slot signatures without clearing the commit', async ({ context }) => {
   const { page } = await enrolled(context)
   const r = await drive(page, 'bad-slot')

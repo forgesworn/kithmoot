@@ -1,6 +1,6 @@
 import type * as Binding from '../public/vmls-wasm/vmls_wasm.js'
 
-const version = 'd91a23d1978ef08c22709181e16ab158d95c98cd'
+const version = '64c669bed8e11ed6f63c23d851e7dd24b9dffb2f'
 let binding: Promise<typeof Binding> | undefined
 
 /** Self-hosted shared Rust engine, loaded only for explicit MLS use. Its

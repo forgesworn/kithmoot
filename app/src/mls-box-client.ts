@@ -38,7 +38,7 @@ type Json = Record<string, unknown>
  * This client verifies wire facts; the driver must compare capabilities
  * on open/replies and feed signed slot labels to the engine before acting. */
 export class BrowserMlsBoxClient {
-  readonly box: string
+  readonly box!: string
   readonly #routeId: string
   readonly #context: VaultContext
   #epoch = 0
@@ -52,7 +52,8 @@ export class BrowserMlsBoxClient {
     const actual = pairedWitnessIdentity({ routeId: route.routeId, card: bytesToHex(route.card), cardSerial: String(route.cardSerial),
       cardVerifiedAt: String(route.cardVerifiedAt), pairedRouteSecret: '', relayUrls: [] })
     if (actual !== expectedBox) throw new Error('MLS box and paired Link identity differ.')
-    this.box = actual; this.#routeId = route.routeId; this.#context = Object.freeze({ ...context })
+    Object.defineProperty(this, 'box', { value: actual, enumerable: true })
+    this.#routeId = route.routeId; this.#context = Object.freeze({ ...context })
   }
   /** Suppress and wake pending work. A dispatched request may have committed;
    * its durable outbox must survive for fresh-authentication reconciliation. */

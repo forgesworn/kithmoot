@@ -1,6 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
-import { BrowserPersonaCoordinator, InvalidPersonaRecord, type CoordinationFence, type CoordinationHold, type PersonaTransaction } from './mls-persona-coordinator.js'
+import { BrowserPersonaCoordinator, InvalidPersonaRecord, type CoordinationFence, type CoordinationHold, type PersonaMlsWitness, type PersonaTransaction } from './mls-persona-coordinator.js'
 
 /** The shared WASM Session implements this surface. The opener must return
  * a fresh handle and must never retain the supplied plaintext. */
@@ -188,6 +188,42 @@ export class BrowserMlsSessionHost<S extends HostedMlsSession> {
     const result = await this.coordinator.status(context.persona, current)
     if (!current()) return stale()
     return result.state === 'active' ? { state: 'active', value: result.marks } : result
+  }
+
+  /** Read a live session together with the reconciled coordinator and commit
+   * local vault edits under the same witness advance. The callback receives
+   * no raw Coordinator and its witness capability expires on return. */
+  async witnessed<T>(context: MlsSessionContext, id: string,
+    call: (session: S, witness: PersonaMlsWitness, tx: PersonaTransaction) => Promise<T> | T): Promise<HostedMlsResult<T>> {
+    checkId(id)
+    const current = this.#current(context)
+    let session: S | undefined, value: T | undefined, released = false
+    try {
+      const result = await this.coordinator.transact(context.persona, async (tx, witness) => {
+        if (!current()) throw new StaleMlsOperation()
+        const saved = await tx.readSession(id)
+        if (!saved) return false
+        try {
+          session = this.open(hexToBytes(id), saved.plaintext, saved.generation)
+          if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation) throw new Error('MLS session does not match witnessed generation')
+          const provisional = await call(session, witness, tx)
+          try { value = structuredClone(provisional) } finally { wipe(provisional) }
+          if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation) throw new Error('Witnessed MLS read changed durable state')
+          return true
+        } finally { saved.plaintext.fill(0) }
+      }, current)
+      const closing = session; session = undefined; closing?.free()
+      if (!current()) return stale()
+      if (result.state !== 'active') return result
+      if (!result.value) return { state: 'unknown' }
+      released = true
+      return { state: 'active', value: value as T }
+    } catch (error) {
+      if (error instanceof StaleMlsOperation) return stale()
+      throw error
+    } finally {
+      try { session?.free() } finally { if (!released) wipe(value) }
+    }
   }
 
   #current(context: MlsSessionContext): () => boolean {
