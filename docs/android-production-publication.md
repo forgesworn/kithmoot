@@ -80,6 +80,21 @@ release notes for that version. Point `release_source` at that one APK rather
 than relying on whichever local build happens to match a glob. The repository
 changelog may lag the signed GitHub release notes.
 
+A local APK source advertises the publisher's Blossom download URL. To keep
+Zapstore downloads available during a CDN outage, the private publication
+configuration can instead name the verified immutable GitHub APK URL as
+`release_source`, with `BLOSSOM_URL=https://kithmoot.app/apk` for the prepared
+owner mirror. The publisher includes the upstream URL first and the
+content-addressed mirror second. Use the exact versioned GitHub asset, never a
+moving `latest` URL.
+
+Before signing, stage that same APK and the configured icon under their SHA-256
+names in the public APK directory. Check server-side hashes and full public
+downloads, and confirm HEAD returns 200 at both mirror paths. The publisher's
+existence check then uses the already prepared files; the website's APK
+directory is a download mirror. Keep the existing versioned APK immutable and
+retain its production signing certificate and lineage.
+
 The existing KithMoot listing belongs to
 `npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2`.
 Preserve that publisher. The Nostr publisher key is separate from the Android
@@ -104,7 +119,12 @@ signatures and the existing publisher, checks the latest `main` release against
 the production manifest, follows its signed APK asset reference, and compares
 the advertised version/code, SDKs, certificate, filename and size. It then
 downloads the public CDN artifact and verifies its byte count and SHA-256.
-It signs nothing and reads no private key. `--manifest /path/to/manifest.json`
+It checks every advertised download against the same manifest, accepting only
+the exact versioned GitHub APK and owner-hosted versioned/content-addressed
+mirrors alongside Zapstore's content-addressed CDN. An unavailable source,
+duplicate URL, unexpected host/path, partial response, truncated file or
+different payload fails verification. It signs nothing and reads no private
+key. `--manifest /path/to/manifest.json`
 can check a prepared release manifest before it becomes the website manifest.
 An absent/stale release, invalid signature, mismatched asset, incomplete relay
 query or unavailable/mismatched download fails the command.

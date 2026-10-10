@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import WebSocket from 'ws'
 import { verifyEvent } from 'nostr-tools'
+import { verifiedDownloadUrls, verifyDownload } from './zapstore-downloads.mjs'
 
 const publisher = 'da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd'
 // A store publication is a separate gate from a website or GitHub release.
@@ -81,24 +81,18 @@ assert.equal(requireTag(asset, 'size'), String(manifest.apkBytes))
 assert.equal(requireTag(asset, 'min_platform_version'), String(manifest.minSdk))
 assert.equal(requireTag(asset, 'target_platform_version'), String(manifest.targetSdk))
 assert.equal(requireTag(asset, 'f'), 'android-arm64-v8a')
-const url = requireTag(asset, 'url')
-assert.equal(url, `https://cdn.zapstore.dev/${expectedHash}`)
-const response = await fetch(url, { signal: AbortSignal.timeout(120_000) })
-assert.equal(response.status, 200, 'APK not served publicly')
-const hash = createHash('sha256'); let bytes = 0
-for await (const chunk of response.body) {
-  hash.update(chunk); bytes += chunk.length
-  assert.ok(bytes <= manifest.apkBytes, 'Served APK exceeds its recorded size')
-}
-assert.equal(bytes, manifest.apkBytes)
-assert.equal(hash.digest('hex'), expectedHash)
+const urls = verifiedDownloadUrls(asset, manifest)
+const downloads = []
+// Check every advertised source: some store clients choose only the first URL.
+for (const url of urls) downloads.push(await verifyDownload(url, manifest))
+const { url, bytes } = downloads[0]
 const proof = {
   verifiedAt: new Date().toISOString(), relay, eoseReceived: true,
   publisher, packageId, version: manifest.versionName, versionCode: manifest.versionCode, channel: 'main',
   applicationEventId: app.id, releaseEventId: release.id, assetEventId: asset.id,
   releaseCreatedAt: new Date(release.created_at * 1000).toISOString(),
   nostrSignaturesVerified: true, releaseReferencesVerifiedAsset: true,
-  apk: { url, bytes, sha256: expectedHash, certificateSha256: expectedCertificate, publicDownloadVerified: true },
+  apk: { url, bytes, sha256: expectedHash, certificateSha256: expectedCertificate, publicDownloadVerified: true, downloads },
   published: true, physicalAndroidAcceptance: false, zapstoreClientAcceptance: false,
 }
 if (options.has('--output')) writeFileSync(options.get('--output'), JSON.stringify(proof, null, 2) + '\n')
