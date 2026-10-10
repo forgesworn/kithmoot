@@ -7,6 +7,7 @@ import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
 import { relayDials, type RelayDialGate } from './relay-dial-gate.js'
+import { guardedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
 /** Extra policy chosen by a caller that owns the complete network route. */
@@ -19,6 +20,8 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
 /** The transport seam shared by real relays and the in-process simulator. */
 export interface RelayTransport {
   publish(event: Event): Promise<void>
+  /** Optional guarded carrier; a sensitive decision must fail closed if absent. */
+  publishGuarded?(event: Event, current: () => boolean): Promise<void>
   /** `via` is the relay URL that delivered the event, when the transport
    *  knows it. A consumer works out a message's lane from it and from
    *  nothing on the wire; see `lane.ts`. */
@@ -348,6 +351,37 @@ export class NostrRelayPool implements RelayTransport {
         )
       })
     })
+  }
+
+  /** A short-lived carrier for an authority-sensitive decision. Every socket
+   * write and retry checks the caller and parent generation. Close after the
+   * first acknowledgement, so slower relays cannot keep publishing afterwards.
+   * Ordinary chat keeps its existing fan-out and connection reuse. */
+  async publishGuarded(event: Event, allowed: () => boolean): Promise<void> {
+    const generation = this.#generation
+    const current = () => {
+      try { return !this.#closed && generation === this.#generation && allowed() }
+      catch { return false }
+    }
+    if (!current()) throw new Error('Publication is no longer authorised.')
+    const Base = this.options.websocketImplementation ?? globalThis.WebSocket
+    if (!Base) throw new Error('A guarded WebSocket carrier is unavailable.')
+    const authentication = [...this.#authentication].map(([url, grant]) => ({ url,
+      identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null }))
+    const carrier = new NostrRelayPool(this.#relays, this.circleAtUse, { ...this.options,
+      authentication, websocketImplementation: guardedWebSocket(Base, current) })
+    // Cancellation closes a stalled handshake as well as preventing its
+    // eventual queued write. This carrier publishes an already signed decision.
+    const timer = setInterval(() => { if (!current()) carrier.close() }, 25)
+    this.#publishing++
+    try {
+      await carrier.publish(event)
+      if (!current()) throw new Error('Publication is no longer authorised.')
+    } finally {
+      clearInterval(timer)
+      carrier.close()
+      this.#publishDone()
+    }
   }
 
   #finishPublish(urls: string[], results: PromiseSettledResult<void>[]): void {

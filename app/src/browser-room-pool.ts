@@ -128,6 +128,16 @@ export class BrowserRoomPool implements ManagedRelayPool {
     this.#writes.add(write)
     try { await write } finally { this.#writes.delete(write) }
   }
+  async publishGuarded(event: Event, allowed: () => boolean): Promise<void> {
+    const generation = this.#generation
+    const current = () => !this.#closed && generation === this.#generation && allowed() &&
+      (!this.#consent || this.#consent.account === this.opts.account() && this.#consent.expires > this.#now())
+    await this.#open()
+    if (!current() || !this.#delegate?.publishGuarded) throw new Error('Guarded room publication is unavailable.')
+    const write = this.#delegate.publishGuarded(event, current)
+    this.#writes.add(write)
+    try { await write } finally { this.#writes.delete(write) }
+  }
   async settled(timeoutMs = 20_000): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
     try { await Promise.race([Promise.allSettled([...this.#writes]), new Promise<void>(r => { timer = setTimeout(r, timeoutMs) })]); await this.#public?.settled(timeoutMs) }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createRoomInvitation, decodeInvitationDecline, decodeRoomAdmissionGrant } from '../../src/invitation.js'
+import { createRoomInvitation, decodeInvitationDecline, decodeRoomAdmissionGrant, encodeInvitationGrant } from '../../src/invitation.js'
 import { getPublicKey } from 'nostr-tools/pure'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import { prepareInvitationRefusal } from './invitation-refusal.js'
@@ -9,9 +9,11 @@ function fixture() {
   const events: Parameters<RelayTransport['publish']>[0][] = []
   let current = true, clock = 1_800_000_000, fail = false
   let wait: Promise<void> | undefined
-  const transport: RelayTransport = { close: () => {}, subscribe: () => () => {}, publish: async event => {
+  const publish: RelayTransport['publish'] = async event => {
     events.push(event); if (wait) await wait; if (fail) throw new Error('Synthetic relay refusal')
-  } }
+  }
+  const transport: RelayTransport = { close: () => {}, subscribe: () => () => {}, publish,
+    publishGuarded: async (event, current) => { if (!current()) throw new Error('No longer authorised'); await publish(event) } }
   const opts = { invitation: host.invitation, inviterSk: host.inviterSk, delegation: [],
     requester: getPublicKey(key), request, transport, expiresAt: clock + 90, now: () => clock, stillCurrent: () => current }
   return { host, key, request, opts, events,
@@ -46,5 +48,22 @@ describe('explicit refusal dispatch', () => {
     expect(f.events).toHaveLength(1)
     await expect(attempt.send()).rejects.toThrow('no longer current')
     expect(f.events).toHaveLength(1)
+  })
+  it('a carrier without write guards cannot receive the refusal', async () => {
+    const f = fixture(); delete f.opts.transport.publishGuarded
+    await expect(prepareInvitationRefusal(f.opts).send()).rejects.toThrow('cannot safely send')
+    expect(f.events).toHaveLength(0)
+  })
+  it('cannot publish once the signed responder delegation expires even if the UI deadline remains', async () => {
+    const f = fixture(), responderKey = new Uint8Array(32).fill(8)
+    let time = f.opts.now()
+    const grant = encodeInvitationGrant({ invitation: f.host.invitation, inviterSk: f.host.inviterSk,
+      requester: getPublicKey(responderKey), request: f.request, roomSecret: new Uint8Array(32).fill(9), now: time })
+    const responder = decodeRoomAdmissionGrant(grant, { invitation: f.host.invitation, requesterSk: responderKey, request: f.request, now: time })!.delegate!
+    const attempt = prepareInvitationRefusal({ ...f.opts, inviterSk: responder.delegateSk,
+      delegation: responder.chain, expiresAt: time + 86_400, now: () => time })
+    time = responder.chain[0]!.expiresAt
+    await expect(attempt.send()).rejects.toThrow('no longer current')
+    expect(f.events).toHaveLength(0)
   })
 })

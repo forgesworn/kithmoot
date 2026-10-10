@@ -666,8 +666,8 @@ accessibility review and unfamiliar guest/host acceptance below remain open.
 
 The [authenticated-refusal receipt](evidence/admission-refusal-2026-10-10.json)
 adds a distinct declined guest state, acknowledgement-aware host feedback and
-immutable refusal retry across four browser configurations. This branch remains
-unpublished while delayed-connection/background-retry write guards are qualified.
+immutable refusal retry across four browser configurations. Delayed-connection, authentication and background-retry write guards are
+qualified in unit and browser checks; final-head CI and publication remain.
 The full preview/state/cross-client and unfamiliar-user gates below remain open.
 
 Acceptance:

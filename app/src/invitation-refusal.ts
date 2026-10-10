@@ -11,7 +11,8 @@ export function prepareInvitationRefusal(opts: {
   requester: string; request: string; transport: RelayTransport
   expiresAt: number; stillCurrent(): boolean; now(): number
 }): InvitationRefusalAttempt {
-  const { transport, expiresAt, stillCurrent, now } = opts
+  const { transport, stillCurrent, now } = opts
+  const expiresAt = Math.min(opts.expiresAt, ...opts.delegation.map(grant => grant.expiresAt))
   const check = () => {
     if (!stillCurrent() || now() >= expiresAt) throw new Error('This admission decision is no longer current.')
   }
@@ -20,7 +21,8 @@ export function prepareInvitationRefusal(opts: {
     delegation: opts.delegation, requester: opts.requester, request: opts.request, now: now() })
   return { event, async send() {
     check()
-    await transport.publish(event)
+    if (!transport.publishGuarded) throw new Error('This connection cannot safely send an admission decision.')
+    await transport.publishGuarded(event, () => stillCurrent() && now() < expiresAt)
     check()
   } }
 }

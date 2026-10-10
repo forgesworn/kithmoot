@@ -26,7 +26,7 @@ not establish guest receipt or entry. A refusal cannot revoke an already receive
 grant. With concurrent authorised hosts, the first validated response wins.
 
 The [refusal automation receipt](evidence/admission-refusal-2026-10-10.json)
-records 3,740 unit tests and 60 browser journeys across Firefox, WebKit, Chromium
+records 3,788 unit tests and 60 browser journeys across Firefox, WebKit, Chromium
 and desktop Chromium. The tests use a local signature-verifying relay and cover
 held acknowledgements, rejected replies, immutable retries, saved names, unsent
 host drafts and existing signed-account/private-room admission. These are
@@ -35,8 +35,16 @@ synthetic browser results, separate from Android and physical acceptance.
 G17 remains open. Guest preview, cancellation, offline/reconnecting states,
 admission from another conversation, complete native composition and unfamiliar
 guest/host acceptance remain. The refusal attempt checks source room, epoch,
-invitation, transport, contact policy and expiry before publication and after
-acknowledgement. Navigation, retirement and invitation replacement close the
-invitation transport. A write-bound guard for delayed connections and the
-transport's background retries still needs qualification before this browser
-change is released; a post-acknowledgement check alone cannot retract a reply.
+invitation, current authority/delegation, transport, contact policy, room lifetime
+and delegation expiry. A short-lived carrier enforces these checks immediately
+before each underlying socket write, including delayed connections, relay
+authentication and retries. Route/generation changes and withdrawn authentication
+close the carrier; the first acknowledgement also cancels slower relay writes.
+Carriers without write guards fail closed. An event already written cannot be
+retracted; guest receipt remains separate from relay acknowledgement.
+
+The guarded carrier uses the existing relay configuration, authentication
+permissions and circle policy, opening a separate connection for this explicit
+decision. It closes promptly when the decision finishes or becomes stale.
+Ordinary chat retains its existing connection reuse and fan-out. These changes
+remain unpublished until final-head CI, review, merge and release verification.

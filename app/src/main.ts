@@ -2010,14 +2010,17 @@ async function sendKnockRefusal(knock: Knock): Promise<void> {
   try {
     if (!knock.refusal) {
       const invitation = roomInvitationCapability, transport = invitationTransport, authority = invitationAuthoritySk
+      const delegation = invitationDelegation
       const decidingSession = session, generation = roomGeneration, epoch = decidingSession?.epoch
       if (!invitation || !transport || !authority) throw new Error('The invitation is no longer available.')
       knock.refusal = prepareInvitationRefusal({ invitation, transport, inviterSk: authority,
-        delegation: invitationDelegation, requester: knock.device, request: knock.request,
-        expiresAt: knock.at + KNOCK_WAIT_MS / 1000, now: nowSeconds,
+        delegation, requester: knock.device, request: knock.request,
+        expiresAt: Math.min(knock.at + KNOCK_WAIT_MS / 1000, roomEndsAt ?? Infinity), now: nowSeconds,
         stillCurrent: () => knocks.get(knock.request) === knock && currentRoomId() === knock.roomId &&
           roomGeneration === generation && session === decidingSession && session?.epoch === epoch &&
           roomInvitationCapability === invitation && invitationTransport === transport &&
+          invitationAuthoritySk === authority && invitationDelegation === delegation &&
+          !decidingSession?.closed && (roomEndsAt === undefined || nowSeconds() < roomEndsAt) &&
           !(knock.participant && contactIsBlocked(knock.participant)),
       })
     }
