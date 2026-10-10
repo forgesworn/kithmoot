@@ -2,6 +2,7 @@ import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { InvalidPersonaRecord, type PersonaReader, type PersonaTransaction } from './mls-persona-coordinator.js'
 
 export const MAX_MLS_REMOVALS = 64
+export const MAX_MLS_STANDALONE_REVOCATIONS = 64
 export const MAX_MLS_MEMBERSHIP_BYTES = 1024 * 1024
 const RECORD = bytesToHex(new TextEncoder().encode('kithmoot.mls-membership.v1'))
 const hex32 = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
@@ -21,10 +22,20 @@ export interface MlsRemovalRecord {
   journal: string
   request?: { keeper: string; device: string; sessions: string[]; boxes: string[] }
 }
-export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[] }
+export interface MlsStandaloneRevocationRecord {
+  operation: string
+  sender: string
+  keeper: string
+  device: string
+  sessions: string[]
+  boxes: string[]
+  createdAt: number
+  sentAt: number | null
+}
+export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[]; requests: MlsStandaloneRevocationRecord[] }
 
-function validate(record: MlsMembershipJournal): void {
-  if (!record || typeof record !== 'object' || !exact(record, 'removals,version') || record.version !== 1 ||
+function validate(record: MlsMembershipJournal | (Omit<MlsMembershipJournal, 'requests'> & { requests?: MlsStandaloneRevocationRecord[] })): void {
+  if (!record || typeof record !== 'object' || !exact(record, record.requests === undefined ? 'removals,version' : 'removals,requests,version') || record.version !== 1 ||
       !Array.isArray(record.removals) || record.removals.length > MAX_MLS_REMOVALS) invalid()
   const operations = new Set<string>()
   for (const removal of record.removals) {
@@ -41,16 +52,31 @@ function validate(record: MlsMembershipJournal): void {
         !removal.request.boxes.every(hex32) || new Set(removal.request.boxes).size !== removal.request.boxes.length)) invalid()
     operations.add(removal.operation)
   }
+  if (record.requests === undefined) return
+  if (!Array.isArray(record.requests) || record.requests.length > MAX_MLS_STANDALONE_REVOCATIONS) invalid()
+  const requestOperations = new Set<string>(), targets = new Set<string>()
+  for (const request of record.requests) {
+    if (!request || typeof request !== 'object' || !exact(request, 'boxes,createdAt,device,keeper,operation,sender,sentAt,sessions') ||
+        !hex32(request.operation) || !hex32(request.sender) || !hex32(request.keeper) || request.sender === request.keeper || !hex32(request.device) ||
+        !Array.isArray(request.sessions) || request.sessions.length < 1 || request.sessions.length > 64 || !request.sessions.every(hex32) ||
+        new Set(request.sessions).size !== request.sessions.length || request.sessions.some((value, index) => index > 0 && request.sessions[index - 1]! >= value) ||
+        !Array.isArray(request.boxes) || request.boxes.length < 1 || request.boxes.length > 64 || !request.boxes.every(hex32) ||
+        new Set(request.boxes).size !== request.boxes.length || request.boxes.some((value, index) => index > 0 && request.boxes[index - 1]! >= value) ||
+        !Number.isSafeInteger(request.createdAt) || request.createdAt < 0 ||
+        !(request.sentAt === null || Number.isSafeInteger(request.sentAt) && request.sentAt >= request.createdAt) ||
+        requestOperations.has(request.operation) || targets.has(`${request.sender}/${request.keeper}/${request.device}`)) invalid()
+    requestOperations.add(request.operation); targets.add(`${request.sender}/${request.keeper}/${request.device}`)
+  }
 }
 
 export async function readMlsMembership(tx: PersonaReader): Promise<MlsMembershipJournal> {
   const bytes = await tx.readVault(RECORD)
-  if (!bytes) return { version: 1, removals: [] }
+  if (!bytes) return { version: 1, removals: [], requests: [] }
   try {
     if (bytes.length > MAX_MLS_MEMBERSHIP_BYTES) return invalid()
-    const record = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as MlsMembershipJournal
+    const record = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as MlsMembershipJournal & { requests?: MlsStandaloneRevocationRecord[] }
     validate(record)
-    return record
+    return { ...record, requests: record.requests ?? [] }
   } catch (error) { if (error instanceof InvalidPersonaRecord) throw error; return invalid() }
   finally { bytes.fill(0) }
 }

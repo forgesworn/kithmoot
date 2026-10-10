@@ -198,6 +198,21 @@ test('member request metadata and the requested transition are witnessed and bou
     grants: [{ state: { type: 'NotAuthorised', requested: true } }] } })
   await run(page, 'M.forgetGuest()')
 })
+test('a witnessed same-person roster device remains in the sealed standalone outbox after restart', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await joinedWithMemberDevice(page)
+  const keepers = await run(page, 'M.keeperIdentities()')
+  expect(await run(page, 'M.joinMembers()')).toMatchObject({ state: 'active' })
+  const before = await run(page, 'M.standaloneRequests()')
+  expect(before).toMatchObject({ state: 'active', value: [{
+    operation: expect.stringMatching(/^[0-9a-f]{64}$/), sender: expect.stringMatching(/^[0-9a-f]{64}$/), keeper: keepers.joined,
+    device: expect.stringMatching(/^[0-9a-f]{64}$/), sessions: [expect.stringMatching(/^[0-9a-f]{64}$/)],
+    boxes: [expect.stringMatching(/^[0-9a-f]{64}$/)], createdAt: expect.any(Number), sentAt: null,
+  }] })
+  await run(page, 'M.restartJoin()')
+  expect(await run(page, 'M.standaloneRequests()')).toEqual(before)
+  await run(page, 'M.forgetGuest()')
+})
 test('member requests require the retained keeper and the requesting persona own the reviewed target', async ({ context }) => {
   const { page } = await enrolled(context, false)
   await joinedWithMemberDevice(page)

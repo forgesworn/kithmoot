@@ -82,6 +82,27 @@ leaves the action enabled for explicit retry after refusal or uncertainty.
 After witnessed `requested: true` state, the action disappears and the engine's
 bounded `requested, not performed` claim remains visible.
 
+## Standalone sealed outbox
+
+Every genuine roster read for a joined member retains same-person, non-local,
+non-pending devices under the room's authenticated keeper. The observation is
+stored inside the existing witnessed membership vault record, with a bounded
+stable operation id, device, sorted room and box hints, first observation time,
+and nullable sent time. Other identities, the local leaf, pending leaves, a
+self-keeper room and unverified caller input cannot create a record. A later
+room or box observation expands the exact record and clears an older sent time
+so the new evidence cannot be misreported as sent.
+
+`BrowserMlsRevocationOutbox` reads and sends this record without opening the MLS
+session. It fresh-reconciles the persona witness before reading, uses the
+current account identity and bounded injected relay transport, then
+fresh-reconciles again before storing `sentAt`. A refusal, uncertainty, stale
+account, changed record or failed witnessed commit leaves the retained record
+retryable. A restarted sender performs no directory read or publication for a
+record whose sent time is already witnessed. As with the active-room sender, a
+crash after relay `OK true` and before the second witnessed commit can produce
+an at-least-once duplicate; the future keeper inbox must deduplicate it.
+
 ## Evidence and remaining work
 
 Unit coverage exercises strict framing and time bounds, NIP-59 round trips,
@@ -90,12 +111,12 @@ verified kind 10050 selection, absence of fallback and identity AUTH, refused
 publication, account invalidation, and the member grant reference. Browser
 coverage exercises keeper persistence, real-engine non-keeper grants, restart
 recovery, atomic requested-state persistence, refusal of a mismatched target
-device without persona damage, and fencing of altered stored bindings across
-Chromium, Firefox and WebKit.
+device without persona damage, fencing of altered stored bindings, and
+standalone roster-evidence persistence across Chromium, Firefox and WebKit.
 
 This remains a development-only sender boundary. It does not add a production
-app import or room wiring, automatic background retry, requests after all local
-devices have left, keeper inbox, dedicated endpoint lifecycle, operator prompt,
-or MLS/grant revocation. Those remain open P3-08 work, and these modules must
-not be wired into production before their gate evidence and the production
-security review are complete.
+app import or room wiring, automatic background retry, a standalone UI action,
+keeper inbox, dedicated endpoint lifecycle, operator prompt, or MLS/grant
+revocation. Those remain open P3-08 work, and these modules must not be wired
+into production before their gate evidence and the production security review
+are complete.

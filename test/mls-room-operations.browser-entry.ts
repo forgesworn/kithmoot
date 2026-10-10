@@ -398,6 +398,9 @@ const joinContext = () => ({ vault: ctx(), rendezvousKey: joinRz, current: () =>
 export async function joinRevocationAuthority() { return rooms.roomRevocationAuthority(joinContext(), roomId) }
 export async function addJoinedMemberDevice() { return addGuest(false, fixturePackageClient(), true) }
 export async function joinMembership() { return rooms.membership(joinContext(), roomId) }
+export async function standaloneRequests() {
+  return host.transact(persona, async tx => structuredClone((await readMlsMembership(tx)).requests), () => true)
+}
 export async function provisionJoin(index = 1, lifetime = 600) {
   const nonce = new Uint8Array(16).fill(9), device = getPublicKey(provisionDevice)
   const plain = JSON.stringify({ v: 1, p: persona, d: device, rz: joinRz, u: 'rendezvous', i: index, n: base64urlnopad.encode(nonce), e: clock + lifetime, k: base64urlnopad.encode(joinRzSecret) })

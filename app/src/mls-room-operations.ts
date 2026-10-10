@@ -11,6 +11,7 @@ import { BrowserPersonaCoordinator, InvalidPersonaRecord, type PersonaReader } f
 import { BrowserMlsSessionHost, StaleMlsOperation, type HostedMlsResult, type HostedMlsStep, type MlsSessionContext, type MlsSessionEdits } from './mls-session-host.js'
 import { appendMlsHistory, rememberMlsOrdering, createMlsRoom, readMlsRoom, saveMlsRoom, mlsHistory, mlsRoomIds, MlsRoomRefused, type MlsPackageRoute, type MlsRoomRecord } from './mls-room-store.js'
 import { MAX_MLS_REMOVALS, readMlsMembership, removalBytes, saveMlsMembership, type MlsRemovalRecord } from './mls-membership-store.js'
+import { MlsRevocationOutboxFull, rememberStandaloneRevocations } from './mls-revocation-outbox.js'
 import { BrowserMlsBoxClient, type BoxAnswer } from './mls-box-client.js'
 import { vmlsMemberGrantReference } from '../../src/vmls-revocation-request.js'
 
@@ -501,10 +502,14 @@ export class BrowserMlsRoomOperations {
   /** Current verified group bindings for membership controls. The browser
    * never derives this roster from presence, profiles or saved invitations. */
   members(context: MlsRoomContext, id: string): Promise<MlsRoomResult<MlsMemberStatus[]>> {
-    return this.#using<MlsMemberStatus[]>(context, async scope => scope.host.step(scope.hostContext, id, session => ({
-      snapshot: null,
-      value: memberStatuses(session),
-    }), this.#edits(scope.ctx, scope, id, () => undefined)))
+    return this.#using<MlsMemberStatus[]>(context, async scope => {
+      let room!: MlsRoomRecord
+      return scope.host.step(scope.hostContext, id, session => ({ snapshot: null, value: memberStatuses(session) }),
+        this.#edits<MlsMemberStatus[]>(scope.ctx, scope, id, value => { room = value }, async (_room, _session, members, tx) => {
+          try { await rememberStandaloneRevocations(tx, scope.ctx.persona, room.keeper, id, members, this.now()) }
+          catch (error) { if (error instanceof MlsRevocationOutboxFull) throw new MlsRoomRefused('revocation-outbox-full'); throw error }
+        }))
+    })
   }
 
   driveRemoval(context: MlsRoomContext, id: string, operation: string): Promise<MlsRoomResult<MlsRemovalEffect>> {
