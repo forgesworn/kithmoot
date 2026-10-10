@@ -112,7 +112,8 @@ export class BrowserMlsMembershipPanel {
       const lines = [`${plan.members.length} MLS leaf${plan.members.length === 1 ? '' : 's'} will be removed from future epochs.`]
       for (const grant of plan.grants) {
         const names = grant.rooms.map(room => `${room.name} (${short(room.session)})`).join(', ')
-        lines.push(grant.action === 'revoke' ? `Node-wide grant at box ${short(grant.node)} will be revoked immediately. Saved affected rooms: ${names}.`
+        lines.push(grant.action === 'request' ? `This account cannot revoke the grant at box ${short(grant.node)}. It can ask the room's keeper after the removal is recorded; a sent request is not proof of revocation.`
+          : grant.action === 'revoke' ? `Node-wide grant at box ${short(grant.node)} will be revoked immediately. Saved affected rooms: ${names}.`
           : grant.action === 'grace' ? `Node-wide grant at box ${short(grant.node)} will remain live for 24 hours so this device can fetch its Remove, then be revoked. Saved affected room: ${names}.`
             : `Node-wide grant at box ${short(grant.node)} will stay live because another saved room still uses it. Saved rooms: ${names}.`)
       }

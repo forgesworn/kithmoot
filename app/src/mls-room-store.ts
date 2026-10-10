@@ -15,6 +15,7 @@ export interface MlsHistoryEntry { id: string; direction: 'sent' | 'received'; l
 interface StoredMessage extends Omit<MlsHistoryEntry, 'body'> { body: string }
 export interface MlsRoomRecord {
   version: 1; session: string; generation: string; name: string; binding: MlsRoomBinding; history: StoredMessage[]
+  keeper?: string
   ordering?: { slot: string; attempt: number }[]
   join?: MlsJoinCeremony
   packages?: MlsPackageRoute[]
@@ -37,10 +38,10 @@ export async function readMlsRoom(tx: PersonaReader, id: string): Promise<MlsRoo
   finally { bytes.fill(0) }
 }
 function validate(r: MlsRoomRecord, id: string): void {
-  if (!r || typeof r !== 'object' || !keys(r, ['binding', 'generation', 'history', ...(r.join ? ['join'] : []), 'name', ...(r.ordering ? ['ordering'] : []), ...(r.packages ? ['packages'] : []), 'session', 'version'].join(',')) || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
+  if (!r || typeof r !== 'object' || !keys(r, ['binding', 'generation', 'history', ...(r.join ? ['join'] : []), ...(r.keeper ? ['keeper'] : []), 'name', ...(r.ordering ? ['ordering'] : []), ...(r.packages ? ['packages'] : []), 'session', 'version'].join(',')) || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
     typeof r.name !== 'string' || r.name.length < 1 || r.name.length > 120 || !r.binding || !keys(r.binding, 'credentialId,device,homeBox,installation,rendezvousKey') ||
     ![r.binding.device, r.binding.credentialId, r.binding.rendezvousKey, r.binding.homeBox].every(hex) ||
-    !(hex(r.binding.installation) || r.binding.installation === null && r.join) || !Array.isArray(r.history) || r.history.length > MAX_ROOM_MESSAGES) invalid()
+    !(hex(r.binding.installation) || r.binding.installation === null && r.join) || r.keeper !== undefined && !hex(r.keeper) || !Array.isArray(r.history) || r.history.length > MAX_ROOM_MESSAGES) invalid()
   if (r.join && (!keys(r.join, 'adderRz,counter,expiresAt,introductionBox,operation') || !hex(r.join.operation) || !hex(r.join.adderRz) || !hex(r.join.introductionBox) || !uint(r.join.counter) || !Number.isSafeInteger(r.join.expiresAt) || r.join.expiresAt < 0)) invalid()
   if (r.ordering && (!Array.isArray(r.ordering) || r.ordering.length > 1024 || r.ordering.some(q => !q || !keys(q, 'attempt,slot') || !hex(q.slot) || !Number.isInteger(q.attempt) || q.attempt < 0 || q.attempt > 0xffffffff) || new Set(r.ordering.map(q => `${q.slot}:${q.attempt}`)).size !== r.ordering.length)) invalid()
   if (r.packages && (!Array.isArray(r.packages) || r.packages.length > 64 || r.packages.some(p => !p || !keys(p, 'expiresAt,homeBox,leafId,packageId,welcomeMailbox') ||
