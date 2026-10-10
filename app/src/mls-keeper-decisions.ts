@@ -5,7 +5,8 @@ import { validateMlsGrant, type BrowserMlsGrantStore, type MlsGrantRecord } from
 import { readMlsRoom, mlsRoomIds } from './mls-room-store.js'
 import { loadMlsEngine } from './mls-engine.js'
 import { mlsKeeperRemovalOperation, mlsKeeperGrantAuthority, validateMlsKeeperApproval, type MlsKeeperApproval, type MlsKeeperGrantAuthority, type MlsKeeperRoomIntent } from './mls-revocation-decision-store.js'
-import type { MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
+import { MLS_KEEPER_PROMPT_SECONDS, type MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
+import { mlsRevocationInboxState, mlsKeeperPromptAfter } from './mls-revocation-inbox-state.js'
 import type { MlsRevocationInboxContext } from './mls-revocation-inbox.js'
 import type { MlsMemberStatus } from './mls-room-operations.js'
 import type { Platform, Session } from '../public/vmls-wasm/vmls_wasm.js'
@@ -42,6 +43,7 @@ export class BrowserMlsKeeperDecisions {
       if (at >= prompt.request.expiration) throw new Error('The request expired before the decision was recorded.')
       inbox.checkedAt = at
       prompt.state = approve ? 'approved' : 'dismissed'
+      delete prompt.deferredUntil
       if (approve) {
         const approval: MlsKeeperApproval = { approvedAt: at, grants: structuredClone(fresh.grants), rooms: structuredClone(fresh.rooms) }
         validateMlsKeeperApproval(approval, prompt.request, prompt.operation, prompt.receivedAt)
@@ -49,6 +51,28 @@ export class BrowserMlsKeeperDecisions {
       }
       await saveMlsMembership(tx, journal)
       return structuredClone(prompt)
+    }, () => this.#current(scope))
+  }
+  /** Later hides this sender's pending and approved prompts for one hour.
+   * Approval and compromised holds remain; this is not cancellation of an
+   * already authorised operation. No signer, grant or room effect occurs. */
+  async defer(review: Pick<MlsKeeperDecisionPlan, 'binding' | 'prompt'>): Promise<CoordinationResult<MlsRevocationInboxPrompt[]>> {
+    const scope = this.#scope(), expected = structuredClone(review)
+    if (JSON.stringify(scope.vault) !== JSON.stringify(expected.binding)) throw new Error('Review the request in the current keeper account.')
+    return this.coordinator.transact(scope.vault.persona, async tx => {
+      const state = await mlsRevocationInboxState(tx, scope.vault.persona, this.#time())
+      const prompt = state.prompts.find(item => item.operation === expected.prompt.operation)
+      if (!prompt || !['pending', 'approved'].includes(prompt.state) || JSON.stringify(prompt) !== JSON.stringify(expected.prompt)) throw new Error('The retained request changed. Check it again before choosing Later.')
+      const until = state.checkedAt + MLS_KEEPER_PROMPT_SECONDS
+      const group = state.prompts.filter(item => item.request.sender === prompt.request.sender && ['pending', 'approved'].includes(item.state))
+      for (const item of group) {
+        if (item.revision === Number.MAX_SAFE_INTEGER) throw new Error('The keeper prompt revision is full.')
+        item.revision = (item.revision ?? 0) + 1
+        item.deferredUntil = until
+      }
+      mlsKeeperPromptAfter(state, prompt.request.sender, until)
+      const journal = await readMlsMembership(tx); journal.inbox = state; await saveMlsMembership(tx, journal)
+      return structuredClone(group)
     }, () => this.#current(scope))
   }
   retained(operation: string): Promise<CoordinationResult<MlsRevocationInboxPrompt>> {
@@ -64,12 +88,12 @@ export class BrowserMlsKeeperDecisions {
   /** Approved retries stay visible even when all grants are already revoked
    * or current execution authority is unavailable. This list is retained
    * intent, never permission to perform an effect without execution(). */
-  approvals(): Promise<CoordinationResult<MlsRevocationInboxPrompt[]>> {
+  approvals(includeDeferred = false): Promise<CoordinationResult<MlsRevocationInboxPrompt[]>> {
     const scope = this.#scope()
+    if (typeof includeDeferred !== 'boolean') throw new Error('Invalid deferred request selection.')
     return this.coordinator.transact(scope.vault.persona, async tx => {
-      const journal = await readMlsMembership(tx)
-      if (journal.inbox && journal.inbox.keeper !== scope.vault.persona) throw new InvalidPersonaRecord('Keeper decision belongs to another persona')
-      return structuredClone(journal.inbox?.prompts.filter(prompt => prompt.state === 'approved') ?? [])
+      const state = await mlsRevocationInboxState(tx, scope.vault.persona, this.#time())
+      return structuredClone(state.prompts.filter(prompt => prompt.state === 'approved' && (includeDeferred || prompt.deferredUntil === undefined || prompt.deferredUntil <= state.checkedAt)))
     }, () => this.#current(scope))
   }
   /** Reopen only the frozen approval, even after request expiry. Newly added
@@ -105,6 +129,7 @@ export class BrowserMlsKeeperDecisions {
         } finally { bytes.fill(0); removal?.free() }
       }
       prompt.state = 'done'
+      delete prompt.deferredUntil
       await saveMlsMembership(tx, journal)
       return structuredClone(prompt)
     }, () => this.#current(scope))
@@ -137,11 +162,10 @@ export class BrowserMlsKeeperDecisions {
     return { ...current, grants: structuredClone(approved.grants), revoked }
   }
   async #review(tx: PersonaTransaction, scope: MlsRevocationInboxContext, operation: string, approved = false, verified?: (records: MlsGrantRecord[]) => void): Promise<MlsKeeperDecisionPlan> {
-    const journal = await readMlsMembership(tx), inbox = journal.inbox, at = this.#time()
-    if (!inbox || inbox.keeper !== scope.vault.persona) throw new InvalidPersonaRecord('Keeper decision belongs to another persona')
-    if (at < inbox.checkedAt) throw new Error('A trusted request time is unavailable.')
+    const at = this.#time(), inbox = await mlsRevocationInboxState(tx, scope.vault.persona, at)
     const prompt = inbox.prompts.find(item => item.operation === operation)
     if (!prompt || (approved ? !prompt.approval || !['approved', 'done'].includes(prompt.state) : prompt.state !== 'pending' || prompt.request.expiration <= at)) throw new Error('This request is no longer awaiting a decision.')
+    if (!approved && prompt.deferredUntil !== undefined && prompt.deferredUntil > at) throw new Error('This request is deferred. Check it again after the recorded hour.')
     const records = structuredClone(await this.grants.all())
     if (!Array.isArray(records) || records.length > 256 || new Set(records.map(record => `${record.node}/${record.device}`)).size !== records.length) throw new Error('The keeper grant ledger could not be verified.')
     records.forEach(validateMlsGrant)

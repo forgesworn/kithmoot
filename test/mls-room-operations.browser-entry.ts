@@ -26,7 +26,7 @@ import { localIdentity } from '../src/identity.js'
 import { localPeerCrypt } from '../src/dm.js'
 import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
 import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant } from '../app/src/mls-grant-ledger.js'
-import { BrowserMlsKeeperDecisions } from '../app/src/mls-keeper-decisions.js'
+import { BrowserMlsKeeperDecisions, type MlsKeeperDecisionPlan } from '../app/src/mls-keeper-decisions.js'
 import { BrowserMlsKeeperRequestController, type MlsKeeperRequestProgress } from '../app/src/mls-keeper-request-controller.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
@@ -254,6 +254,14 @@ export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = fal
 }
 export async function keeperRequests() { return keeperInbox().view() }
 const keeperDecisions = () => new BrowserMlsKeeperDecisions(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+export async function deferKeeperRequest() {
+  const read = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => ['pending', 'approved'].includes(prompt.state))!.operation, () => true)
+  if (read.state !== 'active') return read
+  const retained = await keeperDecisions().retained(read.value)
+  if (retained.state !== 'active') return retained
+  return keeperDecisions().defer({ binding: ctx(), prompt: retained.value })
+}
+export async function keeperApprovals(includeDeferred = false) { return keeperDecisions().approvals(includeDeferred) }
 export async function keeperDecisionPlan() {
   const result = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => prompt.state === 'pending')!.operation, () => true)
   if (result.state !== 'active') return result
@@ -264,6 +272,7 @@ export async function decideKeeperRequest(approve = true) {
   if (plan.state !== 'active') return plan
   return keeperDecisions().decide(plan.value, approve)
 }
+export async function decideReviewedKeeperRequest(plan: MlsKeeperDecisionPlan) { return keeperDecisions().decide(plan, true) }
 let keeperWithdrawalFails = false, keeperProgress: MlsKeeperRequestProgress | undefined
 const keeperWithdrawals: string[] = []
 export function failKeeperWithdrawal(value: boolean) { keeperWithdrawalFails = value }
