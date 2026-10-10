@@ -1,0 +1,443 @@
+{
+  "runtimeCommit": "44346dfa674c71c56b6999b0c6427dd9ac9748fd",
+  "host": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "memoryBytes": 17179869184,
+    "browserVersion": "151.0.7922.34",
+    "processor": "Apple M1"
+  },
+  "requestedSeconds": 2700,
+  "syntheticInputs": true,
+  "physicalPhoneAcceptance": false,
+  "phase": "passed",
+  "samples": [
+    {
+      "wallSeconds": 0.391,
+      "elapsed": "00:00 recorded",
+      "browserRssBytes": 1018544128,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 77.637,
+      "elapsed": "01:17 recorded",
+      "browserRssBytes": 1228685312,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 137.737,
+      "elapsed": "02:18 recorded",
+      "browserRssBytes": 928350208,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 198.259,
+      "elapsed": "03:18 recorded",
+      "browserRssBytes": 797818880,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 262.154,
+      "elapsed": "04:22 recorded",
+      "browserRssBytes": 847953920,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 325.323,
+      "elapsed": "05:25 recorded",
+      "browserRssBytes": 902873088,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 387.772,
+      "elapsed": "06:28 recorded",
+      "browserRssBytes": 924467200,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 449.341,
+      "elapsed": "07:29 recorded",
+      "browserRssBytes": 845545472,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 511.098,
+      "elapsed": "08:31 recorded",
+      "browserRssBytes": 936689664,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 571.578,
+      "elapsed": "09:31 recorded",
+      "browserRssBytes": 1495433216,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 631.701,
+      "elapsed": "10:31 recorded",
+      "browserRssBytes": 1288798208,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 692.787,
+      "elapsed": "11:33 recorded",
+      "browserRssBytes": 939327488,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 753.496,
+      "elapsed": "12:33 recorded",
+      "browserRssBytes": 954744832,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 813.815,
+      "elapsed": "13:34 recorded",
+      "browserRssBytes": 896286720,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 874.626,
+      "elapsed": "14:34 recorded",
+      "browserRssBytes": 886177792,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 935.011,
+      "elapsed": "15:35 recorded",
+      "browserRssBytes": 874610688,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 998.068,
+      "elapsed": "16:38 recorded",
+      "browserRssBytes": 960282624,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 1062.174,
+      "elapsed": "17:42 recorded",
+      "browserRssBytes": 915947520,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 1133.129,
+      "elapsed": "18:53 recorded",
+      "browserRssBytes": 873545728,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 1198.898,
+      "elapsed": "19:59 recorded",
+      "browserRssBytes": 952532992,
+      "heap": {
+        "used": 44700000,
+        "allocated": 68000000
+      }
+    },
+    {
+      "wallSeconds": 1260.236,
+      "elapsed": "21:00 recorded",
+      "browserRssBytes": 1343373312,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1324.747,
+      "elapsed": "22:05 recorded",
+      "browserRssBytes": 1012989952,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1391.736,
+      "elapsed": "23:12 recorded",
+      "browserRssBytes": 869449728,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1456.616,
+      "elapsed": "24:17 recorded",
+      "browserRssBytes": 931102720,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1517.9,
+      "elapsed": "25:18 recorded",
+      "browserRssBytes": 1023066112,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1579.555,
+      "elapsed": "26:19 recorded",
+      "browserRssBytes": 978796544,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1640.658,
+      "elapsed": "27:20 recorded",
+      "browserRssBytes": 997982208,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1702.326,
+      "elapsed": "28:22 recorded",
+      "browserRssBytes": 1040482304,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1762.602,
+      "elapsed": "29:22 recorded",
+      "browserRssBytes": 910213120,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1823.24,
+      "elapsed": "30:23 recorded",
+      "browserRssBytes": 915013632,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1883.526,
+      "elapsed": "31:23 recorded",
+      "browserRssBytes": 904544256,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 1943.809,
+      "elapsed": "32:24 recorded",
+      "browserRssBytes": 895205376,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2003.965,
+      "elapsed": "33:24 recorded",
+      "browserRssBytes": 1048641536,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2064.271,
+      "elapsed": "34:24 recorded",
+      "browserRssBytes": 913063936,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2124.458,
+      "elapsed": "35:24 recorded",
+      "browserRssBytes": 898220032,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2184.681,
+      "elapsed": "36:24 recorded",
+      "browserRssBytes": 879640576,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2244.931,
+      "elapsed": "37:25 recorded",
+      "browserRssBytes": 883933184,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2305.133,
+      "elapsed": "38:25 recorded",
+      "browserRssBytes": 921272320,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2365.799,
+      "elapsed": "39:25 recorded",
+      "browserRssBytes": 895959040,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2426.176,
+      "elapsed": "40:26 recorded",
+      "browserRssBytes": 1000292352,
+      "heap": {
+        "used": 60300000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2486.941,
+      "elapsed": "41:27 recorded",
+      "browserRssBytes": 864747520,
+      "heap": {
+        "used": 53500000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2547.621,
+      "elapsed": "42:27 recorded",
+      "browserRssBytes": 1038630912,
+      "heap": {
+        "used": 53500000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2607.8,
+      "elapsed": "43:27 recorded",
+      "browserRssBytes": 969113600,
+      "heap": {
+        "used": 53500000,
+        "allocated": 103000000
+      }
+    },
+    {
+      "wallSeconds": 2667.96,
+      "elapsed": "44:28 recorded",
+      "browserRssBytes": 1042022400,
+      "heap": {
+        "used": 53500000,
+        "allocated": 103000000
+      }
+    }
+  ],
+  "exportedBytes": 39058882,
+  "audioDuration": 2707.62,
+  "videoDuration": 2707.593,
+  "exportSha256": "3dc0f3f3de87c1c33177db6ce636c024337b429c3c660d79385816689de65164",
+  "limits": [
+    "Two synthetic camera/audio participants; offline loopback relay.",
+    "Full real-time playback and paired total track durations are verified; instantaneous audio/video offset is not measured.",
+    "RSS includes all processes of the test browser, not only the recording buffer.",
+    "Runtime source precedes the retained-local-save UI fix; this is recording-engine evidence, not a complete desktop 0.1.67 long-session journey.",
+    "Physical Android/iPhone, native long-session recording, battery use, large galleries and encrypted long-recording sharing remain unverified."
+  ],
+  "recordingEngineFiles": {
+    "app/src/call-recorder.ts": "1b1d5e7c75d9068046807276b017807a52354e44a0e4b46123bb22bcf08623d1",
+    "app/src/recording-video.ts": "0ad494512efd46fabbd9cce507e8cdb3508b4f71f87a6a391ac8d24c470d8fa3"
+  },
+  "applicationBaseCommit": "ac38871e6a547b0a0717e719a04f28b148229e3a",
+  "fixtureSha256": "ba7c1da2a47f7c4df470d9e4ced56a715fe5fcd9a2fe5dc6162dc886c6b801ae",
+  "exportStreams": [
+    {
+      "codec_name": "vp8",
+      "codec_type": "video",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "codec_name": "opus",
+      "codec_type": "audio",
+      "sample_rate": "48000",
+      "channels": 2
+    }
+  ]
+}

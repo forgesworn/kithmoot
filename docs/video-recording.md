@@ -111,3 +111,13 @@ This checks a two-device synthetic gallery on the named test host. It is not
 phone memory qualification, a battery baseline, an instantaneous A/V offset
 measurement or encrypted sharing acceptance. Repeat real permission,
 interruption and 45-minute journeys on physical supported devices.
+
+The [10 October receipt](evidence/recording-long-session-2026-10-10.json)
+records a passed 45-minute gallery capture and complete real-time playback on
+an Apple M1 Mac mini with 16 GB RAM, Chromium 151 and two synthetic participants.
+The saved WebM is 39,058,882 bytes; audio and video durations are 2,707.620 and
+2,707.593 seconds. The 44 capture samples span 761–1,426 MiB RSS for the entire
+test browser. This measures paired track duration rather than instantaneous
+A/V offset. Its runtime predates the retained-local-save UI fix; unchanged
+recording-engine source permits that narrower comparison with desktop 0.1.67,
+but the full latest UI/native/physical long-session journey remains open.

@@ -459,8 +459,12 @@ Acceptance:
 Current foundation: the PWA's [local recorder](video-recording.md) offers audio
 and three video layouts, with signed capture notices, elapsed time, pause and
 save/share/discard controls. Android [understands the notices](recording-capture-notices.md)
-but does not yet record/export a call itself. Short synthetic browser exports
-do not close the 45-minute or physical cross-client journey above.
+but does not yet record/export a call itself. The [10 October browser receipt](evidence/recording-long-session-2026-10-10.json)
+adds a passed 45-minute two-participant synthetic gallery capture and complete
+playback on an M1 Mac mini. It measures paired total track duration and browser
+RSS, not instantaneous A/V offset or battery use. The runtime predates the local
+save-retention UI fix. Native/physical cross-client, encrypted long-recording
+sharing and the complete latest-release journey remain open.
 
 ## G12 — Tested room capacity and a gallery that scales
 
