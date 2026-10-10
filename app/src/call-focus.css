@@ -370,6 +370,8 @@ html[data-call-first] #deviceControls #leaveCall:hover { background: var(--call-
    and "Stop sharing" while a share is live. The accessible names are the
    full ones throughout. */
 html[data-call-first] #deviceControls :is(.callFull, .callShort, .callWord) { display: none; }
+/* Recording needs a visible name as well as its capture icon. */
+html[data-call-first] #deviceControls #recordToggle > .callWord { display: inline; }
 html[data-call-first] #deviceControls #toggleScreen[data-on='true'] .callFull { display: inline; }
 /* With the room for it, Leave says so in a word as well. */
 @container (min-width: 560px) {
