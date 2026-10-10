@@ -163,6 +163,23 @@ test('a recording is announced to everybody, before joining as well as during, a
     // Somebody already on the call is told.
     await expect(b.locator('#recordingBanner')).toBeVisible()
     await expect(b.locator('#recordingBannerText')).toContainText('being recorded')
+    await expect(b.locator('#recordingBannerText')).toContainText('Ada')
+    await expect(b.locator('#recordingBannerText')).toContainText('capturing call audio')
+
+    const elapsedSeconds = async () => {
+      const text = await a.locator('#recordingElapsed').textContent()
+      const [minutes, seconds] = text!.split(' ')[0]!.split(':').map(Number)
+      return minutes! * 60 + seconds!
+    }
+    await expect.poll(elapsedSeconds).toBeGreaterThanOrEqual(2)
+    await a.locator('#recordingPause').click()
+    await expect(a.locator('#recordingPause')).toHaveText('Resume recording')
+    await expect(a.locator('#recordingBannerText')).toContainText('paused')
+    const heldTime = await elapsedSeconds()
+    // Privacy remains explicit while paused: existing members and late
+    // joiners still see the signed notice, and cannot pause somebody else.
+    await expect(b.locator('#recordingPause')).toBeHidden()
+    await expect(b.locator('#recordingBanner')).toBeVisible()
 
     // Somebody arriving is told in the room, and asked before the call.
     await open(c, url, 'Cy')
@@ -173,8 +190,15 @@ test('a recording is announced to everybody, before joining as well as during, a
     await c.locator('#joinCall').click()
     await expect(c.locator('#actionDialog')).toBeVisible()
     await expect(c.locator('#actionTitle')).toHaveText('This call is being recorded')
+    await expect(c.locator('#actionDescription')).toContainText('capturing call audio')
     await c.locator('#actionCancel').click()
     await expect(c.locator('#actionDialog')).toBeHidden()
+    await a.waitForTimeout(1200)
+    expect(await elapsedSeconds()).toBe(heldTime)
+    await a.locator('#recordingPause').click()
+    await expect(a.locator('#recordingPause')).toHaveText('Pause recording')
+    await expect.poll(elapsedSeconds).toBeGreaterThanOrEqual(heldTime + 2)
+    const recordedSeconds = await elapsedSeconds()
 
     // Stopped: the notice comes down everywhere, and the file waits on
     // Ada's device for her to decide.
@@ -184,6 +208,16 @@ test('a recording is announced to everybody, before joining as well as during, a
     await expect(a.locator('#recordingBanner')).toBeHidden()
     await expect(b.locator('#recordingBanner')).toBeHidden({ timeout: 30_000 })
     await expect(a.locator('#recordingSave')).toHaveAttribute('download', /^call-recording-.*\.(webm|ogg|m4a)$/)
+    // Decode the actual exported bytes. A paused interval must be omitted
+    // from the audio timeline rather than becoming an unexplained silent gap.
+    const duration = await a.locator('#recordingSave').evaluate(async (link: HTMLAnchorElement) => {
+      const bytes = await (await fetch(link.href)).arrayBuffer()
+      const context = new AudioContext()
+      try { return (await context.decodeAudioData(bytes)).duration }
+      finally { await context.close() }
+    })
+    expect(duration).toBeGreaterThan(recordedSeconds - 1)
+    expect(duration).toBeLessThan(recordedSeconds + 2)
   } finally {
     await aContext.close()
     await bContext.close()

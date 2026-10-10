@@ -91,6 +91,7 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/pairing',
   'kithmoot/v1/read-position-id',
   'kithmoot/v1/recording:',
+  'kithmoot/v1/recording-capture:',
   'kithmoot/v1/relays:',
   'kithmoot/v1/room-id',
   'kithmoot/v1/room-key',

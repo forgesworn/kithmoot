@@ -179,6 +179,9 @@ export interface RoomWatchOptions {
    *  epoch this watch is at, says so (and whether the room self-destructs).
    *  Told once. */
   onClosed?: (notice: RekeyNotice) => void
+  /** A verified next rekey could not be opened by this device. Stop views
+   * that must not keep presenting an old epoch as current room access. */
+  onUnreachable?: () => void
 }
 
 /** A rekey a watch followed. */
@@ -387,7 +390,10 @@ export class RoomWatch {
         this.#closedTold = true
         try { this.#opts.onClosed?.(notice) } catch { /* A caller's problem, not the watch's. */ }
       }
-      if (!notice?.secret || notice.closed) return
+      if (!notice?.secret || notice.closed) {
+        if (!notice?.closed) { try { this.#opts.onUnreachable?.() } catch { /* Caller owns its view. */ } }
+        return
+      }
       this.#pendingRekeys.delete(left.epoch + 1)
       this.#follow(left, { epoch: notice.epoch, secret: notice.secret }, notice)
     }

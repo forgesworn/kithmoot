@@ -1,14 +1,15 @@
-import { test, expect, type Browser } from '@playwright/test'
+import { test, expect, type Browser, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { npubEncode } from 'nostr-tools/nip19'
 import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
+import { writeFile } from 'node:fs/promises'
 
 /** Synthetic NIP-07 signer: private keys stay in the test process. */
-async function signedDevice(browser: Browser, base: string, nip44 = true) {
-  const key = generateSecretKey(), pubkey = getPublicKey(key)
+async function signedDevice(browser: Browser, base: string, nip44 = true, key = generateSecretKey()) {
+  const pubkey = getPublicKey(key)
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
   await context.exposeFunction('projectTestPublicKey', () => pubkey)
   await context.exposeFunction('projectTestSign', (event: EventTemplate) => finalizeEvent(event, key))
@@ -35,8 +36,126 @@ async function signedDevice(browser: Browser, base: string, nip44 = true) {
     }
   }, { relay: relay.href, nip44 })
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
-  return { context, pubkey, relay: relay.href }
+  return { context, pubkey, relay: relay.href, key }
 }
+
+test('three projects deliver only intended human and agent memberships to fresh devices', async ({ browser, baseURL }, info) => {
+  const ada = await signedDevice(browser, baseURL!), bob = await signedDevice(browser, baseURL!)
+  const carol = await signedDevice(browser, baseURL!), worker = await signedDevice(browser, baseURL!)
+  const keepers = await Promise.all(['Design conversation', 'Release conversation', 'Private conversation'].map(roomName =>
+    RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName, ...agentRelaysFor(baseURL!) })))
+  const saved = keepers.map((keeper, i) => ({ roomId: keeper.roomId,
+    name: ['Design conversation', 'Release conversation', 'Private conversation'][i]!,
+    link: encodeRoomLink(baseURL!, { ...keeper.link, relays: [ada.relay] }), openedAt: 1, readAt: 0 }))
+  for (const [device, rooms] of [[ada, saved.slice(0, 2)], [carol, saved.slice(2)]] as const) {
+    await device.context.addInitScript(({ rooms, pubkey }) => {
+      if (localStorage.getItem('project-membership-seeded')) return
+      for (const room of rooms) localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room))
+      localStorage.setItem('project-membership-seeded', 'true')
+    }, { rooms, pubkey: device.pubkey })
+  }
+  const pages = await Promise.all([ada, bob, carol, worker].map(async device => {
+    const page = await device.context.newPage()
+    await page.setViewportSize(info.project.name === 'chromium-desktop' ? { width: 1440, height: 900 } : { width: 390, height: 844 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
+    return page
+  }))
+  const [a, b, c, w] = pages
+  const names = (page: Page) => page.locator('.sharedProjectCard h3')
+  const create = async (page: Page, name: string, room: string, members: { pubkey: string; kind: 'person' | 'agent' }[]) => {
+    await page.locator('#sharedProjectNew').click()
+    await page.locator('#sharedProjectName').fill(name)
+    for (const member of members) {
+      await page.locator('#sharedProjectNpub').fill(npubEncode(member.pubkey))
+      await page.locator('#sharedProjectContactKind').selectOption(member.kind)
+      await page.locator('#sharedProjectAddPerson').click()
+    }
+    await page.locator('#sharedProjectRooms').getByRole('checkbox', { name: room, exact: true }).check()
+    await page.locator('#sharedProjectSave').click()
+    await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
+    await expect(names(page)).toContainText([name])
+  }
+  let fresh: Awaited<ReturnType<typeof signedDevice>> | undefined
+  try {
+    await create(a!, 'Design project', saved[0]!.name, [{ pubkey: bob.pubkey, kind: 'person' }, { pubkey: worker.pubkey, kind: 'agent' }])
+    await create(a!, 'Release project', saved[1]!.name, [{ pubkey: carol.pubkey, kind: 'person' }, { pubkey: worker.pubkey, kind: 'agent' }])
+    await create(c!, 'Private project', saved[2]!.name, [])
+    await expect(names(a!)).toHaveText(['Design project', 'Release project'])
+    await expect(names(b!)).toHaveText(['Design project'])
+    await expect(names(c!)).toHaveText(['Private project', 'Release project'])
+    await expect(names(w!)).toHaveText(['Design project', 'Release project'])
+    // Receiving a directory invitation must not enter its room or start media.
+    for (const page of [b!, c!, w!]) await expect(page.locator('#roomArea')).not.toBeVisible()
+    for (const [page, project] of [[b!, 'Design project'], [c!, 'Release project'], [w!, 'Design project'], [w!, 'Release project']] as const) {
+      const card = page.locator('.sharedProjectCard').filter({ has: page.getByRole('heading', { name: project, exact: true }) })
+      await expect(card.getByRole('button', { name: 'Review and join' })).toBeVisible()
+      await card.getByRole('button', { name: 'Review and join' }).click()
+      await expect(page.locator('#sharedProjectReview')).toContainText('Joining does not start agents or share your other projects')
+      await page.getByRole('button', { name: 'Join project', exact: true }).click()
+      await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
+      await expect(card.getByRole('button', { name: 'Review and join' })).toHaveCount(0)
+    }
+    await expect(w!.locator('.sharedProjectCard')).toContainText(['2 people · 1 agent · 1 room', '2 people · 1 agent · 1 room'])
+    // New profile, same synthetic signer: no local room or project cache is copied.
+    fresh = await signedDevice(browser, baseURL!, true, carol.key)
+    const phone = await fresh.context.newPage()
+    await phone.setViewportSize({ width: 390, height: 844 })
+    await phone.goto(baseURL! + '?signin=nostr')
+    await phone.getByRole('button', { name: /Browser extension/ }).click()
+    await phone.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    await expect(names(phone)).toHaveText(['Private project', 'Release project'])
+    await expect(phone.getByRole('button', { name: 'Review and join' })).toHaveCount(0)
+    await expect(phone.locator('.sharedProjectRooms')).toContainText(['Private conversation', 'Release conversation'])
+    await expect(names(b!)).toHaveText(['Design project'])
+    await expect(b!.locator('.sharedProjectCard')).not.toContainText('Private conversation')
+    const stored = await phone.evaluate(() => Object.entries(localStorage).filter(([key]) => key.includes('shared-projects')).map(([, value]) => value).join(''))
+    expect(stored.length).toBeGreaterThan(0)
+    expect(stored).not.toContain('Private project')
+    expect(stored).not.toContain('Private conversation')
+    await phone.screenshot({ path: info.outputPath('recovered-project-memberships-phone.png') })
+    const switches: { project: string; room: string; milliseconds: number }[] = []
+    const enter = async (project: string, room: string) => {
+      if (!await phone.locator('#sharedProjects').isVisible()) {
+        await phone.locator('#backToRooms').click()
+        await phone.locator('#switcherSharedProjects').click()
+      }
+      const started = Date.now()
+      await phone.locator('.sharedProjectCard').filter({ has: phone.getByRole('heading', { name: project, exact: true }) })
+        .getByRole('button', { name: room, exact: true }).click()
+      await expect(phone.locator('#roomArea:visible, #displayName:visible').first()).toBeVisible()
+      if (await phone.locator('#displayName').isVisible()) {
+        await phone.locator('#displayName').fill('Carol')
+        await phone.locator('#join').click()
+      }
+      await expect(phone.locator('#roomArea')).toBeVisible()
+      await expect(phone.locator('#chatInput')).toBeEditable()
+      switches.push({ project, room, milliseconds: Date.now() - started })
+    }
+    await enter('Release project', 'Release conversation')
+    await phone.locator('#chatInput').fill('Unsent release decision')
+    await enter('Private project', 'Private conversation')
+    await expect(phone.locator('#chatInput')).toHaveValue('')
+    await phone.locator('#chatInput').fill('Unsent private research')
+    await enter('Release project', 'Release conversation')
+    await expect(phone.locator('#chatInput')).toHaveValue('Unsent release decision')
+    await enter('Private project', 'Private conversation')
+    await expect(phone.locator('#chatInput')).toHaveValue('Unsent private research')
+    await expect(phone.locator('#chatLog')).not.toContainText('Unsent release decision')
+    await expect(names(b!)).toHaveText(['Design project'])
+    await writeFile(info.outputPath('project-membership-journey.json'), JSON.stringify({
+      syntheticInputs: true, browserProject: info.project.name, recoveredViewport: { width: 390, height: 844 },
+      intendedMembershipsOnly: true, explicitJoins: true, encryptedDirectoryRecovery: true,
+      draftsRetainedAcrossProjects: true, physicalPhoneAcceptance: false, liveExecutorAcceptance: false, switches,
+    }, null, 2) + '\n')
+  } finally {
+    await fresh?.context.close()
+    await Promise.all([ada, bob, carol, worker].map(device => device.context.close()))
+    await Promise.all(keepers.map(keeper => keeper.leave()))
+  }
+})
 
 test('create an empty project, add a room to that existing project, and restore it after reopening', async ({ browser, baseURL }, info) => {
   const { context, pubkey, relay } = await signedDevice(browser, baseURL!)

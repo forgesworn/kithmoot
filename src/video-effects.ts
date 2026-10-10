@@ -575,34 +575,7 @@ export function fillMaskHoles(
   if (pixels === 0) return
   visited.fill(0)
 
-  let sp = 0
-  const pushIfLow = (i: number): void => {
-    if (!visited[i] && state[i]! < cut) {
-      visited[i] = 1
-      stack[sp] = i
-      sp += 1
-    }
-  }
-
-  // Phase 1: seed from the whole border, then flood through it.
-  for (let x = 0; x < width; x += 1) {
-    pushIfLow(x)
-    if (height > 1) pushIfLow((height - 1) * width + x)
-  }
-  for (let y = 0; y < height; y += 1) {
-    pushIfLow(y * width)
-    if (width > 1) pushIfLow(y * width + width - 1)
-  }
-  while (sp > 0) {
-    sp -= 1
-    const i = stack[sp]!
-    const x = i % width
-    const y = (i / width) | 0
-    if (x > 0) pushIfLow(i - 1)
-    if (x < width - 1) pushIfLow(i + 1)
-    if (y > 0) pushIfLow(i - width)
-    if (y < height - 1) pushIfLow(i + width)
-  }
+  if (visitBorderBackground(state, width, height, visited, stack, cut) === pixels) return
 
   const cap = Math.floor(pixels * maxFraction)
 
@@ -611,7 +584,7 @@ export function fillMaskHoles(
   // this time as a queue (a moving read head over a growing write tail),
   // then fill it if it is not implausibly large.
   for (let start = 0; start < pixels; start += 1) {
-    if (visited[start] || state[start]! >= cut) continue
+    if (state[start]! >= cut || visited[start]) continue
     let tail = 0
     stack[tail] = start
     tail += 1
@@ -662,6 +635,98 @@ export function fillMaskHoles(
       }
     }
   }
+}
+
+/** Visit four-connected background from the border in horizontal spans.
+ * Keep this traversal separate from the enclosed-hole scan, which does
+ * the same work whether the mask has a large background or none at all. */
+function visitBorderBackground(
+  state: Float32Array,
+  width: number,
+  height: number,
+  visited: Uint8Array,
+  stack: Int32Array,
+  cut: number,
+): number {
+  const pixels = width * height
+  let sp = 0
+  let reached = 0
+  // Seed the whole border with the reusable stack. Keep the hot traversal
+  // in simple loops rather than allocating callbacks for each mask frame.
+  for (let x = 0; x < width; x += 1) {
+    if (!visited[x] && state[x]! < cut) {
+      visited[x] = 1
+      stack[sp++] = x
+      reached += 1
+    }
+    const bottom = (height - 1) * width + x
+    if (height > 1 && !visited[bottom] && state[bottom]! < cut) {
+      visited[bottom] = 1
+      stack[sp++] = bottom
+      reached += 1
+    }
+  }
+  for (let y = 0; y < height; y += 1) {
+    const left = y * width
+    if (!visited[left] && state[left]! < cut) {
+      visited[left] = 1
+      stack[sp++] = left
+      reached += 1
+    }
+    const right = left + width - 1
+    if (width > 1 && !visited[right] && state[right]! < cut) {
+      visited[right] = 1
+      stack[sp++] = right
+      reached += 1
+    }
+  }
+  while (sp > 0) {
+    sp -= 1
+    const i = stack[sp]!
+    const rowStart = i - (i % width)
+    const rowEnd = rowStart + width - 1
+    // Visit the whole horizontal run, then seed connected runs above and
+    // below. The same four-neighbour reachability is preserved without
+    // putting every background pixel on the stack or dividing each one.
+    let left = i
+    while (left > rowStart && !visited[left - 1] && state[left - 1]! < cut) {
+      left -= 1
+      visited[left] = 1
+    }
+    let right = i
+    while (right < rowEnd && !visited[right + 1] && state[right + 1]! < cut) {
+      right += 1
+      visited[right] = 1
+    }
+    reached += right - left
+    if (rowStart > 0) {
+      let inRun = false
+      for (let n = left - width; n <= right - width; n += 1) {
+        if (!visited[n] && state[n]! < cut) {
+          if (!inRun) {
+            visited[n] = 1
+            stack[sp++] = n
+            reached += 1
+          }
+          inRun = true
+        } else inRun = false
+      }
+    }
+    if (rowEnd < pixels - 1) {
+      let inRun = false
+      for (let n = left + width; n <= right + width; n += 1) {
+        if (!visited[n] && state[n]! < cut) {
+          if (!inRun) {
+            visited[n] = 1
+            stack[sp++] = n
+            reached += 1
+          }
+          inRun = true
+        } else inRun = false
+      }
+    }
+  }
+  return reached
 }
 
 function clamp01(value: number): number {

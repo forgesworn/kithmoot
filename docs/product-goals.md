@@ -282,10 +282,16 @@ explicitly permits indefinite relay storage of expired events, so expiration
 alone cannot establish erasure.
 
 Existing temporary admission and ephemeral presence events do not establish
-this complete lifecycle. The current [voice-mask fallback](../README.md)
-prioritises continued speech and can revert to raw audio on a stalled output
-clock; G8 requires a fail-closed privacy behaviour. Inspect storage, transport,
-agent and teardown paths before claiming this mode meets the goal.
+this complete lifecycle. The browser's [voice-mask failure handling](voice-mask-failure.md)
+keeps a selected mask and mutes capture on startup, clock or processor failure;
+only an explicitly selected Off permits raw capture. This does not complete G8:
+Android masking, physical-device interruptions, temporary admission/storage,
+agent retention and authoritative teardown still need their full journeys.
+
+The browser voice-mask fix is [published and verified](evidence/voice-mask-publication-2026-10-10.json)
+from web main `5a59381`: all twelve hosted checks passed, deployed assets match,
+and a fresh phone-sized browser loaded the public home. That home check uses
+blocked relays and does not prove a live call or physical-device interruption.
 
 ## G9 — One workspace for projects, people and remote agent work
 
@@ -296,9 +302,27 @@ control tools. Project membership, authority and context remain explicit.
 
 The PWA [shared project directory](shared-projects.md) supplies signed project
 identities, deliberate membership joins and encrypted device synchronisation.
-Its Oathrun authority mapping, native Android directory and physical-phone
-journey remain acceptance work; directory membership grants no task or context
-authority by itself.
+Oathrun authority mapping and a native Android directory are implemented;
+their integrated physical-phone journey remains acceptance work. Directory
+membership grants no task or context authority by itself.
+
+The [10 October browser journey](evidence/workspace-project-membership-2026-10-10.json)
+checks three projects with overlapping and disjoint human/agent directory
+membership, deliberate joins, recovery on a fresh phone-sized profile, and
+separate unsent drafts retained while switching projects. Both ordinary and
+desktop browser builds passed against an offline relay. This covers navigation
+and directory recovery; it does not establish physical-phone, live executor,
+cross-project Inbox/Work or representative performance acceptance.
+
+The [cross-project Inbox/Work receipt](evidence/workspace-inbox-2026-10-10.json)
+records browser navigation through three deliberately admitted projects: agent
+questions and exact-result reviews, human mentions and replies, source routing,
+project filters and retained drafts. The PWA uses bounded read-only activity and
+the originating room controls for signed decisions. Android 0.6.77 now supplies native Inbox/All work views and originating-room
+routing, with its own JVM/emulator checks and [verified production channels](evidence/android-0.6.77-publication-2026-10-10.json).
+Combined signed-project/call acceptance, fresh-device summaries, older work
+coverage, live execution and physical acceptance remain open; this does not
+complete G9.
 
 ### Proposed navigation
 
@@ -381,8 +405,8 @@ remote work interface.
   consequences when judgement, new authority or an unresolved trade-off is
   required. Do not merely suppress requests while execution remains blocked.
 - Establish reusable, bounded execution and communication permissions explicitly.
-  Oathrun currently reviews each outgoing room draft; routine progress and
-  results need a reviewed delivery policy before they can flow automatically.
+  The isolated Oathrun assignment route has a reviewed delivery policy for
+  routine progress and results; supported live-host acceptance remains open.
   Preserve separate approval where an action exceeds the standing authority.
 - Continue from an authorised task checkpoint after an interruption. Avoid
   repeated context gathering and duplicate execution. A permission renewal,
@@ -404,9 +428,10 @@ remote work interface.
 Already implemented: shared assignment creation, progress, questions, exact
 result review, cancellation/handoff and Den links; hosted-agent discovery;
 Oathrun project policies, context verification and prompt-efficiency controls.
-Remaining work includes the assignment-to-Oathrun execution bridge, unified
-project/attention surfaces, native Android work controls, durable session
-integration and graph retrieval. This is not a new task-engine proposal.
+Remaining work includes integrated live acceptance of the assignment-to-Oathrun
+execution bridge and native Android work controls, unified project/attention
+surfaces, durable session integration and graph retrieval. This is not a new
+task-engine proposal.
 
 ## G10 — Battery optimisation backed by physical measurements
 
@@ -456,9 +481,15 @@ Acceptance:
   encrypted room sharing. Recording in temporary meetings must visibly change
   the no-history promise described in G8.
 
-Current foundation: the PWA's `CallRecorder` mixes audio locally, with signed
-recording notices and save/share/discard controls in `main.ts`. This is not
-video recording or evidence of the complete cross-client journey.
+Current foundation: the PWA's [local recorder](video-recording.md) offers audio
+and three video layouts, with signed capture notices, elapsed time, pause and
+save/share/discard controls. Android [understands the notices](recording-capture-notices.md)
+but does not yet record/export a call itself. The [10 October browser receipt](evidence/recording-long-session-2026-10-10.json)
+adds a passed 45-minute two-participant synthetic gallery capture and complete
+playback on an M1 Mac mini. It measures paired total track duration and browser
+RSS, not instantaneous A/V offset or battery use. The runtime predates the local
+save-retention UI fix. Native/physical cross-client, encrypted long-recording
+sharing and the complete latest-release journey remain open.
 
 ## G12 — Tested room capacity and a gallery that scales
 

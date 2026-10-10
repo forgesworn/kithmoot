@@ -11,7 +11,7 @@ import { installShareFitting } from './desktop-layout-fit.js'
 if (import.meta.env.VITE_DESKTOP === 'true') {
   document.documentElement.dataset.desktop = 'true'
   const room = document.getElementById('roomArea')!
-  const stage = document.getElementById('callStage')!
+  const stage = document.getElementById('callStageSlot')!
   const content = document.createElement('div')
   content.className = 'desktopRoomContent'
   // The conversation used to be its own permanent column; now it is a

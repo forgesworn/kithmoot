@@ -46,6 +46,7 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { PendingSends, type PendingSend } from './pending-sends.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
+import { RecordingVideo, type RecordingPerson, type RecordingVideoSnapshot, type VideoRecordingLayout } from './recording-video.js'
 import { signerLabel } from './signer-label.js'
 import { ChatScroll } from './chat-scroll.js'
 import { installReactionHold } from './reaction-hold.js'
@@ -54,6 +55,7 @@ import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
+import './call-surface.css'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -177,6 +179,8 @@ import {
   verifyMeetingPolicy,
   signRecordingNotice,
   verifyRecordingNotice,
+  signRecordingCaptureNotice,
+  verifyRecordingCaptureNotice,
   meetingAllows,
   withSpeaker,
   withMeetingMode,
@@ -185,6 +189,7 @@ import {
   HAND_TTL_SECONDS,
   type MeetingPolicy,
   type RecordingNotice,
+  type RecordingCaptureNotice,
   signRoomRelays,
   invitationRelaysFrom,
   verifyRoomRelays,
@@ -297,6 +302,8 @@ import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
+import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
+import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { credentialSeal } from '../../src/seal.js'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
@@ -1220,6 +1227,7 @@ async function signInWithNostr(): Promise<void> {
   contextPanel.close()
   if (loginBusy) return
   if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
+  workspaceWork?.reset()
   loginBusy = true
   identityGeneration++
   clearImportedHistorySearch()
@@ -1276,6 +1284,7 @@ async function signOutOfNostr(): Promise<void> {
   await browserLinkPanel.stop()
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
+  workspaceWork?.reset()
   // A signed-out account must not leave its device-specific rendezvous child
   // behind. Do this before changing the visible account state: a storage
   // failure keeps the account connected rather than pretending the clear won.
@@ -1355,6 +1364,7 @@ async function forgetThisBrowser(): Promise<void> {
   identityGeneration++
   clearImportedHistorySearch()
   const s = session
+  workspaceWork?.reset()
   session = undefined
   sessionTransport = undefined
   resetIncomingCall()
@@ -2226,7 +2236,7 @@ let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
  * away from the call's room keeps its session, relays and media running
  * here, and the room on screen is for reading and writing only: it never
  * carries this device's microphone or camera. The call's tiles stay in the
- * document, hidden, so no media element is paused by leaving it. Coming back
+ * permanent surface, so navigation does not replace their media elements. Coming back
  * puts the room's screen state back as it was left; there is no rejoin, so
  * nobody else sees anything happen. See app/src/call-dock.ts.
  */
@@ -2235,12 +2245,15 @@ interface DockedCall {
   transport: ManagedRelayPool | undefined
   quiet: QuietRoomTransport | undefined
   iceRefreshTimer: ReturnType<typeof setInterval> | undefined
+  conferenceEndTimer: ReturnType<typeof setTimeout> | undefined
   room: KnownRoom
   label: string
   me: string
   ui: RoomUiState
 }
 let dockedCall: DockedCall | undefined
+let callSurfaceScope = ''
+let galleryCollapsed = false
 
 function docked(): boolean {
   return dockedCall !== undefined
@@ -2250,6 +2263,17 @@ function docked(): boolean {
  *  screen. Everything about media asks this, never `session`. */
 function mediaSession(): RoomSession | undefined {
   return dockedCall?.session ?? session
+}
+
+/** Routing constraints belong to the call's original room. */
+function mediaUsesBothy(): boolean {
+  return dockedCall?.ui.roomUsesBothy ?? roomUsesBothy
+}
+
+function callRecordingAuthority(): Uint8Array | undefined {
+  if (!dockedCall) return isRoomAuthority() ? invitationAuthoritySk : undefined
+  const ui = dockedCall.ui
+  return ui.invitationAuthoritySk && ui.invitationDelegation.length === 0 && ui.roomInvitationCapability?.inviter === getPublicKey(ui.invitationAuthoritySk) ? ui.invitationAuthoritySk : undefined
 }
 
 /** This device's participant key in the call's room. */
@@ -4090,6 +4114,7 @@ function setCallOpen(open: boolean): void {
   $('deviceControls').hidden = !open
   $('callToggle').setAttribute('aria-expanded', String(open))
   $('callToggle').dataset.on = String(open)
+  renderDock()
 }
 
 function callIsLive(): boolean {
@@ -4342,6 +4367,7 @@ function stopLocalMedia(): void {
   pendingMedia.clear()
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
+  $('voiceFailureNotice').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   shareMayShowItself = false
   clearShareError()
@@ -4997,9 +5023,9 @@ function onMicEnded(): void {
 /**
  * Publish whatever the pipeline now says the microphone is.
  *
- * The pipeline hands over a different track when its masking graph has
- * stopped rendering - see `MicPipeline` - and everybody has to be sent the
- * new one: `publishActiveTracks` removes the old sender and adds the new,
+ * An explicitly selected Off may use raw capture when its audio graph
+ * fails. A selected mask instead mutes its output. A changed track must
+ * still be sent to every peer: `publishActiveTracks` removes the old sender and adds the new,
  * and the roster restates the advert under the new id.
  */
 function adoptMicTrack(): void {
@@ -5018,18 +5044,20 @@ function adoptMicTrack(): void {
 }
 
 async function toggleMic(): Promise<void> {
-  if (roomUsesBothy) throw new Error('Microphone sharing is unavailable on this text-only Bothy route.')
+  if (mediaUsesBothy()) throw new Error('Microphone sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (!micTrack && (meetingRefuses() || !await consentToRecordedCall())) return
   if (!micTrack) callWanted = true
   if ([...pendingMedia].some(pipeline => pipeline instanceof MicPipeline)) return
   // An ended output cannot be unmuted. A deliberate press reopens capture.
-  if (micTrack?.readyState === 'ended') {
-    micTrack.removeEventListener('ended', onMicEnded)
+  if (mic?.state.blocked || micTrack?.readyState === 'ended') {
+    micTrack?.removeEventListener('ended', onMicEnded)
     mic?.stop()
     mic = undefined
     micTrack = undefined
+    publishActiveTracks()
+    updateUi()
   }
   if (!micTrack) {
     const pipeline = new MicPipeline({
@@ -5039,6 +5067,7 @@ async function toggleMic(): Promise<void> {
         if (generation !== callGeneration) return
         renderVoiceState(state)
         adoptMicTrack()
+        if (mic === pipeline && state.blocked) { publishActiveTracks(); updateUi() }
       },
     })
     pendingMedia.add(pipeline)
@@ -5088,7 +5117,7 @@ async function toggleMic(): Promise<void> {
 }
 
 async function toggleCamera(): Promise<void> {
-  if (roomUsesBothy) throw new Error('Camera sharing is unavailable on this text-only Bothy route.')
+  if (mediaUsesBothy()) throw new Error('Camera sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (!camera && (meetingRefuses() || !await consentToRecordedCall())) return
@@ -5258,16 +5287,23 @@ function renderEffectFailureNotice(): void {
 function renderVoiceState(state: MicState): void {
   $('voiceMode').textContent = state.preset
   markSegmented('voicePresets', 'preset', state.preset)
+  const notice = $('voiceFailureNotice')
+  notice.hidden = !state.blocked
+  notice.textContent = state.blocked ? 'Microphone muted: voice masking failed. Press Microphone to retry. You can choose Off in More settings to use your own voice.' : ''
   const line = $('voiceStatus')
   line.classList.remove('broken', 'working')
   if (state.status === 'degraded') {
-    line.textContent = `Voice masking is off: ${state.error ?? 'the audio worklet would not load'}. Your own voice is going out.`
+    line.textContent = state.blocked
+      ? `Microphone muted because voice masking failed: ${state.error ?? 'the voice processor stopped'}. Press Microphone to try again, or choose Off and unmute to use your own voice.`
+      : `Masking is set to Off. The browser's audio graph is unavailable; your own voice is available when unmuted.`
     line.classList.add('broken')
     return
   }
   line.classList.add('working')
   line.textContent =
-    state.preset === 'off'
+    state.status === 'idle'
+      ? (state.preset === 'off' ? 'Your own voice when the microphone is on.' : 'Mask selected. Turn the microphone on to hear a preview.')
+      : state.preset === 'off'
       ? 'Your own voice, with nothing added to it.'
       : `Adds ${state.addedLatencyMs.toFixed(0)}ms of delay on top of the ${state.baseLatencyMs.toFixed(0)}ms this browser already costs.`
 }
@@ -5379,7 +5415,7 @@ interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
 
 let screenStarting = false
 async function toggleScreen(area = false): Promise<void> {
-  if (roomUsesBothy) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
+  if (mediaUsesBothy()) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
   if (screenStarting) return
@@ -5893,7 +5929,8 @@ function updateUi(): void {
   // off has to be visible without hunting for it, and the paragraph saying
   // what neither effect can do is worth as much as the buttons above it.
   revealEffects('cameraEffects', !!camera)
-  revealEffects('voiceEffects', !!mic)
+  revealEffects('voiceEffects', true)
+  ;($('voicePreview') as HTMLButtonElement).disabled = !mic || mic.state.blocked
   if (camera) renderBackgroundChoices()
   if (session || dockedCall) {
     repaint()
@@ -6087,11 +6124,15 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       tileBoxes.set(view.participant, box)
     }
     kept.add(view.participant)
-    // Everything but the media holders is rebuilt from the roster; the
-    // holders stay exactly where they are unless they have emptied.
+    const sharedDevices = new Set(view.tracks.filter(track => track.role === 'screen').map(track => track.device))
+    if (view.participant === me && screenTrack) sharedDevices.add(myDeviceId)
+    const shareButtons = new Map([...box.querySelectorAll<HTMLButtonElement>(':scope > .shareExpand')].map(button => [button.dataset.shareDevice, button]))
+    // Keep media holders and live share controls in place. Replacing an
+    // Expand button during presence updates can interrupt a phone tap.
     for (const child of [...box.children]) {
       // The call stage's own controls (see call-stage.ts) are its to keep.
       if (child.hasAttribute('data-call-layout')) continue
+      if (child instanceof HTMLButtonElement && child.classList.contains('shareExpand') && sharedDevices.has(child.dataset.shareDevice ?? '')) continue
       if (!child.classList.contains('media') || child.childElementCount === 0) child.remove()
     }
     box.className = 'participant'
@@ -6193,8 +6234,6 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       )
     }
 
-    const sharedDevices = new Set(view.tracks.filter(track => track.role === 'screen').map(track => track.device))
-    if (view.participant === me && screenTrack) sharedDevices.add(myDeviceId)
     for (const device of sharedDevices) {
       const owner = mediaSession()
       const origin = callOrigin(owner)
@@ -6207,8 +6246,13 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       // waiting as if there was nothing to expand, and on a phone the
       // double-tap that also opened the viewer is not a gesture anybody
       // finds. One tap on the preview opens it too.
-      const expand = document.createElement('button')
-      expand.type = 'button'; expand.className = 'shareExpand'
+      let expand = shareButtons.get(device)
+      if (!expand) {
+        expand = document.createElement('button')
+        expand.type = 'button'; expand.className = 'shareExpand'
+        expand.dataset.shareDevice = device
+        box.append(expand)
+      }
       // This device's own share while it may be filming KithMoot: opened in
       // the viewer, inside the captured window, it was the mirror again.
       // Asked again at the click, because an area can grow to fill the
@@ -6217,9 +6261,8 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       expand.textContent = mirrored() ? 'Preview paused while sharing' : ready ? 'Expand screen share' : 'Screen share arriving…'
       expand.disabled = !ready || mirrored()
       expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
-      const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand) }
-      expand.addEventListener('click', openViewer)
-      box.append(expand)
+      const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand!) }
+      expand.onclick = openViewer
       if (!ready) continue
       const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
         ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
@@ -6263,7 +6306,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // in the room is offering anything, and a room where nobody has turned
   // anything on shows nothing at all - which is most rooms, most of the
   // time, and is why this is not on the screen permanently.
-  $('whoIsHere').hidden = !views.some((view) => view.tracks.length > 0) && localMediaEl.childElementCount === 0
+  $('whoIsHere').hidden = !views.some((view) => view.call || view.tracks.length > 0) && localMediaEl.childElementCount === 0
   // Emptying the grid above detached our own holder if it was in a tile. If
   // no tile of ours was built this time - our entry has not come back from
   // the relay yet, or lapsed - it goes back to the preview strip in this same
@@ -7249,30 +7292,36 @@ const NOTICE_STORAGE_KEY = 'kithmoot.notice'
  * since a browser timer cannot wait as long as thirty days in one go.
  */
 function scheduleConferenceEnd(s: RoomSession): void {
-  clearTimeout(conferenceEndTimer)
-  conferenceEndTimer = undefined
+  const dock = dockedCall?.session === s ? dockedCall : undefined
+  clearTimeout(dock ? dock.conferenceEndTimer : conferenceEndTimer)
+  if (dock) dock.conferenceEndTimer = undefined
+  else conferenceEndTimer = undefined
   const endsAt = s.endsAt
   if (endsAt === undefined) return
   const wait = Math.min(Math.max(0, (endsAt - nowSeconds()) * 1000), 2 ** 31 - 1)
-  conferenceEndTimer = setTimeout(() => {
-    conferenceEndTimer = undefined
-    if (session !== s) return
+  const timer = setTimeout(() => {
+    // Navigation may have transferred this timer since it was armed.
+    const owner = dockedCall?.session === s ? dockedCall : undefined
+    if (!owner && session !== s) return
+    if (owner) owner.conferenceEndTimer = undefined
+    else conferenceEndTimer = undefined
     if (!conferenceEnded(endsAt, nowSeconds())) { scheduleConferenceEnd(s); return }
-    if (roomDestruct || roomIsDestruct(s.roomId)) {
-      // Self-destruct: the tidy-up leaves the room itself, then says so.
+    markEnded(deviceStore, s.roomId, endsAt)
+    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
+    if ((owner ? owner.ui.roomDestruct : roomDestruct) || roomIsDestruct(s.roomId)) {
       markRoomDestruct(s.roomId)
-      destructSecrets.set(s.roomId, roomSecret)
-      markEnded(deviceStore, s.roomId, endsAt)
-      if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
-      stopInvitationHost()
+      destructSecrets.set(s.roomId, owner ? owner.ui.roomSecret : roomSecret)
+      discardRoomRecording(s.roomId)
+      if (owner) void endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
+      else stopInvitationHost()
       void runDueDestructs()
       return
     }
-    markEnded(deviceStore, s.roomId, endsAt)
-    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
-    stopInvitationHost()
-    leaveWithNotice(conferenceEndedMessage(endsAt))
+    if (owner) void endDockedCall('user', conferenceEndedMessage(endsAt))
+    else { stopInvitationHost(); leaveWithNotice(conferenceEndedMessage(endsAt)) }
   }, wait)
+  if (dock) dock.conferenceEndTimer = timer
+  else conferenceEndTimer = timer
 }
 
 function leaveWithNotice(message: string): void {
@@ -7362,6 +7411,7 @@ interface HeardRecording extends SignedRecording { since: number; heardAt: numbe
 
 const meetings = new Map<string, SignedMeeting>()
 const recordings = new Map<string, HeardRecording>()
+const recordingCaptures = new Map<string, RecordingCaptureNotice & { sig: string }>()
 /** Raised hands in the room on screen: participant -> unix seconds raised. */
 const handsUp = new Map<string, number>()
 /** The newest hand message per participant, up or down, so an old "up"
@@ -7377,16 +7427,34 @@ const MEETING_LOCKED = 'This call is in meeting mode: only speakers can use a mi
 
 interface ActiveRecording {
   recorder: CallRecorder
+  video?: RecordingVideo
   session: RoomSession
   authoritySk: Uint8Array
   notice: SignedRecording
+  capture: RecordingCaptureNotice & { sig: string }
   timer: ReturnType<typeof setInterval>
+  elapsedTimer: ReturnType<typeof setInterval>
+  discarded?: boolean
 }
 /** The recording this device is making, if it is making one. */
 let activeRecording: ActiveRecording | undefined
 /** A finished recording, held on this device until its owner shares,
  *  saves or discards it. Never uploaded without that choice. */
-let pendingRecording: { file: File; roomId: string; url: string } | undefined
+let pendingRecording: { file: File; roomId: string; url: string; addedTo?: ConversationDraft; attachment?: ChatAttachment } | undefined
+let sharingRecording = false
+const recordingStops = new Set<ActiveRecording>()
+
+/** Destruction also drops an unsaved clip, including one still finalising. */
+function discardRoomRecording(roomId: string): void {
+  recordingCaptures.delete(roomId)
+  if (activeRecording?.session.roomId === roomId) activeRecording.discarded = true
+  for (const recording of recordingStops) if (recording.session.roomId === roomId) recording.discarded = true
+  if (pendingRecording?.roomId === roomId) {
+    URL.revokeObjectURL(pendingRecording.url)
+    pendingRecording = undefined
+    renderRecording()
+  }
+}
 
 function roomMeeting(s = session): SignedMeeting | undefined {
   return s ? meetings.get(s.roomId) : undefined
@@ -7513,6 +7581,31 @@ function ingestRecording(control: Extract<ControlMessage, { op: 'recording' }>, 
   adoptRecording(s, { ...notice, sig: control.sig }, sentAt)
 }
 
+function ingestRecordingCapture(control: Extract<ControlMessage, { op: 'recording-capture' }>): void {
+  const s = session, authority = roomAuthority()
+  if (!s || !authority || !verifyRecordingCaptureNotice({ roomId: s.roomId, notice: control, sig: control.sig, authority })) return
+  const before = recordingCaptures.get(s.roomId)
+  if (before && before.version >= control.version) return
+  recordingCaptures.set(s.roomId, control)
+  renderRecording()
+}
+
+function currentRecordingCapture(s = session): RecordingCaptureNotice | undefined {
+  if (!s) return undefined
+  const notice = recordings.get(s.roomId), capture = recordingCaptures.get(s.roomId)
+  return notice?.on && capture?.id === notice.id && capture.version === notice.version ? capture : undefined
+}
+
+function recordingCaptureDescription(s = session): string {
+  const capture = currentRecordingCapture(s)
+  if (!capture) return 'Audio and video you share may be included.'
+  const person = s?.participants().find(view => view.participant === capture.recorder)
+  const name = shownAs(capture.recorder, person?.name).name
+  const who = name ? `${name} (${shortKey(capture.recorder)})` : shortKey(capture.recorder)
+  const what = { audio: 'call audio', gallery: 'gallery video and call audio', speaker: 'speaker video and call audio', 'screen-camera': 'a screen share with camera and call audio' }[capture.capture]
+  return `${who} is capturing ${what}.`
+}
+
 function adoptRecording(s: RoomSession, notice: SignedRecording, sentAt: number): void {
   const before = recordings.get(s.roomId)
   if (before && before.version > notice.version) return
@@ -7523,7 +7616,7 @@ function adoptRecording(s: RoomSession, notice: SignedRecording, sentAt: number)
   }
   const since = notice.on && before?.on && before.id === notice.id ? before.since : sentAt
   recordings.set(s.roomId, { ...notice, since, heardAt: sentAt })
-  if (sentAt >= nowSeconds() - 60 && !!before?.on !== notice.on) {
+  if (s === session && sentAt >= nowSeconds() - 60 && !!before?.on !== notice.on) {
     addSystemLine(notice.on ? 'This call is being recorded. Everybody on the call is told, and sees a notice until it stops.' : 'The recording has stopped.')
   }
   // The notice says this recording is over - stopped on another of the
@@ -7552,48 +7645,205 @@ async function consentToRecordedCall(): Promise<boolean> {
   if (currentRecordingView().state === 'off' || activeRecording) return true
   return confirmRoomAction({
     title: 'This call is being recorded',
-    message: 'The person who made this room is recording the call\'s sound. If you join, what you say is in the recording. You can stay in the room and read the chat without joining the call.',
+    message: `${recordingCaptureDescription()} If you join, the media you share may be recorded. You can stay in the room and read the chat without joining the call.`,
     confirmLabel: 'Join and be recorded',
     cancelLabel: 'Not now',
   })
 }
 
+/** Endpoint identities, rather than names, bind every exported picture. */
+function recordingVideoPeople(s: RoomSession): RecordingPerson[] {
+  const callId = s.call?.id
+  const speaking = speakingMonitor.speaking()
+  const people: RecordingPerson[] = []
+  for (const view of s.participants()) {
+    if (!callId || !view.call || view.call.id !== callId) continue
+    for (const device of view.call.devices) {
+      if (!view.devices.includes(device)) continue
+      const local = view.participant === mediaMe() && device === myDeviceId
+      const supported = local || view.recordingProfiles?.[device] === 2
+      const permitted = !meetingGated(device)
+      const name = shownAs(view.participant, view.name).name ?? shortKey(view.participant)
+      const label = `${shortKey(view.participant)} · ${device.slice(0, 6)} · ${name}`
+      const advert = view.tracks.some(track => track.device === device && track.role === 'camera')
+      let camera = local ? cameraTrack : advert ? remoteVideos.get(tileKey(device, 'camera'))?.track : undefined
+      if (!camera && !local && advert) camera = [...remoteVideos].find(([key, entry]) => tileDevice(key) === device && (fixedRemoteRoles.get(entry.track) ?? tileRole(key)) === 'camera')?.[1].track
+      people.push({
+        id: `${view.participant}:${device}`, label,
+        camera: supported && permitted && camera?.readyState === 'live' ? camera : undefined,
+        fallback: !supported ? 'Update this client to include video' : !permitted ? 'Media access restricted' : 'Camera off or unavailable',
+        speaking: permitted && speaking.has(local ? LOCAL_SPEAKING_KEY : device),
+        muted: !permitted || (local ? !micTrack?.enabled : !view.tracks.some(track => track.device === device && track.role === 'mic' && !track.muted)),
+      })
+    }
+  }
+  // Stable identity order through name changes and roster republishing.
+  return people.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+interface RecordingShareChoice { participant: string; device: string; label: string }
+
+function recordingShareChoices(s: RoomSession): RecordingShareChoice[] {
+  const choices: RecordingShareChoice[] = []
+  for (const view of s.participants()) {
+    if (!s.call || !view.call || view.call.id !== s.call.id) continue
+    for (const device of view.call.devices) {
+      const local = view.participant === mediaMe() && device === myDeviceId
+      if (!local && view.recordingProfiles?.[device] !== 2 || meetingGated(device)) continue
+      const source = screenSource(view.participant, device, s)
+      if (!source || (source.status !== 'live' && source.status !== 'reconnecting')) continue
+      choices.push({ participant: view.participant, device, label: `${source.owner?.name ?? shortKey(view.participant)} · ${shortKey(view.participant)} · ${device.slice(0, 6)}` })
+    }
+  }
+  return choices
+}
+
+function recordingVideoSnapshot(s: RoomSession, callId: string, origin: ReturnType<typeof callOrigin>, selected?: RecordingShareChoice): RecordingVideoSnapshot | undefined {
+  if (s !== mediaSession() || s.closed || s.call?.id !== callId) return undefined
+  const snapshot: RecordingVideoSnapshot = {
+    origin: `${origin?.roomName ?? 'Call'}${origin?.projectName ? ` · ${origin.projectName}` : ''} · ${s.roomId.slice(0, 8)} · ${callId.slice(0, 8)}`,
+    people: recordingVideoPeople(s),
+  }
+  if (selected) {
+    const person = s.participants().find(view => view.participant === selected.participant && view.call?.id === callId && view.call.devices.includes(selected.device))
+    const local = selected.participant === mediaMe() && selected.device === myDeviceId
+    const permitted = !!person && (local || person.recordingProfiles?.[selected.device] === 2) && !meetingGated(selected.device)
+    const source = permitted ? screenSource(selected.participant, selected.device, s, origin) : undefined
+    snapshot.share = {
+      label: source?.owner ? `${shortKey(selected.participant)} · ${selected.device.slice(0, 6)} · ${source.owner.name}` : `${shortKey(selected.participant)} · ${selected.device.slice(0, 6)} · ${selected.label}`,
+      track: source?.status === 'live' ? source.track : undefined,
+      camera: source?.status === 'live' ? source.camera : undefined,
+      fallback: !person ? 'Share owner left the call' : !permitted ? 'Video access unavailable' : source?.status === 'ended' ? 'Selected screen share ended' : 'Selected screen share reconnecting',
+    }
+  }
+  return snapshot
+}
+
+let recordingStartPending = false
 async function startRecording(): Promise<void> {
-  const s = session, authoritySk = invitationAuthoritySk
-  if (!s || !authoritySk || !isRoomAuthority()) throw new Error('Only the person who made this room can record its calls.')
+  if (recordingStartPending) return
+  recordingStartPending = true
+  try { await beginRecording() }
+  finally { recordingStartPending = false }
+}
+
+async function beginRecording(): Promise<void> {
+  const s = mediaSession(), authoritySk = callRecordingAuthority()
+  if (!s || !authoritySk) throw new Error('Only the person who made this room can record its calls.')
   if (activeRecording) return
+  if (recordingStops.size) throw new Error('The previous recording is finishing. Try again when it is ready.')
+  const replacing = pendingRecording
   if (!s.call) throw new Error('Join the call to record it.')
-  if (!recordingMimeType()) throw new Error('This browser cannot record audio.')
-  if (!await confirmRoomAction({
-    title: 'Record this call?',
-    message: 'Everybody in the room is told now, and anybody joining is told before they join. A recording notice stays up for everybody until you stop. What is recorded is the call\'s sound: every voice you can hear, and yours. It stays on this device until you choose to share it.',
+  const callId = s.call.id, origin = callOrigin(s)
+  const options = document.createElement('fieldset')
+  options.className = 'recordingChoices'
+  const legend = document.createElement('legend')
+  legend.textContent = 'What to record'
+  options.append(legend)
+  let shares = recordingShareChoices(s)
+  const availableAudio = !!recordingMimeType()
+  const availableVideo = !!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function'
+  if (!availableAudio && !availableVideo) throw new Error('This browser cannot record call audio or video.')
+  let layout: 'audio' | VideoRecordingLayout = availableAudio ? 'audio' : 'gallery'
+  for (const [value, label] of [['audio', 'Audio only'], ['gallery', 'Gallery and audio'], ['speaker', 'Speaker and audio'], ['screen-camera', 'Screen share with camera and audio']] as const) {
+    const row = document.createElement('label')
+    const input = document.createElement('input')
+    input.type = 'radio'; input.name = 'recording-layout'; input.value = value; input.checked = value === layout
+    input.disabled = value === 'audio' ? !availableAudio : !availableVideo || (value === 'screen-camera' && !shares.length)
+    input.addEventListener('change', () => { layout = value; sharePicker.hidden = value !== 'screen-camera' })
+    row.append(input, document.createTextNode(label + (input.disabled ? value === 'screen-camera' && availableVideo ? ' — no eligible screen share' : ' — unavailable in this browser' : '')))
+    options.append(row)
+  }
+  const sharePicker = document.createElement('label')
+  sharePicker.hidden = true
+  sharePicker.textContent = 'Whose screen '
+  const shareSelect = document.createElement('select')
+  shareSelect.id = 'recordingShareSource'
+  const refreshShares = () => {
+    const before = shareSelect.value, beforeLabel = shareSelect.selectedOptions[0]?.textContent?.replace(/ — unavailable$/, '')
+    shares = recordingShareChoices(s)
+    const next = shares.map(share => ({ value: `${share.participant}:${share.device}`, label: share.label }))
+    // A disappearing selected owner must not silently select another share.
+    if (before && !next.some(share => share.value === before)) next.unshift({ value: before, label: `${beforeLabel ?? 'Selected share'} — unavailable` })
+    if (JSON.stringify([...shareSelect.options].map(option => ({ value: option.value, label: option.textContent }))) !== JSON.stringify(next)) {
+      shareSelect.replaceChildren(...next.map(share => {
+        const option = document.createElement('option')
+        option.value = share.value; option.textContent = share.label
+        return option
+      }))
+      if (before) shareSelect.value = before
+    }
+    const screenChoice = options.querySelector<HTMLInputElement>('input[value="screen-camera"]')!
+    screenChoice.disabled = !availableVideo || !shares.length
+    screenChoice.parentElement!.lastChild!.textContent = 'Screen share with camera and audio' + (screenChoice.disabled ? availableVideo ? ' — no eligible screen share' : ' — unavailable in this browser' : '')
+  }
+  refreshShares()
+  sharePicker.append(shareSelect); options.append(sharePicker)
+  const excluded = recordingVideoPeople(s).filter(person => person.fallback.startsWith('Update'))
+  const capabilities = document.createElement('p')
+  capabilities.className = 'note'
+  capabilities.textContent = 'Video is composed locally at 720p, 15 frames per second. Only the selected layout is captured. Pausing removes that interval from the saved file. Video recording pauses when this app is hidden; return and press Resume.'
+    + (excluded.length ? ` Video excluded for older clients: ${excluded.map(person => person.label).join(', ')}. They appear by name and can still contribute call audio.` : '')
+  options.append(capabilities)
+  const temporary = dockedCall?.session === s ? dockedCall.ui.roomDestruct : roomDestruct
+  const shareTimer = setInterval(refreshShares, 1000)
+  let confirmed: boolean
+  try { confirmed = await confirmRoomAction({
+    title: `Record the call in ${callOrigin(s)?.roomName ?? 'this room'}?`,
+    message: 'Everybody in the room is told who is recording and what you choose below. Late joiners are told before joining. The notice remains visible while paused. The authorised voices you hear and your own microphone are included. The recording stays on this device until you choose to save or share it. Browser file-size limits may stop it earlier.'
+      + (temporary ? ' Recording creates retained history of this temporary meeting. Room destruction discards unsaved local recordings, but cannot delete copies somebody has already saved or shared.' : '')
+      + (replacing ? ' Starting this recording replaces the previous local clip. Save or share that clip first if you want to keep it.' : ''),
+    content: options,
     confirmLabel: 'Start recording',
-  })) return
-  if (session !== s || activeRecording) return
+  }) } finally { clearInterval(shareTimer) }
+  if (!confirmed) return
+  if (mediaSession() !== s || s.call?.id !== callId || s.closed || activeRecording) return
+  const chosen = layout as 'audio' | VideoRecordingLayout
+  const selectedShare = shares.find(share => `${share.participant}:${share.device}` === shareSelect.value)
+  if (chosen === 'screen-camera' && !selectedShare) throw new Error('Choose an eligible screen share before recording.')
+  if (chosen !== 'audio' && document.hidden) throw new Error('Keep this app visible to start video recording.')
   const before = recordings.get(s.roomId)
   const notice: RecordingNotice = { on: true, id: bytesToHex(randomBytes(16)), version: Math.max(Date.now(), (before?.version ?? 0) + 1) }
   const signed: SignedRecording = { ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
+  const captureNotice: RecordingCaptureNotice = { id: notice.id, version: notice.version, capture: chosen, recorder: mediaMe(), device: myDeviceId }
+  const capture = { ...captureNotice, sig: signRecordingCaptureNotice({ roomId: s.roomId, notice: captureNotice, authoritySk }) }
   // Told first, recorded second. A recording nobody was told about is the
   // one thing this must never make, so a notice that fails to go out is a
   // recording that never starts.
+  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
   await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+  recordingCaptures.set(s.roomId, capture)
+  if (mediaSession() !== s || s.call?.id !== callId || s.closed) { await postRecordingOff(s, authoritySk, signed); return }
   adoptRecording(s, signed, nowSeconds())
   let recorder: CallRecorder
+  let video: RecordingVideo | undefined
   try {
+    if (chosen !== 'audio') video = new RecordingVideo({
+      layout: chosen,
+      snapshot: () => recordingVideoSnapshot(s, callId, origin, selectedShare),
+      onFailure: reason => { void stopRecording(reason) },
+    })
     recorder = new CallRecorder({
       maxBytes: Math.floor(MAX_UPLOAD_SOURCE_BYTES * 0.95),
-      onLimit: (reason) => { setStatus(`The recording stopped because ${reason}.`); void stopRecording() },
+      video: video?.track,
+      onLimit: (reason) => { void stopRecording(reason) },
     })
   } catch (err) {
+    video?.close()
     await postRecordingOff(s, authoritySk, signed)
     throw err
   }
   const timer = setInterval(() => {
-    s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+    s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
+      .then(() => s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed })))
       .then(() => adoptRecording(s, signed, nowSeconds()))
       .catch(() => { /* The next repost tries again; the notice shows as unconfirmed meanwhile. */ })
   }, RECORDING_REPOST_SECONDS * 1000)
-  activeRecording = { recorder, session: s, authoritySk, notice: signed, timer }
+  const elapsedTimer = setInterval(() => {
+    if (!document.hidden && !recorder.paused) renderRecordingElapsed()
+  }, 1000)
+  activeRecording = { recorder, video, session: s, authoritySk, notice: signed, capture, timer, elapsedTimer }
+  if (replacing && pendingRecording === replacing) discardPendingRecording()
   feedRecorder()
   renderRecording()
   renderMeeting()
@@ -7612,24 +7862,35 @@ async function postRecordingOff(s: RoomSession, authoritySk: Uint8Array, was: Re
 }
 
 /** Stop recording, take the notice down, and hold the file for its owner. */
-async function stopRecording(): Promise<void> {
+async function stopRecording(reason?: string): Promise<void> {
   const active = activeRecording
   if (!active) return
   activeRecording = undefined
   clearInterval(active.timer)
-  // The recorder stops before the notice comes down, never after.
-  const blob = await active.recorder.stop()
-  await postRecordingOff(active.session, active.authoritySk, active.notice)
-  if (blob.size > 0) {
-    if (pendingRecording) URL.revokeObjectURL(pendingRecording.url)
-    const file = new File([blob], recordingFileName(active.recorder.startedAt, active.recorder.mimeType), { type: active.recorder.mimeType.split(';')[0]! })
-    pendingRecording = { file, roomId: active.session.roomId, url: URL.createObjectURL(file) }
-    setStatus(`Recording stopped: ${formatBytes(file.size)}, on this device only. Share it in the room or save it.`)
-  } else {
-    setStatus('Recording stopped. Nothing was recorded.')
-  }
+  clearInterval(active.elapsedTimer)
+  const roomId = active.session.roomId
+  recordingStops.add(active)
   renderRecording()
   renderMeeting()
+  try {
+    // The recorder stops before the notice comes down, never after.
+    const blob = await active.recorder.stop()
+    await postRecordingOff(active.session, active.authoritySk, active.notice)
+    if (active.discarded) return
+    if (blob.size > 0) {
+      if (pendingRecording) URL.revokeObjectURL(pendingRecording.url)
+      const file = new File([blob], recordingFileName(active.recorder.startedAt, active.recorder.mimeType), { type: active.recorder.mimeType.split(';')[0]! })
+      pendingRecording = { file, roomId, url: URL.createObjectURL(file) }
+      setStatus(`Recording stopped${reason ? ` because ${reason}` : ''}: ${formatBytes(file.size)}, on this device only. Share it in the room or save it.`)
+    } else {
+      setStatus(`Recording stopped${reason ? ` because ${reason}` : ''}. Nothing was recorded.`)
+    }
+  } finally {
+    active.video?.close()
+    recordingStops.delete(active)
+    renderRecording()
+    renderMeeting()
+  }
 }
 
 /** Hand the recorder exactly what this device is playing, and its own
@@ -7638,8 +7899,14 @@ function feedRecorder(): void {
   const active = activeRecording
   if (!active || active.session !== mediaSession()) return
   const tracks: MediaStreamTrack[] = []
-  for (const [key, audio] of remoteAudios) if (!meetingGated(tileDevice(key))) tracks.push(audio.track)
-  if (micTrack) tracks.push(micTrack)
+  const callId = active.session.call?.id
+  const callDevices = new Set(active.session.participants().filter(view => callId && view.call?.id === callId).flatMap(view => view.call!.devices))
+  for (const [key, audio] of remoteAudios) {
+    const device = tileDevice(key)
+    const person = active.session.participants().find(view => view.devices.includes(device))
+    if (callDevices.has(device) && cachedMonitorHere && !cachedOwnDevices.has(device) && !meetingGated(device) && (!person || volumeLevel(person.participant) > 0)) tracks.push(audio.track)
+  }
+  if (micTrack?.enabled && meetingLetsMeSend()) tracks.push(micTrack)
   active.recorder.setTracks(tracks)
 }
 
@@ -7649,6 +7916,60 @@ const takingDown = new Set<string>()
 function clockTime(seconds: number): string {
   return new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
+
+function renderRecordingElapsed(): void {
+  const active = activeRecording
+  const seconds = Math.floor((active?.recorder.elapsedMs ?? 0) / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const elapsed = `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')} recorded`
+  for (const [id, visible] of [
+    ['recordingElapsed', !!active && active.session === session],
+    ['callDockRecordingElapsed', !!active && active.session === dockedCall?.session],
+  ] as const) {
+    const element = $(id)
+    element.hidden = !visible
+    if (visible && element.textContent !== elapsed) element.textContent = elapsed
+  }
+}
+
+function renderRecordingPause(id: string, mine: boolean): void {
+  const button = $(id) as HTMLButtonElement
+  const recorder = activeRecording?.recorder
+  button.hidden = !mine || !recorder?.canPause
+  button.textContent = recorder?.paused ? 'Resume recording' : 'Pause recording'
+  button.setAttribute('aria-pressed', String(!!recorder?.paused))
+}
+
+function toggleRecordingPause(): void {
+  const active = activeRecording
+  if (!active || active.session !== mediaSession()) return
+  try {
+    if (active.recorder.paused) {
+      if (active.video && document.hidden) throw new Error('Return to this app before resuming video recording.')
+      active.video?.resume()
+      active.recorder.resume()
+    } else {
+      active.recorder.pause()
+      active.video?.pause()
+    }
+    renderRecording()
+  } catch (error) {
+    setStatus(describeError(error))
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  const active = activeRecording
+  if (!document.hidden || !active?.video || active.recorder.paused) return
+  try {
+    if (!active.recorder.canPause) { void stopRecording('this browser cannot pause video safely while hidden'); return }
+    active.recorder.pause(); active.video.pause()
+    setStatus('Video recording paused because this app was hidden. Return and press Resume to continue; the hidden interval is omitted.')
+    renderRecording()
+  } catch {
+    void stopRecording('this app could not pause safely when hidden')
+  }
+})
 
 /** The recording notice every member sees, and the finished file its
  *  owner decides about. */
@@ -7670,10 +7991,14 @@ function renderRecording(): void {
   banner.hidden = view.state === 'off'
   banner.dataset.state = view.state
   stop.hidden = !mine
+  renderRecordingPause('recordingPause', mine)
+  renderRecordingElapsed()
   if (view.state === 'on') {
     text.textContent = mine
-      ? `You are recording this call (${formatBytes(activeRecording!.recorder.bytes)} so far). Everybody in the room can see this notice.`
-      : `This call is being recorded, since ${clockTime(view.since)}. What is said on the call is in the recording. KithMoot cannot stop anybody recording with another app, recording or not.`
+      ? activeRecording!.recorder.paused
+        ? 'Your recording is paused. Paused time is omitted from the saved file. Everybody still sees the recording notice.'
+        : `You are recording ${activeRecording!.capture.capture === 'audio' ? 'this call\'s audio' : `${activeRecording!.capture.capture === 'screen-camera' ? 'a screen share with camera' : activeRecording!.capture.capture + ' video'} and call audio`} (${formatBytes(activeRecording!.recorder.bytes)} so far). Everybody in the room can see this notice.`
+      : `This call is being recorded, since ${clockTime(view.since)}. ${recordingCaptureDescription()} KithMoot cannot stop anybody recording with another app, recording or not.`
   } else if (view.state === 'unconfirmed') {
     text.textContent = `This call may still be recording: the notice was last confirmed at ${clockTime(view.lastHeard)}.`
   }
@@ -7682,12 +8007,21 @@ function renderRecording(): void {
   const ready = $('recordingReady')
   ready.hidden = !pendingRecording
   if (pendingRecording) {
-    $('recordingReadyText').textContent = `Your recording is ready: ${pendingRecording.file.name}, ${formatBytes(pendingRecording.file.size)}. It is on this device only.`
+    const draft = drafts.get(currentChannel)
+    const waiting = !!draft.pendingFiles?.includes(pendingRecording.file)
+    const staged = pendingRecording.addedTo === draft && !!pendingRecording.attachment && draft.attachments.includes(pendingRecording.attachment)
+    $('recordingReadyText').textContent = `Your recording is ready: ${pendingRecording.file.name}, ${formatBytes(pendingRecording.file.size)}. `
+      + (staged ? 'Added to your message draft; press Send to share it. You can still save this local copy.'
+        : waiting ? 'Held on this device. Allow file storage and upload the selected file to add it to your message.'
+          : 'Save it or add it to a message. Adding it keeps this local copy until you discard it.')
     const save = $('recordingSave') as HTMLAnchorElement
     save.href = pendingRecording.url
     save.download = pendingRecording.file.name
-    ;($('recordingShare') as HTMLButtonElement).hidden = session?.roomId !== pendingRecording.roomId
+    const share = $('recordingShare') as HTMLButtonElement
+    share.hidden = session?.roomId !== pendingRecording.roomId
+    share.disabled = sharingRecording || !!draft.job || waiting || staged
   }
+  renderDock()
 }
 
 setInterval(() => { if (activeRecording || session) renderRecording() }, 30_000)
@@ -7700,16 +8034,29 @@ function discardPendingRecording(): void {
 }
 
 $('recordingStop').addEventListener('click', () => { void stopRecording() })
-$('recordingShare').addEventListener('click', () => {
+$('recordingPause').addEventListener('click', toggleRecordingPause)
+$('callDockRecordingPause').addEventListener('click', toggleRecordingPause)
+$('recordingShare').addEventListener('click', async () => {
   const pending = pendingRecording
-  if (!pending || session?.roomId !== pending.roomId) return
+  if (!pending || sharingRecording || session?.roomId !== pending.roomId) return
+  if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) {
+    setStatus('Choose a conversation you can send to before adding the recording. Your local copy is kept.')
+    return
+  }
+  showMobileRoomView('chat')
+  const draft = captureDraft()
+  if (draft.job || draft.pendingFiles?.includes(pending.file)
+    || pending.addedTo === draft && !!pending.attachment && draft.attachments.includes(pending.attachment)) return
   // Through the same door as a dropped file: sealed here, and uploaded only
   // to storage this person has already allowed, or held until they do.
-  shareDroppedFiles([pending.file]).catch((err) => setStatus(describeError(err)))
-  discardPendingRecording()
+  sharingRecording = true
+  renderRecording()
+  try { await shareDroppedFiles([pending.file]) }
+  catch (err) { setStatus(describeError(err)) }
+  finally { sharingRecording = false; renderRecording() }
 })
 $('recordingDiscard').addEventListener('click', async () => {
-  if (!await confirmRoomAction({ title: 'Discard the recording?', message: 'It is on this device only, and nothing else has a copy unless you shared or saved it.', confirmLabel: 'Discard', danger: true })) return
+  if (!await confirmRoomAction({ title: 'Discard the local recording?', message: 'Files already added to a message draft remain there; remove them from that draft separately. Saved or sent copies stay.', confirmLabel: 'Discard', danger: true })) return
   discardPendingRecording()
 })
 
@@ -7750,8 +8097,9 @@ function renderMeeting(): void {
   const recordingHere = activeRecording !== undefined
   record.textContent = recordingHere ? 'Stop recording' : 'Record the call'
   record.setAttribute('aria-pressed', String(recordingHere))
-  record.disabled = !recordingHere && (!session?.call || !recordingMimeType())
-  record.title = record.disabled ? (recordingMimeType() ? 'Join the call to record it.' : 'This browser cannot record audio.') : ''
+  const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
+  record.disabled = !recordingHere && (!session?.call || !canRecord)
+  record.title = record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : ''
 
   const list = $('meetingPeople')
   list.replaceChildren()
@@ -8047,6 +8395,9 @@ function ingestControl(messages: ChatMessage[]): void {
         break
       case 'recording':
         ingestRecording(control, m.sentAt)
+        break
+      case 'recording-capture':
+        ingestRecordingCapture(control)
         break
       case 'hand':
         ingestHand(m.participant, control.up, m.sentAt)
@@ -8687,6 +9038,7 @@ function draftChanged(draft: ConversationDraft): void {
   renderDraftBadges()
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
+  if (pendingRecording) renderRecording()
 }
 
 /**
@@ -10841,7 +11193,10 @@ async function collectDiagnostics(): Promise<string> {
       devices: v.devices.map(short),
       tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}${t.muted ? '(muted)' : ''}`),
       mic: short(v.mic),
+      call: v.call ? { id: short(v.call.id), devices: v.call.devices.map(short) } : undefined,
+      recordingProfiles: Object.entries(v.recordingProfiles ?? {}).map(([device, profile]) => ({ device: short(device), profile })),
     })),
+    recording: activeRecording ? { capture: activeRecording.capture.capture, videoInputs: recordingVideoPeople(activeRecording.session).map(person => ({ label: person.label, fallback: person.fallback, camera: !!person.camera })) } : undefined,
     routes: s ? [...s.routes].map(([d, r]) => ({ device: short(d), tier: r.tier, endpoint: short(r.endpoint), connected: r.connected, exhausted: r.exhausted })) : [],
     connections,
     pictures: [...remoteVideos].map(([key, v]) => ({
@@ -11193,6 +11548,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
+          recordingProfile: 2,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
@@ -11215,7 +11571,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
-            if (created && dockedCall?.session === created) { void endDockedCall('user', `${dockedCall.label} was closed.`); dockedRoomClosed(created.roomId, notice) }
+            if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
             else if (created && session === created) roomWasClosed(notice)
           },
           // The indicator has to move the moment this device starts or stops
@@ -11253,6 +11609,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
+          recordingProfile: 2,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
@@ -11275,7 +11632,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
-            if (created && dockedCall?.session === created) { void endDockedCall('user', `${dockedCall.label} was closed.`); dockedRoomClosed(created.roomId, notice) }
+            if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
             else if (created && session === created) roomWasClosed(notice)
           },
           // The indicator has to move the moment this device starts or stops
@@ -11637,6 +11994,7 @@ $('chatLog').addEventListener('scroll', () => {
 // ---------------------------------------------------------------------------
 
 const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
+let workspaceWork: WorkspaceWorkPanel | undefined
 let roomsTimer: ReturnType<typeof setInterval> | undefined
 /** Whether the list is what is on screen. Nothing below draws, or keeps a
  *  relay open, when it is not. */
@@ -11826,6 +12184,7 @@ function renderRooms(): void {
   // And a self-destructing one is tidied away, here as at launch.
   if (!destructRun && dueDestructRooms().some(room => !destructing.has(room.roomId))) void runDueDestructs()
   retryFileDeletes()
+  workspaceWork?.sync()
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (!roomsListShown) return
@@ -12995,10 +13354,11 @@ function dockableRoom(): KnownRoom | undefined {
  *  been taken out of the globals that closing clears. */
 function dockCall(room: KnownRoom): void {
   dockedCall = {
-    session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer,
+    session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer, conferenceEndTimer,
     room, label: currentRoomLabel(), me: meParticipant, ui: captureRoomUi(),
   }
   iceRefreshTimer = undefined
+  conferenceEndTimer = undefined
   document.documentElement.dataset.callDocked = 'true'
 }
 
@@ -13015,6 +13375,7 @@ function resumeDockedCall(): void {
   sessionTransport = c.transport
   quietTransport = c.quiet
   iceRefreshTimer = c.iceRefreshTimer
+  conferenceEndTimer = c.conferenceEndTimer
   meParticipant = c.me
   history.replaceState(null, '', joinLinkBase() + new URL(c.room.link, location.href).hash)
   showRoomUi()
@@ -13056,6 +13417,8 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   const c = dockedCall
   if (!c) return
   const key = callLockKey()
+  if (activeRecording?.session === c.session) void stopRecording().catch(err => setStatus(describeError(err)))
+  clearTimeout(c.conferenceEndTimer)
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
   ++callGeneration
@@ -13086,17 +13449,29 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   setStatus(notice ?? `You left the call in ${c.label}.`, 'done')
 }
 
-/** The dock: which call this device is on, and the ways to it and off it. */
+/** The call surface is a permanent sibling of the route panels. Navigation
+ *  changes its presentation, never its parent or the media elements in it. */
 function renderDock(): void {
+  const surface = $('callSurface')
   const dock = $('callDock')
   const c = dockedCall
-  // Above the room on screen, or above the rooms list when there is none.
-  const place = $('roomArea').hidden && !$('home').hidden ? $('home') : $('roomArea')
-  if (dock.parentElement !== place) place.prepend(dock)
-  if (dock.hidden !== !c) dock.hidden = !c
+  const owner = mediaSession()
+  const live = !!owner?.call
+  const scope = live ? `${owner!.roomId}:${owner!.call!.id}` : ''
+  if (scope !== callSurfaceScope) { callSurfaceScope = scope; galleryCollapsed = live && innerHeight <= 540 }
+  surface.hidden = !c && ($('roomArea').hidden || ($('callBay').hidden && $('whoIsHere').hidden && $('roomArea').dataset.mobileView !== 'call' && import.meta.env.VITE_DESKTOP !== 'true'))
+  surface.toggleAttribute('data-live', live)
+  surface.toggleAttribute('data-gallery-collapsed', live && galleryCollapsed)
+  $('callSurfaceHeader').hidden = !live
+  const origin = callOrigin(owner)
+  const originText = origin ? `Call in ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
+  if ($('callSurfaceOrigin').textContent !== originText) $('callSurfaceOrigin').textContent = originText
+  const collapse = $('callGalleryCollapse')
+  collapse.textContent = galleryCollapsed ? 'Show gallery' : 'Hide gallery'
+  collapse.setAttribute('aria-expanded', String(!galleryCollapsed))
+  dock.hidden = !c
   if (!c) return
   const views = c.session.participants()
-  // The call this device is on, which is not always the room's first.
   const callId = c.session.call?.id
   const others = callId
     ? views.filter(view => view.call?.id === callId && view.participant !== c.me).map(view => shownAs(view.participant, view.name).name ?? 'somebody')
@@ -13105,8 +13480,25 @@ function renderDock(): void {
   if ($('callDockText').textContent !== text) $('callDockText').textContent = text
   setToggle('callDockMic', !!micTrack?.enabled)
   setToggle('callDockCamera', !!cameraTrack)
+  setToggle('callDockScreen', !!screenTrack)
+  $('callDockScreen').textContent = screenTrack ? 'Stop sharing' : 'Share screen'
+  $('callDockScreen').setAttribute('aria-label', screenTrack ? `Stop screen sharing in ${c.label}` : `Share screen in ${c.label}`)
+  const heard = recordings.get(c.session.roomId)
+  const view = recordingView(heard, heard?.since ?? 0, heard?.heardAt ?? 0, nowSeconds())
+  const recordingMine = activeRecording?.session === c.session
+  const notice = $('callDockRecordingNotice')
+  notice.hidden = view.state === 'off'
+  notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? activeRecording!.recorder.paused ? 'Your recording is paused.' : `You are recording this call. ${recordingCaptureDescription(c.session)}` : `This call is being recorded. ${recordingCaptureDescription(c.session)}`
+  renderRecordingPause('callDockRecordingPause', !!recordingMine)
+  renderRecordingElapsed()
+  const recording = $('callDockRecording')
+  recording.hidden = !recordingMine && !callRecordingAuthority()
+  recording.textContent = recordingMine ? 'Stop recording' : 'Record call'
+  recording.setAttribute('aria-label', `${recordingMine ? 'Stop recording' : 'Record the call'} in ${c.label}`)
   $('callDockBack').setAttribute('aria-label', `Back to the call in ${c.label}`)
 }
+
+new MutationObserver(renderDock).observe($('roomArea'), { attributes: true, attributeFilter: ['hidden', 'data-mobile-view'] })
 
 /** What `resetRoomState` clears about the room on screen, kept for a docked
  *  call so coming back to its room needs no rejoin. */
@@ -13130,6 +13522,10 @@ interface RoomUiState {
   systemLines: SystemLine[]
   roomSecret: Uint8Array
   roomPolicy: RoomPolicy | undefined
+  roomUsesBothy: boolean
+  roomEndsAt: number | undefined
+  roomDestruct: boolean
+  roomStartsAt: number | undefined
   roomName: string | undefined
   roomInvitationCapability: RoomInvitation | undefined
   invitationAuthoritySk: Uint8Array | undefined
@@ -13152,7 +13548,7 @@ function captureRoomUi(): RoomUiState {
     channelLogs: new Map(channelLogs), channelCounts: new Map(channelCounts), conversationRead, currentChannel,
     keeperParticipant, agentParticipants: new Set(agentParticipants), agentDisplayNames: new Map(agentDisplayNames),
     receiptAgents: new Set(receiptAgents), handledInvites: new Set(handledInvites), approvals: new Map(approvals),
-    systemLines: [...systemLines], roomSecret, roomPolicy, roomName, roomInvitationCapability, invitationAuthoritySk,
+    systemLines: [...systemLines], roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName, roomInvitationCapability, invitationAuthoritySk,
     invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, roomRelayHints, iceUrls,
     sessionAuthority, presenceAnnouncements,
   }
@@ -13172,7 +13568,7 @@ function restoreRoomUi(ui: RoomUiState): void {
   refill(approvals, ui.approvals)
   systemLines.length = 0
   systemLines.push(...ui.systemLines)
-  ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomName,
+  ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName,
     roomInvitationCapability, invitationAuthoritySk, invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope,
     relays, roomRelayConfig, roomRelayHints, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
 }
@@ -13211,6 +13607,7 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
  *  The browser's own list entry goes too, or it would be offered straight
  *  back as a room "already here" to add to the account. */
 function forgetLocally(roomId: string): void {
+  workspaceWork?.forget(roomId)
   stopWatching(roomId)
   // The room is not this browser's any more: no more read positions for it.
   readSync?.forget(roomId)
@@ -13868,6 +14265,72 @@ const assignmentPanel = new AssignmentPanel(document, () => {
   })
 }, refreshRoomNavigation)
 
+function workspaceActivityRooms(): KnownRoom[] {
+  return navigationRooms().filter(room => {
+    if (room.endedAt !== undefined || room.endsAt !== undefined || room.destruct) return false
+    try { const link = parseRoomLink(room.link); return !link.invitation || link.invitation.persistent === true }
+    catch { return false }
+  })
+}
+
+function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceObservation | string {
+  const account = nostrSession?.pubkey
+  const held = knownRoom(roomStore(), room.roomId)
+  if (!account || !held || held.openedAt <= 0) return 'Join this room before viewing its work. A project invitation does not grant room access.'
+  let link: RoomLink
+  try { link = parseRoomLink(room.link) } catch { return 'This room invitation is unavailable.' }
+  if (isQuietPolicy(link.policy)) return 'Open this quiet conversation to read its messages and work.'
+  const credentialStore = workspaceAccountAdmission(deviceStore, room.roomId, account, nowSeconds()) ? deviceStore : browserDeviceStore(sessionStorage)
+  const valid = (): boolean => {
+    const saved = knownRoom(roomStore(), room.roomId)
+    return account === nostrSession?.pubkey && !!saved && saved.endedAt === undefined && saved.endsAt === undefined && !saved.destruct
+      && workspaceAccountAdmission(credentialStore, room.roomId, account, nowSeconds())
+  }
+  if (!valid()) return 'Open this room to refresh your account’s admission before viewing its work.'
+  const secret = secretForKnownRoom(link)
+  if (!secret) return 'Open this room to recover its admission on this device.'
+  const root = deriveRoom(secret)
+  if (root.roomId !== room.roomId) return 'The saved admission does not open this room.'
+  const pool = relayConnections.pool(`room:${room.roomId}`, link.relays)
+  return observeWorkspaceActivity({ ...root, participant: account, name: joiningName() ?? '', transport: pool, policy: link.policy,
+    epoch: loadRoomEpoch(room.roomId), authority: link.invitation?.inviter,
+    deviceSk: loadDeviceKeyFor(credentialStore, room.roomId), sealSks: () => loadOwnSealKeysFor(credentialStore, room.roomId).reverse(),
+    loadJournal: async () => localStorage.getItem(`kithmoot.assignments.v1.${account}.${room.roomId}`) ?? undefined,
+    isBlocked: contactIsBlocked, valid, changed, now: nowSeconds,
+    onEpoch: moved => keepWatchedRekey(room.roomId, secret, moved),
+    onClosed: destruct => {
+      if (destruct) { markRoomDestruct(room.roomId); destructSecrets.set(room.roomId, secret) }
+      for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, room.roomId, nowSeconds())
+      queueMicrotask(() => { renderRooms(); if (destruct) void runDueDestructs() })
+    },
+  })
+}
+
+workspaceWork = new WorkspaceWorkPanel(document, {
+  account: () => nostrSession?.pubkey, rooms: workspaceActivityRooms, label: knownRoomLabel,
+  projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
+  projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
+  agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
+  showMobileNavigation: () => !!nostrSession && workspaceActivityRooms().some(room => room.roomId === currentRoomId()),
+  openProjects: from => sharedProjects.open(from),
+  signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
+  openOrigin: async (room, target) => {
+    const account = nostrSession?.pubkey, generation = identityGeneration
+    await switchRoom(room)
+    if (account !== nostrSession?.pubkey || generation !== identityGeneration) throw new Error('Your account changed while opening the room.')
+    if (!session || currentRoomId() !== room.roomId) throw new Error('Complete admission in the originating room before viewing this item.')
+    if ('assignment' in target) { await assignmentPanel.openAssignment(target.assignment || undefined); return }
+    selectChannel(undefined); showMobileRoomView('chat')
+    for (let i = 0; i < 100; i++) {
+      if (account !== nostrSession?.pubkey || generation !== identityGeneration || currentRoomId() !== room.roomId) return
+      const row = [...$('chatLog').querySelectorAll<HTMLElement>('[data-message-id]')].find(el => el.dataset.messageId === target.message.messageId && el.dataset.messageAuthor === target.message.participant)
+      if (row) { row.tabIndex = -1; row.scrollIntoView({ block: 'center' }); row.focus({ preventScroll: true }); return }
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    setStatus('The message is outside the room history currently available. Search or restore older history in this room.')
+  },
+})
+
 const contextPanel = new ContextPanel(document, {
   identity: () => { const crypt = peerCrypt(); if (!crypt) return undefined; const identity = currentIdentity(); return { pubkey: identity.pubkey, signEvent: event => identity.signEvent(event), ...crypt } },
   room: currentRoomId,
@@ -14095,8 +14558,11 @@ $('toggleMirror').addEventListener('click', () => {
 })
 // The resting strip's own control. Only ever on screen when this device is
 // off the call, so it starts or joins one; it never has to leave.
-$('callDockMic').addEventListener('click', () => { void toggleMic() })
-$('callDockCamera').addEventListener('click', () => { void toggleCamera() })
+$('callDockMic').addEventListener('click', () => { void toggleMic().catch(err => setStatus(describeError(err))) })
+$('callDockCamera').addEventListener('click', () => { void toggleCamera().catch(err => setStatus(describeError(err))) })
+$('callDockScreen').addEventListener('click', () => { void toggleScreen().catch(err => setStatus(describeError(err))) })
+$('callDockRecording').addEventListener('click', () => { void (activeRecording?.session === mediaSession() ? stopRecording() : startRecording()).catch(err => setStatus(describeError(err))) })
+$('callGalleryCollapse').addEventListener('click', () => { galleryCollapsed = !galleryCollapsed; renderDock(); callStage.refresh() })
 $('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })
 $('callDockLeave').addEventListener('click', () => { void endDockedCall() })
 $('callStripAction').addEventListener('click', () => {
@@ -14790,9 +15256,12 @@ $('voicePresets').addEventListener('click', (event) => {
   const preset = (event.target as HTMLElement).closest('button')?.dataset.preset as
     | VoicePreset
     | undefined
-  if (!preset || !mic) return
-  mic.setPreset(preset)
+  if (!preset) return
+  savedVoicePreset = preset
   storeVoicePreset(deviceStore, preset)
+  const pipeline = mic ?? [...pendingMedia].find((pending): pending is MicPipeline => pending instanceof MicPipeline)
+  if (pipeline) pipeline.setPreset(preset)
+  else renderVoiceState({ preset, status: 'idle', blocked: false, addedLatencyMs: 0, baseLatencyMs: 0 })
 })
 
 $('voicePreview').addEventListener('click', () => {
@@ -15415,6 +15884,11 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
   const roomId = room.roomId
   if (destructing.has(roomId)) return
   destructing.add(roomId)
+  discardRoomRecording(roomId)
+  if (dockedCall?.session.roomId === roomId) {
+    destructSecrets.set(roomId, dockedCall.ui.roomSecret)
+    await endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
+  }
   const here = !!session && currentRoomId() === roomId
   try {
     const ran = await withRoomLock(roomId, async () => {
@@ -15529,7 +16003,14 @@ async function learnDestructAtDoor(room: KnownRoom): Promise<void> {
 /** A docked call's room was closed under it: written down, and tidied
  *  away if it self-destructs. */
 function dockedRoomClosed(roomId: string, notice: { destruct?: true }): void {
-  if (notice.destruct || roomIsDestruct(roomId)) markRoomDestruct(roomId)
+  const owner = dockedCall
+  if (!owner || owner.session.roomId !== roomId) return
+  if (notice.destruct || roomIsDestruct(roomId)) {
+    destructSecrets.set(roomId, owner.ui.roomSecret)
+    discardRoomRecording(roomId)
+    markRoomDestruct(roomId)
+  }
+  void endDockedCall('user', `${owner.label} was closed.`)
   for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, roomId, nowSeconds())
   if (roomIsDestruct(roomId)) void runDueDestructs()
 }
@@ -15562,6 +16043,12 @@ async function leaveForTidyUp(): Promise<void> {
 // wakes, the room's device key is gone from storage: leave rather than go on
 // publishing under a key nothing here holds any more.
 window.addEventListener('storage', event => {
+  const callRoom = dockedCall?.session.roomId
+  if (callRoom && event.key === DEVICE_PREFIX + callRoom && event.newValue === null) {
+    discardRoomRecording(callRoom)
+    void endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
+    return
+  }
   const roomId = session ? currentRoomId() : undefined
   if (!roomId || event.key !== DEVICE_PREFIX + roomId || event.newValue !== null) return
   void leaveForTidyUp()
@@ -16407,7 +16894,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     eventId = event.id
   }
   signal.throwIfAborted()
-  draft.attachments.push({
+  const attachment: ChatAttachment = {
     ...(eventId !== undefined ? { event: eventId } : {}),
     url: descriptor.url,
     sha256: descriptor.sha256,
@@ -16415,7 +16902,12 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     name: sealed.name,
     type: sealed.type,
     size: sealed.envelope.size,
-  })
+  }
+  draft.attachments.push(attachment)
+  if (pendingRecording?.file === file && pendingRecording.roomId === uploadRoomId) {
+    pendingRecording.addedTo = draft
+    pendingRecording.attachment = attachment
+  }
   draft.status = ''
   draftChanged(draft)
 }
@@ -16679,7 +17171,7 @@ $('chatInput').addEventListener('input', showPasteSize)
 // to stay one line to change.
 const savedEffectMode = loadEffectMode(deviceStore) ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off')
 const savedBlurStrength = loadBlurStrength(deviceStore) ?? DEFAULT_BLUR_STRENGTH
-const savedVoicePreset = loadVoicePreset(deviceStore) ?? DEFAULT_VOICE_PRESET
+let savedVoicePreset = loadVoicePreset(deviceStore) ?? DEFAULT_VOICE_PRESET
 const savedBackgroundId = loadBackgroundId(deviceStore)
 if (savedBackgroundId && BACKGROUNDS.some((b) => b.id === savedBackgroundId)) backgroundId = savedBackgroundId
 ;($('blurStrength') as HTMLInputElement).value = String(Math.round(savedBlurStrength * 100))

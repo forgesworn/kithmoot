@@ -1,0 +1,22 @@
+.workspaceWorkDestinations { display: flex; gap: .4rem; }
+.workspaceWorkDestinations button { flex: 1; min-height: 44px; margin: .25rem 0; }
+#mobileWorkspaceDestinations { display: none; }
+#workspaceWorkPanel { box-sizing: border-box; width: min(62rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }
+#workspaceWorkPanel .sheetBar { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 1rem 0 .75rem; }
+#workspaceWorkPanel .sheetBar h2 { font-size: 1.2rem; text-transform: none; }
+#workspaceWorkPanel select { box-sizing: border-box; width: 100%; min-height: 44px; margin: .4rem 0; }
+#workspaceWorkPanel button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+#workspaceWorkCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: .75rem; }
+.workspaceWorkCard { min-width: 0; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; }
+.workspaceWorkCard h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.workspaceWorkCard p { white-space: pre-wrap; }
+.workspaceWorkCard button { min-height: 44px; margin-bottom: 0; }
+.workspaceWorkCard:focus-within { border-color: var(--accent); }
+.workspaceWorkUnavailable { grid-column: 1 / -1; }
+.workspaceWorkUnavailable > summary { min-height: 44px; cursor: pointer; }
+.workspaceWorkUnavailable .workspaceWorkCard { margin-top: .75rem; }
+@media (max-width: 700px) {
+  #mobileWorkspaceDestinations:not([hidden]) { display: flex; gap: .4rem; margin: .5rem 0; }
+  #mobileWorkspaceDestinations button { flex: 1; min-width: 0; min-height: 44px; margin: 0; font-size: .85rem; white-space: normal; overflow-wrap: anywhere; }
+  #workspaceWorkPanel { width: 100%; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; padding-inline: 1rem; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+}

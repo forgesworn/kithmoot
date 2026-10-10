@@ -1,0 +1,315 @@
+{
+  "verifiedAt": "2026-10-10T00:55:38.577660+00:00",
+  "publishedSourceCommit": "d4dbba57f26af1fd73456db060782a63a6639f35",
+  "canonicalPackageSourceCommit": "8d86dea4bb8bb4691cb5df3c56fdc25a4d22532d",
+  "reviewedHead": "f507634c189631dfd9568beea2e42287078f7732",
+  "ci": {
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/38008875990",
+    "jobs": [
+      {
+        "name": "test (22)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (chromium media)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (chromium desktop)",
+        "conclusion": "success"
+      },
+      {
+        "name": "test (24)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (webkit 1 of 2)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (webkit 2 of 2)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (firefox 2 of 2)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (chromium call-relays)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (chromium calls)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (chromium rooms)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (chromium rest)",
+        "conclusion": "success"
+      },
+      {
+        "name": "acceptance (firefox 1 of 2)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "public": {
+    "verifiedAt": "2026-10-10T00:53:40.704932+00:00",
+    "gitHead": "d4dbba57f26af1fd73456db060782a63a6639f35",
+    "release": "/var/www/kithmoot/releases/20261010T004849Z",
+    "allRemoteFilesMatch": 305,
+    "http": [
+      {
+        "url": "https://kithmoot.app/index.html",
+        "bytes": 17384,
+        "sha256": "cf89d35bed28c7e8f8e1c91ce1b69513fa88d51adc6ca187fce57b27ef0d69b3"
+      },
+      {
+        "url": "https://kithmoot.app/style.css",
+        "bytes": 12784,
+        "sha256": "2a53e3107ff811503ad130ff9d10d1f90e1253d391d760caa8d94ce9223c2fd0"
+      },
+      {
+        "url": "https://kithmoot.app/android-release.json",
+        "bytes": 803,
+        "sha256": "3b1e232371c0ea3ef85087ec10f9fbdd1a89ef29211a02775c63a9f371f32365"
+      },
+      {
+        "url": "https://kithmoot.app/android-release.json.sig",
+        "bytes": 89,
+        "sha256": "d2b68807a79440ef9ae70d2ac0ea9f99d1b59fbd6947d2812cbece8b9c2acb5b"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/index.html",
+        "bytes": 49185,
+        "sha256": "9ce028c3e6a917263b4c4645b30bb5ed7a0c0e44f0a6cc52ea36efbb2cd8585c"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json",
+        "bytes": 1298,
+        "sha256": "75b62ba1c3418b25c0e2b9da5f0ade5d224e386dd8b8c5c2736f2dc39937b824"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json.sig",
+        "bytes": 89,
+        "sha256": "062d0efa01a09ac21c17c78108ae0f8c7148c99fd170857f0a69c913fa723f38"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/SHA256SUMS.txt",
+        "bytes": 4241,
+        "sha256": "d6edc4e9623b96ed6e0af0aa664964562ef59f78058cea5e5d236d3ad1db39a7"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/versions.json",
+        "bytes": 140312,
+        "sha256": "a149191dc923c56c57f8c124fd57dd37a44b4826e59d0e648f4a3c2a5491fd33"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/updates/darwin/arm64/RELEASES.json",
+        "bytes": 698,
+        "sha256": "23f73ec9a0d023177ac3238d5bd854683e1efe100ce05fed755081562bb1cbbe"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/index.html",
+        "bytes": 107362,
+        "sha256": "8b9eb212c9f177b81f60247e7f3c13a14ecc2b5288eed6ee7d8ec452195d0915"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/sw.js",
+        "bytes": 17271,
+        "sha256": "4abcee56f7ae3f29aa5388bcae5e78c27c9b6fa3c12398814cdc8605d3d5e0cf"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/manifest.webmanifest",
+        "bytes": 433,
+        "sha256": "ee59592fae43776c378d5cd6d321463fb98b5ac54896a3521e0f9069ff6e0f61"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/workbox-2fbc6a65.js",
+        "bytes": 15026,
+        "sha256": "39c2e6ae44c3f29666f6a328b6523bf13a053a1d95c74af8ddea82b1045b0b6e"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/assets/index-DbcRtZOG.js",
+        "bytes": 1824076,
+        "sha256": "6d307ee2dfadfef5af370850174fe9e39a67f6b17fb99991444775c1d8889064"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/assets/index-OFsnfxsU.css",
+        "bytes": 143822,
+        "sha256": "4f4b831758b2a6224ab4acb7503b6d0e89daf6bd56b2436da2d337d12a86eb1b"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/chat-art/donkey-laugh.gif",
+        "bytes": 3431941,
+        "sha256": "0f4d7aed5da34d581e8ec3f1c0df9ef78e53eed049f9d49f96c90c836b3c920a"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/chat-art/donkey-facepalm.gif",
+        "bytes": 3216659,
+        "sha256": "93940fd71884d3abe93ffe9fac1ad767c2a622cf9437b9ff43d2a8e1173cb774"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/j/chat-art/donkey-bitcoin.gif",
+        "bytes": 3313210,
+        "sha256": "9299201cd31b10a520a18cd408c4a3f6cbe4858c5819ba5a8951884eb0796626"
+      }
+    ],
+    "desktopFullPublicDownloads": [
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.67/KithMoot-0.1.67-mac-arm64.zip",
+        "bytes": 176742721,
+        "sha256": "c9084e7d531c790c5fcf90fa1d2e7f51dbaeee9352f1e0706497b013a4e74515"
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.67/KithMoot-0.1.67-linux-arm64.tar.gz",
+        "bytes": 171008134,
+        "sha256": "ff17eca92ac89b44d27ae0e6861cbc61542f563a8a5fa1a2e368fad1d3a5150d"
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.67/KithMoot-0.1.67-linux-x64.tar.gz",
+        "bytes": 169889063,
+        "sha256": "15e2ceb981df31fcd4d78cfd0e59529cb9751860485baaa011c7f3081b8de3e9"
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.67/KithMoot-0.1.67-windows-x64.zip",
+        "bytes": 205342438,
+        "sha256": "d586aff5a51ac25dfb53c32764d587c15eedc41d2c074bfa89c1d0adb089529f"
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.67/kithmoot_0.1.67_amd64.deb",
+        "bytes": 133487320,
+        "sha256": "1ab70f06a530aac9f1655450fa9bee38d6034438c24c054821ca9b7c26b54cbb"
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.67/kithmoot_0.1.67_arm64.deb",
+        "bytes": 128524380,
+        "sha256": "a4e5d8c00fae3921cd1b1af3622ee027d7063ebf887e9bc5aa244e898644bd2c"
+      }
+    ],
+    "androidFullPublicDownload": {
+      "url": "https://kithmoot.app/apk/kithmoot-latest.apk?download=1",
+      "bytes": 79137438,
+      "sha256": "733a1a778e53edfe083d59b5480279dbc18126b3b38634f1b55206b0d6c474d5"
+    },
+    "desktopGitHubPublicMetadataMatches": true,
+    "nativePackagesChanged": true,
+    "physicalPhoneAcceptance": false
+  },
+  "apt": {
+    "sourceCommit": "8d86dea4bb8bb4691cb5df3c56fdc25a4d22532d",
+    "version": "0.1.67",
+    "signerFingerprint": "D6D7B42A690985CC3DDCC676F546951EDCB5E0DC",
+    "embeddedPublicKeySha256": "aede103db644ecd36260b2d773c9e899cd93514bae1e50f6ec4f782f2113475f",
+    "signaturesVerified": [
+      "InRelease",
+      "Release.gpg"
+    ],
+    "exactSignedRelease": true,
+    "packages": [
+      {
+        "filename": "kithmoot_0.1.67_amd64.deb",
+        "architecture": "amd64",
+        "bytes": 133487320,
+        "sha256": "1ab70f06a530aac9f1655450fa9bee38d6034438c24c054821ca9b7c26b54cbb"
+      },
+      {
+        "filename": "kithmoot_0.1.67_arm64.deb",
+        "architecture": "arm64",
+        "bytes": 128524380,
+        "sha256": "a4e5d8c00fae3921cd1b1af3622ee027d7063ebf887e9bc5aa244e898644bd2c"
+      }
+    ],
+    "indices": [
+      {
+        "name": "Packages",
+        "bytes": 2057,
+        "sha256": "ea62aa7522f4743af9643882341b73d40df68628772732cc4711dc08da1b8e08"
+      },
+      {
+        "name": "Packages.gz",
+        "bytes": 776,
+        "sha256": "64fa42101c47f86a424952f155a8915c5e0c827c2aa4b9f0a2cfd4ff88ec56e8"
+      },
+      {
+        "name": "Release",
+        "bytes": 635,
+        "sha256": "ff78cadc1e9760fe31b2c9963994a2a1fa73a7559a3cc029044d6e819ef1e82e"
+      },
+      {
+        "name": "Release.gpg",
+        "bytes": 870,
+        "sha256": "42c3f83b0b479aed4b33c5d67dd6430e67759731c3f2d4cdafb67062e72c409c"
+      },
+      {
+        "name": "InRelease",
+        "bytes": 1554,
+        "sha256": "714c01bacc8889fe4eb63f5b0a08002dd091f290ee9d8a52df95e50718d68d15"
+      },
+      {
+        "name": "kithmoot.sources",
+        "bytes": 1869,
+        "sha256": "b3805fc9a233f9d9a85fe1b251711b2b693dcb4c3899e90c9124dc169276abdf"
+      }
+    ],
+    "activation": "Public downloads verified; older package assets retained"
+  },
+  "preservedEarlierDebianDownloads": [
+    {
+      "name": "kithmoot_0.1.63_amd64.deb",
+      "sha256": "dd33726ecc336d151fc43ee97ee13789453fdefcc47a645e9d15566389b28c72",
+      "bytes": 102867008
+    },
+    {
+      "name": "kithmoot_0.1.63_arm64.deb",
+      "sha256": "8d39e3d745d9612f11526b19f26dd41427bc52774f4931800b3227f6e63f039f",
+      "bytes": 97917436
+    },
+    {
+      "name": "kithmoot_0.1.64_amd64.deb",
+      "sha256": "946e4ee948ca97eb318001109253f9313b12c5bfbaf5b380146037c13ac9c6db",
+      "bytes": 109822472
+    },
+    {
+      "name": "kithmoot_0.1.64_arm64.deb",
+      "sha256": "a0d3331255699e8a546098f04a72734466b0530cae7bd2e415aeb680bc0fccca",
+      "bytes": 104929780
+    },
+    {
+      "name": "kithmoot_0.1.65_amd64.deb",
+      "sha256": "c019e62cf486d9100388af5ec5c847ba50ea38c58c8ff17b37e957d14ab13d8a",
+      "bytes": 123155224
+    },
+    {
+      "name": "kithmoot_0.1.65_arm64.deb",
+      "sha256": "08b1eb9ac20d9e8597e44d8c7a904c6137048c930bfafadef9005848e297cc12",
+      "bytes": 118164508
+    },
+    {
+      "name": "kithmoot_0.1.66_amd64.deb",
+      "sha256": "cf03627e81aec383e03a57fe619e13d796fd65f4918a3916090738862463176e",
+      "bytes": 133483080
+    },
+    {
+      "name": "kithmoot_0.1.66_arm64.deb",
+      "sha256": "ba61cd14b68bc6b8394a0f793426fccfca30d0edb26c0881323117ff1228db3b",
+      "bytes": 128509600
+    }
+  ],
+  "mac": {
+    "developerId": "Epona Solutions Ltd (2GLP954N6A)",
+    "notarisedAndStapled": true,
+    "gatekeeperAccepted": true,
+    "independentM4Assessment": true,
+    "actualPackagedRecordingSaveAndShortPlaybackPassed": true
+  },
+  "limits": [
+    "Public availability and automated validation are separate from installed-device acceptance.",
+    "Windows remains an unsigned preview; physical Windows/Linux call acceptance remains open.",
+    "Android 0.6.76 receives signed recording notices but does not implement native capture/export.",
+    "The long browser recording receipt covers the earlier recording engine, not a complete latest-release/native/physical journey."
+  ]
+}

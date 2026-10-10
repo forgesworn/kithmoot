@@ -1,9 +1,10 @@
 # Publishing the first production Android APK
 
-The public download remains the debug-signed 0.5.12 preview until the owner-held
-production key, exact-preview upgrade and physical-phone gates in the Android
-repository are complete. This runbook starts after those gates. It does not
-create a key, sign an APK or weaken them.
+The first-production procedure below is historical. The current production
+version and artifact identity come from `site/android-release.json`; subsequent
+releases use the same immutable APK across the website, GitHub and Zapstore.
+This runbook does not create an Android key, sign an APK or replace the
+physical-phone gates in the Android repository.
 
 ## Prepare one reviewable publication
 
@@ -68,3 +69,98 @@ hash, `aapt` and `apksigner` checks. Confirm that the live
 preview upgrades in place on the accepted physical phone, and the old-signed
 APK is still refused. Publish the GitHub release only with that same artifact
 and recorded evidence.
+
+## Publish and verify Zapstore separately
+
+A website deployment or GitHub release does not publish a Zapstore release.
+Treat Zapstore as a separate delivery gate for every production Android version.
+Use [Zapstore's publisher](https://zapstore.dev/docs/publish) with the exact
+already-verified APK, the Android repository's `zapstore.yaml` metadata and
+release notes for that version. Point `release_source` at that one APK rather
+than relying on whichever local build happens to match a glob. The repository
+changelog may lag the signed GitHub release notes.
+
+The existing KithMoot listing belongs to
+`npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2`.
+Preserve that publisher. The Nostr publisher key is separate from the Android
+APK signing certificate. Keep signer connections and client keys in private
+local configuration, outside repository files, command history and release logs.
+
+Check the connected signer's actual public key before uploading or publishing.
+In `zsp` 0.4.12, the config's publisher check resolves local `nsec`/`npub` values
+but does not enforce the returned key for asynchronous bunker/browser signers.
+The 0.6.75 publication used a local post-connection publisher check before the
+normal publisher workflow. A rejected or expired bunker connection is a failed
+connection, not evidence that a release-signing request reached the signer.
+
+After publication, run the read-only channel verifier from this repository:
+
+```bash
+npm run verify:zapstore-publication -- --output /tmp/kithmoot-zapstore-receipt.json
+```
+
+It waits for the Zapstore relay to complete its query, verifies Nostr event
+signatures and the existing publisher, checks the latest `main` release against
+the production manifest, follows its signed APK asset reference, and compares
+the advertised version/code, SDKs, certificate, filename and size. It then
+downloads the public CDN artifact and verifies its byte count and SHA-256.
+It signs nothing and reads no private key. `--manifest /path/to/manifest.json`
+can check a prepared release manifest before it becomes the website manifest.
+An absent/stale release, invalid signature, mismatched asset, incomplete relay
+query or unavailable/mismatched download fails the command.
+
+The APK's Android signature and lineage remain the responsibility of
+`verify:android-publication` above. A successful channel receipt does not prove
+that Zapstore's Android client has indexed the update or that a physical phone
+has installed and accepted it; the receipt leaves those gates explicitly open.
+
+Prepared release, 10 October 2026: **0.6.77**, code **100**, from Android
+source `e4b080cb37acfdeb5e1d204bb28291971a4f545d`. The immutable APK is
+79,305,374 bytes, SHA-256
+`8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234`.
+The M4 signed it with the existing production certificate and lineage;
+independent M1 verification checked all 799 unchanged ZIP payload entries,
+version/SDKs, certificate, V3-only signing and previous-signer capabilities.
+Both unit-test variants and both lint checks passed. The [signed-build receipt](evidence/android-0.6.77-signed-build-2026-10-10.json)
+keeps source, signed artefact and publication gates distinct. Hosted release CI,
+public website/GitHub/Zapstore readbacks and physical/client acceptance require
+their own evidence; this preparation paragraph does not claim publication.
+
+Latest verified publication, 10 October 2026: **0.6.77**, code **100**, channel
+`main`, APK SHA-256
+`8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234`,
+79,305,374 bytes. The [production receipt](evidence/android-0.6.77-publication-2026-10-10.json)
+records all four native release gates, exact merged/build tree equality, website
+main `5a59381`, all twelve publication checks and release
+`20261010T052716Z`. All 305 deployed files and thirteen public assets matched;
+the downloaded stable APK passed full signature and lineage verification.
+GitHub and the Zapstore CDN returned the same immutable bytes. Signed Zapstore
+release `4656e5b24f1f6997c38ab85ddf2c702b43437240cb0df1ffd09790571705af77`
+references asset `53c77ab91055bea62b48ab2b191a4d9e3cf6ade3d8ec7ca1efffe9d60c836f4e`
+under the existing publisher. Relay EOSE, signatures and the entire CDN download
+were verified. Physical installation and Zapstore-client acceptance remain open.
+
+Previous verified publication, 9 October 2026 at 23:44 UTC: version **0.6.76**,
+code **99**, channel `main`, APK SHA-256
+`733a1a778e53edfe083d59b5480279dbc18126b3b38634f1b55206b0d6c474d5`,
+79,137,438 bytes. Signed release
+`6158b03a5c051967200e2878eb59d506f3758799adcf226fa8b55ea907d9d939`
+references asset
+`984be9a9e7124073a2cc50d3d184b22aea43618c4a85998a6ddc896ecfd08db9`.
+The existing publisher, both event signatures, release reference, certificate,
+version/code and complete CDN download matched the production manifest. The
+same APK was independently downloaded from the
+[GitHub release](https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.76)
+and matched its recorded hash and size. Zapstore-client indexing and physical
+installation remain unverified. This Android release adds signed capture notices;
+it does not provide native recording/export.
+
+Earlier verification, 9 October 2026 at 21:22 UTC: version **0.6.75**, code **98**, channel
+`main`, APK SHA-256
+`9eeb8ef7a301568455247b94f791153cb8ba99153258ad95085d45e05d5f78db`,
+79,088,286 bytes. The signed release event is
+`c493f7e442ed447971fdf2cbc3ad48adbf1c580b221f0cc24a6b92668e2be674`,
+referencing APK asset
+`2a11e34ac43c689f7213584970a9dd4f678bfe0624f508367898bc063eb5bca0`.
+The public download matched the production manifest. Store-client and physical
+installation acceptance were not claimed by that publication check.

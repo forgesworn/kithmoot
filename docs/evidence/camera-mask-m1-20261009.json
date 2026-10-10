@@ -1,0 +1,273 @@
+{
+  "measuredAt": "2026-10-09T21:36:16.808Z",
+  "browser": "151.0.7922.34",
+  "headless": true,
+  "runtime": "v24.21.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "baselineRevision": "40a79b2e37ba7029e86b0cc813bce2ec88355ee7",
+  "candidateSha256": "d5e3dbf331f1c0152d5713d711bdf403659db5911cf0bef407556c248ef8ef14",
+  "evidence": "Isolated mask algorithm in Chromium on this Mac; synthetic masks; alternating execution order; reset-copy cost included",
+  "qualified": false,
+  "physicalBatteryAcceptance": false,
+  "callPipelineAcceptance": false,
+  "targets": {
+    "backgroundImprovementPercent": 20,
+    "worstAllowedRegressionPercent": 10
+  },
+  "reports": [
+    {
+      "width": 256,
+      "height": 256,
+      "shape": "background",
+      "byteIdentical": true,
+      "iterations": 160,
+      "rounds": 7,
+      "baselineMedianMs": 0.46437500044703484,
+      "candidateMedianMs": 0.28125,
+      "improvementPercent": 39.434724149824575,
+      "samples": {
+        "baseline": [
+          0.4693750001490116,
+          0.4618749998509884,
+          0.4600000001490116,
+          0.46437499970197677,
+          0.46437500044703484,
+          0.46500000059604646,
+          0.46624999940395356
+        ],
+        "candidate": [
+          0.28125,
+          0.2800000004470348,
+          0.28125,
+          0.27999999970197675,
+          0.28562499955296516,
+          0.284375,
+          0.28125
+        ]
+      }
+    },
+    {
+      "width": 256,
+      "height": 256,
+      "shape": "silhouette",
+      "byteIdentical": true,
+      "iterations": 160,
+      "rounds": 7,
+      "baselineMedianMs": 0.3850000001490116,
+      "candidateMedianMs": 0.3456249997019768,
+      "improvementPercent": 10.22727283942726,
+      "samples": {
+        "baseline": [
+          0.3850000001490116,
+          0.3850000001490116,
+          0.3850000001490116,
+          0.3875,
+          0.3818750001490116,
+          0.38812500014901163,
+          0.38812500014901163
+        ],
+        "candidate": [
+          0.3475000001490116,
+          0.3456249997019768,
+          0.3418749995529652,
+          0.34375,
+          0.346875,
+          0.3456249997019768,
+          0.34249999970197675
+        ]
+      }
+    },
+    {
+      "width": 256,
+      "height": 256,
+      "shape": "enclosed-points",
+      "byteIdentical": true,
+      "iterations": 160,
+      "rounds": 7,
+      "baselineMedianMs": 0.14312500059604644,
+      "candidateMedianMs": 0.10437500029802323,
+      "improvementPercent": 27.074235903334976,
+      "samples": {
+        "baseline": [
+          0.1443750001490116,
+          0.14249999970197677,
+          0.14187500029802322,
+          0.14499999955296516,
+          0.14312500059604644,
+          0.14375,
+          0.14124999940395355
+        ],
+        "candidate": [
+          0.10812499970197678,
+          0.10812500044703484,
+          0.10437499955296517,
+          0.10437500029802323,
+          0.10374999940395355,
+          0.10562500059604644,
+          0.10437500029802323
+        ]
+      }
+    },
+    {
+      "width": 256,
+      "height": 256,
+      "shape": "checkerboard",
+      "byteIdentical": true,
+      "iterations": 160,
+      "rounds": 7,
+      "baselineMedianMs": 0.3650000005960464,
+      "candidateMedianMs": 0.3518749997019768,
+      "improvementPercent": 3.595890650037392,
+      "samples": {
+        "baseline": [
+          0.3543750002980232,
+          0.3674999997019768,
+          0.3650000005960464,
+          0.371875,
+          0.3674999997019768,
+          0.3612499997019768,
+          0.3581250004470348
+        ],
+        "candidate": [
+          0.34624999985098837,
+          0.3506250001490116,
+          0.3518749997019768,
+          0.36375000029802323,
+          0.3524999998509884,
+          0.3543750002980232,
+          0.34437499940395355
+        ]
+      }
+    },
+    {
+      "width": 640,
+      "height": 480,
+      "shape": "background",
+      "byteIdentical": true,
+      "iterations": 60,
+      "rounds": 7,
+      "baselineMedianMs": 2.296666665871938,
+      "candidateMedianMs": 1.2833333333333334,
+      "improvementPercent": 44.12191580069321,
+      "samples": {
+        "baseline": [
+          2.353333334128062,
+          2.3600000003973642,
+          2.288333332538605,
+          2.265000001589457,
+          2.268333331743876,
+          2.326666667064031,
+          2.296666665871938
+        ],
+        "candidate": [
+          1.3100000003973642,
+          1.3116666654745737,
+          1.281666668256124,
+          1.268333331743876,
+          1.2616666674613952,
+          1.301666667064031,
+          1.2833333333333334
+        ]
+      }
+    },
+    {
+      "width": 640,
+      "height": 480,
+      "shape": "silhouette",
+      "byteIdentical": true,
+      "iterations": 60,
+      "rounds": 7,
+      "baselineMedianMs": 1.775,
+      "candidateMedianMs": 1.5216666678587596,
+      "improvementPercent": 14.2723004023234,
+      "samples": {
+        "baseline": [
+          1.7633333325386047,
+          1.8149999996026358,
+          1.801666667064031,
+          1.7699999988079071,
+          1.780000001192093,
+          1.775,
+          1.7666666666666666
+        ],
+        "candidate": [
+          1.5466666678587595,
+          1.534999998410543,
+          1.5416666666666667,
+          1.5216666678587596,
+          1.5149999996026358,
+          1.5049999992052714,
+          1.5149999996026358
+        ]
+      }
+    },
+    {
+      "width": 640,
+      "height": 480,
+      "shape": "enclosed-points",
+      "byteIdentical": true,
+      "iterations": 60,
+      "rounds": 7,
+      "baselineMedianMs": 0.676666667064031,
+      "candidateMedianMs": 0.5049999992052714,
+      "improvementPercent": 25.369458289352277,
+      "samples": {
+        "baseline": [
+          0.676666667064031,
+          0.675,
+          0.6683333337306976,
+          0.6899999996026357,
+          0.7116666654745738,
+          0.6683333337306976,
+          0.6816666662693024
+        ],
+        "candidate": [
+          0.5049999992052714,
+          0.49333333373069765,
+          0.5049999992052714,
+          0.5200000007947286,
+          0.5,
+          0.5,
+          0.5150000015894572
+        ]
+      }
+    },
+    {
+      "width": 640,
+      "height": 480,
+      "shape": "checkerboard",
+      "byteIdentical": true,
+      "iterations": 60,
+      "rounds": 7,
+      "baselineMedianMs": 1.7416666666666667,
+      "candidateMedianMs": 1.6583333333333334,
+      "improvementPercent": 4.784688995215303,
+      "samples": {
+        "baseline": [
+          1.7450000007947286,
+          1.7416666666666667,
+          1.7400000015894572,
+          1.7616666654745738,
+          1.726666667064031,
+          1.7433333337306975,
+          1.7350000003973642
+        ],
+        "candidate": [
+          1.75,
+          1.7116666654745738,
+          1.6549999992052713,
+          1.6533333341280618,
+          1.6583333333333334,
+          1.6833333333333333,
+          1.65
+        ]
+      }
+    }
+  ],
+  "device": {
+    "model": "Macmini9,1",
+    "processor": "Apple M1",
+    "memoryGB": 16
+  }
+}

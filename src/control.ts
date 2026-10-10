@@ -3,7 +3,7 @@ import { canonicalChannels } from './epoch.js'
 import { MAX_ROOM_RELAYS } from './room-relays.js'
 import { validateAssignmentActions, type AssignmentAction } from './assignments.js'
 import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
-import { canonicalSpeakers } from './meeting.js'
+import { canonicalSpeakers, isRecordingCapture, type RecordingCaptureNotice } from './meeting.js'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -113,6 +113,9 @@ export type ControlMessage =
    * as long as it stands. An honest client records only after posting one.
    */
   | { op: 'recording'; on: boolean; id: string; version: number; sig: string }
+  /** Authenticated capture/recorder details for the same id and version.
+   * Does not start or stop a recording, and never replaces its legacy notice. */
+  | ({ op: 'recording-capture'; sig: string } & RecordingCaptureNotice)
   /** Any member: my hand is up, or down. The sender is the chat message's
    *  credential-bound participant, like `nudge`, so there is nothing to
    *  name and nothing to sign. */
@@ -374,6 +377,13 @@ export function decodeControl(text: string): ControlMessage | null {
       if (!Number.isSafeInteger(m.version) || (m.version as number) < 0) return null
       if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
       return { op: 'recording', on: m.on, id: m.id, version: m.version as number, sig: m.sig.toLowerCase() }
+    }
+    case 'recording-capture': {
+      if (typeof m.id !== 'string' || !/^[0-9a-f]{32}$/.test(m.id) || !isRecordingCapture(m.capture)) return null
+      if (!Number.isSafeInteger(m.version) || (m.version as number) < 0) return null
+      if (typeof m.recorder !== 'string' || !HEX64.test(m.recorder) || typeof m.device !== 'string' || !HEX64.test(m.device)) return null
+      if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
+      return { op: 'recording-capture', id: m.id, version: m.version as number, capture: m.capture, recorder: m.recorder, device: m.device, sig: m.sig.toLowerCase() }
     }
     case 'hand':
       if (typeof m.up !== 'boolean') return null

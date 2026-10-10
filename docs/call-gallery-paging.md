@@ -32,6 +32,6 @@ Stand-ins do not qualify a 26-person encoded-media call.
 
 This implements the gallery paging portion of G12 and the off-page playback
 portion of G10. Physical battery measurements, room-capacity qualification,
-speaker-view scale, native Android parity and G14’s persistent top gallery
-remain open. The current call dock preserves the call during navigation; it does
-not yet keep the video gallery visible across other rooms/projects.
+speaker-view scale and native Android parity remain open. The browser
+[persistent call surface](call-surface.md) keeps the gallery visible across
+conversation navigation; G14 still requires physical and native acceptance.

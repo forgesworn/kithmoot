@@ -87,6 +87,18 @@ describe('layoutCall', () => {
     for (const rect of [...out.people.values(), ...out.shares.values()]) expect(rect.y + rect.height).toBeLessThanOrEqual(room.height)
   })
 
+  test('a compact dock fits the selected nine-tile page without vertical overflow', () => {
+    const width = 900, height = 180
+    const out = layoutCall({ width, height, compact: true, view: 'gallery', people: ids(24), self: 'p0', shares: [], gallery: { people: ids(9), shares: [] } })
+    expect(out.people.size).toBe(9)
+    for (const rect of out.people.values()) {
+      expect(rect.x).toBeGreaterThanOrEqual(0)
+      expect(rect.y).toBeGreaterThanOrEqual(0)
+      expect(rect.x + rect.width).toBeLessThanOrEqual(width)
+      expect(rect.y + rect.height).toBeLessThanOrEqual(height)
+    }
+  })
+
   test('gallery: every person gets the identical box, with 2, 4 and 8 people', () => {
     for (const n of [3, 4, 8]) {
       const out = layoutCall({ ...room, view: 'gallery', people: ids(n), self: 'p0', shares: [] })

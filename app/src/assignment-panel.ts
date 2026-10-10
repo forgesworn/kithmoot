@@ -111,6 +111,21 @@ export class AssignmentPanel {
     }
   }
   get busy(): boolean { return this.#busy }
+  /** Navigation chooses the origin; the live room log remains the only
+   * signing surface and checks the current head for each later update. */
+  async openAssignment(id?: string): Promise<void> {
+    this.#decisionsOnly = false; this.#open()
+    if (!id) return
+    const epoch = this.#epoch
+    const found = (): HTMLElement | undefined => [...this.#cards.querySelectorAll<HTMLElement>('[data-assignment]')].find(card => card.dataset.assignment === id)
+    for (let i = 0; i < 100 && epoch === this.#epoch; i++) {
+      const card = found()
+      if (card) { card.tabIndex = -1; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }); return }
+      if (this.#log?.snapshot().ready) break
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    if (epoch === this.#epoch) this.#status.textContent = 'This task is not in the room history currently available. Check its connection or ask the sender to restore the history.'
+  }
   #open(): void {
     this.#owners(); this.#render()
     if (!this.#dialog.open) {

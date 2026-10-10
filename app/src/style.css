@@ -2395,7 +2395,9 @@ label.note {
      One explicit gap instead, and the section margins that fed the old
      collapsing are dropped. */
   main > section,
-  main > p {
+  main > p,
+  main > #workspaceContent > section,
+  main > #workspaceContent > p {
     margin-block: 0;
   }
 
@@ -2607,7 +2609,7 @@ label.note {
     flex-direction: column;
   }
 
-  main:has(#roomArea:not([hidden])) > #roomArea {
+  main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea {
     display: flex;
     flex-direction: column;
     margin-top: 0;
@@ -2807,6 +2809,12 @@ label.note {
 .actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
+.recordingChoices { margin: 1rem 0 0; padding: .5rem; min-width: 0; }
+.actionDialog:has(.recordingChoices) { box-sizing: border-box; overflow-y: auto; }
+.recordingChoices label { display: flex; align-items: center; gap: .65rem; min-height: 44px; margin: .25rem 0; }
+.recordingChoices input { flex: 0 0 auto; }
+.recordingChoices select { min-width: 0; max-width: 100%; min-height: 44px; }
+.recordingChoices .note { margin-top: .75rem; }
 .keyboardHelp { box-sizing: border-box; width: min(36rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: .75rem; overflow: hidden; }
 .keyboardHelp[open] { display: flex; flex-direction: column; }
 .keyboardHelpBar { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; gap: .5rem; padding-bottom: .75rem; }
@@ -3521,7 +3529,7 @@ body:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; min-h
 body:has(#roomArea:not([hidden])) > main { flex: 1 1 auto; min-width: 0; width: 100%; }
 main:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; }
 #roomArea { min-width: 0; }
-main:has(#roomArea:not([hidden])) > #roomArea { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min-height: 10rem; }
 
 @media (min-width: 1100px) {
@@ -4526,21 +4534,20 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   body:has(#roomArea:not([hidden])) { height: 100dvh; padding: max(.35rem, env(safe-area-inset-top)) .65rem max(.35rem, env(safe-area-inset-bottom)); overflow: hidden; }
   body:has(#roomArea:not([hidden])) > header { display: none; }
   main:has(#roomArea:not([hidden])) { min-height: 0; overflow: hidden; }
-  main:has(#roomArea:not([hidden])) > #roomArea { padding: 0; margin: 0; min-height: 0; overflow: hidden; }
+  main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { padding: 0; margin: 0; min-height: 0; overflow: hidden; }
   .roomBar { flex-shrink: 0; margin: 0; padding: 0 0 .3rem; }
   .roomBar #callToggle, .roomBar #openAssignments { display: none; }
   #mobileRoomViews { display: flex; flex-shrink: 0; gap: .25rem; padding: .25rem 0 .45rem; }
   #mobileRoomViews button { flex: 1; min-height: 44px; margin: 0; border: 0; background: transparent; border-radius: .6rem; color: var(--muted); }
   #mobileRoomViews button[aria-pressed="true"] { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px var(--accent); font-weight: 650; }
-  #roomArea[data-mobile-view="chat"] #callStage { display: none; }
   #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#attachStaged,#attachPanel,#agentActivity,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
-  #roomArea[data-mobile-view="call"] #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
-  #roomArea[data-mobile-view="call"] #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
-  #roomArea[data-mobile-view="call"] #callStage > #callBay { order: 1; flex: 0 0 auto; padding: .5rem 0 .2rem; border: 0; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #callBay { order: 1; flex: 0 0 auto; padding: .5rem 0 .2rem; border: 0; }
   /* Keep the start/join action while this device is off the call, including
      when another person's camera has already expanded the picture pane.
      Tapping the Call tab only opens this view; it never starts a call. */
-  #roomArea[data-mobile-view="call"]:has(#callToggle[data-live="false"]) #callStage > .callStrip {
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"] #callToggle[data-live="false"]) #callStage > .callStrip {
     display: flex;
     flex: 0 0 auto;
     order: 1;
@@ -4552,24 +4559,24 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
     border: 1px solid var(--border);
     border-radius: 8px;
   }
-  #roomArea[data-mobile-view="call"] #callStage > .callStrip .callStripText { color: var(--muted); }
-  #roomArea[data-mobile-view="call"] #callStage > .callStrip button { margin: 0; }
-  #roomArea[data-mobile-view="call"] #room,
-  #roomArea[data-mobile-view="call"] #room[data-tiles]:has(video) { display: grid; grid-template-columns: 1fr; gap: .65rem; }
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: 12px; padding: .6rem; }
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant .media video { height: auto; min-height: 9rem; max-height: 48dvh; aspect-ratio: 4 / 3; }
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant .media video.screenPreview { object-fit: contain; aspect-ratio: auto; }
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media ~ .media) { display: grid; grid-template-columns: 1fr 1fr; }
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant h3 { font-size: .95rem; margin-bottom: .4rem; }
-  #roomArea[data-mobile-view="call"] #deviceControls > #micIndicator { display: none; }
-  #roomArea[data-mobile-view="call"] #callWho { grid-column: 1 / -1; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > .callStrip .callStripText { color: var(--muted); }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > .callStrip button { margin: 0; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #room,
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #room[data-tiles]:has(video) { display: grid; grid-template-columns: 1fr; gap: .65rem; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: 12px; padding: .6rem; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant .media video { height: auto; min-height: 9rem; max-height: 48dvh; aspect-ratio: 4 / 3; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant .media video.screenPreview { object-fit: contain; aspect-ratio: auto; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant:has(.media ~ .media) { display: grid; grid-template-columns: 1fr 1fr; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant h3 { font-size: .95rem; margin-bottom: .4rem; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #deviceControls > #micIndicator { display: none; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #callWho { grid-column: 1 / -1; }
   #roomArea[data-mobile-view="chat"] #chatViewport { flex: 1 1 0; min-height: 0; }
   #roomArea[data-mobile-view="chat"] .conversationTools { margin: .15rem 0; }
   #roomArea[data-mobile-view="chat"] #chatForm { flex-shrink: 0; }
   #mobileCallSettings { position: fixed; inset: auto 0 0; margin: 0; width: 100%; max-width: none; max-height: 85dvh; border-radius: 16px 16px 0 0; }
 }
 @media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  #roomArea[data-mobile-view="call"] #room[data-tiles]:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #room[data-tiles]:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .longMessage .text { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .longMessageTools { display: flex; gap: .4rem; margin-top: .5rem; }
@@ -4579,15 +4586,15 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   #roomArea[data-mobile-view="call"] > #pasteSizeNote { display: none; }
 }
 @media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  #roomArea[data-mobile-view="call"] #callWho { display: none; }
-  #roomArea[data-mobile-view="call"] #deviceControls { grid-template-rows: 0 44px; row-gap: 0; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #callWho { display: none; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #deviceControls { grid-template-rows: 0 44px; row-gap: 0; }
 }
 .media[data-camera-label]:not([data-camera-label=""]):has(video)::before { content: attr(data-camera-label); display: block; font-size: .8rem; color: var(--muted); padding: .2rem 0; }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media ~ .media) h3 { grid-column: 1 / -1; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant:has(.media ~ .media) h3 { grid-column: 1 / -1; }
 }
 @media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  main:has(#roomArea:not([hidden])) > #roomArea { position: relative; }
+  main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { position: relative; }
   #roomArea > .roomBar { position: absolute; inset: 0 auto auto 0; width: 48%; height: 44px; padding: 0; border: 0; }
   #mobileRoomViews { padding: 0 0 .2rem 50%; }
   /* B3: bars took 70% of a 390px-tall phone (117px left for the log). A
@@ -4604,8 +4611,6 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
      The dock keeps its own full-width strip at the very top; the bar (and
      the tabs beside it) move down to sit under it, never on it. */
   #callDock:not([hidden]) { flex-wrap: nowrap; margin: 0; padding: 0 .5rem; height: 44px; border-radius: 0; border-width: 0 0 1px; }
-  #roomArea:has(> #callDock:not([hidden])) > .roomBar { top: 44px; }
-  #roomArea:has(> #callDock:not([hidden])) > #mobileRoomViews { padding-top: 44px; }
 }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 0; min-width: 0; width: auto; }
@@ -4650,7 +4655,6 @@ dialog.attachmentViewer { width: calc(100vw - 2rem); height: calc(100dvh - 2rem)
 .callDockActions button[aria-pressed='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); color: var(--accent); font-weight: 650; }
 .callDockActions button[aria-pressed='true']::before { content: '● '; }
 html[data-call-docked] #callBay,
-html[data-call-docked] #callStage,
 html[data-call-docked] #callStrip,
 html[data-call-docked] #callBanner,
 html[data-call-docked] #callToggle,

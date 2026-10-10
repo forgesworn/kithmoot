@@ -32,9 +32,10 @@ hide/show, independent closing, sharer departure and share stop. A phone-sized
 touch browser checks camera bounds, reachable controls and absence of horizontal
 overflow. These are automated browser results, not physical phone acceptance.
 
-This is the viewer foundation for product goals G13/G14. A persistent top gallery,
-native Android parity and the named physical-device journeys
-remain required before those goals are complete.
+This is the viewer foundation for product goals G13/G14. The browser
+[persistent call surface](call-surface.md) keeps the gallery visible while browsing.
+Native Android parity and the named physical-device journeys remain required
+before those goals are complete.
 
 Manual [gallery paging](call-gallery-paging.md) has a separate stable call-owned
 selection and pauses only its off-page video elements.

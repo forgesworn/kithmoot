@@ -151,6 +151,10 @@ export interface RosterEntry {
    * device already publishes about itself, instead.
    */
   callProfile?: number
+  /** Exact 2 means this device explains signed audio/video capture notices.
+   * Absent/unknown devices must not have their video included in an app-made
+   * recording. This is a UI capability claim, not proof of identity or consent. */
+  recordingProfile?: 2
   /**
    * Which page session of `device` published this, when it said.
    *

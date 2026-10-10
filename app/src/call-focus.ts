@@ -57,6 +57,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const root = document.documentElement
   const room = document.getElementById('roomArea')!
   const stage = document.getElementById('callStage')!
+  const workspace = document.getElementById('workspaceContent')!
   const controls = document.getElementById('deviceControls')!
   const bar = document.querySelector<HTMLElement>('#roomArea > .roomBar')
   const extras = document.getElementById('callExtras') as HTMLDetailsElement | null
@@ -192,14 +193,14 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     const focused = document.activeElement
     root.removeAttribute('data-call-first')
     root.removeAttribute('data-call-chat')
-    room.style.removeProperty('--call-first-top')
+    workspace.style.removeProperty('--call-first-top')
     controls.removeAttribute('role')
     controls.removeAttribute('aria-label')
     if (extras) extras.open = false
     for (const { el, mark } of moved.reverse()) if (mark.isConnected) mark.replaceWith(el)
     moved = []
     refocus(focused)
-    if (document.fullscreenElement === room) void document.exitFullscreen().catch(() => {})
+    if (document.fullscreenElement === workspace) void document.exitFullscreen().catch(() => {})
     cancelDrag()
     divider.hidden = true
     // Back to the room's own layout: the whole conversation is on screen.
@@ -222,13 +223,18 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     }
   }
 
-  /** Where the stage starts: under the room bar. Only the ordinary build
-   *  places the stage by number; the installed window's panels are a row. */
+  const notices = ['roomFuse', 'recordingBanner', 'recordingReady', 'meetingNotice']
+    .map(id => document.getElementById(id)).filter((el): el is HTMLElement => !!el)
+
+  /** Keep the media stage below the room's visible notices too. A finished
+   * recording must not put Save/Add/Discard underneath the gallery header. */
   function measure(): void {
     if (!bar) return
-    const top = Math.max(0, Math.round(bar.getBoundingClientRect().bottom - room.getBoundingClientRect().top))
+    const bottom = Math.max(bar.getBoundingClientRect().bottom,
+      ...notices.filter(el => el.getClientRects().length > 0).map(el => el.getBoundingClientRect().bottom))
+    const top = Math.max(0, Math.round(bottom - workspace.getBoundingClientRect().top))
     const value = `${top}px`
-    if (room.style.getPropertyValue('--call-first-top') !== value) room.style.setProperty('--call-first-top', value)
+    if (workspace.style.getPropertyValue('--call-first-top') !== value) workspace.style.setProperty('--call-first-top', value)
   }
 
   // --- The chat panel ---------------------------------------------------------
@@ -278,11 +284,10 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
 
   // --- The divider between the call and the conversation -----------------------
 
-  /** The row the divider divides: `.desktopRoomContent` in the installed
-   *  window, `#roomArea` itself otherwise - the same element either layout
-   *  measures the chat panel's share against. */
+  /** The workspace contains the permanent stage and route panels; both
+   *  layouts measure the chat panel's share against that same container. */
   function container(): HTMLElement {
-    return (stage.parentElement as HTMLElement | null) ?? room
+    return workspace
   }
 
   /** The chat panel's width as it stands: what a dragged fraction says, or -
@@ -426,10 +431,10 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
 
   full.addEventListener('click', () => {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
-    else void room.requestFullscreen?.().catch(() => {})
+    else void workspace.requestFullscreen?.().catch(() => {})
   })
   document.addEventListener('fullscreenchange', () => {
-    const on = document.fullscreenElement === room
+    const on = document.fullscreenElement === workspace
     full.setAttribute('aria-pressed', String(on))
     full.innerHTML = on ? EXIT_FULL_SCREEN_ICON : FULL_SCREEN_ICON
     full.title = on ? 'Leave full screen (Escape)' : 'Full screen'
@@ -495,7 +500,10 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
 
   new MutationObserver(evaluate).observe(root, { attributes: true, attributeFilter: ['data-call-docked', 'data-call-pane'] })
   window.addEventListener('resize', evaluate)
-  if (bar) new ResizeObserver(() => { if (active) measure() }).observe(bar)
+  if (bar) {
+    const observer = new ResizeObserver(() => { if (active) measure() })
+    for (const element of [bar, ...notices]) observer.observe(element)
+  }
   chat.setAttribute('aria-expanded', String(chatOpen))
   renderBadge()
 
