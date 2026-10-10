@@ -107,6 +107,7 @@ export class BrowserMlsRevocationOutbox {
       if (!record) throw new Error('That standalone revocation request is no longer retained.')
       this.#assertRecord(record, operation, scope.vault.persona)
       if (revision === undefined && record.attempt) return { record: structuredClone(record), publish: false }
+      if (revision === undefined && record.requestRevision !== 0) throw new Error('Check the current request before choosing a fresh retry.')
       if (revision !== undefined && revision !== record.requestRevision) throw new Error('The request changed. Check it again before retrying.')
       if (record.requestRevision === Number.MAX_SAFE_INTEGER) throw new Error('The standalone request revision is full.')
       record.requestRevision++

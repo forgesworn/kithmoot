@@ -222,6 +222,9 @@ describe('expiring transport attempts and durable observations', () => {
     const { attempt: _attempt, ...evidence } = before
     expect((await readMlsMembership(f.tx)).standalone!.observations[0]).toEqual(evidence)
     expect(transport.publish).toHaveBeenCalledTimes(1)
+    await expect(f.restart().send(operation, { identity: member, transport })).rejects.toThrow('Check the current request')
+    expect((await readMlsMembership(f.tx)).standalone!.observations[0]).toEqual(evidence)
+    expect(transport.directory).toHaveBeenCalledTimes(1); expect(transport.publish).toHaveBeenCalledTimes(1)
     expect(await f.restart().retry(operation, 1, { identity: member, transport })).toMatchObject({ value: { sentAt: 2_000 + VMLS_REVOCATION_REQUEST_SECONDS, requestRevision: 2 } })
     expect(transport.publish).toHaveBeenCalledTimes(2)
   })
@@ -289,5 +292,36 @@ describe('expiring transport attempts and durable observations', () => {
     await expect(f.outbox.send(operation, { identity: member, transport })).rejects.toThrow('journal is full')
     expect(transport.directory).not.toHaveBeenCalled(); expect(transport.publish).not.toHaveBeenCalled()
     expect((await readMlsMembership(f.tx)).standalone!.observations[0]!.attempt).toBeUndefined()
+  })
+  it('expires all 64 transport attempts without evicting roster observations or admitting a 65th target', async () => {
+    const f = fixture()
+    for (let index = 0; index < 64; index++) await f.observe({ device: index.toString(16).padStart(64, '0') })
+    const journal = await readMlsMembership(f.tx), before = journal.standalone!.observations
+    for (const item of before) {
+      item.requestRevision = 1
+      item.attempt = { revision: 1, createdAt: 2_000, expiration: 2_000 + VMLS_REVOCATION_REQUEST_SECONDS, confirmed: true }
+    }
+    await saveMlsMembership(f.tx, journal)
+    const bytesBefore = [...f.tx.vault.values()][0]!.length
+    f.clock(2_000 + VMLS_REVOCATION_REQUEST_SECONDS)
+    const result = await f.restart().records() as any
+    expect(result.value).toHaveLength(64); expect(result.value.every((item: any) => item.requestState === 'none' && item.requestRevision === 1)).toBe(true)
+    expect([...f.tx.vault.values()][0]!.length).toBeLessThan(bytesBefore)
+    expect((await readMlsMembership(f.tx)).standalone!.observations).toEqual(before.map(({ attempt: _attempt, ...item }) => item))
+    await expect(f.observe({ device: 'ff'.repeat(32) })).rejects.toBeInstanceOf(MlsRevocationOutboxFull)
+    expect((await readMlsMembership(f.tx)).standalone!.observations).toHaveLength(64)
+  })
+  it('fences malformed canonical attempts before expiry can hide them', async () => {
+    const f = fixture(); await f.observe(); const transport = await carrier()
+    const operation = (await f.outbox.records() as any).value[0].operation
+    await f.outbox.send(operation, { identity: member, transport })
+    const key = [...f.tx.vault.keys()][0]!, good = JSON.parse(new TextDecoder().decode(f.tx.vault.get(key)!))
+    f.clock(2_000 + VMLS_REVOCATION_REQUEST_SECONDS)
+    for (const patch of [{ revision: 2 }, { confirmed: 'true' }, { expiration: 2_000 }, { createdAt: 1_999 }, { unknown: true }]) {
+      const bad = structuredClone(good); Object.assign(bad.standalone.observations[0].attempt, patch)
+      f.tx.vault.set(key, new TextEncoder().encode(JSON.stringify(bad)))
+      await expect(f.restart().records()).rejects.toBeInstanceOf(InvalidPersonaRecord)
+      expect(JSON.parse(new TextDecoder().decode(f.tx.vault.get(key)!))).toEqual(bad)
+    }
   })
 })

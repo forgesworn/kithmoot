@@ -20,9 +20,10 @@ let panel: BrowserMlsPanel, account: BrowserMlsAccount
 let coordinator: BrowserPersonaCoordinator
 let rejectPublish = false, directoryWait: Promise<void> | undefined, releaseDirectory: (() => void) | undefined
 const transportCalls: string[] = []
-let fixtureTime = 1_700_000_000
-Date.now = () => fixtureTime * 1000
-export function revocationTime(value?: number) { if (value !== undefined) fixtureTime = value; return fixtureTime }
+const wallNow = Date.now.bind(Date)
+let fixtureTime: number | undefined
+Date.now = () => fixtureTime === undefined ? wallNow() : fixtureTime * 1000
+export function revocationTime(value?: number) { if (value !== undefined) fixtureTime = value; return Math.floor(Date.now() / 1000) }
 const publications: { id: string; createdAt: number; expiration: number }[] = []
 export function revocationPublications() { return publications }
 const keeperSecret = new Uint8Array(32).fill(43)
