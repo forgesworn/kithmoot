@@ -1,0 +1,25 @@
+{
+  "verifiedAt": "2026-10-10T07:31:45.053459+00:00",
+  "applicationSourceCommit": "139fc20207c22cfebff42470b1e9c4157ecac7a9",
+  "acceptanceTestSha256": "a07dd97e33e0271cee3507d9f5ace6eb9f30a135d5a5db1e5717bcfd1e829030",
+  "command": "E2E_PORT=4293 npx playwright test test/workspace-work.spec.ts --project=chromium --project=chromium-desktop --workers=1",
+  "result": "4 passed (1.3m)",
+  "coverage": [
+    "Three deliberately joined signed projects, one unjoined project, a shared agent principal in Design and Release and a distinct Research principal.",
+    "Question, answer, exact-result review, human mention and reply route to their originating room; Release composer draft is retained.",
+    "Ada and Bo join the same Release call before Inbox navigation; audio energy and decoded video frames increase for both devices at four routing checkpoints.",
+    "Release room and project remain the displayed call origin; media connection state and sender/receiver track identifiers match their initial snapshots.",
+    "Call presence remains in Release, with no call presence in Design or Research. Explicit Leave while Design is open removes Ada from the Release call.",
+    "Original activity-only 128-message subscription cap remains checked. The active call also retains bounded foreground chat history.",
+    "Phone 390x844 and desktop 1440x900 call variants, plus unchanged activity-only journeys; overflow checks at 320,390,1440 pixels with doubled text size.",
+    "Unjoined private work and ended-room activity remain excluded; sign-out clears the activity view."
+  ],
+  "limits": [
+    "Synthetic Nostr signers and protocol actors, loopback relay, generated microphone audio and browser synthetic camera; no live executor or physical device.",
+    "Media progress and unchanged connection snapshots establish continuity at checkpoints, not a measured guarantee of zero packet loss.",
+    "Current-source hosted CI remains pending for this acceptance change. Local WebKit launch incompatibility is unchanged; call variants run only on Chromium.",
+    "Fresh-device summaries, older work completeness, native combined-call acceptance and representative scale/battery checks remain open. G9 is incomplete."
+  ],
+  "publiclyShipped": false,
+  "physicalAcceptance": false
+}

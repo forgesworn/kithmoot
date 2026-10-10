@@ -320,9 +320,14 @@ questions and exact-result reviews, human mentions and replies, source routing,
 project filters and retained drafts. The PWA uses bounded read-only activity and
 the originating room controls for signed decisions. Android 0.6.77 now supplies native Inbox/All work views and originating-room
 routing, with its own JVM/emulator checks and [verified production channels](evidence/android-0.6.77-publication-2026-10-10.json).
-Combined signed-project/call acceptance, fresh-device summaries, older work
-coverage, live execution and physical acceptance remain open; this does not
-complete G9.
+The [combined project/call receipt](evidence/workspace-call-inbox-2026-10-10.json)
+records four local Chromium phone/desktop journeys, including a Release call
+retained while answering and reviewing work in Design. Both participants keep
+receiving audio and video at routing checkpoints, the call's origin and media
+connections stay stable, and Leave still acts on Release while Design is open.
+Hosted validation of this combined test, fresh-device summaries, older work
+coverage, native combined-call acceptance, live execution and physical
+acceptance remain open; this does not complete G9.
 
 ### Proposed navigation
 
