@@ -2999,7 +2999,7 @@ label.note {
   gap: .35rem;
   padding: .25rem .5rem;
 }
-#outbox .pendingMsg { max-width: min(42rem, 85%); display: flex; flex-direction: column; }
+#outbox .pendingMsg { max-width: min(42rem, 85%); display: flex; flex-direction: column; flex: 0 0 auto; }
 #outbox .pendingMsg .bubble { opacity: .7; border-style: dashed; }
 #outbox .pendingMsg[data-state="sent"] .bubble { opacity: 1; border-style: solid; }
 #outbox .pendingMsg[data-state="refused"] .bubble,

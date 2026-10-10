@@ -310,6 +310,41 @@ describe('ChatLog', () => {
     log.close()
   })
 
+  it('shows an acknowledged send without a relay echo, then ignores the late duplicate', async () => {
+    const f = await fixture()
+    const inner = new SimTransport(new SimRelay())
+    let acknowledge!: () => void
+    let published!: Event
+    const transport: RelayTransport = {
+      subscribe: inner.subscribe.bind(inner), close: inner.close.bind(inner),
+      publish: event => { published = event; return new Promise<void>(resolve => { acknowledge = resolve }) },
+    }
+    const log = new ChatLog({ ...f, transport, now: () => NOW })
+    const sending = log.send('No echo required')
+    expect(log.messages()).toHaveLength(0)
+    acknowledge()
+    await sending
+    expect(log.messages().map(message => message.text)).toEqual(['No echo required'])
+    // No observed relay means no claim about the lane that accepted it.
+    expect(log.messages()[0]!.lane).toBeUndefined()
+    await inner.publish(published)
+    expect(log.messages()).toHaveLength(1)
+    log.close()
+  })
+
+  it('does not promote a rejected send into the conversation', async () => {
+    const f = await fixture()
+    const inner = new SimTransport(new SimRelay())
+    const transport: RelayTransport = {
+      subscribe: inner.subscribe.bind(inner), close: inner.close.bind(inner),
+      publish: async () => { throw new Error('every relay rejected the event') },
+    }
+    const log = new ChatLog({ ...f, transport, now: () => NOW })
+    await expect(log.send('Not accepted')).rejects.toThrow('every relay rejected')
+    expect(log.messages()).toHaveLength(0)
+    log.close()
+  })
+
   it('retries the identical event after delivery with a lost acknowledgement', async () => {
     const f = await fixture()
     const transport = new SimTransport(new SimRelay())

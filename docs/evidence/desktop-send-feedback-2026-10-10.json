@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-10",
+  "baseCommit": "dfb4e5d70e0040a5ce559c869477452e37d5f8b3",
+  "before": {
+    "desktopBrowserRegressions": 2,
+    "failed": 2,
+    "log": "/tmp/kithmoot-desktop-send-before.log",
+    "unitNoEchoRegressionFailed": true
+  },
+  "after": {
+    "typecheck": "passed",
+    "unitTests": 85,
+    "unitFailures": 0,
+    "browserProjects": [
+      "chromium-desktop",
+      "chromium",
+      "webkit",
+      "firefox"
+    ],
+    "sendRegressionTests": 8,
+    "sendRegressionFailures": 0,
+    "log": "/tmp/kithmoot-desktop-send-final-browser.log"
+  },
+  "cases": [
+    "Newest pending message and status painted inside the window while relay acknowledgement and echo are withheld",
+    "Empty repeated Enter does not publish a second event",
+    "Accepted send enters the conversation without a subscription echo",
+    "Late echo does not create a duplicate",
+    "Rejected sends do not enter the accepted conversation",
+    "Accepted pending rows remain visible until their message is rendered"
+  ],
+  "scope": "Automated fixture evidence; the installed 0.1.68 Mac app has not received this fix.",
+  "additionalChecks": {
+    "existingPhoneReliabilityTestsChromiumAndWebKit": 12,
+    "passed": 12,
+    "desktopPhoneReadingFixture": "Adding the whole phone suite to the desktop project exposed an unsupported scroll assumption at the phone viewport. The final desktop project includes the dedicated send spec; existing project matches are retained."
+  }
+}

@@ -16584,6 +16584,24 @@ $('chatForm').addEventListener('submit', (event) => {
     setStatus(describeError(err))
     return
   }
+  // Into whichever conversation is on screen, which is the main chat until
+  // somebody picks another.
+  // Kept across a reload when it is an ordinary main-chat message in a room
+  // that is not quiet: a quiet room keeps its own queue.
+  // Edit takes back only what it can put back as it was: a plain new
+  // message, not a reply, an edit or one carrying files.
+  // Queue and show it before clearing the draft.
+  try {
+    queueSend(prepared, currentChannel ?? 'Chat', {
+      files: attachments.map(a => a.name ?? 'Encrypted file'),
+      durable: currentChannel === undefined && !quietTransport,
+      editable: !attachments.length && !sendOpts.replaces && !sendOpts.replyTo,
+      holdSeconds: sendDelaySeconds(),
+    })
+  } catch (err) {
+    setStatus(describeError(err))
+    return
+  }
   input.value = ''
   showPasteSize()
   draft.text = ''
@@ -16595,18 +16613,6 @@ $('chatForm').addEventListener('submit', (event) => {
   draft.artwork = []
   draftChanged(draft)
   setComposing({})
-  // Into whichever conversation is on screen, which is the main chat until
-  // somebody picks another.
-  // Kept across a reload when it is an ordinary main-chat message in a room
-  // that is not quiet: a quiet room keeps its own queue.
-  // Edit takes back only what it can put back as it was: a plain new
-  // message, not a reply, an edit or one carrying files.
-  queueSend(prepared, currentChannel ?? 'Chat', {
-    files: attachments.map(a => a.name ?? 'Encrypted file'),
-    durable: currentChannel === undefined && !quietTransport,
-    editable: !attachments.length && !sendOpts.replaces && !sendOpts.replyTo,
-    holdSeconds: sendDelaySeconds(),
-  })
   chatScroll.latest()
   if (currentChannel === undefined && asksForMinutes(typed)) acknowledgeMinutesRequest()
 })
