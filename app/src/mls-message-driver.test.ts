@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { BrowserMlsMessageDriver } from './mls-message-driver.js'
-import type { MlsDriverState, MlsDriverCommand, MlsDriverGuard, MlsOutbound } from './mls-room-operations.js'
+import { MLS_PACKAGE_EXPIRY_SKEW_SECONDS, type MlsDriverState, type MlsDriverCommand, type MlsDriverGuard, type MlsOutbound } from './mls-room-operations.js'
 
 const id = (n = 1) => new Uint8Array(32).fill(n), hex = (n = 1) => bytesToHex(id(n))
 const ok = (value: any) => ({ state: 'ok' as const, value, serverTime: 100 })
@@ -22,6 +22,15 @@ function fixture() {
       commands.push(structuredClone(command))
       if (command.type === 'installation' && guard.installation !== s.binding.installation && s.binding.installation !== null) s.phase = { type: 'NeedsRecovery', reason: 'RestoreFenced' }
       if (command.type === 'tick' && s.join && now >= s.join.expiresAt && s.phase.type === 'PendingJoin') s.phase = { type: 'Expired' }
+      if (command.type === 'prune-packages') {
+        const expired = new Set(s.packages.filter(route => {
+          const welcomes = s.outbox.filter(outbound => outbound.destination.type === 'Welcome' && bytesToHex(outbound.destination.packageId) === route.packageId)
+          return route.expiresAt < now - MLS_PACKAGE_EXPIRY_SKEW_SECONDS && route.homeBox === s.binding.homeBox && route.leafId === hex(9) &&
+            welcomes.length === 1 && bytesToHex(welcomes[0].mailbox) === route.welcomeMailbox
+        }).map(route => route.packageId))
+        s.outbox = s.outbox.filter(outbound => outbound.destination.type !== 'Welcome' || !expired.has(bytesToHex(outbound.destination.packageId)))
+        s.packages = s.packages.filter(route => !expired.has(route.packageId))
+      }
       if (command.type === 'delivered') s.outbox = s.outbox.filter(r => !command.records.some(i => bytesToHex(i) === bytesToHex(r.recordId)))
       if (command.type === 'receipt') s.ordering = s.ordering.filter(q => q.slot !== command.slot || q.attempt !== command.attempt)
       bump(); return effect()
@@ -109,6 +118,28 @@ describe('witnessed browser MLS message driver', () => {
     f.s.packages = [{ packageId: hex(8), welcomeMailbox: hex(41), homeBox: hex(), leafId: hex(9), expiresAt: 200 }]
     f.s.outbox = [{ ...leaf(11), mailbox: id(40), destination: { type: 'Welcome', packageId: id(8) } }]
     expect(await f.driver.round()).toMatchObject({ held: 1, delivered: 0 })
+    expect(f.client.deposit).not.toHaveBeenCalled()
+  })
+  it('atomically drops a Welcome and route only after the full box clock-skew window', async () => {
+    const f = fixture(), packageId = id(8)
+    f.s.packages = [{ packageId: hex(8), welcomeMailbox: hex(40), homeBox: hex(), leafId: hex(9), expiresAt: 200 }]
+    f.s.outbox = [{ ...leaf(11), mailbox: id(40), destination: { type: 'Welcome', packageId } }]
+    f.clock(200 + MLS_PACKAGE_EXPIRY_SKEW_SECONDS)
+    expect(await f.driver.round()).toMatchObject({ state: 'done', delivered: 0, held: 1 })
+    expect(f.s.outbox).toHaveLength(1); expect(f.s.packages).toHaveLength(1)
+    f.clock(201 + MLS_PACKAGE_EXPIRY_SKEW_SECONDS)
+    expect(await f.make().round()).toMatchObject({ state: 'done', delivered: 0, held: 0 })
+    expect(f.s.outbox).toEqual([]); expect(f.s.packages).toEqual([])
+    expect(f.client.deposit).not.toHaveBeenCalled()
+    expect(f.commands.filter(command => command.type === 'prune-packages')).toHaveLength(1)
+  })
+  it('retains an expired route whose saved mailbox does not match its Welcome', async () => {
+    const f = fixture(), packageId = id(8)
+    f.s.packages = [{ packageId: hex(8), welcomeMailbox: hex(41), homeBox: hex(), leafId: hex(9), expiresAt: 200 }]
+    f.s.outbox = [{ ...leaf(11), mailbox: id(40), destination: { type: 'Welcome', packageId } }]
+    f.clock(201 + MLS_PACKAGE_EXPIRY_SKEW_SECONDS)
+    expect(await f.driver.round()).toMatchObject({ state: 'done', delivered: 0, held: 1 })
+    expect(f.s.outbox).toHaveLength(1); expect(f.s.packages).toHaveLength(1)
     expect(f.client.deposit).not.toHaveBeenCalled()
   })
   it('uses the persisted Introduction destination and checks expiry at dispatch', async () => {

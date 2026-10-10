@@ -78,6 +78,10 @@ function decodeRemoval(wasm: Awaited<ReturnType<typeof loadMlsEngine>>, record: 
   } finally { bytes.fill(0) }
 }
 const DEFERRED_REMOVAL = new Set(['CommitInFlight', 'UpdateRequired', 'AwaitingCommitAck', 'OutboxFull', 'Callback'])
+/** A successful authenticated box request permits 120 seconds of clock skew.
+ * Wait beyond that entire window before treating a saved package route as
+ * impossible to use at the box. */
+export const MLS_PACKAGE_EXPIRY_SKEW_SECONDS = 120
 function freeCapabilities(capabilities: Capability[]): void {
   let failure: unknown
   for (const capability of capabilities) try { capability.free() } catch (error) { failure ??= error }
@@ -605,20 +609,29 @@ export class BrowserMlsRoomOperations {
   drive(context: MlsRoomContext, id: string, guard: MlsDriverGuard, command: MlsDriverCommand): Promise<MlsRoomResult<MlsRoomEffect>> {
     guard = { ...guard }; command = structuredClone(command)
     return this.#using<MlsRoomEffect>(context, async scope => {
-      let room: MlsRoomRecord, deliveredPackages: string[] = [], pendingPackages = new Set<string>()
+      let room: MlsRoomRecord, deliveredPackages: string[] = [], expiredPackages = new Set<string>()
       return scope.host.step(scope.hostContext, id, s => {
         if (guard.generation !== String(s.generation())) throw new StaleMlsOperation()
         if (guard.homeBox !== room.binding.homeBox || !hex(guard.installation)) throw new MlsRoomRefused('wrong-box')
         if (command.type !== 'installation' && room.binding.installation !== null && guard.installation !== room.binding.installation) throw new MlsRoomRefused('wrong-installation')
         try {
-          const now = BigInt(this.now())
+          const at = this.now(), now = BigInt(at)
           switch (command.type) {
             case 'installation': return effect(s, ['Active', 'NeedsRecovery'].includes(s.phase().type) ? s.observeInstallation(now, hexToBytes(guard.installation)) : { snapshot: null, events: [], outbound: [] })
             case 'tick': return effect(s, s.tick(now))
-            case 'prune-packages':
-              pendingPackages = new Set(s.outbox().filter((outbound: MlsOutbound) => outbound.destination.type === 'Welcome')
-                .map((outbound: MlsOutbound) => bytesToHex((outbound.destination as Extract<MlsDestination, { type: 'Welcome' }>).packageId)))
-              return effect(s, { snapshot: null, events: [], outbound: [] })
+            case 'prune-packages': {
+              const outbox = s.outbox() as MlsOutbound[], pendingLeaves = new Set(memberStatuses(s).filter(member => member.pending).map(member => member.leafId))
+              const records: Uint8Array[] = []
+              for (const route of room.packages ?? []) {
+                if (route.expiresAt >= at - MLS_PACKAGE_EXPIRY_SKEW_SECONDS || route.homeBox !== room.binding.homeBox || !pendingLeaves.has(route.leafId)) continue
+                const welcomes = outbox.filter(outbound => outbound.destination.type === 'Welcome' &&
+                  bytesToHex((outbound.destination as Extract<MlsDestination, { type: 'Welcome' }>).packageId) === route.packageId)
+                if (welcomes.length !== 1 || bytesToHex(welcomes[0].mailbox) !== route.welcomeMailbox) continue
+                expiredPackages.add(route.packageId); records.push(welcomes[0].recordId)
+              }
+              if (!records.length) return effect(s, { snapshot: null, events: [], outbound: [] })
+              return effect(s, s.outboundDelivered(records))
+            }
             case 'delivered':
               if (!command.records.length || command.records.some(id => !s.outbox().some((r: MlsOutbound) => bytesToHex(r.recordId) === bytesToHex(id)))) throw new StaleMlsOperation()
               deliveredPackages = s.outbox().filter((outbound: MlsOutbound) => command.records.some(record => bytesToHex(record) === bytesToHex(outbound.recordId)) && outbound.destination.type === 'Welcome')
@@ -641,7 +654,7 @@ export class BrowserMlsRoomOperations {
       }, this.#edits<MlsRoomEffect>(scope.ctx, scope, id, r => { room = r }, (r, s) => {
         if (command.type === 'receipt') r.ordering = r.ordering?.filter(q => q.slot !== command.slot || q.attempt !== command.attempt)
         if (deliveredPackages.length) r.packages = r.packages?.filter(route => !deliveredPackages.includes(route.packageId))
-        if (command.type === 'prune-packages') r.packages = r.packages?.filter(route => route.expiresAt > this.now() || pendingPackages.has(route.packageId))
+        if (command.type === 'prune-packages') r.packages = r.packages?.filter(route => !expiredPackages.has(route.packageId))
       }))
     }).finally(() => wipe(command))
   }

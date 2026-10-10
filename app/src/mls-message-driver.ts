@@ -1,5 +1,6 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import type { BrowserMlsBoxClient, BoxAnswer } from './mls-box-client.js'
+import { MLS_PACKAGE_EXPIRY_SKEW_SECONDS } from './mls-room-operations.js'
 import type { BrowserMlsRoomOperations, MlsDriverCommand, MlsDriverGuard, MlsDriverState, MlsRoomContext, MlsRoomResult } from './mls-room-operations.js'
 
 type Rooms = Pick<BrowserMlsRoomOperations, 'driverState' | 'confirmTransport' | 'drive' | 'process'>
@@ -115,7 +116,9 @@ export class BrowserMlsMessageDriver {
       stopPhase(await refresh())
       await stepped({ type: 'tick' })
       let s = await refresh(); stopPhase(s)
-      if (s.packages.some(route => route.expiresAt <= this.now())) { await stepped({ type: 'prune-packages' }); s = await refresh(); stopPhase(s) }
+      if (s.packages.some(route => route.expiresAt < this.now() - MLS_PACKAGE_EXPIRY_SKEW_SECONDS)) {
+        await stepped({ type: 'prune-packages' }); s = await refresh(); stopPhase(s)
+      }
       // Keep a bounded list of exact witnessed records, never step.outbound
       // from an uncertain call. Generation guards stop any competing edit.
       const outgoing = structuredClone(s.outbox.slice(0, this.maxRecords)); owned.push(outgoing)
