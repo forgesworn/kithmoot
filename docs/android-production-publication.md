@@ -118,7 +118,7 @@ It waits for the Zapstore relay to complete its query, verifies Nostr event
 signatures and the existing publisher, checks the latest `main` release against
 the production manifest, follows its signed APK asset reference, and compares
 the advertised version/code, SDKs, certificate, filename and size. It then
-downloads the public CDN artifact and verifies its byte count and SHA-256.
+downloads every advertised public artifact and verifies its byte count and SHA-256.
 It checks every advertised download against the same manifest, accepting only
 the exact versioned GitHub APK and owner-hosted versioned/content-addressed
 mirrors alongside Zapstore's content-addressed CDN. An unavailable source,
