@@ -316,6 +316,48 @@ export async function lapseKeeperRequest(route: PersonaWitnessRoute, mode = 'ok'
   } catch (error) { return { error: (error as Error).message, calls } }
   finally { probe.invalidate(); client.invalidate() }
 }
+// Real encrypted storage and origin-wide Web Locks, with simulated transport.
+const fenceDevice = '61'.repeat(32)
+const fenceStore = new BrowserMlsGrantStore(new BrowserRendezvousVaultStorage('mls-install-fence-test'))
+let fenceIdentity = localIdentity(secret), fenceLive = true, fenceWork = 0
+let releaseFenceWork: (() => void) | undefined, releaseFencePublication: (() => void) | undefined
+let fencePublication: Promise<void> | undefined, fenceHold: Promise<unknown> | undefined
+const fencePublications: string[] = [], fenceInstalls = new Map<string, Promise<unknown>>()
+const fenceBox = (node: number) => ({ routeId: `fence-${node}`, eventUrl: `ws://${base32.encode(new Uint8Array(32).fill(node)).replace(/=+$/, '').toLowerCase()}/events` })
+const fenceLedger = () => new BrowserMlsGrantLedger(() => fenceIdentity, {
+  resume: async () => undefined, boxes: () => [fenceBox(77), fenceBox(78)], pairedBoxes: async () => [],
+} as any, fenceStore, () => ({ publish: async event => { fencePublications.push(event.id); await fencePublication }, close: () => undefined }))
+export function startFenceInstall(node = 77, device = fenceDevice) {
+  const key = `${node}/${device}/${fenceInstalls.size}`
+  fenceInstalls.set(key, fenceLedger().install(fenceBox(node), '62'.repeat(32), device,
+    { session: '63'.repeat(32), name: 'Install fence', leaf: '64'.repeat(32) })
+    .then(record => ({ state: 'installed', node: record.node }), error => ({ error: error.message })))
+  return key
+}
+export async function finishFenceInstall(key: string) { return fenceInstalls.get(key) }
+export function pauseFencePublications() { fencePublication = new Promise<void>(resolve => { releaseFencePublication = resolve }) }
+export function resumeFencePublications() { releaseFencePublication?.(); fencePublication = undefined }
+export async function startFenceHold(wait = true, reject = false) {
+  let started!: () => void
+  const began = new Promise<void>(resolve => { started = resolve })
+  const pending = new Promise<void>(resolve => { releaseFenceWork = resolve })
+  fenceHold = fenceLedger().withDeviceInstallHold(fenceStore, persona, fenceDevice, () => fenceLive, async current => {
+    fenceWork++; started()
+    await pending
+    if (!current()) throw new Error('fixture callback stale')
+    if (reject) throw new Error('fixture witness rejected')
+    return 'settled'
+  }).then(value => ({ value }), error => ({ error: error.message }))
+  if (wait) await began
+}
+export async function finishFenceHold() { releaseFenceWork?.(); return fenceHold }
+export function changeFenceAccount() { fenceIdentity = localIdentity(new Uint8Array(32).fill(43)) }
+export function hideFenceForeground() { fenceLive = false }
+export async function fenceSnapshot() {
+  const locks = await navigator.locks.query()
+  return { work: fenceWork, publications: fencePublications.slice(), records: (await fenceStore.all()).map(record => ({ node: record.node, device: record.device })),
+    held: locks.held, pending: locks.pending }
+}
 let keeperWithdrawalFails = false, keeperProgress: MlsKeeperRequestProgress | undefined
 let keeperRouteForgotten = false
 const secondKeeperBox = { routeId: 'keeper-second-fixture', eventUrl: `ws://${base32.encode(new Uint8Array(32).fill(77)).replace(/=+$/, '').toLowerCase()}/events` }

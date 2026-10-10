@@ -146,6 +146,7 @@ export async function planMlsGrant(identity: ParticipantIdentity, box: PairedBox
 
 type Store = Pick<BrowserMlsGrantStore, 'all' | 'put'>
 type Carrier = (record: MlsGrantRecord, identity: ParticipantIdentity) => { publish(event: Event): Promise<void>; close(): void }
+export type MlsGrantInstallationGate = <T>(device: string, mode: 'shared' | 'exclusive', work: () => Promise<T>) => Promise<T>
 
 /** Installs and withdraws exact VMLS device grants over an authenticated Link
  * route. State moves before network I/O, so uncertain replies retry the same
@@ -155,13 +156,31 @@ export class BrowserMlsGrantLedger {
     readonly store: Store = new BrowserMlsGrantStore(),
     private carrier: Carrier = (record, identity) => new BrowserLinkRelay(link, record.box, identity, { room: mlsGrantScope(record.device), kinds: [24242] }),
     private now: () => number = () => Math.floor(Date.now() / 1000),
-    private exclusive: <T>(key: string, work: () => Promise<T>) => Promise<T> = async (key, work) => navigator.locks.request(`kithmoot.vmls-grant.${key}`, work)) {}
+    private exclusive: <T>(key: string, work: () => Promise<T>) => Promise<T> = async (key, work) => navigator.locks.request(`kithmoot.vmls-grant.${key}`, work),
+    private installation: MlsGrantInstallationGate = async (device, mode, work) => navigator.locks.request(`kithmoot.vmls-grant-install.v1.${device}`, { mode }, work)) {}
   #identity(account?: string): ParticipantIdentity {
     const identity = this.identity()
     if (!identity || account && identity.pubkey !== account) throw new Error('Sign in as this grant’s keeper before changing VMLS access.')
     return identity
   }
   async records(): Promise<MlsGrantRecord[]> { return this.store.all() }
+  /** Hold every installation for this device, including a previously unseen
+   * node. The callback must await the actual witness settlement; never race
+   * it against a timeout that would release this lock while work continues.
+   * This is a local concurrency guard, not approval or completion evidence. */
+  async withDeviceInstallHold<T>(expectedStore: Pick<BrowserMlsGrantStore, 'all'>, keeper: string, device: string,
+    current: () => boolean, work: (current: () => boolean) => Promise<T>): Promise<T> {
+    if (expectedStore !== this.store || !hex32.test(keeper) || !hex32.test(device)) throw new Error('The grant-install hold has a different ledger or device binding.')
+    const live = () => current() && this.identity()?.pubkey === keeper
+    const check = () => { if (!live()) throw new Error('The keeper account or foreground session changed.'); this.#identity(keeper) }
+    check()
+    return this.installation(device, 'exclusive', async () => {
+      check()
+      const result = await work(live)
+      check()
+      return result
+    })
+  }
   /** Local account-bound pairing evidence only. No endpoint starts here.
    * False means this exact route is absent, never that remote access ended. */
   async available(authority: MlsKeeperGrantAuthority, sender: string, device: string, current: () => boolean): Promise<boolean> {
@@ -189,26 +208,36 @@ export class BrowserMlsGrantLedger {
   }
   async install(box: PairedBox, persona: string, device: string, room: MlsGrantRoom, boxNow = this.now()): Promise<MlsGrantRecord> {
     const keeper = this.#identity(), node = mlsBoxNode(box)
-    return this.exclusive(`${node}.${device}`, async () => {
+    if (!hex32.test(device)) throw new Error('Invalid VMLS grant request.')
+    // Lock order: device installation gate, then node/device, then store.
+    // Shared mode preserves parallel installations at different nodes.
+    return this.installation(device, 'shared', () => this.exclusive(`${node}.${device}`, async () => {
+      this.#identity(keeper.pubkey)
       let record = (await this.store.all()).find(item => item.node === node && item.device === device)
+      this.#identity(keeper.pubkey)
       if (record && (record.issuer !== keeper.pubkey || record.persona !== persona || record.box.routeId !== box.routeId || record.box.eventUrl !== box.eventUrl)) {
         throw new Error('That VMLS device already has different saved authority.')
       }
       if (record?.state === 'revoking') throw new Error('Finish revoking this VMLS grant before renewing it.')
       if (!record || record.state === 'revoked' || record.expiration <= Math.min(boxNow, this.now())) {
         record = await planMlsGrant(this.#identity(keeper.pubkey), box, persona, device, room, boxNow, record, this.now())
+        this.#identity(keeper.pubkey)
         await this.store.put(record)
+        this.#identity(keeper.pubkey)
       }
       const rooms = [...record.rooms.filter(saved => saved.session !== room.session), { ...room }].sort((a, b) => a.session.localeCompare(b.session))
       if (JSON.stringify(rooms) !== JSON.stringify(record.rooms) || record.revokeAfter !== null) {
         record = { ...record, rooms, revokeAfter: null }; await this.store.put(record)
+        this.#identity(keeper.pubkey)
       }
       if (record.state === 'active') {
         return record
       }
       await this.#route(record, keeper, record.active)
-      record = { ...record, state: 'active' }; await this.store.put(record); return record
-    })
+      record = { ...record, state: 'active' }; await this.store.put(record)
+      this.#identity(keeper.pubkey)
+      return record
+    }))
   }
   async withdraw(node: string, device: string, expectedReference: string, session: string, expectedLeaves: readonly string[], compromised: boolean): Promise<MlsGrantWithdrawal> {
     const keeper = this.#identity()
