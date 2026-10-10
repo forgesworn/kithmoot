@@ -139,15 +139,26 @@ describe('browser MLS membership composition', () => {
       rooms: [{ session, name: 'Member room', leaf: otherLeaf }], action: 'request' }])
     const opened = await controller.begin(plan)
     const list = await keeper.signEvent(dmRelayListTemplate(['wss://keeper.example'], 1000))
-    const publish = vi.fn(async (): Promise<void> => { throw new Error('relay refused') })
-    await expect(controller.requestRevocation(opened.operation, { identity: member, directoryEvents: [list], publish, random: () => 0 }))
+    const transport = { directory: vi.fn(async () => [list]), publish: vi.fn(async (): Promise<void> => { throw new Error('relay refused') }) }
+    await expect(controller.requestRevocation(opened.operation, { identity: member, transport, random: () => 0 }))
       .rejects.toThrow('relay refused')
     expect(operations.setRemovalGrants).not.toHaveBeenCalled()
-    publish.mockImplementation(async () => undefined)
-    const sent = await controller.requestRevocation(opened.operation, { identity: member, directoryEvents: [list], publish, random: () => 0 })
-    expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ relays: ['wss://keeper.example/'], authenticate: false }))
+    let confirm!: () => void
+    transport.publish.mockImplementation(() => new Promise<void>(resolve => { confirm = resolve }))
+    const sending = controller.requestRevocation(opened.operation, { identity: member, transport, random: () => 0 })
+    const concurrent = controller.requestRevocation(opened.operation, { identity: member, transport, random: () => 0 })
+    await vi.waitFor(() => expect(transport.publish).toHaveBeenCalledTimes(2))
+    confirm()
+    const sent = await sending
+    await expect(concurrent).resolves.toEqual(sent)
+    expect(transport.directory).toHaveBeenLastCalledWith(keeper.pubkey)
+    expect(transport.publish).toHaveBeenLastCalledWith(expect.objectContaining({ relays: ['wss://keeper.example/'], authenticate: false }))
     expect(sent.grants[0]!.state).toEqual({ type: 'NotAuthorised', requested: true })
     expect(grants.records).not.toHaveBeenCalled()
+    const restarted = new BrowserMlsMembershipController(operations as any, grants as any, () => accountContext as any, () => session, () => member.pubkey, () => 1000)
+    await expect(restarted.requestRevocation(opened.operation, { identity: member, transport, random: () => 0 })).resolves.toEqual(sent)
+    expect(transport.directory).toHaveBeenCalledTimes(2)
+    expect(transport.publish).toHaveBeenCalledTimes(2)
   })
 
   it('shows the engine claim verbatim and keeps component claims separate', () => {
