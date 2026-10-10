@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-10",
+  "version": "0.1.70",
+  "build": 55,
+  "sourceCommit": "06b5c1fad724f14fec01410aac551711003d8fa6",
+  "sendFixPullRequest": "https://github.com/forgesworn/kithmoot/pull/339",
+  "archives": [
+    {
+      "name": "KithMoot-0.1.70-mac-arm64.zip",
+      "sha256": "a9035e3dda6e173a539dbde13421e378b6a423e22b84b9d9dca34a700100bf32",
+      "bytes": 175410039
+    },
+    {
+      "name": "KithMoot-0.1.70-linux-x64.tar.gz",
+      "bytes": 169965590,
+      "sha256": "10baed06ed24b2464f9ff4d92b92c9f14211b5f752ca4fab1f73b01a8353b649"
+    },
+    {
+      "name": "KithMoot-0.1.70-linux-arm64.tar.gz",
+      "bytes": 171085861,
+      "sha256": "6ea364790e746714b58fda66c29725d19f55118a73b4e6a79fb946d86c3a8de3"
+    },
+    {
+      "name": "KithMoot-0.1.70-windows-x64.zip",
+      "bytes": 205365945,
+      "sha256": "a607b89101b1c2ed79e22e19ea4f7575703316b1ddacead9747bcbe9d2b5ac42"
+    },
+    {
+      "name": "kithmoot_0.1.70_amd64.deb",
+      "bytes": 133494160,
+      "sha256": "9714962f7b9d34801ceb64d23ca73d576e26a86c0f12ed9db4b76c09cd5e488c"
+    },
+    {
+      "name": "kithmoot_0.1.70_arm64.deb",
+      "bytes": 128535460,
+      "sha256": "0941a905e07199678efc579e691298edb03435bdf45243b1974bcf5ba23fe210"
+    }
+  ],
+  "exactWebFiles": 264,
+  "exactDesktopFiles": 22,
+  "allFourPackagedRuntimesVerified": true,
+  "mac": {
+    "submission": {
+      "id": "9befa2d1-58df-470b-990e-47e68f6a23a6",
+      "message": "Processing complete",
+      "status": "Accepted"
+    },
+    "staplerValidated": true,
+    "strictSignatureVerified": true,
+    "gatekeeper": "Notarized Developer ID",
+    "exactBundleEntries": 280,
+    "allBundleFilesAndLinksMatch": true,
+    "zipCrcVerified": true
+  },
+  "debianPayloads": [
+    {
+      "name": "kithmoot_0.1.70_amd64.deb",
+      "architecture": "amd64",
+      "bytes": 133494160,
+      "sha256": "9714962f7b9d34801ceb64d23ca73d576e26a86c0f12ed9db4b76c09cd5e488c",
+      "exactApplicationFiles": 75,
+      "regularArchiveFiles": 78,
+      "versionStampVerified": true,
+      "setuidSandboxVerified": true,
+      "embeddedSourceVerified": true
+    },
+    {
+      "name": "kithmoot_0.1.70_arm64.deb",
+      "architecture": "arm64",
+      "bytes": 128535460,
+      "sha256": "0941a905e07199678efc579e691298edb03435bdf45243b1974bcf5ba23fe210",
+      "exactApplicationFiles": 75,
+      "regularArchiveFiles": 78,
+      "versionStampVerified": true,
+      "setuidSandboxVerified": true,
+      "embeddedSourceVerified": true
+    }
+  ],
+  "windowsSigned": false,
+  "published": false,
+  "installedMacSendAcceptance": false
+}
