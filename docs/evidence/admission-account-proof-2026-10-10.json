@@ -1,0 +1,43 @@
+{
+  "recorded": "2026-10-10",
+  "syntheticOnly": true,
+  "foldKit": {
+    "version": "0.11.0",
+    "commit": "7ca679fe9e6a3e35c15e366ff9ae879593f8383a",
+    "pullRequest": 16,
+    "testsPassed": 668,
+    "protocolSourceAuditPassed": true,
+    "installedTarballProofRoundTripPassed": true
+  },
+  "consumer": {
+    "typecheckPassed": true,
+    "unitTestsPassed": 3704,
+    "browserJourneysPassed": 8,
+    "browsers": [
+      "Chromium",
+      "Firefox",
+      "WebKit",
+      "Chromium desktop"
+    ],
+    "journeys": [
+      "An unproved claim to an invited account waits for the host decision and can be admitted manually.",
+      "A matching signed proof for the request device and invitation admits an invited account automatically."
+    ],
+    "automaticAdmissionUses": "verifiedParticipant",
+    "memberDeskAccountAdmissionUses": "verifiedParticipant",
+    "legacyBearerAdmissionRetained": true,
+    "matchingLiveSignerRequired": true,
+    "cachedRoomPassIsNotNewAdmissionProof": true,
+    "requestWaitMilliseconds": 90000,
+    "cancellationHooks": [
+      "identity replacement",
+      "room reset",
+      "Stop opening"
+    ]
+  },
+  "remaining": [
+    "Native Android invitation-account-proof parity.",
+    "Physical external signer cancellation and connected-device acceptance.",
+    "Complete G17 admission and interface acceptance."
+  ]
+}

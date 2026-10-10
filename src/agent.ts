@@ -555,7 +555,7 @@ export class RoomAgent {
             transport,
             invitation: link.invitation,
             now,
-            ...(identity ? { participant: identity.pubkey } : {}),
+            ...(identity ? { participant: identity.pubkey, identity } : {}),
           })
         secret = admission.secret
         if ('endsAt' in admission && admission.endsAt !== undefined) {

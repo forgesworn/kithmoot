@@ -1230,6 +1230,7 @@ async function signInWithNostr(): Promise<void> {
   workspaceWork?.reset()
   loginBusy = true
   identityGeneration++
+  admissionController?.abort()
   clearImportedHistorySearch()
   let account: SignetSession | null
   try {
@@ -1293,6 +1294,7 @@ async function signOutOfNostr(): Promise<void> {
   // because they are signing out.
   if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
   identityGeneration++
+  admissionController?.abort()
   clearImportedHistorySearch()
   relayConnections.clearAuthentication()
   const account = nostrSession
@@ -1362,6 +1364,7 @@ async function forgetThisBrowser(): Promise<void> {
   // As above, avoid creating a vault on a browser that never held one.
   if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
   identityGeneration++
+  admissionController?.abort()
   clearImportedHistorySearch()
   const s = session
   workspaceWork?.reset()
@@ -1903,7 +1906,8 @@ function setKeepRoomChoice(on: boolean): void {
 const KNOCK_KEY_PREFIX = 'kithmoot.knock.v1.'
 /** How long a newcomer waits to be let in, and how long the card stays.
  *  Long enough for a person to notice and press a button. */
-const KNOCK_WAIT_MS = 120_000
+const KNOCK_WAIT_MS = 90_000
+let admissionController: AbortController | undefined
 
 function knockOn(roomId: string): boolean {
   return deviceStore.get(KNOCK_KEY_PREFIX + roomId) === 'true'
@@ -1935,7 +1939,8 @@ function askToLetIn(request: InvitationRequest, kind: Knock['kind'] = 'invitatio
   // the answer. Anybody else with the link gets the card.
   const roomId = currentRoomId()
   if (!roomId) return Promise.resolve(false)
-  if (roomId && request.participant && invitedTo(roomId).has(request.participant)) {
+  const verified = kind === 'member' ? request.participant : request.verifiedParticipant
+  if (verified && invitedTo(roomId).has(verified)) {
     return Promise.resolve(true)
   }
   return new Promise((resolve) => {
@@ -2217,9 +2222,9 @@ function serveCurrentInvitation(): void {
         // It must never authorise the session opened in another room.
         if (currentRoomId() !== admissionRoom || session !== decidingSession || roomInvitationCapability !== invitation ||
             (request.participant && contactIsBlocked(request.participant))) return false
-        // Whoever this device lets in through the link, the room knows: its
-        // member desk hands them the key even after a removal (#207).
-        if (yes && request.participant) session?.letIn(request.participant)
+        // Only a proved account becomes known to the room's member desk.
+        // Manual bearer admission does not endorse the claimed account.
+        if (yes && request.verifiedParticipant) session?.letIn(request.verifiedParticipant)
         return yes
       },
       // A delegated responder may receive recent requests replayed by a
@@ -2229,7 +2234,7 @@ function serveCurrentInvitation(): void {
       onGrantPublished: request => {
         if (currentRoomId() !== admissionRoom || roomInvitationCapability !== invitation) return
         if (finishKnockGrant(request, true)) return
-        if (request.participant && invitedTo(admissionRoom).has(request.participant)) addSystemLine(`Invitation sent to ${knockLabel(request)}. They can join when ready.`)
+        if (request.verifiedParticipant && invitedTo(admissionRoom).has(request.verifiedParticipant)) addSystemLine(`Invitation sent to ${knockLabel(request)}. They can join when ready.`)
         if (invitationDelegation.length === 0) setStatus('An invitation was sent using this room link.')
       },
       onGrantFailed: request => {
@@ -3404,20 +3409,31 @@ async function roomFromLocation(): Promise<boolean> {
         setStatus(invitation.persistent ? 'Getting you in…' : 'Asking to be let in…', 'progress')
         if (!invitation.persistent) showDoorWhileSwitching()
         const transport = configuredPool(relays)
+        admissionController?.abort()
+        const pending = new AbortController()
+        admissionController = pending
+        const identityAtRequest = identityGeneration
         try {
           // A temporary room's link is answered by a person, who may have
           // been asked first: the request says who is asking, and the wait
           // is long enough for somebody to read a card and press a button.
           const askedAs = joiningName()
           const askedFrom = currentParticipant()
+          // A cached room pass or paired device cannot sign a new account
+          // proof. Use only the matching live signer or local identity.
+          const proofIdentity = askedFrom === nostrSession?.pubkey ? nostrSession?.signer
+            : askedFrom && !expectedAccount && !isPairedSecondary(deviceStore) ? localIdentity(participantKey()) : undefined
           let foundFurther: string[] = []
           const admission = invitation.persistent
             ? await admitFromGroupInvitation(invitation, parsedLink.relays, transport, wider => { foundFurther = wider })
             : await requestRoomAdmissionCapability({
               transport, invitation, timeoutMs: KNOCK_WAIT_MS,
+              signal: pending.signal,
               ...(askedAs !== undefined ? { name: askedAs } : {}),
               ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
+              ...(proofIdentity !== undefined ? { identity: proofIdentity } : {}),
             })
+          if (pending.signal.aborted || identityAtRequest !== identityGeneration) throw new Error('Room admission cancelled.')
           roomSecret = admission.secret
           roomEndsAt = 'endsAt' in admission ? admission.endsAt : undefined
           roomDestruct = 'destruct' in admission && admission.destruct === true
@@ -3443,6 +3459,7 @@ async function roomFromLocation(): Promise<boolean> {
           // button that was ready to be pressed.
           setStatus('You are on the list. Go in when you are ready.', 'done')
         } finally {
+          if (admissionController === pending) admissionController = undefined
           transport.close()
         }
         serveCurrentInvitation()
@@ -8341,7 +8358,7 @@ function renderApprovals(): void {
       who.className = 'who'
       const evidence = document.createElement('span')
       evidence.className = 'note knockEvidence'
-      evidence.textContent = `Device ${shortKey(knock.device)} · ${knock.participant ? 'Account claimed by the guest; not verified for this request.' : 'Name supplied by the guest.'}`
+      evidence.textContent = `Device ${shortKey(knock.device)} · ${knock.kind === 'member' ? 'Account verified by this room’s device credential.' : knock.verifiedParticipant ? 'Account verified by a signature for this request.' : knock.participant ? 'Account claimed by the guest; not verified for this request.' : 'Name supplied by the guest.'}`
       const status = document.createElement('span')
       status.className = 'note knockStatus'
       status.setAttribute('role', 'status')
@@ -13433,6 +13450,8 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
 }
 
 function resetRoomState(): void {
+  admissionController?.abort()
+  admissionController = undefined
   for (const opened of openedAttachments.values()) if ('url' in opened) URL.revokeObjectURL(opened.url)
   attachmentViewer.close()
   openedAttachments.clear()
@@ -14709,6 +14728,7 @@ $('joinCall').addEventListener('click', () => {
 })
 $('stopOpening').addEventListener('click', async () => {
   if (dockedCall && !await confirmRoomAction({ title: 'Leave your call?', message: `Going back to your rooms ends your call in ${dockedCall.label}.`, confirmLabel: 'Leave call' })) return
+  admissionController?.abort()
   history.replaceState(null, '', joinLinkBase())
   approvedReload()
 })
