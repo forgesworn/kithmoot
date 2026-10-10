@@ -1,0 +1,44 @@
+{
+  "verifiedAt": "2026-10-10T02:05:14.106563+00:00",
+  "applicationSourceCommit": "992f07ea60ee665f4ced4a6b6cc5359c50776d2d",
+  "testedSourceCommit": "042c47d4c733f4871afca48eb3f91f16f2467f46",
+  "unchangedAfterRebase": true,
+  "sourceFiles": {
+    "src/assignment-log.ts": "e3a9c111083273229fd7600585d48e4b3d323e01069e0606f2904707068b0292",
+    "app/src/workspace-work.ts": "6be345b3349e64de92c0c880abc4a87073dd51da380f5aaf12c1510344e5a66c",
+    "app/src/workspace-observer.ts": "10d479f1091bbe75b14c485e55da76b5e178decc131897805f4901e741be36cb",
+    "app/src/main.ts": "79fd1e46ff2485c4fb1fb104c2c8263fc84a02bc383fb674bcda334bef8d859f",
+    "app/src/assignment-panel.ts": "77cdaae7159d9bf2afa8217d411963819f91fcebedb59483160afa23525055e6",
+    "app/src/room-watch.ts": "94ab60165fc6172f7a3f54991a1aa60677808d889663595dc16c838fedfafa28",
+    "app/src/workspace-work.css": "b103d4de05a64ec72bc7feb92e722470cdb9f1186a329695b9cbb682cf792cd4",
+    "app/index.html": "c20665a986ccf6ab32d9615777ac8a4469e44d6b23eb3206ebe4f14dc6c253c5",
+    "playwright.config.ts": "ffb7bb848148cb59dd01ef82e2d6f5d846c73f6f75159d89150f5946f236a453",
+    "test/workspace-work.spec.ts": "744fbe8566ce55592120339f4826a9b9247c6fa61ffe30255a5226ef1c6fc488"
+  },
+  "host": {
+    "platform": "Darwin",
+    "architecture": "arm64"
+  },
+  "browserCommand": "npx playwright test test/workspace-work.spec.ts test/assignments.spec.ts test/projects-flow.spec.ts --project=chromium --project=chromium-desktop --project=firefox --workers=1",
+  "browserResult": "32 passed (1.7m)",
+  "typecheckPassed": true,
+  "focusedUnitResult": "42 passed in 4 files",
+  "coverage": [
+    "Three deliberately admitted projects; same agent principal across two projects and a distinct principal in the third.",
+    "Human question, answer, result review and exact canonical result acceptance through originating room controls.",
+    "Human mentions and replies route to the originating message.",
+    "Project filters, responsible agent labels, draft retention and unread attention.",
+    "An unjoined room cannot start observation or leak its task.",
+    "320, 390 and 1440 pixel layouts with 200 percent text sizing.",
+    "Sign-out clears cards and stops observers.",
+    "Unit coverage verifies account-bound historical credentials, close races, authorised rekeys, revoked access and authoritative closure without publication or journal writes."
+  ],
+  "limits": [
+    "Synthetic Nostr signers and protocol actors against an offline loopback relay; no live executor.",
+    "Phone viewport is automated browser coverage, not a physical device.",
+    "Local WebKit failed before opening the app with an incompatible browser-driver setting; WebKit remains a hosted CI gate.",
+    "Native Android parity, fresh-device summary delivery, older task completeness and representative scale/battery acceptance remain open.",
+    "The UI requests bounded recent activity and retained canonical journals. It does not establish complete history or complete G9.",
+    "This receipt records source validation, not publication or physical acceptance."
+  ]
+}

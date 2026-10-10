@@ -439,8 +439,10 @@ describe('RoomWatch', () => {
       const removing = rekey(zero, one, { recipients: [someone], removed: [getPublicKey(generateSecretKey())] })
       await transport.publish(removing)
       const moved: WatchedRekey[] = []
-      const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m) })
+      let unreachable = 0
+      const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m), onUnreachable: () => { unreachable++ } })
       expect(watch.epoch).toBe(0)
+      expect(unreachable).toBe(1)
 
       // Closing seals the secret to nobody.
       const closedRelay = new SimRelay({ replay: true })
@@ -451,8 +453,9 @@ describe('RoomWatch', () => {
       // Signed by a key that is not the room's authority.
       const forgedRelay = new SimRelay({ replay: true })
       await new SimTransport(forgedRelay).publish(rekey(zero, one, { sk: generateSecretKey() }))
-      const forged = new RoomWatch({ transport: new SimTransport(forgedRelay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m) })
+      const forged = new RoomWatch({ transport: new SimTransport(forgedRelay), roomId, roomKey, authority, deviceSk, now: () => NOW, onEpoch: (m) => moved.push(m), onUnreachable: () => { unreachable++ } })
       expect(forged.epoch).toBe(0)
+      expect(unreachable).toBe(1)
 
       // And with no device key it does not follow at all.
       const keyless = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, authority, now: () => NOW })

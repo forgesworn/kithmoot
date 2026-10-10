@@ -1,10 +1,36 @@
 # Read-only workspace assignment observation
 
 `AssignmentLog` accepts `AssignmentReaderOptions` for observing work in a room
-the person has already deliberately joined. This is a library foundation for
-the cross-project Inbox/Work journey in G9; it does not provide that interface
-or complete that goal. Native Android integration and fresh-device summary
-delivery remain outstanding.
+the person has already deliberately joined. The PWA Inbox/Work interface uses
+this observer alongside a bounded read-only chat reader. Native Android parity,
+fresh-device summary delivery and the wider G9 acceptance journey remain
+outstanding. This bounded view does not complete G9.
+
+The start page, desktop project rail and phone room switcher expose **Inbox**
+and **All work**. Signed-in workspace conversations also have direct phone
+destinations for Inbox, Projects and All work. Project filters use the existing
+signed project IDs. Inbox
+reuses the canonical human-action projection for decisions and resolved chat
+for unread human mentions and replies; routine agent progress stays out of it.
+Work shows active assignments and their responsible principal. Choosing an
+item opens its originating room and task or message; answers and reviews use
+the room's existing controls and current head checks.
+
+The view requests recent chat and assignment envelopes with a limit of 128
+and a 24-hour window, without paging archives or publishing presence. It reads
+only existing admission with a verified account binding and held room keys;
+receiving a project
+invitation cannot start a room observation. Temporary meetings and scheduled
+self-destructing rooms are excluded. Quiet conversations currently require
+opening the origin rather than reading their separate transport through this
+observer. Closing the view stops its observations. Account changes, forgotten
+or ended rooms and access-changing rekeys drop its data; authoritative closure
+still follows the room's normal cleanup path.
+
+A device signing credential expiring does not erase deliberately retained
+read keys. The view verifies the saved credential's account/room binding at
+issuance without renewing it or deleting it on read. The originating room
+still checks current admission and credential validity before a signed update.
 
 The observer uses the same signed assignment operations, admission-checked room
 envelopes and canonical projection as the originating room. It can load the

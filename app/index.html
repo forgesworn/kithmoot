@@ -44,6 +44,7 @@
       <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
         <button id="workspaceBrandHome" class="workspaceBrand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</button>
         <button id="workspaceSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
+        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="workspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="workspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button></div>
         <button id="workspaceNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor">New project</button>
         <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
         <label class="sr-only" for="workspaceQuery">Filter projects and rooms</label>
@@ -358,6 +359,11 @@
           <span id="meetingNoticeText"></span>
           <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
         </div>
+        <nav id="mobileWorkspaceDestinations" aria-label="Workspace" hidden>
+          <button id="mobileWorkspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button>
+          <button id="mobileWorkspaceProjects" type="button" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
+          <button id="mobileWorkspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button>
+        </nav>
         <nav id="mobileRoomViews" aria-label="Room views">
           <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
           <button id="mobileCall" type="button" aria-pressed="false">Call</button>
@@ -651,6 +657,8 @@
             <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
           </div>
           <div class="roomsHeadActions">
+            <button id="homeInbox" type="button" class="quiet" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button>
+            <button id="homeWork" type="button" class="quiet" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button>
             <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects" hidden>Projects</button>
             <button id="homeNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor" hidden>New project</button>
             <button id="homeOpenLink" type="button" class="quiet" aria-controls="openLink" aria-expanded="false" hidden>Open invite link</button>
@@ -833,6 +841,7 @@
         <div class="projectFilter"><label for="switcherProject">Project</label><select id="switcherProject"><option value="*">All projects</option></select></div>
         <ul id="roomSwitcherList" class="roomList"></ul>
         <button id="switcherSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
+        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="switcherInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="switcherWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button></div>
         <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
         <button id="roomSwitcherHome" type="button" class="quiet">All rooms / Start a room</button>
       </div>
@@ -1526,6 +1535,17 @@
       </div>
       <p id="dmRelayStatus" class="note" role="status"></p>
       <p class="note">This list is public, as the Nostr standard for it (NIP-17) requires: anyone can see which relays you use for private conversations, though not what is said on them or with whom.</p>
+    </dialog>
+
+    <dialog id="workspaceWorkPanel" aria-labelledby="workspaceWorkTitle">
+      <div class="sheetBar"><h2 id="workspaceWorkTitle" tabindex="-1">Inbox</h2><button id="workspaceWorkClose" type="button">Close</button></div>
+      <div class="workFilters" role="group" aria-label="Workspace activity"><button id="workspaceInboxTab" type="button" aria-pressed="true">Inbox</button><button id="workspaceWorkTab" type="button" aria-pressed="false">Work</button></div>
+      <label for="workspaceWorkProject">Project</label><select id="workspaceWorkProject"><option value="*">All projects</option></select>
+      <p id="workspaceWorkStatus" role="status"></p>
+      <button id="workspaceWorkSignIn" type="button">Sign in with Nostr</button>
+      <p id="workspaceWorkCoverage" class="note">Showing recent activity and saved tasks. Older or missing updates may appear when you open a room.</p>
+      <button id="workspaceWorkRefresh" type="button" class="quiet">Refresh recent activity</button>
+      <div id="workspaceWorkCards"></div>
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">
