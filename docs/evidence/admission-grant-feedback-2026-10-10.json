@@ -1,0 +1,73 @@
+{
+  "recordedAt": "2026-10-10",
+  "goal": "G17",
+  "sourceRevision": "938258763fcc0a8afd0296c089f3439c2c949005",
+  "baseRevision": "ff36283cabb02cd3fda4f977b8a07df0832e8803",
+  "foldKitRevision": "babacfb0fdf17b68cb9f77bc3805ce68c151961f",
+  "testedFiles": {
+    "app/src/main.ts": "ecac2a7f6d70d688cd913f88bba78770794a78b3b00f75fbf42522a769a9b965",
+    "app/src/style.css": "a7f559d4c8e4a5504f14e5be18020ac4b718b1fd91af8b7cc4e0d0f98c59473e",
+    "package.json": "d2e892b9c02033bdc2f10c6fdf3de3a147c1b3c5678a039de6e3707d237c0a2e",
+    "package-lock.json": "a68cc873ba8131ac01c4bafcd651f4889f41153864e7c0f625365ba72d998a5a",
+    "playwright.config.ts": "075f415024dcf8fdf96b186bcae304a247510b75b1817e21977cec8bdcd48a80",
+    "src/invitation.test.ts": "4c790977be168b82f9433ca341a7b0994773217e73a647b482f65ebb11dc4e09",
+    "test/knock.spec.ts": "fdf473db8116dd68f204223ce080fffa80c657e63396e4e3996f92689903822d",
+    "test/private-room.spec.ts": "839c61283aeefca4573fac20a7f5d08b07866d85f7b4f340c2b9f559de6656ac"
+  },
+  "environment": {
+    "host": "M4 Mac",
+    "node": "24.14.0",
+    "relay": "local test/ws-relay.mjs; all event signatures verified",
+    "guestData": "synthetic only",
+    "hostViewports": [
+      {
+        "width": 390,
+        "height": 844
+      },
+      {
+        "width": 1200,
+        "height": 800
+      }
+    ]
+  },
+  "baseline": {
+    "revision": "ff36283cabb02cd3fda4f977b8a07df0832e8803",
+    "command": "E2E_PORT=4837 npx playwright test test/knock.spec.ts --project=chromium --grep \"grant feedback\"",
+    "result": "failed as expected",
+    "observed": "The host showed You let Rowan in. while the grant was held before transmission."
+  },
+  "checks": [
+    {
+      "command": "npm run typecheck",
+      "result": "passed"
+    },
+    {
+      "command": "npm test",
+      "result": "passed",
+      "testFiles": 261,
+      "tests": 3704
+    },
+    {
+      "command": "E2E_PORT=4837 npx playwright test test/knock.spec.ts test/private-room.spec.ts --project=chromium --project=chromium-desktop --project=firefox --project=webkit",
+      "result": "passed",
+      "tests": 24
+    }
+  ],
+  "journeys": [
+    "delayed grant: host keeps Sending invitation and disabled actions; guest has no join controls or room contents until valid grant",
+    "publication rejection: failed card and no sent message; guest deliberately retries a fresh request with its name retained",
+    "host navigation: pending decision cancelled without a grant or cross-room message",
+    "same-name guests: distinct request signing devices; new arrivals preserve focused and pressed admission buttons",
+    "existing admit/decline and explicit invitation workflows"
+  ],
+  "physicalAcceptance": false,
+  "nativeAndroidAcceptance": false,
+  "goalComplete": false,
+  "limits": [
+    "publication acknowledgement is not guest receipt or membership confirmation",
+    "device/account proof for claimed accounts remains required for G17",
+    "distinct authenticated decline/offline states and concurrent-host reconciliation remain open",
+    "admission from another conversation remains open",
+    "physical unfamiliar guest/host observation remains open"
+  ]
+}

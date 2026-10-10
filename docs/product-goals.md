@@ -689,6 +689,14 @@ Acceptance:
 
 ## Delivery and evidence
 
+The [closed-room feedback foundation](closed-room-admission-ui.md) distinguishes
+approval, grant publication and send failure, preserves pending controls during
+new requests and checks the originating room after a decision. Its
+[browser receipt](evidence/admission-grant-feedback-2026-10-10.json) includes
+delayed/rejected grants, deliberate guest retry, cancellation by navigation and
+same-name requests. G17 remains open for the complete admission/authority
+journey, native Android and unfamiliar-person physical acceptance.
+
 G9 defines the product shell and remote work journey; G7 fits daily calls into
 that workspace, and G8 provides the separate temporary meeting experience.
 Prioritise a complete desktop-to-phone journey through project selection,
