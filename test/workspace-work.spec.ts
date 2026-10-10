@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { RoomAgent } from '../src/agent.js'
@@ -6,12 +6,20 @@ import { localIdentity } from '../src/identity.js'
 import { npubEncode } from 'nostr-tools/nip19'
 import { encodeRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
+import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia } from './browser.js'
 
-test('cross-project Inbox routes a question, human mention, reply and exact-result review to their origins', async ({ browser, baseURL }, info) => {
-  test.setTimeout(90_000)
+for (const retainCall of [false, true]) {
+test(`cross-project Inbox routes a question, human mention, reply and exact-result review to their origins${retainCall ? ' while a signed-project call stays live' : ''}`, async ({ browser, baseURL }, info) => {
+  test.skip(retainCall && !['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic camera and microphone require Chromium')
+  test.setTimeout(retainCall ? 180_000 : 90_000)
   const key = generateSecretKey(), pubkey = getPublicKey(key)
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block',
     viewport: info.project.name === 'chromium-desktop' ? { width: 1440, height: 900 } : { width: 390, height: 844 } })
+  if (retainCall) {
+    await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
+    await context.addInitScript(INSTRUMENT)
+    await context.addInitScript(SYNTHETIC_MIC)
+  }
   await context.exposeFunction('workspacePublicKey', () => pubkey)
   await context.exposeFunction('workspaceSign', (event: EventTemplate) => finalizeEvent(event, key))
   await context.exposeFunction('workspaceEncrypt', (peer: string, value: string) => encrypt(value, getConversationKey(key, peer)))
@@ -55,6 +63,35 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     return keeper.session.assignments({ load: async () => cache, save: async value => { cache = value } })
   }))
   let human: RoomAgent | undefined
+  let callContext: BrowserContext | undefined
+  let callPeer: Page | undefined
+  let callIds: string[] = []
+  const connections = () => {
+    const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs
+    // Chat-only peer connections may appear in destination rooms; they must
+    // not add or replace any of the call's media senders and receivers.
+    return pcs.filter(pc => pc.getSenders().some(sender => sender.track) || pc.getReceivers().length > 0).map(pc => ({ state: pc.connectionState,
+      senders: pc.getSenders().map(sender => sender.track?.id ?? null),
+      receivers: pc.getReceivers().map(receiver => receiver.track.id) }))
+  }
+  let adaConnections: ReturnType<typeof connections> = []
+  let peerConnections: ReturnType<typeof connections> = []
+  const continuousCall = async () => {
+    if (!callPeer) return
+    await expect(page.locator('#callSurfaceOrigin')).toHaveText('Call in Release room · Release project')
+    for (const [device, name] of [[page, 'Ada'], [callPeer, 'Bo']] as const) {
+      const before = await device.evaluate(inbound)
+      await expect.poll(async () => {
+        const now = await device.evaluate(inbound)
+        return now.audioEnergy > before.audioEnergy && now.framesDecoded > before.framesDecoded
+      }, { message: `${name} must keep receiving audio and video in the Release call`, timeout: 20_000 }).toBe(true)
+    }
+    expect(await page.evaluate(connections)).toEqual(adaConnections)
+    expect(await callPeer.evaluate(connections)).toEqual(peerConnections)
+    expect(keepers[1]!.session.participants().flatMap(person => person.call ? [person.call.id] : []).sort()).toEqual(callIds)
+    for (const index of [0, 2]) expect(keepers[index]!.session.participants().some(person => person.call)).toBe(false)
+    await expect(callPeer.locator('#chatLog')).not.toContainText('Ada left.')
+  }
   const openProjects = async () => {
     if (!await page.locator('#sharedProjects').isVisible()) {
       if (await page.locator('#roomArea').isVisible()) { await page.locator('#backToRooms').click(); await page.locator('#switcherSharedProjects').click() }
@@ -109,6 +146,26 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     await page.locator('#assignmentClose').click()
     await enter('Release project', 'Release room')
     await page.locator('#chatInput').fill('Keep this release draft')
+    if (retainCall) {
+      await turnOnMedia(page)
+      callContext = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+      await callContext.addInitScript(SYNTHETIC_MIC)
+      await callContext.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+      callPeer = await callContext.newPage()
+      await open(callPeer, saved[1]!.link, 'Bo')
+      await callPeer.locator('#join').click()
+      await expect(callPeer.locator('#callToggle')).toHaveText('Join call')
+      await turnOnMedia(callPeer)
+      for (const device of [page, callPeer]) await expect.poll(async () => {
+        const stats = await device.evaluate(inbound)
+        return stats.audioEnergy > 0 && stats.framesDecoded > 0
+      }, { timeout: 30_000 }).toBe(true)
+      await expect.poll(() => keepers[1]!.session.participants().filter(person => person.call).length).toBe(2)
+      callIds = keepers[1]!.session.participants().flatMap(person => person.call ? [person.call.id] : []).sort()
+      expect(new Set(callIds).size).toBe(1)
+      adaConnections = await page.evaluate(connections)
+      peerConnections = await callPeer.evaluate(connections)
+    }
     await logs[0]!.submit(task.id, { op: 'claim', executor: 'workspace_fixture_executor', next: 'Find the build' }, 'workspace_claim_0001')
     await logs[0]!.submit(task.id, { op: 'block', executor: 'workspace_fixture_executor', question: 'Which design build should I check?' }, 'workspace_question_0001')
     // A task in the unjoined project is invisible even though its invitation
@@ -119,6 +176,7 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     const card = page.locator(`#workspaceWorkCards [data-assignment="${task.id}"]`)
     await expect(card).toContainText('Design project · Design room')
     await expect(card).toContainText('Which design build should I check?')
+    await continuousCall()
     await expect(page.locator('#workspaceWorkCards')).not.toContainText('Private unjoined work')
     await expect(page.locator('#workspaceWorkCards')).toContainText('Join this room before viewing its work')
     await page.locator('#workspaceWorkTab').click()
@@ -139,7 +197,14 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     const chatFilters = requests.flatMap(request => request.slice(2) as Array<{ kinds?: number[]; limit?: number; since?: number }>)
       .filter(filter => filter.kinds?.includes(1460))
     expect(chatFilters.length).toBeGreaterThan(0)
-    expect(chatFilters.every(filter => filter.limit !== undefined && filter.limit <= 128 && filter.since !== undefined)).toBe(true)
+    if (!retainCall) {
+      expect(chatFilters.every(filter => filter.limit !== undefined && filter.limit <= 128 && filter.since !== undefined)).toBe(true)
+    } else {
+      // The retained foreground call session also requests ordinary chat
+      // history (500). The activity-only journey above keeps its stricter cap.
+      expect(chatFilters.some(filter => filter.limit !== undefined && filter.limit <= 128 && filter.since !== undefined)).toBe(true)
+      expect(chatFilters.every(filter => filter.limit !== undefined && filter.limit <= 500 && filter.since !== undefined)).toBe(true)
+    }
     expect(await page.locator('#workspaceWorkPanel').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     const originalViewport = page.viewportSize()!
     for (const width of [320, 390, 1440]) {
@@ -157,6 +222,7 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     await detail.getByLabel('Answer for the owner').fill('Design build 67')
     await detail.getByRole('button', { name: 'Send answer' }).click()
     await expect.poll(() => logs[0]!.snapshot().assignments[0]?.answer).toBe('Design build 67')
+    await continuousCall()
     await page.locator('#assignmentClose').click()
     await enter('Release project', 'Release room')
     await expect(page.locator('#chatInput')).toHaveValue('Keep this release draft')
@@ -171,6 +237,7 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     await detail.getByRole('button', { name: 'Accept this result' }).click()
     await expect.poll(() => logs[0]!.snapshot().assignments[0]?.status).toBe('accepted')
     expect(logs[0]!.snapshot().assignments[0]!.result?.id).toBe(result.result!.id)
+    await continuousCall()
     await page.locator('#assignmentClose').click()
     await page.locator('#chatInput').fill('A message from Ada'); await page.locator('#chatInput').press('Enter')
     await expect.poll(() => human!.session.chat.messages().some(message => message.text === 'A message from Ada')).toBe(true)
@@ -184,6 +251,16 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     await reply.getByRole('button', { name: 'Open message in room' }).click()
     await expect(page.locator('#chatLog')).toContainText('A human reply across projects')
     await expect(page.locator('#chatLog [data-message-id]:focus')).toContainText('A human reply across projects')
+    await continuousCall()
+    if (callPeer) {
+      // Leave controls still refer to Release while Design is on screen.
+      await expect(page.locator('#callDock')).toBeVisible()
+      await page.locator('#callDockLeave').click()
+      await expect(page.locator('#callDock')).toBeHidden()
+      await expect(page.locator('#roomTitle')).toHaveText('Design room')
+      await expect.poll(() => keepers[1]!.session.participants().filter(person => person.call).length).toBe(1)
+      await expect(page.locator('#chatLog')).toContainText('A human reply across projects')
+    }
     // Ending an admitted room drops it from the view; the invitation alone
     // cannot keep its data visible. Reopening the view after refresh still
     // excludes it, alongside the unjoined room's private task.
@@ -212,5 +289,6 @@ test('cross-project Inbox routes a question, human mention, reply and exact-resu
     await page.locator('#homeInbox').click()
     await expect(page.locator('#workspaceWorkStatus')).toContainText('Sign in with Nostr')
     await expect(page.locator('#workspaceWorkCards .workspaceWorkCard')).toHaveCount(0)
-  } finally { await human?.leave(); await context.close(); await Promise.all(keepers.map(keeper => keeper.leave())) }
+  } finally { await human?.leave(); await callContext?.close(); await context.close(); await Promise.all(keepers.map(keeper => keeper.leave())) }
 })
+}
