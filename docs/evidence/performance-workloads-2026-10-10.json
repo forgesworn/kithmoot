@@ -1,0 +1,295 @@
+{
+  "recordedAt": "2026-10-10T07:59:55.936001+00:00",
+  "scope": "Opt-in synthetic browser workload collector; operation and report privacy",
+  "qualified": false,
+  "goalsRemainOpen": [
+    "G10",
+    "G12"
+  ],
+  "baseSource": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+  "collectorFilesSha256": {
+    "test/performance-baseline.spec.ts": "a5fc9063f59cd1f3b1d6d83935e9797a2cf485dd06407509359b5eee97b37ccc",
+    "test/performance-sample.ts": "d130d7c874a8ac18a26590019628abf700ea9bc0a3a77f44b8b6f25c68c52f77"
+  },
+  "sourceQualification": "Runtime application source unchanged from base. The collector was modified locally; later edits only remove an unused type import and indent the workload loop. Reports correctly mark the worktree dirty.",
+  "runs": [
+    {
+      "workload": {
+        "kind": "audio",
+        "docked": true,
+        "requestedPopouts": 0,
+        "chatStrategy": null
+      },
+      "syntheticBrowserClients": 2,
+      "requestedSeconds": 10,
+      "measurementElapsedMs": 10003,
+      "samples": 5,
+      "monitoredTargetsPerSample": 2,
+      "successfulPublishers": {
+        "camera": 0,
+        "audio": 2,
+        "share": 0
+      },
+      "popouts": 0,
+      "chatMessagesDelivered": 0,
+      "reportSha256": "49d52341164acf99dff80d929cb5bca71f45ae488d5e66717c4827f65bd33201",
+      "failure": null,
+      "source": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "dirty": true,
+      "browser": "151.0.7922.34",
+      "host": {
+        "platform": "darwin",
+        "release": "23.6.0",
+        "architecture": "arm64",
+        "cpus": 8,
+        "loadAverageAtStart": [
+          73.54833984375,
+          78.51318359375,
+          54.5341796875
+        ]
+      }
+    },
+    {
+      "workload": {
+        "kind": "audio",
+        "docked": false,
+        "requestedPopouts": 0,
+        "chatStrategy": null
+      },
+      "syntheticBrowserClients": 2,
+      "requestedSeconds": 10,
+      "measurementElapsedMs": 10006,
+      "samples": 5,
+      "monitoredTargetsPerSample": 2,
+      "successfulPublishers": {
+        "camera": 0,
+        "audio": 2,
+        "share": 0
+      },
+      "popouts": 0,
+      "chatMessagesDelivered": 0,
+      "reportSha256": "6c0b2388493238de6ef9a3299f851d7a59b7234b41726d6450f6dbf195917ac8",
+      "failure": null,
+      "source": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "dirty": true,
+      "browser": "151.0.7922.34",
+      "host": {
+        "platform": "darwin",
+        "release": "23.6.0",
+        "architecture": "arm64",
+        "cpus": 8,
+        "loadAverageAtStart": [
+          26.240234375,
+          20.21240234375,
+          26.4775390625
+        ]
+      }
+    },
+    {
+      "workload": {
+        "kind": "chat",
+        "docked": false,
+        "requestedPopouts": 0,
+        "chatStrategy": "one round-robin message per collection step"
+      },
+      "syntheticBrowserClients": 2,
+      "requestedSeconds": 10,
+      "measurementElapsedMs": 10017,
+      "samples": 5,
+      "monitoredTargetsPerSample": 2,
+      "successfulPublishers": {
+        "camera": 0,
+        "audio": 0,
+        "share": 0
+      },
+      "popouts": 0,
+      "chatMessagesDelivered": 5,
+      "reportSha256": "d8796624a0736745842b134ebbb79e99838b0aeb70a3ad09c65e2ec23cc1db08",
+      "failure": null,
+      "source": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "dirty": true,
+      "browser": "151.0.7922.34",
+      "host": {
+        "platform": "darwin",
+        "release": "23.6.0",
+        "architecture": "arm64",
+        "cpus": 8,
+        "loadAverageAtStart": [
+          29.90283203125,
+          20.6962890625,
+          26.72021484375
+        ]
+      }
+    },
+    {
+      "workload": {
+        "kind": "idle",
+        "docked": false,
+        "requestedPopouts": 0,
+        "chatStrategy": null
+      },
+      "syntheticBrowserClients": 2,
+      "requestedSeconds": 10,
+      "measurementElapsedMs": 10002,
+      "samples": 5,
+      "monitoredTargetsPerSample": 2,
+      "successfulPublishers": {
+        "camera": 0,
+        "audio": 0,
+        "share": 0
+      },
+      "popouts": 0,
+      "chatMessagesDelivered": 0,
+      "reportSha256": "d019b32e187a7d43eebc90f9e758328e0d199a919515c4531567dbcbce79964e",
+      "failure": null,
+      "source": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "dirty": true,
+      "browser": "151.0.7922.34",
+      "host": {
+        "platform": "darwin",
+        "release": "23.6.0",
+        "architecture": "arm64",
+        "cpus": 8,
+        "loadAverageAtStart": [
+          30.62890625,
+          20.2861328125,
+          26.6826171875
+        ]
+      }
+    },
+    {
+      "workload": {
+        "kind": "share",
+        "docked": false,
+        "requestedPopouts": 0,
+        "chatStrategy": null
+      },
+      "syntheticBrowserClients": 2,
+      "requestedSeconds": 10,
+      "measurementElapsedMs": 10006,
+      "samples": 5,
+      "monitoredTargetsPerSample": 2,
+      "successfulPublishers": {
+        "camera": 2,
+        "audio": 2,
+        "share": 1
+      },
+      "popouts": 0,
+      "chatMessagesDelivered": 0,
+      "reportSha256": "439f30f4a680acccd9710a5573f4bba0c3575bb3a3abf3003fa15b002e407ee4",
+      "failure": null,
+      "source": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "dirty": true,
+      "browser": "151.0.7922.34",
+      "host": {
+        "platform": "darwin",
+        "release": "23.6.0",
+        "architecture": "arm64",
+        "cpus": 8,
+        "loadAverageAtStart": [
+          21.52880859375,
+          19.59716796875,
+          26.07421875
+        ]
+      }
+    },
+    {
+      "workload": {
+        "kind": "video",
+        "docked": false,
+        "requestedPopouts": 0,
+        "chatStrategy": null
+      },
+      "syntheticBrowserClients": 2,
+      "requestedSeconds": 10,
+      "measurementElapsedMs": 10004,
+      "samples": 5,
+      "monitoredTargetsPerSample": 2,
+      "successfulPublishers": {
+        "camera": 2,
+        "audio": 2,
+        "share": 0
+      },
+      "popouts": 0,
+      "chatMessagesDelivered": 0,
+      "reportSha256": "de518404f1290c5168874fca99af12a9c71387c42de96b78140c1777c08eda44",
+      "failure": null,
+      "source": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "dirty": true,
+      "browser": "151.0.7922.34",
+      "host": {
+        "platform": "darwin",
+        "release": "23.6.0",
+        "architecture": "arm64",
+        "cpus": 8,
+        "loadAverageAtStart": [
+          24.69091796875,
+          20.07421875,
+          26.35498046875
+        ]
+      }
+    },
+    {
+      "workload": {
+        "kind": "share",
+        "docked": true,
+        "requestedPopouts": 1,
+        "chatStrategy": null
+      },
+      "syntheticBrowserClients": 2,
+      "requestedSeconds": 10,
+      "measurementElapsedMs": 10004,
+      "samples": 5,
+      "monitoredTargetsPerSample": 3,
+      "successfulPublishers": {
+        "camera": 2,
+        "audio": 2,
+        "share": 1
+      },
+      "popouts": 1,
+      "chatMessagesDelivered": 0,
+      "reportSha256": "af75f5b6166f431c7935a3a7d757b224e3b9df63fff3568a61807215c160f930",
+      "failure": null,
+      "source": "e8f547d74ba3185abf599eb14e6b1397afc5d4da",
+      "dirty": true,
+      "browser": "151.0.7922.34",
+      "host": {
+        "platform": "darwin",
+        "release": "23.6.0",
+        "architecture": "arm64",
+        "cpus": 8,
+        "loadAverageAtStart": [
+          83.28955078125,
+          80.25634765625,
+          53.322265625
+        ]
+      }
+    }
+  ],
+  "commands": [
+    "E2E_PORT=4303 PERF_WORKLOADS=idle,chat,audio,video,share PERF_DEVICES=2 PERF_SECONDS=10 npx playwright test -c playwright.performance.config.ts",
+    "E2E_PORT=4303 PERF_WORKLOAD=share PERF_DOCKED=1 PERF_POPOUT=1 PERF_DEVICES=2 PERF_SECONDS=10 npx playwright test -c playwright.performance.config.ts",
+    "E2E_PORT=4303 PERF_WORKLOAD=audio PERF_DOCKED=1 PERF_DEVICES=2 PERF_SECONDS=10 npx playwright test -c playwright.performance.config.ts"
+  ],
+  "reportChecks": {
+    "privateFiles0600": true,
+    "privateDirectories0700": true,
+    "noRoomLinksIdentityOrChatContent": true,
+    "noCandidateAddresses": true,
+    "mediaCollectionErrors": 0,
+    "perStreamCountersRetained": true,
+    "transportCountersPresent": true,
+    "popoutCameraAndShareDecoded": true,
+    "popoutHasNoAudioElements": true,
+    "dockedAudioHasNoVideoPublishers": true
+  },
+  "limitations": [
+    "Ten-second smoke runs do not satisfy the 45-minute gate.",
+    "One M1 Mac mini hosts all synthetic clients; no physical participants or mobile-device results.",
+    "Battery and thermal counters unavailable, not zero.",
+    "Host runs other applications and agent sessions; no controlled whole-device CPU or capacity comparison.",
+    "Counter deltas are per renderer target; service workers and forwarding-host CPU/network are not measured.",
+    "Background/locked, network impairment, route forcing, churn, multiple shares and physical capture still need implementation/acceptance.",
+    "No supported capacity or optimisation/battery target claimed."
+  ]
+}
