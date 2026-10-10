@@ -1,0 +1,45 @@
+{
+  "sourceCommit": "e4b080cb37acfdeb5e1d204bb28291971a4f545d",
+  "unsignedSha256": "09bf3b256aa81f404ea0fe323b486bfa72cc8c93698ff5e6d26f8b9bf0aed466",
+  "unsignedBytes": 79290262,
+  "tests": {
+    "protocol": {
+      "tests": 392,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appDebug": {
+      "tests": 1847,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appRelease": {
+      "tests": 1847,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "sourceFilesVerified": 1203,
+  "versionName": "0.6.77",
+  "versionCode": 100,
+  "apkSha256": "8f6465ac113e8060aae539ece7218d5283cc7d0a2338f7aa47d7e780bb954234",
+  "apkBytes": 79305374,
+  "ownerCertificateVerified": true,
+  "signatureSchemes": {
+    "v1": false,
+    "v2": false,
+    "v3": true
+  },
+  "published": false,
+  "physicalAcceptance": false,
+  "independentPayloadVerification": {
+    "allZipEntriesUnchanged": 799,
+    "signedBytesVerifiedOnM1": true
+  },
+  "publicationVerificationLogSha256": "1bd0fe0fd3bc2430957763d5206cb77a6979b2a294f271851b0f038a5bfcddba",
+  "hostedCi": "pending",
+  "zapstoreClientAcceptance": false
+}
