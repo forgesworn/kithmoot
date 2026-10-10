@@ -117,16 +117,20 @@ describe('foreground keeper revocation inbox', () => {
     f.clock(1_999); await expect(f.inbox.view()).rejects.toThrow('trusted request time')
     f.clock(2_000 + MLS_REVOCATION_SEEN_SECONDS); await f.inbox.view(); expect((await readMlsMembership(f.tx)).inbox?.seen).toEqual([])
   })
-  it('refuses replay-journal capacity without decrypting or evicting retained state', async () => {
+  it('evicts the oldest verified replay attempt at capacity and keeps processing', async () => {
     const f = await fixture(); await f.inbox.view()
     const journal = await readMlsMembership(f.tx)
     journal.inbox!.seen = Array.from({ length: MAX_MLS_REVOCATION_SEEN }, (_, index) => ({ id: index.toString(16).padStart(64, '0'), receivedAt: 2_000 }))
     await saveMlsMembership(f.tx, journal)
-    const before = await readMlsMembership(f.tx), receiver = { ...keeper, decrypt: vi.fn(keeper.decrypt) }
-    await expect(f.inbox.receive([await f.wrap()], receiver)).rejects.toBeInstanceOf(MlsRevocationInboxFull)
-    expect(receiver.decrypt).not.toHaveBeenCalled(); expect(await readMlsMembership(f.tx)).toEqual(before)
+    const oldest = journal.inbox!.seen[0]!.id, receiver = { ...keeper, decrypt: vi.fn(keeper.decrypt) }, wrapper = await f.wrap()
+    await f.inbox.receive([wrapper], receiver)
+    expect(receiver.decrypt).toHaveBeenCalledTimes(2)
+    const after = await readMlsMembership(f.tx)
+    expect(after.inbox!.seen).toHaveLength(MAX_MLS_REVOCATION_SEEN)
+    expect(after.inbox!.seen.some(item => item.id === oldest)).toBe(false)
+    expect(after.inbox!.seen.at(-1)!.id).toBe(wrapper.id)
   })
-  it('refuses a full prompt inbox without eviction or a saved replay marker', async () => {
+  it('refuses a full prompt inbox while retaining the reserved failed signer attempt', async () => {
     const f = await fixture(); await f.inbox.view(); await f.grant()
     const journal = await readMlsMembership(f.tx)
     journal.inbox!.prompts = Array.from({ length: MAX_MLS_REVOCATION_PROMPTS }, (_, index) => {
@@ -137,7 +141,9 @@ describe('foreground keeper revocation inbox', () => {
     await saveMlsMembership(f.tx, journal)
     const before = await readMlsMembership(f.tx)
     await expect(f.inbox.receive([await f.wrap()], keeper)).rejects.toBeInstanceOf(MlsRevocationInboxFull)
-    expect(await readMlsMembership(f.tx)).toEqual(before)
+    const after = await readMlsMembership(f.tx)
+    expect(after.inbox!.prompts).toEqual(before.inbox!.prompts)
+    expect(after.inbox!.attempts).toEqual([2_000]); expect(after.inbox!.seen).toHaveLength(1)
   })
   it('rejects a rebound persisted keeper and cannot authorise an account with a different signer', async () => {
     const f = await fixture(); await f.inbox.view()
