@@ -81,7 +81,7 @@ export class BrowserMlsRevocationInbox {
               const existing = state.prompts.find(item => item.operation === operation)
               if (!existing && state.prompts.length >= MAX_MLS_REVOCATION_PROMPTS) throw new MlsRevocationInboxFull('The keeper request inbox is full.')
               if (!existing) state.prompts.push({ operation, request: structuredClone(request), receivedAt: state.checkedAt, state: 'pending' })
-              else if (existing.state !== 'done' && request.createdAt >= existing.request.createdAt) {
+              else if (existing.state !== 'done' && request.createdAt > existing.request.createdAt) {
                 existing.request = structuredClone(request); existing.receivedAt = state.checkedAt; existing.state = 'pending'
               }
             }

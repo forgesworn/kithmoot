@@ -75,6 +75,18 @@ describe('foreground keeper revocation inbox', () => {
     expect(result).toMatchObject({ state: 'active', value: { prompts: [{ conflict: true }, { conflict: true }] } })
     expect(f.records.map(record => record.state)).toEqual(['active', 'active'])
   })
+  it('cannot reopen a dismissed request by replaying its rumour in a fresh wrap; only newer requests reopen it', async () => {
+    const f = await fixture(); await f.grant(); await f.inbox.receive([await f.wrap()], keeper)
+    const journal = await readMlsMembership(f.tx); journal.inbox!.prompts[0]!.state = 'dismissed'; await saveMlsMembership(f.tx, journal)
+    expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [] } })
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('dismissed')
+    f.clock(2_001)
+    expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [{ prompt: { state: 'pending', request: { createdAt: 2_001 } } }] } })
+    const done = await readMlsMembership(f.tx); done.inbox!.prompts[0]!.state = 'done'; await saveMlsMembership(f.tx, done)
+    f.clock(2_002)
+    expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [] } })
+    expect((await readMlsMembership(f.tx)).inbox!.prompts[0]!.state).toBe('done')
+  })
   it('caps each pass at eight wraps and no more than sixteen signer decryptions', async () => {
     const f = await fixture(); await f.grant()
     const wrappers = await Promise.all(Array.from({ length: 12 }, () => f.wrap()))
