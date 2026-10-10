@@ -5,7 +5,7 @@ import { dmRelayListTemplate } from '../../src/dm-relays.js'
 import { localIdentity } from '../../src/identity.js'
 import type { VmlsRevocationIdentity } from '../../src/vmls-revocation-request.js'
 import { InvalidPersonaRecord, type PersonaTransaction } from './mls-persona-coordinator.js'
-import { MAX_MLS_STANDALONE_REVOCATIONS, readMlsMembership, saveMlsMembership } from './mls-membership-store.js'
+import { MAX_MLS_STANDALONE_REVOCATIONS, mlsStandaloneRevocationOperation, readMlsMembership, saveMlsMembership } from './mls-membership-store.js'
 import { BrowserMlsRevocationOutbox, MlsRevocationOutboxFull, rememberStandaloneRevocations } from './mls-revocation-outbox.js'
 
 const session = '11'.repeat(32), nextSession = '12'.repeat(32), device = '33'.repeat(32), nextDevice = '34'.repeat(32)
@@ -81,6 +81,39 @@ describe('standalone browser revocation outbox', () => {
     expect((await f.outbox.records() as any).value).toEqual(before)
   })
 
+  it('refuses a 65th session or box hint without changing the 64 retained hints', async () => {
+    const f = fixture()
+    for (let index = 1; index <= 64; index++) {
+      await f.observe({ session: index.toString(16).padStart(64, '0'), box: (index + 256).toString(16).padStart(64, '0') })
+    }
+    const before = (await f.outbox.records() as any).value
+    expect(before[0].sessions).toHaveLength(64); expect(before[0].boxes).toHaveLength(64)
+    await expect(f.observe({ session: 'ee'.repeat(32), box: 'ff'.repeat(32) })).rejects.toBeInstanceOf(MlsRevocationOutboxFull)
+    expect((await f.outbox.records() as any).value).toEqual(before)
+  })
+
+  it.each(['operation', 'keeper', 'device'] as const)('rejects an altered retained %s before any network work', async field => {
+    const f = fixture(); await f.observe()
+    const original = (await f.outbox.records() as any).value[0]
+    const key = [...f.tx.vault.keys()][0]!, raw = JSON.parse(new TextDecoder().decode(f.tx.vault.get(key)!))
+    raw.requests[0][field] = field === 'operation' ? 'aa'.repeat(32) : field === 'keeper' ? other.pubkey : nextDevice
+    f.tx.vault.set(key, new TextEncoder().encode(JSON.stringify(raw)))
+    const transport = { directory: vi.fn(), publish: vi.fn() }
+    await expect(f.outbox.send(original.operation, { identity: member, transport: transport as any })).rejects.toBeInstanceOf(InvalidPersonaRecord)
+    expect(transport.directory).not.toHaveBeenCalled(); expect(transport.publish).not.toHaveBeenCalled()
+  })
+
+  it('rejects a retained sender rebound away from the open persona before network work', async () => {
+    const f = fixture(); await f.observe()
+    const key = [...f.tx.vault.keys()][0]!, raw = JSON.parse(new TextDecoder().decode(f.tx.vault.get(key)!))
+    raw.requests[0].sender = other.pubkey
+    raw.requests[0].operation = mlsStandaloneRevocationOperation(other.pubkey, raw.requests[0].keeper, raw.requests[0].device)
+    f.tx.vault.set(key, new TextEncoder().encode(JSON.stringify(raw)))
+    const transport = { directory: vi.fn(), publish: vi.fn() }
+    await expect(f.outbox.send(raw.requests[0].operation, { identity: member, transport: transport as any })).rejects.toBeInstanceOf(InvalidPersonaRecord)
+    expect(transport.directory).not.toHaveBeenCalled(); expect(transport.publish).not.toHaveBeenCalled()
+  })
+
   it('keeps refusal retryable, witnesses OK true, and performs no network work after restart', async () => {
     const f = fixture(); await f.observe()
     const record = (await f.outbox.records() as any).value[0]
@@ -121,5 +154,19 @@ describe('standalone browser revocation outbox', () => {
     const unused = { directory: vi.fn(), publish: vi.fn() }
     await expect(rewound.outbox.send(rewoundRecord.operation, { identity: member, transport: unused as any, random: () => 0 })).rejects.toThrow('trusted request time')
     expect(unused.directory).not.toHaveBeenCalled()
+  })
+
+  it('leaves expanded evidence retryable when it changes after relay acceptance', async () => {
+    const f = fixture(); await f.observe()
+    const record = (await f.outbox.records() as any).value[0]
+    const list = await keeper.signEvent(dmRelayListTemplate(['wss://keeper.example'], 2_000))
+    const transport = { directory: vi.fn(async () => [list]), publish: vi.fn(async () => {
+      const journal = await readMlsMembership(f.tx)
+      journal.requests[0]!.sessions.push(nextSession)
+      journal.requests[0]!.sessions.sort()
+      await saveMlsMembership(f.tx, journal)
+    }) }
+    await expect(f.outbox.send(record.operation, { identity: member, transport, random: () => 0 })).rejects.toThrow('changed after it was sent')
+    expect((await f.outbox.records() as any).value[0]).toMatchObject({ sessions: [session, nextSession], sentAt: null })
   })
 })

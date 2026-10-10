@@ -1,17 +1,12 @@
-import { sha256 } from '@noble/hashes/sha2.js'
-import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js'
 import { sendVmlsRevocationRequest, VMLS_REVOCATION_REQUEST_SECONDS,
   type VmlsRevocationIdentity, type VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 import { InvalidPersonaRecord, type CoordinationResult, type BrowserPersonaCoordinator, type PersonaTransaction } from './mls-persona-coordinator.js'
-import { MAX_MLS_STANDALONE_REVOCATIONS, readMlsMembership, saveMlsMembership,
+import { MAX_MLS_STANDALONE_REVOCATIONS, mlsStandaloneRevocationOperation, readMlsMembership, saveMlsMembership,
   type MlsStandaloneRevocationRecord } from './mls-membership-store.js'
 import type { VaultContext } from './mls-vault.js'
 
-const label = new TextEncoder().encode('kithmoot/vmls-standalone-revocation/v1')
 const hex32 = /^[0-9a-f]{64}$/
 const validTime = (value: number): boolean => Number.isSafeInteger(value) && value >= 0
-const operationFor = (sender: string, keeper: string, device: string): string =>
-  bytesToHex(sha256(concatBytes(label, hexToBytes(sender), hexToBytes(keeper), hexToBytes(device))))
 
 export class MlsRevocationOutboxFull extends Error {}
 
@@ -31,10 +26,11 @@ export async function rememberStandaloneRevocations(tx: PersonaTransaction, send
     const boxes = devices.get(member.device) ?? new Set<string>(); boxes.add(member.homeBox); devices.set(member.device, boxes)
   }
   for (const [device, observedBoxes] of [...devices].sort(([a], [b]) => a.localeCompare(b))) {
-    const operation = operationFor(sender, keeper, device), saved = journal.requests.find(item => item.operation === operation)
+    const operation = mlsStandaloneRevocationOperation(sender, keeper, device), saved = journal.requests.find(item => item.operation === operation)
     if (saved && (saved.sender !== sender || saved.keeper !== keeper || saved.device !== device)) throw new InvalidPersonaRecord('Standalone revocation record binding differs')
     const sessions = [...new Set([...(saved?.sessions ?? []), session])].sort()
     const boxes = [...new Set([...(saved?.boxes ?? []), ...observedBoxes])].sort()
+    if (sessions.length > 64 || boxes.length > 64) throw new MlsRevocationOutboxFull('The standalone revocation record is full.')
     if (saved) {
       if (JSON.stringify(saved.sessions) !== JSON.stringify(sessions) || JSON.stringify(saved.boxes) !== JSON.stringify(boxes)) {
         saved.sessions = sessions; saved.boxes = boxes; saved.sentAt = null; changed = true
@@ -82,6 +78,7 @@ export class BrowserMlsRevocationOutbox {
     const before = await this.coordinator.transact(scope.vault.persona, async tx => {
       const record = (await readMlsMembership(tx)).requests.find(item => item.operation === operation)
       if (!record) throw new Error('That standalone revocation request is no longer retained.')
+      this.#assertRecord(record, operation, scope.vault.persona)
       return structuredClone(record)
     }, current)
     if (before.state !== 'active' || before.value.sentAt !== null) return before
@@ -97,6 +94,7 @@ export class BrowserMlsRevocationOutbox {
     return this.coordinator.transact(scope.vault.persona, async tx => {
       const journal = await readMlsMembership(tx), record = journal.requests.find(item => item.operation === operation)
       if (!record) throw new Error('That standalone revocation request is no longer retained.')
+      this.#assertRecord(record, operation, scope.vault.persona)
       if (record.sentAt !== null) return structuredClone(record)
       if (JSON.stringify(record) !== JSON.stringify(before.value)) throw new Error('The standalone revocation request changed after it was sent. Retry the current record.')
       record.sentAt = createdAt
@@ -109,6 +107,12 @@ export class BrowserMlsRevocationOutbox {
     const scope = this.context()
     if (!scope || !scope.current() || !hex32.test(scope.vault.persona)) throw new Error('Open the requesting persona before using its revocation outbox.')
     return scope
+  }
+  #assertRecord(record: MlsStandaloneRevocationRecord, operation: string, sender: string): void {
+    if (record.sender !== sender || record.operation !== operation ||
+        record.operation !== mlsStandaloneRevocationOperation(record.sender, record.keeper, record.device)) {
+      throw new InvalidPersonaRecord('Standalone revocation record binding differs')
+    }
   }
   #current(scope: MlsRevocationOutboxContext): boolean {
     const current = this.context()

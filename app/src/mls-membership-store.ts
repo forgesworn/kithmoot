@@ -1,10 +1,12 @@
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js'
 import { InvalidPersonaRecord, type PersonaReader, type PersonaTransaction } from './mls-persona-coordinator.js'
 
 export const MAX_MLS_REMOVALS = 64
 export const MAX_MLS_STANDALONE_REVOCATIONS = 64
 export const MAX_MLS_MEMBERSHIP_BYTES = 1024 * 1024
 const RECORD = bytesToHex(new TextEncoder().encode('kithmoot.mls-membership.v1'))
+const STANDALONE_REVOCATION_LABEL = new TextEncoder().encode('kithmoot/vmls-standalone-revocation/v1')
 const hex32 = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
 const byteHex = (value: unknown): value is string => typeof value === 'string' && /^(?:[0-9a-f]{2})+$/.test(value) && value.length <= 131_072
 const exact = (value: object, keys: string) => Object.keys(value).sort().join(',') === keys
@@ -34,6 +36,11 @@ export interface MlsStandaloneRevocationRecord {
 }
 export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[]; requests: MlsStandaloneRevocationRecord[] }
 
+export function mlsStandaloneRevocationOperation(sender: string, keeper: string, device: string): string {
+  if (![sender, keeper, device].every(hex32)) throw new Error('Invalid standalone revocation binding.')
+  return bytesToHex(sha256(concatBytes(STANDALONE_REVOCATION_LABEL, hexToBytes(sender), hexToBytes(keeper), hexToBytes(device))))
+}
+
 function validate(record: MlsMembershipJournal | (Omit<MlsMembershipJournal, 'requests'> & { requests?: MlsStandaloneRevocationRecord[] })): void {
   if (!record || typeof record !== 'object' || !exact(record, record.requests === undefined ? 'removals,version' : 'removals,requests,version') || record.version !== 1 ||
       !Array.isArray(record.removals) || record.removals.length > MAX_MLS_REMOVALS) invalid()
@@ -58,6 +65,7 @@ function validate(record: MlsMembershipJournal | (Omit<MlsMembershipJournal, 're
   for (const request of record.requests) {
     if (!request || typeof request !== 'object' || !exact(request, 'boxes,createdAt,device,keeper,operation,sender,sentAt,sessions') ||
         !hex32(request.operation) || !hex32(request.sender) || !hex32(request.keeper) || request.sender === request.keeper || !hex32(request.device) ||
+        request.operation !== mlsStandaloneRevocationOperation(request.sender, request.keeper, request.device) ||
         !Array.isArray(request.sessions) || request.sessions.length < 1 || request.sessions.length > 64 || !request.sessions.every(hex32) ||
         new Set(request.sessions).size !== request.sessions.length || request.sessions.some((value, index) => index > 0 && request.sessions[index - 1]! >= value) ||
         !Array.isArray(request.boxes) || request.boxes.length < 1 || request.boxes.length > 64 || !request.boxes.every(hex32) ||

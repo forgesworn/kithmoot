@@ -91,17 +91,22 @@ stable operation id, device, sorted room and box hints, first observation time,
 and nullable sent time. Other identities, the local leaf, pending leaves, a
 self-keeper room and unverified caller input cannot create a record. A later
 room or box observation expands the exact record and clears an older sent time
-so the new evidence cannot be misreported as sent.
+so the new evidence cannot be misreported as sent. Each hint list is capped at
+64 and refuses further evidence without evicting a retained hint or fencing a
+healthy persona.
 
 `BrowserMlsRevocationOutbox` reads and sends this record without opening the MLS
 session. It fresh-reconciles the persona witness before reading, uses the
 current account identity and bounded injected relay transport, then
-fresh-reconciles again before storing `sentAt`. A refusal, uncertainty, stale
-account, changed record or failed witnessed commit leaves the retained record
-retryable. A restarted sender performs no directory read or publication for a
-record whose sent time is already witnessed. As with the active-room sender, a
-crash after relay `OK true` and before the second witnessed commit can produce
-an at-least-once duplicate; the future keeper inbox must deduplicate it.
+fresh-reconciles again before storing `sentAt`. Both witnessed reads recompute
+the operation binding and require its sender to be the open persona, so altered
+state is fenced before it can select a keeper or record success. A refusal,
+uncertainty, stale account, changed record or failed witnessed commit leaves the
+retained record retryable. A restarted sender performs no directory read or
+publication for a record whose sent time is already witnessed. As with the
+active-room sender, a crash after relay `OK true` and before the second
+witnessed commit can produce an at-least-once duplicate; the future keeper
+inbox must deduplicate it.
 
 ## Evidence and remaining work
 
