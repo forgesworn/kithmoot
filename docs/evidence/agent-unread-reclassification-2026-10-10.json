@@ -1,0 +1,42 @@
+{
+  "baselineSource": "17a7925f5dd3b4be38e6a7a28c9a1b12ae27f88d",
+  "baselineRegressionReproduced": true,
+  "baselineFailure": "After delayed signed presence reports two agents, the unaddressed agent message retains a human unread badge for the entire 30-second assertion timeout.",
+  "appSourceSha256": "0f418b0a6a0b29f48325c1013fd48747ea478c55f6ecf7fe82f10e36c6376792",
+  "typecheckPassed": true,
+  "browserCasesPassed": 6,
+  "browsers": [
+    "chromium",
+    "firefox"
+  ],
+  "layouts": [
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "controlledRegression": {
+    "presenceKind": 20461,
+    "newSenderPresenceDelayed": true,
+    "existingAgentTabAlreadyPresent": true,
+    "messageArrivesBeforePresence": true,
+    "badgeClearsAfterPresenceWithoutAnotherMessage": true,
+    "focusedTabRetained": true,
+    "unsentDraftRetained": true,
+    "directMentionStillShowsOneAgentBadge": true
+  },
+  "existingAgentNavigationJourneyPassedBothBrowsers": true,
+  "logSha256": {
+    "kithmoot-late-agent-before.log": "aea9e232796f9c2f92a7fc3e2eedd78d03057f3840662fc86a7912b6dec0a94b",
+    "kithmoot-late-agent-after.log": "58b392a88f376b2f0b023fe2017fade1060e8161677e4048114d19f2f8661218",
+    "kithmoot-late-agent-typecheck.log": "caa298209aa942cc5ab18c6756f73b50b8a325269b5da448077f6e2ab19f7e45"
+  },
+  "localWebkitAvailable": false,
+  "localWebkitError": "Playwright 1.62.1/macOS 14.6.1 fallback WebKit rejects PushAPIEnabled before page creation.",
+  "physicalAcceptance": false,
+  "completeG9": false
+}
