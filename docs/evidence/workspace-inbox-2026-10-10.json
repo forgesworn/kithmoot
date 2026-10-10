@@ -309,7 +309,7 @@
     "version": "0.1.68",
     "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
     "verifiedAt": "2026-10-10T07:12:13.270309+00:00",
-    "state": "notarised-packages-and-signed-feeds-awaiting-final-ci",
+    "state": "published-and-publicly-verified",
     "containsVoiceMaskFix": true,
     "containsLateAgentUnreadFix": true,
     "exactWebFilesPerBundle": 264,
@@ -440,7 +440,7 @@
       "loginKeychainStatePreserved": true
     },
     "shellUnitChecksPassed": 98,
-    "publicReleasePublished": false,
+    "publicReleasePublished": true,
     "eligibleForPublication": false,
     "macNotarisationAccepted": true,
     "macFinalArchiveVerified": true,
@@ -487,5 +487,327 @@
     "m1NotaryKeychainVerified": true,
     "m4NotaryKeychainVerified": true,
     "notaryKeychainLockStateRestored": true
+  },
+  "desktopPublication": {
+    "verifiedAt": "2026-10-10T08:15:43.762454+00:00",
+    "version": "0.1.68",
+    "packagedApplicationSource": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+    "finalTestedHead": "3097718414674833d26bf6327aecd20d52d44d41",
+    "mergedReleaseSource": "3743a00906c8667182485ca449ed14b631af7085",
+    "pullRequest": 327,
+    "hostedCI": {
+      "runId": 38035164410,
+      "jobs": [
+        {
+          "name": "test (22)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (webkit 2 of 2)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (chromium desktop)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (chromium rooms)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "test (24)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (chromium media)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (chromium calls)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (chromium call-relays)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (firefox 2 of 2)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (firefox 1 of 2)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (chromium rest)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "acceptance (webkit 1 of 2)",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "githubRelease": "https://github.com/forgesworn/kithmoot/releases/tag/v0.1.68",
+    "tagTargetVerified": "3743a00906c8667182485ca449ed14b631af7085",
+    "siteAndApp": {
+      "verifiedAt": "2026-10-10T08:12:58.137809+00:00",
+      "sourceCommit": "3743a00906c8667182485ca449ed14b631af7085",
+      "remoteRelease": "/var/www/kithmoot/releases/20261010T080854Z",
+      "remoteExactFileCount": 305,
+      "httpFiles": [
+        {
+          "url": "https://kithmoot.app/android-release.json",
+          "path": "android-release.json",
+          "bytes": 804,
+          "sha256": "5823fd9cac4d8e9c42dc99faad05e14fa7d96e22a7b4c4e2b6a921f4c8cc9c5c"
+        },
+        {
+          "url": "https://kithmoot.app/android-release.json.sig",
+          "path": "android-release.json.sig",
+          "bytes": 89,
+          "sha256": "f6376caeb2355971e518df3d4b5ce3665d963142f7b0c286c77a8cd66600086f"
+        },
+        {
+          "url": "https://kithmoot.app/downloads/SHA256SUMS.txt",
+          "path": "downloads/SHA256SUMS.txt",
+          "bytes": 4819,
+          "sha256": "dc68170d0243b1b0e4b2c0ec813ebda9949c5c84384e8cf0681d9b5ecf5137e1"
+        },
+        {
+          "url": "https://kithmoot.app/downloads/index.html",
+          "path": "downloads/index.html",
+          "bytes": 49884,
+          "sha256": "113d2c2fbd8e5bfcf0364a68542f1680de6522156a08715c4958a1965aeeb6c3"
+        },
+        {
+          "url": "https://kithmoot.app/downloads/release.json",
+          "path": "downloads/release.json",
+          "bytes": 1298,
+          "sha256": "d004a2657080957198dd19d9483a3c498d541181e4a885303ef5836dc6737e3f"
+        },
+        {
+          "url": "https://kithmoot.app/downloads/release.json.sig",
+          "path": "downloads/release.json.sig",
+          "bytes": 89,
+          "sha256": "d697c1a06bc03cb3e2791e6e16bdadda9f481e0e4edf84dc1383eeaada7fac41"
+        },
+        {
+          "url": "https://kithmoot.app/downloads/updates/darwin/arm64/RELEASES.json",
+          "path": "downloads/updates/darwin/arm64/RELEASES.json",
+          "bytes": 777,
+          "sha256": "7f2966a9c0e5b0cdba4ad6dcbdca4d1c58703519444fcee3cb041c96bf0c43f9"
+        },
+        {
+          "url": "https://kithmoot.app/downloads/versions.json",
+          "path": "downloads/versions.json",
+          "bytes": 142890,
+          "sha256": "2113ace98482dd6d9ce94166fcc6cefea57dc584bfefa56981f1fe293ee4d26f"
+        },
+        {
+          "url": "https://kithmoot.app/index.html",
+          "path": "index.html",
+          "bytes": 17904,
+          "sha256": "d72e8cee2a059bfab7da46f2036eb30b41d8e4ba9a956a2f5fa605fce4916d49"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-CrJYmV90.js",
+          "path": "j/assets/index-CrJYmV90.js",
+          "bytes": 1840890,
+          "sha256": "e2fc69462e0554a5c69a072e60f7d43b0a3da758969ff31f92e3e8c5a009bfa4"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-DHp9En8m.css",
+          "path": "j/assets/index-DHp9En8m.css",
+          "bytes": 145614,
+          "sha256": "c679923b215ba563e2cbcb9c1ab7941597f4794be22e3e1854134619f423338b"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/chat-art/angry.gif",
+          "path": "j/chat-art/angry.gif",
+          "bytes": 210310,
+          "sha256": "bd53ad9314598158057d073a8404685388f0939ee6490899956c272a3f49ccf2"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/chat-art/celebrate.gif",
+          "path": "j/chat-art/celebrate.gif",
+          "bytes": 166280,
+          "sha256": "c358c8bbe184fd188280af476fa87a7febf50d584fca2f87225ba9242772c8ef"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/index.html",
+          "path": "j/index.html",
+          "bytes": 109888,
+          "sha256": "c9d5981894225c90d2a7ccb051f33ce38cb11750723146a064e6cb4b1d65a881"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/manifest.webmanifest",
+          "path": "j/manifest.webmanifest",
+          "bytes": 433,
+          "sha256": "ee59592fae43776c378d5cd6d321463fb98b5ac54896a3521e0f9069ff6e0f61"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "path": "j/sw.js",
+          "bytes": 17271,
+          "sha256": "bedfcbb60ce6da88ce3e205dd64cfd4121406d22947a7859aa577b19dbe1372c"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/voice-worklet.js",
+          "path": "j/voice-worklet.js",
+          "bytes": 4887,
+          "sha256": "27db35c2dbdca12611cad6248f766ecc7ac5683fabc6b6f69b444c8026fc4c77"
+        }
+      ],
+      "androidVersion": "0.6.77",
+      "nativeAndroidInboxWorkShipped": true,
+      "physicalAcceptance": false
+    },
+    "publicArchives": {
+      "verifiedAt": "2026-10-10T08:12:55.199902+00:00",
+      "version": "0.1.68",
+      "githubAssetsMatch": true,
+      "fullPublicDownloads": [
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/KithMoot-0.1.68-mac-arm64.zip",
+          "bytes": 176749486,
+          "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/KithMoot-0.1.68-linux-arm64.tar.gz",
+          "bytes": 171044293,
+          "sha256": "78161b6112d9ba49878ba7d7111a7843093f2a490ea2f78e14f70447ee62cf3d"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/KithMoot-0.1.68-linux-x64.tar.gz",
+          "bytes": 169928092,
+          "sha256": "2b79ff0b4eb9ab875aacbe7b1b5cba1f2a3c3241d50b2dc840e74c6dc5d69b8c"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/KithMoot-0.1.68-windows-x64.zip",
+          "bytes": 205348772,
+          "sha256": "a0b013c6d1f769d46b4343165206eeea5f0075b651547d90a26f2ce4b246463e"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/kithmoot_0.1.68_amd64.deb",
+          "bytes": 133489680,
+          "sha256": "565cfeacc9d430d3cdf3f07111320c1af6625f9860d568fb39ebf694a2f6aaae"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.68/kithmoot_0.1.68_arm64.deb",
+          "bytes": 128520636,
+          "sha256": "d08be02d305599e85fa6c3fd58a9405263881d065beb888e0cd6cab60c7285a2"
+        }
+      ],
+      "physicalAcceptance": false
+    },
+    "signedAPT": {
+      "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "version": "0.1.68",
+      "signerFingerprint": "D6D7B42A690985CC3DDCC676F546951EDCB5E0DC",
+      "embeddedPublicKeySha256": "aede103db644ecd36260b2d773c9e899cd93514bae1e50f6ec4f782f2113475f",
+      "signaturesVerified": [
+        "InRelease",
+        "Release.gpg"
+      ],
+      "exactSignedRelease": true,
+      "packages": [
+        {
+          "filename": "kithmoot_0.1.68_amd64.deb",
+          "architecture": "amd64",
+          "bytes": 133489680,
+          "sha256": "565cfeacc9d430d3cdf3f07111320c1af6625f9860d568fb39ebf694a2f6aaae"
+        },
+        {
+          "filename": "kithmoot_0.1.68_arm64.deb",
+          "architecture": "arm64",
+          "bytes": 128520636,
+          "sha256": "d08be02d305599e85fa6c3fd58a9405263881d065beb888e0cd6cab60c7285a2"
+        }
+      ],
+      "indices": [
+        {
+          "name": "Packages",
+          "bytes": 2057,
+          "sha256": "1302e3bf351ad15a913276339c363a60fb39cb0b1e96f93a7ce71bdf8d3d437d"
+        },
+        {
+          "name": "Packages.gz",
+          "bytes": 777,
+          "sha256": "09cafd1fee4af1f7ea1fe6144de7042122b0a6911faab3c943e4652cbbb00744"
+        },
+        {
+          "name": "Release",
+          "bytes": 635,
+          "sha256": "035f4bad900ef8c7c4e7fc50183dcffe58cb6303a53d9659a41b803ec78c0c6e"
+        },
+        {
+          "name": "Release.gpg",
+          "bytes": 870,
+          "sha256": "5407e5d5495fdb7d05c064d92739e8a8b462c7269a2a1080e29856f952a9cb58"
+        },
+        {
+          "name": "InRelease",
+          "bytes": 1554,
+          "sha256": "fac25692fe81e8227f93632882ba427ebdeccde27c4b441f933c48ab5309b5fb"
+        },
+        {
+          "name": "kithmoot.sources",
+          "bytes": 1869,
+          "sha256": "b3805fc9a233f9d9a85fe1b251711b2b693dcb4c3899e90c9124dc169276abdf"
+        }
+      ],
+      "activation": "Public downloads verified; older package assets retained"
+    },
+    "olderAPTAssetsRetained": 10,
+    "signedDesktopAndAndroidManifestsVerified": true,
+    "squirrelFeedMatchesFinalMacArchive": true,
+    "macNotarisation": {
+      "verifiedAt": "2026-10-10T07:11:07.409202+00:00",
+      "version": "0.1.68",
+      "sourceCommit": "d0e9fbec6735ba019c143f093b1d3d066869a61d",
+      "submission": {
+        "status": "Accepted",
+        "message": "Successfully received submission info",
+        "id": "d150232b-518e-434a-a35d-ea146c4faee8",
+        "name": "KithMoot-0.1.68-signed.zip",
+        "createdDate": "2026-10-10T07:00:45.901Z"
+      },
+      "staplerValidated": true,
+      "strictSignatureVerified": true,
+      "gatekeeper": "Notarized Developer ID",
+      "archive": {
+        "name": "KithMoot-0.1.68-mac-arm64.zip",
+        "sha256": "83820d9bad66e598c805540fb38fa2e0d5e24fe77d0592d3854dabf1dff3dd96",
+        "bytes": 176749486
+      },
+      "exactBundleEntries": 280,
+      "allBundleFilesAndLinksMatch": true,
+      "zipCrcVerified": true,
+      "published": true
+    },
+    "notaryKeychainsVerifiedOn": [
+      "M1",
+      "M4"
+    ],
+    "physicalAcceptance": false,
+    "limitations": [
+      "Windows remains an unsigned preview.",
+      "Actual Mac/Windows/Linux upgrade, permission retention, call and capture acceptance remains open.",
+      "Android remains the previously published 0.6.77/code100; no new APK or Zapstore announcement for this desktop release.",
+      "G9 integrated live executor, older work, fresh-device summaries, physical phone and representative performance acceptance remain open."
+    ]
   }
 }
