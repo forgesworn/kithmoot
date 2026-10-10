@@ -64,6 +64,74 @@ test('grant feedback waits for publication, then the guest can join', async ({ b
   } finally { await hostContext.close(); await guestContext.close() }
 })
 
+test('refusal feedback waits for relay acceptance and does not admit the guest', async ({ browser, baseURL }) => {
+  const { hostContext, guestContext, host, guest, relay } = await askedRoom(browser, baseURL!)
+  const releases: Array<() => void> = []
+  await hostContext.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 20467) { releases.push(() => upstream.send(raw)); return }
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const card = await startAskedRoom(host, guest, baseURL!)
+    await card.getByRole('button', { name: 'Decline', exact: true }).click()
+    await expect.poll(() => releases.length).toBe(1)
+    await expect(card.getByRole('status')).toContainText('Sending refusal')
+    await expect(card.getByRole('button', { name: 'Decline', exact: true })).toBeDisabled()
+    await expect(card.getByRole('button', { name: 'Let in', exact: true })).toBeDisabled()
+    await expect(host.locator('#chatLog')).not.toContainText('You declined Rowan.')
+    await expect(guest.locator('#arrivalTitle')).toHaveText('Waiting to be admitted')
+    releases[0]()
+    await expect(guest.locator('#arrivalTitle')).toHaveText('Your request was declined')
+    await expect(guest.locator('#roomArea')).toBeHidden()
+    await expect(guest.locator('#join')).toBeHidden()
+    await expect(card).toHaveCount(0)
+    expect(releases).toHaveLength(1)
+  } finally { await hostContext.close(); await guestContext.close() }
+})
+
+test('a rejected refusal stays visible and its retry preserves the signed response', async ({ browser, baseURL }) => {
+  const { hostContext, guestContext, host, guest, relay } = await askedRoom(browser, baseURL!)
+  const responses: string[] = []
+  await hostContext.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 20467) {
+        responses.push(String(raw))
+        if (responses.length === 1) { ws.send(JSON.stringify(['OK', frame[1].id, false, 'Synthetic refusal rejection'])); return }
+      }
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const card = await startAskedRoom(host, guest, baseURL!)
+    await host.locator('#chatInput').fill('Keep this unfinished note')
+    await card.getByRole('button', { name: 'Decline', exact: true }).click()
+    await expect(card.getByRole('status')).toContainText('Refusal was not confirmed')
+    await expect(host.locator('#chatLog')).not.toContainText('You declined Rowan.')
+    await expect(guest.locator('#arrivalTitle')).toHaveText('Waiting to be admitted')
+    await card.getByRole('button', { name: 'Retry decline', exact: true }).click()
+    await expect(guest.locator('#arrivalTitle')).toHaveText('Your request was declined')
+    await expect(guest.locator('#arrivalLead')).toContainText('Ask them before trying again')
+    await expect(guest.locator('#join')).toBeHidden()
+    await expect(guest.locator('#roomArea')).toBeHidden()
+    await expect(host.locator('#chatInput')).toHaveValue('Keep this unfinished note')
+    await expect(card).toHaveCount(0)
+    expect(responses).toHaveLength(2); expect(responses[0]).toBe(responses[1])
+    await guest.locator('#retryArrival').click()
+    await expect(card).toContainText('Rowan wants to join')
+    await card.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await expect(guest.locator('#displayName')).toHaveValue('Rowan')
+  } finally { await hostContext.close(); await guestContext.close() }
+})
+
 test('a rejected grant stays failed and a fresh guest request can succeed', async ({ browser, baseURL }, testInfo) => {
   const { hostContext, guestContext, host, guest, relay } = await askedRoom(browser, baseURL!)
   let grants = 0
@@ -259,8 +327,7 @@ test('people with the link ask, and the person in the room lets them in or decli
     await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
-    // Sam asks and is declined: nothing goes over the wire, and the door
-    // says somebody has to accept them.
+    // Sam asks and receives an authenticated refusal, with no room capability.
     const sam = await c.newPage()
     await sam.addInitScript(() => localStorage.setItem('kithmoot.name', 'Sam'))
     await sam.goto(link)
@@ -268,6 +335,9 @@ test('people with the link ask, and the person in the room lets them in or decli
     await expect(second).toContainText('Sam wants to join', { timeout: 60_000 })
     await second.getByRole('button', { name: 'Decline', exact: true }).click()
     await expect(host.locator('#chatLog')).toContainText('You declined Sam.')
+    await expect(sam.locator('#arrivalTitle')).toHaveText('Your request was declined')
+    await expect(sam.locator('#roomArea')).toBeHidden()
+    await expect(sam.locator('#join')).toBeHidden()
     await expect(host.locator('#approvals .approvalCard.knock')).toHaveCount(0)
 
     // The switch is in Room details for the device that answers the link.

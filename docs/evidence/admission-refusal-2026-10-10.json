@@ -1,0 +1,30 @@
+{
+  "testedBase": "b2e05707d16df3ab748414a130b4c0ebd1697503",
+  "foldKitSource": "dc51766b7e6a141d5ba8aa0e5421df86432a7412",
+  "foldKitVersion": "0.12.0",
+  "unitTests": 3740,
+  "unitFiles": 265,
+  "browserTests": 60,
+  "browserProjects": [
+    "firefox",
+    "webkit",
+    "chromium",
+    "chromium-desktop"
+  ],
+  "browserSeconds": 210,
+  "typecheckPassed": true,
+  "syntheticOnly": true,
+  "productionPublication": false,
+  "physicalAcceptance": false,
+  "fullG17Acceptance": false,
+  "remainingBeforeBrowserRelease": [
+    "Write-bound guards during delayed connections and background publication retries",
+    "Current-main integration and exact-head hosted CI"
+  ],
+  "remainingG17": [
+    "Guest preview, cancel, offline/reconnecting states",
+    "Admission from another conversation",
+    "Complete browser/native admission journeys",
+    "Unfamiliar guest/host and physical acceptance"
+  ]
+}

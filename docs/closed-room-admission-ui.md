@@ -1,33 +1,42 @@
 # Closed-room admission feedback
 
-The browser host keeps each request visible while its grant is being sent.
-Approval is a decision; a successful relay publication is reported as
-“Invitation sent”; only the guest's independently validated grant opens its
-join controls. None of those host messages claims the guest has joined.
+Temporary-room hosts keep a separate card for each request while an invitation
+or refusal is being sent. Cards show the signing device and distinguish a
+verified account signature from an unverified claim. Matching signed account
+proofs can qualify invited accounts for automatic admission; a bare account
+claim cannot. Duplicate names remain separate requests.
 
-KithMoot pins fold-kit 0.10.0 at `babacfb0fdf17b68cb9f77bc3805ce68c151961f`,
-which supplies correlated grant publication/failure callbacks. The wire
-envelopes remain compatible. Requests keep separate identities even when
-guests supply the same name; their cards show the request-signing device and
-identify names/accounts as guest-supplied claims. Controls remain connected
-when another request arrives, preserving keyboard focus and a pointer press.
+KithMoot pins fold-kit 0.12.0 at
+`dc51766b7e6a141d5ba8aa0e5421df86432a7412`. Explicit Decline sends its encrypted
+version-3 refusal to the guest device, bound to this exact request and current
+root/delegated responder authority. It contains no room secret or new authority.
+Legacy grant envelopes and invitation URLs remain compatible; an older guest
+ignores the new refusal and keeps its bounded wait.
 
-A rejected grant leaves a failed card with connection/retry guidance.
-Dismiss only removes that card; it neither admits the guest nor sends a
-decline. The guest can deliberately retry from its existing timeout screen,
-retaining its entered name. Leaving the host room cancels pending decisions
-and timers; a decision rechecks the originating session, room, invitation and
-contact policy before authorising anything.
+Host feedback waits for relay acknowledgement. A failed refusal remains visible
+with Retry decline and a separate local Dismiss. Retry uses the same signed event;
+it does not renew the response clock or switch the decision into a grant. The
+guest independently authenticates a refusal before showing Your request was
+declined, closing the waiting subscription and stopping request retries. That
+state exposes no room contents or join controls, retains the entered name and
+explains asking the host before deliberately trying again.
 
-The [10 October automation receipt](evidence/admission-grant-feedback-2026-10-10.json)
-records the reproduced false-success message, the complete unit suite and
-Chrome/Firefox/WebKit/desktop-build checks with synthetic guests and a local
-signature-verifying relay. It is not native Android or physical acceptance.
+A successful relay publication means Invitation sent or Refusal sent; it does
+not establish guest receipt or entry. A refusal cannot revoke an already received
+grant. With concurrent authorised hosts, the first validated response wins.
 
-G17 remains open. Guest cancellation, distinct authenticated decline/offline
-states, concurrent-host reconciliation, admission from another conversation,
-native Android composition, expiry/revocation qualification and unfamiliar
-guest/host observation still need complete journeys. The current request
-does not cryptographically bind a claimed account to its signing device;
-automatic admission based on an account claim needs verified account/device
-proof before G17 can be accepted. Displaying a claim label is insufficient.
+The [refusal automation receipt](evidence/admission-refusal-2026-10-10.json)
+records 3,740 unit tests and 60 browser journeys across Firefox, WebKit, Chromium
+and desktop Chromium. The tests use a local signature-verifying relay and cover
+held acknowledgements, rejected replies, immutable retries, saved names, unsent
+host drafts and existing signed-account/private-room admission. These are
+synthetic browser results, separate from Android and physical acceptance.
+
+G17 remains open. Guest preview, cancellation, offline/reconnecting states,
+admission from another conversation, complete native composition and unfamiliar
+guest/host acceptance remain. The refusal attempt checks source room, epoch,
+invitation, transport, contact policy and expiry before publication and after
+acknowledgement. Navigation, retirement and invitation replacement close the
+invitation transport. A write-bound guard for delayed connections and the
+transport's background retries still needs qualification before this browser
+change is released; a post-acknowledgement check alone cannot retract a reply.
