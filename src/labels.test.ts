@@ -121,6 +121,7 @@ const FROZEN_KIT_ONLY_LABELS: readonly string[] = [
   'kithmoot/v1/epoch-request:',
   'kithmoot/v1/kindred:',
   'kithmoot/v1/member-epoch-request-key',
+  'kithmoot/v2/invitation-account-proof',
   'kithmoot/v2/invitation-delegation:',
   'kithmoot/v2/invitation-id',
   'kithmoot/v2/invitation-request-key',
@@ -284,6 +285,7 @@ describe('labels moved to @forgesworn/fold-kit (re-exported unchanged, no longer
 
   it('INVITATION_LABELS (invitation.ts)', () => {
     expect([...INVITATION_LABELS].sort()).toEqual([
+      'kithmoot/v2/invitation-account-proof',
       'kithmoot/v2/invitation-delegation:',
       'kithmoot/v2/invitation-id',
       'kithmoot/v2/invitation-request-key',

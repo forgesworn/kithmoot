@@ -1,0 +1,89 @@
+{
+  "recorded": "2026-10-10",
+  "syntheticOnly": true,
+  "foldKit": {
+    "version": "0.11.0",
+    "commit": "7ca679fe9e6a3e35c15e366ff9ae879593f8383a",
+    "pullRequest": 16,
+    "testsPassed": 668,
+    "protocolSourceAuditPassed": true,
+    "installedTarballProofRoundTripPassed": true
+  },
+  "consumer": {
+    "typecheckPassed": true,
+    "unitTestsPassed": 3724,
+    "browserJourneysPassed": 142,
+    "browsers": [
+      "Chromium",
+      "Firefox",
+      "WebKit",
+      "Chromium desktop"
+    ],
+    "journeys": [
+      "An unproved claim to an invited account waits for the host decision and can be admitted manually.",
+      "A matching signed proof for the request device and invitation admits an invited account automatically.",
+      "A saved NIP-07 account restores its matching signer before requesting admission.",
+      "A delayed synthetic account signature cannot publish after Stop opening, sign-out or the shared deadline.",
+      "An admitted member asks before admitting another guest to a temporary room.",
+      "An explicit open-door choice survives reopening the temporary room.",
+      "A legacy direct room link still lets the visitor press Join while the saved signer reconnects."
+    ],
+    "automaticAdmissionUses": "verifiedParticipant",
+    "memberDeskAccountAdmissionUses": "verifiedParticipant",
+    "legacyBearerAdmissionRetained": true,
+    "matchingLiveSignerRequired": true,
+    "cachedRoomPassIsNotNewAdmissionProof": true,
+    "requestWaitMilliseconds": 90000,
+    "cancellationHooks": [
+      "identity replacement",
+      "room reset",
+      "Stop opening"
+    ],
+    "productionBuildPassed": true,
+    "restoresMatchingSignerBeforeAdmission": true,
+    "syntheticSignOutControl": "The invitation door hides Settings; the test invokes its existing handler, then uses the visible sign-out action.",
+    "originalBootFailsRestoredSignerJourney": true,
+    "accountProofAndCancellationJourneysPassed": 20,
+    "combinedBrowserSuites": [
+      "admission-account-claim",
+      "knock",
+      "private-room",
+      "room-list-sections",
+      "nostr-rooms",
+      "persistent-groups"
+    ],
+    "combinedMain": "7b4e3f2bb921fbff781ec4f67916b3f6fc8e50e7",
+    "originalDelegatedResponderFailsManualDecisionJourney": true,
+    "temporaryInvitationsAskByDefaultOnEveryAdmittedDevice": true,
+    "explicitOpenDoorChoiceRetained": true,
+    "temporaryToPersistentConversionRequestsAdmission": true,
+    "combinedMainMlsStandaloneBrowserJourneysPassed": 24,
+    "browserQualification": {
+      "combinedRun": {
+        "passed": 140,
+        "failed": 2,
+        "log": "/tmp/kithmoot-admission-final-current-main-browser.log"
+      },
+      "targetedRecheck": {
+        "passed": 6,
+        "failed": 0,
+        "log": "/tmp/kithmoot-admission-final-targeted-recheck.log"
+      },
+      "conversionSuite": {
+        "passed": 18,
+        "failed": 0,
+        "log": "/tmp/kithmoot-admission-groups-current.log"
+      },
+      "initialFailures": [
+        "WebKit navigation timed out before the pin assertion.",
+        "Chromium cleanup reported link-key records remaining; all three targeted cleanup journeys subsequently passed."
+      ],
+      "wholeCombinedRunGreen": false
+    }
+  },
+  "remaining": [
+    "Native Android closed-room decision queue and end-to-end admission parity.",
+    "Physical external signer cancellation and connected-device acceptance.",
+    "Complete G17 admission and interface acceptance."
+  ]
+}

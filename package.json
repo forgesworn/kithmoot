@@ -65,7 +65,7 @@
     "@anthropic-ai/sdk": "^0.123.0",
     "@forgesworn/context": "0.2.0",
     "@forgesworn/context-tools": "0.2.0",
-    "@forgesworn/fold-kit": "github:forgesworn/fold-kit#e99a348872333e6a0fed54f5c1eec63bc5170843",
+    "@forgesworn/fold-kit": "github:forgesworn/fold-kit#7ca679fe9e6a3e35c15e366ff9ae879593f8383a",
     "@forgesworn/signet-contacts": "github:forgesworn/signet-contacts#fbb13cdeefb3e07421228ab3245b7e17e403ecab",
     "@mediapipe/tasks-vision": "0.10.35",
     "@modelcontextprotocol/sdk": "^1.30.0",
