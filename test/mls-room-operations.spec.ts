@@ -190,6 +190,93 @@ test('keeper admission witness outage refuses an install before signing, writing
   witness.offline = false
   await run(page, 'M.forgetGuest()')
 })
+for (const terminal of [false, true]) for (const conflict of [false, true]) test(`candidate Add refuses ${terminal ? 'done' : 'approved deferred'} ${conflict ? 'different-person' : 'same-person'} device after expiry and restart before package registration`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, `M.candidateKeeperHold('${terminal ? 'done' : 'approved'}')`)
+  if (!terminal) await run(page, 'M.deferKeeperRequest()')
+  await run(page, 'M.advance(61); M.restart()')
+  const before = await run(page, 'M.read()'), retained = await run(page, 'M.keeperApprovals(true)')
+  await run(page, `M.beginCandidateAdd(${conflict})`)
+  expect(await run(page, 'M.finishCandidateAdd()')).toEqual({ state: 'refused', reason: conflict ? 'device-person-conflict' : 'compromised-device-admission' })
+  expect(await run(page, 'M.candidateAddSnapshot()')).toMatchObject({ registrations: 0 })
+  expect(await run(page, 'M.read()')).toEqual(before)
+  expect(await run(page, 'M.keeperApprovals(true)')).toEqual(retained)
+  await run(page, 'M.forgetGuest()')
+})
+for (const state of ['pending', 'dismissed']) test(`candidate Add admits an unheld device with a ${state} keeper prompt`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, `M.candidateKeeperHold('${state}'); M.beginCandidateAdd()`)
+  expect(await run(page, 'M.finishCandidateAdd()')).toBe('active')
+  expect(await run(page, 'M.candidateAddSnapshot()')).toMatchObject({ registrations: 1 })
+  await run(page, 'M.forgetGuest()')
+})
+test('candidate Add keeps approval outside the device gate through actual package registration', async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, "M.candidateKeeperHold('pending')")
+  const plan = await run(page, 'M.keeperDecisionPlan()')
+  await run(page, 'M.pauseCandidatePackages(); M.beginCandidateAdd()')
+  await expect.poll(async () => (await run(page, 'M.candidateAddSnapshot()')).registrations).toBe(1)
+  await page.evaluate(plan => (window as any).M.beginKeeperApproval(plan), plan.value)
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'exclusive'))).toBe(true)
+  expect(await run(page, 'M.keeperApprovals(true)')).toMatchObject({ state: 'active', value: [] })
+  await run(page, 'M.releaseCandidatePackages()')
+  expect(await run(page, 'M.finishCandidateAdd()')).toBe('active')
+  // The Add proposal precedes this approval. Its later box readback is a
+  // separate pending-Add composition boundary, not covered by admission.
+  expect(await run(page, 'M.finishKeeperApproval()')).toMatchObject({ result: { state: 'active', value: { state: 'approved' } } })
+  await run(page, 'M.forgetGuest()')
+})
+test('candidate Add queued behind approval sees the witnessed device hold before package registration', async ({ context }) => {
+  const { page, witness } = await enrolled(context)
+  await run(page, "M.candidateKeeperHold('pending')")
+  const plan = await run(page, 'M.keeperDecisionPlan()'), before = witness.advances
+  await run(page, 'M.pauseCandidateStart(); M.beginCandidateAdd()')
+  await expect.poll(async () => (await run(page, 'M.candidateAddSnapshot()')).prepared).toBe(true)
+  let release!: () => void
+  witness.advancePause = new Promise<void>(resolve => { release = resolve })
+  await page.evaluate(plan => (window as any).M.beginKeeperApproval(plan), plan.value)
+  await expect.poll(() => witness.advances).toBeGreaterThan(before)
+  await run(page, 'M.releaseCandidateStartPause()')
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'shared'))).toBe(true)
+  expect(await run(page, 'M.candidateAddSnapshot()')).toMatchObject({ registrations: 0 })
+  release(); witness.advancePause = undefined
+  expect(await run(page, 'M.finishKeeperApproval()')).toMatchObject({ result: { state: 'active' } })
+  expect(await run(page, 'M.finishCandidateAdd()')).toEqual({ state: 'refused', reason: 'compromised-device-admission' })
+  expect(await run(page, 'M.candidateAddSnapshot()')).toMatchObject({ registrations: 0 })
+  await run(page, 'M.forgetGuest()')
+})
+test('candidate Add retains the shared gate through actual witnessed Add settlement', async ({ context }) => {
+  const { page, witness } = await enrolled(context)
+  await run(page, "M.candidateKeeperHold('pending')")
+  await run(page, 'M.pauseCandidatePackages(); M.beginCandidateAdd()')
+  await expect.poll(async () => (await run(page, 'M.candidateAddSnapshot()')).registrations).toBe(1)
+  const before = witness.advances
+  let release!: () => void
+  witness.advancePause = new Promise<void>(resolve => { release = resolve })
+  await run(page, 'M.releaseCandidatePackages()')
+  await expect.poll(() => witness.advances).toBeGreaterThan(before)
+  const holding = page.evaluate(() => (window as any).M.holdKeeperDevice())
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'exclusive'))).toBe(true)
+  expect(await run(page, 'M.candidateAddSnapshot()')).toMatchObject({ result: undefined })
+  release(); witness.advancePause = undefined
+  await holding
+  await run(page, 'M.releaseHeldKeeperDevice()')
+  expect(await run(page, 'M.finishCandidateAdd()')).toBe('active')
+  await run(page, 'M.forgetGuest()')
+})
+test('candidate Add invalidated while waiting has no package registration or room mutation', async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, "M.candidateKeeperHold('pending'); M.holdKeeperDevice()")
+  const before = await run(page, 'M.read()')
+  await run(page, 'M.beginCandidateAdd()')
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'shared'))).toBe(true)
+  await run(page, 'M.invalidateCandidateAdd(); M.releaseHeldKeeperDevice()')
+  expect(await run(page, 'M.finishCandidateAdd()')).toMatchObject({ state: 'pending', reason: 'stale' })
+  expect(await run(page, 'M.candidateAddSnapshot()')).toMatchObject({ registrations: 0 })
+  expect(await run(page, 'M.read()')).toEqual(before)
+  await run(page, 'M.forgetGuest()')
+})
+
 test('both keeper withdrawal paths wait outside an exclusive device hold and then share exact tombstone settlement', async ({ context }) => {
   const { page } = await enrolled(context)
   await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.receiveKeeperRequest()')

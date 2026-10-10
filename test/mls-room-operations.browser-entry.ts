@@ -175,6 +175,9 @@ function receipt(slot: any) {
 }
 function guestAck(step: any) { if (step.snapshot) { guest.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
 function boxInput(record: any, signed?: Uint8Array) { return { homeBox: boxId, installation, mailbox: record.mailbox, envelope: record.envelope, receipt: signed } }
+let candidateRegistrations = 0, candidatePackagePause: Promise<void> | undefined, releaseCandidatePackage: (() => void) | undefined
+let candidateAddTask: Promise<unknown> | undefined, candidateAddResult: unknown
+let candidatePrepared = false, candidateStartPause: Promise<void> | undefined, releaseCandidateStart: (() => void) | undefined
 function fixturePackageClient(): BrowserMlsBoxClient {
   const route = pairingFixture(nodeKey).route, encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
   const transport = { request: async (request: LinkRequest) => {
@@ -184,6 +187,8 @@ function fixturePackageClient(): BrowserMlsBoxClient {
           ['u', `http://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}${request.path}`],
           ['method', 'PUT'], ['payload', bytesToHex(sha256(request.body))],
         ])) throw new Error('Invalid fixture package registration')
+    candidateRegistrations++
+    await candidatePackagePause
     return { status: 201, body: encode({ v: 1, code: 'registered', server_time: clock }), witnessRefused: false,
       path: { status: 'up' as const, relay: null, direct: null, cause: '' } }
   } }
@@ -207,7 +212,10 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   const introPending = wasm.prepareIntroduction(keeperPlatform, BigInt(clock), rz, 0n), req = introPending.request()
   const intro = introPending.complete(BigInt(clock), req.operation, secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
   const capabilityEnvelope = made.step.outbound[0].envelope
-  let added = await rooms.addCapabilities(activeContext, roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
+  const opened = intro.openCapability(BigInt(clock), capabilityEnvelope)
+  candidatePrepared = true
+  await candidateStartPause
+  let added = await rooms.addCapabilities(activeContext, roomId, [opened], packageClient, clock)
   if (added.state === 'transport' && (added.answer.state === 'unavailable' || added.answer.state === 'not-signed')) {
     added = await rooms.addCapabilities(activeContext, roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
   }
@@ -241,6 +249,26 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   return seen.state
 }
 export async function stageGuestWelcome(packageClient?: BrowserMlsBoxClient) { return addGuest(true, packageClient) }
+export async function candidateKeeperHold(state: 'pending' | 'dismissed' | 'approved' | 'done') {
+  guestDevice = bytesToHex(schnorr.getPublicKey(new Uint8Array(32).fill(44))); guestLeaf = 'aa'.repeat(32)
+  const received = await receiveKeeperRequest(false, true, 60)
+  if (received.state !== 'active') return received
+  if (state === 'approved') return decideKeeperRequest()
+  if (state === 'dismissed') return decideKeeperRequest(false)
+  if (state === 'done') return approveKeeperRequest()
+  return received
+}
+export function candidateAddSnapshot() { return { registrations: candidateRegistrations, prepared: candidatePrepared, result: candidateAddResult } }
+export function pauseCandidateStart() { candidatePrepared = false; candidateStartPause = new Promise<void>(resolve => { releaseCandidateStart = resolve }) }
+export function releaseCandidateStartPause() { releaseCandidateStart?.(); candidateStartPause = undefined; releaseCandidateStart = undefined }
+export function pauseCandidatePackages() { candidatePackagePause = new Promise<void>(resolve => { releaseCandidatePackage = resolve }) }
+export function releaseCandidatePackages() { releaseCandidatePackage?.(); candidatePackagePause = undefined; releaseCandidatePackage = undefined }
+export function beginCandidateAdd(conflict = false) {
+  candidateAddResult = undefined
+  candidateAddTask = addGuest(true, fixturePackageClient(), false, !conflict).then(result => candidateAddResult = result, error => candidateAddResult = { error: error.message })
+}
+export async function finishCandidateAdd() { return candidateAddTask }
+export function invalidateCandidateAdd() { rooms.invalidate() }
 const inboxGrants = new BrowserMlsGrantStore()
 const keeperInbox = () => new BrowserMlsRevocationInbox(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
 export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = false, lifetime = 7 * 86400) {

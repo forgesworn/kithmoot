@@ -14,6 +14,7 @@ import { MAX_MLS_REMOVALS, readMlsMembership, removalBytes, saveMlsMembership, t
 import { MlsRevocationOutboxFull, rememberStandaloneRevocations } from './mls-revocation-outbox.js'
 import { BrowserMlsBoxClient, type BoxAnswer } from './mls-box-client.js'
 import { vmlsMemberGrantReference } from '../../src/vmls-revocation-request.js'
+import { withMlsDeviceAdmissionGate } from './mls-device-admission-gate.js'
 
 export interface MlsRoomContext { vault: VaultContext; rendezvousKey: string; current(): boolean }
 export interface MlsJoinOptions {
@@ -380,22 +381,33 @@ export class BrowserMlsRoomOperations {
    * authenticated Introduction. This method takes ownership immediately,
    * snapshots metadata through the genuine WASM method, registers every D5
    * package before opening the Add transaction, then rechecks the snapshots
-   * against the handles consumed by Session.add. */
+   * against the handles consumed by Session.add. Candidate device gates span
+   * registration and actual witness settlement; retained keeper holds are
+   * checked before registration and again in the final transaction. */
   async addCapabilities(context: MlsRoomContext, id: string, supplied: Capability[], client: BrowserMlsBoxClient, boxNow: number): Promise<MlsAddResult> {
     const capabilities = [...supplied]
+    const epoch = this.#epoch, valid = context.current.bind(context)
+    context = { ...context, vault: { ...context.vault }, current: () => epoch === this.#epoch && valid() }
     let consumed = false
     try {
-      return await this.#using<MlsRoomEffect>(context, async scope => {
-        if (!(client instanceof BrowserMlsBoxClient) || !Number.isSafeInteger(boxNow) || boxNow < 0 ||
-            capabilities.length < 1 || capabilities.length > 64 || capabilities.some(capability => !(capability instanceof scope.wasm.Capability))) throw new MlsRoomRefused('malformed')
-        const routes = capabilities.map(capability => {
-          const info = scope.wasm.Capability.prototype.info.call(capability), expiresAt = Number(info.expiresAt)
-          const route: MlsPackageRoute = { packageId: bytesToHex(info.packageId), welcomeMailbox: bytesToHex(info.welcomeMailbox),
-            homeBox: bytesToHex(info.homeBox), leafId: bytesToHex(info.leafId), expiresAt }
-          if (![route.packageId, route.welcomeMailbox, route.homeBox, route.leafId].every(hex) || !Number.isSafeInteger(expiresAt) ||
-              expiresAt <= boxNow || expiresAt - boxNow > 7 * 86400 || expiresAt <= this.now()) throw new MlsRoomRefused('invalid-package-route')
-          return Object.freeze(route)
-        })
+      const wasm = await loadMlsEngine()
+      if (!(client instanceof BrowserMlsBoxClient) || !Number.isSafeInteger(boxNow) || boxNow < 0 ||
+          capabilities.length < 1 || capabilities.length > 64 || capabilities.some(capability => !(capability instanceof wasm.Capability))) throw new MlsRoomRefused('malformed')
+      const binding = (capability: Capability) => {
+        const info = wasm.Capability.prototype.info.call(capability), expiresAt = Number(info.expiresAt)
+        const route: MlsPackageRoute = { packageId: bytesToHex(info.packageId), welcomeMailbox: bytesToHex(info.welcomeMailbox),
+          homeBox: bytesToHex(info.homeBox), leafId: bytesToHex(info.leafId), expiresAt }
+        const candidate = { identity: bytesToHex(info.identity), device: bytesToHex(info.device), credentialId: bytesToHex(info.credentialId),
+          bindingExpiresAt: Number(info.bindingExpiresAt), credentialExpiresAt: Number(info.credentialExpiresAt), route: Object.freeze(route) }
+        if (![route.packageId, route.welcomeMailbox, route.homeBox, route.leafId].every(hex) || !Number.isSafeInteger(expiresAt) ||
+            expiresAt <= boxNow || expiresAt - boxNow > 7 * 86400 || expiresAt <= this.now() ||
+            ![candidate.identity, candidate.device, candidate.credentialId].every(hex) ||
+            ![candidate.bindingExpiresAt, candidate.credentialExpiresAt].every(at => Number.isSafeInteger(at) && at > this.now() && at > boxNow)) throw new MlsRoomRefused('invalid-package-route')
+        return Object.freeze(candidate)
+      }
+      const candidates = capabilities.map(binding), routes = candidates.map(candidate => candidate.route)
+      return await withMlsDeviceAdmissionGate(candidates.map(candidate => candidate.device), 'shared', () => this.#using<MlsRoomEffect>(context, async scope => {
+        if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
         let room: MlsRoomRecord
         const validate = async (session: Session, tx: PersonaReader) => {
           const watched = new Set((session.watchList() as MlsWatch[]).map(item => bytesToHex(item.mailbox))), known = room.packages ?? []
@@ -403,6 +415,15 @@ export class BrowserMlsRoomOperations {
           if (client.box !== room.binding.homeBox || routes.some(route => route.homeBox !== room.binding.homeBox || watched.has(route.welcomeMailbox))) throw new MlsRoomRefused('invalid-package-route')
           if (known.length + routes.length > 64 || new Set([...known, ...routes].map(route => route.packageId)).size !== known.length + routes.length ||
               new Set([...known, ...routes].map(route => route.welcomeMailbox)).size !== known.length + routes.length) throw new MlsRoomRefused('package-route-full')
+          capabilities.forEach((capability, index) => {
+            if (JSON.stringify(binding(capability)) !== JSON.stringify(candidates[index])) throw new MlsRoomRefused('invalid-package-route')
+          })
+          const journal = await readMlsMembership(tx)
+          if (journal.inbox && journal.inbox.keeper !== scope.ctx.persona) throw new InvalidPersonaRecord('Keeper Add admission belongs to another persona')
+          for (const candidate of candidates) {
+            const hold = journal.inbox?.prompts.find(prompt => ['approved', 'done'].includes(prompt.state) && prompt.request.device === candidate.device)
+            if (hold) throw new MlsRoomRefused(hold.request.sender === candidate.identity ? 'compromised-device-admission' : 'device-person-conflict')
+          }
           await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona, session)
         }
         const checked = await scope.host.step(scope.hostContext, id, session => ({ snapshot: null, value: undefined }),
@@ -410,6 +431,9 @@ export class BrowserMlsRoomOperations {
         if (checked.state !== 'active') return checked
         for (const route of routes) {
           if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
+          capabilities.forEach((capability, index) => {
+            if (JSON.stringify(binding(capability)) !== JSON.stringify(candidates[index])) throw new MlsRoomRefused('invalid-package-route')
+          })
           const packageId = hexToBytes(route.packageId), mailbox = hexToBytes(route.welcomeMailbox)
           try {
             const answer = await BrowserMlsBoxClient.prototype.registerPackage.call(client, packageId, mailbox, route.expiresAt, boxNow)
@@ -419,16 +443,15 @@ export class BrowserMlsRoomOperations {
         if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
         return scope.host.step(scope.hostContext, id, session => {
           capabilities.forEach((capability, index) => {
-            const info = scope.wasm.Capability.prototype.info.call(capability), expected = routes[index]
-            if (bytesToHex(info.packageId) !== expected.packageId || bytesToHex(info.welcomeMailbox) !== expected.welcomeMailbox ||
-                bytesToHex(info.homeBox) !== expected.homeBox || bytesToHex(info.leafId) !== expected.leafId || Number(info.expiresAt) !== expected.expiresAt) throw new MlsRoomRefused('invalid-package-route')
+            if (JSON.stringify(binding(capability)) !== JSON.stringify(candidates[index])) throw new MlsRoomRefused('invalid-package-route')
           })
           consumed = true
           return effect(session, session.add(BigInt(this.now()), capabilities))
         }, this.#edits(scope.ctx, scope, id, async (r, tx, session) => { room = r; await validate(session, tx) },
           r => { r.packages = [...(r.packages ?? []), ...routes] }))
-      })
+        }))
     } catch (error) {
+      if (error instanceof MlsRoomRefused) return { state: 'refused', reason: error.reason }
       if (error instanceof PackageRegistrationStopped) return { state: 'transport', answer: error.answer }
       throw error
     } finally { if (!consumed) freeCapabilities(capabilities) }
