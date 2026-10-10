@@ -1,0 +1,51 @@
+{
+  "recordedAt": "2026-10-10",
+  "sourceBase": "3c47373dac06e125805b8ec92e3c99ffc66a65d6",
+  "sourceSha256": {
+    "app/index.html": "37d33209993040518e65a02a9de48fe24395471cb2d990dc1b71457e1c10cbbb",
+    "app/src/main.ts": "ef4e1795bfce426e19981935f8932f5112ed6fcdb5983e8581172675a5e89715",
+    "app/src/voice-pipeline.ts": "d845144d60bd824aeb159b29b9efb2b7d84216567815ad377302b2e68e13338a",
+    "app/src/voice-worklet.ts": "e0926c40a130f106fd2e0309ed79fbb89b51b23e6e5c7feaf7385aafd812b76e",
+    "app/src/voice-pipeline.test.ts": "3801fb157407198b22f79ea4404e096bdd622fa44a8f44b38d2857778b56820c",
+    "app/src/voice-worklet.test.ts": "650e176a7111c2e39b4302e7f550ccb8ea39b031aa6fb7d8f7345d815b74a124",
+    "test/voice-mask.spec.ts": "a46c51679007c6cff70d25e757936a8f49e74eeb9cc4d565415c186c87666a4d",
+    "playwright.config.ts": "4cb1070cbbf16c6c523b91d229fe3c145e4017222627a6a4440e580bc8dc3204"
+  },
+  "checks": {
+    "focusedUnitChecks": 50,
+    "typecheck": "passed",
+    "failureJourneys": {
+      "phone": 3,
+      "desktopBuild": 3,
+      "phoneViewport": {
+        "width": 390,
+        "height": 844,
+        "touch": true
+      },
+      "desktopViewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "browser": "Chromium",
+      "realAudioWorklet": true,
+      "realWebRtc": true,
+      "syntheticMicrophone": true,
+      "relay": "loopback"
+    },
+    "existingMediaJourneys": 2,
+    "existingCallPreferenceJourneys": 2
+  },
+  "logSha256": {
+    "focusedUnits": "eb5947bd27adecc6cef47c89c10a5068f32029932a33ef12345693498b14dec5",
+    "phoneDesktop": "176bfd549e779e9497dcdd4070b0fe6b38cc663ce931f9f28d82e1527f601bde",
+    "existingMedia": "6301b5856e28e7387bb8b97d60c29ecd60e00386f0d84cbcd8424da8d1d23994",
+    "existingCallPreferences": "49ea103ad77b1d5aa379b3a1c65b94c348108757caeb3d72228c363643d4106d"
+  },
+  "remainingGates": {
+    "hostedCi": false,
+    "deployed": false,
+    "physicalDevices": false,
+    "nativeAndroidVoiceMask": false,
+    "completeG8": false
+  }
+}
