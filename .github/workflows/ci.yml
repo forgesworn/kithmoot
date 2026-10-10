@@ -93,9 +93,10 @@ jobs:
   acceptance:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # The longest group is about seven minutes of tests. A hung call spec
-    # should fail the run rather than hold it for three-quarters of an hour.
-    timeout-minutes: 20
+    # Chromium rest now includes the MLS storage suites before 168 acceptance
+    # cases. Its measured CI run reaches the final cases at the old 20-minute
+    # limit. Individual test timeouts still catch hung journeys.
+    timeout-minutes: ${{ matrix.name == 'chromium rest' && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
