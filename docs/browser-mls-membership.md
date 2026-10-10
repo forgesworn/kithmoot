@@ -146,3 +146,43 @@ network actions. Reopening settings requires another explicit witness check;
 a previously witnessed sent marker suppresses another send. This account
 action uses the existing development-only preview gate; production room
 composition, the keeper inbox and acceptance flow remain open.
+
+## Keeper request intake foundation
+
+`BrowserMlsRevocationInbox` accepts an already-fetched foreground batch. It has
+no network subscription, signer approval UI, membership action or grant
+withdrawal capability. Its caller must supply the current account context and
+foreground state; production imports and account UI wiring remain absent.
+
+One pass considers at most 64 candidate wraps and decrypts at most eight
+previously unseen, correctly signed, bounded keeper-addressed wraps. The
+existing protocol validates the seal, sender, recipient, rumour lifetime and
+inner identity. A fresh witnessed transaction checks replay ids before any
+signer decryption; account or foreground changes withhold late results.
+
+The encrypted membership record retains up to 256 wrap ids for nine days and
+64 stable sender/keeper/device prompts. Unanswered prompts expire with the
+seven-day request. Full journals return an ordinary capacity refusal without
+eviction or a persona fence. The inbox shares the existing membership vault
+slot and does not reduce the 60-room quota.
+
+Only the keeper's own signed grant ledger can identify affected grants;
+request-supplied session and box hints confer no authority. Every retained
+room in that ledger is checked against its genuine witnessed WASM snapshot.
+A device currently bound to another person is silently excluded. Missing
+room state must be restored before a prompt can be displayed. A signed grant
+without any remaining room use can still yield a ledger-only prompt.
+Different target devices requested by one sender are flagged as conflicting.
+Reading a prompt revalidates both the ledger and roster; it never means that
+the keeper has accepted or performed anything.
+
+Unit checks cover malformed/forged wraps, issuer/person/device mismatches,
+signer work limits, expiry, clock rollback, capacity, duplicate grant rows,
+unavailable witnesses and account/foreground changes during decryption.
+Real-WASM Chromium, Firefox and WebKit cases cover a signed ledger entry
+conflicting with the actual roster, a valid request, ledger-only intake and
+retention across coordinator restart. These use simulated witnesses and
+local NIP-44 identities. Network fetching, the operator prompt and explicit
+acceptance, live relay and authenticated production-browser acceptance remain
+open. Intake cannot clear the existing compromised-device hold or mark a
+grant revoked; production MLS remains disabled.

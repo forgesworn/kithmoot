@@ -1,12 +1,13 @@
-import { sha256 } from '@noble/hashes/sha2.js'
-import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js'
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
+import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
+export { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 import { InvalidPersonaRecord, type PersonaReader, type PersonaTransaction } from './mls-persona-coordinator.js'
+import { validateMlsRevocationInbox, type MlsRevocationInboxState } from './mls-revocation-inbox-store.js'
 
 export const MAX_MLS_REMOVALS = 64
 export const MAX_MLS_STANDALONE_REVOCATIONS = 64
 export const MAX_MLS_MEMBERSHIP_BYTES = 1024 * 1024
 const RECORD = bytesToHex(new TextEncoder().encode('kithmoot.mls-membership.v1'))
-const STANDALONE_REVOCATION_LABEL = new TextEncoder().encode('kithmoot/vmls-standalone-revocation/v1')
 const hex32 = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
 const byteHex = (value: unknown): value is string => typeof value === 'string' && /^(?:[0-9a-f]{2})+$/.test(value) && value.length <= 131_072
 const exact = (value: object, keys: string) => Object.keys(value).sort().join(',') === keys
@@ -34,16 +35,12 @@ export interface MlsStandaloneRevocationRecord {
   createdAt: number
   sentAt: number | null
 }
-export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[]; requests: MlsStandaloneRevocationRecord[] }
-
-export function mlsStandaloneRevocationOperation(sender: string, keeper: string, device: string): string {
-  if (![sender, keeper, device].every(hex32)) throw new Error('Invalid standalone revocation binding.')
-  return bytesToHex(sha256(concatBytes(STANDALONE_REVOCATION_LABEL, hexToBytes(sender), hexToBytes(keeper), hexToBytes(device))))
-}
+export interface MlsMembershipJournal { version: 1; removals: MlsRemovalRecord[]; requests: MlsStandaloneRevocationRecord[]; inbox?: MlsRevocationInboxState }
 
 function validate(record: MlsMembershipJournal | (Omit<MlsMembershipJournal, 'requests'> & { requests?: MlsStandaloneRevocationRecord[] })): void {
-  if (!record || typeof record !== 'object' || !exact(record, record.requests === undefined ? 'removals,version' : 'removals,requests,version') || record.version !== 1 ||
+  if (!record || typeof record !== 'object' || !exact(record, [...(record.inbox === undefined ? [] : ['inbox']), 'removals', ...(record.requests === undefined ? [] : ['requests']), 'version'].sort().join(',')) || record.version !== 1 ||
       !Array.isArray(record.removals) || record.removals.length > MAX_MLS_REMOVALS) invalid()
+  if (record.inbox !== undefined) validateMlsRevocationInbox(record.inbox)
   const operations = new Set<string>()
   for (const removal of record.removals) {
     if (!removal || typeof removal !== 'object' || !exact(removal, ['attempts','compromised','createdAt','failure','journal','kind','operation', ...(removal.request ? ['request'] : []), 'session','target'].sort().join(',')) ||

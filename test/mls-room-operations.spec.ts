@@ -67,6 +67,25 @@ async function joinedWithMemberDevice(page: Page) {
   expect(await run(page, 'M.firstJoinUpdate()')).toMatchObject({ state: 'active' })
   expect(await run(page, 'M.addJoinedMemberDevice()')).toBe('active')
 }
+test('keeper inbox checks the genuine witnessed roster and retains prompts across restart', async ({ context }) => {
+  const { page } = await enrolled(context)
+  expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')
+  expect(await run(page, 'M.receiveKeeperRequest(true)')).toMatchObject({ state: 'active', value: { prompts: [] } })
+  const correct = await run(page, 'M.receiveKeeperRequest()')
+  expect(correct).toMatchObject({ state: 'active', value: { prompts: [{ conflict: false, grants: [{ state: 'active', rooms: [{ name: 'Witnessed room' }] }], prompt: { state: 'pending' } }] } })
+  await run(page, 'M.restart()')
+  expect(await run(page, 'M.keeperRequests()')).toEqual(correct)
+  await run(page, 'M.forgetGuest()')
+})
+test('keeper inbox can review a signed ledger-only grant after the device has no room left', async ({ context }) => {
+  const { page } = await enrolled(context)
+  expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')
+  const result = await run(page, 'M.receiveKeeperRequest(false, true)')
+  expect(result).toMatchObject({ state: 'active', value: { prompts: [{ grants: [{ state: 'active', rooms: [] }], prompt: { state: 'pending' } }] } })
+  await run(page, 'M.restart()')
+  expect(await run(page, 'M.keeperRequests()')).toEqual(result)
+  await run(page, 'M.forgetGuest()')
+})
 test('typed creation, idempotent send and rename persist with the session', async ({ context }) => {
   const { page } = await enrolled(context)
   const keepers = await run(page, 'M.keeperIdentities()')
