@@ -2,9 +2,12 @@
 
 `AssignmentLog` accepts `AssignmentReaderOptions` for observing work in a room
 the person has already deliberately joined. The PWA Inbox/Work interface uses
-this observer alongside a bounded read-only chat reader. Native Android parity,
-fresh-device summary delivery and the wider G9 acceptance journey remain
-outstanding. This bounded view does not complete G9.
+this observer alongside a bounded read-only chat reader. Android 0.6.77 now has
+native Inbox/All work views and originating-room routing, with
+[verified production publication](evidence/android-0.6.77-publication-2026-10-10.json).
+Combined project/call acceptance, fresh-device summary delivery, older work,
+live execution and physical acceptance remain outstanding. This bounded view
+does not complete G9.
 
 The start page, desktop project rail and phone room switcher expose **Inbox**
 and **All work**. Signed-in workspace conversations also have direct phone

@@ -5975,6 +5975,7 @@ function render(views: ParticipantView[], me: string): void {
   // an open completion when presence catches up, or the ^ menu stays empty
   // until the person types again.
   if (document.activeElement === $('chatInput')) renderMentionPicker()
+  const knownAgentCount = agentParticipants.size
   for (const view of views) if (view.agent) {
     agentParticipants.add(view.participant)
     if (view.name) agentDisplayNames.set(view.participant, view.name)
@@ -5993,7 +5994,11 @@ function render(views: ParticipantView[], me: string): void {
   // Which tabs are worth showing depends on who is here (Agents appears
   // when an agent does), so a roster change can change the row.
   const tabKey = navTabs().map(([name]) => name ?? '').join('\n')
-  if (tabKey !== renderedTabKey) { renderedTabKey = tabKey; renderConversationNav() }
+  // A message can arrive before its sender's presence. Learning that sender
+  // is an agent changes unread classification even when the tabs stay equal.
+  if (tabKey !== renderedTabKey || agentParticipants.size !== knownAgentCount) {
+    renderedTabKey = tabKey; renderConversationNav()
+  }
   if (collisionsChanged) {
     collisionsChanged = false
     repaintActiveChat()
