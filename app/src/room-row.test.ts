@@ -10,11 +10,30 @@ describe('activityAt / sortByActivity', () => {
     ]
     const messages = new Map([['a', [{ sentAt: 500 }]], ['b', []], ['c', [{ sentAt: 150 }]]])
     const activityOf = (room: typeof rooms[number]) => activityAt(room, messages.get(room.roomId) ?? [])
-    expect(sortByActivity(rooms, activityOf).map((r) => r.roomId)).toEqual(['a', 'b', 'c'])
+    expect(sortByActivity(rooms, activityOf).map((r) => r.roomId)).toEqual(['a', 'c', 'b'])
   })
 
-  it('falls back to when this device last opened the room, with no messages', () => {
-    expect(activityAt({ openedAt: 42 }, [])).toBe(42)
+  it('does not invent activity from opening a room with no readable history', () => {
+    expect(activityAt({ openedAt: 42 }, [])).toBe(0)
+    expect(formatActivityTime(0)).toBe('')
+  })
+
+  it('reading an older conversation changes neither its time nor its position', () => {
+    const messages = new Map([['old', [{ sentAt: 100 }]], ['new', [{ sentAt: 200 }]]])
+    const before = [{ roomId: 'old', openedAt: 80 }, { roomId: 'new', openedAt: 90 }]
+    const after = before.map(room => room.roomId === 'old' ? { ...room, openedAt: 300 } : room)
+    const activity = (room: typeof before[number]) => activityAt(room, messages.get(room.roomId)!)
+    expect(sortByActivity(after, activity).map(room => room.roomId)).toEqual(sortByActivity(before, activity).map(room => room.roomId))
+    expect(activity(after[0])).toBe(100)
+    expect(sortByActivity(after, activity).map(room => room.roomId)).toEqual(['new', 'old'])
+    messages.get('old')!.push({ sentAt: 400 })
+    expect(sortByActivity(after, activity).map(room => room.roomId)).toEqual(['old', 'new'])
+  })
+
+  it('keeps equal or unknown activity stable when saved-room read order changes', () => {
+    const rooms = [{ roomId: 'b', openedAt: 100 }, { roomId: 'a', openedAt: 200 }]
+    expect(sortByActivity(rooms, room => activityAt(room, [])).map(room => room.roomId)).toEqual(['a', 'b'])
+    expect(sortByActivity([...rooms].reverse(), room => activityAt(room, [])).map(room => room.roomId)).toEqual(['a', 'b'])
   })
 })
 
