@@ -1,0 +1,47 @@
+{
+  "sourceRevision": "7a927605e61411ba063bf1dce1d1febd3e854dc0",
+  "versionName": "0.6.82",
+  "versionCode": 105,
+  "qualifiedSourceFiles": 1450,
+  "sourceMismatch": [],
+  "tests": {
+    "protocol": {
+      "tests": 478,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "debug": {
+      "tests": 2181,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 2181,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "apkBytes": 79698590,
+  "apkSha256": "8279bf90b2263ce3bd7a4434e9831f54f796463fa1173d9fc5f7079acc3b2338",
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "signatureSchemes": {
+    "v1": false,
+    "v2": false,
+    "v3": true
+  },
+  "nonOwnerCaptureAndDockGalleryEmulatorJourney": true,
+  "localCaptureEmulatorJourneys": 20,
+  "renderer": "host",
+  "recordingReceiptTimeoutMs": 15000,
+  "productionSigned": true,
+  "published": false,
+  "physicalAcceptance": false,
+  "fullCaptureEmulatorJourneys": 22,
+  "actualBrowserNativeCaptureJourneys": 2,
+  "actualDeviceSignedBrowserInterop": true,
+  "actualProcessRestartStopRecovery": true,
+  "state": "verified-candidate-awaiting-ci-and-publication"
+}
