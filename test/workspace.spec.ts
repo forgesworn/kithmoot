@@ -55,6 +55,21 @@ async function project(page: Page, room: string, name: string) {
   await expect(page.locator('#projectEditor')).not.toBeVisible()
 }
 
+test('a room title press survives a rail update before pointer release', async ({ browser, baseURL }) => {
+  const { context, page, rooms } = await setup(browser, baseURL!)
+  try {
+    await join(page, rooms[0]!.link)
+    const target = page.locator('#workspaceRooms .workspaceRoomName').filter({ hasText: rooms[1]!.name })
+    const node = await target.elementHandle()
+    await target.hover(); await page.mouse.down()
+    try {
+      await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'kithmoot.project.v1.arriving' })))
+      expect(await node!.evaluate(element => element.isConnected)).toBe(true)
+    } finally { await page.mouse.up() }
+    await expect(page.locator('#roomTitle')).toHaveText(rooms[1]!.name)
+  } finally { await context.close() }
+})
+
 test('local groups organise rooms, filter by name, survive reload and remain reachable on mobile', async ({ browser, baseURL }, testInfo) => {
   const { context, page, rooms } = await setup(browser, baseURL!)
   try {

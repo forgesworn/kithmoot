@@ -12577,6 +12577,29 @@ function roomUnreadPeople(room: KnownRoom): number {
   return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName(), room.readIds).people
 }
 
+// Account recovery can move Projects from the welcome footer to the rooms
+// toolbar. Finish an in-flight press before changing that navigation layout.
+let homeProjectPress: number | undefined
+let homeProjectPaintPending = false
+document.addEventListener('pointerdown', event => {
+  if ((event.target as Element | null)?.closest('#homeSharedProjects, #homeNewProject')) homeProjectPress = event.pointerId
+}, { passive: true })
+const releaseHomeProjectPress = (event: PointerEvent) => {
+  if (event.pointerId !== homeProjectPress) return
+  const pressed = homeProjectPress
+  setTimeout(() => {
+    if (homeProjectPress !== pressed) return
+    homeProjectPress = undefined
+    if (homeProjectPaintPending) { homeProjectPaintPending = false; renderRooms() }
+  }, 0)
+}
+document.addEventListener('pointerup', releaseHomeProjectPress, { passive: true })
+document.addEventListener('pointercancel', releaseHomeProjectPress, { passive: true })
+window.addEventListener('blur', () => {
+  homeProjectPress = undefined
+  if (homeProjectPaintPending) { homeProjectPaintPending = false; renderRooms() }
+})
+
 function renderRooms(): void {
   // A conference room ends by the clock, with no event to say so. The list
   // is redrawn on a timer, so this is where one that has ended is written
@@ -12591,6 +12614,7 @@ function renderRooms(): void {
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (!roomsListShown) return
+  if (homeProjectPress !== undefined) { homeProjectPaintPending = true; return }
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
@@ -13258,8 +13282,9 @@ function renderWorkspace(): void {
     renderLogo(projectIcon, sharedProject?.logo, project.name)
     projectIcon.hidden = !sharedProject
     const projectName = heading.querySelector<HTMLElement>('.workspaceProjectName') ?? document.createElement('span')
-    projectName.className = 'workspaceProjectName'; projectName.textContent = project.name
-    heading.replaceChildren(projectIcon, projectName)
+    projectName.className = 'workspaceProjectName'
+    if (projectName.textContent !== project.name) projectName.textContent = project.name
+    reconcileRailChildren(heading, [projectIcon, projectName])
     heading.hidden = groups.length === 1 && !project.key
     group.dataset.project = project.key
     const rows: HTMLElement[] = [heading]
@@ -13278,8 +13303,9 @@ function renderWorkspace(): void {
       if (!icon.hidden) renderLogo(icon, displayedRoomLogo(room.roomId, project.key), knownRoomLabel(room))
       else clearLogo(icon)
       const roomName = button.querySelector<HTMLElement>('.workspaceRoomName') ?? document.createElement('span')
-      roomName.className = 'workspaceRoomName'; roomName.textContent = knownRoomLabel(room)
-      button.replaceChildren(icon, roomName)
+      roomName.className = 'workspaceRoomName'
+      if (roomName.textContent !== knownRoomLabel(room)) roomName.textContent = knownRoomLabel(room)
+      reconcileRailChildren(button, [icon, roomName])
       button.title = `${knownRoomLabel(room)} · ${shortKey(room.roomId)}`
       if (room.roomId === current) button.setAttribute('aria-current', 'true')
       else button.removeAttribute('aria-current')

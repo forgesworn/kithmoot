@@ -189,6 +189,25 @@ async function signedDevice(browser: Browser, base: string, nip44 = true, key = 
   return { context, pubkey, relay: relay.href, key }
 }
 
+test('a Projects press survives rooms arriving before pointer release', async ({ browser, baseURL }) => {
+  const device = await signedDevice(browser, baseURL!)
+  try {
+    const page = await device.context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(baseURL!)
+    const opener = page.locator('#homeSharedProjects')
+    await opener.hover(); await page.mouse.down()
+    try {
+      await page.evaluate(() => {
+        const roomId = 'a'.repeat(64)
+        localStorage.setItem(`kithmoot.room.${roomId}`, JSON.stringify({ roomId, name: 'Arriving room', link: location.href, openedAt: 1, readAt: 0 }))
+        window.dispatchEvent(new StorageEvent('storage', { key: 'kithmoot.project.v1.arriving' }))
+      })
+    } finally { await page.mouse.up() }
+    await expect(page.locator('#sharedProjects')).toBeVisible()
+  } finally { await device.context.close() }
+})
+
 for (const nip44 of [true, false]) test(`Projects opened as sign-in finishes stays available with ${nip44 ? 'an encrypted-project' : 'an incompatible'} signer`, async ({ browser, baseURL }) => {
   const device = await signedDevice(browser, baseURL!, nip44)
   try {
