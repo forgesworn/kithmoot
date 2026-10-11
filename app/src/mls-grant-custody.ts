@@ -18,6 +18,10 @@ export interface MlsGrantCustody { version: 2; phase: 'fenced' | 'ready'; fence:
 interface Encrypted { key: 'active'; version: 1 | 2; nonce: ArrayBuffer; ciphertext: ArrayBuffer }
 interface Snapshot { keyPresent: boolean; key?: CryptoKey; encrypted?: Encrypted; custody?: MlsGrantCustody; records: MlsGrantRecord[] }
 export type MlsGrantPreparation = { state: 'ready' | 'blocked' | 'interrupted' | 'refused' }
+export interface MlsGrantForegroundScope { readonly signal: AbortSignal; readonly current: () => boolean }
+type ForegroundScope = MlsGrantForegroundScope
+interface CustodyBinding { check(): void; signal?: AbortSignal; scope?: ForegroundScope }
+export type MlsGrantForegroundResult<T> = { state: 'active'; value: T } | { state: 'blocked' | 'interrupted' | 'refused' | 'busy' }
 
 /** Strict primitive validation precedes the legacy signed-term validator. */
 export function mlsGrantCustodyRecords(value: unknown): MlsGrantRecord[] {
@@ -83,18 +87,41 @@ export class BrowserMlsGrantCustody {
   #db?: IDBDatabase
   #opening?: Promise<IDBDatabase>
   #revision = 0
+  #preparing = new Set<Promise<unknown>>()
+  /** The unbound constructor remains a low-level storage test seam. The
+   * application foreground owner creates its own nominal, bound instance. */
+  constructor(private readonly foreground?: BrowserMlsGrantForeground) {
+    if (foreground !== undefined && !(foreground instanceof BrowserMlsGrantForeground)) throw notReady()
+  }
+  #binding(): CustodyBinding {
+    if (!this.foreground) return { check: () => {} }
+    const scope = this.foreground.capture()
+    const check = () => {
+      if (!scope || this.foreground!.capture() !== scope || scope.signal.aborted || !scope.current()) throw notReady()
+    }
+    check()
+    return { check, signal: scope!.signal, scope }
+  }
+  /** A blocked result can precede native request termination. Its owning
+   * foreground scope must remain occupied until this settlement completes. */
+  async preparationSettled(): Promise<void> { await Promise.allSettled([...this.#preparing]) }
 
   async prepare(current: () => boolean, signal: AbortSignal): Promise<MlsGrantPreparation> {
     if (typeof current !== 'function' || !(signal instanceof AbortSignal) || !globalThis.navigator?.locks || !globalThis.indexedDB) return { state: 'refused' }
-    const live = () => { try { return !signal.aborted && current() === true } catch { return false } }
+    let binding: CustodyBinding
+    try { binding = this.#binding(); if (binding.signal && binding.signal !== signal) return { state: 'refused' } }
+    catch { return { state: signal.aborted ? 'interrupted' : 'refused' } }
+    const live = () => { try { binding.check(); return !signal.aborted && current() === true } catch { return false } }
     const check = () => { if (!live()) throw notReady() }
     try {
       return await new Promise<MlsGrantPreparation>((resolve, reject) => {
-        void navigator.locks.request(dbName + ':migration-v2', async (): Promise<MlsGrantPreparation> => {
+        const preparing = navigator.locks.request(dbName + ':migration-v2', { signal }, async (): Promise<MlsGrantPreparation> => {
           check()
-          const frozen = await navigator.locks.request(dbName, async () => {
+          const frozen = await navigator.locks.request(dbName, { signal }, async () => {
             check()
-            const db = await this.#database(), snapshot = await this.#read(db)
+            const db = await this.#database()
+            check()
+            const snapshot = await this.#read(db, check, signal)
             check()
             if (snapshot.custody) return snapshot.custody
             if (db.version !== 1) throw invalid()
@@ -110,13 +137,13 @@ export class BrowserMlsGrantCustody {
           const keys = frozen.records.map(record => `kithmoot.vmls-grant.${record.node}.${record.device}`)
           const drain = async (at: number): Promise<MlsGrantPreparation> => {
             check()
-            if (at < keys.length) return navigator.locks.request(keys[at], () => drain(at + 1))
+            if (at < keys.length) return navigator.locks.request(keys[at], { signal }, () => drain(at + 1))
             const upgraded = await this.#upgrade(check, () => resolve({ state: 'blocked' }))
             check()
             if (!upgraded) return { state: 'blocked' }
-            return navigator.locks.request(dbName, async () => {
+            return navigator.locks.request(dbName, { signal }, async () => {
               check()
-              const snapshot = await this.#read(upgraded)
+              const snapshot = await this.#read(upgraded, check, signal)
               check()
               if (!snapshot.custody || snapshot.custody.phase !== 'fenced' || !snapshot.key ||
                   mlsGrantCustodyDigest(snapshot.custody) !== digest || upgraded.version !== 2) throw invalid()
@@ -126,30 +153,52 @@ export class BrowserMlsGrantCustody {
             })
           }
           return drain(0)
-        }).then(resolve, reject)
+        })
+        this.#preparing.add(preparing)
+        void preparing.finally(() => this.#preparing.delete(preparing)).catch(() => {})
+        void preparing.then(resolve, reject)
       })
     } catch { return { state: live() ? 'refused' : 'interrupted' } }
   }
 
-  all(): Promise<MlsGrantRecord[]> {
-    return this.#exclusive(async () => {
-      const db = await this.#database(), snapshot = await this.#read(db)
+  async all(): Promise<MlsGrantRecord[]> {
+    const { check, signal, scope } = this.#binding()
+    const work = () => this.#exclusive(async () => {
+      check()
+      const db = await this.#database()
+      check()
+      const snapshot = await this.#read(db, check, signal)
+      check()
       if (db.version !== 2 || snapshot.custody?.phase !== 'ready') throw notReady()
+      check()
       return structuredClone(snapshot.records)
-    })
+    }, check, signal)
+    return scope ? this.foreground!.track(scope, work) : work()
   }
-  put(record: MlsGrantRecord): Promise<void> {
-    const copy = mlsGrantCustodyRecords([structuredClone(record)])[0]
-    return this.#exclusive(async () => {
-      const db = await this.#database(), snapshot = await this.#read(db)
+  async put(record: MlsGrantRecord): Promise<void> {
+    const { check, signal, scope } = this.#binding()
+    const work = async () => {
+      check()
+      const copy = mlsGrantCustodyRecords([structuredClone(record)])[0]
+      return this.#exclusive(async () => {
+      check()
+      const db = await this.#database()
+      check()
+      const snapshot = await this.#read(db, check, signal)
+      check()
       if (db.version !== 2 || snapshot.custody?.phase !== 'ready' || !snapshot.key) throw notReady()
       const records = mlsGrantCustodyRecords([...snapshot.records.filter(item => item.node !== copy.node || item.device !== copy.device), copy])
-      await this.#write(db, snapshot, { ...snapshot.custody, records }, snapshot.key, () => {})
-    })
+      check()
+      await this.#write(db, snapshot, { ...snapshot.custody, records }, snapshot.key, check, signal)
+      check()
+      }, check, signal)
+    }
+    return scope ? this.foreground!.track(scope, work) : work()
   }
-  async #exclusive<T>(work: () => Promise<T>): Promise<T> {
+  async #exclusive<T>(work: () => Promise<T>, check: () => void = () => {}, signal?: AbortSignal): Promise<T> {
     if (!globalThis.navigator?.locks) return Promise.reject(notReady())
-    return await navigator.locks.request(dbName, work)
+    check()
+    return navigator.locks.request(dbName, signal ? { signal } : {}, work)
   }
   #adopt(db: IDBDatabase): IDBDatabase {
     if (db.version !== 1 && db.version !== 2 || !db.objectStoreNames.contains('keys') || !db.objectStoreNames.contains('records')) { db.close(); throw invalid() }
@@ -193,21 +242,31 @@ export class BrowserMlsGrantCustody {
       open.onerror = () => { if (!abandoned) reject(open.error); else resolve(undefined) }
     })
   }
-  async #read(db: IDBDatabase): Promise<Snapshot> {
+  async #read(db: IDBDatabase, check: () => void = () => {}, signal?: AbortSignal): Promise<Snapshot> {
+    check()
     const revision = this.#revision
     const transaction = db.transaction(['keys','records'], 'readonly'), done = completed(transaction)
     void done.catch(() => {})
-    const [keyRecord, keySlot, raw] = await Promise.all([request(transaction.objectStore('keys').get('device')),
-      request(transaction.objectStore('keys').getKey('device')), request(transaction.objectStore('records').get('active'))])
-    await done
+    const abort = () => { try { transaction.abort() } catch { /* Already terminal. */ } }
+    signal?.addEventListener('abort', abort, { once: true })
+    let keyRecord: unknown, keySlot: IDBValidKey | undefined, raw: unknown
+    try {
+      [keyRecord, keySlot, raw] = await Promise.all([request(transaction.objectStore('keys').get('device')),
+        request(transaction.objectStore('keys').getKey('device')), request(transaction.objectStore('records').get('active'))])
+      check()
+      await done
+      check()
+    } catch (error) { abort(); await done.catch(() => {}); throw error }
+    finally { signal?.removeEventListener('abort', abort) }
     if (db !== this.#db || revision !== this.#revision) throw notReady()
-    const key = keyRecord?.key as CryptoKey | undefined
+    const key = (keyRecord as { key?: CryptoKey } | undefined)?.key
     const keyPresent = keySlot !== undefined
     if (keyPresent && (!object(keyRecord) || !exact(keyRecord, 'key') || !(key instanceof CryptoKey) || key.extractable ||
         key.algorithm.name !== 'AES-GCM' || (key.algorithm as AesKeyAlgorithm).length !== 256 ||
         [...key.usages].sort().join(',') !== 'decrypt,encrypt')) throw invalid()
     if (!raw) {
       if (db.version !== 1) throw invalid()
+      check()
       return { keyPresent, key, records: [] }
     }
     if (!object(raw) || !exact(raw, 'ciphertext,key,nonce,version') || raw.key !== 'active' || raw.version !== 1 && raw.version !== 2 ||
@@ -215,15 +274,19 @@ export class BrowserMlsGrantCustody {
         raw.ciphertext.byteLength > (raw.version === 1 ? MLS_GRANT_RECORD_BYTES : MLS_GRANT_CUSTODY_BYTES) + 16 || !key ||
         raw.version === 1 && db.version !== 1) throw invalid()
     const encrypted = raw as unknown as Encrypted
+    check()
     const bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: encrypted.nonce, additionalData: aad[encrypted.version - 1] }, key, encrypted.ciphertext))
     try {
+      check()
       const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
       const custody = encrypted.version === 2 ? mlsGrantCustody(value) : undefined
       if (custody?.phase === 'ready' && db.version !== 2 || db !== this.#db || revision !== this.#revision) throw invalid()
+      check()
       return { keyPresent, key, encrypted, custody, records: custody?.records ?? mlsGrantCustodyRecords(value) }
     } finally { bytes.fill(0) }
   }
   async #write(db: IDBDatabase, snapshot: Snapshot, custody: MlsGrantCustody, key: CryptoKey, check: () => void, signal?: AbortSignal): Promise<void> {
+    check()
     const revision = this.#revision, bytes = encoder.encode(JSON.stringify(mlsGrantCustody(custody)))
     let encrypted: Encrypted
     try {
@@ -243,13 +306,104 @@ export class BrowserMlsGrantCustody {
       check()
       if (!same(snapshot.encrypted, saved) || snapshot.keyPresent !== (savedKeySlot !== undefined) ||
           !!snapshot.key !== !!savedKey?.key || db !== this.#db || revision !== this.#revision) throw invalid()
+      check()
       if (!snapshot.keyPresent) transaction.objectStore('keys').put({ key }, 'device')
       transaction.objectStore('records').put(encrypted)
       await done
+      check()
     } catch (error) {
       try { transaction.abort() } catch { /* It may already have aborted. */ }
       await done.catch(() => {})
       throw error
     } finally { signal?.removeEventListener('abort', abort) }
+  }
+}
+
+/** Nominal foreground storage ownership. The runtime composition keeps this
+ * private and exposes named workflows, never its custody or a replacement
+ * Store. Nested ledger/inbox/decision calls share the exact captured scope.
+ * This class alone is not a usable application or endpoint composition. */
+export class BrowserMlsGrantForeground {
+  readonly #custody = new BrowserMlsGrantCustody(this)
+  #scope?: ForegroundScope
+  #prepared?: ForegroundScope
+  #controller?: AbortController
+  #epoch = 0
+  #pending = new Set<Promise<unknown>>()
+  #errors: unknown[] = []
+  #settled: Promise<void> = Promise.resolve()
+  capture(): ForegroundScope | undefined { return this.#scope }
+  prepared(scope: ForegroundScope): boolean { return this.#prepared === scope && this.#scope === scope && scope.current() }
+  invalidate(): void { this.#epoch++; this.#controller?.abort() }
+  settled(): Promise<void> { return this.#settled }
+  invalidateAndWait(): Promise<void> { this.invalidate(); return this.settled() }
+  /** Concrete bound custody registers even floated I/O before it can yield.
+   * A callback's return cannot release ownership ahead of that settlement. */
+  track<T>(scope: ForegroundScope, work: () => Promise<T>): Promise<T> {
+    if (this.#scope !== scope || !scope.current()) return Promise.reject(notReady())
+    const pending = Promise.resolve().then(async () => {
+      if (this.#scope !== scope || !scope.current()) throw notReady()
+      const result = await work()
+      if (this.#scope !== scope || !scope.current()) throw notReady()
+      return result
+    }).catch(error => { this.#errors.push(error); throw error }).finally(() => this.#pending.delete(pending))
+    this.#pending.add(pending)
+    void pending.catch(() => {})
+    return pending
+  }
+  async #drain(): Promise<void> {
+    while (this.#pending.size) await Promise.allSettled([...this.#pending])
+  }
+
+  async run<T>(current: () => boolean, signal: AbortSignal,
+    work: (custody: BrowserMlsGrantCustody) => Promise<T>): Promise<MlsGrantForegroundResult<T>> {
+    if (this.#scope) return { state: 'busy' }
+    if (typeof current !== 'function' || !(signal instanceof AbortSignal) || typeof work !== 'function') return { state: 'refused' }
+    const epoch = this.#epoch, controller = new AbortController()
+    const abort = () => controller.abort()
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    const scope = Object.freeze({ signal: controller.signal, current: () => {
+      try { return this.#scope === scope && epoch === this.#epoch && !controller.signal.aborted && current() === true } catch { return false }
+    } })
+    this.#scope = scope; this.#controller = controller
+    const errors = this.#errors = []
+    let resolveSettled!: () => void
+    this.#settled = new Promise<void>(resolve => { resolveSettled = resolve })
+    const cleanup = () => {
+      controller.abort(); signal.removeEventListener('abort', abort)
+      if (this.#scope === scope) { this.#scope = undefined; this.#prepared = undefined; this.#controller = undefined }
+      resolveSettled()
+    }
+    const finish = async () => {
+      await this.#custody.preparationSettled()
+      await this.#drain()
+      const valid = scope.current()
+      cleanup()
+      return valid
+    }
+    let prepared: MlsGrantPreparation = { state: 'interrupted' }, value: T | undefined, error: unknown, failed = false, errorWasCurrent = false
+    try {
+      if (scope.current()) prepared = await this.#custody.prepare(scope.current, scope.signal)
+      if (prepared.state === 'blocked') {
+        void finish().catch(() => cleanup())
+        return { state: 'blocked' }
+      }
+      if (prepared.state === 'ready') {
+        await this.#custody.preparationSettled()
+        if (scope.current()) { this.#prepared = scope; value = await work(this.#custody) }
+      }
+    } catch (caught) {
+      failed = true; error = caught; errorWasCurrent = scope.current()
+      controller.abort()
+    }
+    const valid = await finish()
+    if (failed && errorWasCurrent) throw error
+    let stillCurrent = false
+    try { stillCurrent = epoch === this.#epoch && !signal.aborted && current() === true } catch {}
+    if (!valid || !stillCurrent) return { state: 'interrupted' }
+    if (errors.length) throw errors[0]
+    if (prepared.state !== 'ready') return { state: prepared.state }
+    return { state: 'active', value: value as T }
   }
 }

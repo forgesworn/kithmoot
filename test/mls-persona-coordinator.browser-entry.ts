@@ -33,6 +33,43 @@ export async function prepare(route: PersonaWitnessRoute) {
   } finally { await store.close() }
 }
 export async function status() { return result(await withHost(h => h.status(persona))) }
+export async function confirmedEffect(mode: 'ok' | 'stale-close' | 'stale-effect' | 'close-error' | 'effect-error' | 'invalid') {
+  const store = new BrowserMlsPersonaStore(dbName)
+  let current = true, read = 0, effects = 0, closed = false, plaintext: Uint8Array | undefined, recursive = false, readerExpired = false
+  let escaped: (() => Promise<unknown>) | undefined, later: Promise<unknown> | undefined, laterEntered = false, nativeHeld = false
+  const host = new BrowserPersonaCoordinator(store, async () => {
+    const exchange = async (method: string, request: Uint8Array): Promise<WitnessAnswer> => {
+      const reply = await window.witnessExchange(method, Array.from(request))
+      return reply.type === 'receipt' ? { type: 'receipt', bytes: new Uint8Array(reply.bytes!) } : { type: reply.type as 'unavailable' | 'refused' }
+    }
+    return { read: r => exchange('read', r), advance: r => exchange('advance', r), close: async () => {
+      closed = true
+      if (mode === 'stale-close') current = false
+      if (mode === 'close-error') throw new Error('fixture close error')
+    } }
+  })
+  try {
+    const outcome = await host.withConfirmedEffect(persona, async view => {
+      read++; plaintext = await view.readVault('01')
+      escaped = () => view.readVault('01')
+      if (mode === 'invalid') throw new (await import('../app/src/mls-persona-coordinator.js')).InvalidPersonaRecord('fixture malformed roster')
+      return { readOnly: !('putVault' in view), selected: 'original' }
+    }, async selected => {
+      effects++
+      if (!closed || !plaintext?.every(byte => byte === 0)) throw new Error('Effect started before native cleanup')
+      try { await escaped!() } catch { readerExpired = true }
+      try { await host.status(persona) } catch (error) { recursive = String(error).includes('Recursive persona entry') }
+      later = store.withPersona(persona, async () => { laterEntered = true })
+      await new Promise(resolve => setTimeout(resolve, 20))
+      nativeHeld = !laterEntered
+      if (mode === 'stale-effect') current = false
+      if (mode === 'effect-error') throw new Error('fixture accepted uncertain effect')
+      return selected
+    }, () => current).then(result, error => ({ error: error.message }))
+    await later
+    return { outcome, read, effects, closed, recursive, readerExpired, nativeHeld, laterEntered, wiped: plaintext?.every(byte => byte === 0) }
+  } finally { await store.close() }
+}
 export async function channelLifetime(mode: 'commit' | 'callback-error' | 'read-error' | 'stale-close') {
   const store = new BrowserMlsPersonaStore(dbName), events: string[] = []
   let current = true, seedWiped = false, opened = 0, closed = 0, entered!: () => void, finish!: () => void

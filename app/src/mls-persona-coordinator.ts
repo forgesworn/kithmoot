@@ -53,6 +53,10 @@ export class BrowserPersonaCoordinator {
   // transferable to another tab. Every use compares the exact durable revision.
   #confirmed = new Map<string, { revision: string; current: () => boolean }>()
   #confirming = new Map<string, symbol>()
+  #effects = new Set<string>()
+  #assertNoEffect(persona: string): void {
+    if (this.#effects.has(persona)) throw new Error('Recursive persona entry during a confirmed effect is forbidden.')
+  }
 
   invalidate(persona?: string): void {
     if (persona === undefined) { this.#confirmed.clear(); this.#confirming.clear() }
@@ -63,6 +67,7 @@ export class BrowserPersonaCoordinator {
    * substitute for transact for leaf signatures, mutations or MLS effects.
    * A restart, local write, pending exchange or fence removes confirmation. */
   async readConfirmed<T>(persona: string, read: (view: PersonaReader) => Promise<T>, current: () => boolean): Promise<CoordinationResult<T>> {
+    this.#assertNoEffect(persona)
     if (!current()) return pending('stale')
     let token: { revision: string; current: () => boolean } | undefined
     const stillConfirmed = () => token !== undefined && this.#confirmed.get(persona) === token && token.current()
@@ -92,12 +97,72 @@ export class BrowserPersonaCoordinator {
   constructor(private readonly store: BrowserMlsPersonaStore, private readonly channels: PersonaWitnessChannels,
     private readonly engine: () => Promise<Engine> = loadMlsEngine) {}
 
+  /** Fresh witnessed read followed by an external effect under the SAME
+   * native persona lock. The reader cannot write and must return only copied
+   * data. It finishes and all transaction plaintext, engine handles and the
+   * witness channel are disposed before the effect starts. No provisional
+   * transaction callback is allowed to publish. The effect must await actual
+   * settlement and cannot re-enter this coordinator for the same persona.
+   * An interrupted effect may have durable/external consequences; its owner
+   * must retain that evidence rather than infer rollback from a held result. */
+  async withConfirmedEffect<Q, T>(persona: string, read: (view: PersonaReader) => Promise<Q>,
+    effect: (checked: Q) => Promise<T>, current: () => boolean): Promise<CoordinationResult<T>> {
+    this.#assertNoEffect(persona)
+    this.invalidate(persona)
+    if (!current()) return pending('stale')
+    const wasm = await this.engine()
+    const outcome = await this.store.withPersona<CoordinationResult<T>>(persona, async store => {
+      if (!current()) return pending('stale')
+      let file: PersonaSnapshot | undefined
+      try { file = await store.read(true) } catch (error) {
+        if (!broken(error)) throw error
+        const marker = await store.fence(error instanceof PersonaStorageError ? error.code : 'invalid')
+        return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
+      }
+      if (!file) return pending('not-enrolled')
+      if (file.data.coordinator === null) return file.marker.state === 'fenced'
+        ? { state: 'fenced', reason: file.marker.reason ?? 'invalid', subject: file.marker.subject, retiring: false } : pending('not-enrolled')
+      const platform = makePlatform(wasm)
+      let core: Coordinator | undefined, run: CoordinationRun | undefined, checked: Q
+      try {
+        try { core = openCore(wasm, platform, file) } catch (error) {
+          if (code(error) !== 'CoordinatorMalformed') throw error
+          const marker = await store.fence('invalid-coordinator')
+          return { state: 'fenced', reason: marker.reason!, subject: marker.subject, retiring: false }
+        }
+        run = new CoordinationRun(wasm, core, store, file, this.channels, current)
+        const ready = await run.reconcile()
+        if (ready !== undefined) return ready
+        if (!current()) return pending('stale')
+        const tx = new Transaction(store, run.file.data.installation, run.file.data.active)
+        try {
+          const view: PersonaReader = Object.freeze({ installation: tx.installation, readVault: tx.readVault.bind(tx), readSession: tx.readSession.bind(tx) })
+          checked = structuredClone(await read(view))
+          await tx.finish()
+          if (!sameObjects(tx.candidate(), run.file.data.active)) throw new InvalidPersonaRecord('Confirmed effect changed its read-only predecessor')
+        } catch (error) {
+          if (error instanceof InvalidPersonaRecord) return await run.fence('invalid-vault')
+          if (!broken(error)) throw error
+          return await run.fence((error as PersonaStorageError).code)
+        } finally { await tx.dispose() }
+      } finally { try { await run?.close() } finally { core?.free(); platform.free() } }
+      if (!current()) return pending('stale')
+      this.#effects.add(persona)
+      try {
+        const value = await effect(checked!)
+        return current() ? { state: 'active', value, marks: new Map() } : pending('stale')
+      } finally { this.#effects.delete(persona) }
+    })
+    return current() ? outcome : pending('stale')
+  }
+
   status(persona: string, current: () => boolean = () => true): Promise<CoordinationResult<void>> { return this.transact(persona, async () => undefined, current) }
 
   /** Explicit local replacement. This destroys MLS object keys, not the
    * witness's registration. A known retiring duty keeps only its outer-sealed
    * writer/state/route until a fresh signed retired receipt ends it. */
   async clear(persona: string, current: () => boolean, expectedInstallation?: string): Promise<CoordinationHold | CoordinationFence> {
+    this.#assertNoEffect(persona)
     this.invalidate(persona)
     if (!current()) return pending('stale')
     const wasm = await this.engine()
@@ -139,6 +204,7 @@ export class BrowserPersonaCoordinator {
    * It cannot release a retained retiring duty. A healthy installation must
    * first be cleared/fenced; old subject/installation ids remain tombstoned. */
   async keeperConfirmsRetired(persona: string, subject: string, current: () => boolean): Promise<boolean> {
+    this.#assertNoEffect(persona)
     if (!/^[0-9a-f]{64}$/.test(subject) || !current()) return false
     const wasm = await this.engine()
     const confirmed = await this.store.withPersona(persona, async store => {
@@ -173,6 +239,7 @@ export class BrowserPersonaCoordinator {
    */
   async transact<T>(persona: string, change: (tx: PersonaTransaction, witness: PersonaMlsWitness) => Promise<T>, current: () => boolean,
     activated?: (marks: ReadonlyMap<string, bigint>) => undefined): Promise<CoordinationResult<T>> {
+    this.#assertNoEffect(persona)
     this.invalidate(persona)
     if (!current()) return pending('stale')
     const confirmation = Symbol()

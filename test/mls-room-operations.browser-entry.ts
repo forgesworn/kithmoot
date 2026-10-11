@@ -75,8 +75,8 @@ export async function enrol(replace = false, lifetime = 7 * 86400) {
 }
 
 const roomContext = () => ({ vault: ctx(), rendezvousKey: persona, current: () => true })
-export async function create(decision: 'approve' | 'deny' = 'approve') {
-  const result = await rooms.create(roomContext(), { name: 'Witnessed room', homeBox: boxId, installation, expiresAt: clock + 86400 }, async () => decision)
+export async function create(decision: 'approve' | 'deny' = 'approve', lifetime = 86400) {
+  const result = await rooms.create(roomContext(), { name: 'Witnessed room', homeBox: boxId, installation, expiresAt: clock + lifetime }, async () => decision)
   if (result.state === 'active') roomId = result.value.session
   return result
 }
@@ -178,6 +178,8 @@ function boxInput(record: any, signed?: Uint8Array) { return { homeBox: boxId, i
 let candidateRegistrations = 0, candidatePackagePause: Promise<void> | undefined, releaseCandidatePackage: (() => void) | undefined
 let candidateAddTask: Promise<unknown> | undefined, candidateAddResult: unknown
 let candidatePrepared = false, candidateStartPause: Promise<void> | undefined, releaseCandidateStart: (() => void) | undefined
+let guestCredentialLifetime = 7 * 86400, guestBindingLifetime = 86400
+export function configureGuestLifetime(credentialSeconds: number, bindingSeconds: number) { guestCredentialLifetime = credentialSeconds; guestBindingLifetime = bindingSeconds }
 function fixturePackageClient(timeoutMs = 20_000): BrowserMlsBoxClient {
   const route = pairingFixture(nodeKey).route, encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
   const transport = { request: async (request: LinkRequest) => {
@@ -204,9 +206,9 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   guestDevice = bytesToHex(schnorr.getPublicKey(guestSecret))
   guestPlatform = new wasm.Platform(hexToBytes(guestDevice), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
   const personSecret = separatePerson ? new Uint8Array(32).fill(44) : secret, person = getPublicKey(personSecret)
-  const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', person], ['scope', 'person'], ['device', guestDevice], ['expiration', String(clock + 7 * 86400)]] }, personSecret)
-  const binding = { credential: { pubkey: hexToBytes(person), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
-  const joining = wasm.Session.prepareCapability(guestPlatform, BigInt(clock), { binding, expiresAt: BigInt(clock + 86400), adderRz: rz, counter: 0n })
+  const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', person], ['scope', 'person'], ['device', guestDevice], ['expiration', String(clock + guestCredentialLifetime)]] }, personSecret)
+  const binding = { credential: { pubkey: hexToBytes(person), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + guestBindingLifetime) }
+  const joining = wasm.Session.prepareCapability(guestPlatform, BigInt(clock), { binding, expiresAt: BigInt(clock + Math.min(guestBindingLifetime, guestCredentialLifetime)), adderRz: rz, counter: 0n })
   const ask = joining.signRequest(), dh = joining.ecdhRequest()
   const made = joining.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, guestSecret), secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), dh.peerRz)).slice(1))
   guest = made.session; guestAck(made.step)
@@ -428,6 +430,48 @@ export async function keeperInstallAttempt(node = 'current') {
   try { return { record: await ledger.install(box, grant.persona, grant.device, { session: roomId, name: 'Expanded use', leaf: guestLeaf }), signed, writes, published } }
   catch (error) { return { error: (error as Error).message, signed, writes, published } }
   finally { inboxGrants.put = original }
+}
+let verifiedSelection: { persona: string; device: string; room: import('../app/src/mls-keeper-admission.js').MlsVerifiedGrantRoom } | undefined
+let verifiedWork: Promise<unknown> | undefined, releaseVerified: (() => void) | undefined
+let verifiedEntered = false, verifiedLive = true, verifiedSigns = 0, verifiedWrites = 0, verifiedPublications = 0
+export async function captureVerifiedGrant() {
+  const roster = await rooms.members(roomContext(), roomId), authority = await rooms.roomRevocationAuthority(roomContext(), roomId)
+  if (roster.state !== 'active' || authority.state !== 'active') throw new Error('fixture verified roster held')
+  const member = roster.value.find(item => item.leafId === guestLeaf)!
+  verifiedSelection = { persona: member.identity, device: member.device,
+    room: { session: roomId, leaf: guestLeaf, name: authority.value.name, homeBox: member.homeBox, rendezvousKey: persona } }
+}
+export function startVerifiedGrant(stage = '', mismatch = '') {
+  const selection = structuredClone(verifiedSelection!), keeper = localIdentity(secret)
+  if (mismatch === 'device') selection.device = 'a1'.repeat(32)
+  if (mismatch === 'identity') selection.persona = 'a2'.repeat(32)
+  if (mismatch === 'rendezvous') selection.room.rendezvousKey = 'a3'.repeat(32)
+  const box = { routeId: 'verified-fixture', eventUrl: `ws://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}/events` }
+  const pending = new Promise<void>(resolve => { releaseVerified = resolve })
+  const pause = async (at: string) => { if (stage === at) { verifiedEntered = true; await pending } }
+  const identity = { pubkey: keeper.pubkey, signEvent: async (template: any) => { verifiedSigns++; await pause('sign'); return keeper.signEvent(template) } }
+  const context = () => ({ vault: ctx(), current: () => verifiedLive, foreground: () => verifiedLive })
+  const ledger = new BrowserMlsGrantLedger(() => verifiedLive ? identity : undefined,
+    { resume: async () => undefined, boxes: () => [box], pairedBoxes: async () => [] } as any,
+    { all: () => inboxGrants.all(), put: async record => { verifiedWrites++; return inboxGrants.put(record) } },
+    () => ({ publish: async () => { verifiedPublications++; await pause('publish'); if (mismatch === 'publication') throw new Error('fixture uncertain publication') }, close: () => undefined }),
+    () => clock, undefined, undefined, new BrowserMlsKeeperAdmission(host, context, vault))
+  verifiedWork = ledger.installVerified(box, selection.persona, selection.device, selection.room)
+    .then(record => ({ state: record.state }), error => ({ error: error.message }))
+}
+export function verifiedGrantStatus() { return { entered: verifiedEntered, signed: verifiedSigns, writes: verifiedWrites, published: verifiedPublications } }
+export function invalidateVerifiedGrant() { verifiedLive = false; host.invalidate(); rooms.invalidate() }
+export async function finishVerifiedGrant() { releaseVerified?.(); return verifiedWork }
+export async function verifiedGrantRecords() { return (await inboxGrants.all()).map(record => ({ state: record.state, persona: record.persona, device: record.device, rooms: record.rooms })) }
+export async function beginCompetingGuestRemoval() {
+  const other = new BrowserPersonaCoordinator(store, async () => ({ read: r => exchange('read', r), advance: r => exchange('advance', r) }))
+  const otherVault = new CoordinatedMlsVault(other, { now: () => clock, generation: () => generation })
+  const otherRooms = new BrowserMlsRoomOperations(other, otherVault, () => clock)
+  const context = { vault: otherVault.context(principal, persona), rendezvousKey: persona, current: () => true }
+  const roster = await otherRooms.members(context, roomId)
+  if (roster.state !== 'active') throw new Error('fixture competing roster held')
+  return otherRooms.removeDevice(context, roomId, { operation: '03'.repeat(32), leafId: guestLeaf,
+    members: roster.value.filter(member => member.leafId === guestLeaf), grants: [], compromised: true })
 }
 /** Short signed lifetime keeps the real room live while its grant lapses. */
 export async function shortenKeeperGrant(seconds = 60, revoking = false) {

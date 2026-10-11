@@ -142,6 +142,7 @@ export class CoordinatedMlsVault {
     }))
   }
   current(ctx: VaultContext): boolean { return this.#current(ctx) }
+  usesCoordinator(coordinator: BrowserPersonaCoordinator): boolean { return this.coordinator === coordinator }
 
   /** Trusted room transaction helper: uses its existing persona lock, never
    * acquires another. Rechecks current durable device/credential and, for a
