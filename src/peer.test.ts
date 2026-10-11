@@ -22,6 +22,57 @@ async function settle(): Promise<void> {
 }
 
 describe('Peer', () => {
+  it('keeps a newer camera offer pending when an older correlated answer arrives', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH,
+      onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      const microphone = fakeAudioTrack()
+      await peer.start([microphone]); await settle()
+      const first = signals.find(body => body.type === 'offer')!
+      expect(first.seq).toBe(1)
+      await peer.handleSignal({ type: 'answer', roomId: '', sdp: 'initial-answer', re: first.seq })
+      await peer.start([microphone, fakeMediaTrack('video')]); await settle()
+      const next = signals.filter(body => body.type === 'offer').at(-1)!
+      expect(next.seq).toBe(2)
+      const pc = factory.instances[0]!
+      const applied = pc.calls.filter(call => call.method === 'setRemoteDescription').length
+      await peer.handleSignal({ type: 'answer', roomId: '', sdp: 'initial-answer', re: first.seq })
+      expect(pc.signalingState).toBe('have-local-offer')
+      expect(pc.calls.filter(call => call.method === 'setRemoteDescription')).toHaveLength(applied)
+      peer.retransmitNow(); await settle()
+      expect(signals.at(-1)).toMatchObject({ type: 'offer', seq: next.seq, sdp: next.sdp })
+      await peer.handleSignal({ type: 'answer', roomId: '', sdp: 'camera-answer', re: next.seq })
+      expect(pc.signalingState).toBe('stable')
+    } finally { peer.close() }
+  })
+
+  it('echoes each incoming offer identifier and invalidates a rolled-back local offer', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH,
+      onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      const microphone = fakeAudioTrack()
+      await peer.start([microphone]); await settle()
+      const abandoned = signals.find(body => body.type === 'offer')!
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: 'remote-offer', seq: 77 })
+      expect(signals.at(-1)).toMatchObject({ type: 'answer', re: 77 })
+      const pc = factory.instances[0]!
+      await peer.start([microphone, fakeMediaTrack('video')]); await settle()
+      const current = signals.filter(body => body.type === 'offer').at(-1)!
+      expect(current.seq).not.toBe(abandoned.seq)
+      const applied = pc.calls.filter(call => call.method === 'setRemoteDescription').length
+      await peer.handleSignal({ type: 'answer', roomId: '', sdp: 'abandoned-answer', re: abandoned.seq })
+      expect(pc.signalingState).toBe('have-local-offer')
+      expect(pc.calls.filter(call => call.method === 'setRemoteDescription')).toHaveLength(applied)
+      await peer.handleSignal({ type: 'answer', roomId: '', sdp: 'current-answer', re: current.seq })
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: 'remote-offer', seq: 78 })
+      expect(signals.at(-1)).toMatchObject({ type: 'answer', re: 78 })
+      peer.retransmitNow(); await settle()
+      expect(signals.at(-1)).toMatchObject({ type: 'answer', re: 78 })
+    } finally { peer.close() }
+  })
+
   it('decides politeness by comparing device pubkeys, and the two sides disagree', () => {
     const factory = createFakeFactory()
     const low = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })

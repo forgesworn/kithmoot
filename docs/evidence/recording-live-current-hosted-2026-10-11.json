@@ -1,0 +1,72 @@
+{
+  "qualification": "Hosted web live recording with generated wire fixtures",
+  "source_commit": "418d00a0b044b86910c8f0ceb9ba4ca5077eb63d",
+  "run": 38151972660,
+  "url": "https://github.com/forgesworn/kithmoot/actions/runs/38151972660",
+  "jobs": [
+    {
+      "name": "test (22)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "test (24)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (firefox 2 of 2)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (chromium rooms)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (chromium rest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (chromium call-relays)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (chromium media)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (firefox 1 of 2)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (chromium desktop)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (chromium calls)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (webkit 2 of 2)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "acceptance (webkit 1 of 2)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "limits": [
+    "Web software and browser qualification; not Android Session interoperability or physical recording/export acceptance",
+    "Quiet/delegated/rekey Send and final production delivery remain separate gates"
+  ]
+}
