@@ -65,3 +65,74 @@ for (const privateChat of [false, true]) {
     } finally { await Promise.all(contexts.map(context => context.close())) }
   })
 }
+
+for (const phone of [false, true]) {
+  for (const leave of [false, true]) {
+    test(`a delayed recording stop receipt cannot hold ${leave ? 'call shutdown' : 'the saved clip'} (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }, info) => {
+      test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic capture needs Chromium')
+      const context = await newDeviceContext(browser, baseURL!, phone
+        ? { isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } }
+        : { viewport: { width: 1440, height: 900 } })
+      let holdReceipts = false
+      const held: Array<() => void> = []
+      for (const relay of testRelaysFor(baseURL!) ?? []) {
+        await context.routeWebSocket(relay, ws => {
+          const upstream = ws.connectToServer()
+          ws.onMessage(raw => upstream.send(raw))
+          upstream.onMessage(raw => {
+            if (holdReceipts && JSON.parse(String(raw))[0] === 'OK') held.push(() => ws.send(raw))
+            else ws.send(raw)
+          })
+        })
+      }
+      await context.addInitScript(() => {
+        const tracks: MediaStreamTrack[] = []
+        ;(window as unknown as { __capturedTracks: MediaStreamTrack[] }).__capturedTracks = tracks
+        const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+        navigator.mediaDevices.getUserMedia = async constraints => {
+          const stream = await original(constraints)
+          tracks.push(...stream.getTracks())
+          return stream
+        }
+      })
+      try {
+        const page = await context.newPage()
+        const url = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Receipt test', relays: testRelaysFor(baseURL!) ?? [], iceUrls: [] })
+        await open(page, url, 'Ada'); await page.locator('#join').click()
+        await expect(page.locator('#roomArea')).toBeVisible()
+        await turnOnMedia(page)
+        await page.locator('#recordToggle').click()
+        await page.locator('input[name="recording-layout"][value="audio"]').check()
+        await page.locator('#actionConfirm').click()
+        await expect(page.locator('#recordingBannerText')).toContainText('You are recording')
+        await page.waitForTimeout(1600)
+        if (leave) {
+          await page.keyboard.press('Control+k'); await page.locator('#roomSwitcherHome').click()
+          await expect(page.locator('#callDock')).toBeVisible()
+        }
+        holdReceipts = true
+        await page.locator(leave ? '#callDockLeave' : '#recordingStop').click()
+        await expect.poll(() => held.length).toBeGreaterThan(0)
+        if (leave) {
+          await expect(page.locator('#callDock')).toBeHidden({ timeout: 2000 })
+          await expect.poll(() => page.evaluate(() => {
+            const tracks = (window as unknown as { __capturedTracks: MediaStreamTrack[] }).__capturedTracks
+            return tracks.length >= 2 && tracks.every(track => track.readyState === 'ended')
+          }), { timeout: 2000 }).toBe(true)
+        }
+        // Read the actual local file while the relay's receipt is still held.
+        await expect(page.locator('#recordingSave')).toHaveAttribute('href', /^blob:/, { timeout: 2000 })
+        const duration = await page.locator('#recordingSave').evaluate(async (link: HTMLAnchorElement) => {
+          const bytes = await (await fetch(link.href)).arrayBuffer(), audio = new AudioContext()
+          try { return (await audio.decodeAudioData(bytes)).duration }
+          finally { await audio.close() }
+        })
+        expect(duration).toBeGreaterThan(0.5)
+      } finally {
+        holdReceipts = false
+        for (const send of held) send()
+        await context.close()
+      }
+    })
+  }
+}

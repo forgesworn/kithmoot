@@ -8292,16 +8292,17 @@ async function stopRecording(reason?: string): Promise<void> {
   try {
     // The recorder stops before the notice comes down, never after.
     const blob = await active.recorder.stop()
-    await postRecordingOff(active.session, active.authoritySk, active.notice)
-    if (active.discarded) return
-    if (blob.size > 0) {
+    if (!active.discarded && blob.size > 0) {
       if (pendingRecording) URL.revokeObjectURL(pendingRecording.url)
       const file = new File([blob], recordingFileName(active.recorder.startedAt, active.recorder.mimeType), { type: active.recorder.mimeType.split(';')[0]! })
       pendingRecording = { file, roomId, url: URL.createObjectURL(file) }
       setStatus(`Recording stopped${reason ? ` because ${reason}` : ''}: ${formatBytes(file.size)}, on this device only. Share it in the room or save it.`)
-    } else {
+    } else if (!active.discarded) {
       setStatus(`Recording stopped${reason ? ` because ${reason}` : ''}. Nothing was recorded.`)
     }
+    // Saving local bytes does not depend on the relay confirming the warning.
+    renderRecording()
+    await postRecordingOff(active.session, active.authoritySk, active.notice)
   } finally {
     active.video?.close()
     recordingStops.delete(active)
@@ -13754,7 +13755,8 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
-  if (activeRecording?.session === old && old !== dockedCall?.session) await stopRecording()
+  const recordingStop = activeRecording?.session === old && old !== dockedCall?.session
+    ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
   if (!keepCall) {
     ++callGeneration
     const key = callLockKey()
@@ -13815,13 +13817,11 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   setCallOpen(false)
   updateUi()
   if (document.documentElement.dataset.roomSwitching !== 'true') $('roomArea').hidden = true
-  // leave() stops the old session synchronously; its promise waits only for
-  // relay acknowledgement. Keep that transport alive for the bounded farewell,
-  // but free the controls immediately. Never clean up global connections later:
+  // Keep the original roster transport until its recording stop has settled,
+  // but stop media and free the controls immediately. Never clean up global connections later:
   // by then they may belong to the newly opened room.
   if (old && old === dockedCall?.session) return
   if (old) closeRoomLogo(old)
-  const farewell = old?.leave() ?? Promise.resolve()
   const own = old ? sessionConnections.get(old) : undefined
   for (const [key, pc] of openConnections) {
     if (keepCall && !own?.has(key)) continue
@@ -13829,7 +13829,8 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
     uplink.forget(key)
     openConnections.delete(key)
   }
-  const finished = farewell.finally(() => transport?.close())
+  const finished = (recordingStop ? recordingStop.then(() => old?.leave()) : old?.leave() ?? Promise.resolve())
+    .finally(() => transport?.close())
   if (options.backgroundFarewell) void finished.catch(() => {})
   else await finished
 }
@@ -13989,9 +13990,10 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   const c = dockedCall
   if (!c) return
   const key = callLockKey()
-  // Keep the original roster transport alive until its recording Off has
-  // been confirmed. Closing it concurrently loses the participant warning.
-  if (activeRecording?.session === c.session) await stopRecording().catch(err => setStatus(describeError(err)))
+  // The warning needs its original transport; microphone and camera shutdown
+  // must never wait for that transport's receipt.
+  const recordingStop = activeRecording?.session === c.session
+    ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
   clearTimeout(c.conferenceEndTimer)
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
@@ -14009,7 +14011,6 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   window.kithmootDesktop?.setCallActive(false)
   // The room on screen is this device's only room now.
   myDeviceId = session?.device ?? ''
-  if (reason === 'preempted') await c.session.farewellCall().catch(() => {})
   const own = sessionConnections.get(c.session)
   for (const [k, pc] of openConnections) {
     if (!own?.has(k)) continue
@@ -14017,11 +14018,13 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
     uplink.forget(k)
     openConnections.delete(k)
   }
-  void c.session.leave().finally(() => c.transport?.close()).catch(() => {})
   updateUi()
   renderDock()
   renderWorkspace()
   setStatus(notice ?? `You left the call in ${c.label}.`, 'done')
+  if (reason === 'preempted') await c.session.farewellCall().catch(() => {})
+  void (recordingStop ? recordingStop.then(() => c.session.leave()) : c.session.leave())
+    .finally(() => c.transport?.close()).catch(() => {})
 }
 
 /** The call surface is a permanent sibling of the route panels. Navigation
