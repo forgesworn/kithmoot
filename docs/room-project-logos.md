@@ -122,9 +122,9 @@ rows and headers use this context. Removing a room override restores its
 inherited project image. A call captures its own selected project on joining;
 changing the conversation or opening the same room from another project does
 not change that call's context. Updates to its own project still propagate.
-Pre-admission screens use project branding only when that project is already
-authorised and joined locally. No logo bytes
-or new fields are added to bearer invitation links.
+Pre-admission branding remains open: its implementation must use project
+branding only when that project is already authorised and joined locally.
+No logo bytes or new fields are added to bearer invitation links.
 
 ## Remaining acceptance
 
