@@ -63,7 +63,7 @@ test('the app exposes witness preparation only in development preview and retain
   await expect(page.locator('#mlsGrantDevelopment')).not.toBeVisible()
   await expect(page.locator('#mlsGrantDevelopment [data-account]')).toHaveText('')
   await expect(page.locator('#mlsGrantDevelopment [data-status]')).toHaveText('')
-  await expect(page.locator('#homeSignIn')).toBeVisible()
+  await expect(page.locator('#headerSignIn')).toBeVisible()
   await expect(page.locator('#status')).toContainText('Signed out.')
   expect(await page.locator('#mlsWitnessAccount').textContent()).toBe('')
   await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
