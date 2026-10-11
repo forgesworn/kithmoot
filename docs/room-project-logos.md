@@ -136,5 +136,8 @@ desktop build (16 logo journeys in total). The project journal revision passes
 typecheck, 25 focused protocol/directory cases and all 3,922 unit tests in 278
 files, including authority changes during delayed primary/secondary delivery,
 conflicts, exact recovery, early envelopes, storage failure and late signing.
+After reconciling current main, typecheck and all 3,938 tests in 279 files
+pass. Twenty existing project journeys also pass across Chromium, Firefox,
+WebKit and the desktop build, followed by packed library/agent imports.
 Installed desktop and physical phone acceptance remain open. This is not an
 installed or publicly shipped logo feature.
