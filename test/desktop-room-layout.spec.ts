@@ -5,7 +5,7 @@ import { generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
 import { testRelaysFor } from './relays.js'
-import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, openNewRoomForm, remoteAudioCount, turnOnMedia, TEST_RELAY_WS } from './browser.js'
+import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, openNewRoomForm, remoteAudioCount, requestAdmission, turnOnMedia, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Two screens on the stage, faces beside them, and a chat that slides.
@@ -771,6 +771,8 @@ test('switching from the rail to a room that has to let you in shows the door, n
     await rowan.setViewportSize({ width: 1440, height: 860 })
     await rowan.addInitScript(() => localStorage.setItem('kithmoot.name', 'Rowan'))
     await rowan.goto(link)
+    await expect(rowan.locator('#requestAdmission')).toBeVisible()
+    await requestAdmission(rowan)
     const card = host.locator('#approvals .approvalCard.knock')
     await expect(card).toContainText('Rowan wants to join', { timeout: 60_000 })
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
@@ -791,9 +793,13 @@ test('switching from the rail to a room that has to let you in shows the door, n
       }
     })
     await rowan.locator('.workspaceRoomLink', { hasText: 'Asked in' }).click()
+    await expect(rowan.locator('#requestAdmission')).toBeVisible()
+    await expect(rowan.locator('#displayName')).toHaveValue('Rowan')
+    await expect(rowan.locator('#roomSwitchProgress')).toBeHidden()
+    await requestAdmission(rowan)
     await expect(rowan.locator('#arrivalTitle')).toHaveText('Waiting to be admitted', { timeout: 30_000 })
     await expect(rowan.locator('#arrivalTitle')).toBeVisible()
-    await expect(rowan.locator('#status')).toContainText('Asking to be let in')
+    await expect(rowan.locator('#admissionPreviewStatus')).toContainText('Your request reached a relay')
     await expect(rowan.locator('#stopOpening')).toBeVisible()
     await expect(rowan.locator('#roomSwitchProgress')).toBeHidden()
 

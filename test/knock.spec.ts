@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 async function askedRoom(browser: Browser, baseURL: string) {
@@ -26,6 +26,7 @@ async function startAskedRoom(host: Page, guest: Page, baseURL: string) {
   await expect(host.locator('#roomArea')).toBeVisible()
   await guest.addInitScript(() => localStorage.setItem('kithmoot.name', 'Rowan'))
   await guest.goto(link)
+    await requestAdmission(guest)
   const card = host.locator('#approvals .approvalCard.knock')
   await expect(card).toContainText('Rowan wants to join')
   return card
@@ -125,6 +126,7 @@ test('a rejected refusal stays visible and its retry preserves the signed respon
     await expect(card).toHaveCount(0)
     expect(responses).toHaveLength(2); expect(responses[0]).toBe(responses[1])
     await guest.locator('#retryArrival').click()
+    await requestAdmission(guest)
     await expect(card).toContainText('Rowan wants to join')
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(guest.locator('#status')).toContainText('You are on the list')
@@ -164,6 +166,7 @@ test('a rejected grant stays failed and a fresh guest request can succeed', asyn
     await guest.clock.runFor(120_001)
     await expect(guest.locator('#retryArrival')).toBeVisible()
     await guest.locator('#retryArrival').click()
+    await requestAdmission(guest)
     await expect(card).toContainText('Rowan wants to join')
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(host.locator('#chatLog')).toContainText('Invitation sent to Rowan.')
@@ -213,6 +216,7 @@ test('another same-name request preserves the first request’s focused and pres
     const other = await otherContext.newPage()
     await other.addInitScript(() => localStorage.setItem('kithmoot.name', 'Rowan'))
     await other.goto(guest.url())
+    await requestAdmission(other)
     const cards = host.locator('#approvals .approvalCard.knock')
     await expect(cards).toHaveCount(2)
     const original = host.locator(`.knock[data-request="${request}"]`)
@@ -226,6 +230,7 @@ test('another same-name request preserves the first request’s focused and pres
     await host.mouse.down()
     const third = await otherContext.newPage()
     await third.goto(guest.url())
+    await requestAdmission(third)
     await expect(cards).toHaveCount(2)
     await host.mouse.up()
     await expect(guest.locator('#status')).toContainText('You are on the list')
@@ -254,6 +259,7 @@ test('an explicit open-door choice survives reopening a temporary room', async (
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
     const next = await nextContext.newPage()
     await next.goto(link)
+    await requestAdmission(next)
     await expect(next.locator('#status')).toContainText('You are on the list')
     await expect(host.locator('#approvals .approvalCard.knock')).toHaveCount(0)
   } finally { await nextContext.close(); await guestContext.close(); await hostContext.close() }
@@ -272,6 +278,7 @@ test('an admitted member asks before passing a closed-room invitation to another
     const next = await nextContext.newPage()
     await next.addInitScript(() => localStorage.setItem('kithmoot.name', 'Later guest'))
     await next.goto(link)
+    await requestAdmission(next)
     const memberQueue = guest.locator('#approvals .approvalCard.knock')
     await expect(memberQueue).toContainText('Later guest wants to join')
     await expect(next.locator('#join')).toBeHidden()
@@ -314,9 +321,10 @@ test('people with the link ask, and the person in the room lets them in or decli
     const rowan = await b.newPage()
     await rowan.addInitScript(() => localStorage.setItem('kithmoot.name', 'Rowan'))
     await rowan.goto(link)
-    await expect(rowan.locator('#status')).toContainText('Asking to be let in', { timeout: 60_000 })
+    await requestAdmission(rowan)
+    await expect(rowan.locator('#admissionPreviewStatus')).toContainText('Waiting for someone in the room', { timeout: 60_000 })
     await expect(rowan.locator('#arrivalTitle')).toHaveText('Waiting to be admitted')
-    await expect(rowan.locator('#arrivalLead')).toContainText('Someone already in the room needs to let you in')
+    await expect(rowan.locator('#arrivalLead')).toContainText('Someone in the room needs to accept your request')
     const card = host.locator('#approvals .approvalCard.knock')
     await expect(card).toContainText('Rowan wants to join', { timeout: 60_000 })
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
@@ -331,6 +339,7 @@ test('people with the link ask, and the person in the room lets them in or decli
     const sam = await c.newPage()
     await sam.addInitScript(() => localStorage.setItem('kithmoot.name', 'Sam'))
     await sam.goto(link)
+    await requestAdmission(sam)
     const second = host.locator('#approvals .approvalCard.knock')
     await expect(second).toContainText('Sam wants to join', { timeout: 60_000 })
     await second.getByRole('button', { name: 'Decline', exact: true }).click()

@@ -3,7 +3,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { openNewRoomForm, requestAdmission, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
 import { openRoomUrl } from './relays.js'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
@@ -257,6 +257,7 @@ test('the creator can turn an existing temporary meeting into a group without ch
     await expect(page.locator('#roomArea')).toBeVisible()
     await arrival.addInitScript(() => localStorage.setItem('kithmoot.name', 'Existing member'))
     await openRoomUrl(arrival, temporary)
+    await requestAdmission(arrival)
     const decision = page.locator('#approvals .approvalCard.knock')
     await expect(decision).toContainText('Existing member wants to join')
     await expect(arrival.locator('#join')).toBeHidden()

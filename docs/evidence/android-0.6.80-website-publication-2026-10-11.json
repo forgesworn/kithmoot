@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-11T00:03:09.366992+00:00",
+  "sourceCommit": "a76de8ad7711ab25b063f64eebd6430d45639e98",
+  "pullRequest": "https://github.com/forgesworn/kithmoot/pull/367",
+  "ci": "https://github.com/forgesworn/kithmoot/actions/runs/38093982754",
+  "ciChecks": {
+    "passed": 12,
+    "failed": 0
+  },
+  "mergedSourceQualification": {
+    "sourceFilesMatchedOnM4": 1458,
+    "typecheck": true,
+    "unitTestsPassed": 3903,
+    "unitFilesPassed": 274,
+    "mlsBrowserChecksPassed": 132,
+    "websiteAndUpdateBrowserChecksPassed": 19
+  },
+  "deployment": {
+    "host": "kithmoot.app",
+    "release": "20261010T235516Z",
+    "serverTreeFilesMatched": 305,
+    "publicHttpFilesMatched": 305,
+    "serviceWorkerCacheHeadersVerified": true,
+    "cleanBrowserChecks": {
+      "passed": 4,
+      "widths": [
+        390,
+        1440
+      ],
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "pageErrors": 0,
+      "horizontalOverflow": false
+    }
+  },
+  "android": {
+    "versionName": "0.6.80",
+    "versionCode": 103,
+    "apkBytes": 79411870,
+    "apkSha256": "09a5e5de88aa670a3f64318a1e11ed12b05c39c7b9d80897b07d7faea7944c10",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "signatureSchemes": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "reviewedLineageVerified": true,
+    "publicStableDownloadVerified": true,
+    "signedUpdateManifestVerified": true,
+    "githubRelease": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.80",
+    "download": "https://kithmoot.app/apk/kithmoot-latest.apk"
+  },
+  "retained": {
+    "previousWebsiteRelease": "20261010T184215Z",
+    "previousAndroidApks": true,
+    "desktopVersion": "0.1.72",
+    "previousDesktopInstallers": true
+  },
+  "boundaries": {
+    "physicalAndroidAcceptance": false,
+    "zapstoreAndroidClientAcceptance": false,
+    "nativeGuestCameraMicrophonePreviewIncluded": false,
+    "newRecordingAuthorityGuidanceIncluded": false,
+    "newLogosIncluded": false
+  }
+}

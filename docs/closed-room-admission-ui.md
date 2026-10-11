@@ -32,9 +32,11 @@ held acknowledgements, rejected replies, immutable retries, saved names, unsent
 host drafts and existing signed-account/private-room admission. These are
 synthetic browser results, separate from Android and physical acceptance.
 
-G17 remains open. Guest preview, cancellation, offline/reconnecting states,
-admission from another conversation, complete native composition and unfamiliar
-guest/host acceptance remain. The refusal attempt checks source room, epoch,
+The [guest preview](guest-admission-preview.md) adds deliberate requests, local
+device checks, cancellation and relay connection feedback in the browser and
+desktop. G17 remains open for the complete offline/expiry journey, admission
+from another conversation, native composition and unfamiliar guest/host
+acceptance. The refusal attempt checks source room, epoch,
 invitation, current authority/delegation, transport, contact policy, room lifetime
 and delegation expiry. A short-lived carrier enforces these checks immediately
 before each underlying socket write, including delayed connections, relay

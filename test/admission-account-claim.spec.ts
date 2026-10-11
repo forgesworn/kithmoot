@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { writeFileSync } from 'node:fs'
 import { localIdentity } from '../src/identity.js'
-import { newDeviceContext, openNewRoomForm } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission } from './browser.js'
 import { testRelaysFor, TEST_RELAY_WS } from './relays.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
@@ -61,7 +61,7 @@ for (const verified of [false, true]) test(verified ? 'a matching signed account
   } finally { stop(); pool.close(); await context.close() }
 })
 
-for (const cancellation of ['sign out', 'stop opening', 'deadline'] as const) test(`a late account signature cannot publish an admission request after ${cancellation}`, async ({ browser, baseURL }) => {
+for (const cancellation of ['sign out', 'stop opening', 'cancel request', 'deadline'] as const) test(`a late account signature cannot publish an admission request after ${cancellation}`, async ({ browser, baseURL }) => {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
   const secret = generateSecretKey()
   const relays = testRelaysFor(baseURL!)!
@@ -112,6 +112,7 @@ for (const cancellation of ['sign out', 'stop opening', 'deadline'] as const) te
     // A fragment-only navigation does not reload the application module.
     // Reproduce opening an invitation in a fresh document after sign-in.
     await page.reload()
+    await requestAdmission(page)
     try { await expect.poll(() => proofStarted, { timeout: 6_000 }).toBe(true) }
     catch {
       const state = await page.evaluate(() => ({
@@ -131,6 +132,9 @@ for (const cancellation of ['sign out', 'stop opening', 'deadline'] as const) te
       await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
       await page.locator('#signOut').click()
       await expect(page.locator('#signIn')).toBeVisible()
+    } else if (cancellation === 'cancel request') {
+      await page.locator('#cancelAdmission').click()
+      await expect(page.locator('#arrivalTitle')).toHaveText('Your request was cancelled')
     } else if (cancellation === 'stop opening') {
       await page.locator('#stopOpening').click({ timeout: 15_000 })
       await expect(page).toHaveURL(baseURL!)
