@@ -43,7 +43,7 @@ test('the app exposes witness preparation only in development preview and retain
   await page.locator('#mlsRoomDevelopmentOpen').click()
   await expect(page.locator('#mlsRoomDevelopment')).toBeVisible()
   await expect(page.locator('#mlsRoomDevelopment [data-account]')).toHaveText(pubkey)
-  await expect(page.locator('#mlsRoomDevelopment')).toContainText('authenticated invitation joining and message delivery remain held.')
+  await expect(page.locator('#mlsRoomDevelopment')).toContainText('One explicit manual round processes its retained work; authenticated invitation joining remains held.')
   expect(await page.evaluate(() => indexedDB.databases())).toEqual(initialDatabases)
   expect(mlsRequests).toEqual([])
   await page.locator('#mlsRoomDevelopment [data-close]').click()
@@ -85,6 +85,13 @@ test('the app exposes witness preparation only in development preview and retain
   await page.locator('#mlsRoomDevelopment [data-code]').fill('unsent-private-code')
   await page.locator('#mlsRoomDevelopment [data-create-name]').fill('unsent-private-room-name')
   await page.locator('#mlsRoomDevelopment [data-relays]').fill('wss://fixture.invalid/link')
+  await expect(page.locator('#mlsRoomDevelopment [data-manual]')).toHaveText('Run one manual round')
+  await page.evaluate(() => {
+    for (const name of ['manual-room', 'manual-route']) {
+      const select = document.querySelector<HTMLSelectElement>(`#mlsRoomDevelopment [data-${name}]`)!
+      const option = document.createElement('option'); option.value = 'public-fixture-selection'; option.textContent = 'Fixture selection'; select.replaceChildren(option)
+    }
+  })
   await page.evaluate(() => document.querySelector<HTMLButtonElement>('#signOut')!.click())
   await expect(page.locator('#mlsRoomDevelopment')).not.toBeVisible()
   await expect(page.locator('#mlsRoomDevelopment [data-account]')).toHaveText('')
@@ -93,6 +100,8 @@ test('the app exposes witness preparation only in development preview and retain
   await expect(page.locator('#mlsRoomDevelopment [data-relays]')).toHaveValue('')
   await expect(page.locator('#mlsRoomDevelopment [data-create-name]')).toHaveValue('')
   await expect(page.locator('#mlsRoomDevelopment [data-create-route]')).toBeEmpty()
+  await expect(page.locator('#mlsRoomDevelopment [data-manual-room]')).toBeEmpty()
+  await expect(page.locator('#mlsRoomDevelopment [data-manual-route]')).toBeEmpty()
   expect((await page.evaluate(() => indexedDB.databases())).some(db => db.name?.startsWith('kithmoot-vmls-room-link-v1'))).toBe(false)
   await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()

@@ -4,7 +4,8 @@ This is the first bounded slice of the reviewed development room composition.
 It owns room-only foreground work and a dedicated room connection. Production
 MLS remains unavailable. Explicit development creation saves a local witnessed
 room after fresh installation checks. Authenticated invitation joining,
-uncertain-join recovery and manual driver rounds remain held; these controls
+uncertain-join recovery remain held; an explicit manual round handles one saved
+room and its exact home-box route. These controls
 do not close the combined create/join/driver or browser P3-08 gate.
 
 ## Application controls and ownership
@@ -12,7 +13,8 @@ do not close the combined create/join/driver or browser P3-08 gate.
 `DEV && VITE_BROWSER_MLS_PREVIEW=true` exposes a lazy room connection panel.
 Opening it constructs concrete private components without storage, signing,
 WASM or network I/O. Explicit buttons pair the dedicated endpoint, read saved
-room routes, create a local witnessed room or check saved rooms through the
+room routes, create a local witnessed room, check saved rooms or run one
+bounded manual round through the
 current persona witness. Route
 reads are local; pairing and witness checks hold in quiet/Tor-only contexts.
 There is no background round, timer, retry or cached authority/readiness mark.
@@ -78,9 +80,9 @@ before yielding. Lower creation cancellation can finish while consent,
 signing or journal storage continues. The child callback always dynamically
 drains those registered tails before unlocking, even after an exception or
 invalidation. External owner pause also invalidates lower room operations
-synchronously. A genuinely nonreturning consent/signing promise retains
-custody; a later private consent UI must explicitly settle to denial on
-invalidation/deadline rather than claim a timeout unlocked real work.
+synchronously. A genuinely nonreturning signing promise retains custody. The private consent
+UI explicitly settles to denial on invalidation/deadline; that alone does not
+claim a timeout unlocked actual signing or journal work.
 
 The explicit creation API accepts only a saved route identifier, a bounded name
 and a lifetime. The owner freshly reads its own sealed route state, requires one
@@ -124,6 +126,64 @@ the Link transport engine and remote peers, without adding a production factory
 or exposing private services. This is not default-Link-WASM, live Bothy,
 authenticated full-app creation, physical or independent production acceptance.
 Those remain separate gates. Production creation and MLS stay disabled.
+
+## One explicit manual round
+
+The manual API accepts only a saved route identifier and canonical room session.
+It starts the endpoint first, constructs one private fresh client, reads the
+actual current credential and a fresh witnessed saved room binding, and compares
+the exact device/credential and selected home box. The persisted rendezvous key
+supplies authority; a caller cannot substitute it. PendingJoin/null installation
+and different introduction/home boxes remain held before any BOX request.
+Manual work does not need the short creation child to remain provisioned.
+
+One actual message driver uses the default bounded page/record limits. Its
+native driver lock precedes persona custody, and its whole round promise is
+owned by the room foreground. Actual client settlement remains inside that
+lock. Every completed or stalled result performs a final witnessed tick and
+phase/generation refresh; crossing expiry cannot report an Active result.
+Only an Active room with the originally authenticated installation can reach
+the owner's success fence. Other destinations and uncertain bytes stay retained.
+
+After the round leaves the driver lock and foreground task set, an exact
+witnessed confirmation binds its returned generation to the original device,
+credential, rendezvous key, box and installation using the owner's current
+predicate. This replaces the driver's soon-to-expire confirmation predicate.
+Driver close occurs outside tracked/driver/persona callbacks, starts endpoint
+shutdown and joins actual round/client/shutdown work. External pause invalidates
+all privately owned drivers synchronously and joins all tails even on failure.
+
+After actual endpoint/witness cleanup, a local confirmed read compares the same
+witnessed durable revision and exact captured binding, then freshly checks the
+device/credential. It starts no endpoint or witness/network work. A concurrent
+write, replaced authority, expired credential, clock change or failed cleanup
+withholds the counters and retains committed/uncertain state. Raw bunker device
+key material is captured and compared throughout the scope; its temporary copy
+is wiped after foreground settlement. No client/driver is reused by a later
+operation, and no timer, automatic retry or background round is added.
+
+The panel requires explicit saved-room and route reads before selection, runs
+one bounded round per click and clears both selections on invalidation.
+Resolved counts mean witnessed outbox clearance after confirmed box deposition
+or safe clearance of a superseded commit slot. They do not establish recipient
+acceptance. A stalled bounded attempt still retains uncertainty.
+Invitation initiation/recovery, full two-account delivery and production MLS
+remain separate gates.
+
+The local manual composition passes 66 owner cases across Chromium, Firefox and
+WebKit, alongside 81 lower-driver and 84 creation cases. Four actual-app
+development/production lifecycle checks cover explicit controls, account
+invalidation and absent production preview. All 4,080 units and typecheck pass.
+
+A separate three-browser lab uses default pinned Link/MLS WASM, a real local
+Bothy G5 box and a separate witness daemon. After an explicit external fixture
+operator device grant, it creates a witnessed room, queues a genuine single-
+member Update CommitSlot, clears the short creation child and runs one explicit
+manual round. The round resolves one record, leaves no outgoing record and
+releases ownership; another explicit round resolves none. Fixture identity,
+provisioning and operator controls remain. This proves neither full-app bunker
+acceptance nor invitation joining, two-account delivery or deployed/physical
+operator acceptance. Production MLS remains disabled.
 
 ## Forget integrity in every build
 

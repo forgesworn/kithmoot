@@ -6,7 +6,7 @@ import type { BrowserMlsRoomOperations, MlsDriverCommand, MlsDriverGuard, MlsDri
 type Rooms = Pick<BrowserMlsRoomOperations, 'driverState' | 'confirmTransport' | 'drive' | 'process'>
 type Client = Pick<BrowserMlsBoxClient, 'box' | 'capabilities' | 'deposit' | 'depositSlot' | 'slotStatus' | 'fetch' | 'ack' | 'invalidate' | 'isCurrent' | 'settled'>
 export type MlsDriverRound =
-  | { state: 'done'; delivered: number; processed: number; held: number; leafHeld: number; stalled: boolean; limited: boolean }
+  | { state: 'done'; generation: string; installation: string; phase: string; delivered: number; processed: number; held: number; leafHeld: number; stalled: boolean; limited: boolean }
   | { state: 'stopped'; phase: string; reason?: string }
   | { state: 'offline'; answer: Exclude<BoxAnswer<unknown>, { state: 'ok' }> }
   | Exclude<MlsRoomResult<never>, { state: 'active' }>
@@ -76,7 +76,7 @@ export class BrowserMlsMessageDriver {
   async #run(context: MlsRoomContext): Promise<MlsDriverRound> {
     let state: MlsDriverState | undefined, expected: string | undefined, installation = ''
     const owned: unknown[] = []
-    const done = { state: 'done' as const, delivered: 0, processed: 0, held: 0, leafHeld: 0, stalled: false, limited: false }
+    const done = { state: 'done' as const, generation: '', installation: '', phase: '', delivered: 0, processed: 0, held: 0, leafHeld: 0, stalled: false, limited: false }
     const live = () => context.current()
     const check = () => { if (!live()) throw new Stop(stale()) }
     const take = <T>(result: MlsRoomResult<T>): T => {
@@ -90,7 +90,8 @@ export class BrowserMlsMessageDriver {
       if (expected !== undefined && next.generation !== expected) throw new Stop(stale())
       if (next.binding.homeBox !== this.client.box) throw new Stop({ state: 'refused', reason: 'wrong-box' })
       if (state) { wipe(state); owned.splice(owned.indexOf(state), 1) }
-      state = next; expected = next.generation
+      state = next; expected = done.generation = next.generation
+      done.phase = next.phase.type
       return next
     }
     const guard = (): MlsDriverGuard => ({ generation: expected!, homeBox: this.client.box, installation })
@@ -103,26 +104,34 @@ export class BrowserMlsMessageDriver {
       check()
       const result = await this.rooms.drive(context, this.session, guard(), command)
       if (soft && result.state === 'refused' && result.reason.startsWith('engine:')) { check(); return false }
-      expected = take(result).generation
+      expected = done.generation = take(result).generation
       return true
     }
     const processed = async (mailbox: Uint8Array, envelope: Uint8Array, receipt?: Uint8Array) => {
       check()
       const result = take(await this.rooms.process(context, this.session, { ...guard(), mailbox, envelope, receipt }))
-      expected = result.generation; done.processed++
+      expected = done.generation = result.generation; done.processed++
       return result
     }
     const stopPhase = (s: MlsDriverState) => {
       if (!runnable(s)) throw new Stop({ state: 'stopped', phase: s.phase.type, ...(s.phase.reason ? { reason: s.phase.reason } : {}) })
     }
     const noAnswer = (a: BoxAnswer<unknown>) => a.state === 'unavailable' || a.state === 'not-signed'
+    const finishDone = async () => {
+      // Every completed (including stalled/limited) round has one final
+      // witnessed tick and exact phase/generation. An expiry crossed during
+      // network work cannot escape as a successful Active round.
+      await stepped({ type: 'tick' })
+      stopPhase(await refresh())
+      return done
+    }
     try {
       // Confirm the persona before asking its signer; capabilities is the
       // first BOX request, made outside the persona transaction.
       await refresh()
       const caps = await authenticated(() => this.client.capabilities(live)); check()
       if (caps.state !== 'ok') return { state: 'offline', answer: caps }
-      installation = caps.value.installation
+      installation = done.installation = caps.value.installation
       await stepped({ type: 'installation' })
       stopPhase(await refresh())
       await stepped({ type: 'tick' })
@@ -156,7 +165,7 @@ export class BrowserMlsMessageDriver {
           ? await authenticated(() => this.client.depositSlot(out.mailbox, d.attempt, out.envelope, valid))
           : await authenticated(() => this.client.deposit(out.mailbox, out.envelope, valid))
         check()
-        if (!valid() || noAnswer(answer)) { done.stalled = true; return done }
+        if (!valid() || noAnswer(answer)) { done.stalled = true; return await finishDone() }
         if (answer.state !== 'ok') {
           if (leaf) heldLeaves.add(leaf)
           if (answer.state === 'refused' && answer.code === 'rate-limited') done.limited = true
@@ -190,16 +199,16 @@ export class BrowserMlsMessageDriver {
         const cursors = new Set<string>()
         for (let page = 0; page < this.maxPages && fetched < this.maxRecords; page++) {
           const answer = await authenticated(() => this.client.fetch([w.mailbox], after, live)); check()
-          if (noAnswer(answer)) { done.stalled = true; return done }
+          if (noAnswer(answer)) { done.stalled = true; return await finishDone() }
           if (answer.state !== 'ok') break
           owned.push(answer.value)
           for (const record of answer.value.records) {
             seen = true
-            if (fetched++ >= this.maxRecords) return done
+            if (fetched++ >= this.maxRecords) return await finishDone()
             const effect = await processed(record.mailbox, record.envelope)
             if (effect.ack?.type === 'Now' || effect.ack?.type === 'AfterCommitAck') {
               const ack = await authenticated(() => this.client.ack([{ mailbox: record.mailbox, receipt: record.receipt }], live)); check()
-              if (ack.state !== 'ok') { done.stalled = true; return done }
+              if (ack.state !== 'ok') { done.stalled = true; return await finishDone() }
             }
           }
           if (answer.value.next === null) {
@@ -222,7 +231,7 @@ export class BrowserMlsMessageDriver {
         const attempt = w.kind.attempt
         if (!s.watch.some(v => bytesToHex(v.mailbox) === bytesToHex(w.mailbox) && v.kind.type === 'CommitSlot' && v.kind.attempt === attempt)) continue
         const answer = await authenticated(() => this.client.slotStatus(w.mailbox, attempt, live)); check()
-        if (noAnswer(answer)) { done.stalled = true; return done }
+        if (noAnswer(answer)) { done.stalled = true; return await finishDone() }
         if (answer.state !== 'ok' || !answer.value.signedReceipt) continue
         const value = answer.value; owned.push(value)
         if (value.state === 'filled') await processed(w.mailbox, value.envelope!, value.signedReceipt)
@@ -234,13 +243,13 @@ export class BrowserMlsMessageDriver {
         s = await refresh(); stopPhase(s)
         if (!s.ordering.some(v => v.slot === q.slot && v.attempt === q.attempt)) continue
         const answer = await authenticated(() => this.client.slotStatus(hexToBytes(q.slot), q.attempt, live)); check()
-        if (noAnswer(answer)) { done.stalled = true; return done }
+        if (noAnswer(answer)) { done.stalled = true; return await finishDone() }
         if (answer.state === 'ok' && answer.value.signedReceipt) {
           owned.push(answer.value)
           await stepped({ type: 'receipt', ...q, receipt: answer.value.signedReceipt }, true)
         }
       }
-      return done
+      return await finishDone()
     } catch (error) {
       if (error instanceof Stop) return error.result
       throw error
