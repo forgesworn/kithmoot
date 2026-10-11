@@ -1,0 +1,46 @@
+{
+  "experiment": "G16 synthetic sizing and authenticated envelope",
+  "publiclyShipped": false,
+  "resolverImplemented": false,
+  "nativeParity": false,
+  "pinnedFoldKitRevision": "dc51766b7e6a141d5ba8aa0e5421df86432a7412",
+  "lookupEntropyBits": 128,
+  "fragmentKeyBits": 256,
+  "authenticatedEnvelopeChecks": [
+    "exact full-link recovery",
+    "wrong key rejected",
+    "different lookup ID rejected",
+    "altered expiry rejected",
+    "altered ciphertext rejected",
+    "expired envelope rejected"
+  ],
+  "rows": [
+    {
+      "fixture": "minimal invitation",
+      "fullCharacters": 214,
+      "proposedCharacters": 84,
+      "reductionPercent": 61,
+      "storedBytes": 399
+    },
+    {
+      "fixture": "named room with two relays and STUN",
+      "fullCharacters": 312,
+      "proposedCharacters": 84,
+      "reductionPercent": 73,
+      "storedBytes": 530
+    },
+    {
+      "fixture": "persistent project room",
+      "fullCharacters": 448,
+      "proposedCharacters": 84,
+      "reductionPercent": 81,
+      "storedBytes": 711
+    }
+  ],
+  "date": "2026-10-11",
+  "webBaseRevision": "c426adbd625b5950aa5a679db87db2d1ba517166",
+  "runtime": "v24.21.0",
+  "pinnedLinkSourceSha256": "bd5a74378b273d438b0bade7328e743ddcfa2059b03c7f95b3c2cb12a02fe60e",
+  "experimentSourceSha256": "6140f712a3c17069bfe3b748f91742697652e89021f3c46b1575942c0a1d3252",
+  "physicalAcceptance": false
+}
