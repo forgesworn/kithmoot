@@ -3,6 +3,10 @@
 Status: design and local experiment, 11 October 2026. No resolver, client
 integration or public `/k/` route is implemented by this change. G16 stays open.
 
+The subsequent [browser envelope codec](short-invitation-envelope.md) implements
+bounded authentication and exact full-invitation validation with shared synthetic
+vectors. It is not yet connected to an application entry flow or resolver.
+
 ## Proposed route
 
 Use `https://z1p.app/k/<id>#<key>` for an optional encrypted lookup envelope.

@@ -1,0 +1,31 @@
+{
+  "protocol": "kithmoot-short-invite/v1",
+  "syntheticOnly": true,
+  "generatedBy": "Independent Node AES-256-GCM implementation",
+  "vectors": [
+    {
+      "name": "meeting-v2",
+      "now": 1800000000,
+      "url": "https://z1p.app/k/BwcHBwcHBwcHBwcHBwcHBw#CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "fullInvitation": "https://kithmoot.app/j/#eyJ2IjoyLCJqIjoiQlFVRkJRVUZCUVVGQlFVRkJRVUZCUVVGQlFVRkJRVUZCUVVGQlFVRkJRVSIsImgiOiJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwiciI6WyJ3c3M6Ly9hLmV4YW1wbGUiXSwiaSI6WyJzdHVuOnN0dW4uZXhhbXBsZTozNDc4Il0sIm4iOiJXb3Jrc2hvcCJ9",
+      "envelope": {
+        "v": 1,
+        "expires": 1800003600,
+        "nonce": "DQ0NDQ0NDQ0NDQ0N",
+        "ciphertext": "IwIKQeohIOYv1GgxFvlSZH4c4obiKfJVeH77CjiZr98nlW_jUugJnDeihd1Z-rKyh1CeQ4MmFSMmkQ7ff3HJjUWa3CP68GDlol68IM0J_CKSgNhhs_JyQkeXytSBrbQYfALB-aYGfjSO-Co2UGRhnkKj36P6V3f0jeKw16R9vE1bW4UySd7lrktVuVjk3Ca4vhkkzfeR3FmW-F_FAwsjdjQI0zDZdT53mfizw5g7qRdT6eI12kNoay_2V7vq-3ZBIBSprTaRKbB1hL0a0Kq3HUKvFjTeTVTbDzvby7HduGsUe9gwTEFgGn1_e8-pwD-GVG09UwuBhYFIglgy4fu1mHgFjZNAgz5MGP2KrIMZQfvRTr5HGIzmwke67PI1Q44VoRQ9InbuaQnDQgFlJDpyiUXXUlbMeEBar3Ghm1R2AXU"
+      }
+    },
+    {
+      "name": "persistent-v3",
+      "now": 1800000000,
+      "url": "https://z1p.app/k/EREREREREREREREREREREQ#ExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExM",
+      "fullInvitation": "https://kithmoot.app/j/#eyJ2IjozLCJqIjoiQlFVRkJRVUZCUVVGQlFVRkJRVUZCUVVGQlFVRkJRVUZCUVVGQlFVRkJRVSIsImgiOiJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwiciI6WyJ3c3M6Ly9hLmV4YW1wbGUiXSwiaSI6WyJzdHVuOnN0dW4uZXhhbXBsZTozNDc4Il0sIm4iOiJXb3Jrc2hvcCJ9",
+      "envelope": {
+        "v": 1,
+        "expires": 1800003600,
+        "nonce": "FxcXFxcXFxcXFxcX",
+        "ciphertext": "7dzc6aHDuGPEoqBIx1CwG5SEriu2KFmbe7bgnFuPAlpqACEmd5-A4-SoTaT0ZhNiwlRNzukjBh_Ae93aGt15fnvwkx61oI_Az0-6Uw-aVi6stW8ZHzGrbHiAU2NCtwWP6FVlEHtLRPvbtlSP-r1fHbWkZUlwWrx1OWj2X1lt7-7AruGfISS-R43poTO67g651UxeeT-YZO1NCfXSL5LIxVov55i9nEw9kiEPDPb49EzaFIfPQQXuYrPI4fPAMGhCEdvScLViY_poS5D6KcsiPwrymNtlOInJdeJ1n7Txz4Q2LTeHQ7MhP3QmGC6etTnQrJQ1wd2l8B9_B0BPX2CMyQG4MS8eszrz6laRSqOIXBX7caoB5yjdzTGISOedd6Ku3CypNPE6N7w7j_B3tvYjIU-fB6E75-8849QCqFMrL_k"
+      }
+    }
+  ]
+}
