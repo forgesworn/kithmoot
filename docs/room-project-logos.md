@@ -210,3 +210,19 @@ unchanged isolated six-case WebKit rerun passed. The refreshed-invitation case
 also checks the cold arrival brand while the room remains unentered. This
 qualification retains that initial failure and does not establish physical
 or disjoint-relay acceptance.
+
+The bitmap and cross-client-vector revision, reconciled with main at
+`670a1d7`, passes typecheck, all 4,008 unit tests in 286 files and all 56 room
+logo/project journeys across Chromium, Firefox, WebKit and the desktop build.
+The new cases publish a container-valid PNG with an unsupported pixel format,
+verify initials and names in 320-pixel light/dark room headers and rows, and
+recover after a valid replacement without external image requests. A delayed
+bitmap test verifies disposal and an A-to-B-to-A replacement produces one
+current image. Project tests now assert the sheet is visible, with a separate
+first-sign-in/create-project journey. The earlier intermittent WebKit project
+navigation failure has no established production root cause; passing reruns
+and stronger assertions are not a claimed fix for it.
+
+The Android image codec passed all 420 pure-JVM protocol tests, including the
+same 28 image vectors. This does not establish native room/project rendering,
+cross-client delivery or physical acceptance. G15 remains open.
