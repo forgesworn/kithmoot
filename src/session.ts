@@ -2252,6 +2252,9 @@ export class RoomSession {
       before.capture?.recorder === state.capture?.recorder && before.capture?.device === state.capture?.device
   }
 
+  /** Root authority pinned when this session was admitted. */
+  get recordingAuthority(): string | undefined { return this.#opts.authority }
+
   get requiresLiveRecordingWarnings(): boolean { return this.#opts.policy?.quiet === true }
 
   /** Inspect each admitted device's own call claim before UI delivery. */

@@ -151,6 +151,15 @@ for (const { layout, phone } of [
       await expect(b.locator('#recordingBannerText')).toContainText('Ada')
       await expect(b.locator('#recordingBannerText')).toContainText(layout === 'screen-camera' ? 'screen share with camera' : `${layout} video`)
       await expect(a.locator('#recordingElapsed')).toBeVisible()
+      // The exact signed Stop exists before capture, so a process loss
+      // cannot leave this device able to resurrect its On warning.
+      const retainedStop = await a.evaluate(() => {
+        const key = Object.keys(localStorage).find(key => key.startsWith('kithmoot.recording-stop.v1.'))
+        return key ? JSON.parse(localStorage.getItem(key)!) : undefined
+      })
+      expect(retainedStop).toMatchObject({ op: 'recording', on: false })
+      expect(retainedStop.sig).toMatch(/^[0-9a-f]{128}$/)
+
       if (soak) {
         const cdp = await browser.newBrowserCDPSession()
         const samples: unknown[] = []
@@ -206,6 +215,8 @@ for (const { layout, phone } of [
       const diagnostic = JSON.parse(await a.locator('#diagnosticsOut').inputValue())
       await info.attach('capture-inputs.json', { body: JSON.stringify({ participants: diagnostic.participants, pictures: diagnostic.pictures, recording: diagnostic.recording }, null, 2), contentType: 'application/json' })
       await a.locator('#recordingStop').click()
+      await expect.poll(() => a.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.recording-stop.v1.')).length)).toBe(0)
+
       await expect(a.locator('#recordingReady')).toBeVisible()
       await expect(b.locator('#recordingBanner')).toBeHidden()
       if (soak) {

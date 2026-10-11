@@ -1,0 +1,27 @@
+{
+  "qualification": "Desktop recording Stop journal and quiet live publication integration",
+  "unit_tests": 21,
+  "typecheck": "passed",
+  "browser": {
+    "passed": true,
+    "project": "chromium",
+    "journey": "gallery video plus call audio decoded from saved file; signed Off retained during capture and cleared after delivery"
+  },
+  "source_sha256": {
+    "app/src/main.ts": "052bef8d598cc05b38a8d77b65a393c74d746347d0695e14c0d186e0e3044e95",
+    "src/session.ts": "67ce6d2ebe559801f204c3374782450d2d9ade94210bb2218dc218a4c510f8e0",
+    "app/src/recording-stop-journal.ts": "1e5998393fb20bd3b8bae7d0c4f7d40667cc916fd5add35a62d68ee64de5010f",
+    "app/src/recording-stop-journal.test.ts": "79028b409b29dfdedc764ab90a509deef5fbfda543cb3a5e2ca5d1db517ebbc6",
+    "test/recording-video.spec.ts": "c8b0f06f9be8abb7525e150b7ece75b4570a47abdbf33b49fd10b06363755da8"
+  },
+  "logs_sha256": {
+    "typecheck": "caa298209aa942cc5ab18c6756f73b50b8a325269b5da448077f6e2ab19f7e45",
+    "unit": "784f94bd8bb6eb59d49e5cb6c798b703302a389cf85e35f3625063ca156adc06",
+    "browser": "3a70a15eeba72e3d50fe07589680e444243bac6fe4373f5fe094899b4032851c"
+  },
+  "limits": [
+    "Browser journey uses a normal room; quiet-room recording runtime remains to be qualified",
+    "Controller recreation is tested at journal level; actual browser restart with refused Stop remains open",
+    "Physical Android, Android-desktop runtime and final distribution remain open"
+  ]
+}

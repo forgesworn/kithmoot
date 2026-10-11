@@ -1,3 +1,4 @@
+import { RecordingStopJournal, type SignedRecordingOff } from './recording-stop-journal.js'
 import { AdmissionPreview, AdmissionPreviewCancelled } from './admission-preview.js'
 import { admissionRequestTransport } from './admission-request-transport.js'
 import { prepareInvitationRefusal, type InvitationRefusalAttempt } from './invitation-refusal.js'
@@ -7754,6 +7755,7 @@ interface ActiveRecording {
   recorder: CallRecorder
   video?: RecordingVideo
   session: RoomSession
+  callId: string
   authoritySk: Uint8Array
   notice: SignedRecording
   capture: RecordingCaptureNotice & { sig: string }
@@ -8002,7 +8004,7 @@ function recordingVideoPeople(s: RoomSession): RecordingPerson[] {
     if (!callId || !view.call || view.call.id !== callId) continue
     for (const device of view.call.devices) {
       if (!view.devices.includes(device)) continue
-      const local = view.participant === mediaMe() && device === myDeviceId
+      const local = view.participant === s.participant && device === s.device
       const supported = local || view.recordingProfiles?.[device] === 2 || view.recordingProfiles?.[device] === 3
       const permitted = !meetingGated(device)
       const name = shownAs(view.participant, view.name).name ?? shortKey(view.participant)
@@ -8030,7 +8032,7 @@ function recordingShareChoices(s: RoomSession): RecordingShareChoice[] {
   for (const view of s.participants()) {
     if (!s.call || !view.call || view.call.id !== s.call.id) continue
     for (const device of view.call.devices) {
-      const local = view.participant === mediaMe() && device === myDeviceId
+      const local = view.participant === s.participant && device === s.device
       if (!local && view.recordingProfiles?.[device] !== 2 && view.recordingProfiles?.[device] !== 3 || meetingGated(device)) continue
       const source = screenSource(view.participant, device, s)
       if (!source || (source.status !== 'live' && source.status !== 'reconnecting')) continue
@@ -8041,14 +8043,14 @@ function recordingShareChoices(s: RoomSession): RecordingShareChoice[] {
 }
 
 function recordingVideoSnapshot(s: RoomSession, callId: string, origin: ReturnType<typeof callOrigin>, selected?: RecordingShareChoice): RecordingVideoSnapshot | undefined {
-  if (s !== mediaSession() || s.closed || s.call?.id !== callId) return undefined
+  if (s !== mediaSession() || s.closed || s.call?.id !== callId || (s.requiresLiveRecordingWarnings && !s.liveRecordingCompatible(callId))) return undefined
   const snapshot: RecordingVideoSnapshot = {
     origin: `${origin?.roomName ?? 'Call'}${origin?.projectName ? ` · ${origin.projectName}` : ''} · ${s.roomId.slice(0, 8)} · ${callId.slice(0, 8)}`,
     people: recordingVideoPeople(s),
   }
   if (selected) {
     const person = s.participants().find(view => view.participant === selected.participant && view.call?.id === callId && view.call.devices.includes(selected.device))
-    const local = selected.participant === mediaMe() && selected.device === myDeviceId
+    const local = selected.participant === s.participant && selected.device === s.device
     const permitted = !!person && (local || person.recordingProfiles?.[selected.device] === 2 || person.recordingProfiles?.[selected.device] === 3) && !meetingGated(selected.device)
     const source = permitted ? screenSource(selected.participant, selected.device, s, origin) : undefined
     snapshot.share = {
@@ -8059,6 +8061,44 @@ function recordingVideoSnapshot(s: RoomSession, callId: string, origin: ReturnTy
     }
   }
   return snapshot
+}
+
+const recordingJournals = new WeakMap<RoomSession, RecordingStopJournal>()
+const recoveringRecordingStops = new WeakSet<RoomSession>()
+function recordingJournal(s: RoomSession): RecordingStopJournal {
+  let journal = recordingJournals.get(s)
+  if (!journal) {
+    if (!s.recordingAuthority) throw new Error('This room has no pinned recording authority.')
+    journal = new RecordingStopJournal(deviceStore, s.roomId, s.participant, s.device, s.recordingAuthority)
+    recordingJournals.set(s, journal)
+  }
+  return journal
+}
+async function deliverRecordingStop(s: RoomSession, off: SignedRecordingOff): Promise<void> {
+  if (s.requiresLiveRecordingWarnings) await s.publishLiveRecordingConfirmed({ recording: off })
+  else await s.channel(CONTROL_CHANNEL).send(encodeControl(off))
+  recordingJournal(s).confirm(off)
+  adoptRecording(s, off, nowSeconds())
+}
+async function recoverRecordingStop(s: RoomSession): Promise<void> {
+  if (!s.recordingAuthority || recoveringRecordingStops.has(s) || activeRecording?.session === s || [...recordingStops].some(active => active.session === s) || recordingStartPending) return
+  recoveringRecordingStops.add(s)
+  try {
+    const off = recordingJournal(s).pending()
+    if (off) await deliverRecordingStop(s, off)
+  } catch { /* Keep the exact signed Stop for the next admitted-session retry. */ }
+  finally { recoveringRecordingStops.delete(s) }
+}
+async function publishRecordingOn(s: RoomSession, signed: SignedRecording,
+  capture: RecordingCaptureNotice & { sig: string }, allowed: () => boolean): Promise<void> {
+  if (!allowed()) throw new Error('The original call is no longer available for recording.')
+  if (s.requiresLiveRecordingWarnings) await s.publishLiveRecordingConfirmed({ recording: { op: 'recording', ...signed }, capture: { op: 'recording-capture', ...capture } }, allowed)
+  else {
+    await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
+    if (!allowed()) throw new Error('The original call is no longer available for recording.')
+    await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+  }
+  if (!allowed()) throw new Error('The original call is no longer available for recording.')
 }
 
 let recordingStartPending = false
@@ -8077,6 +8117,12 @@ async function beginRecording(): Promise<void> {
   const replacing = pendingRecording
   if (!s.call) throw new Error('Join the call to record it.')
   const callId = s.call.id, origin = callOrigin(s)
+  if (s.requiresLiveRecordingWarnings && !s.liveRecordingCompatible(callId)) throw new Error('Everybody in this call must update before it can be recorded in a quiet room.')
+  const journal = recordingJournal(s)
+  if (journal.pending()) {
+    await deliverRecordingStop(s, journal.pending()!)
+    if (journal.pending()) throw new Error('Confirm the previous recording stop before recording again.')
+  }
   const options = document.createElement('fieldset')
   options.className = 'recordingChoices'
   const legend = document.createElement('legend')
@@ -8147,15 +8193,21 @@ async function beginRecording(): Promise<void> {
   const before = recordings.get(s.roomId)
   const notice: RecordingNotice = { on: true, id: bytesToHex(randomBytes(16)), version: Math.max(Date.now(), (before?.version ?? 0) + 1) }
   const signed: SignedRecording = { ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
-  const captureNotice: RecordingCaptureNotice = { id: notice.id, version: notice.version, capture: chosen, recorder: mediaMe(), device: myDeviceId }
+  const captureNotice: RecordingCaptureNotice = { id: notice.id, version: notice.version, capture: chosen, recorder: s.participant, device: s.device }
   const capture = { ...captureNotice, sig: signRecordingCaptureNotice({ roomId: s.roomId, notice: captureNotice, authoritySk }) }
   // Told first, recorded second. A recording nobody was told about is the
   // one thing this must never make, so a notice that fails to go out is a
   // recording that never starts.
-  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
-  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+  const offNotice = { on: false as const, id: signed.id, version: signed.version + 1 }
+  journal.arm({ op: 'recording', ...offNotice, sig: signRecordingNotice({ roomId: s.roomId, notice: offNotice, authoritySk }) })
+  const allowed = () => !s.closed && mediaSession() === s && s.call?.id === callId &&
+    (!s.requiresLiveRecordingWarnings || s.liveRecordingCompatible(callId)) &&
+    (chosen === 'audio' || !!activeRecording || !document.hidden) &&
+    (activeRecording?.notice.id === signed.id || (recordingStartPending && !activeRecording))
+  try { await publishRecordingOn(s, signed, capture, allowed) }
+  catch (error) { await postRecordingOff(s, authoritySk, signed); throw error }
   recordingCaptures.set(s.roomId, capture)
-  if (mediaSession() !== s || s.call?.id !== callId || s.closed) { await postRecordingOff(s, authoritySk, signed); return }
+  if (!allowed()) { await postRecordingOff(s, authoritySk, signed); return }
   adoptRecording(s, signed, nowSeconds())
   let recorder: CallRecorder
   let video: RecordingVideo | undefined
@@ -8176,15 +8228,14 @@ async function beginRecording(): Promise<void> {
     throw err
   }
   const timer = setInterval(() => {
-    s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
-      .then(() => s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed })))
+    publishRecordingOn(s, signed, capture, allowed)
       .then(() => adoptRecording(s, signed, nowSeconds()))
-      .catch(() => { /* The next repost tries again; the notice shows as unconfirmed meanwhile. */ })
+      .catch(() => { if (s.requiresLiveRecordingWarnings && activeRecording?.notice.id === signed.id) void stopRecording('the recording warning could not be confirmed') })
   }, RECORDING_REPOST_SECONDS * 1000)
   const elapsedTimer = setInterval(() => {
     if (!document.hidden && !recorder.paused) renderRecordingElapsed()
   }, 1000)
-  activeRecording = { recorder, video, session: s, authoritySk, notice: signed, capture, timer, elapsedTimer }
+  activeRecording = { recorder, video, session: s, callId, authoritySk, notice: signed, capture, timer, elapsedTimer }
   if (replacing && pendingRecording === replacing) discardPendingRecording()
   feedRecorder()
   renderRecording()
@@ -8192,15 +8243,16 @@ async function beginRecording(): Promise<void> {
 }
 
 async function postRecordingOff(s: RoomSession, authoritySk: Uint8Array, was: RecordingNotice): Promise<void> {
-  const notice: RecordingNotice = { on: false, id: was.id, version: Math.max(Date.now(), was.version + 1) }
-  const signed: SignedRecording = { ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
   try {
-    await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
-  } catch {
-    // The notice goes on saying "recording" until it is taken down: shown
-    // as unconfirmed once the reposts stop, which is the honest failure.
-  }
-  if (recordings.has(s.roomId) || s === session) adoptRecording(s, signed, nowSeconds())
+    const journal = recordingJournal(s)
+    let off = journal.pending()
+    if (!off) {
+      const notice = { on: false as const, id: was.id, version: Math.max(Date.now(), was.version + 1) }
+      off = { op: 'recording', ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
+      journal.arm(off)
+    }
+    await deliverRecordingStop(s, off)
+  } catch { setStatus('Recording stopped on this device. Its room notice is awaiting confirmation; reconnect to retry.') }
 }
 
 /** Stop recording, take the notice down, and hold the file for its owner. */
@@ -8240,6 +8292,12 @@ async function stopRecording(reason?: string): Promise<void> {
 function feedRecorder(): void {
   const active = activeRecording
   if (!active || active.session !== mediaSession()) return
+  if (active.session.closed || active.session.call?.id !== active.callId ||
+      (active.session.requiresLiveRecordingWarnings && !active.session.liveRecordingCompatible(active.callId))) {
+    active.recorder.setTracks([])
+    void stopRecording('the call or recording permissions changed')
+    return
+  }
   const tracks: MediaStreamTrack[] = []
   const callId = active.session.call?.id
   const callDevices = new Set(active.session.participants().filter(view => callId && view.call?.id === callId).flatMap(view => view.call!.devices))
@@ -12091,6 +12149,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       const isDocked = dockedCall?.session === s
       if (session !== s && !isDocked) return
       ingestLiveRecording(s)
+      void recoverRecordingStop(s)
+      if (activeRecording?.session === s) feedRecorder()
       if (s === mediaSession()) {
         const byDevice = new Map<string, string[]>()
         for (const view of views) for (const t of view.tracks) byDevice.set(t.device, [...(byDevice.get(t.device) ?? []), t.role])
