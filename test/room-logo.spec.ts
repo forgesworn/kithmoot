@@ -2,6 +2,8 @@ import { test, expect, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { newDeviceContext, open, openRoomDetails } from './browser.js'
 import { agentRelaysFor } from './relays.js'
+import { createLogoImage, logoFromCanvasEncoding, type LogoImage } from '../src/logo-image.js'
+import { followRoomLogo } from '../src/room-logo.js'
 
 let keeper: RoomAgent
 test.beforeEach(async ({ baseURL }) => {
@@ -39,6 +41,124 @@ async function pixel(page: Page): Promise<number[]> {
     return [...ctx.getImageData(0, 0, 1, 1).data]
   })
 }
+
+async function solidLogo(page: Page, colour: string) {
+  const png = Buffer.from(await page.evaluate(colour => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128
+    const ctx = canvas.getContext('2d')!; ctx.fillStyle = colour; ctx.fillRect(0, 0, 128, 128)
+    return canvas.toDataURL('image/png').split(',')[1]!
+  }, colour), 'base64')
+  return logoFromCanvasEncoding(png, 'image/png')
+}
+
+/** Valid container checksums, but an unsupported PNG pixel format. Some
+ * browsers recover truncated WebP bitstreams, so use a deterministic failure. */
+function brokenPixels(source: LogoImage) {
+  const bytes = Buffer.from(source.data, 'base64')
+  bytes[25] = 255
+  let crc = 0xffffffff
+  for (const byte of bytes.subarray(12, 29)) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0)
+  }
+  bytes.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 29)
+  return createLogoImage(bytes, 'image/png')
+}
+
+for (const scheme of ['light', 'dark'] as const) test(`an unusable signed room logo falls back and recovers on a ${scheme} phone`, async ({ browser, baseURL }) => {
+  test.setTimeout(60_000)
+  const context = await newDeviceContext(browser, baseURL!), publisher = followRoomLogo(keeper.session)
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 320, height: 640 }); await page.emulateMedia({ colorScheme: scheme })
+    const externalImages: string[] = []
+    page.on('request', request => {
+      if (request.resourceType() === 'image' && /^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(baseURL!).origin) externalImages.push(request.url())
+    })
+    await enter(page); await openRoomDetails(page)
+    await page.locator('#roomRenameInput').fill('Workshop'); await page.locator('#roomRenameSave').click()
+    await page.locator('#roomSheetClose').click()
+    const replacement = await solidLogo(page, '#008000')
+    await publisher.replace(replacement)
+    await expect(page.locator('#roomLogo img')).toHaveAttribute('src', `data:image/png;base64,${replacement.data}`)
+    expect((await pixel(page))[1]).toBeGreaterThan(100)
+    const image = brokenPixels(replacement)
+    await publisher.replace(image)
+    expect(publisher.current()?.image?.sha256).toBe(image.sha256)
+    await expect.poll(() => page.evaluate(hash => Object.keys(localStorage)
+      .filter(key => key.startsWith('kithmoot.room-logo.v1.'))
+      .some(key => localStorage.getItem(key)?.includes(hash)), image.sha256)).toBe(true)
+    expect(await page.evaluate(async image => {
+      const bytes = Uint8Array.from(atob(image.data), character => character.charCodeAt(0))
+      let bitmap: ImageBitmap | undefined
+      try {
+        bitmap = await createImageBitmap(new Blob([bytes], { type: image.mime }))
+        const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+        const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0)
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+        return !pixels.some((value, at) => at % 4 === 3 && value > 0)
+      } catch { return true }
+      finally { bitmap?.close() }
+    }, image)).toBe(true)
+    await expect(page.locator('#roomLogo img')).toHaveCount(0)
+    await expect(page.locator('#roomLogo')).toHaveText('W')
+    await expect(page.locator('#roomTitle')).toHaveText('Workshop')
+    await page.locator('#backToRooms:visible, #workspaceSwitch:visible').first().click()
+    await page.locator('#roomSwitcherHome').click()
+    const row = page.locator(`#roomList .roomRow[data-room="${keeper.roomId}"]`)
+    await expect(row).toBeVisible()
+    await expect(row.locator('.roomAvatar img')).toHaveCount(0)
+    await expect(row.locator('.roomAvatar')).toHaveText('W')
+    await expect(row.getByRole('button', { name: 'Open Workshop', exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
+    await publisher.replace(replacement)
+    await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', `data:image/png;base64,${replacement.data}`)
+    expect(await row.locator('.roomAvatar img').evaluate(async (image: HTMLImageElement) => { await image.decode(); return image.naturalWidth })).toBe(128)
+    await row.getByRole('button', { name: 'Open Workshop', exact: true }).click()
+    await expect(page.locator('#roomLogo img')).toHaveAttribute('src', `data:image/png;base64,${replacement.data}`)
+    expect((await pixel(page))[1]).toBeGreaterThan(100)
+    expect(externalImages).toEqual([])
+  } finally { publisher.close(); await context.close() }
+})
+
+test('late logo decoding releases its bitmap and displays the current replacement only once', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!), publisher = followRoomLogo(keeper.session)
+  try {
+    const page = await context.newPage(); await enter(page)
+    const green = await solidLogo(page, '#008000'), blue = await solidLogo(page, '#0000ff')
+    await page.evaluate(() => {
+      const state = window as unknown as { releaseFirstLogo?: () => void; closedFirstLogo: number }
+      state.closedFirstLogo = 0
+      const native = window.createImageBitmap.bind(window); let held = false
+      window.createImageBitmap = (async (source: ImageBitmapSource) => {
+        const pause = source instanceof Blob && !held
+        if (pause) held = true
+        const bitmap = await native(source)
+        if (pause) {
+          const close = bitmap.close.bind(bitmap)
+          bitmap.close = () => { ++state.closedFirstLogo; close() }
+          await new Promise<void>(resolve => { state.releaseFirstLogo = resolve })
+        }
+        return bitmap
+      }) as typeof createImageBitmap
+    })
+    await publisher.replace(green)
+    await page.waitForFunction(() => !!(window as unknown as { releaseFirstLogo?: () => void }).releaseFirstLogo)
+    await expect(page.locator('#roomLogo img')).toHaveCount(0)
+    await publisher.replace(blue)
+    await expect(page.locator('#roomLogo img')).toHaveAttribute('src', `data:image/png;base64,${blue.data}`)
+    await publisher.replace(green)
+    await expect.poll(() => page.evaluate(hash => Object.keys(localStorage)
+      .filter(key => key.startsWith('kithmoot.room-logo.v1.'))
+      .some(key => localStorage.getItem(key)?.includes(hash)), green.sha256)).toBe(true)
+    await expect(page.locator('#roomLogo img')).toHaveCount(0)
+    await page.evaluate(() => (window as unknown as { releaseFirstLogo?: () => void }).releaseFirstLogo?.())
+    await expect.poll(() => page.evaluate(() => (window as unknown as { closedFirstLogo: number }).closedFirstLogo)).toBe(1)
+    await expect(page.locator('#roomLogo img')).toHaveAttribute('src', `data:image/png;base64,${green.data}`)
+    await expect(page.locator('#roomLogo img')).toHaveCount(1)
+    expect((await pixel(page))[1]).toBeGreaterThan(100)
+  } finally { publisher.close(); await context.close() }
+})
 
 test('admitted members crop, share, recover, replace and remove an inline room logo', async ({ browser, baseURL }) => {
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)

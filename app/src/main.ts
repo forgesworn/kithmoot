@@ -251,7 +251,7 @@ import {
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
 import { RoomLogoCache } from './room-logo-store.js'
 import { openLogoEditor } from './logo-editor.js'
-import { renderLogo } from './logo-view.js'
+import { clearLogo, renderLogo } from './logo-view.js'
 import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
 import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
@@ -7138,7 +7138,7 @@ function renderAdmissionRoomBrand(): void {
   const me = meParticipant || currentParticipant()
   let policy: RoomPolicy | undefined
   try { policy = parseRoomLink(location.href).policy } catch {
-    $('arrivalRoomBrand').hidden = true; $('arrivalLogo').replaceChildren(); $('arrivalRoomBrandName').textContent = ''; return
+    $('arrivalRoomBrand').hidden = true; clearLogo($('arrivalLogo')); $('arrivalRoomBrandName').textContent = ''; return
   }
   const permitted = !session && !$('identity').hidden && $('arrivalActions').hidden &&
     !isQuietPolicy(policy) && !(me && dmPeer(policy, me)) && !conferenceEnded(roomEndsAt, nowSeconds())
@@ -7146,7 +7146,7 @@ function renderAdmissionRoomBrand(): void {
   $('arrivalRoomBrand').hidden = !brand
   $('arrivalRoomBrandName').textContent = brand ? `${brand.name} · ${brand.projectName}` : ''
   if (brand) renderLogo($('arrivalLogo'), brand.image, brand.name)
-  else $('arrivalLogo').replaceChildren()
+  else clearLogo($('arrivalLogo'))
 }
 
 function renderCurrentRoomLogo(): void {
@@ -7156,7 +7156,7 @@ function renderCurrentRoomLogo(): void {
   const icon = $('roomLogo')
   icon.hidden = !show
   if (show) renderLogo(icon, image, currentRoomLabel())
-  else icon.replaceChildren()
+  else clearLogo(icon)
 }
 
 function renderRoomLogoControls(): void {
@@ -7164,7 +7164,7 @@ function renderRoomLogoControls(): void {
   const permitted = !!s && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
   $('roomLogoControls').hidden = !permitted
   if (permitted) renderLogo($('roomLogoPreview'), displayedRoomLogo(s!.roomId, roomProjectContext), currentRoomLabel())
-  else $('roomLogoPreview').replaceChildren()
+  else clearLogo($('roomLogoPreview'))
 }
 
 function adoptSharedRoomLogo(s: RoomSession, record: RoomLogoRecord | undefined): void {
@@ -13267,7 +13267,7 @@ function renderWorkspace(): void {
       icon.className = 'privateLogo workspaceRoomLogo'
       icon.hidden = !!dmPeerOf(room) || isQuietRoom(room)
       if (!icon.hidden) renderLogo(icon, displayedRoomLogo(room.roomId, project.key), knownRoomLabel(room))
-      else icon.replaceChildren()
+      else clearLogo(icon)
       const roomName = button.querySelector<HTMLElement>('.workspaceRoomName') ?? document.createElement('span')
       roomName.className = 'workspaceRoomName'; roomName.textContent = knownRoomLabel(room)
       button.replaceChildren(icon, roomName)
@@ -13685,7 +13685,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
 }
 
 function resetRoomState(): void {
-  $('arrivalRoomBrand').hidden = true; $('arrivalLogo').replaceChildren(); $('arrivalRoomBrandName').textContent = ''
+  $('arrivalRoomBrand').hidden = true; clearLogo($('arrivalLogo')); $('arrivalRoomBrandName').textContent = ''
   roomProjectContext = undefined
   admissionController?.abort()
   admissionController = undefined
@@ -13894,9 +13894,9 @@ function renderDock(): void {
     const policy = dockedCall?.session === owner ? dockedCall.ui.roomPolicy : roomPolicy
     $('callSurfaceLogo').hidden = isQuietPolicy(policy) || !!dmPeer(policy, mediaMe())
     if (!$('callSurfaceLogo').hidden) renderLogo($('callSurfaceLogo'), displayedRoomLogo(owner.roomId, project), origin?.roomName ?? 'Call')
-    else $('callSurfaceLogo').replaceChildren()
+    else clearLogo($('callSurfaceLogo'))
   }
-  else $('callSurfaceLogo').replaceChildren()
+  else clearLogo($('callSurfaceLogo'))
   if ($('callSurfaceOrigin').textContent !== originText) $('callSurfaceOrigin').textContent = originText
   const collapse = $('callGalleryCollapse')
   collapse.textContent = galleryCollapsed ? 'Show gallery' : 'Hide gallery'

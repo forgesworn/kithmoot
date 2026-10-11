@@ -22,6 +22,23 @@ Recipients must never use this repair on untrusted signed input. The container
 checks are not a pixel decoder: renderers must handle local decode failures
 with accessible initials and must retain the room or project name.
 
+The browser renderer validates a local bitmap before displaying the inline
+image, checks its dimensions and keeps initials when no visible pixels decode.
+It closes every bitmap and retains only up to 128 hash-keyed decode verdicts.
+Each display or clear invalidates earlier pending rendering work, including
+a replacement that returns to the same image. No decode or fallback fetches
+an external URL. Browser decoders can recover malformed bitstreams differently;
+container acceptance and `HTMLImageElement.decode()` alone do not establish
+that useful pixels were decoded.
+
+`vectors/logo-images-v1.json` contains 28 shared acceptance/rejection cases.
+The web reader and Android's pure-JVM `LogoImages` reader use the same fixture
+bytes, including a container-valid image without a usable compressed bitstream.
+Android's reader is a protocol foundation in
+[PR #242](https://github.com/forgesworn/kithmoot-android/pull/242), not yet a native
+editor or renderer. Native pixel decoding, room/project controls and recovery
+still need integration.
+
 Format references: [PNG specification](https://www.w3.org/TR/png-3/) and
 [WebP container specification](https://developers.google.com/speed/webp/docs/riff_container).
 
@@ -140,7 +157,8 @@ cross-client invitation/admission branding remains an acceptance gate.
   recovery, with Android editor/rendering and interoperable metadata handling.
 - Qualify temporary-room expiry, invalid compressed pixel fallback and all
   permission/identity changes in the complete client journey.
-- Add Android codecs and UI, with cross-client vectors and member/removal tests.
+- Integrate the Android codec into room/project controls and UI, with
+  cross-client member/removal tests.
 - Test light/dark, small phone layouts, invalid compressed pixels, permission
   changes, reload/recovery, cancelled editing and physical devices.
 

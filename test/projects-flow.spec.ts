@@ -26,6 +26,7 @@ test('project logos recover privately and follow explicit room and call contexts
   let recovered: Awaited<ReturnType<typeof signedDevice>> | undefined
   const openProjects = async (page: Page) => {
     await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible, #switcherSharedProjects:visible').first().click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
   }
   const card = (page: Page, name: string) => page.locator('.sharedProjectCard').filter({ has: page.getByRole('heading', { name, exact: true }) })
@@ -188,6 +189,26 @@ async function signedDevice(browser: Browser, base: string, nip44 = true, key = 
   return { context, pubkey, relay: relay.href, key }
 }
 
+test('project navigation stays available after initial sign-in', async ({ browser, baseURL }) => {
+  test.setTimeout(45_000)
+  const device = await signedDevice(browser, baseURL!)
+  try {
+    const page = await device.context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await page.locator('#homeSharedProjects:visible').click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
+    await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
+    await page.locator('#sharedProjectNew').click()
+    await expect(page.locator('#sharedProjectEditor')).toBeVisible()
+    await page.locator('#sharedProjectName').fill('My first project')
+    await page.locator('#sharedProjectSave').click()
+    await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
+    await expect(page.locator('.sharedProjectCard h3')).toHaveText(['My first project'])
+  } finally { await device.context.close() }
+})
+
 test('three projects deliver only intended human and agent memberships to fresh devices', async ({ browser, baseURL }, info) => {
   const ada = await signedDevice(browser, baseURL!), bob = await signedDevice(browser, baseURL!)
   const carol = await signedDevice(browser, baseURL!), worker = await signedDevice(browser, baseURL!)
@@ -209,6 +230,7 @@ test('three projects deliver only intended human and agent memberships to fresh 
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
     return page
   }))
