@@ -3,6 +3,7 @@ import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
 import { PANE_COLLAPSE_MS } from '../app/src/call-stance.js'
+import { collectAppDiagnostics } from './app-diagnostics.js'
 import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm } from './browser.js'
 
 // Three encoded-media clients and two live popouts produced over 5,000 trace
@@ -224,7 +225,13 @@ for (const phone of [false, true]) {
       await expect.poll(() => ada!.locator('#room audio').count()).toBe(0)
       await expect(ada!.locator('#recordingReady')).toBeVisible()
       await expect(ada!.locator('#recordingShare')).toBeHidden()
-      await expect(bo!.locator('#recordingBanner')).toBeHidden()
+      try { await expect(bo!.locator('#recordingBanner')).toBeHidden() }
+      catch (error) {
+        for (const [label, page] of [['recorder', ada!], ['listener', bo!]] as const) await info.attach(`${label}-stop-diagnostics`, {
+          contentType: 'application/json', body: await collectAppDiagnostics(page),
+        })
+        throw error
+      }
     } finally {
       await Promise.allSettled(contexts.map(context => context.close()))
     }

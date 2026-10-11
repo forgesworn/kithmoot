@@ -7964,10 +7964,12 @@ function ingestLiveRecordings(s: RoomSession): void {
 
 function memberRecordingViews(s = session): Array<{ state: LiveRecordingState; view: ReturnType<typeof recordingView> }> {
   if (!s) return []
-  const call = s.call?.id ?? s.participants().find(person => person.call)?.call?.id
-  if (!call) return []
+  // Two devices can start before either has received the other's presence.
+  // Every active call in this room needs its warning, including late joiners.
+  const calls = new Set(s.participants().flatMap(person => person.call ? [person.call.id] : []))
+  if (s.call) calls.add(s.call.id)
   return [...(memberRecordings.get(s.roomId)?.values() ?? [])]
-    .filter(heard => heard.state.call === call)
+    .filter(heard => heard.state.call !== undefined && calls.has(heard.state.call))
     .map(heard => ({ state: heard.state, view: recordingView(heard.state.recording, heard.since, heard.heardAt, nowSeconds()) }))
     .filter(heard => heard.view.state !== 'off')
 }
@@ -11709,6 +11711,10 @@ async function collectDiagnostics(): Promise<string> {
       recordingProfiles: Object.entries(v.recordingProfiles ?? {}).map(([device, profile]) => ({ device: short(device), profile })),
     })),
     recording: activeRecording ? { capture: activeRecording.capture.capture, videoInputs: recordingVideoPeople(activeRecording.session).map(person => ({ label: person.label, fallback: person.fallback, camera: !!person.camera })) } : undefined,
+    recordingWarnings: s?.liveRecordings().map(({ state, sentAt }) => ({
+      on: state.recording.on, id: short(state.recording.id), version: state.recording.version,
+      call: short(state.call), device: short(state.device), sentAt,
+    })),
     routes: s ? [...s.routes].map(([d, r]) => ({ device: short(d), tier: r.tier, endpoint: short(r.endpoint), connected: r.connected, exhausted: r.exhausted })) : [],
     connections,
     pictures: [...remoteVideos].map(([key, v]) => ({
