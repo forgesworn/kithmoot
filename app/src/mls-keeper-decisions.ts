@@ -12,6 +12,7 @@ import type { MlsRevocationInboxContext } from './mls-revocation-inbox.js'
 import type { MlsMemberStatus } from './mls-room-operations.js'
 import type { Platform, Session } from '../public/vmls-wasm/vmls_wasm.js'
 import type { VaultContext } from './mls-vault.js'
+import { mlsPendingAddMatches, mlsPendingAddMember, mlsPriorAddRemoval, mlsPriorAddRemovalCommitted, verifyMlsPriorAddRemoval } from './mls-pending-add.js'
 
 export interface MlsKeeperDecisionPlan {
   binding: VaultContext
@@ -19,6 +20,7 @@ export interface MlsKeeperDecisionPlan {
   conflict: boolean
   grants: MlsKeeperGrantAuthority[]
   rooms: MlsKeeperRoomIntent[]
+  unresolvedLegacyAddRooms?: string[]
 }
 export interface MlsKeeperExecutionPlan extends MlsKeeperDecisionPlan {
   revoked: string[]
@@ -86,7 +88,8 @@ export class BrowserMlsKeeperDecisions {
       prompt.state = approve ? 'approved' : 'dismissed'
       delete prompt.deferredUntil
       if (approve) {
-        const approval: MlsKeeperApproval = { approvedAt: at, grants: structuredClone(fresh.grants), rooms: structuredClone(fresh.rooms) }
+        const approval: MlsKeeperApproval = { approvedAt: at, grants: structuredClone(fresh.grants), rooms: structuredClone(fresh.rooms),
+          ...(fresh.unresolvedLegacyAddRooms ? { unresolvedLegacyAddRooms: [...fresh.unresolvedLegacyAddRooms] } : {}) }
         validateMlsKeeperApproval(approval, prompt.request, prompt.operation, prompt.receivedAt)
         prompt.approval = approval
       }
@@ -164,16 +167,30 @@ export class BrowserMlsKeeperDecisions {
       const fresh = await readMlsMembership(tx), before = fresh.inbox?.prompts.find(item => item.operation === operation)
       if (fresh.inbox?.keeper !== scope.vault.persona || JSON.stringify(before) !== JSON.stringify(retained.value)) throw new Error('The retained keeper request changed while waiting for completion. Check it again.')
       const current = await this.#execution(tx, scope, operation)
+      if (current.unresolvedLegacyAddRooms?.length || before?.approval?.unresolvedLegacyAddRooms?.length) throw new Error('Legacy pending Add authority remains unresolved; absence or route expiry cannot confirm completion.')
       // The local gate cannot quiesce older clients or raw store writers.
       // Keep lapse terminal enablement and its persona schema blocked.
       if (current.lapsed.length) throw new Error('Lapsed grant completion awaits the old-client/schema barrier; the grant-install hold alone is insufficient.')
-      if (current.revoked.length + current.unavailable.length + current.lapsed.length !== current.grants.length || current.rooms.some(room => room.action === 'remove')) throw new Error('The approved removal or grant withdrawal is still pending.')
+      if (current.revoked.length + current.unavailable.length + current.lapsed.length !== current.grants.length || current.rooms.some(room => room.action !== 'ledger-only')) throw new Error('The approved removal, pending Add or grant withdrawal is still pending.')
       const journal = await readMlsMembership(tx), prompt = journal.inbox!.prompts.find(item => item.operation === operation)!
       // A target can disappear before its journal catches up. Do not clear
       // an engine-owned compromised hold until that journal is witnessed.
       for (const intent of prompt.approval!.rooms) {
+        if (intent.priorRemoval) {
+          const wasm = await loadMlsEngine()
+          const room = await readMlsRoom(tx, intent.session), candidate = room.pendingAdds?.find(item =>
+            JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(item)) === JSON.stringify(intent.pendingAdd))
+          if (!candidate) throw new InvalidPersonaRecord('Prior Add closure lost its authenticated candidate')
+          verifyMlsPriorAddRemoval(wasm, intent.priorRemoval, candidate, intent.session,
+            journal.removals.find(item => item.operation === intent.priorRemoval!.operation), prompt.approval!.approvedAt)
+          continue
+        }
         const record = journal.removals.find(item => item.operation === intent.operation)
-        if (!record) continue
+        if (!record) {
+          if (intent.pendingAdd) throw new Error('The approved pending Add requires its exact committed Remove journal; absence alone cannot complete it.')
+          continue
+        }
+        if (intent.pendingAdd && record.request) throw new InvalidPersonaRecord('Keeper pending Add removal is bound to a different member request')
         const wasm = await loadMlsEngine()
         const bytes = hexToBytes(record.journal)
         let removal: ReturnType<typeof wasm.removalDecode> | undefined
@@ -202,9 +219,11 @@ export class BrowserMlsKeeperDecisions {
       if (!ids.includes(intent.session)) throw new Error('An approved keeper room must be restored before continuing.')
       const room = await readMlsRoom(tx, intent.session)
       if (room.keeper !== scope.vault.persona || room.binding.rendezvousKey !== intent.rendezvousKey) throw new Error('An approved room no longer belongs to this keeper.')
+      if (intent.pendingAdd && !room.pendingAdds?.some(candidate => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(candidate)) === JSON.stringify(intent.pendingAdd))) throw new Error('The approved authenticated pending Add authority changed or disappeared. Restore and review it again.')
     }
     let records: MlsGrantRecord[] = []
     const current = await this.#review(tx, scope, operation, true, value => { records = value }), approved = prompt.approval
+    if (current.unresolvedLegacyAddRooms?.some(id => !approved.unresolvedLegacyAddRooms?.includes(id))) throw new Error('Unreviewed legacy pending Add authority appeared. Review the request again.')
     for (const grant of current.grants) {
       const frozen = approved.grants.find(item => item.node === grant.node)
       if (!frozen || grant.reference !== frozen.reference || grant.active !== frozen.active || grant.revocation !== frozen.revocation || JSON.stringify(grant.box) !== JSON.stringify(frozen.box) || frozen.expiration !== undefined && frozen.expiration !== grant.expiration ||
@@ -219,8 +238,9 @@ export class BrowserMlsKeeperDecisions {
     for (const room of current.rooms) {
       const frozen = approved.rooms.find(item => item.session === room.session && item.member.leafId === room.member.leafId)
       if (!frozen || frozen.rendezvousKey !== room.rendezvousKey || frozen.member.device !== room.member.device || frozen.member.identity !== room.member.identity ||
-          frozen.member.homeBox !== room.member.homeBox || frozen.member.bindingExpiresAt !== room.member.bindingExpiresAt || frozen.action === 'remove' && room.action !== 'remove') throw new Error('The approved keeper roster changed. Review the request again.')
-      room.action = frozen.action
+          frozen.member.homeBox !== room.member.homeBox || frozen.member.bindingExpiresAt !== room.member.bindingExpiresAt || JSON.stringify(frozen.pendingAdd) !== JSON.stringify(room.pendingAdd) || JSON.stringify(frozen.priorRemoval) !== JSON.stringify(room.priorRemoval) ||
+          frozen.action === 'remove' && room.action !== 'remove' && !(frozen.pendingAdd && ['ledger-only', 'pending-add'].includes(room.action)) || frozen.action === 'ledger-only' && room.action !== 'ledger-only') throw new Error('The approved keeper roster changed. Review the request again.')
+      if (frozen.action === 'ledger-only' || frozen.action === 'remove' && !frozen.pendingAdd) room.action = frozen.action
     }
     const revoked = current.grants.filter(grant => records.some(record => record.node === grant.node && record.device === prompt.request.device && record.state === 'revoked' &&
       record.issuer === scope.vault.persona && record.persona === prompt.request.sender && record.active.id === grant.active && record.revocation.id === grant.revocation)).map(grant => grant.reference)
@@ -275,7 +295,7 @@ export class BrowserMlsKeeperDecisions {
     const request = prompt.request, selected = records.filter(record => record.issuer === scope.vault.persona && record.persona === request.sender && record.device === request.device && (approved || record.state !== 'revoked'))
     if (!selected.length && !(approved && prompt.approval!.grants.every(grant => prompt.grantOutcomes?.some(item => item.reference === grant.reference && item.outcome === 'no-live')))) throw new Error('This request no longer matches the keeper grant ledger.')
     const grants: MlsKeeperGrantAuthority[] = selected.map(mlsKeeperGrantAuthority).sort((a, b) => a.node.localeCompare(b.node))
-    const ids = await mlsRoomIds(tx), rooms: MlsKeeperRoomIntent[] = []
+    const ids = await mlsRoomIds(tx), rooms: MlsKeeperRoomIntent[] = [], unresolvedLegacyAddRooms: string[] = []
     if (selected.some(grant => grant.rooms.some(use => !ids.includes(use.session)))) throw new Error('A keeper room must be restored before reviewing this request.')
     for (const id of ids) {
       const room = await readMlsRoom(tx, id)
@@ -283,6 +303,9 @@ export class BrowserMlsKeeperDecisions {
         if (selected.some(grant => grant.rooms.some(use => use.session === id))) throw new Error('A saved grant room no longer belongs to this keeper.')
         continue
       }
+      if (room.packages?.some(route => !room.pendingAdds?.some(candidate => JSON.stringify(candidate.route) === JSON.stringify(route)))) unresolvedLegacyAddRooms.push(id)
+      const candidates = (room.pendingAdds ?? []).filter(candidate => candidate.device === request.device)
+      if (candidates.some(candidate => candidate.identity !== request.sender)) throw new Error('The pending Add device belongs to a different person.')
       const saved = await tx.readSession(id)
       if (!saved) throw new Error('A keeper room must be restored before reviewing this request.')
       let platform: Platform | undefined, session: Session | undefined
@@ -298,14 +321,51 @@ export class BrowserMlsKeeperDecisions {
         for (const member of targets) {
           if (!Number.isSafeInteger(member.bindingExpiresAt) || member.bindingExpiresAt < 0) throw new Error('The member binding time cannot be reviewed by this browser.')
           if (rooms.length >= 64) throw new Error('There are too many affected keeper leaves for one approval.')
-          rooms.push({ session: id, name: room.name, rendezvousKey: room.binding.rendezvousKey, operation: mlsKeeperRemovalOperation(operation, id, member.leafId), member,
-            action: session.phase().type === 'Active' && !member.pending ? 'remove' : 'ledger-only' })
+          const candidate = candidates.find(item => item.route.leafId === member.leafId)
+          if (candidate && !mlsPendingAddMatches(candidate, member)) throw new Error('The authenticated pending Add binding changed. Restore and review its authority.')
+          const pendingAdd = candidate && (({ readback: _readback, carrier: _carrier, ...stable }) => stable)(candidate)
+          rooms.push({ session: id, name: room.name, rendezvousKey: room.binding.rendezvousKey, operation: mlsKeeperRemovalOperation(operation, id, member.leafId), member: candidate && !candidate.readback ? mlsPendingAddMember(candidate) : member,
+            action: candidate ? candidate.readback && session.phase().type === 'Active' ? 'remove' : 'pending-add' : session.phase().type === 'Active' && !member.pending ? 'remove' : 'ledger-only',
+            ...(pendingAdd ? { pendingAdd: structuredClone(pendingAdd) } : {}) })
+        }
+        for (const candidate of candidates) if (!targets.some(member => member.leafId === candidate.route.leafId)) {
+          if (rooms.length >= 64) throw new Error('There are too many affected keeper leaves for one approval.')
+          const { readback: _readback, carrier: _carrier, ...stable } = candidate
+          const removalOperation = mlsKeeperRemovalOperation(operation, id, candidate.route.leafId)
+          let action: MlsKeeperRoomIntent['action'] = 'pending-add'
+          const removals = (await readMlsMembership(tx)).removals
+          // Only pre-consent closure may use an ordinary journal. Once a
+          // prospective intent is approved, a later ordinary Remove cannot
+          // substitute for that request's own removal operation.
+          const frozen = approved && prompt.approval!.rooms.find(intent => intent.session === id && intent.member.leafId === candidate.route.leafId)
+          const priorRecord = !approved && candidate.readback && removals.find(item => item.session === id && item.kind === 'device' && item.target === candidate.route.leafId && !item.request)
+          let prior = frozen ? frozen.priorRemoval : priorRecord ? mlsPriorAddRemoval(priorRecord, candidate) : undefined
+          if (!approved && prior && !mlsPriorAddRemovalCommitted(wasm, prior, candidate, id, priorRecord || undefined, at)) prior = undefined
+          if (prior) {
+            if (!candidate.readback) throw new InvalidPersonaRecord('Prior Add closure lost its authenticated readback')
+            verifyMlsPriorAddRemoval(wasm, prior, candidate, id, removals.find(item => item.operation === prior.operation), approved ? prompt.approval!.approvedAt : at)
+            action = 'ledger-only'
+          }
+          const record = approved && candidate.readback && (await readMlsMembership(tx)).removals.find(item => item.operation === removalOperation)
+          if (record && !prior) {
+            const bytes = hexToBytes(record.journal)
+            let removal: ReturnType<typeof wasm.removalDecode> | undefined
+            try {
+              removal = wasm.removalDecode(bytes)
+              if (record.session !== id || record.kind !== 'device' || !record.compromised || record.request || record.target !== candidate.route.leafId || bytesToHex(removal.sessionId()) !== id ||
+                  removal.personIdentity() !== undefined || JSON.stringify(removal.leafIds().map(bytesToHex)) !== JSON.stringify([candidate.route.leafId])) throw new InvalidPersonaRecord('Pending Add removal binding differs')
+              action = removal.mls() === 'Committed' ? 'ledger-only' : 'remove'
+            } finally { bytes.fill(0); removal?.free() }
+          }
+          rooms.push({ session: id, name: room.name, rendezvousKey: room.binding.rendezvousKey, operation: mlsKeeperRemovalOperation(operation, id, candidate.route.leafId),
+            member: mlsPendingAddMember(candidate), pendingAdd: structuredClone(stable), ...(prior ? { priorRemoval: structuredClone(prior) } : {}), action })
         }
       } finally { saved.plaintext.fill(0); try { session?.free() } finally { platform?.free() } }
     }
     rooms.sort((a, b) => a.session.localeCompare(b.session) || a.member.leafId.localeCompare(b.member.leafId))
     const conflict = inbox.prompts.some(other => (other.state === 'approved' || other.state === 'pending' && other.request.expiration > at) && other.request.sender === request.sender && other.request.device !== request.device)
-    return { binding: { ...scope.vault }, prompt: structuredClone(prompt), conflict, grants, rooms }
+    return { binding: { ...scope.vault }, prompt: structuredClone(prompt), conflict, grants, rooms,
+      ...(unresolvedLegacyAddRooms.length ? { unresolvedLegacyAddRooms: unresolvedLegacyAddRooms.sort() } : {}) }
   }
   #time(): number { const at = this.now(); if (!Number.isSafeInteger(at) || at < 0) throw new Error('A trusted request time is unavailable.'); return at }
   #scope(): MlsRevocationInboxContext {
