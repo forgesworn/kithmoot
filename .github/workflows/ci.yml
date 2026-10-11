@@ -93,10 +93,10 @@ jobs:
   acceptance:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # Chromium rest now includes the MLS storage suites before 168 acceptance
-    # cases. Its measured CI run reaches the final cases at the old 20-minute
-    # limit. Individual test timeouts still catch hung journeys.
-    timeout-minutes: ${{ matrix.name == 'chromium rest' && 30 || 20 }}
+    # The first shard also runs vault, Link and MLS regressions before normal
+    # acceptance. Give those cumulative jobs time to finish; other groups
+    # retain the existing bound and each Playwright test keeps its timeout.
+    timeout-minutes: ${{ (matrix.name == 'chromium rest' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
