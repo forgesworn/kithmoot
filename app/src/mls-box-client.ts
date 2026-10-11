@@ -55,8 +55,9 @@ export class BrowserMlsBoxClient {
     Object.defineProperty(this, 'box', { value: actual, enumerable: true })
     this.#routeId = route.routeId; this.#context = Object.freeze({ ...context })
   }
-  /** Suppress and wake pending work. A dispatched request may have committed;
-   * its durable outbox must survive for fresh-authentication reconciliation. */
+  /** Suppress pending work and wake bounded callers. Settlement-preserving
+   * callers still await the running work. A dispatched request may have
+   * committed; its outbox must survive for fresh-authentication reconciliation. */
   invalidate(): void { this.#epoch++; for (const cancel of this.#pending) cancel() }
 
   /** Current account/privacy scope, also used by the owner of a round. */
@@ -150,6 +151,15 @@ export class BrowserMlsBoxClient {
     }, current)
   }
   registerPackage(packageId: Uint8Array, welcomeMailbox: Uint8Array, expiresAt: number, serverTime: number): Promise<BoxAnswer<{ fresh: boolean }>> {
+    return this.#registerPackage(packageId, welcomeMailbox, expiresAt, serverTime, false)
+  }
+  /** For owners of admission locks: timeout/invalidation suppresses the result
+   * but does not return until underlying signing/transport work settles.
+   * This is local promise settlement, not proof of a remote rollback. */
+  registerPackageSettled(packageId: Uint8Array, welcomeMailbox: Uint8Array, expiresAt: number, serverTime: number): Promise<BoxAnswer<{ fresh: boolean }>> {
+    return this.#registerPackage(packageId, welcomeMailbox, expiresAt, serverTime, true)
+  }
+  #registerPackage(packageId: Uint8Array, welcomeMailbox: Uint8Array, expiresAt: number, serverTime: number, settle: boolean): Promise<BoxAnswer<{ fresh: boolean }>> {
     const id = idOf(packageId), mailbox = idOf(welcomeMailbox)
     uint(serverTime); uint(expiresAt)
     if (expiresAt <= serverTime || expiresAt - serverTime > 7 * 86400) throw new Error('Invalid MLS package expiry.')
@@ -158,7 +168,7 @@ export class BrowserMlsBoxClient {
       const a = answer(raw, [])
       if (!a || !((status === 201 && a.code === 'registered') || (status === 200 && a.code === 'unchanged'))) return
       return parsed(a, { fresh: a.code === 'registered' })
-    })
+    }, () => true, settle)
   }
   withdrawPackage(packageId: Uint8Array): Promise<BoxAnswer<void>> {
     return this.#request('DELETE', `/vmls/v1/packages/${idOf(packageId)}`, new Uint8Array(), MAX_JSON, (status, raw) => {
@@ -173,7 +183,7 @@ export class BrowserMlsBoxClient {
       bytesToHex(signed.subarray(101, 133)) === receipt
   }
   async #request<T>(method: LinkRequest['method'], path: string, input: Uint8Array, limit: number,
-    parse: (status: number, raw: Uint8Array) => { value: T; serverTime: number | null } | undefined | Promise<{ value: T; serverTime: number | null } | undefined>, requestCurrent: () => boolean = () => true): Promise<BoxAnswer<T>> {
+    parse: (status: number, raw: Uint8Array) => { value: T; serverTime: number | null } | undefined | Promise<{ value: T; serverTime: number | null } | undefined>, requestCurrent: () => boolean = () => true, settle = false): Promise<BoxAnswer<T>> {
     if (this.#occupied >= 32) return { state: 'not-signed', reason: 'busy' }
     const body = input.slice(), epoch = this.#epoch
     const request = Object.freeze({ v: 1 as const, box: this.box, method, path, payload: bytesToHex(sha256(body)) })
@@ -216,7 +226,8 @@ export class BrowserMlsBoxClient {
       }
       // An abandoned prompt/request can still be running. Keep its capacity
       // until it actually settles; timeout must not create an unbounded queue.
-      return await Promise.race([work().finally(() => { this.#occupied-- }), waiting])
+      const running = work().finally(() => { this.#occupied-- })
+      return settle ? await running : await Promise.race([running, waiting])
     } finally { cancelled = true; clearTimeout(timer); this.#pending.delete(wake) }
   }
 }

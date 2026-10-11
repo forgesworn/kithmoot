@@ -171,6 +171,21 @@ describe('strict browser MLS box client', () => {
     await Promise.resolve(); await Promise.resolve()
     if (moment === 'sign') expect(f.calls).toEqual([])
   })
+  for (const moment of ['sign', 'send'] as const) for (const end of ['invalidate', 'timeout'] as const) it(`settled registration waits for actual ${moment} after ${end} and withholds a late result`, async () => {
+    vi.useFakeTimers(); const f = setup(201, body('registered'))
+    let release!: () => void, entered!: () => void, settled = false
+    const ready = new Promise<void>(resolve => { entered = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+    const sign = f.vault.signBoxRequestV1.getMockImplementation()!, send = f.transport.request.getMockImplementation()!
+    if (moment === 'sign') f.vault.signBoxRequestV1.mockImplementationOnce(async (ctx, req) => { entered(); await waiting; return sign(ctx, req) })
+    else f.transport.request.mockImplementationOnce(async req => { entered(); await waiting; return send(req) })
+    const task = f.client.registerPackageSettled(id, other, 200, 123).then(result => { settled = true; return result })
+    await ready
+    if (end === 'invalidate') f.client.invalidate()
+    else await vi.advanceTimersByTimeAsync(1001)
+    await Promise.resolve(); expect(settled).toBe(false)
+    release(); expect(await task).toEqual({ state: 'unavailable' })
+    expect(f.calls).toHaveLength(moment === 'send' ? 1 : 0)
+  })
   it('turns transport faults into uncertain replies', async () => {
     const f = setup(); f.transport.request.mockRejectedValueOnce(new Error('lost response'))
     expect(await f.client.capabilities()).toEqual({ state: 'unavailable' })

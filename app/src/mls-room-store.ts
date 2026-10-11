@@ -1,5 +1,6 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { InvalidPersonaRecord, type PersonaReader, type PersonaTransaction } from './mls-persona-coordinator.js'
+import { validateMlsPendingAdd, type MlsPendingAdd } from './mls-pending-add.js'
 
 export const MAX_ROOM_HISTORY_BYTES = 1024 * 1024
 export const MAX_ROOM_MESSAGES = 512
@@ -19,6 +20,7 @@ export interface MlsRoomRecord {
   ordering?: { slot: string; attempt: number }[]
   join?: MlsJoinCeremony
   packages?: MlsPackageRoute[]
+  pendingAdds?: MlsPendingAdd[]
 }
 export class MlsRoomRefused extends Error { constructor(readonly reason: string) { super(reason) } }
 const invalid = (): never => { throw new InvalidPersonaRecord('Invalid MLS room record') }
@@ -38,7 +40,7 @@ export async function readMlsRoom(tx: PersonaReader, id: string): Promise<MlsRoo
   finally { bytes.fill(0) }
 }
 function validate(r: MlsRoomRecord, id: string): void {
-  if (!r || typeof r !== 'object' || !keys(r, ['binding', 'generation', 'history', ...(r.join ? ['join'] : []), ...(r.keeper ? ['keeper'] : []), 'name', ...(r.ordering ? ['ordering'] : []), ...(r.packages ? ['packages'] : []), 'session', 'version'].join(',')) || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
+  if (!r || typeof r !== 'object' || !keys(r, ['binding', 'generation', 'history', ...(r.join ? ['join'] : []), ...(r.keeper ? ['keeper'] : []), 'name', ...(r.ordering ? ['ordering'] : []), ...(r.packages ? ['packages'] : []), ...(r.pendingAdds ? ['pendingAdds'] : []), 'session', 'version'].join(',')) || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
     typeof r.name !== 'string' || r.name.length < 1 || r.name.length > 120 || !r.binding || !keys(r.binding, 'credentialId,device,homeBox,installation,rendezvousKey') ||
     ![r.binding.device, r.binding.credentialId, r.binding.rendezvousKey, r.binding.homeBox].every(hex) ||
     !(hex(r.binding.installation) || r.binding.installation === null && r.join) || r.keeper !== undefined && !hex(r.keeper) || !Array.isArray(r.history) || r.history.length > MAX_ROOM_MESSAGES) invalid()
@@ -47,6 +49,14 @@ function validate(r: MlsRoomRecord, id: string): void {
   if (r.packages && (!Array.isArray(r.packages) || r.packages.length > 64 || r.packages.some(p => !p || !keys(p, 'expiresAt,homeBox,leafId,packageId,welcomeMailbox') ||
       !hex(p.packageId) || !hex(p.welcomeMailbox) || !hex(p.homeBox) || !hex(p.leafId) || !Number.isSafeInteger(p.expiresAt) || p.expiresAt < 0) ||
       new Set(r.packages.map(p => p.packageId)).size !== r.packages.length || new Set(r.packages.map(p => p.welcomeMailbox)).size !== r.packages.length)) invalid()
+  if (r.pendingAdds) {
+    if (!Array.isArray(r.pendingAdds) || r.pendingAdds.length > 64 || new Set(r.pendingAdds.map(item => item?.route?.leafId)).size !== r.pendingAdds.length ||
+        new Set(r.pendingAdds.map(item => item?.route?.packageId)).size !== r.pendingAdds.length || new Set(r.pendingAdds.map(item => item?.route?.welcomeMailbox)).size !== r.pendingAdds.length) invalid()
+    for (const candidate of r.pendingAdds) {
+      validateMlsPendingAdd(candidate)
+      if (candidate.route.homeBox !== r.binding.homeBox || BigInt(candidate.proposal.generation) > BigInt(r.generation) || candidate.readback && BigInt(candidate.readback.generation) > BigInt(r.generation)) invalid()
+    }
+  }
   let total = 0
   const ids = new Set<string>()
   for (const m of r.history) {
