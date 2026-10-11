@@ -730,6 +730,18 @@ export class Session {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Actual MLS group id, or `null` before joining; not the local session id.
+     * Sensitive metadata for encrypted admission, not proof of authority.
+     * @returns {any}
+     */
+    groupId() {
+        const ret = wasm.session_groupId(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * @returns {any}
      */
     homeBox() {
@@ -891,7 +903,7 @@ export class Session {
     /**
      * Prepares this device's capability record for an adder and its
      * pending-join session: a `PendingCapability`. The request is
-     * `{ binding, expiresAt, adderRz, counter }`.
+     * `{ binding, expectedGroupId, expiresAt, adderRz, counter }`.
      * @param {Platform} platform
      * @param {any} now
      * @param {any} request

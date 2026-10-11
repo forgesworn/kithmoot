@@ -1,5 +1,6 @@
 import { Relay } from 'nostr-tools/relay'
 import { KINDS } from '../src/kinds.js'
+import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, type Page } from '@playwright/test'
 import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 import { execFileSync } from 'node:child_process'
@@ -212,9 +213,7 @@ for (const { layout, phone } of [
       const text = await a.locator('#recordingElapsed').textContent()
       const [m, s] = text!.split(' ')[0]!.split(':').map(Number)
       const elapsed = m! * 60 + s!
-      await a.locator('#diagnostics').evaluate((button: HTMLButtonElement) => button.click())
-      await expect(a.locator('#diagnosticsOut')).not.toHaveValue('')
-      const diagnostic = JSON.parse(await a.locator('#diagnosticsOut').inputValue())
+      const diagnostic = JSON.parse(await collectAppDiagnostics(a))
       await info.attach('capture-inputs.json', { body: JSON.stringify({ participants: diagnostic.participants, pictures: diagnostic.pictures, recording: diagnostic.recording }, null, 2), contentType: 'application/json' })
       await a.locator('#recordingStop').click()
       await expect.poll(() => a.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.recording-stop.v1.')).length)).toBe(0)

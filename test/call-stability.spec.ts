@@ -1,3 +1,4 @@
+import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, chromium, firefox, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
@@ -240,15 +241,10 @@ function dead(people: Person[], matrix: Matrix, want: Want): string[] {
  */
 async function diagnosticsText(person: Person): Promise<string | undefined> {
   if (person.cdp) {
-    // Nothing the harness does may hand this page a gesture; the page's
-    // report is read off its box only if a person already produced it.
+    // Do not collect diagnostics from a person's attached browser.
     return undefined
   }
-  const page = person.page
-  await page.locator('#diagnosticsOut').evaluate(el => { (el as HTMLTextAreaElement).value = '' })
-  await page.locator('#diagnostics').dispatchEvent('click')
-  await expect.poll(() => page.locator('#diagnosticsOut').inputValue(), { timeout: 10_000 }).not.toBe('')
-  return page.locator('#diagnosticsOut').inputValue()
+  return collectAppDiagnostics(person.page)
 }
 
 async function diagnostics(person: Person): Promise<Record<string, unknown> | undefined> {

@@ -116,7 +116,7 @@ export async function legacyAfterMigration() {
 }
 export async function localRecord() {
   return store.withPersona(persona, async s => {
-    const file = (await s.read())!, o = file.data.active.vault[0]
+    const file = (await s.read())!, o = file.data.active.vault.find(o => o.id === bytesToHex(new TextEncoder().encode('kithmoot.typed-vault.v1')))
     const bytes = o && await s.openObject(file.data.installation, o.id, o.sealed)
     try {
       const r = bytes ? JSON.parse(new TextDecoder().decode(bytes)) : undefined
@@ -199,4 +199,134 @@ export function setClock(value: number) { clock = value }
 export async function longerBindingCredential() {
   credential = await createDeviceCredential({ identity, devicePubkey: deviceId, expiresAt: clock + 1000, scope: 'person', now: () => clock })
   return request(600)
+}
+
+// Synthetic ceremony peers exercise the real witnessed browser vault, not
+// current keeper/child authority or a two-account live admission.
+import { encodeMlsInvitationV4, readMlsInvitationV4, mlsAdmissionProofTemplatesV4, encodeMlsAdmissionRequestV4, decodeMlsAdmissionRequestV4,
+  readMlsAdmissionRequestV4 } from '@forgesworn/fold-kit/mls-admission'
+import { ADMISSION_PROOF_RECORD, type AdmissionProofInput } from '../app/src/mls-admission-proof.js'
+let admissionInput: AdmissionProofInput, admissionReply: any
+const peerSecret = (n: number) => new Uint8Array(32).fill(n)
+const wireCredential = (e: any) => [e.id, e.pubkey, e.created_at, e.kind, e.tags, e.content, e.sig]
+export async function admissionPrepare(role: 'engine-device' | 'keeper-device' = 'engine-device') {
+  const own = await vault.credential(ctx())
+  if (!own.ok) return own
+  const root = peerSecret(51), requestSecret = peerSecret(52), browser = peerSecret(53), peerAccount = peerSecret(54), peerEngine = peerSecret(55)
+  const fragment = encodeMlsInvitationV4(getPublicKey(root), peerSecret(56))
+  const invitation = readMlsInvitationV4(fragment); invitation.bearer.fill(0)
+  const joinAccount = role === 'engine-device' ? persona : getPublicKey(peerAccount)
+  const joinEngine = role === 'engine-device' ? deviceId : getPublicKey(peerEngine)
+  const joinCredential = role === 'engine-device' ? own.value.credential : finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [
+    ['d', joinAccount], ['device', joinEngine], ['expiration', String(clock + 86400)], ['scope', 'person'],
+  ] }, peerAccount)
+  const requestCore = JSON.stringify([4, 'kithmoot/v4/mls-request', invitation.invitationId, getPublicKey(root), getPublicKey(requestSecret),
+    bytesToHex(randomBytes(32)), '13'.repeat(32), joinAccount, getPublicKey(browser), joinEngine, getPublicKey(peerSecret(57)), wireCredential(joinCredential), boxId, '1', clock + 600, clock, clock + 90])
+  if (role === 'engine-device') admissionInput = { v: 4, role, fragment, core: requestCore }
+  else {
+    const proofs = mlsAdmissionProofTemplatesV4({ fragment, core: requestCore, now: clock }).map((s, i) => wireCredential(finalizeEvent(s.event, [peerAccount, browser, peerEngine][i])))
+    const event = encodeMlsAdmissionRequestV4({ fragment, core: requestCore, proofs: JSON.stringify(proofs), requestSecretKey: requestSecret, now: clock })
+    const request = decodeMlsAdmissionRequestV4({ fragment, event, localSecretKey: root, side: 'root', now: clock })
+    const verified = readMlsAdmissionRequestV4(request), c = JSON.parse(requestCore)
+    const core = JSON.stringify([4, 'kithmoot/v4/mls-answer', 'allow', c[2], c[3], verified.eventId, verified.digest, c[5], c[6], c[7], c[8], c[9], c[10], c[12], c[13],
+      persona, deviceId, wireCredential(own.value.credential), getPublicKey(peerSecret(58)), boxId, boxId, '45'.repeat(32), '46'.repeat(32), c[14], clock + 3600, clock, c[16]])
+    admissionInput = { v: 4, role, fragment, core, request }
+  }
+  return { operation: JSON.parse(admissionInput.core)[role === 'keeper-device' ? 7 : 5], device: deviceId }
+}
+export async function admissionSign(mode: 'approve' | 'deny' | 'throw' | 'replace' | 'revoke' | 'account' | 'expiry' = 'approve') {
+  let asked = 0, scope: any
+  const answer = await vault.signMlsAdmissionProofV4(ctx(), admissionInput, async s => {
+    asked++; scope = s
+    if (mode === 'throw') throw new Error('fixture cancelled consent')
+    if (mode === 'replace') await enrol(true)
+    if (mode === 'revoke') await policy('revoke')
+    if (mode === 'account') changeAccount()
+    if (mode === 'expiry') advanceClock(90)
+    return mode === 'deny' ? 'deny' : 'approve'
+  })
+  if (answer.ok) admissionReply = answer.value
+  return { answer, asked, scope, accepted: answer.ok ? vault.acceptAdmissionProofReply(admissionInput, answer.value) : undefined,
+    copied: answer.ok ? vault.acceptAdmissionProofReply(admissionInput, { ...answer.value }) : undefined }
+}
+export function admissionAccept() { return vault.acceptAdmissionProofReply(admissionInput, admissionReply) }
+export function admissionSubstitute() {
+  const core = JSON.parse(admissionInput.core); core[admissionInput.role === 'keeper-device' ? 8 : 6] = '99'.repeat(32)
+  return vault.acceptAdmissionProofReply({ ...admissionInput, core: JSON.stringify(core) }, admissionReply)
+}
+export async function admissionJournal() {
+  return store.withPersona(persona, async s => {
+    const file = (await s.read())!, o = file.data.active.vault.find(o => o.id === ADMISSION_PROOF_RECORD)
+    const bytes = o && await s.openObject(file.data.installation, o.id, o.sealed)
+    try {
+      const text = bytes ? new TextDecoder().decode(bytes) : ''
+      const rows = text ? JSON.parse(text).entries : []
+      return { active: file.data.active.vault.length, staged: file.data.staged?.vault.length ?? null, entries: rows,
+        hasFragment: text.includes(admissionInput.fragment), hasCore: text.includes(admissionInput.core), hasScalar: text.includes('scalar') }
+    } finally { bytes?.fill(0) }
+  })
+}
+export async function admissionConcurrent() {
+  let enter!: () => void, release!: () => void
+  const entered = new Promise<void>(r => { enter = r }), released = new Promise<void>(r => { release = r })
+  const signing = vault.signMlsAdmissionProofV4(ctx(), admissionInput, async () => { enter(); await released; return 'approve' })
+  await entered
+  const other = { ...admissionInput }; const c = JSON.parse(other.core); c[other.role === 'keeper-device' ? 7 : 5] = '98'.repeat(32); other.core = JSON.stringify(c)
+  const duplicate = await vault.signMlsAdmissionProofV4(ctx(), admissionInput, async () => { throw new Error('must not prompt') })
+  const second = await vault.signMlsAdmissionProofV4(ctx(), other, async () => { throw new Error('must not prompt') })
+  release()
+  return { duplicate, second, first: await signing, journal: await admissionJournal() }
+}
+export async function admissionPromotionFault(mode: 'lose' | 'expiry' | 'cleanup') {
+  const exchange = window.witnessExchange, close = LockedPersonaStore.prototype.close
+  let advances = 0, closes = 0
+  window.witnessExchange = async (method, request) => {
+    const reply = await exchange(method, request)
+    if (method === 'advance' && ++advances === 2) {
+      if (mode === 'lose') return { type: 'unavailable' }
+      if (mode === 'expiry') advanceClock(90)
+    }
+    return reply
+  }
+  LockedPersonaStore.prototype.close = async function () { await close.call(this); if (mode === 'cleanup' && ++closes === 2) advanceClock(90) }
+  try { return await admissionSign() }
+  finally { window.witnessExchange = exchange; LockedPersonaStore.prototype.close = close }
+}
+export async function admissionCorrupt() {
+  return host.transact(persona, async tx => { await tx.putVault(ADMISSION_PROOF_RECORD, new TextEncoder().encode('{"version":2}')) }, () => true).then(r => r.state)
+}
+import { encodeMlsAdmissionAnswerV4, decodeMlsAdmissionAnswerV4, readMlsAdmissionAnswerV4 } from '@forgesworn/fold-kit/mls-admission'
+export function admissionVerify() {
+  if (!admissionReply) throw new Error('Missing proof')
+  const templates = mlsAdmissionProofTemplatesV4({ ...admissionInput, now: clock })
+  const proofs = templates.map((s, i) => admissionInput.role === 'engine-device' ? (i === 2 ? JSON.parse(admissionReply.event) : wireCredential(finalizeEvent(s.event, [secret, peerSecret(53)][i])))
+    : (i === 1 ? JSON.parse(admissionReply.event) : wireCredential(finalizeEvent(s.event, secret))))
+  if (admissionInput.role === 'engine-device') {
+    const event = encodeMlsAdmissionRequestV4({ ...admissionInput, proofs: JSON.stringify(proofs), requestSecretKey: peerSecret(52), now: clock })
+    return readMlsAdmissionRequestV4(decodeMlsAdmissionRequestV4({ fragment: admissionInput.fragment, event, localSecretKey: peerSecret(51), side: 'root', now: clock })).digest
+  }
+  const event = encodeMlsAdmissionAnswerV4({ ...admissionInput, request: admissionInput.request!, proofs: JSON.stringify(proofs), rootSecretKey: peerSecret(51), now: clock })
+  return readMlsAdmissionAnswerV4(decodeMlsAdmissionAnswerV4({ fragment: admissionInput.fragment, request: admissionInput.request!, event, requestSecretKey: peerSecret(52), now: clock })).digest
+}
+
+export async function admissionCrossVault() {
+  let enter!: () => void, release!: () => void
+  const entered = new Promise<void>(r => { enter = r }), released = new Promise<void>(r => { release = r })
+  const signing = vault.signMlsAdmissionProofV4(ctx(), admissionInput, async () => { enter(); await released; return 'approve' })
+  await entered
+  const otherVault = new CoordinatedMlsVault(host, { now: () => clock, generation: () => generation })
+  const other = { ...admissionInput }; const c = JSON.parse(other.core); c[5] = '97'.repeat(32); other.core = JSON.stringify(c)
+  let prompted = 0
+  const second = await otherVault.signMlsAdmissionProofV4(otherVault.context(principal, persona), other, async () => { prompted++; return 'approve' })
+  release()
+  return { second, prompted, first: await signing, journal: await admissionJournal() }
+}
+export async function admissionFullJournal() {
+  return host.transact(persona, async tx => {
+    const record = JSON.parse(new TextDecoder().decode((await tx.readVault(ADMISSION_PROOF_RECORD))!))
+    const entry = record.entries[0]
+    record.entries = Array.from({ length: 1024 }, (_, i) => ({ ...entry, operation: i.toString(16).padStart(64, '0'), outcome: 'denied' }))
+    const bytes = new TextEncoder().encode(JSON.stringify(record))
+    try { await tx.putVault(ADMISSION_PROOF_RECORD, bytes) } finally { bytes.fill(0) }
+  }, () => true).then(r => r.state)
 }

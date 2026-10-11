@@ -20,6 +20,14 @@ import {
   type VaultRefusal, type VaultResult, type SignLeafBindingRequest, type SignLeafBindingReply,
 } from './mls-vault.js'
 
+import {
+  admissionProofInput, admissionProofPlan, admissionProofWire, admissionProofEvent,
+  admissionProofKey, admissionProofReply, matchingAdmissionProof, admissionProofTemplates,
+  readAdmissionProofJournal, saveAdmissionProofJournal, MAX_ADMISSION_PROOF_RECORDS,
+  type AdmissionProofInput, type AdmissionProofPrompt, type AdmissionProofReply,
+  type AdmissionProofEntry, type AdmissionProofPlan,
+} from './mls-admission-proof.js'
+
 export const BOX_METHOD = 'signBoxRequestV1/1'
 const RECORD = bytesToHex(new TextEncoder().encode('kithmoot.typed-vault.v1'))
 const HEX = /^[0-9a-f]{64}(?![\s\S])/
@@ -69,6 +77,7 @@ export class CoordinatedMlsVault {
   // In-memory only. Do not evict live entries: eviction could repeat an id.
   #boxTimes = new Map<string, number>()
   #boxClockFloor = 0
+  #admissionPrompts = new Set<string>()
   constructor(private readonly coordinator: BrowserPersonaCoordinator, options: CoordinatedVaultOptions = {}) {
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1000))
     this.#generation = options.generation ?? (() => 0)
@@ -352,6 +361,120 @@ export class CoordinatedMlsVault {
     if (!this.#current(made.ctx)) return refuse('stale')
     if (made.request !== request) return refuse('replay')
     return this.#live(made.validBefore, made.deadline) ? ok(undefined) : refuse('expired')
+  }
+
+  /** Purpose-specific proof only; the caller's private owner still holds
+   * actual child custody and verifies current keeper role before using it.
+   * Reserve once under the witness before prompting; never reuse broad scope
+   * approvals, silently re-consent a pending row, or evict old operation ids. */
+  async signMlsAdmissionProofV4(ctx: VaultContext, raw: unknown, consent: AdmissionProofPrompt): Promise<VaultResult<AdmissionProofReply>> {
+    ctx = Object.freeze({ ...ctx })
+    const input = admissionProofInput(raw)
+    if (!input || typeof ctx.principal !== 'string' || new TextEncoder().encode(JSON.stringify(ctx.principal)).length > 2048 || typeof ctx.revision !== 'string' || new TextEncoder().encode(JSON.stringify(ctx.revision)).length > 256) return refuse('malformed')
+    if (this.#admissionPrompts.has(ctx.persona)) return refuse('busy')
+    this.#admissionPrompts.add(ctx.persona)
+    try {
+      const reservation = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))
+      let plan: AdmissionProofPlan | undefined
+      const first = await this.#run<{ replay: AdmissionProofReply | null }>(ctx, tx => this.#with(tx, ctx.persona, async r => {
+        const checked = this.#admission(ctx, input, r)
+        if (!checked.ok) return checked
+        plan = checked.value
+        const entries = await readAdmissionProofJournal(tx, ctx.persona)
+        const earlier = entries.find(e => e.role === input.role && e.operation === plan!.consent.operation)
+        if (earlier) {
+          const replay = this.#admissionReplay(ctx, plan, earlier)
+          return replay.ok ? ok({ replay: replay.value }) : replay
+        }
+        if (entries.length >= MAX_ADMISSION_PROOF_RECORDS || entries.some(e => e.outcome === 'pending' && e.deadline > this.#now())) return refuse('busy')
+        const c = plan.consent
+        entries.push({ principal: ctx.principal, role: c.role, operation: c.operation, coreDigest: c.coreDigest, eventId: c.eventId,
+          device: c.device, credentialId: c.credentialId, createdAt: plan.template.created_at, deadline: c.deadline, generation: ctx.generation,
+          revision: ctx.revision, reservation, outcome: 'pending' })
+        await saveAdmissionProofJournal(tx, ctx.persona, entries)
+        return ok({ replay: null })
+      }))
+      if (!first.ok) return first
+      if (!plan) return refuse('stale')
+      const captured = plan as AdmissionProofPlan
+      if (!this.#current(ctx)) return refuse('stale')
+      if (!this.#admissionLive(ctx, captured.consent.deadline)) return refuse('expired')
+      if (first.value.replay) return this.#admissionMade(ctx, captured, first.value.replay)
+      let decision: 'approve' | 'deny'
+      try { decision = await consent(captured.consent) } catch { return refuse(this.#current(ctx) ? 'busy' : 'stale') }
+      if (decision !== 'approve' && decision !== 'deny') return refuse('busy')
+      if (!this.#current(ctx)) return refuse('stale')
+      if (!this.#admissionLive(ctx, captured.consent.deadline)) return refuse('expired')
+      const result = await this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => {
+        const checked = this.#admission(ctx, input, r)
+        if (!checked.ok) return checked
+        const current = checked.value
+        if (current.key !== captured.key) return refuse('stale')
+        const entries = await readAdmissionProofJournal(tx, ctx.persona)
+        const entry = entries.find(e => e.role === input.role && e.operation === captured.consent.operation)
+        if (!entry || entry.reservation !== reservation || !matchingAdmissionProof(entry, current)) return refuse('replay')
+        if (entry.generation !== ctx.generation || entry.revision !== ctx.revision || entry.outcome !== 'pending') return refuse('stale')
+        if (!this.#admissionLive(ctx, current.consent.deadline) || !r) return refuse('expired')
+        if (decision !== 'approve') {
+          entry.outcome = 'denied'
+          await saveAdmissionProofJournal(tx, ctx.persona, entries)
+          return refuse('denied')
+        }
+        const scalar = hexToBytes(r.device.scalar)
+        try {
+          const event = finalizeEvent(current.template, scalar)
+          if (event.pubkey !== current.consent.device || event.id !== current.consent.eventId) return refuse('unauthorised')
+          entry.outcome = { event: admissionProofWire(event) }
+        } finally { scalar.fill(0) }
+        await saveAdmissionProofJournal(tx, ctx.persona, entries)
+        return ok(admissionProofReply(entry))
+      }))
+      return result.ok ? this.#admissionMade(ctx, captured, result.value) : result
+    } finally { this.#admissionPrompts.delete(ctx.persona) }
+  }
+  #admission(ctx: VaultContext, input: AdmissionProofInput, r: RecordV1 | undefined): VaultResult<AdmissionProofPlan> {
+    const reason = this.#device(r)
+    if (reason || !r) return refuse(reason ?? 'unauthorised')
+    try { return ok(admissionProofPlan(input, ctx, r.device, r.policy.revoked, this.#now())) }
+    catch { return refuse('malformed') }
+  }
+  #admissionLive(ctx: VaultContext, deadline: number): boolean {
+    const now = this.#now()
+    return this.#current(ctx) && Number.isSafeInteger(now) && now >= 0 && now < deadline
+  }
+  #admissionReplay(ctx: VaultContext, plan: AdmissionProofPlan, entry: AdmissionProofEntry): VaultResult<AdmissionProofReply> {
+    if (entry.principal !== ctx.principal || !matchingAdmissionProof(entry, plan)) return refuse('replay')
+    if (entry.generation !== ctx.generation || entry.revision !== ctx.revision) return refuse('stale')
+    if (entry.outcome === 'pending') return refuse('busy')
+    if (entry.outcome === 'denied') return refuse('denied')
+    return ok(admissionProofReply(entry))
+  }
+  #admissionMade(ctx: VaultContext, plan: AdmissionProofPlan, reply: AdmissionProofReply): VaultResult<AdmissionProofReply> {
+    if (!this.#current(ctx)) return refuse('stale')
+    if (!this.#admissionLive(ctx, plan.consent.deadline)) return refuse('expired')
+    this.#made.set(reply, { ctx, request: plan.key, validBefore: plan.consent.deadline, deadline: plan.consent.deadline })
+    return ok(reply)
+  }
+  /** This checks proof provenance, never keeper role or admission authority.
+   * Only promoted replies from this current vault may complete the owner's
+   * captured operation. A copy/cast, another tuple or an expired reply holds. */
+  acceptAdmissionProofReply(input: unknown, reply: unknown): VaultResult<AdmissionProofReply> {
+    const request = admissionProofInput(input)
+    const made = typeof reply === 'object' && reply !== null ? this.#made.get(reply) : undefined
+    if (!request || !made) return refuse('unauthorised')
+    if (!this.#current(made.ctx)) return refuse('stale')
+    if (!this.#admissionLive(made.ctx, made.deadline)) return refuse('expired')
+    const r = reply as AdmissionProofReply
+    try {
+      const proof = admissionProofEvent(r.event)
+      const core = JSON.parse(request.core) as unknown[]
+      // Revalidate this canonical core and transient invitation. The complete
+      // tuple is already authenticated by the private reply's signed event id.
+      const template = admissionProofTemplates(request, this.#now())
+      if (request.role !== r.role || template.pubkey !== r.device || proof.id !== template.id || admissionProofKey(r) !== made.request) return refuse('replay')
+      if (core[request.role === 'keeper-device' ? 7 : 5] !== r.operation) return refuse('replay')
+      return ok(r)
+    } catch { return refuse('malformed') }
   }
 
   async signBoxRequestV1(ctx: VaultContext, input: unknown, consent: ConsentPrompt): Promise<VaultResult<BoxReply>> {

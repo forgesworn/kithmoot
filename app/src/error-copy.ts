@@ -8,7 +8,7 @@
  * somebody trying to get back into a conversation, and reading it out
  * ("every relay rejected the event (wss://nos.lol/: connection failure:
  * websocket closed; …)") taught them nothing they could act on (M6). The
- * raw text still belongs in the console and in "Copy a bug report"; this is
+ * raw text still belongs in the console; this is
  * only ever what the room itself says.
  *
  * No DOM, so it can be tested without a browser.
@@ -28,7 +28,7 @@ export function isNetworkFailure(err: unknown): boolean {
 }
 
 export const NETWORK_FAILURE_COPY = 'Could not reach the network. Check your connection and try again.'
-export const GENERIC_FAILURE_COPY = 'Something went wrong. Try again, or copy a bug report from Room details.'
+export const GENERIC_FAILURE_COPY = 'Something went wrong. Try again.'
 
 /** The plain-language line to show; the raw text, for whoever logs or
  *  copies it, is `rawMessage`d separately by the caller. */

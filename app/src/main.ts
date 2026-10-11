@@ -11786,22 +11786,11 @@ async function collectDiagnostics(): Promise<string> {
   }, null, 1)
 }
 
-$('diagnostics').addEventListener('click', () => {
-  collectDiagnostics()
-    .then(async (text) => {
-      const box = $('diagnosticsOut') as HTMLTextAreaElement
-      box.value = text
-      box.hidden = false
-      box.select()
-      try {
-        await navigator.clipboard.writeText(text)
-        setStatus('Diagnostics copied to the clipboard, and shown below.')
-      } catch {
-        setStatus('Diagnostics shown below; copy them from the box.')
-      }
-    })
-    .catch((err) => setStatus(describeError(err)))
-})
+// Acceptance builds read connection state directly, without a report control,
+// clipboard writes or a report textarea. This hook is absent from release builds.
+if (import.meta.env.VITE_TEST_DIAGNOSTICS === 'true') {
+  Object.defineProperty(window, '__kithmootCollectDiagnostics', { value: collectDiagnostics })
+}
 
 // ---------------------------------------------------------------------------
 // Joining
@@ -13901,7 +13890,7 @@ function resetRoomState(): void {
   $('chatLog').replaceChildren()
   $('conversationHeading').textContent = 'Chat'
   ;($('chatInput') as HTMLTextAreaElement).placeholder = 'Say something'
-  for (const id of ['pairUrl', 'copyPair', 'stopPairing', 'pairQrWrap', 'diagnosticsOut']) $(id).hidden = true
+  for (const id of ['pairUrl', 'copyPair', 'stopPairing', 'pairQrWrap']) $(id).hidden = true
   ;($('pairUrl') as HTMLInputElement).value = ''
   ;($('shareQrDetails') as HTMLDetailsElement).open = false
   $('inviteStatus').textContent = ''

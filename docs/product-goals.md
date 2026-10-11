@@ -656,6 +656,12 @@ Acceptance:
 This is a design/feasibility goal; it does not authorise repurposing the domain's
 existing home page or claim that shortening the current payload is already done.
 
+The [short-invitation feasibility](short-invitation-feasibility.md) proposes an
+84-character encrypted lookup with its decryption key only in the fragment,
+compares measured synthetic full links and records revocation, metadata and
+service-isolation constraints. Its local crypto experiment is not a deployed
+resolver or client integration; G16 remains open.
+
 ## G17 — Closed-room admission and consistent UI/UX polish
 
 Make closed-room entry understandable for both the waiting guest and the person
