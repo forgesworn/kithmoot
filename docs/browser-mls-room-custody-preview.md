@@ -223,3 +223,30 @@ pasted keeper nor raw caller-shaped join options satisfy that requirement.
 Single-box delivery, live default-WASM Bothy, historical writers/cached engines,
 profile/process/backup recovery, candidate retirement, pruning/renewal, P7,
 physical/operator and independent production acceptance remain open.
+
+## Disposable full-app bunker lab
+
+The opt-in `playwright.mls-account-live.config.ts` suite includes a fresh bunker
+journey on Chromium, Firefox and WebKit. It drives the installed Signet NIP-46
+login, actual browser-device enrolment and scoped child provisioning, then pairs
+the private room endpoint, reads saved routes, approves both typed permissions,
+creates one witnessed room and explicitly runs an empty manual round. Sign-out
+acceptance waits for actual logout completion and checks that the bunker URI and
+client key have been removed. The companion Vennel launcher is
+`lab/browser-mls-bunker-room.mjs`.
+
+Set `BOTHYD`, `LAB_RELAY` and `BOX_CONTROL` only for disposable local Bothy/witness
+fixtures. Without those variables the bunker case skips. The test-only Vite
+configuration supplies the loopback relay proxy on the development server;
+production configuration and application authority are unchanged. The fixture
+bunker exchanges real signed/encrypted kind-24133 messages, and the in-page
+fixture operator installs a fresh device grant outside the private room owner
+using default Link WASM and NIP-42. Neither is physical Heartwood or an independent
+operator. No client, route, receipt or readiness object is injected into the app.
+
+Traces, screenshots and videos are off. Tests clear URI/pairing input fields
+immediately after their handlers capture them because Playwright can still write
+an automatic DOM failure context. Fixture response work drains before key wiping;
+all owned cleanup is attempted even if one resource fails. This single-member,
+empty-round journey does not establish invitation joining, two-account delivery,
+process/profile recovery, deployed operator or production MLS acceptance.
