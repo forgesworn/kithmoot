@@ -41,7 +41,7 @@ function fixture() {
     }),
   }
   const client = {
-    box: hex(), isCurrent: () => valid, invalidate: vi.fn(),
+    box: hex(), isCurrent: () => valid, invalidate: vi.fn(), settled: vi.fn(async (): Promise<void> => undefined),
     capabilities: vi.fn(async (): Promise<any> => ok({ installation: hex(5) })),
     deposit: vi.fn(async (): Promise<any> => ok({ duplicate: false, receipt: id(7), welcomeAcknowledged: null })),
     depositSlot: vi.fn(async (): Promise<any> => ok({ outcome: 'won', attempt: 0, receipt: id(7), signedReceipt: id(8) })),
@@ -217,6 +217,34 @@ describe('witnessed browser MLS message driver', () => {
     const f = fixture(); const first = f.driver.round(); expect(f.driver.round()).toBe(first); await first
     await Promise.all([f.driver.close(), f.driver.close()]); expect(f.shutdown).toHaveBeenCalledTimes(1)
     expect(await f.driver.round()).toMatchObject({ state: 'pending' }); expect(f.client.capabilities).toHaveBeenCalledTimes(1)
+  })
+  it('retains the round lock until a timed-out client operation actually settles', async () => {
+    const f = fixture(); let release!: () => void, entered!: () => void, unlocked = false
+    const ready = new Promise<void>(resolve => { entered = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+    f.client.capabilities.mockResolvedValue({ state: 'unavailable' })
+    f.client.settled.mockImplementation(async () => { entered(); await waiting })
+    f.locks.request.mockImplementation(async (_: any, __: any, work: any) => { try { return await work() } finally { unlocked = true } })
+    const round = f.driver.round(); await ready
+    expect(unlocked).toBe(false); expect(f.driver.round()).toBe(round)
+    release(); expect(await round).toEqual({ state: 'offline', answer: { state: 'unavailable' } })
+    expect(unlocked).toBe(true)
+  })
+  for (const failedShutdown of [false, true]) it(`close joins round and client tails after shutdown ${failedShutdown ? 'fails' : 'finishes'}`, async () => {
+    const f = fixture(); let releaseRound!: () => void, releaseClient!: () => void, entered!: () => void
+    const ready = new Promise<void>(resolve => { entered = resolve })
+    const roundTail = new Promise<void>(resolve => { releaseRound = resolve }), clientTail = new Promise<void>(resolve => { releaseClient = resolve })
+    f.rooms.driverState.mockImplementationOnce(async () => { entered(); await roundTail; return active(f.s) })
+    f.client.settled.mockImplementation(async () => clientTail)
+    if (failedShutdown) f.shutdown.mockRejectedValueOnce(new Error('shutdown fault'))
+    const round = f.driver.round(); await ready
+    let closed = false
+    const close = f.driver.close(), joined = close.then(() => { closed = true; return 'closed' }, error => { closed = true; return error.message })
+    expect(f.driver.close()).toBe(close)
+    await Promise.resolve(); expect(f.client.invalidate).toHaveBeenCalled(); expect(f.shutdown).toHaveBeenCalledTimes(1)
+    releaseClient(); await Promise.resolve(); await Promise.resolve(); expect(closed).toBe(false)
+    releaseRound(); expect(await round).toMatchObject({ state: 'pending', reason: 'stale' })
+    expect(await joined).toBe(failedShutdown ? 'shutdown fault' : 'closed')
+    expect(f.client.capabilities).not.toHaveBeenCalled(); expect(f.commands).toEqual([])
   })
   it('withholds late results after account change and after lock cleanup', async () => {
     const f = fixture(); f.client.capabilities.mockImplementation(async () => { f.invalidate(); return ok({ installation: hex(5) }) })

@@ -191,6 +191,28 @@ test('round lock serialises two tabs; a cancelled queued round never sends', asy
   expect((await run(page, 'M.finishDriver()')).result.state).toBe('done')
 })
 
+for (const mode of ['wait', 'wait-timeout']) test(`actual client settlement retains native ownership after ${mode === 'wait' ? 'close' : 'timeout'}`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  await page.evaluate(({ route, mode }) => (window as any).M.startDriver(route, mode), { route: boxRoute, mode })
+  await expect.poll(() => run(page, 'M.driverWaiting()')).toBe(true)
+  if (mode === 'wait-timeout') await page.waitForTimeout(1_200)
+  await run(page, 'M.beginDriverClose()')
+  const second = await context.newPage(); await second.goto(origin); await run(second, 'M.discover()')
+  await second.evaluate(route => (window as any).M.startDriver(route, 'receive'), boxRoute)
+  await expect.poll(() => run(second, 'M.driverReady()')).toBe(true)
+  expect(await page.evaluate(async () => {
+    const state = await navigator.locks.query()
+    return state.held?.some(lock => lock.name?.startsWith('kithmoot:mls-driver:')) &&
+      state.pending?.some(lock => lock.name?.startsWith('kithmoot:mls-driver:'))
+  })).toBe(true)
+  expect(await run(page, 'M.driverClosed()')).toBe(false)
+  expect(await run(second, 'M.driverWaiting()')).toBe(false)
+  await run(page, 'M.releaseDriver()'); await run(page, 'M.finishDriverClose()')
+  expect(await run(page, 'M.driverClosed()')).toBe(true)
+  expect((await run(page, 'M.finishDriver()')).result).toMatchObject({ state: 'pending', reason: 'stale' })
+  expect((await run(second, 'M.finishDriver()')).result.state).toBe('done')
+})
+
 test('same-second restart handles a replay refusal through authenticated slot status', async ({ context }) => {
   const { page } = await enrolled(context)
   const r = await drive(page, 'restart-replay')

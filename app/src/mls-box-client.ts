@@ -44,6 +44,7 @@ export class BrowserMlsBoxClient {
   #epoch = 0
   #pending = new Set<() => void>()
   #occupied = 0
+  #running = new Set<Promise<unknown>>()
   constructor(private readonly transport: Pick<LinkEngine, 'request'>, route: LinkRoute, expectedBox: string,
     private readonly vault: Signer, context: VaultContext, private readonly consent: ConsentPrompt,
     private readonly current: () => boolean, private readonly timeoutMs = 20_000) {
@@ -59,6 +60,14 @@ export class BrowserMlsBoxClient {
    * callers still await the running work. A dispatched request may have
    * committed; its outbox must survive for fresh-authentication reconciliation. */
   invalidate(): void { this.#epoch++; for (const cancel of this.#pending) cancel() }
+
+  /** Actual signer, transport and parser settlement, including work whose
+   * bounded caller already returned. Owners invalidate first, then join this
+   * before releasing their endpoint or round lock. This does not undo remote
+   * effects and is not safe to await from inside one of this client's calls. */
+  async settled(): Promise<void> {
+    while (this.#running.size) await Promise.allSettled([...this.#running])
+  }
 
   /** Current account/privacy scope, also used by the owner of a round. */
   isCurrent(): boolean { return this.current() && this.vault.current(this.#context) }
@@ -226,7 +235,12 @@ export class BrowserMlsBoxClient {
       }
       // An abandoned prompt/request can still be running. Keep its capacity
       // until it actually settles; timeout must not create an unbounded queue.
-      const running = work().finally(() => { this.#occupied-- })
+      // Register ownership before invoking a signer, including synchronous
+      // callbacks. Timeout only wakes the caller; it cannot retire this work.
+      const running = Promise.resolve().then(work).finally(() => {
+        this.#occupied--; this.#running.delete(running)
+      })
+      this.#running.add(running)
       return settle ? await running : await Promise.race([running, waiting])
     } finally { cancelled = true; clearTimeout(timer); this.#pending.delete(wake) }
   }

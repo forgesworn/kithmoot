@@ -198,6 +198,48 @@ describe('strict browser MLS box client', () => {
     expect((await Promise.all(pending)).every(r => r.state === 'unavailable')).toBe(true)
     expect(f.calls).toHaveLength(0)
   })
+  for (const moment of ['sign', 'send'] as const) for (const end of ['invalidate', 'timeout'] as const) it(`drains actual ${moment} after a caller returned on ${end}`, async () => {
+    vi.useFakeTimers(); const f = setup()
+    let release!: () => void, entered!: () => void, drained = false
+    const ready = new Promise<void>(resolve => { entered = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+    const sign = f.vault.signBoxRequestV1.getMockImplementation()!, send = f.transport.request.getMockImplementation()!
+    if (moment === 'sign') f.vault.signBoxRequestV1.mockImplementationOnce(async (ctx, req) => { entered(); await waiting; return sign(ctx, req) })
+    else f.transport.request.mockImplementationOnce(async req => { entered(); await waiting; return send(req) })
+    const task = f.client.capabilities(); await ready
+    if (end === 'invalidate') f.client.invalidate()
+    else await vi.advanceTimersByTimeAsync(1001)
+    expect(await task).toEqual({ state: 'unavailable' })
+    const draining = f.client.settled().then(() => { drained = true })
+    await Promise.resolve(); expect(drained).toBe(false)
+    release(); await draining; expect(drained).toBe(true)
+    expect(f.calls).toHaveLength(moment === 'send' ? 1 : 0)
+  })
+  it('joins newly dispatched work while an earlier drain is pending', async () => {
+    const f = setup(), releases: (() => void)[] = []
+    const sign = f.vault.signBoxRequestV1.getMockImplementation()!
+    f.vault.signBoxRequestV1.mockImplementation(async (ctx, req) => {
+      await new Promise<void>(resolve => { releases.push(resolve) }); return sign(ctx, req)
+    })
+    const first = f.client.capabilities()
+    await vi.waitFor(() => expect(releases).toHaveLength(1))
+    let drained = false
+    const draining = f.client.settled().then(() => { drained = true })
+    const second = f.client.capabilities()
+    await vi.waitFor(() => expect(releases).toHaveLength(2))
+    f.client.invalidate(); await Promise.all([first, second])
+    releases[0](); await Promise.resolve(); await Promise.resolve()
+    expect(drained).toBe(false)
+    releases[1](); await draining; expect(f.calls).toHaveLength(0)
+  })
+  it('drains a late signer rejection after timeout without dispatching', async () => {
+    vi.useFakeTimers(); const f = setup(); let reject!: (error: Error) => void
+    f.vault.signBoxRequestV1.mockImplementationOnce(() => new Promise((_, no) => { reject = no }))
+    const task = f.client.capabilities(); await vi.advanceTimersByTimeAsync(1001)
+    expect(await task).toEqual({ state: 'unavailable' })
+    const draining = f.client.settled()
+    reject(new Error('late signer fault')); await draining
+    expect(f.calls).toHaveLength(0)
+  })
   it('bounds large slot and fetch responses before parsing', async () => {
     const f = setup(200, new Uint8Array(2 * 1024 * 1024 + 1))
     expect(await f.client.fetch([id])).toEqual({ state: 'malformed' })

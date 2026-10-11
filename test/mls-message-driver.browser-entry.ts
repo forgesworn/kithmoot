@@ -12,12 +12,16 @@ import type { PersonaWitnessRoute } from '../app/src/mls-persona-store.js'
 import type { LinkRequest } from '../app/src/browser-link-types.js'
 
 let release!: () => void, entered = false, pending: Promise<any>, driver: BrowserMlsMessageDriver
+let closing: Promise<void> | undefined, closedDriver = false
 export const driverReady = () => !!driver
 export const driverWaiting = () => entered
 export function releaseDriver() { release?.() }
 export async function finishDriver() { return pending }
 export async function stopDriver() { await driver.close() }
-export function startDriver(route: PersonaWitnessRoute, mode: string) { entered = false; pending = driverScenario(route, mode) }
+export function beginDriverClose() { closing = driver.close().then(() => { closedDriver = true }); return true }
+export const driverClosed = () => closedDriver
+export async function finishDriverClose() { await closing }
+export function startDriver(route: PersonaWitnessRoute, mode: string) { entered = false; closedDriver = false; closing = undefined; pending = driverScenario(route, mode) }
 
 export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
   const joining = mode.startsWith('join'), f = messageDriverFixture(joining)
@@ -43,7 +47,7 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
     if (!identity.ok || event.pubkey !== identity.value.device.device) throw new Error('Wrong fixture MLS signing device')
     calls.push({ path: req.path, body: bytesToHex(req.body), event: event.id })
     if (req.path.endsWith('/capabilities')) {
-      if (mode === 'wait' && !entered) { entered = true; await new Promise<void>(resolve => { release = resolve }) }
+      if (mode.startsWith('wait') && !entered) { entered = true; await new Promise<void>(resolve => { release = resolve }) }
       if (mode === 'offline') throw new Error('fixture offline')
       return response(200, { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation: mode === 'replacement' ? '88'.repeat(32) : f.installation })
     }
@@ -98,7 +102,7 @@ export async function driverScenario(route: PersonaWitnessRoute, mode: string) {
   const makeClient = () => {
     const actual = messageDriverFixture(joining)
     return new BrowserMlsBoxClient(transport, { routeId: route.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret), cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, f.boxId,
-      actual.vault, actual.context.vault, async () => 'approve', () => true)
+      actual.vault, actual.context.vault, async () => 'approve', () => true, mode === 'wait-timeout' ? 1_000 : 20_000)
   }
   const make = () => {
     const actual = messageDriverFixture(joining)
