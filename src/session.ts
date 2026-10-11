@@ -12,7 +12,7 @@ import { sanitiseDisplayName } from './display-name.js'
 import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
-import { recordingProfile, verifyLiveRecordingState, type LiveRecordingState } from './live-recording.js'
+import { recordingProfile, readLiveRecordingState, verifyLiveRecordingState, type LiveRecordingState } from './live-recording.js'
 import { evaluateAccess, evaluateAgentAccess } from './access.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
@@ -1868,7 +1868,7 @@ export class RoomSession {
     this.#epoch = deriveEpoch(next)
     // A confirmed warning belongs to the call under the original room key.
     // Its recorder must stop before explicitly confirming any successor.
-    this.#outgoingLiveRecording = undefined
+    this.#clearOutgoingLiveRecording()
     this.#keepSecret(next)
     // A forwarder has no room key. Its media transform does, so it changes
     // with the epoch before this session publishes or accepts any new work.
@@ -2230,7 +2230,29 @@ export class RoomSession {
   }
 
   #outgoingLiveRecording?: LiveRecordingState
+  #outgoingLiveRecordingAllowed?: () => boolean
+  #recordingPublicationGeneration = 0
   #liveRecordings = new Map<string, { state: LiveRecordingState; sentAt: number }>()
+
+  #clearOutgoingLiveRecording(): void {
+    this.#outgoingLiveRecording = undefined
+    this.#outgoingLiveRecordingAllowed = undefined
+    this.#recordingPublicationGeneration++
+  }
+
+  #liveRecordingStillCurrent(state: LiveRecordingState): boolean {
+    const previous = this.#liveRecordings.get(this.#selfKey())?.state
+    return !previous || previous.recording.version < state.recording.version ||
+      JSON.stringify(previous) === JSON.stringify(state)
+  }
+
+  #currentOutgoingLiveRecording(): LiveRecordingState | undefined {
+    if (!this.#outgoingLiveRecording) return undefined
+    let allowed = false
+    try { allowed = this.#outgoingLiveRecordingAllowed?.() === true } catch { /* unreadable ownership revokes refresh */ }
+    if (!allowed) this.#clearOutgoingLiveRecording()
+    return this.#outgoingLiveRecording
+  }
 
   /** Only devices which explain participant recording warnings qualify. */
   liveRecordingCompatible(callId: string): boolean {
@@ -2246,22 +2268,48 @@ export class RoomSession {
   /** A live warning uses the roster carrier, including in quiet rooms. An
    * exact relay acknowledgement and a still-current call precede capture. */
   async publishLiveRecording(state: LiveRecordingState, stillAllowed: () => boolean = () => true): Promise<void> {
+    // The caller must not be able to mutate an authorised request while its
+    // relay acknowledgement is outstanding.
+    const parsed = readLiveRecordingState(state)
+    if (!parsed) throw new Error('The recording warning does not belong to this call device.')
+    state = parsed
     const call = this.#self?.call, epoch = this.#epoch.id
-    const previous = this.#liveRecordings.get(this.#selfKey())?.state
-    if (previous && previous.recording.version > state.recording.version) throw new Error('A newer recording notice has already been received.')
+    if (!this.#liveRecordingStillCurrent(state)) throw new Error('A newer recording notice has already been received.')
     if (!this.#self || this.#left || (state.recording.on && !call) || this.#opts.recordingProfile !== 4 || !verifyLiveRecordingState({
       roomId: this.roomId, state, participant: this.participant, device: this.device, call: call?.id, profile: 4,
     })) throw new Error('The recording warning does not belong to this call device.')
-    const allowed = () => !this.#left && this.#epoch.id === epoch && stillAllowed() &&
-      (!state.recording.on || (!!call && this.#self?.call?.id === call.id && this.liveRecordingCompatible(call.id)))
+    this.#currentOutgoingLiveRecording()
+    // Capture has ended before Off is attempted. Failed delivery must not
+    // let ordinary heartbeats keep refreshing the previous On.
+    if (!state.recording.on && this.#outgoingLiveRecording?.recording.id === state.recording.id)
+      this.#clearOutgoingLiveRecording()
+    const generation = this.#recordingPublicationGeneration
+    const lifetimeAllowed = () => {
+      try {
+        return !this.#left && !this.#closed && this.#epoch.id === epoch &&
+          this.#recordingPublicationGeneration === generation && stillAllowed() && this.#liveRecordingStillCurrent(state) &&
+          (!state.recording.on || (!!call && this.#self?.call?.id === call.id && this.liveRecordingCompatible(call.id)))
+      } catch { return false }
+    }
+    let retired = false
+    const allowed = () => !retired && lifetimeAllowed()
     if (!allowed()) throw new Error('Everyone on this call needs a current KithMoot version before it can be recorded.')
-    await this.#publishEntry(true, false, state, allowed)
-    if (!allowed()) throw new Error('The original call changed before recording could start.')
-    this.#outgoingLiveRecording = state
-    this.#notify()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([this.#publishEntry(true, false, state, allowed), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { retired = true; reject(new Error('The recording warning was not confirmed.')) }, 15_000)
+      })])
+      if (!allowed()) throw new Error('The original call changed before recording could start.')
+      this.#outgoingLiveRecording = state
+      this.#outgoingLiveRecordingAllowed = lifetimeAllowed
+      this.#notify()
+    } finally {
+      retired = true
+      clearTimeout(timer)
+    }
   }
 
-  async #publishEntry(reply: boolean, left = false, live = this.#outgoingLiveRecording, allowed?: () => boolean): Promise<void> {
+  async #publishEntry(reply: boolean, left = false, live = this.#currentOutgoingLiveRecording(), allowed?: () => boolean): Promise<void> {
     const self = this.#self
     if (!self || this.#left) return
 
@@ -2463,7 +2511,7 @@ export class RoomSession {
     const { call: previous, ...rest } = this.#self
     this.#self = call ? { ...rest, call: { id: call.id.toLowerCase(), since: Math.floor(call.since) } } : rest
     const next = this.#self.call
-    if (previous?.id !== next?.id) this.#outgoingLiveRecording = undefined
+    if (previous?.id !== next?.id) this.#clearOutgoingLiveRecording()
     // Decided before the entry goes out, on the presence as it stood: the
     // bell is for the first device on a call and the last one off it.
     const bells: Array<[CallBellState, CallMembership]> = []
