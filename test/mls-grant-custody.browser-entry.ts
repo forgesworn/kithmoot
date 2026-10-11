@@ -4,7 +4,14 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, concatBytes } from '@noble/hashes/utils.js'
 import { BrowserMlsGrantStore, planMlsGrant, type MlsGrantRecord } from '../app/src/mls-grant-ledger.js'
 import { BrowserRendezvousVaultStorage } from '../app/src/rendezvous-vault.js'
-import { BrowserMlsGrantCustody } from '../app/src/mls-grant-custody.js'
+import { BrowserMlsGrantCustody, BrowserMlsGrantForeground } from '../app/src/mls-grant-custody.js'
+import { BrowserMlsGrantDevelopmentOwner } from '../app/src/mls-grant-development-owner.js'
+import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
+import { BrowserMlsMembershipController } from '../app/src/mls-membership-controller.js'
+import { BrowserMlsKeeperDecisions } from '../app/src/mls-keeper-decisions.js'
+import { BrowserMlsKeeperInboxFetch } from '../app/src/mls-keeper-inbox-fetch.js'
+import { NostrVmlsRevocationTransport } from '../app/src/mls-revocation-relay.js'
+import { BrowserMlsGrantDevelopmentPanel } from '../app/src/mls-grant-development-panel.js'
 
 const dbName = 'kithmoot-vmls-grants-v1'
 const connections: IDBDatabase[] = []
@@ -233,4 +240,266 @@ export function failNextWrite(at: 'key' | 'record') {
     }
     return key === undefined ? original.call(this, value) : original.call(this, value, key)
   }
+}
+
+const foreground = new BrowserMlsGrantForeground()
+let escaped: BrowserMlsGrantCustody | undefined
+let downstream = 0, successes = 0, phaseReached = false
+let releaseForeground: (() => void) | undefined
+export function foregroundStatus() { return { occupied: !!foreground.capture(), downstream, successes, phaseReached } }
+export function invalidateForeground() { foreground.invalidate() }
+export function changeForegroundPredicate() { current = false }
+export function foregroundSettled() { return foreground.settled() }
+export function invalidateForegroundAndWait() { return foreground.invalidateAndWait() }
+export function releaseForegroundWork() { releaseForeground?.() }
+export async function foregroundRead() {
+  return foreground.run(() => current, lifecycle.signal, async custody => { downstream++; escaped = custody; return custody.all() })
+}
+export async function foregroundHold() {
+  return foreground.run(() => current, lifecycle.signal, async custody => {
+    downstream++; escaped = custody
+    await new Promise<void>(resolve => { releaseForeground = resolve })
+    const records = await custody.all(); successes++; return records
+  })
+}
+export async function escapedRead() { return escaped!.all() }
+export async function escapedPut() { return escaped!.put(await record(8)) }
+export async function unboundForegroundAccess() {
+  let opened = 0
+  const original = indexedDB.open.bind(indexedDB)
+  indexedDB.open = (...args: Parameters<IDBFactory['open']>) => { opened++; return original(...args) }
+  try {
+    const custody = new BrowserMlsGrantCustody(foreground), item = await record(8)
+    let read = false, write = false, fake = false
+    try { await custody.all(); read = true } catch {}
+    try { await custody.put(item); write = true } catch {}
+    try { new BrowserMlsGrantCustody({ capture: () => ({ current: () => true, signal: lifecycle.signal }) } as any); fake = true } catch {}
+    return { opened, read, write, fake }
+  } finally { indexedDB.open = original }
+}
+export function invalidateOnOpen() {
+  const original = indexedDB.open.bind(indexedDB)
+  indexedDB.open = (...args: Parameters<IDBFactory['open']>) => {
+    indexedDB.open = original
+    const opened = original(...args)
+    opened.addEventListener('success', () => { phaseReached = true; foreground.invalidate() }, { once: true })
+    return opened
+  }
+}
+export async function foregroundAt(phase: 'read' | 'decrypt' | 'encrypt' | 'cas' | 'queued-put' | 'committed' | 'after-put' | 'throw') {
+  const item = await record(8)
+  return foreground.run(() => current, lifecycle.signal, async custody => {
+    downstream++; escaped = custody
+    const invalidate = () => { phaseReached = true; foreground.invalidate() }
+    if (phase === 'read' || phase === 'cas') {
+      const original = IDBObjectStore.prototype.get
+      IDBObjectStore.prototype.get = function(key: IDBValidKey | IDBKeyRange) {
+        const result = original.call(this, key)
+        if (this.name === 'records' && this.transaction.mode === (phase === 'cas' ? 'readwrite' : 'readonly')) {
+          IDBObjectStore.prototype.get = original
+          result.addEventListener('success', invalidate, { once: true })
+        }
+        return result
+      }
+    }
+    if (phase === 'decrypt' || phase === 'encrypt') {
+      const original = crypto.subtle[phase].bind(crypto.subtle)
+      crypto.subtle[phase] = async (...args: Parameters<SubtleCrypto['encrypt']>) => {
+        crypto.subtle[phase] = original
+        const value = await original(...args)
+        phaseReached = true
+        await new Promise<void>(resolve => { releaseForeground = resolve })
+        return value
+      }
+    }
+    if (phase === 'queued-put') {
+      const original = IDBObjectStore.prototype.put
+      IDBObjectStore.prototype.put = function(value: unknown, key?: IDBValidKey) {
+        const result = key === undefined ? original.call(this, value) : original.call(this, value, key)
+        if (this.name === 'records') { IDBObjectStore.prototype.put = original; invalidate() }
+        return result
+      }
+    }
+    if (phase === 'committed') {
+      const original = IDBDatabase.prototype.transaction
+      IDBDatabase.prototype.transaction = function(...args: Parameters<IDBDatabase['transaction']>) {
+        const transaction = original.apply(this, args)
+        if (transaction.mode === 'readwrite') {
+          IDBDatabase.prototype.transaction = original
+          transaction.addEventListener('complete', invalidate, { once: true })
+        }
+        return transaction
+      }
+    }
+    if (phase === 'throw') throw new Error('Foreground fixture callback refused')
+    if (phase === 'read' || phase === 'decrypt') { const records = await custody.all(); successes++; return records }
+    await custody.put(item)
+    if (phase === 'after-put') invalidate()
+    successes++; return [item]
+  })
+}
+
+/** Deliberately float custody work to exercise actual owner settlement. */
+export async function foregroundFloated(operation: 'read' | 'put', phase: 'crypto' | 'lock', fail = false) {
+  const item = await record(8)
+  return foreground.run(() => current, lifecycle.signal, async custody => {
+    downstream++; escaped = custody
+    if (phase === 'crypto') {
+      const method = operation === 'read' ? 'decrypt' : 'encrypt'
+      const original = crypto.subtle[method].bind(crypto.subtle)
+      crypto.subtle[method] = async (...args: Parameters<SubtleCrypto['encrypt']>) => {
+        crypto.subtle[method] = original
+        const result = await original(...args)
+        phaseReached = true
+        await new Promise<void>(resolve => { releaseForeground = resolve })
+        return result
+      }
+    } else {
+      let acquired!: () => void
+      const held = new Promise<void>(resolve => { acquired = resolve })
+      void navigator.locks.request(dbName, async () => {
+        acquired()
+        await new Promise<void>(resolve => { releaseForeground = resolve })
+      })
+      await held
+    }
+    const io = operation === 'read' ? custody.all() : custody.put(item)
+    void io.catch(() => {})
+    if (phase === 'crypto') {
+      while (!phaseReached) await new Promise(resolve => setTimeout(resolve, 0))
+    } else phaseReached = true
+    if (fail) throw new Error('Floated callback refused')
+    return 'callback returned'
+  })
+}
+
+export function foregroundMalformedPut(uncloneable: boolean) {
+  return foreground.run(() => current, lifecycle.signal, async custody => {
+    void custody.put((uncloneable ? { callback: () => {} } : { state: 'active' }) as any).catch(() => {})
+    return 'must not succeed'
+  })
+}
+export async function foregroundRelease(operation: 'read' | 'put', predicate: boolean) {
+  const item = await record(8)
+  return foreground.run(() => current, lifecycle.signal, async custody => {
+    const original = foreground.track.bind(foreground)
+    foreground.track = (scope, work) => {
+      foreground.track = original
+      return original(scope, async () => {
+        const value = await work()
+        phaseReached = true
+        if (predicate) current = false
+        else foreground.invalidate()
+        return value
+      })
+    }
+    if (operation === 'read') await custody.all()
+    else await custody.put(item)
+    successes++
+  })
+}
+let developmentGeneration = 'fixture', developmentMode: 'normal' | 'quiet' = 'normal', developmentAuthority: object = identity
+let developmentSign = identity.signEvent
+const cryptOwner = { async encrypt(_peer: string, plain: string) { return plain }, async decrypt(_peer: string, cipher: string) { return cipher } }
+let developmentCryptOwner: object = cryptOwner, developmentEncrypt = cryptOwner.encrypt, developmentDecrypt = cryptOwner.decrypt
+const development = new BrowserMlsGrantDevelopmentOwner(() => ({ identity, persona: identity.pubkey, generation: developmentGeneration, mode: developmentMode,
+  authority: { owner: developmentAuthority, signEvent: developmentSign, crypt: { owner: developmentCryptOwner, encrypt: developmentEncrypt, decrypt: developmentDecrypt } } }))
+export function changeDevelopmentContext(kind: string) {
+  if (kind === 'generation') developmentGeneration = 'replacement'
+  if (kind === 'mode') developmentMode = 'quiet'
+  if (kind === 'same-pubkey-authority') developmentAuthority = {}
+  if (kind === 'sign') developmentSign = async template => identity.signEvent(template)
+  if (kind === 'encrypt') developmentEncrypt = async (peer, plaintext) => cryptOwner.encrypt(peer, plaintext)
+  if (kind === 'decrypt') developmentDecrypt = async (peer, ciphertext) => cryptOwner.decrypt(peer, ciphertext)
+  if (kind === 'crypt-owner') developmentCryptOwner = {}
+}
+const developmentRoom = { session: '33'.repeat(32), rendezvousKey: '44'.repeat(32) }
+const developmentPlan = () => ({ operation: '66'.repeat(32), kind: 'device', target: '55'.repeat(32), compromised: true,
+  room: { session: developmentRoom.session }, members: [], grants: [] }) as any
+const developmentDecision = () => ({ binding: { persona: identity.pubkey }, prompt: { operation: '66'.repeat(32) }, conflict: false, grants: [], rooms: [] }) as any
+export function developmentWorkflow(name: string) {
+  const room = { session: '33'.repeat(32), rendezvousKey: '44'.repeat(32) }
+  if (name === 'records') return development.records()
+  if (name === 'roomChoices') return development.roomChoices()
+  if (name === 'routes') return development.routes()
+  if (name === 'pair') return development.pair('not a pairing', ['wss://fixture.invalid/'])
+  if (name === 'install') return development.install(room, '55'.repeat(32), 'no-route')
+  if (name === 'memberView') return development.memberView(room)
+  if (name === 'memberPlan') return development.memberPlan(room, 'device', '55'.repeat(32), true)
+  if (name === 'memberBegin') return development.memberBegin(room, developmentPlan())
+  if (name === 'memberAdvance') return development.memberAdvance(room, '66'.repeat(32))
+  if (name === 'keeperView') return development.keeperView()
+  if (name === 'keeperApprovals') return development.keeperApprovals()
+  if (name === 'keeperReceive') return development.keeperReceive([])
+  if (name === 'keeperCheck') return development.keeperCheck(['wss://fixture.invalid/'])
+  if (name === 'keeperReview') return development.keeperReview('66'.repeat(32))
+  if (name === 'keeperDecide') return development.keeperDecide(developmentDecision(), true)
+  if (name === 'keeperApprove') return development.keeperApprove(developmentDecision())
+  if (name === 'keeperAdvance') return development.keeperAdvance('66'.repeat(32))
+  if (name === 'keeperComplete') return development.keeperComplete('66'.repeat(32))
+  throw new Error('Unknown fixture development workflow')
+}
+export function pauseDevelopment() { return development.pause() }
+let developmentPanel: BrowserMlsGrantDevelopmentPanel | undefined
+export function openDevelopmentPanel() {
+  developmentPanel ??= new BrowserMlsGrantDevelopmentPanel(() => ({ identity, persona: identity.pubkey, generation: developmentGeneration, mode: developmentMode,
+    authority: { owner: developmentAuthority, signEvent: developmentSign, crypt: { owner: developmentCryptOwner, encrypt: developmentEncrypt, decrypt: developmentDecrypt } } }))
+  developmentPanel.open()
+}
+export function invalidateDevelopmentPanel() { return developmentPanel?.invalidate() }
+
+/** Instrument concrete methods only in this fixture. The private owner still
+ * creates real custody and cannot accept a services/signer/ready override. */
+export async function developmentInputSnapshot(kind: 'member' | 'decision' | 'wrappers' | 'relays') {
+  let release!: () => void, entered!: () => void
+  const acquired = new Promise<void>(resolve => { entered = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+  const lock = navigator.locks.request(`${dbName}:migration-v2`, async () => { entered(); await waiting })
+  await acquired
+  const plan = developmentPlan(), decision = developmentDecision(), wrappers: any[] = []
+  const relays = ['wss://original.invalid/'], permission = { relay: { url: relays[0]!, read: true, write: false }, authenticate: false, current: () => true }
+  const originals = { begin: BrowserMlsMembershipController.prototype.begin, decide: BrowserMlsKeeperDecisions.prototype.decide,
+    receive: BrowserMlsRevocationInbox.prototype.receive, check: BrowserMlsKeeperInboxFetch.prototype.check, directory: NostrVmlsRevocationTransport.prototype.directory }
+  let observed: unknown
+  BrowserMlsMembershipController.prototype.begin = async function (selected) { observed = selected.compromised; return {} as any }
+  BrowserMlsKeeperDecisions.prototype.decide = async function (selected) { observed = selected.prompt.operation; return {} as any }
+  BrowserMlsRevocationInbox.prototype.receive = async function (selected) { observed = selected.length; return {} as any }
+  NostrVmlsRevocationTransport.prototype.directory = async function () { return [] }
+  BrowserMlsKeeperInboxFetch.prototype.check = async function (_identity, selected) {
+    observed = { relay: selected![0]!.relay.url, authenticate: selected![0]!.authenticate, current: selected![0]!.current() }; return {} as any
+  }
+  try {
+    const work = kind === 'member' ? development.memberBegin(developmentRoom, plan) : kind === 'decision' ? development.keeperDecide(decision, true)
+      : kind === 'wrappers' ? development.keeperReceive(wrappers) : development.keeperCheck(relays, [permission])
+    plan.compromised = false; decision.prompt.operation = '77'.repeat(32); wrappers.push({}); relays[0] = 'wss://changed.invalid/'
+    permission.relay.url = 'wss://changed.invalid/'; permission.authenticate = true
+    release(); await lock
+    return { result: await work, observed }
+  } finally {
+    release(); await lock
+    BrowserMlsMembershipController.prototype.begin = originals.begin; BrowserMlsKeeperDecisions.prototype.decide = originals.decide
+    BrowserMlsRevocationInbox.prototype.receive = originals.receive; BrowserMlsKeeperInboxFetch.prototype.check = originals.check
+    NostrVmlsRevocationTransport.prototype.directory = originals.directory
+  }
+}
+let releaseDevelopmentCapability: (() => void) | undefined, developmentCapabilityEntered = false
+export function capabilityEntered() { return developmentCapabilityEntered }
+export function releaseCapability() { releaseDevelopmentCapability?.() }
+export async function developmentCapability(kind: 'sign' | 'encrypt' | 'decrypt', pause = true) {
+  const original = BrowserMlsRevocationInbox.prototype.receive
+  const authority = { calls: 0 }
+  const waiting = pause ? new Promise<void>(resolve => { releaseDevelopmentCapability = resolve }) : Promise.resolve()
+  if (kind === 'sign') { developmentAuthority = authority; developmentSign = async function (template) { authority.calls++; developmentCapabilityEntered = true; await waiting; return identity.signEvent(template) } }
+  else {
+    developmentCryptOwner = authority
+    if (kind === 'encrypt') developmentEncrypt = async function (_peer, plain) { authority.calls++; developmentCapabilityEntered = true; await waiting; return plain }
+    else developmentDecrypt = async function (_peer, cipher) { authority.calls++; developmentCapabilityEntered = true; await waiting; return cipher }
+  }
+  let downstream = 0
+  BrowserMlsRevocationInbox.prototype.receive = async function (_wrappers, captured) {
+    if (kind === 'sign') await captured.signEvent({ kind: 1, created_at: 1, content: '', tags: [] })
+    else await captured[kind](identity.pubkey, 'fixture')
+    downstream++; return {} as any
+  }
+  try { return { result: await development.keeperReceive([]), calls: authority.calls, downstream } }
+  finally { BrowserMlsRevocationInbox.prototype.receive = original }
 }

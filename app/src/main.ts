@@ -19,6 +19,7 @@ import { encodeRosterEvent } from '../../src/roster.js'
 import type { ManagedRelayPool } from './browser-room-pool.js'
 import { BrowserLinkPanel } from './browser-link-panel.js'
 import type { BrowserMlsPanel } from './mls-persona-panel.js'
+import type { BrowserMlsGrantDevelopmentPanel } from './mls-grant-development-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
 import { ShareMarksOverlay } from './share-marks-overlay.js'
@@ -582,7 +583,15 @@ const browserLink = new BrowserLink(startBrowserLink)
 // Remains unavailable in production until browser integration and review pass.
 const browserMlsPreview = import.meta.env.DEV && import.meta.env.VITE_BROWSER_MLS_PREVIEW === 'true'
 let browserMlsPanel: BrowserMlsPanel | undefined
-async function pauseBrowserMls(): Promise<void> { await browserMlsPanel?.invalidate() }
+let browserMlsGrantPanel: BrowserMlsGrantDevelopmentPanel | undefined
+async function pauseBrowserMls(): Promise<void> {
+  if (import.meta.env.DEV) {
+    const grants = browserMlsGrantPanel?.invalidate(), witness = browserMlsPanel?.invalidate()
+    await Promise.all([grants, witness])
+    return
+  }
+  await browserMlsPanel?.invalidate()
+}
 let roomUsesBothy = false
 const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserLink, async room => {
   if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
@@ -1132,7 +1141,7 @@ async function provisionRendezvousForThisBrowser(): Promise<void> {
 $('provisionRendezvous').addEventListener('click', () => { void provisionRendezvousForThisBrowser() })
 
 function adoptRestoredSession(account: SignetSession): void {
-  if (browserMlsPanel) void pauseBrowserMls().catch(() => undefined)
+  if (browserMlsPanel || import.meta.env.DEV && browserMlsGrantPanel) void pauseBrowserMls().catch(() => undefined)
   nostrSession = account
   browserRoomRoutes.resume()
   rememberAccount(account)
@@ -1245,7 +1254,7 @@ async function signInWithNostr(): Promise<void> {
   clearImportedHistorySearch()
   let account: SignetSession | null
   try {
-    if (browserMlsPanel) await pauseBrowserMls()
+    if (browserMlsPanel || import.meta.env.DEV && browserMlsGrantPanel) await pauseBrowserMls()
     account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
       // 'nsec' is the dangerous route, kept behind Advanced by the picker:
       // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
@@ -1289,7 +1298,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
-  if (browserMlsPanel) await pauseBrowserMls()
+  if (browserMlsPanel || import.meta.env.DEV && browserMlsGrantPanel) await pauseBrowserMls()
   participantCard.close()
   packGrant = undefined
   browserRoomRoutes.pause()
@@ -1352,7 +1361,7 @@ async function forgetThisBrowser(): Promise<void> {
   if (browserMlsPreview) {
     const { BrowserMlsAccount } = await import('./mls-persona-account.js')
     if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
-    if (browserMlsPanel) await pauseBrowserMls()
+    if (browserMlsPanel || import.meta.env.DEV && browserMlsGrantPanel) await pauseBrowserMls()
   }
   if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
   if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
@@ -3409,7 +3418,7 @@ async function roomFromLocation(): Promise<boolean> {
   // A returning account restores its live signer asynchronously. Do not
   // issue an unproved guest request while that matching signer is arriving.
   if (parsedLink.invitation && !parsedLink.invitation.persistent && identityRestoring && expectedAccount) await identityReady
-  if (browserMlsPanel) await pauseBrowserMls()
+  if (browserMlsPanel || import.meta.env.DEV && browserMlsGrantPanel) await pauseBrowserMls()
 
   // The room's name, when the link says. Text a stranger wrote, so it gets
   // the display-name treatment before it lands anywhere.
@@ -11757,7 +11766,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   let retrying = false
 
   try {
-    if (browserMlsPanel) await pauseBrowserMls()
+    if (browserMlsPanel || import.meta.env.DEV && browserMlsGrantPanel) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
@@ -13597,7 +13606,7 @@ function tearDownCallMedia(): void {
 
 /** Stop the room completely before any other room can own the controls. */
 async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}): Promise<void> {
-  if (browserMlsPanel) await pauseBrowserMls()
+  if (browserMlsPanel || import.meta.env.DEV && browserMlsGrantPanel) await pauseBrowserMls()
   chatScroll.suspend()
   ++roomGeneration
   const old = session
@@ -14845,6 +14854,27 @@ $('roomBothySettings').addEventListener('click', () => { closeRoomSheet(); void 
 $('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => browserLinkPanel.open()))
 window.addEventListener('pagehide', () => { void browserLinkPanel.stop(); void pauseBrowserMls().catch(() => undefined) })
 if (browserMlsPreview) {
+  const grants = document.createElement('button')
+  grants.id = 'mlsGrantDevelopmentOpen'; grants.type = 'button'; grants.textContent = 'MLS grant workflows (preview)'
+  grants.setAttribute('aria-haspopup', 'dialog'); grants.setAttribute('aria-controls', 'mlsGrantDevelopment')
+  $('mlsWitnessSettingsOpen').after(grants)
+  grants.onclick = () => closeAppSettingsFor(() => {
+    const account = nostrSession, generation = identityGeneration
+    void import('./mls-grant-development-panel.js').then(({ BrowserMlsGrantDevelopmentPanel }) => {
+      if (nostrSession !== account || identityGeneration !== generation || document.visibilityState !== 'visible') return
+      browserMlsGrantPanel ??= new BrowserMlsGrantDevelopmentPanel(() => {
+        const current = nostrSession
+        if (!current) return undefined
+        const signer = current.signer, crypt = signer.nip44
+        return { persona: current.pubkey, identity: { pubkey: current.pubkey, signEvent: signer.signEvent.bind(signer) },
+          authority: { owner: signer, signEvent: signer.signEvent,
+            ...(crypt ? { crypt: { owner: crypt, encrypt: crypt.encrypt, decrypt: crypt.decrypt } } : {}) },
+          generation: `${identityGeneration}:${roomGeneration}`,
+          mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal' }
+      })
+      browserMlsGrantPanel.open()
+    }).catch(() => setStatus('MLS grant workflows could not be opened.'))
+  })
   $('mlsWitnessSettingsOpen').hidden = false
   $('mlsWitnessSettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => {
     const account = nostrSession, generation = identityGeneration
