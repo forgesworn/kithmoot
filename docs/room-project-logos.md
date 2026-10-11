@@ -34,6 +34,11 @@ that useful pixels were decoded.
 `vectors/logo-images-v1.json` contains 28 shared acceptance/rejection cases.
 The web reader and Android's pure-JVM `LogoImages` reader use the same fixture
 bytes, including a container-valid image without a usable compressed bitstream.
+`vectors/room-logo-chat-v1.json` adds 20 real signed/encrypted chat events for
+cross-client image/removal decoding and rejection of mismatched hashes, extra
+conversation fields, borrowed credentials and ordinary-channel metadata.
+After `npm run build:lib`, `node vectors/generate-room-logo-chat.mjs` generates
+this separate fixture using synthetic room and identity keys.
 Android's reader is a protocol foundation in
 [PR #242](https://github.com/forgesworn/kithmoot-android/pull/242), not yet a native
 editor or renderer. Native pixel decoding, room/project controls and recovery
@@ -226,3 +231,12 @@ and stronger assertions are not a claimed fix for it.
 The Android image codec passed all 420 pure-JVM protocol tests, including the
 same 28 image vectors. This does not establish native room/project rendering,
 cross-client delivery or physical acceptance. G15 remains open.
+
+The encrypted-chat vectors pass the web reader, bringing the unit total to
+4,028 tests in 287 files, with typecheck passing. Wider hosted CI initially
+found old workspace tests comparing the entire DOM text, including decorative
+initials. They now check accessible control names or the adjacent name element.
+Nine affected project, mobile navigation and unread/pinning journeys pass in
+Chromium, Firefox and WebKit. This corrects test expectations for the new logo
+markup, rather than changing unread or project behaviour. The installed-window
+rail-to-admission journey also passes against the desktop build.

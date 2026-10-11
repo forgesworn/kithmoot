@@ -73,7 +73,7 @@ test('local groups organise rooms, filter by name, survive reload and remain rea
     await expect(page.locator('#workspaceRooms .workspaceRoom')).toHaveCount(2)
     await group.getByRole('button', { name: 'Design workshop', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Design workshop')
-    await expect(page.locator('#workspaceRooms [aria-current=true]')).toHaveText('Design workshop')
+    await expect(page.locator('#workspaceRooms [aria-current=true]')).toHaveAccessibleName('Design workshop')
     await expect(page.locator('#workspaceQuery')).toHaveValue('kithmoot')
     await page.locator('#workspaceQuery').fill('')
     await expect(page.locator('#workspaceRooms h3')).toContainText(['KithMoot', 'No project'])
@@ -858,10 +858,10 @@ test('the installed window shows each other room\'s unread messages in the rail,
     await planning.getByRole('button', { name: 'Pin Planning room', exact: true }).click()
     const pinnedSection = rail.locator('section[data-project="pinned:"]')
     await expect(rail.locator('section').first()).toHaveAttribute('data-project', 'pinned:')
-    await expect(pinnedSection.locator('h3')).toHaveText('Pinned')
-    await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
+    await expect(pinnedSection.locator('h3')).toHaveAccessibleName('Pinned')
+    await expect(pinnedSection.locator('.workspaceRoomName')).toHaveText(['Planning room'])
     await reenter(page, withRelays(here.url, [relay]))
-    await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
+    await expect(pinnedSection.locator('.workspaceRoomName')).toHaveText(['Planning room'])
     // A real watched message can redraw the rail between pointer down and
     // up. Keep its section, row and pressed action connected while still
     // showing the new unread count immediately; releasing must unpin it.
