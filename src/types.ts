@@ -1,4 +1,5 @@
 import type { Reachability } from './reachability.js'
+import type { LiveRecordingState } from './live-recording.js'
 // `DeviceCredential`, `AccessTier`, `AgentRule`, `RoomPolicy` and `KindredProof`
 // moved to @forgesworn/fold-kit (see the T2.1 codec cutover). Imported as types
 // rather than redeclared, so there is exactly one definition of each. Everything
@@ -154,7 +155,9 @@ export interface RosterEntry {
   /** Exact 2 means this device explains signed audio/video capture notices.
    * Absent/unknown devices must not have their video included in an app-made
    * recording. This is a UI capability claim, not proof of identity or consent. */
-  recordingProfile?: 2
+  recordingProfile?: 2 | 3 | 4
+  /** Complete warning carried by this authenticated presence entry. */
+  liveRecording?: LiveRecordingState
   /**
    * Which page session of `device` published this, when it said.
    *

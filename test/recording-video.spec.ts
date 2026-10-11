@@ -130,12 +130,12 @@ for (const { layout, phone } of [
       expect(bounds!.height).toBeGreaterThanOrEqual(44)
       await info.attach('record-control.png', { body: await a.screenshot(), contentType: 'image/png' })
       await expect(b.locator('#recordToggle')).toBeVisible()
-      await expect(b.locator('#recordToggle')).toBeDisabled()
-      await expect(b.locator('#recordingAuthorityHint')).toHaveText('Only the room creator can record.')
-      await expect(b.locator('#recordToggle')).toHaveAttribute('aria-describedby', 'recordingAuthorityHint')
+      await expect(b.locator('#recordToggle')).toBeEnabled()
+      await expect(b.locator('#recordingAuthorityHint')).toBeHidden()
       if (layout === 'gallery' && !phone) {
-        await b.locator('#recordToggle').evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-        await expect(b.locator('#status')).toContainText('Only the person who made this room can record its calls.')
+        await b.locator('#recordToggle').click()
+        await expect(b.locator('#actionDialog')).toBeVisible()
+        await b.locator('#actionCancel').click()
         await expect(a.locator('#recordingBanner')).toBeHidden()
       }
       await a.locator('#recordToggle').click()

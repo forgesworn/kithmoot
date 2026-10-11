@@ -196,6 +196,7 @@ import {
   type MeetingPolicy,
   type RecordingNotice,
   type RecordingCaptureNotice,
+  type LiveRecordingState,
   signRoomRelays,
   invitationRelaysFrom,
   verifyRoomRelays,
@@ -2419,6 +2420,19 @@ function callRecordingAuthority(): Uint8Array | undefined {
   if (!dockedCall) return isRoomAuthority() ? invitationAuthoritySk : undefined
   const ui = dockedCall.ui
   return ui.invitationAuthoritySk && ui.invitationDelegation.length === 0 && ui.roomInvitationCapability?.inviter === getPublicKey(ui.invitationAuthoritySk) ? ui.invitationAuthoritySk : undefined
+}
+
+function participantRecordingReady(s = mediaSession()): boolean {
+  return !!s?.call && s.liveRecordingCompatible(s.call.id)
+}
+
+function legacyRecordingReady(s = mediaSession()): boolean {
+  const policy = dockedCall && dockedCall.session === s ? dockedCall.ui.roomPolicy : roomPolicy
+  return !!s?.call && !!callRecordingAuthority() && !isQuietPolicy(policy)
+}
+
+function recordingPermissionHint(s = mediaSession()): string {
+  return !s?.call ? 'Join the call to record it.' : 'Everyone on this call needs a current KithMoot version to see participant recording warnings.'
 }
 
 /** This device's participant key in the call's room. */
@@ -7732,12 +7746,13 @@ function sendHostControl(message: ControlMessage, said: string): void {
 // ---------------------------------------------------------------------------
 
 interface SignedMeeting extends MeetingPolicy { sig: string }
-interface SignedRecording extends RecordingNotice { sig: string }
+interface SignedRecording extends RecordingNotice { sig: string; live?: LiveRecordingState }
 interface HeardRecording extends SignedRecording { since: number; heardAt: number }
 
 const meetings = new Map<string, SignedMeeting>()
 const recordings = new Map<string, HeardRecording>()
 const recordingCaptures = new Map<string, RecordingCaptureNotice & { sig: string }>()
+const memberRecordings = new Map<string, Map<string, { state: LiveRecordingState; since: number; heardAt: number }>>()
 /** Raised hands in the room on screen: participant -> unix seconds raised. */
 const handsUp = new Map<string, number>()
 /** The newest hand message per participant, up or down, so an old "up"
@@ -7755,6 +7770,8 @@ interface ActiveRecording {
   recorder: CallRecorder
   video?: RecordingVideo
   session: RoomSession
+  callId: string
+  epoch: number
   authoritySk: Uint8Array
   notice: SignedRecording
   capture: RecordingCaptureNotice & { sig: string }
@@ -7772,6 +7789,7 @@ const recordingStops = new Set<ActiveRecording>()
 
 /** Destruction also drops an unsaved clip, including one still finalising. */
 function discardRoomRecording(roomId: string): void {
+  memberRecordings.delete(roomId)
   recordingCaptures.delete(roomId)
   if (activeRecording?.session.roomId === roomId) activeRecording.discarded = true
   for (const recording of recordingStops) if (recording.session.roomId === roomId) recording.discarded = true
@@ -7916,13 +7934,60 @@ function ingestRecordingCapture(control: Extract<ControlMessage, { op: 'recordin
   renderRecording()
 }
 
+/** Independent device notices: stopping one recording cannot clear another. */
+function ingestLiveRecordings(s: RoomSession): void {
+  const held = memberRecordings.get(s.roomId) ?? new Map<string, { state: LiveRecordingState; since: number; heardAt: number }>()
+  let changed = false
+  for (const { state, sentAt } of s.liveRecordings()) {
+    if (!state.call || !state.device) {
+      // Profile 3's root-signed presence warnings are also understood.
+      if (state.capture) recordingCaptures.set(s.roomId, state.capture)
+      adoptRecording(s, { ...state.recording }, sentAt)
+      continue
+    }
+    const key = `${state.call}:${state.device}`, before = held.get(key)
+    if (before && before.state.recording.version > state.recording.version) continue
+    if (before && before.state.recording.version === state.recording.version && before.heardAt >= sentAt) continue
+    held.set(key, { state, since: before?.state.recording.id === state.recording.id ? before.since : sentAt, heardAt: sentAt })
+    changed = true
+    const active = activeRecording
+    if (active?.session === s && active.notice.live?.device === state.device && active.notice.live.call === state.call &&
+        state.recording.version > active.notice.version && (!state.recording.on || state.recording.id !== active.notice.id)) void stopRecording()
+  }
+  if (held.size) memberRecordings.set(s.roomId, held)
+  const active = activeRecording
+  if (active?.session === s && active.notice.live && !participantRecordingReady(s)) void stopRecording('a call device cannot show the recording warning')
+  if (changed) { renderRecording(); renderMeeting(); renderDock() }
+}
+
+function memberRecordingViews(s = session): Array<{ state: LiveRecordingState; view: ReturnType<typeof recordingView> }> {
+  if (!s) return []
+  const call = s.call?.id ?? s.participants().find(person => person.call)?.call?.id
+  if (!call) return []
+  return [...(memberRecordings.get(s.roomId)?.values() ?? [])]
+    .filter(heard => heard.state.call === call)
+    .map(heard => ({ state: heard.state, view: recordingView(heard.state.recording, heard.since, heard.heardAt, nowSeconds()) }))
+    .filter(heard => heard.view.state !== 'off')
+}
+
 function currentRecordingCapture(s = session): RecordingCaptureNotice | undefined {
   if (!s) return undefined
+  const live = memberRecordingViews(s).find(heard => heard.state.device === myDeviceId) ?? memberRecordingViews(s)[0]
+  if (live?.state.capture) return live.state.capture
   const notice = recordings.get(s.roomId), capture = recordingCaptures.get(s.roomId)
   return notice?.on && capture?.id === notice.id && capture.version === notice.version ? capture : undefined
 }
 
 function recordingCaptureDescription(s = session): string {
+  const live = memberRecordingViews(s)
+  if (live.length) return live.map(({ state }) => {
+    const capture = state.capture
+    if (!capture) return 'Call media may be included.'
+    const person = s?.participants().find(view => view.participant === capture.recorder)
+    const who = shownAs(capture.recorder, person?.name).name ?? shortKey(capture.recorder)
+    const what = { audio: 'call audio', gallery: 'gallery video and call audio', speaker: 'speaker video and call audio', 'screen-camera': 'a screen share with camera and call audio' }[capture.capture]
+    return `${who} (${shortKey(capture.recorder)}) is capturing ${what}.`
+  }).join(' ')
   const capture = currentRecordingCapture(s)
   if (!capture) return 'Audio and video you share may be included.'
   const person = s?.participants().find(view => view.participant === capture.recorder)
@@ -7948,17 +8013,18 @@ function adoptRecording(s: RoomSession, notice: SignedRecording, sentAt: number)
   // The notice says this recording is over - stopped on another of the
   // owner's devices, say. An honest recorder does not outlast its notice.
   const active = activeRecording
-  if (active && active.session === s && notice.version > active.notice.version && (!notice.on || notice.id !== active.notice.id)) {
+  if (active && !active.notice.live && active.session === s && notice.version > active.notice.version && (!notice.on || notice.id !== active.notice.id)) {
     void stopRecording()
   }
   renderRecording()
 }
 
 /** What the room on screen should be told about recording, right now. */
-function currentRecordingView(): ReturnType<typeof recordingView> {
-  const s = session
+function currentRecordingView(s = session): ReturnType<typeof recordingView> {
   const heard = s ? recordings.get(s.roomId) : undefined
-  return recordingView(heard, heard?.since ?? 0, heard?.heardAt ?? 0, nowSeconds())
+  const legacy = recordingView(heard, heard?.since ?? 0, heard?.heardAt ?? 0, nowSeconds())
+  const views = [legacy, ...memberRecordingViews(s).map(heard => heard.view)]
+  return views.find(view => view.state === 'on') ?? views.find(view => view.state === 'unconfirmed') ?? { state: 'off' }
 }
 
 /**
@@ -7987,7 +8053,7 @@ function recordingVideoPeople(s: RoomSession): RecordingPerson[] {
     for (const device of view.call.devices) {
       if (!view.devices.includes(device)) continue
       const local = view.participant === mediaMe() && device === myDeviceId
-      const supported = local || view.recordingProfiles?.[device] === 2
+      const supported = local || (activeRecording?.notice.live ? view.recordingProfiles?.[device] === 4 : !!view.recordingProfiles?.[device])
       const permitted = !meetingGated(device)
       const name = shownAs(view.participant, view.name).name ?? shortKey(view.participant)
       const label = `${shortKey(view.participant)} · ${device.slice(0, 6)} · ${name}`
@@ -8015,7 +8081,7 @@ function recordingShareChoices(s: RoomSession): RecordingShareChoice[] {
     if (!s.call || !view.call || view.call.id !== s.call.id) continue
     for (const device of view.call.devices) {
       const local = view.participant === mediaMe() && device === myDeviceId
-      if (!local && view.recordingProfiles?.[device] !== 2 || meetingGated(device)) continue
+      if (!local && !view.recordingProfiles?.[device] || meetingGated(device)) continue
       const source = screenSource(view.participant, device, s)
       if (!source || (source.status !== 'live' && source.status !== 'reconnecting')) continue
       choices.push({ participant: view.participant, device, label: `${source.owner?.name ?? shortKey(view.participant)} · ${shortKey(view.participant)} · ${device.slice(0, 6)}` })
@@ -8033,7 +8099,7 @@ function recordingVideoSnapshot(s: RoomSession, callId: string, origin: ReturnTy
   if (selected) {
     const person = s.participants().find(view => view.participant === selected.participant && view.call?.id === callId && view.call.devices.includes(selected.device))
     const local = selected.participant === mediaMe() && selected.device === myDeviceId
-    const permitted = !!person && (local || person.recordingProfiles?.[selected.device] === 2) && !meetingGated(selected.device)
+    const permitted = !!person && (local || (activeRecording?.notice.live ? person.recordingProfiles?.[selected.device] === 4 : !!person.recordingProfiles?.[selected.device])) && !meetingGated(selected.device)
     const source = permitted ? screenSource(selected.participant, selected.device, s, origin) : undefined
     snapshot.share = {
       label: source?.owner ? `${shortKey(selected.participant)} · ${selected.device.slice(0, 6)} · ${source.owner.name}` : `${shortKey(selected.participant)} · ${selected.device.slice(0, 6)} · ${selected.label}`,
@@ -8054,13 +8120,14 @@ async function startRecording(): Promise<void> {
 }
 
 async function beginRecording(): Promise<void> {
-  const s = mediaSession(), authoritySk = callRecordingAuthority()
-  if (!s || !authoritySk) throw new Error('Only the person who made this room can record its calls.')
+  const s = mediaSession(), useLive = participantRecordingReady(s)
+  const authoritySk = useLive ? deviceKey() : legacyRecordingReady(s) ? callRecordingAuthority() : undefined
+  if (!s || !authoritySk) throw new Error(recordingPermissionHint(s))
   if (activeRecording) return
   if (recordingStops.size) throw new Error('The previous recording is finishing. Try again when it is ready.')
   const replacing = pendingRecording
   if (!s.call) throw new Error('Join the call to record it.')
-  const callId = s.call.id, origin = callOrigin(s)
+  const callId = s.call.id, epoch = s.epoch, origin = callOrigin(s)
   const options = document.createElement('fieldset')
   options.className = 'recordingChoices'
   const legend = document.createElement('legend')
@@ -8123,12 +8190,12 @@ async function beginRecording(): Promise<void> {
     confirmLabel: 'Start recording',
   }) } finally { clearInterval(shareTimer) }
   if (!confirmed) return
-  if (mediaSession() !== s || s.call?.id !== callId || s.closed || activeRecording) return
+  if (mediaSession() !== s || s.call?.id !== callId || s.epoch !== epoch || s.closed || activeRecording) return
   const chosen = layout as 'audio' | VideoRecordingLayout
   const selectedShare = shares.find(share => `${share.participant}:${share.device}` === shareSelect.value)
   if (chosen === 'screen-camera' && !selectedShare) throw new Error('Choose an eligible screen share before recording.')
   if (chosen !== 'audio' && document.hidden) throw new Error('Keep this app visible to start video recording.')
-  const before = recordings.get(s.roomId)
+  const before = useLive ? memberRecordings.get(s.roomId)?.get(`${callId}:${myDeviceId}`)?.state.recording : recordings.get(s.roomId)
   const notice: RecordingNotice = { on: true, id: bytesToHex(randomBytes(16)), version: Math.max(Date.now(), (before?.version ?? 0) + 1) }
   const signed: SignedRecording = { ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
   const captureNotice: RecordingCaptureNotice = { id: notice.id, version: notice.version, capture: chosen, recorder: mediaMe(), device: myDeviceId }
@@ -8136,11 +8203,19 @@ async function beginRecording(): Promise<void> {
   // Told first, recorded second. A recording nobody was told about is the
   // one thing this must never make, so a notice that fails to go out is a
   // recording that never starts.
-  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
-  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
-  recordingCaptures.set(s.roomId, capture)
-  if (mediaSession() !== s || s.call?.id !== callId || s.closed) { await postRecordingOff(s, authoritySk, signed); return }
-  adoptRecording(s, signed, nowSeconds())
+  if (useLive) {
+    const live: LiveRecordingState = { recording: { op: 'recording', ...signed }, capture: { op: 'recording-capture', ...capture }, call: callId, recorder: s.participant, device: s.device }
+    signed.live = live
+    try { await s.publishLiveRecording(live, () => mediaSession() === s && s.call?.id === callId && s.epoch === epoch && !s.closed) }
+    catch (error) { await postRecordingOff(s, authoritySk, signed); throw error }
+    ingestLiveRecordings(s)
+  } else {
+    await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
+    await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
+    recordingCaptures.set(s.roomId, capture)
+  }
+  if (mediaSession() !== s || s.call?.id !== callId || s.epoch !== epoch || s.closed) { await postRecordingOff(s, authoritySk, signed); return }
+  if (!useLive) adoptRecording(s, signed, nowSeconds())
   let recorder: CallRecorder
   let video: RecordingVideo | undefined
   try {
@@ -8160,24 +8235,36 @@ async function beginRecording(): Promise<void> {
     throw err
   }
   const timer = setInterval(() => {
+    if (signed.live) {
+      s.publishLiveRecording(signed.live, () => activeRecording?.notice === signed && mediaSession() === s && s.call?.id === callId && s.epoch === epoch)
+        .then(() => ingestLiveRecordings(s)).catch(() => { void stopRecording('the recording warning could not be confirmed') })
+      return
+    }
     s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording-capture', ...capture }))
       .then(() => s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed })))
       .then(() => adoptRecording(s, signed, nowSeconds()))
       .catch(() => { /* The next repost tries again; the notice shows as unconfirmed meanwhile. */ })
   }, RECORDING_REPOST_SECONDS * 1000)
   const elapsedTimer = setInterval(() => {
+    feedRecorder()
     if (!document.hidden && !recorder.paused) renderRecordingElapsed()
   }, 1000)
-  activeRecording = { recorder, video, session: s, authoritySk, notice: signed, capture, timer, elapsedTimer }
+  activeRecording = { recorder, video, session: s, callId, epoch, authoritySk, notice: signed, capture, timer, elapsedTimer }
   if (replacing && pendingRecording === replacing) discardPendingRecording()
   feedRecorder()
   renderRecording()
   renderMeeting()
 }
 
-async function postRecordingOff(s: RoomSession, authoritySk: Uint8Array, was: RecordingNotice): Promise<void> {
+async function postRecordingOff(s: RoomSession, authoritySk: Uint8Array, was: SignedRecording): Promise<void> {
   const notice: RecordingNotice = { on: false, id: was.id, version: Math.max(Date.now(), was.version + 1) }
   const signed: SignedRecording = { ...notice, sig: signRecordingNotice({ roomId: s.roomId, notice, authoritySk }) }
+  if (was.live) {
+    const live: LiveRecordingState = { recording: { op: 'recording', ...signed }, call: was.live.call, recorder: was.live.recorder, device: was.live.device }
+    try { await s.publishLiveRecording(live); ingestLiveRecordings(s) }
+    catch { /* Keep the warning visible if the stop could not be confirmed. */ }
+    return
+  }
   try {
     await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'recording', ...signed }))
   } catch {
@@ -8224,13 +8311,19 @@ async function stopRecording(reason?: string): Promise<void> {
 function feedRecorder(): void {
   const active = activeRecording
   if (!active || active.session !== mediaSession()) return
+  if (active.session.closed || active.session.epoch !== active.epoch || active.session.call?.id !== active.callId ||
+      (active.notice.live && !participantRecordingReady(active.session))) {
+    active.recorder.setTracks([])
+    void stopRecording('the original call or recording permission changed')
+    return
+  }
   const tracks: MediaStreamTrack[] = []
   const callId = active.session.call?.id
   const callDevices = new Set(active.session.participants().filter(view => callId && view.call?.id === callId).flatMap(view => view.call!.devices))
   for (const [key, audio] of remoteAudios) {
     const device = tileDevice(key)
     const person = active.session.participants().find(view => view.devices.includes(device))
-    if (callDevices.has(device) && cachedMonitorHere && !cachedOwnDevices.has(device) && !meetingGated(device) && (!person || volumeLevel(person.participant) > 0)) tracks.push(audio.track)
+    if (callDevices.has(device) && (!active.notice.live || person?.recordingProfiles?.[device] === 4) && cachedMonitorHere && !cachedOwnDevices.has(device) && !meetingGated(device) && (!person || volumeLevel(person.participant) > 0)) tracks.push(audio.track)
   }
   if (micTrack?.enabled && meetingLetsMeSend()) tracks.push(micTrack)
   active.recorder.setTracks(tracks)
@@ -8325,6 +8418,7 @@ function renderRecording(): void {
         ? 'Your recording is paused. Paused time is omitted from the saved file. Everybody still sees the recording notice.'
         : `You are recording ${activeRecording!.capture.capture === 'audio' ? 'this call\'s audio' : `${activeRecording!.capture.capture === 'screen-camera' ? 'a screen share with camera' : activeRecording!.capture.capture + ' video'} and call audio`} (${formatBytes(activeRecording!.recorder.bytes)} so far). Everybody in the room can see this notice.`
       : `This call is being recorded, since ${clockTime(view.since)}. ${recordingCaptureDescription()} KithMoot cannot stop anybody recording with another app, recording or not.`
+    if (mine && memberRecordingViews().some(heard => heard.state.device !== myDeviceId)) text.textContent += ` ${recordingCaptureDescription()}`
   } else if (view.state === 'unconfirmed') {
     text.textContent = `This call may still be recording: the notice was last confirmed at ${clockTime(view.lastHeard)}.`
   }
@@ -8423,12 +8517,14 @@ function renderMeeting(): void {
   record.setAttribute('aria-pressed', String(recordingHere))
   record.dataset.on = String(recordingHere)
   const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
-  record.disabled = !recordingHere && (!moderator || !session?.call || mediaSession() !== session || !canRecord)
+  const permitted = mediaSession() === session && (participantRecordingReady(session) || legacyRecordingReady(session))
+  record.disabled = !recordingHere && (!permitted || !session?.call || !canRecord)
   const authorityHint = $('recordingAuthorityHint')
-  authorityHint.hidden = moderator || recordingHere || !session
+  authorityHint.textContent = recordingPermissionHint(session)
+  authorityHint.hidden = permitted || recordingHere || !session
   if (!authorityHint.hidden) record.setAttribute('aria-describedby', 'recordingAuthorityHint')
   else record.removeAttribute('aria-describedby')
-  record.title = recordingHere ? 'Stop recording' : !moderator ? authorityHint.textContent! : record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : 'Record audio or video'
+  record.title = recordingHere ? 'Stop recording' : !permitted ? authorityHint.textContent! : record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : 'Record audio or video'
 
   const panel = $('meetingPanel') as HTMLDetailsElement
   panel.hidden = !moderator
@@ -11951,7 +12047,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
-          recordingProfile: 2,
+          recordingProfile: 4,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
@@ -12012,7 +12108,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
-          recordingProfile: 2,
+          recordingProfile: 4,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
@@ -12063,6 +12159,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     s.onChange((views) => {
       const isDocked = dockedCall?.session === s
       if (session !== s && !isDocked) return
+      ingestLiveRecordings(s)
       if (s === mediaSession()) {
         const byDevice = new Map<string, string[]>()
         for (const view of views) for (const t of view.tracks) byDevice.set(t.device, [...(byDevice.get(t.device) ?? []), t.role])
@@ -13959,7 +14056,7 @@ function renderDock(): void {
   $('callDockScreen').textContent = screenTrack ? 'Stop sharing' : 'Share screen'
   $('callDockScreen').setAttribute('aria-label', screenTrack ? `Stop screen sharing in ${c.label}` : `Share screen in ${c.label}`)
   const heard = recordings.get(c.session.roomId)
-  const view = recordingView(heard, heard?.since ?? 0, heard?.heardAt ?? 0, nowSeconds())
+  const view = currentRecordingView(c.session)
   const recordingMine = activeRecording?.session === c.session
   const notice = $('callDockRecordingNotice')
   notice.hidden = view.state === 'off'
@@ -13967,13 +14064,13 @@ function renderDock(): void {
   renderRecordingPause('callDockRecordingPause', !!recordingMine)
   renderRecordingElapsed()
   const recording = $('callDockRecording') as HTMLButtonElement
-  const recordingAuthority = !!callRecordingAuthority()
+  const recordingAuthority = participantRecordingReady(c.session) || legacyRecordingReady(c.session)
   const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
   recording.hidden = false
   recording.disabled = !recordingMine && (!recordingAuthority || !canRecord)
   const recordingHint = $('callDockRecordingHint')
   recordingHint.hidden = !recording.disabled
-  recordingHint.textContent = !recordingAuthority ? 'Only the person who created this call’s room can record it.' : 'This browser cannot record calls.'
+  recordingHint.textContent = !recordingAuthority ? recordingPermissionHint(c.session) : 'This browser cannot record calls.'
   recording.title = recording.disabled ? recordingHint.textContent : recordingMine ? 'Stop recording' : 'Record audio or video'
   if (recording.disabled) recording.setAttribute('aria-describedby', 'callDockRecordingHint')
   else recording.removeAttribute('aria-describedby')

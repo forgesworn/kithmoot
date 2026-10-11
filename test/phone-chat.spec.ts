@@ -202,7 +202,8 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
       }
       await expect(page.locator('#recordToggle .callShort')).toBeVisible()
       await expect(page.locator('#recordToggle .callShort')).toHaveText('Record')
-      await expect(page.locator('#recordingAuthorityHint')).toBeVisible()
+      await expect(page.locator('#recordToggle')).toBeEnabled()
+      await expect(page.locator('#recordingAuthorityHint')).toBeHidden()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.screenshot({ path: info.outputPath(`call-${viewport.width}.png`) })
       await page.locator('#mobileChat').click()

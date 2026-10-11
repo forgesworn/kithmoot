@@ -337,6 +337,19 @@ announced the same way, `{"op":"recording","on":<bool>,"id":"<32 hex>","version"
 over `sha256("kithmoot/v1/recording:" + roomId + ":" + version + ":" + id + ":"
 + (on ? 1 : 0))`; a client records only after posting one, reposts it while
 recording, and every client shows a notice for as long as the newest is on.
+
+Recording profile 3 carries a complete authority-signed `liveRecording` in
+authenticated roster presence. Profile 4 additionally supports participant
+recording: `liveRecording` includes `call` (32 hex), `recorder` and `device`
+(64 hex), with paired `recording` and `recording-capture` operations signed by
+that device. The enclosing admitted roster must identify the same participant
+and device; an On must also match its advertised call. An Off may be confirmed
+after leaving, but remains scoped to that device and call. Receivers retain
+independent notices per call/device; one recorder's stop cannot clear another.
+Capture requires an exact guarded relay acknowledgement and profile 4 on every
+device currently on the call. Presence in another room or idle device does not
+qualify or block capture. Meeting policy and room authority are unchanged.
+
 `{"op":"hand","up":<bool>}` raises or lowers the sender's hand and is unsigned:
 the sender is the message's credential-bound participant. See `src/meeting.ts`,
 "A meeting is moderated by the room's authority" in [decisions](decisions.md),

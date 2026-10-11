@@ -225,6 +225,11 @@ export function quietRoomTransport(inner: RelayTransport, opts: QuietRoomOptions
         quiet.publish(event).catch((e: unknown) => settle(event.id, e instanceof RumorTooLarge ? new Error(QUIET_TOO_LONG) : e instanceof Error ? e : new Error(String(e))))
       })
     },
+    async publishGuarded(event, allowed) {
+      // Recording warnings are live presence, never a chat-slot bypass.
+      if (event.kind !== KINDS.ROSTER || !inner.publishGuarded) throw new Error('This carrier cannot confirm live recording warnings.')
+      return inner.publishGuarded(event, () => !closed && allowed())
+    },
     subscribe(filters: Filter[], onEvent: (event: Event, via?: string) => void, onEose?: () => void) {
       return quiet.subscribe(filters, onEvent, onEose)
     },
