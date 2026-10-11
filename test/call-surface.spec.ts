@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
+import { PANE_COLLAPSE_MS } from '../app/src/call-stance.js'
 import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm } from './browser.js'
 
 // Three encoded-media clients and two live popouts produced over 5,000 trace
@@ -117,6 +118,11 @@ for (const phone of [false, true]) {
         await ada!.locator('#chatInput').fill(`Hello ${room.name}`); await ada!.locator('#chatInput').press('Enter')
         await expect(ada!.locator('#chatLog')).toContainText(`Hello ${room.name}`)
         await expect(bo!.locator('#chatLog')).not.toContainText(`Hello ${room.name}`)
+        // The old pane state hid the gallery after its collapse delay, while
+        // the outer stage and popouts remained present. Test the gallery itself.
+        await ada!.waitForTimeout(PANE_COLLAPSE_MS + 100)
+        await expect(ada!.locator('#callSurface #whoIsHere')).toBeVisible()
+        await expect(ada!.locator('#callSurface #room')).toBeVisible()
         await continuous()
       }
       await ada!.locator('#callGalleryCollapse').click()
