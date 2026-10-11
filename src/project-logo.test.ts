@@ -40,6 +40,16 @@ describe('project logo companion records', () => {
     expect(projectLogoRecord(directory, context, now)).toBeUndefined()
     expect(projectAuthority(context.reference, context.definition)).toBe(authority)
   })
+  it('decrypts only once across verified current directory contexts and never for an empty directory', async () => {
+    const inner = await signProjectLogo(owner.identity, context, record(), now)
+    const outer = wrapProjectLogo(inner, member.identity.pubkey, context, now)
+    const other = { ...context, reference: { ...context.reference, project: 'ab'.repeat(32) } }
+    const decrypt = vi.fn(member.identity.decrypt), identity = { ...member.identity, decrypt }
+    expect(await unwrapProjectLogo(outer, identity, [], now)).toBeUndefined()
+    expect(decrypt).not.toHaveBeenCalled()
+    expect(await unwrapProjectLogo(outer, identity, [other, context], now)).toEqual(inner)
+    expect(decrypt).toHaveBeenCalledTimes(1)
+  })
   it('rejects non-owner edits and invalid images before invoking a signer', async () => {
     const unauthorised = { ...member.identity, signEvent: vi.fn(member.identity.signEvent) }
     await expect(signProjectLogo(unauthorised, context, record(), now)).rejects.toThrow('owner')

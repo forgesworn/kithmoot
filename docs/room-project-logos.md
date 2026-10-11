@@ -1,8 +1,9 @@
 # Private room and project logos
 
 G15 remains open. This branch introduces the image and protocol foundations,
-the shared local crop editor and browser/desktop room overrides. Project logo
-storage and editing, inheritance, Android parity, recovery and physical
+the shared local crop editor, browser/desktop room overrides and encrypted
+project companion journal. Project editing, inheritance, Android parity,
+complete client recovery and physical
 acceptance still need completion before the whole feature can be shipped.
 
 ## Images
@@ -74,9 +75,33 @@ encrypted NIP-44 wrappers to the project's current declared members.
 A reader supplies its already-verified current directory. The record must
 match its owner, project and current `projectAuthority` digest. A logo cannot
 create membership, join rooms or change execution authority. Directory
-authority changes invalidate old companions; the owner must republish the
-desired logo for the new authority. Versions and immutable request IDs will
-need a durable, locked outbox and conflict handling in the client store.
+authority changes invalidate old companions. The project directory journal
+now stores companions, exact outgoing wrappers and immutable request receipts
+under its existing encrypted cache and single-writer storage lock. Optional
+new cache fields leave old v1 directory records readable; old clients continue
+to ignore the companion domain. Logos do not create a personal project join.
+
+Same-version conflicting owner edits withhold the image until an owner supplies
+every observed logo head and resolves them at a higher version. A project edit
+refreshes an unambiguous logo for the new authority in the same durable commit,
+including membership and archive/restore changes. It never sends the refreshed
+companion to a removed member. Old authority and superseded outboxes are
+discarded; retries reuse the exact signed inner and encrypted outer events.
+
+Primary and optional secondary relay deliveries require guards that recheck
+the current directory, image and recipient before socket writes. Closing the
+directory blocks late signing/publication. An unsupported primary carrier is
+refused before asking the signer. The client still needs to supply the guarded
+secondary-inbox adapter before this can be claimed across disjoint relays.
+
+A bounded queue keeps up to 128 encrypted companions that precede their project
+directory. Without a verified member context, envelopes are not decrypted.
+Once verified contexts exist,
+one decryption selects the matching owner/project and validates its current
+authority. The complete journal retains its 32 MiB source-byte cap, 1,024
+outgoing-event and 4,096 receipt limits. Unit journeys recover logos/removals
+and exact offline retries without relay history; browser account recovery and
+Android parity remain separate acceptance.
 
 The intended display rule is: room override, then the current joined project
 context's logo, then a sole matching joined project's logo, then initials.
@@ -88,8 +113,8 @@ or new fields are added to bearer invitation links.
 ## Remaining acceptance
 
 - Wire the shared editor to authorised project controls.
-- Implement locked project companion storage, conflicts, immutable retries,
-  authority refresh and recoverable offline state.
+- Connect the guarded project-inbox delivery adapter and qualify disjoint-relay
+  delivery and recovery in the complete browser client.
 - Implement project inheritance and navigation, and render admission branding
   only from authorised local state.
 - Qualify temporary-room expiry, invalid compressed pixel fallback and all
@@ -106,5 +131,10 @@ Firefox and WebKit: two admitted members share/crop/replace/remove, restore afte
 reload, receive changes while the room is closed without changing activity time,
 cancel pending bitmap decoding, and use 320-pixel light/dark editors that reject
 SVG and oversized inputs without external image requests. The existing call-dock
-continuity journey also passes. The same four logo journeys pass against the desktop build (16 logo
-journeys in total). Installed desktop and physical phone acceptance remain open. This is not an installed or publicly shipped logo feature.
+continuity journey also passes. The same four logo journeys pass against the
+desktop build (16 logo journeys in total). The project journal revision passes
+typecheck, 25 focused protocol/directory cases and all 3,922 unit tests in 278
+files, including authority changes during delayed primary/secondary delivery,
+conflicts, exact recovery, early envelopes, storage failure and late signing.
+Installed desktop and physical phone acceptance remain open. This is not an
+installed or publicly shipped logo feature.

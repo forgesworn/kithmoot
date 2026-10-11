@@ -76,14 +76,22 @@ export function wrapProjectLogo(event: Event, recipient: string, context: Projec
   } finally { ephemeral.fill(0) }
 }
 
-export async function unwrapProjectLogo(event: Event, identity: ProjectIdentity, context: ProjectLogoContext,
+export async function unwrapProjectLogo(event: Event, identity: ProjectIdentity, context: ProjectLogoContext | readonly ProjectLogoContext[],
   now = Math.floor(Date.now() / 1000)): Promise<Event | undefined> {
   try {
-    projectAuthority(context.reference, context.definition)
-    if (!context.definition.members.some(member => member.pubkey === identity.pubkey) ||
+    // A directory supplies only its already-verified current contexts. Decode
+    // once, rather than prompting an external signer once for every project.
+    const supplied = 'reference' in context ? [context] : context
+    const authorised = supplied.filter(candidate => {
+      try { projectAuthority(candidate.reference, candidate.definition) } catch { return false }
+      return candidate.definition.members.some(member => member.pubkey === identity.pubkey)
+    })
+    if (!authorised.length ||
         event.kind !== PROJECT_WRAP_KIND || typeof event.content !== 'string' || event.content.length > MAX_PROJECT_LOGO_WRAP_BYTES ||
         !validTime(event.created_at, now) || JSON.stringify(event.tags) !== JSON.stringify([['p', identity.pubkey], ['l', PROJECT_LOGO_APP]]) || !verifyEventUncached(event)) return
     const inner: Event = JSON.parse(await identity.decrypt(event.pubkey, event.content))
-    return projectLogoRecord(inner, context, now) ? structuredClone(inner) : undefined
+    const project = (JSON.parse(inner.content) as Partial<ProjectLogoRecord>).project
+    const matching = authorised.find(candidate => candidate.reference.owner === inner.pubkey && candidate.reference.project === project)
+    return matching && projectLogoRecord(inner, matching, now) ? structuredClone(inner) : undefined
   } catch { return }
 }
