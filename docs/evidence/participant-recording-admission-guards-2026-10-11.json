@@ -1,0 +1,18 @@
+{
+  "base": "489c233671058be785eadf0859abf8f1f1ae2e33",
+  "change": "Recheck credential, signed access proof, room end and admission revocation through recording acknowledgement and subsequent warning refresh. Recheck the exact event credential independently of current credential renewal.",
+  "focused_tests": 33,
+  "focused_failures": 0,
+  "library_typecheck": "passed",
+  "application_typecheck": "passed",
+  "log_sha256": {
+    "kithmoot-recording-admission-web-final-tests.log": "6b15b417f8ec517f58aec10be35ac9565f24880372e1d93654d1ff8ddeab704e",
+    "kithmoot-recording-admission-web-typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "kithmoot-recording-admission-web-app-typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "source_sha256": {
+    "src/session.ts": "79d9becead20b2cde0af4fa9b936ac35e5fe53d418a69a7d8749994c717cd9ef",
+    "src/session-live-recording.test.ts": "a279a5c1eba916c979b441e87d5f1a6f970716bd24ea0919cbaa84a306a09a89"
+  },
+  "limits": "Local source checks only. Prior hosted checks apply to 489c233, before this expiry change. Fresh hosted acceptance, final publication, Android participant-recording parity and physical qualification remain open."
+}

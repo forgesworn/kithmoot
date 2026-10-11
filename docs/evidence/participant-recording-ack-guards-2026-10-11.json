@@ -1,0 +1,16 @@
+{
+  "base": "676edeb",
+  "change": "Participant warning delivery guards and retirement of expired capture ownership",
+  "focused_tests": 28,
+  "focused_failures": 0,
+  "typecheck": "passed",
+  "log_sha256": {
+    "kithmoot-profile4-ack-guards-final-focused.log": "cab98030748c9d694b67bbb211c0db0dd4843671146a6a27d2c928834af757f0",
+    "kithmoot-profile4-ack-guards-typecheck.log": "caa298209aa942cc5ab18c6756f73b50b8a325269b5da448077f6e2ab19f7e45"
+  },
+  "source_sha256": {
+    "src/session.ts": "6cca2430f70637d6496d52a855f6066c44566fc6b1c3cc065222d201d1cc0b7e",
+    "src/session-live-recording.test.ts": "4976e7055a8b20864bc7e84678c0ffba95d148c6a957c10f3f2244ffc7910b52"
+  },
+  "limits": "Local source tests and type checking only. Hosted browser acceptance, publication, Android profile-4 parity and physical qualification remain open."
+}
