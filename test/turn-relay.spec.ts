@@ -237,9 +237,10 @@ async function readPeerEvidence(page: Page): Promise<unknown> {
 }
 
 async function readAppDiagnostics(page: Page): Promise<string> {
-  await page.evaluate(() => (document.getElementById('diagnostics') as HTMLButtonElement).click())
-  return expect.poll(async () => page.locator('#diagnosticsOut').inputValue(), { timeout: 10_000 }).toBeTruthy()
-    .then(() => page.locator('#diagnosticsOut').inputValue())
+  return page.evaluate(async () => {
+    const collect = (window as unknown as { __kithmootCollectDiagnostics?: () => Promise<string> }).__kithmootCollectDiagnostics
+    return collect ? collect() : 'Acceptance diagnostics are unavailable in this release build.'
+  })
 }
 
 async function newDeviceContext(browser: Browser, baseURL: string, credential?: object): Promise<BrowserContext> {
