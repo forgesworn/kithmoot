@@ -211,7 +211,9 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   const personSecret = separatePerson ? new Uint8Array(32).fill(44) : secret, person = getPublicKey(personSecret)
   const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', person], ['scope', 'person'], ['device', guestDevice], ['expiration', String(clock + guestCredentialLifetime)]] }, personSecret)
   const binding = { credential: { pubkey: hexToBytes(person), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + guestBindingLifetime) }
-  const joining = wasm.Session.prepareCapability(guestPlatform, BigInt(clock), { binding, expiresAt: BigInt(clock + Math.min(guestBindingLifetime, guestCredentialLifetime)), adderRz: rz, counter: 0n })
+  const expected = await rooms.groupId(activeContext, roomId)
+  if (expected.state !== 'active' || !expected.value) throw new Error('fixture active group unavailable')
+  const joining = wasm.Session.prepareCapability(guestPlatform, BigInt(clock), { binding, expectedGroupId: hexToBytes(expected.value), expiresAt: BigInt(clock + Math.min(guestBindingLifetime, guestCredentialLifetime)), adderRz: rz, counter: 0n })
   const ask = joining.signRequest(), dh = joining.ecdhRequest()
   const made = joining.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, guestSecret), secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), dh.peerRz)).slice(1))
   guest = made.session; guestAck(made.step)
@@ -809,7 +811,7 @@ const joinRzSecret = new Uint8Array(32).fill(43), provisionDevice = new Uint8Arr
 const joinRz = getPublicKey(joinRzSecret), inviterRz = getPublicKey(inviterRzSecret), rzDatabase = 'mls-join-rendezvous-test'
 const joinKeeper = getPublicKey(new Uint8Array(32).fill(48))
 let rzVault = new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)), rzReceipt: RendezvousReceipt
-let joinOutbound: any, joinWelcome: any, inviter: any, inviterPlatform: any, joinInviterLeaf = ''
+let joinOutbound: any, joinWelcome: any, inviter: any, inviterPlatform: any, joinInviterLeaf = '', inviterGroup = ''
 const joinRemovalOperation = '06'.repeat(32)
 const joinContext = () => ({ vault: ctx(), rendezvousKey: joinRz, current: () => true })
 export async function joinRevocationAuthority() { return rooms.roomRevocationAuthority(joinContext(), roomId) }
@@ -905,8 +907,10 @@ export async function fixedCreationDevice(mode: string) {
       frozen: held.frozen, actualDevice: held.held.receipt.device === device }
   })
 }
-export async function typedJoin(mode = 'approve') {
-  const result = await rooms.join(joinContext(), { operation, name: 'Joined room', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, keeper: joinKeeper, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault, async () => {
+export async function typedJoin(mode = 'approve', group?: string) {
+  await ensureJoinInviter()
+  const expectedGroupId = group ?? inviterGroup
+  const result = await rooms.join(joinContext(), { operation, name: 'Joined room', expectedGroupId, homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, keeper: joinKeeper, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault, async () => {
     if (mode === 'clear') await clearJoinChild()
     if (mode === 'replace') await provisionJoin(2)
     if (mode === 'account') generation++
@@ -923,24 +927,42 @@ export async function readJoin() { return rooms.read(joinContext(), roomId) }
 export async function sendJoin() { return rooms.send(joinContext(), roomId, operation, new TextEncoder().encode('joined hello')) }
 export function restartJoin() { restart(); rzVault = new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)) }
 export async function joinPermissions() { await new Promise(resolve => setTimeout(resolve, 100)); return vault.overview(ctx()) }
-export async function makeJoinWelcome() {
+let alternativeInviter: any, alternativeInviterPlatform: any, alternativeGroup = ''
+async function newJoinInviter() {
   const wasm = await loadMlsEngine(), deviceSecret = new Uint8Array(32).fill(49), root = new Uint8Array(32).fill(48), p = getPublicKey(root)
   const c = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', p], ['scope', 'person'], ['device', getPublicKey(deviceSecret)], ['expiration', String(clock + 7 * 86400)]] }, root)
   const binding = { credential: { pubkey: hexToBytes(p), createdAt: BigInt(clock), tags: c.tags, content: '', sig: hexToBytes(c.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) }
-  inviterPlatform = new wasm.Platform(schnorr.getPublicKey(deviceSecret), hexToBytes(inviterRz), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
-  const creating = wasm.Session.prepareCreate(inviterPlatform, BigInt(clock), binding, hexToBytes(installation)), ask = creating.request()
-  const made = creating.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, deviceSecret)); inviter = made.session
-  joinInviterLeaf = bytesToHex(inviter.ownLeafId())
-  const ack = (step: any) => { if (step.snapshot) { inviter.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
-  ack(made.step); creating.free()
-  const pending = wasm.prepareIntroduction(inviterPlatform, BigInt(clock), hexToBytes(joinRz), 0n), req = pending.request()
+  const platform = new wasm.Platform(schnorr.getPublicKey(deviceSecret), hexToBytes(inviterRz), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+  const creating = wasm.Session.prepareCreate(platform, BigInt(clock), binding, hexToBytes(installation)), ask = creating.request()
+  try {
+    const made = creating.complete(BigInt(clock), ask.operation, schnorr.sign(ask.digest, deviceSecret))
+    made.session.commitAck(made.step.snapshot.generation, made.step.snapshot.generation); made.step.snapshot.plaintext.fill(0)
+    return { platform, session: made.session }
+  } finally { creating.free() }
+}
+async function ensureJoinInviter() {
+  if (inviter) return
+  const made = await newJoinInviter(); inviter = made.session; inviterPlatform = made.platform
+  joinInviterLeaf = bytesToHex(inviter.ownLeafId()); inviterGroup = bytesToHex(inviter.groupId())
+}
+export async function prepareAlternativeJoinGroup() {
+  await ensureJoinInviter()
+  const made = await newJoinInviter(); alternativeInviter = made.session; alternativeInviterPlatform = made.platform
+  alternativeGroup = bytesToHex(alternativeInviter.groupId())
+  return { original: inviterGroup, alternative: alternativeGroup }
+}
+export async function makeJoinWelcome(alternative = false) {
+  await ensureJoinInviter()
+  const wasm = await loadMlsEngine(), session = alternative ? alternativeInviter : inviter, platform = alternative ? alternativeInviterPlatform : inviterPlatform
+  const ack = (step: any) => { if (step.snapshot) { session.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
+  const pending = wasm.prepareIntroduction(platform, BigInt(clock), hexToBytes(joinRz), 0n), req = pending.request()
   const shared = secp256k1.getSharedSecret(inviterRzSecret, concatBytes(Uint8Array.of(2), req.peerRz))
   const intro = pending.complete(BigInt(clock), req.operation, shared.slice(1)); shared.fill(0)
-  const added = inviter.add(BigInt(clock), [intro.openCapability(BigInt(clock), joinOutbound.envelope)]); ack(added)
+  const added = session.add(BigInt(clock), [intro.openCapability(BigInt(clock), joinOutbound.envelope)]); ack(added)
   const slot = added.outbound.find((o: any) => o.destination.type === 'CommitSlot')
-  const applied = inviter.process(BigInt(clock), slot.mailbox, slot.envelope, receipt(slot), undefined); ack(applied.step)
+  const applied = session.process(BigInt(clock), slot.mailbox, slot.envelope, receipt(slot), undefined); ack(applied.step)
   joinWelcome = applied.step.outbound.find((o: any) => o.destination.type === 'Welcome')
-  intro.free(); pending.free(); inviter.free(); inviterPlatform.free()
+  intro.free(); pending.free(); session.free(); platform.free()
   return !!joinWelcome
 }
 export async function acceptJoinWelcome(install = installation, homeBox = boxId) { return rooms.process(joinContext(), roomId, { ...boxInput(joinWelcome), installation: install, homeBox }) }
@@ -1022,9 +1044,10 @@ export async function joinReleaseFault(mode: 'child' | 'account' | 'expiry' | 'd
 }
 let joinPrompt: (() => void) | undefined, pendingJoin: Promise<any> | undefined
 export async function startWaitingJoin() {
+  await ensureJoinInviter()
   let entered!: () => void
   const waiting = new Promise<void>(resolve => { entered = resolve })
-  pendingJoin = rooms.join(joinContext(), { operation, name: 'Pending', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, keeper: joinKeeper, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault,
+  pendingJoin = rooms.join(joinContext(), { operation, name: 'Pending', expectedGroupId: inviterGroup, homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, keeper: joinKeeper, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault,
     () => new Promise<'approve'>(resolve => { joinPrompt = () => resolve('approve'); entered() }))
   await waiting
 }
@@ -1047,3 +1070,6 @@ export function messageDriverFixture(join = false) {
     now: () => clock, advance: (seconds: number) => { clock += seconds }, stale: () => { generation++ },
     incoming: join ? joinWelcome : incoming, receipt, persona }
 }
+
+export function joinGroupId() { return rooms.groupId(joinContext(), roomId) }
+export function expectedJoinGroupId() { return inviterGroup }
