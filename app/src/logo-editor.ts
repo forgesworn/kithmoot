@@ -51,7 +51,7 @@ function inputSize(bytes: Uint8Array): [number, number] | undefined {
 /** The chosen crop always becomes new local pixels. Original file bytes,
  * metadata, filenames and URLs never enter shared room or project records. */
 export function openLogoEditor(options: {
-  name: string; image?: LogoImage | null; removeLabel?: string
+  name: string; image?: LogoImage | null; removeLabel?: string; canRemove?: boolean
   save(image: LogoImage | null): Promise<void>
 }): HTMLDialogElement {
   const dialog = document.createElement('dialog')
@@ -75,14 +75,14 @@ export function openLogoEditor(options: {
   const remove = dialog.querySelector('[data-action=remove]') as HTMLButtonElement
   const cancel = dialog.querySelector('[data-action=cancel]') as HTMLButtonElement
   remove.textContent = options.removeLabel ?? 'Remove logo'
-  remove.disabled = !options.image
+  remove.disabled = !options.image && !options.canRemove
   const restoreFocus = document.activeElement as HTMLElement | null
   let bitmap: ImageBitmap | undefined, generation = 0, closed = false, busy = false
   const setControls = () => {
     file.disabled = busy
     for (const range of ranges) range.disabled = busy || !bitmap
     save.disabled = busy || !bitmap
-    remove.disabled = busy || !options.image
+    remove.disabled = busy || !options.image && !options.canRemove
     cancel.disabled = busy
   }
   const draw = (target = canvas) => {

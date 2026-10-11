@@ -1,9 +1,9 @@
 # Private room and project logos
 
 G15 remains open. This branch introduces the image and protocol foundations,
-the shared local crop editor, browser/desktop room overrides and encrypted
-project companion journal. Project editing, inheritance, Android parity,
-complete client recovery and physical
+the shared local crop editor, browser/desktop room overrides, owner project
+editing, contextual inheritance and encrypted project companion journal.
+Android parity, complete client recovery and physical
 acceptance still need completion before the whole feature can be shipped.
 
 ## Images
@@ -91,8 +91,11 @@ discarded; retries reuse the exact signed inner and encrypted outer events.
 Primary and optional secondary relay deliveries require guards that recheck
 the current directory, image and recipient before socket writes. Closing the
 directory blocks late signing/publication. An unsupported primary carrier is
-refused before asking the signer. The client still needs to supply the guarded
-secondary-inbox adapter before this can be claimed across disjoint relays.
+refused before asking the signer. The browser supplies a guarded secondary
+inbox adapter: recipient relay lookup is checked before and after its await,
+then the pool checks the same guard before delayed socket writes. Ordinary
+directory delivery retains its existing behaviour. Complete disjoint-relay
+browser delivery remains an acceptance gate.
 
 A bounded queue keeps up to 128 encrypted companions that precede their project
 directory. Without a verified member context, envelopes are not decrypted.
@@ -103,20 +106,31 @@ outgoing-event and 4,096 receipt limits. Unit journeys recover logos/removals
 and exact offline retries without relay history; browser account recovery and
 Android parity remain separate acceptance.
 
-The intended display rule is: room override, then the current joined project
+Project cards offer **Change project logo** only to the owner of a ready,
+unambiguous, unarchived project. The same local crop editor previews, replaces
+and removes it. The reviewed project heads and all logo heads bind the save;
+an account change closes the editor and blocks its old target. An owner may
+also resolve a logo conflict by selecting a replacement or removing all
+conflicting heads. Other declared members see the inline artwork on their
+project invitation card without automatically joining the project or room.
+
+The display rule is: room override, then the current joined project
 context's logo, then a sole matching joined project's logo, then initials.
 With multiple project contexts and no selection, initials avoid implying
-ownership by an arbitrary project. Pre-admission screens may use project
-branding only when that project is already authorised locally. No logo bytes
+ownership by an arbitrary project. Project cards, navigation headings, room
+rows and headers use this context. Removing a room override restores its
+inherited project image. A call captures its own selected project on joining;
+changing the conversation or opening the same room from another project does
+not change that call's context. Updates to its own project still propagate.
+Pre-admission screens use project branding only when that project is already
+authorised and joined locally. No logo bytes
 or new fields are added to bearer invitation links.
 
 ## Remaining acceptance
 
-- Wire the shared editor to authorised project controls.
-- Connect the guarded project-inbox delivery adapter and qualify disjoint-relay
-  delivery and recovery in the complete browser client.
-- Implement project inheritance and navigation, and render admission branding
-  only from authorised local state.
+- Qualify disjoint-relay delivery and recovery in the complete browser client.
+- Complete invitation/admission branding across client routes and account
+  recovery, with Android editor/rendering and interoperable metadata handling.
 - Qualify temporary-room expiry, invalid compressed pixel fallback and all
   permission/identity changes in the complete client journey.
 - Add Android codecs and UI, with cross-client vectors and member/removal tests.
@@ -141,3 +155,15 @@ pass. Twenty existing project journeys also pass across Chromium, Firefox,
 WebKit and the desktop build, followed by packed library/agent imports.
 Installed desktop and physical phone acceptance remain open. This is not an
 installed or publicly shipped logo feature.
+
+The project editor/inheritance revision passes typecheck and all 3,950 unit
+tests in 281 files. Forty browser journeys pass across Chromium, Firefox,
+WebKit and the desktop build, including real decoded project images, owner
+editing and cancellation, member permissions, fresh-account encrypted relay
+recovery, a shared room in two differently branded projects, room override
+removal and 320-pixel light/dark layouts without external image fetches. The
+call retains its original project name and image when the same room opens
+under another project and when navigation docks it beside another room. A
+separate Chromium call-dock journey passes with decoded live synthetic audio
+continuity. These are automated browser checks, not physical device or
+disjoint-relay qualification.

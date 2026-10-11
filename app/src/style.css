@@ -3531,6 +3531,12 @@ select {
 #sharedProjectsList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1rem; margin-top: 1rem; }
 .sharedProjectCard { padding: 1.1rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; min-width: 0; overflow-wrap: anywhere; }
 .sharedProjectCard h3 { margin: 0 0 .4rem; font-size: 1.2rem; }
+.sharedProjectHeading { display: flex; align-items: center; gap: .65rem; margin-bottom: .4rem; }
+.sharedProjectHeading h3 { margin: 0; }
+.sharedProjectLogo { flex: 0 0 2.25rem; }
+.workspaceProjectLogo, .workspaceRoomLogo, .switcherRoomLogo { --logo-size: 1.5rem; width: 1.5rem; height: 1.5rem; flex: 0 0 1.5rem; font-size: .75rem; margin-inline-end: .4rem; }
+.workspaceRoomLink { display: flex; align-items: center; }
+.workspaceRoomName, .workspaceProjectName { min-width: 0; overflow-wrap: anywhere; }
 .sharedProjectCard p { margin: .4rem 0 .8rem; }
 .sharedProjectRooms { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; }
 .sharedProjectRooms button { text-align: left; margin: 0; }
