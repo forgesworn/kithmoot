@@ -4,6 +4,7 @@ import { BrowserMlsRoomForeground } from '../app/src/mls-room-foreground.js'
 import { BrowserMlsRoomEndpoint } from '../app/src/mls-room-endpoint.js'
 import { BrowserMlsRoomLinkVault, MLS_ROOM_LINK_OWNER, mlsRoomLinkDatabase } from '../app/src/mls-room-link-vault.js'
 import { BrowserMlsRoomDevelopmentOwner } from '../app/src/mls-room-development-owner.js'
+import { BrowserMlsRoomConsent } from '../app/src/mls-room-consent.js'
 import { withMlsRoomLinkForgetGuard } from '../app/src/mls-room-link-forget.js'
 import { MLS_ROOM_LINK_NAMES } from '../app/src/mls-room-link-forget.js'
 import type { LinkEngine } from '../app/src/browser-link-types.js'
@@ -36,6 +37,18 @@ export function status() { return { occupied: !!foreground.capture(), reached, s
 export function invalidate() { foreground.invalidate(); void endpoint.stop().catch(() => {}) }
 export function settled() { return foreground.settled() }
 export function ownerKey() { return MLS_ROOM_LINK_OWNER }
+let consentResult: Promise<unknown>, consentCurrent = true
+const consentOwner = new BrowserMlsRoomConsent()
+export function startRoomConsent() {
+  consentCurrent = true
+  consentResult = foreground.run(identity.pubkey, () => consentCurrent, scope => consentOwner.ask(foreground, scope,
+    { principal: location.origin, persona: identity.pubkey, device: '33'.repeat(32), homeBox: '44'.repeat(32), method: 'signLeafBindingV1/1' },
+    Math.floor(Date.now() / 1000) + 1, () => consentCurrent))
+}
+export function invalidateRoomConsent() { consentCurrent = false }
+export function abortRoomConsent() { foreground.invalidate() }
+export function cancelRoomConsent() { consentOwner.cancel() }
+export function finishRoomConsent() { return consentResult }
 export function account() { return identity.pubkey }
 export async function workflow(action: 'setup' | 'resume' | 'request' | 'pair' | 'signer' = 'resume') {
   return foreground.run(activeIdentity.pubkey, () => live, async scope => {

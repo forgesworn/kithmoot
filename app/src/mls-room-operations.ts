@@ -766,7 +766,7 @@ export class BrowserMlsRoomOperations {
   /** Fresh, exact-room confirmation for unjournalled box authentication.
    * Normal session cleanup invalidates its short-lived confirmation; this
    * separate transaction owns no engine handle and closes before signing. */
-  async confirmTransport(context: MlsRoomContext, id: string, expected: { generation: string; homeBox: string }): Promise<MlsRoomResult<void>> {
+  async confirmTransport(context: MlsRoomContext, id: string, expected: { generation: string; homeBox: string; installation?: string }): Promise<MlsRoomResult<void>> {
     const ctx = Object.freeze({ ...context.vault }), rz = context.rendezvousKey, epoch = this.#epoch, valid = context.current.bind(context)
     expected = { ...expected }
     const current = () => epoch === this.#epoch && valid() && this.vault.current(ctx)
@@ -775,6 +775,7 @@ export class BrowserMlsRoomOperations {
         const room = await readMlsRoom(tx, id), b = room.binding
         if (room.generation !== expected.generation) throw new StaleMlsOperation()
         if (b.homeBox !== expected.homeBox || b.rendezvousKey !== rz) throw new MlsRoomRefused('wrong-box')
+        if (expected.installation !== undefined && b.installation !== expected.installation) throw new MlsRoomRefused('wrong-installation')
         checked(await this.vault.checkRoomDevice(tx, ctx, b.device, b.credentialId))
       }, current)
     } catch (error) {

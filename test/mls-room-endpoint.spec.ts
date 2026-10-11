@@ -7,6 +7,21 @@ async function fixture(context: BrowserContext) {
   await context.route(origin + '/**', route => route.fulfill({ contentType: 'text/html', body: `<script>${bundle}</script>` }))
   const page = await context.newPage(); await page.goto(origin); return page
 }
+for (const mode of ['approve', 'deny', 'cancel', 'abort', 'replaced', 'deadline'] as const)
+  test(`private room consent settles exactly once on ${mode}`, async ({ context }) => {
+    const page = await fixture(context)
+    await page.evaluate(() => (window as any).E.startRoomConsent())
+    await expect(page.locator('#mlsRoomConsent')).toBeVisible()
+    if (mode === 'approve') await page.locator('#mlsRoomConsent [data-approve]').click()
+    if (mode === 'deny') await page.locator('#mlsRoomConsent [data-deny]').click()
+    if (mode === 'cancel') await page.evaluate(() => (window as any).E.cancelRoomConsent())
+    if (mode === 'abort') await page.evaluate(() => (window as any).E.abortRoomConsent())
+    if (mode === 'replaced') await page.evaluate(() => (window as any).E.invalidateRoomConsent())
+    const result = await page.evaluate(() => (window as any).E.finishRoomConsent())
+    expect(result).toEqual(mode === 'abort' || mode === 'replaced' ? { state: 'interrupted' }
+      : { state: 'done', value: mode === 'approve' ? 'approve' : 'deny' })
+    await expect(page.locator('#mlsRoomConsent')).toHaveCount(0)
+  })
 test('outside room scope cannot open storage or start an endpoint', async ({ context }) => {
   const page = await fixture(context)
   expect(await page.evaluate('E.outside()')).toBe(false)

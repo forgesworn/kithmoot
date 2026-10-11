@@ -2,16 +2,18 @@
 
 This is the first bounded slice of the reviewed development room composition.
 It owns room-only foreground work and a dedicated room connection. Production
-MLS remains unavailable. Creating rooms, authenticated invitation joining,
-uncertain-join recovery and manual driver rounds are still held; these controls
-do not close the create/join/driver or browser P3-08 gate.
+MLS remains unavailable. Explicit development creation saves a local witnessed
+room after fresh installation checks. Authenticated invitation joining,
+uncertain-join recovery and manual driver rounds remain held; these controls
+do not close the combined create/join/driver or browser P3-08 gate.
 
 ## Application controls and ownership
 
 `DEV && VITE_BROWSER_MLS_PREVIEW=true` exposes a lazy room connection panel.
 Opening it constructs concrete private components without storage, signing,
 WASM or network I/O. Explicit buttons pair the dedicated endpoint, read saved
-room routes or check saved rooms through the current persona witness. Route
+room routes, create a local witnessed room or check saved rooms through the
+current persona witness. Route
 reads are local; pairing and witness checks hold in quiet/Tor-only contexts.
 There is no background round, timer, retry or cached authority/readiness mark.
 
@@ -55,7 +57,7 @@ engine stop permanently retains the native writer lock until page exit.
 Blocked IndexedDB opens and genuinely unfinished native/signer work may retain
 shutdown indefinitely; there is no timeout release or false remote rollback.
 
-## Dormant room creation custody foundation
+## Room creation custody and private ceremony
 
 The actual private owner now constructs a fixed-namespace creation wrapper
 around the existing concrete encrypted rendezvous vault. It binds the current
@@ -80,14 +82,48 @@ synchronously. A genuinely nonreturning consent/signing promise retains
 custody; a later private consent UI must explicitly settle to denial on
 invalidation/deadline rather than claim a timeout unlocked real work.
 
-This is a dormant foundation. There is no application create API or new UI
-control. Native regressions use the real encrypted provision reader, concrete
-vault, signing journal and pinned MLS WASM with fixture peers. They prove
-actual tail retention, cross-tab child invalidation, device capability changes
-and a room binding lifetime independent of the short child receipt. They do
-not prove the private paired-route client, authenticated pre/post installation
-readback, final effect fencing after client/endpoint shutdown or live Bothy.
-Those ceremonies must land before an application creation control is enabled.
+The explicit creation API accepts only a saved route identifier, a bounded name
+and a lifetime. The owner freshly reads its own sealed route state, requires one
+exact route, derives the box identity from its verified card and constructs the
+client privately. No caller supplies a box, installation, receipt or client.
+Temporary route/seed bytes are wiped even if construction fails. The endpoint
+starts before child/persona custody. Authenticated capabilities establish one
+installation, then creation uses the actual child public key and a single exact
+binding expiry. A lifetime exceeding the actual credential expiry is held with
+an instruction to choose a covered lifetime; it is never silently truncated.
+
+A private Allow/Deny dialog handles typed permission scopes only. Abort,
+visibility, owner replacement, close and deadline settle to denial once. The
+actual vault signing/journal tail still drains inside child custody. A bounded
+clock captured before the first await covers the whole ceremony, including
+cached permissions and endpoint cleanup. Wall or monotonic clock regression,
+invalid samples and either ten-minute elapsed deadline permanently hold it.
+The selected binding lifetime remains independent of that ceremony deadline.
+
+After the actual child/persona callbacks release, the owner freshly checks the
+exact saved session/generation, home box, installation, rendezvous key and
+current device/credential under the released-child freshness predicate. The creation transaction's
+confirmed-read token expired with held custody and is never reused. The same
+private client authenticates capabilities again and requires the same
+installation. A second exact-room witness confirmation after the remote reply
+withholds a candidate changed during that request. After client settlement and endpoint/witness shutdown, final
+checks require current account/capabilities, child revision/expiry, clock,
+credential, binding and client context. Only a public saved session/generation
+is returned. Candidate effect bytes are wiped even on interruption.
+
+Changed, unavailable or malformed post capabilities and cleanup failure retain
+any committed room/outbox and withhold saved confirmation. There is no automatic
+retry, recreation or rollback. Failed native stop retains ownership until page
+exit. A saved result confirms local witnessed creation and authenticated
+installation checks; it does not claim delivery, invitation joining or remote
+room-grant installation.
+
+Native integration uses the actual private owner, IndexedDB/WebCrypto/Web Locks,
+coordinated vault and pinned MLS WASM. A test-only bundled module seam replaces
+the Link transport engine and remote peers, without adding a production factory
+or exposing private services. This is not default-Link-WASM, live Bothy,
+authenticated full-app creation, physical or independent production acceptance.
+Those remain separate gates. Production creation and MLS stay disabled.
 
 ## Forget integrity in every build
 

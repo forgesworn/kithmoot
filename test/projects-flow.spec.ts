@@ -25,6 +25,10 @@ test('project logos recover privately and follow explicit room and call contexts
   }, { saved, side, pubkey: owner.pubkey })
   let recovered: Awaited<ReturnType<typeof signedDevice>> | undefined
   const openProjects = async (page: Page) => {
+    // This journey checks signed encrypted project recovery. The signer's
+    // picker can close before the app attaches that account; wait for the
+    // signed-in identity controls before selecting its private project directory.
+    await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
     await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible, #switcherSharedProjects:visible').first().click()
     await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
