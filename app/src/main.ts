@@ -247,6 +247,12 @@ import {
   MAX_INVITATION_RELAYS,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
+import { RoomLogoCache } from './room-logo-store.js'
+import { openLogoEditor } from './logo-editor.js'
+import { renderLogo } from './logo-view.js'
+import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
+import { inheritedRoomLogo } from './room-logo-inheritance.js'
+import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
@@ -830,6 +836,7 @@ function disconnectedAccountRooms(): KnownRoom[] {
 // `device-store.ts` for why a relay must never see one device key across
 // two rooms. The single shared key this replaces is forgotten on load.
 const deviceStore = browserDeviceStore(localStorage)
+const roomLogoCache = new RoomLogoCache(deviceStore)
 forgetLegacyStorage(deviceStore)
 
 const nowSeconds = () => Math.floor(Date.now() / 1000)
@@ -1578,6 +1585,7 @@ let roomPolicy: RoomPolicy | undefined
 // What the room is called, off its link. Carried through every fragment this
 // app rebuilds, like the policy, so a rotated or re-shared link keeps it.
 let roomName: string | undefined
+let roomProjectContext: string | undefined
 
 function safeIceUrls(urls: string[]): string[] {
   return urls.filter((u) => ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)))
@@ -2358,6 +2366,7 @@ interface DockedCall {
   ui: RoomUiState
 }
 let dockedCall: DockedCall | undefined
+const callProjectContexts = new WeakMap<RoomSession, { call: string; project?: string }>()
 let callSurfaceScope = ''
 let galleryCollapsed = false
 
@@ -2388,11 +2397,17 @@ function mediaMe(): string {
 }
 
 /** Attribution belongs to the call's session, independently of navigation. */
+function callProjectContext(owner: RoomSession): string | undefined {
+  const captured = callProjectContexts.get(owner)
+  return captured && captured.call === owner.call?.id ? captured.project : dockedCall?.session === owner ? dockedCall.ui.roomProjectContext : roomProjectContext
+}
+
 function callOrigin(owner = mediaSession()): ShareSource['origin'] {
   if (!owner) return undefined
   const roomName = dockedCall?.session === owner ? dockedCall.label : owner === session ? currentRoomLabel() : undefined
   if (!roomName) return undefined
-  return { roomId: owner.roomId, callId: owner.call?.id, roomName, projectName: projectOf({ roomId: owner.roomId }) }
+  const project = sharedProjects.forRoom(owner.roomId).find(p => `shared:${p.key}` === callProjectContext(owner))
+  return { roomId: owner.roomId, callId: owner.call?.id, roomName, projectName: project?.definition?.name ?? projectOf({ roomId: owner.roomId }) }
 }
 
 /** Bumped only when this device's call media is torn down, so a capture
@@ -4456,6 +4471,7 @@ async function joinCall(): Promise<void> {
   leftCall = false
   callWanted = true
   const id = existing?.id ?? newCallId()
+  callProjectContexts.set(s, { call: id, project: roomProjectContext })
   logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join`)
   await s.setCall({ id, since: nowSeconds() })
   publishActiveTracks()
@@ -4910,6 +4926,7 @@ function renderRoomTitle(): void {
   const roomId = currentRoomId()
   title.textContent = ''
   title.hidden = roomId === undefined
+  renderCurrentRoomLogo()
   if (!roomId) return
   const me = meParticipant || currentParticipant()
   const peer = me ? dmPeer(roomPolicy, me) : undefined
@@ -6758,7 +6775,7 @@ const PROJECT_INBOX_TTL_MS = 10 * 60 * 1000
  * so looking their lists up tells the lookup relays nothing the wrap does
  * not; relays the owner already wrote it to are skipped.
  */
-async function deliverProjectWrap(wrap: NostrEvent, recipient: string): Promise<void> {
+async function projectInboxTargets(recipient: string): Promise<string[]> {
   let inbox = projectInboxes.get(recipient)
   if (!inbox || Date.now() - inbox.at > PROJECT_INBOX_TTL_MS) {
     const own = relayConnections.configuration('default').map(relay => relay.url)
@@ -6767,7 +6784,11 @@ async function deliverProjectWrap(wrap: NostrEvent, recipient: string): Promise<
     projectInboxes.set(recipient, inbox)
   }
   const own = new Set(relayConnections.configuration('default').map(relay => relay.url))
-  const targets = inbox.relays.filter(url => !own.has(url))
+  return inbox.relays.filter(url => !own.has(url))
+}
+
+async function deliverProjectWrap(wrap: NostrEvent, recipient: string): Promise<void> {
+  const targets = await projectInboxTargets(recipient)
   if (!targets.length) return
   const pool = relayConnections.pool('project-inbox', targets)
   try { await pool.publish(wrap) } finally { pool.close() }
@@ -7059,7 +7080,60 @@ function scheduleRoomRelaysRepost(s: RoomSession): void {
 
 const ROOM_NAME_PREFIX = 'kithmoot.room-name.v1.'
 const roomNameFollowers = new WeakMap<RoomSession, RoomNameFollower>()
+const roomLogoFollowers = new WeakMap<RoomSession, RoomLogoFollower>()
 let roomNameCarryTimer: ReturnType<typeof setTimeout> | undefined
+
+function logoForRoom(roomId: string): RoomLogoRecord | undefined {
+  const s = session?.roomId === roomId ? session : dockedCall?.session.roomId === roomId ? dockedCall.session : undefined
+  return s ? roomLogoFollowers.get(s)?.current() ?? roomLogoCache.get(roomId)?.record : roomLogoCache.get(roomId)?.record
+}
+
+function displayedRoomLogo(roomId: string, selected?: string) {
+  return inheritedRoomLogo(roomId, logoForRoom(roomId)?.image, sharedProjects.forRoom(roomId), selected)
+}
+
+function renderCurrentRoomLogo(): void {
+  const me = meParticipant || currentParticipant()
+  const roomId = currentRoomId(), image = roomId ? displayedRoomLogo(roomId, roomProjectContext) : undefined
+  const show = !!roomId && (!!session || !!image) && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me))
+  const icon = $('roomLogo')
+  icon.hidden = !show
+  if (show) renderLogo(icon, image, currentRoomLabel())
+  else icon.replaceChildren()
+}
+
+function renderRoomLogoControls(): void {
+  const s = session, me = meParticipant || currentParticipant()
+  const permitted = !!s && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
+  $('roomLogoControls').hidden = !permitted
+  if (permitted) renderLogo($('roomLogoPreview'), displayedRoomLogo(s!.roomId, roomProjectContext), currentRoomLabel())
+  else $('roomLogoPreview').replaceChildren()
+}
+
+function adoptSharedRoomLogo(s: RoomSession, record: RoomLogoRecord | undefined): void {
+  const temporary = s.endsAt !== undefined || roomIsDestruct(s.roomId) ||
+    (session === s ? roomDestruct : dockedCall?.session === s && dockedCall.ui.roomDestruct)
+  if (record) roomLogoCache.keep(s.roomId, record, s.epoch, !temporary)
+  else roomLogoCache.forget(s.roomId)
+  if (session === s) { renderCurrentRoomLogo(); renderRoomLogoControls() }
+  renderRooms(); renderDock()
+}
+
+function followSharedRoomLogo(s: RoomSession): void {
+  if (isQuietPolicy(roomPolicy) || dmPeer(roomPolicy, s.participant)) return
+  let follower = roomLogoFollowers.get(s)
+  if (!follower) {
+    const seed = roomLogoCache.get(s.roomId)
+    follower = followRoomLogo(s, { seed: seed?.record, seedEpoch: seed?.epoch,
+      onLogo: record => adoptSharedRoomLogo(s, record) })
+    roomLogoFollowers.set(s, follower)
+  }
+  adoptSharedRoomLogo(s, follower.current())
+}
+
+function closeRoomLogo(s: RoomSession): void {
+  roomLogoFollowers.get(s)?.close(); roomLogoFollowers.delete(s)
+}
 
 function loadRoomNameRecord(roomId: string): Pick<RoomNameRecord, 'name' | 'id' | 'at'> | undefined {
   try {
@@ -7159,6 +7233,7 @@ function keepWatchedRekey(roomId: string, roomSecret: Uint8Array, moved: Watched
  *  followed, show the name it holds now. */
 function followSharedRoomName(s: RoomSession): void {
   rememberRoomEpoch(s)
+  followSharedRoomLogo(s)
   let follower = roomNameFollowers.get(s)
   if (!follower) {
     follower = followRoomName(s, {
@@ -7183,6 +7258,7 @@ function scheduleRoomNameCarry(s: RoomSession, minMs: number, spreadMs: number):
   roomNameCarryTimer = setTimeout(() => {
     if (session !== s) return
     roomNameFollowers.get(s)?.carryIfDue().catch(() => { /* Tried again on the next visit or rekey. */ })
+    roomLogoFollowers.get(s)?.carryIfDue().catch(() => { /* Retry on the next visit or rekey. */ })
   }, minMs + Math.random() * spreadMs)
 }
 
@@ -7199,6 +7275,7 @@ async function renameRoomForEveryone(name: string): Promise<void> {
 /** The rename form in the room's details: the current name, and hidden in a
  *  direct message, whose title is the other person. */
 function renderRoomRename(): void {
+  renderRoomLogoControls()
   const form = $('roomRename') as HTMLFormElement
   const me = meParticipant || currentParticipant()
   form.hidden = !session || (me ? dmPeer(roomPolicy, me) !== undefined : false)
@@ -7400,6 +7477,7 @@ function onEpochChange(notice: RekeyNotice): void {
   if (s) {
     rememberRoomEpoch(s)
     roomNameFollowers.get(s)?.refresh()
+    roomLogoFollowers.get(s)?.refresh()
     if (!notice.closed) scheduleRoomNameCarry(s, 3_000, 12_000)
   }
   // Joining replays old rekeys; a state grant includes everyone ever
@@ -12303,12 +12381,20 @@ function watchKnownRoom(room: KnownRoom): void {
     named = name
     adoptWatchedRoomName(roomId, name)
   }
+  const followLogo = (): void => {
+    if (session?.roomId === roomId) return
+    const logo = watch.roomLogo(), kept = roomLogoCache.get(roomId)
+    if (!logo) { if (kept && kept.epoch < watch.epoch) roomLogoCache.forget(roomId); return }
+    if (kept?.epoch === watch.epoch && compareRoomLogos(logo, kept.record) === 0) return
+    roomLogoCache.keep(roomId, logo, watch.epoch, room.endsAt === undefined && !room.destruct)
+  }
   const watch = new RoomWatch({
     transport: pool,
     roomId,
     roomKey,
     policy: link.policy,
     quiet: isQuietPolicy(link.policy),
+    logo: roomLogoCache.get(roomId),
     ...(epoch ? { epoch } : {}),
     ...(pastEpochs.length ? { pastEpochs } : {}),
     // Following the authority's rekeys, so a room not opened since its key
@@ -12335,11 +12421,13 @@ function watchKnownRoom(room: KnownRoom): void {
     onChange: () => {
       // The name first, so the redraw below shows it.
       followName()
+      followLogo()
       renderRooms()
       notify(watch.messages())
     },
   })
   followName()
+  followLogo()
   notify(watch.messages())
   roomWatches.set(room.roomId, { pool, watch })
   followReadPositions(roomId, roomKey, room.endsAt)
@@ -12542,11 +12630,11 @@ function renderRooms(): void {
   // Rooms that self-destructed, greyed, naming none (D2), until dismissed or
   // a week has passed: nobody is left wondering where a room went.
   if (!query) for (const tombstone of destroyed) list.append(tombstoneRow(tombstone.id, tombstone.at))
-  if (!groups) for (const room of filtered) list.append(roomRow(room))
+  if (!groups) for (const room of filtered) list.append(roomRow(room, project))
   else for (const group of groups) {
     const folded = sectionFolded(group.section)
     list.append(sectionHead(group.section, group.rooms.length, folded))
-    if (!folded) for (const room of group.rooms) list.append(roomRow(room))
+    if (!folded) for (const room of group.rooms) list.append(roomRow(room, project))
   }
   if (focusedRoom && action) {
     const row = Array.from(list.children).find(row => (row as HTMLElement).dataset.room === focusedRoom)
@@ -12685,7 +12773,7 @@ function sectionHead(section: RoomSection, count: number, folded: boolean): HTML
  *  the specs that already read that), a `⋯` menu for the actions that used
  *  to sit on the row at the same weight as opening it, and a hidden
  *  description carrying the fuller sentence a screen reader wants. */
-function roomRow(room: KnownRoom): HTMLLIElement {
+function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   const label = knownRoomLabel(room)
   const state = roomRowState(room)
   const row = document.createElement('li')
@@ -12700,7 +12788,7 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   open.dataset.action = 'open'
   open.setAttribute('aria-label', `Open ${label}`)
   open.setAttribute('aria-describedby', descId)
-  open.addEventListener('click', () => openKnownRoom(room))
+  open.addEventListener('click', () => { void switchRoom(room, project) })
 
   const ended = roomIsEnded(room)
   const pinned = loadPins(localStorage).has(room.roomId)
@@ -12711,6 +12799,7 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   avatar.setAttribute('aria-hidden', 'true')
   avatar.textContent = avatarInitial(label)
   const peer = dmPeerOf(room)
+  if (!peer && !isQuietRoom(room)) renderLogo(avatar, displayedRoomLogo(room.roomId, project), label)
   const picture = peer ? profiles.get(peer)?.picture : undefined
   if (picture) {
     const image = document.createElement('img')
@@ -13092,7 +13181,14 @@ function renderWorkspace(): void {
     // to this section, rather than to a single global room-id cache.
     const existingRows = new Map(Array.from(group.querySelectorAll<HTMLElement>('.workspaceRoom'), row => [row.dataset.room, row]))
     const heading = group.querySelector('h3') ?? document.createElement('h3')
-    heading.textContent = project.name
+    const projectIcon = heading.querySelector<HTMLElement>('.privateLogo') ?? document.createElement('span')
+    projectIcon.className = 'privateLogo workspaceProjectLogo'
+    const sharedProject = sharedProjects.joined().find(p => `shared:${p.key}` === project.key)
+    renderLogo(projectIcon, sharedProject?.logo, project.name)
+    projectIcon.hidden = !sharedProject
+    const projectName = heading.querySelector<HTMLElement>('.workspaceProjectName') ?? document.createElement('span')
+    projectName.className = 'workspaceProjectName'; projectName.textContent = project.name
+    heading.replaceChildren(projectIcon, projectName)
     heading.hidden = groups.length === 1 && !project.key
     group.dataset.project = project.key
     const rows: HTMLElement[] = [heading]
@@ -13105,13 +13201,20 @@ function renderWorkspace(): void {
       button.type = 'button'
       button.className = 'workspaceRoomLink'
       button.dataset.action = 'switch'
-      if (button.textContent !== knownRoomLabel(room)) button.textContent = knownRoomLabel(room)
+      const icon = button.querySelector<HTMLElement>('.privateLogo') ?? document.createElement('span')
+      icon.className = 'privateLogo workspaceRoomLogo'
+      icon.hidden = !!dmPeerOf(room) || isQuietRoom(room)
+      if (!icon.hidden) renderLogo(icon, displayedRoomLogo(room.roomId, project.key), knownRoomLabel(room))
+      else icon.replaceChildren()
+      const roomName = button.querySelector<HTMLElement>('.workspaceRoomName') ?? document.createElement('span')
+      roomName.className = 'workspaceRoomName'; roomName.textContent = knownRoomLabel(room)
+      button.replaceChildren(icon, roomName)
       button.title = `${knownRoomLabel(room)} · ${shortKey(room.roomId)}`
       if (room.roomId === current) button.setAttribute('aria-current', 'true')
       else button.removeAttribute('aria-current')
       // Switching retains each room's draft collection in this tab.
       button.onclick = () => {
-        void switchRoom(room)
+        void switchRoom(room, project.key)
       }
       const children: HTMLElement[] = [button]
       if (room.endsAt !== undefined && !roomIsEnded(room)) children.push(fusePill(room.endsAt, room.startsAt, !!room.destruct, row.querySelector<HTMLElement>('.fusePill') ?? undefined))
@@ -13232,10 +13335,13 @@ function renderRoomSwitcher(): void {
     const detail = document.createElement('span')
     detail.className = 'switchRoomCode'
     detail.textContent = [organising() ? projectOf(room) ?? 'No project' : '', room.roomId === current ? 'Current room' : ''].filter(Boolean).join(' · ')
-    button.append(name, detail)
+    const icon = document.createElement('span'); icon.className = 'privateLogo switcherRoomLogo'
+    icon.hidden = !!dmPeerOf(room) || isQuietRoom(room)
+    if (!icon.hidden) renderLogo(icon, displayedRoomLogo(room.roomId, project), knownRoomLabel(room))
+    button.append(icon, name, detail)
     if (room.roomId === current) button.setAttribute('aria-current', 'true')
     button.disabled = busy && room.roomId !== current
-    button.addEventListener('click', () => switchRoom(room))
+    button.addEventListener('click', () => switchRoom(room, project))
     row.append(button)
     if (room.roomId !== current) {
       const link = document.createElement('a')
@@ -13311,9 +13417,10 @@ function showOpening(room: KnownRoom): void {
   $('arrivalActions').hidden = true
 }
 
-async function switchRoom(room: KnownRoom): Promise<void> {
+async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   if (switchingRoom) return
   if (session && room.roomId === currentRoomId()) {
+    if (project !== undefined) { roomProjectContext = project; renderCurrentRoomLogo(); renderRoomLogoControls() }
     ;($('roomSwitcher') as HTMLDialogElement).close()
     return
   }
@@ -13348,6 +13455,7 @@ async function switchRoom(room: KnownRoom): Promise<void> {
     await closeRoomSession({ backgroundFarewell: true })
     resetRoomState()
     if (intent === 'undock') { resumeDockedCall(); return }
+    roomProjectContext = project
     const hash = new URL(room.link, location.href).hash
     // Bookmarks provide an invitation fragment, never an external redirect.
     history.replaceState(null, '', joinLinkBase() + hash)
@@ -13499,6 +13607,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // but free the controls immediately. Never clean up global connections later:
   // by then they may belong to the newly opened room.
   if (old && old === dockedCall?.session) return
+  if (old) closeRoomLogo(old)
   const farewell = old?.leave() ?? Promise.resolve()
   const own = old ? sessionConnections.get(old) : undefined
   for (const [key, pc] of openConnections) {
@@ -13513,6 +13622,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
 }
 
 function resetRoomState(): void {
+  roomProjectContext = undefined
   admissionController?.abort()
   admissionController = undefined
   for (const opened of openedAttachments.values()) if ('url' in opened) URL.revokeObjectURL(opened.url)
@@ -13671,6 +13781,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   if (key && reason === 'user') callTabLock.release(key)
   if (c.iceRefreshTimer !== undefined) clearInterval(c.iceRefreshTimer)
   tearDownCallMedia()
+  closeRoomLogo(c.session)
   tileLiveness.retain([])
   $('agentsRow').replaceChildren()
   autoplayBanner.hide()
@@ -13711,6 +13822,15 @@ function renderDock(): void {
   $('callSurfaceHeader').hidden = !live
   const origin = callOrigin(owner)
   const originText = origin ? `Call in ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
+  $('callSurfaceLogo').hidden = !live || !owner
+  if (live && owner) {
+    const project = callProjectContext(owner)
+    const policy = dockedCall?.session === owner ? dockedCall.ui.roomPolicy : roomPolicy
+    $('callSurfaceLogo').hidden = isQuietPolicy(policy) || !!dmPeer(policy, mediaMe())
+    if (!$('callSurfaceLogo').hidden) renderLogo($('callSurfaceLogo'), displayedRoomLogo(owner.roomId, project), origin?.roomName ?? 'Call')
+    else $('callSurfaceLogo').replaceChildren()
+  }
+  else $('callSurfaceLogo').replaceChildren()
   if ($('callSurfaceOrigin').textContent !== originText) $('callSurfaceOrigin').textContent = originText
   const collapse = $('callGalleryCollapse')
   collapse.textContent = galleryCollapsed ? 'Show gallery' : 'Hide gallery'
@@ -13773,6 +13893,7 @@ interface RoomUiState {
   roomDestruct: boolean
   roomStartsAt: number | undefined
   roomName: string | undefined
+  roomProjectContext: string | undefined
   roomInvitationCapability: RoomInvitation | undefined
   invitationAuthoritySk: Uint8Array | undefined
   invitationDelegation: InvitationDelegation[]
@@ -13794,7 +13915,7 @@ function captureRoomUi(): RoomUiState {
     channelLogs: new Map(channelLogs), channelCounts: new Map(channelCounts), conversationRead, currentChannel,
     keeperParticipant, agentParticipants: new Set(agentParticipants), agentDisplayNames: new Map(agentDisplayNames),
     receiptAgents: new Set(receiptAgents), handledInvites: new Set(handledInvites), approvals: new Map(approvals),
-    systemLines: [...systemLines], roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName, roomInvitationCapability, invitationAuthoritySk,
+    systemLines: [...systemLines], roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName, roomProjectContext, roomInvitationCapability, invitationAuthoritySk,
     invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, roomRelayHints, iceUrls,
     sessionAuthority, presenceAnnouncements,
   }
@@ -13814,7 +13935,7 @@ function restoreRoomUi(ui: RoomUiState): void {
   refill(approvals, ui.approvals)
   systemLines.length = 0
   systemLines.push(...ui.systemLines)
-  ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName,
+  ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomUsesBothy, roomEndsAt, roomDestruct, roomStartsAt, roomName, roomProjectContext,
     roomInvitationCapability, invitationAuthoritySk, invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope,
     relays, roomRelayConfig, roomRelayHints, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
 }
@@ -13853,6 +13974,9 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
  *  The browser's own list entry goes too, or it would be offered straight
  *  back as a room "already here" to add to the account. */
 function forgetLocally(roomId: string): void {
+  roomLogoCache.forget(roomId)
+  if (session?.roomId === roomId) closeRoomLogo(session)
+  if (dockedCall?.session.roomId === roomId) closeRoomLogo(dockedCall.session)
   workspaceWork?.forget(roomId)
   stopWatching(roomId)
   // The room is not this browser's any more: no more read positions for it.
@@ -14494,9 +14618,13 @@ const sharedProjects = new SharedProjectsPanel(document, {
   store: deviceStore,
   rooms: navigationRooms,
   people: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true })),
-  changed: renderRooms,
-  openRoom: room => { void switchRoom(room) },
+  changed: () => { renderRooms(); renderCurrentRoomLogo(); renderRoomLogoControls(); renderDock() },
+  openRoom: (room, project) => { void switchRoom(room, project) },
   deliver: deliverProjectWrap,
+  deliverGuarded: (wrap, recipient, current) => deliverGuardedProjectInbox(wrap, recipient, current, {
+    targets: projectInboxTargets,
+    pool: targets => relayConnections.pool('project-inbox', targets),
+  }),
   signIn: () => { void signInWithNostr().catch(e => setStatus(e instanceof Error ? e.message : 'Sign-in did not finish.')) },
 })
 
@@ -16875,6 +17003,21 @@ $('roomRename').addEventListener('submit', (event) => {
     .then(() => { input.blur(); setStatus(`Renamed the room to “${name}” for everyone.`) })
     .catch((err) => setStatus(describeError(err)))
     .finally(() => { button.disabled = false; renderRoomRename() })
+})
+
+$('roomLogoEdit').addEventListener('click', () => {
+  const s = session, follower = s ? roomLogoFollowers.get(s) : undefined
+  if (!s || !follower || s.channel(CONTROL_CHANNEL).readOnly) return
+  const epoch = s.epoch, me = s.participant
+  openLogoEditor({ name: currentRoomLabel(), image: follower.current()?.image,
+    removeLabel: 'Remove room logo',
+    save: async image => {
+      if (session !== s || s.epoch !== epoch || s.participant !== me || roomLogoFollowers.get(s) !== follower || conferenceEnded(s.endsAt, nowSeconds())) {
+        throw new Error('This room changed while you were editing. Close the editor and try again.')
+      }
+      const record = await follower.replace(image)
+      if (session === s) adoptSharedRoomLogo(s, record)
+    } })
 })
 
 $('channelNew').addEventListener('submit', (event) => {
