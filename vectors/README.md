@@ -22,6 +22,16 @@ payloads for NIP-44).
 | `verify-seal.test.ts` | Checks `seal-vectors.json` against `src/`'s re-exports of the kit. |
 | `schedule-vectors.json` | Scheduled rekeys (the quiet marker), the authority's grant carrying the history window, and `epochsInWindow`, copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
 | `verify-schedule.test.ts` | Checks `schedule-vectors.json` against `src/`'s re-exports of the kit. |
+| `recording-live.json` | Additive profile-3 recording presence: 28 encrypted roster events covering all capture layouts, Off, legacy profiles, malformed states and root-authority rejection. Generated, never hand-edited. |
+| `generate-recording-live.mjs` | Regenerate with `npm run vectors:recording-live`. Uses the existing roster fixture and recorded signing/encryption randomness. |
+| `recording-live.test.ts` | Reproduces the companion file twice, reconstructs every encrypted event and checks the real decoder and root-authority verifier. |
+
+Copy `recording-live.json` byte for byte into the Android protocol test resources
+after regeneration. Android independently decrypts the events, checks complete
+decoded JSON and authority decisions, and reconstructs events whose raw payload
+is representable by its typed roster model. These cases supplement the main
+vector file; they do not change its group counts or establish runtime recording
+notice delivery, permission revocation or device acceptance.
 
 ## What the vectors pin - and what they don't
 

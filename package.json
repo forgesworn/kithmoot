@@ -52,6 +52,7 @@
     "test:e2e": "playwright test",
     "test:vault": "playwright test -c playwright.vault.config.ts",
     "typecheck": "npm run build:context && tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
+    "vectors:recording-live": "npm run build:lib && node vectors/generate-recording-live.mjs",
     "vectors": "npm run build:lib && node vectors/generate.mjs && node vectors/generate-cadence.mjs && node vectors/generate-circle.mjs",
     "test:turn": "playwright test --config playwright.turn.config.ts",
     "agent": "npm run build:lib && node bin/kithmoot-agent.mjs",
