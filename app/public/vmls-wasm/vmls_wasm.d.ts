@@ -298,6 +298,11 @@ export class Session {
     depositResult(now: any, attempt: any, signed_receipt: any): any;
     epoch(): any;
     generation(): any;
+    /**
+     * Actual MLS group id, or `null` before joining; not the local session id.
+     * Sensitive metadata for encrypted admission, not proof of authority.
+     */
+    groupId(): any;
     homeBox(): any;
     id(): any;
     /**
@@ -344,7 +349,7 @@ export class Session {
     /**
      * Prepares this device's capability record for an adder and its
      * pending-join session: a `PendingCapability`. The request is
-     * `{ binding, expiresAt, adderRz, counter }`.
+     * `{ binding, expectedGroupId, expiresAt, adderRz, counter }`.
      */
     static prepareCapability(platform: Platform, now: any, request: any): PendingCapability;
     /**
@@ -543,6 +548,7 @@ export interface InitOutput {
     readonly session_depositResult: (a: number, b: any, c: any, d: any) => [number, number, number];
     readonly session_epoch: (a: number) => [number, number, number];
     readonly session_generation: (a: number) => [number, number, number];
+    readonly session_groupId: (a: number) => [number, number, number];
     readonly session_homeBox: (a: number) => [number, number, number];
     readonly session_id: (a: number) => [number, number, number];
     readonly session_installation: (a: number) => [number, number, number];
