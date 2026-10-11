@@ -10,6 +10,7 @@ import type { BrowserLink, PairedBox } from './browser-link.js'
 import { BrowserRendezvousVaultStorage, type RendezvousVaultStorage } from './rendezvous-vault.js'
 import type { MlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
 import { BrowserMlsKeeperAdmission } from './mls-keeper-admission.js'
+import { withMlsDeviceAdmissionGate } from './mls-device-admission-gate.js'
 
 export const VMLS_GRANT_TERM = 30 * 86400
 export const VMLS_GRANT_CEILING = 64 * 1024 * 1024
@@ -158,7 +159,7 @@ export class BrowserMlsGrantLedger {
     private carrier: Carrier = (record, identity) => new BrowserLinkRelay(link, record.box, identity, { room: mlsGrantScope(record.device), kinds: [24242] }),
     private now: () => number = () => Math.floor(Date.now() / 1000),
     private exclusive: <T>(key: string, work: () => Promise<T>) => Promise<T> = async (key, work) => navigator.locks.request(`kithmoot.vmls-grant.${key}`, work),
-    private installation: MlsGrantInstallationGate = async (device, mode, work) => navigator.locks.request(`kithmoot.vmls-grant-install.v1.${device}`, { mode }, work),
+    private installation: MlsGrantInstallationGate = (device, mode, work) => withMlsDeviceAdmissionGate([device], mode, work),
     private admission?: BrowserMlsKeeperAdmission) {}
   #identity(account?: string): ParticipantIdentity {
     const identity = this.identity()

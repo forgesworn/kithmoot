@@ -14,6 +14,8 @@ import { MAX_MLS_REMOVALS, readMlsMembership, removalBytes, saveMlsMembership, t
 import { MlsRevocationOutboxFull, rememberStandaloneRevocations } from './mls-revocation-outbox.js'
 import { BrowserMlsBoxClient, type BoxAnswer } from './mls-box-client.js'
 import { vmlsMemberGrantReference } from '../../src/vmls-revocation-request.js'
+import { withMlsDeviceAdmissionGate } from './mls-device-admission-gate.js'
+import { mlsPendingAddMatches, verifyMlsPriorAddRemoval, type MlsPendingAdd } from './mls-pending-add.js'
 
 export interface MlsRoomContext { vault: VaultContext; rendezvousKey: string; current(): boolean }
 export interface MlsJoinOptions {
@@ -125,15 +127,34 @@ class PackageRegistrationStopped extends Error {
 async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<ReturnType<typeof loadMlsEngine>>, session: string,
   room: MlsRoomRecord, persona: string, active: Session): Promise<void> {
   const journal = await readMlsMembership(tx)
+  if (journal.inbox && journal.inbox.keeper !== persona) throw new InvalidPersonaRecord('Keeper mutation hold belongs to another persona')
   // The operator's witnessed approval closes the interval before the exact
   // Remove journal is recorded. Grant failure or request expiry cannot release
   // this hold. The fresh witnessed roster must no longer contain the device.
   for (const prompt of journal.inbox?.prompts ?? []) if (prompt.approval && ['approved', 'done'].includes(prompt.state)) {
+    if (room.keeper === persona && memberStatuses(active).some(member => member.device === prompt.request.device)) throw new MlsRoomRefused('compromised-removal')
+    if (prompt.approval.unresolvedLegacyAddRooms?.includes(session)) throw new MlsRoomRefused('compromised-removal')
     for (const intent of prompt.approval.rooms) if (intent.session === session) {
       if (room.keeper !== persona || prompt.request.keeper !== persona) throw new InvalidPersonaRecord('Keeper send hold no longer matches its room')
       // Lapse evidence is durable, but terminal completion is gated until
       // affected-device grant installation can be held across its witness.
       if (prompt.state === 'approved' && prompt.grantOutcomes?.some(item => item.outcome === 'no-live')) throw new MlsRoomRefused('compromised-removal')
+      if (intent.pendingAdd) {
+        const candidate = room.pendingAdds?.find(candidate => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(candidate)) === JSON.stringify(intent.pendingAdd))
+        const record = journal.removals.find(item => item.operation === (intent.priorRemoval?.operation ?? intent.operation))
+        if (!candidate?.readback || !record) throw new MlsRoomRefused('compromised-removal')
+        if (intent.priorRemoval) {
+          verifyMlsPriorAddRemoval(wasm, intent.priorRemoval, candidate, session, record, prompt.approval.approvedAt)
+          continue
+        }
+        if (record.session !== session || record.kind !== 'device' || record.target !== intent.member.leafId || !record.compromised || record.request) throw new InvalidPersonaRecord('Pending Add mutation hold removal binding differs')
+        const removal = decodeRemoval(wasm, record, { keeper: room.keeper, persona })
+        try {
+          const expected = prompt.approval.grants.filter(grant => grant.node === intent.member.homeBox).map(grant => ({ node: grant.node, grant: grant.reference, keeper: true }))
+          if (JSON.stringify(removal.grants().map(item => grantKey(item.grant))) !== JSON.stringify(expected)) throw new InvalidPersonaRecord('Pending Add mutation hold grant binding differs')
+          if (removal.mls() !== 'Committed') throw new MlsRoomRefused('compromised-removal')
+        } finally { removal.free() }
+      }
       if (memberStatuses(active).some(member => member.device === prompt.request.device)) throw new MlsRoomRefused('compromised-removal')
     }
   }
@@ -369,6 +390,16 @@ export class BrowserMlsRoomOperations {
       persist: async (tx, session, value) => {
         const events = (value as Partial<MlsRoomEffect> | undefined)?.events
         if (events) rememberMlsOrdering(room, events)
+        const redeposited = events?.filter(event => event.type === 'CommitRedeposited') ?? []
+        if (redeposited.length) {
+          const slots = ((value as Partial<MlsRoomEffect> | undefined)?.outbound ?? []).filter((item: MlsOutbound) => item.destination.type === 'CommitSlot') as MlsOutbound[]
+          if (redeposited.length !== 1 || slots.length !== 1 || slots[0].destination.type !== 'CommitSlot' || redeposited[0].attempt !== slots[0].destination.attempt) throw new InvalidPersonaRecord('Ambiguous pending commit redeposition')
+          const slot = slots[0], destination = slot.destination as Extract<MlsDestination, { type: 'CommitSlot' }>
+          for (const candidate of room.pendingAdds ?? []) if (!candidate.readback && candidate.proposal.epoch === String(destination.epoch)) {
+            if (bytesToHex(destination.homeBox) !== candidate.route.homeBox || destination.attempt <= (candidate.carrier?.attempt ?? candidate.proposal.attempt)) throw new InvalidPersonaRecord('Pending Add redeposition binding differs')
+            candidate.carrier = { recordId: bytesToHex(slot.recordId), mailbox: bytesToHex(slot.mailbox), envelopeHash: bytesToHex(sha256(slot.envelope)), attempt: destination.attempt }
+          }
+        }
         await persist?.(room, session, value, tx)
         room.generation = String(session.generation())
         await saveMlsRoom(tx, room)
@@ -380,29 +411,52 @@ export class BrowserMlsRoomOperations {
    * authenticated Introduction. This method takes ownership immediately,
    * snapshots metadata through the genuine WASM method, registers every D5
    * package before opening the Add transaction, then rechecks the snapshots
-   * against the handles consumed by Session.add. */
+   * against the handles consumed by Session.add. Candidate device gates span
+   * registration and actual witness settlement; retained keeper holds are
+   * checked before registration and again in the final transaction. */
   async addCapabilities(context: MlsRoomContext, id: string, supplied: Capability[], client: BrowserMlsBoxClient, boxNow: number): Promise<MlsAddResult> {
     const capabilities = [...supplied]
+    const epoch = this.#epoch, valid = context.current.bind(context)
+    context = { ...context, vault: { ...context.vault }, current: () => epoch === this.#epoch && valid() }
     let consumed = false
     try {
-      return await this.#using<MlsRoomEffect>(context, async scope => {
-        if (!(client instanceof BrowserMlsBoxClient) || !Number.isSafeInteger(boxNow) || boxNow < 0 ||
-            capabilities.length < 1 || capabilities.length > 64 || capabilities.some(capability => !(capability instanceof scope.wasm.Capability))) throw new MlsRoomRefused('malformed')
-        const routes = capabilities.map(capability => {
-          const info = scope.wasm.Capability.prototype.info.call(capability), expiresAt = Number(info.expiresAt)
-          const route: MlsPackageRoute = { packageId: bytesToHex(info.packageId), welcomeMailbox: bytesToHex(info.welcomeMailbox),
-            homeBox: bytesToHex(info.homeBox), leafId: bytesToHex(info.leafId), expiresAt }
-          if (![route.packageId, route.welcomeMailbox, route.homeBox, route.leafId].every(hex) || !Number.isSafeInteger(expiresAt) ||
-              expiresAt <= boxNow || expiresAt - boxNow > 7 * 86400 || expiresAt <= this.now()) throw new MlsRoomRefused('invalid-package-route')
-          return Object.freeze(route)
-        })
+      const wasm = await loadMlsEngine()
+      if (!(client instanceof BrowserMlsBoxClient) || !Number.isSafeInteger(boxNow) || boxNow < 0 ||
+          capabilities.length < 1 || capabilities.length > 64 || capabilities.some(capability => !(capability instanceof wasm.Capability))) throw new MlsRoomRefused('malformed')
+      const binding = (capability: Capability) => {
+        const info = wasm.Capability.prototype.info.call(capability), expiresAt = Number(info.expiresAt)
+        const route: MlsPackageRoute = { packageId: bytesToHex(info.packageId), welcomeMailbox: bytesToHex(info.welcomeMailbox),
+          homeBox: bytesToHex(info.homeBox), leafId: bytesToHex(info.leafId), expiresAt }
+        const candidate = { identity: bytesToHex(info.identity), device: bytesToHex(info.device), credentialId: bytesToHex(info.credentialId),
+          bindingExpiresAt: Number(info.bindingExpiresAt), credentialExpiresAt: Number(info.credentialExpiresAt), route: Object.freeze(route) }
+        if (![route.packageId, route.welcomeMailbox, route.homeBox, route.leafId].every(hex) || !Number.isSafeInteger(expiresAt) ||
+            expiresAt <= boxNow || expiresAt - boxNow > 7 * 86400 || expiresAt <= this.now() ||
+            ![candidate.identity, candidate.device, candidate.credentialId].every(hex) ||
+            ![candidate.bindingExpiresAt, candidate.credentialExpiresAt].every(at => Number.isSafeInteger(at) && at > this.now() && at > boxNow)) throw new MlsRoomRefused('invalid-package-route')
+        return Object.freeze(candidate)
+      }
+      const candidates = capabilities.map(binding), routes = candidates.map(candidate => candidate.route)
+      return await withMlsDeviceAdmissionGate(candidates.map(candidate => candidate.device), 'shared', () => this.#using<MlsRoomEffect>(context, async scope => {
+        if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
         let room: MlsRoomRecord
         const validate = async (session: Session, tx: PersonaReader) => {
           const watched = new Set((session.watchList() as MlsWatch[]).map(item => bytesToHex(item.mailbox))), known = room.packages ?? []
+          const retained = room.pendingAdds ?? []
+          if (retained.length + candidates.length > 64 || candidates.some(candidate => retained.some(item =>
+              item.route.leafId === candidate.route.leafId || item.route.packageId === candidate.route.packageId || item.route.welcomeMailbox === candidate.route.welcomeMailbox))) throw new MlsRoomRefused('pending-add-full')
           if (room.binding.installation === null) throw new MlsRoomRefused('not-joined')
           if (client.box !== room.binding.homeBox || routes.some(route => route.homeBox !== room.binding.homeBox || watched.has(route.welcomeMailbox))) throw new MlsRoomRefused('invalid-package-route')
           if (known.length + routes.length > 64 || new Set([...known, ...routes].map(route => route.packageId)).size !== known.length + routes.length ||
               new Set([...known, ...routes].map(route => route.welcomeMailbox)).size !== known.length + routes.length) throw new MlsRoomRefused('package-route-full')
+          capabilities.forEach((capability, index) => {
+            if (JSON.stringify(binding(capability)) !== JSON.stringify(candidates[index])) throw new MlsRoomRefused('invalid-package-route')
+          })
+          const journal = await readMlsMembership(tx)
+          if (journal.inbox && journal.inbox.keeper !== scope.ctx.persona) throw new InvalidPersonaRecord('Keeper Add admission belongs to another persona')
+          for (const candidate of candidates) {
+            const hold = journal.inbox?.prompts.find(prompt => ['approved', 'done'].includes(prompt.state) && prompt.request.device === candidate.device)
+            if (hold) throw new MlsRoomRefused(hold.request.sender === candidate.identity ? 'compromised-device-admission' : 'device-person-conflict')
+          }
           await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona, session)
         }
         const checked = await scope.host.step(scope.hostContext, id, session => ({ snapshot: null, value: undefined }),
@@ -410,25 +464,35 @@ export class BrowserMlsRoomOperations {
         if (checked.state !== 'active') return checked
         for (const route of routes) {
           if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
+          capabilities.forEach((capability, index) => {
+            if (JSON.stringify(binding(capability)) !== JSON.stringify(candidates[index])) throw new MlsRoomRefused('invalid-package-route')
+          })
           const packageId = hexToBytes(route.packageId), mailbox = hexToBytes(route.welcomeMailbox)
           try {
-            const answer = await BrowserMlsBoxClient.prototype.registerPackage.call(client, packageId, mailbox, route.expiresAt, boxNow)
+            const answer = await BrowserMlsBoxClient.prototype.registerPackageSettled.call(client, packageId, mailbox, route.expiresAt, boxNow)
             if (answer.state !== 'ok') throw new PackageRegistrationStopped(answer)
           } finally { packageId.fill(0); mailbox.fill(0) }
         }
         if (!scope.current() || !BrowserMlsBoxClient.prototype.isCurrent.call(client)) throw new StaleMlsOperation()
         return scope.host.step(scope.hostContext, id, session => {
           capabilities.forEach((capability, index) => {
-            const info = scope.wasm.Capability.prototype.info.call(capability), expected = routes[index]
-            if (bytesToHex(info.packageId) !== expected.packageId || bytesToHex(info.welcomeMailbox) !== expected.welcomeMailbox ||
-                bytesToHex(info.homeBox) !== expected.homeBox || bytesToHex(info.leafId) !== expected.leafId || Number(info.expiresAt) !== expected.expiresAt) throw new MlsRoomRefused('invalid-package-route')
+            if (JSON.stringify(binding(capability)) !== JSON.stringify(candidates[index])) throw new MlsRoomRefused('invalid-package-route')
           })
           consumed = true
           return effect(session, session.add(BigInt(this.now()), capabilities))
         }, this.#edits(scope.ctx, scope, id, async (r, tx, session) => { room = r; await validate(session, tx) },
-          r => { r.packages = [...(r.packages ?? []), ...routes] }))
-      })
+          (r, session, value) => {
+            const slots = value.outbound.filter((item: MlsOutbound) => item.destination.type === 'CommitSlot') as MlsOutbound[]
+            if (slots.length !== 1 || slots[0].destination.type !== 'CommitSlot' || bytesToHex(slots[0].destination.homeBox) !== r.binding.homeBox) throw new InvalidPersonaRecord('Add proposal has no exact commit slot')
+            const slot = slots[0], destination = slot.destination as Extract<MlsDestination, { type: 'CommitSlot' }>
+            const proposal: MlsPendingAdd['proposal'] = { generation: String(session.generation()), recordId: bytesToHex(slot.recordId),
+              mailbox: bytesToHex(slot.mailbox), envelopeHash: bytesToHex(sha256(slot.envelope)), epoch: String(destination.epoch), attempt: destination.attempt }
+            r.pendingAdds = [...(r.pendingAdds ?? []), ...candidates.map(candidate => ({ ...structuredClone(candidate), proposal: { ...proposal } }))]
+            r.packages = [...(r.packages ?? []), ...routes]
+          }))
+        }))
     } catch (error) {
+      if (error instanceof MlsRoomRefused) return { state: 'refused', reason: error.reason }
       if (error instanceof PackageRegistrationStopped) return { state: 'transport', answer: error.answer }
       throw error
     } finally { if (!consumed) freeCapabilities(capabilities) }
@@ -447,11 +511,14 @@ export class BrowserMlsRoomOperations {
   async removeRequestedDevice(context: MlsRoomContext, id: string, approval: string, leafId: string): Promise<MlsRoomResult<MlsRemovalStatus>> {
     let options: { operation: string; leafId: string; members: MlsMemberStatus[]; grants: VmlsGrantRef[]; compromised: boolean } | undefined
     const read = await this.#using<void>(context, async scope => {
-      return scope.host.step(scope.hostContext, id, () => ({ snapshot: null, value: undefined }), this.#edits(scope.ctx, scope, id, async (room, tx) => {
+      return scope.host.step(scope.hostContext, id, () => ({ snapshot: null, value: undefined }), this.#edits(scope.ctx, scope, id, async (room, tx, session) => {
         const journal = await readMlsMembership(tx), prompt = journal.inbox?.prompts.find(item => item.operation === approval)
-        const intent = prompt?.approval?.rooms.find(item => item.session === id && item.member.leafId === leafId && item.action === 'remove')
+        const intent = prompt?.approval?.rooms.find(item => item.session === id && item.member.leafId === leafId && (item.action === 'remove' || item.action === 'pending-add'))
         if (!prompt || prompt.state !== 'approved' || !intent || room.keeper !== scope.ctx.persona || prompt.request.keeper !== scope.ctx.persona || room.binding.rendezvousKey !== intent.rendezvousKey) throw new MlsRoomRefused('unapproved-request')
-        options = { operation: intent.operation, leafId, members: [structuredClone(intent.member)], compromised: true,
+        const candidate = intent.pendingAdd && room.pendingAdds?.find(item => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(item)) === JSON.stringify(intent.pendingAdd))
+        const member = memberStatuses(session).find(item => item.leafId === leafId)
+        if (intent.pendingAdd && (!candidate?.readback || !member || !mlsPendingAddMatches(candidate, member))) throw new MlsRoomRefused('pending-add-unresolved')
+        options = { operation: intent.operation, leafId, members: [structuredClone(intent.pendingAdd ? member! : intent.member)], compromised: true,
           grants: prompt.approval!.grants.filter(grant => grant.node === intent.member.homeBox).map(grant => ({ node: hexToBytes(grant.node), grant: hexToBytes(grant.reference), keeper: true })) }
       }))
     })
@@ -496,16 +563,18 @@ export class BrowserMlsRoomOperations {
               ...(options.request ? { request: structuredClone(options.request) } : {}) }
           }
           return { snapshot: null, value: removalStatus(record, removal, session) }
-        }, this.#edits(scope.ctx, scope, id, async (value, tx) => {
+        }, this.#edits(scope.ctx, scope, id, async (value, tx, session) => {
           room = value
           journal = await readMlsMembership(tx)
           if (options.keeperApproval) {
             const prompt = journal.inbox?.prompts.find(item => item.operation === options.keeperApproval)
-            const intent = prompt?.approval?.rooms.find(item => item.session === id && item.operation === options.operation && item.action === 'remove')
+            const intent = prompt?.approval?.rooms.find(item => item.session === id && item.operation === options.operation && (item.action === 'remove' || item.action === 'pending-add'))
+            const candidate = intent?.pendingAdd && room.pendingAdds?.find(item => JSON.stringify((({ readback: _readback, carrier: _carrier, ...stable }) => stable)(item)) === JSON.stringify(intent.pendingAdd))
+            const member = intent?.pendingAdd && memberStatuses(session).find(item => item.leafId === intent.member.leafId)
             const expected = prompt?.approval?.grants.filter(grant => grant.node === intent?.member.homeBox).map(grant => ({ node: grant.node, grant: grant.reference, keeper: true }))
             if (!prompt || prompt.state !== 'approved' || !intent || room.keeper !== scope.ctx.persona || prompt.request.keeper !== scope.ctx.persona ||
                 room.binding.rendezvousKey !== intent.rendezvousKey || options.kind !== 'device' || options.target !== intent.member.leafId || !options.compromised || options.request ||
-                JSON.stringify(options.members) !== JSON.stringify([intent.member]) || JSON.stringify(grants.map(grantKey)) !== JSON.stringify(expected)) throw new MlsRoomRefused('unapproved-request')
+                JSON.stringify(options.members) !== JSON.stringify([intent.pendingAdd ? member : intent.member]) || intent.pendingAdd && (!candidate?.readback || !member || !mlsPendingAddMatches(candidate, member)) || JSON.stringify(grants.map(grantKey)) !== JSON.stringify(expected)) throw new MlsRoomRefused('unapproved-request')
           }
           record = journal.removals.find(item => item.operation === options.operation)
           if (record && (record.session !== id || record.kind !== options.kind || record.target !== options.target || record.compromised !== options.compromised)) throw new MlsRoomRefused('replay')
@@ -820,6 +889,25 @@ export class BrowserMlsRoomOperations {
         if (processed.step.events.some((e: any) => e.type === 'Message') && (!processed.step.snapshot || processed.outcome.type !== 'Accepted')) throw new Error('Unwitnessed MLS message')
         return effect(s, processed.step, { ack: processed.ack, outcome: processed.outcome })
       }, this.#edits<MlsRoomEffect>(scope.ctx, scope, id, r => { room = r }, (r, s, value) => {
+        if (value.outcome?.type === 'Accepted') {
+          const members = memberStatuses(s)
+          const accepted = value.events.filter(event => event.type === 'CommitAccepted' && event.kind === 'Add')
+          if (accepted.length > 1) throw new InvalidPersonaRecord('Ambiguous Add commit acceptance')
+          const own = accepted[0]
+          const ownCandidates = own ? (r.pendingAdds ?? []).filter(candidate => !candidate.readback && BigInt(candidate.proposal.epoch) + 1n === BigInt(own.epoch)) : []
+          if (own && (!ownCandidates.length || new Set(ownCandidates.map(candidate => candidate.proposal.recordId)).size !== 1)) throw new InvalidPersonaRecord('Accepted Add has no unique authenticated candidate proposal')
+          for (const candidate of r.pendingAdds ?? []) {
+            if (candidate.readback) continue
+            const member = members.find(item => item.leafId === candidate.route.leafId)
+            if (!member) continue // Absence or proposal loss never clears this record.
+            if (!mlsPendingAddMatches(candidate, member)) throw new InvalidPersonaRecord('Pending Add readback binding differs')
+            const added = value.events.find(event => event.type === 'MemberAdded' && bytesToHex(event.member.leafId) === candidate.route.leafId)
+            if (added && (bytesToHex(added.member.identity) !== candidate.identity || bytesToHex(added.member.device) !== candidate.device)) throw new InvalidPersonaRecord('Pending Add event binding differs')
+            if (added && !candidate.readback) candidate.readback = { kind: ownCandidates.includes(candidate) ? 'proposal-committed' : 'current-observed',
+              generation: String(s.generation()), envelopeHash: bytesToHex(sha256(input.envelope)) }
+          }
+          if (ownCandidates.some(candidate => candidate.readback?.kind !== 'proposal-committed')) throw new InvalidPersonaRecord('Accepted Add candidate set is incomplete')
+        }
         if (r.binding.installation === null && s.installation() !== null) {
           if (!value.events.some(e => e.type === 'Joined') || value.outcome?.type !== 'Accepted') throw new InvalidPersonaRecord('Unwitnessed Welcome binding')
           r.binding.installation = bytesToHex(s.installation())

@@ -93,11 +93,11 @@ jobs:
   acceptance:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # Chromium rest includes MLS storage suites before its acceptance cases.
-    # Desktop reached case 65 of 69 at the old 20-minute job limit, with its
-    # recording notice/export case passing. Allow both suites to finish;
-    # individual test timeouts still catch hung journeys.
-    timeout-minutes: ${{ (matrix.name == 'chromium rest' || matrix.name == 'chromium desktop') && 30 || 20 }}
+    # The first shard also runs vault, Link and MLS regressions before normal
+    # acceptance. Desktop also reached case 65 of 69 at its old job limit.
+    # Retain both reviewed budgets; other groups keep 20 minutes and each
+    # Playwright test keeps its existing timeout and assertions.
+    timeout-minutes: ${{ (matrix.name == 'chromium rest' || matrix.name == 'chromium desktop' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
