@@ -626,6 +626,21 @@
             autocomplete="nickname"
             enterkeyhint="go"
           />
+          <fieldset id="admissionPreview" class="admissionPreview" hidden>
+            <legend>Before you request to join</legend>
+            <p id="admissionPreviewStatus" class="note" role="status"></p>
+            <div class="admissionPreviewButtons">
+              <button id="previewAdmissionCamera" type="button">Preview camera</button>
+              <button id="previewAdmissionMic" type="button">Test microphone</button>
+            </div>
+            <video id="admissionPreviewVideo" muted autoplay playsinline hidden aria-label="Your camera preview"></video>
+            <meter id="admissionPreviewMeter" min="0" max="1" value="0" hidden aria-label="Microphone level"></meter>
+            <p class="note">Device checks stay on this device and stop when you request to join. Your call microphone and camera start only when you choose them.</p>
+            <div class="admissionPreviewButtons">
+              <button id="requestAdmission" type="button" class="primary">Request to join</button>
+              <button id="cancelAdmission" type="button" class="quiet">Close invitation</button>
+            </div>
+          </fieldset>
           <fieldset id="joinMediaChoice" class="joinMediaChoice">
             <legend>Turn on as you join</legend>
             <label><input id="joinMic" type="checkbox" /> Microphone</label>

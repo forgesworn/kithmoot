@@ -1,0 +1,126 @@
+{
+  "qualifiedRuntimeRevision": "66b2fa6d0b60231aab57841e6246f3613e7620c4",
+  "mainBase": "0c8685fe81c9913f96a7b8fe9e226c8b8d32d49a",
+  "foldKitSource": "dc51766b7e6a141d5ba8aa0e5421df86432a7412",
+  "typecheckPassed": true,
+  "unitTests": 3843,
+  "unitFiles": 273,
+  "browserProjects": [
+    "firefox",
+    "webkit",
+    "chromium",
+    "chromium-desktop"
+  ],
+  "finalPreviewAndPrivateRoomCases": {
+    "passed": 26,
+    "skipped": 10,
+    "duration": "56.8s",
+    "revision": "66b2fa6d0b60231aab57841e6246f3613e7620c4"
+  },
+  "broaderAdmissionRegression": {
+    "passed": 104,
+    "skipped": 10,
+    "duration": "2.8m",
+    "revision": "3f0fef8",
+    "sourceFilesMatchedBetweenM1AndM4": 1449,
+    "scope": [
+      "preview",
+      "knock",
+      "account proofs",
+      "private rooms",
+      "persistent groups"
+    ]
+  },
+  "skipReason": "Five canvas/WebAudio capture measurements per Firefox/WebKit project are deliberately Chromium-only. Basic preview, request, cancellation and permission-denial journeys run in every project.",
+  "directMediaBoundary": {
+    "casesPassed": 6,
+    "assertions": [
+      "No outbound EVENT before Request to join",
+      "No RTCPeerConnection before or while waiting for admission",
+      "Only kind-20466 request events while waiting",
+      "Every local preview track stops on request, cancel or document hiding"
+    ]
+  },
+  "device": {
+    "hardware": "M4 Mac",
+    "macOS": "26.6.2",
+    "architecture": "arm64",
+    "node": "24.14.0",
+    "playwright": "1.62.1",
+    "bundledBrowserVersions": {
+      "chromium": "151.0.7922.34",
+      "firefox": "153.0",
+      "webkit": "26.5"
+    }
+  },
+  "renderedPreview": {
+    "viewport": [
+      390,
+      844
+    ],
+    "fontSizePx": 20,
+    "schemes": [
+      "light",
+      "dark"
+    ],
+    "minimumMeasuredTextContrast": {
+      "light": 6.58041257384984,
+      "dark": 7.178870428594855
+    },
+    "minimumMeasuredControlHeightPx": 49,
+    "keyboardFocusPassed": true,
+    "horizontalOverflow": false,
+    "syntheticOnly": true
+  },
+  "covered": [
+    "No automatic request from merely opening a temporary invitation",
+    "Editable retained name and deliberate Enter/request action",
+    "One immutable request across overlapping transport retries",
+    "ACK separate from host admission",
+    "Late account signature after cancellation cannot publish",
+    "Late grant after cancellation cannot cache admission",
+    "Late camera and microphone permission completion releases its stream",
+    "Permission denial does not prevent a request",
+    "Room-switch request form is interactive while the room remains inaccessible",
+    "Notification and account preferences are hidden during preview"
+  ],
+  "syntheticOnly": true,
+  "productionPublication": false,
+  "physicalAcceptance": false,
+  "nativePreviewParity": false,
+  "fullG17Acceptance": false,
+  "remainingBeforeRelease": [
+    "Final-head hosted CI and review",
+    "Merge and verify public release artifacts"
+  ],
+  "remainingG17": [
+    "Complete host-offline and expired-request guidance; relay ACK does not prove a host is online",
+    "Native guest preview and anonymous temporary-meeting creation",
+    "Admission decisions while the host views another conversation",
+    "Full connected-journey accessibility and unfamiliar guest/host physical acceptance"
+  ],
+  "limits": [
+    "A transmitted request cannot be retracted and can remain in the host queue until expiry",
+    "Cancelling on the guest does not revoke an already issued capability",
+    "Synthetic media does not establish physical permission, suspension, capture or call acceptance"
+  ],
+  "homeScreenRegression": {
+    "passed": 30,
+    "skipped": 0,
+    "duration": "1.4m",
+    "browserProjects": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "retryJourney": "An unanswered invitation retains the name, reopens preview and requires another explicit request"
+  },
+  "desktopRailAdmissionRegression": {
+    "passed": 1,
+    "skipped": 0,
+    "duration": "22.1s",
+    "project": "chromium-desktop",
+    "journey": "Initial invite and later rail entry each require explicit Request to join; verified relay waiting then host acceptance opens the room",
+    "reason": "The older fixture expected automatic requests and failed in CI38087761238"
+  }
+}

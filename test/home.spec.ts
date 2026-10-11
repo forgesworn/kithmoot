@@ -3,6 +3,7 @@ import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { RoomAgent } from '../src/agent.js'
 import { KINDS } from '../src/kinds.js'
 import { withRelays, TEST_RELAY_WS } from './relays.js'
+import { requestAdmission } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -228,8 +229,10 @@ test('an unanswered invitation can be retried without losing the name already en
     const page = await context.newPage()
     await page.clock.install()
     await page.goto(withRelays(host.url, [relay]))
-    await expect(page.locator('#status')).toContainText('Asking to be let in')
+    await expect(page.locator('#requestAdmission')).toBeVisible()
     await page.locator('#displayName').fill('Keep my name')
+    await requestAdmission(page)
+    await expect(page.locator('#admissionPreviewStatus')).toContainText('Your request reached a relay')
     // Two minutes: long enough for a person in the room to read a card and
     // press Let in, which is what a link now waits for.
     await page.clock.fastForward(121_000)
@@ -239,9 +242,11 @@ test('an unanswered invitation can be retried without losing the name already en
     ignoreGrants = false
     await page.clock.setSystemTime(new Date())
     await page.locator('#retryArrival').click()
-    await expect(page.locator('#join')).toBeVisible()
+    await expect(page.locator('#requestAdmission')).toBeVisible()
     await expect(page.locator('#displayName')).toHaveValue('Keep my name')
     await expect(page.locator('#arrivalActions')).toBeHidden()
+    await requestAdmission(page)
+    await expect(page.locator('#join')).toBeVisible()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
   } finally { await host.leave(); await context.close() }

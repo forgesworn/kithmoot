@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 // A private room: a room that asks first, whose link is never handed out.
@@ -68,6 +68,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
     await rowan.locator('#backToRooms').click()
     await rowan.locator('#roomSwitcherHome').click()
     await rowan.getByRole('button', { name: 'Open Private build', exact: true }).click()
+    await requestAdmission(rowan)
     // Saved rooms now join automatically. Verify admitted membership and
     // the host acknowledgement rather than the transient door status.
     await expect(rowan.locator('#roomArea')).toBeVisible({ timeout: 90_000 })
