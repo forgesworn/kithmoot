@@ -4,6 +4,8 @@ import { pairedWitnessIdentity, personaWriter } from '../app/src/mls-writer-iden
 import { BrowserPersonaCoordinator, type CoordinationResult } from '../app/src/mls-persona-coordinator.js'
 import { loadMlsEngine } from '../app/src/mls-engine.js'
 import type { WitnessAnswer } from '../app/src/mls-witness-link.js'
+import { admissionIntentRecordId, readAdmissionIntentLedger, reserveAdmissionIntent,
+  abandonAdmissionIntent, AdmissionIntentHold, type AdmissionIntentLedger } from '../app/src/mls-admission-intent.js'
 
 const dbName = 'mls-coordination-test', persona = '21'.repeat(32), subject = '45'.repeat(32), session = '67'.repeat(32)
 declare global { interface Window { witnessExchange(method: string, request: number[]): Promise<{ type: string; bytes?: number[] }> } }
@@ -33,6 +35,30 @@ export async function prepare(route: PersonaWitnessRoute) {
   } finally { await store.close() }
 }
 export async function status() { return result(await withHost(h => h.status(persona))) }
+const intentNamespace = { persona, rendezvous: '89'.repeat(32) }
+const intentOwner = { principal: 'https://kithmoot.test', browserDevice: 'ab'.repeat(32), engineDevice: 'cd'.repeat(32), credentialId: 'ef'.repeat(32) }
+/** Test setup ONLY: synthetic existing ledger, not first-use/bootstrap proof. */
+export async function syntheticIntentLedger() {
+  return result(await withHost(h => h.transact(persona, async tx => {
+    const ledger: AdmissionIntentLedger = { version: 1, ...intentNamespace, installation: tx.installation, nextCounter: '0', entries: [] }
+    await tx.putVault(admissionIntentRecordId(intentNamespace.rendezvous), new TextEncoder().encode(JSON.stringify(ledger)))
+  }, () => true)))
+}
+export async function intentReserve(malformed = false) {
+  return result(await withHost(h => h.transact(persona, async tx => {
+    try { return await reserveAdmissionIntent(tx, intentNamespace, malformed ? { ...intentOwner, engineDevice: 'invalid' } : intentOwner, 100, 150) }
+    catch (e) { if (e instanceof AdmissionIntentHold) return { held: e.reason }; throw e }
+  }, () => true)))
+}
+export async function intentRead() {
+  return result(await withHost(h => h.transact(persona, async tx => {
+    try { return await readAdmissionIntentLedger(tx, intentNamespace) }
+    catch (e) { if (e instanceof AdmissionIntentHold) return { held: e.reason }; throw e }
+  }, () => true)))
+}
+export async function intentAbandon(operation: string) {
+  return result(await withHost(h => h.transact(persona, tx => abandonAdmissionIntent(tx, intentNamespace, intentOwner, operation), () => true)))
+}
 export async function confirmedEffect(mode: 'ok' | 'stale-close' | 'stale-effect' | 'close-error' | 'effect-error' | 'invalid') {
   const store = new BrowserMlsPersonaStore(dbName)
   let current = true, read = 0, effects = 0, closed = false, plaintext: Uint8Array | undefined, recursive = false, readerExpired = false
