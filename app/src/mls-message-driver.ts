@@ -4,7 +4,7 @@ import { MLS_PACKAGE_EXPIRY_SKEW_SECONDS } from './mls-room-operations.js'
 import type { BrowserMlsRoomOperations, MlsDriverCommand, MlsDriverGuard, MlsDriverState, MlsRoomContext, MlsRoomResult } from './mls-room-operations.js'
 
 type Rooms = Pick<BrowserMlsRoomOperations, 'driverState' | 'confirmTransport' | 'drive' | 'process'>
-type Client = Pick<BrowserMlsBoxClient, 'box' | 'capabilities' | 'deposit' | 'depositSlot' | 'slotStatus' | 'fetch' | 'ack' | 'invalidate' | 'isCurrent'>
+type Client = Pick<BrowserMlsBoxClient, 'box' | 'capabilities' | 'deposit' | 'depositSlot' | 'slotStatus' | 'fetch' | 'ack' | 'invalidate' | 'isCurrent' | 'settled'>
 export type MlsDriverRound =
   | { state: 'done'; delivered: number; processed: number; held: number; leafHeld: number; stalled: boolean; limited: boolean }
   | { state: 'stopped'; phase: string; reason?: string }
@@ -38,7 +38,17 @@ export class BrowserMlsMessageDriver {
   invalidate(): void { this.#closed = true; this.#abort.abort(); this.client.invalidate() }
   close(): Promise<void> {
     this.invalidate()
-    return this.#closing ??= this.shutdown()
+    return this.#closing ??= (async () => {
+      // Start endpoint shutdown immediately, but join every local tail even
+      // when shutdown fails. A replaced driver cannot inherit pending work.
+      const outcomes = await Promise.allSettled([
+        Promise.resolve().then(() => this.shutdown()),
+        Promise.resolve().then(() => this.client.settled()),
+        this.#round ?? Promise.resolve(),
+      ])
+      const failure = outcomes.find(answer => answer.status === 'rejected')
+      if (failure?.status === 'rejected') throw failure.reason
+    })()
   }
   /** Coalesce this instance; Web Locks serialise other tabs/instances. A
    * queued round is cancellable and never inherits an earlier account. */
@@ -53,7 +63,8 @@ export class BrowserMlsMessageDriver {
     try {
       const result = await this.locks.request(`kithmoot:mls-driver:${context.vault.persona}:${this.session}`, { signal: this.#abort.signal }, async () => {
         if (!current()) return stale()
-        return this.#run(context)
+        try { return await this.#run(context) }
+        finally { await this.client.settled() }
       })
       return current() ? result : stale()
     } catch (error) {
