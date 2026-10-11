@@ -9,6 +9,7 @@ import { sanitiseDisplayName } from './display-name.js'
 import { sanitiseAssistOffer } from './peer-assist.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RosterEntry, CallMembership, TrackAdvert, TrackRole } from './types.js'
+import { sanitiseLiveRecordingState } from './live-recording.js'
 
 export interface EncodeRosterOptions {
   roomId: string
@@ -61,7 +62,8 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     // byte-identical to one written before the field existed.
     sid: sanitiseSid(entry.sid),
     callProfile: sanitiseCallProfile(entry.callProfile),
-    recordingProfile: entry.recordingProfile === 2 ? 2 : undefined,
+    recordingProfile: entry.recordingProfile === 2 || entry.recordingProfile === 3 ? entry.recordingProfile : undefined,
+    liveRecording: entry.recordingProfile === 3 ? sanitiseLiveRecordingState(entry.liveRecording) : undefined,
     assist: sanitiseAssistOffer(entry.assist),
     left: entry.left === true ? true : undefined,
     agent: entry.agent === true ? true : undefined,
@@ -169,7 +171,10 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const callProfile = sanitiseCallProfile(entry.callProfile)
     if (callProfile === undefined) delete entry.callProfile
     else entry.callProfile = callProfile
-    if (entry.recordingProfile !== 2) delete entry.recordingProfile
+    if (entry.recordingProfile !== 2 && entry.recordingProfile !== 3) delete entry.recordingProfile
+    const liveRecording = entry.recordingProfile === 3 ? sanitiseLiveRecordingState(entry.liveRecording) : undefined
+    if (liveRecording) entry.liveRecording = liveRecording
+    else delete entry.liveRecording
     // At most one advert per role, and every advert kept must at least look
     // like one - see `dedupeTrackAdverts`. A malformed or repeated advert
     // costs itself, never the entry.
