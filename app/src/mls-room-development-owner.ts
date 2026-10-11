@@ -7,7 +7,8 @@ import { BrowserMlsRoomEndpoint } from './mls-room-endpoint.js'
 import { BrowserMlsPersonaStore } from './mls-persona-store.js'
 import { BrowserPersonaLinks } from './mls-persona-link.js'
 import { BrowserPersonaCoordinator } from './mls-persona-coordinator.js'
-import { CoordinatedMlsVault } from './mls-coordinated-vault.js'
+import { RoomCoordinatedMlsVault } from './mls-room-coordinated-vault.js'
+import { BrowserMlsRoomCreateCustody, type MlsRoomCreateDevice } from './mls-room-create-rendezvous.js'
 import { BrowserMlsRoomOperations } from './mls-room-operations.js'
 import { mlsRoomIds, readMlsRoom } from './mls-room-store.js'
 
@@ -15,15 +16,18 @@ export interface MlsRoomDevelopmentContext extends MlsAccountContext {
   authority: {
     readonly owner: object; readonly signEvent: ParticipantIdentity['signEvent']
     readonly crypt?: { readonly owner: object; readonly encrypt: VmlsRevocationIdentity['encrypt']; readonly decrypt: VmlsRevocationIdentity['decrypt'] }
+    readonly rendezvous?: MlsRoomCreateDevice
   }
 }
 interface Active { account: MlsRoomDevelopmentContext; identity: ParticipantIdentity; scope: MlsRoomForegroundScope; current(): boolean }
-interface Services { links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: CoordinatedMlsVault; rooms: BrowserMlsRoomOperations }
+interface Services { links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: RoomCoordinatedMlsVault; rooms: BrowserMlsRoomOperations; creation: BrowserMlsRoomCreateCustody }
 const stale = () => new Error('Reopen the development room workflow in the current foreground account.')
 const hex = (value: string) => /^[0-9a-f]{64}(?![\s\S])/.test(value)
 const matches = (next: MlsRoomDevelopmentContext['authority'] | undefined, before: MlsRoomDevelopmentContext['authority']) =>
   !!next && next.owner === before.owner && next.signEvent === before.signEvent &&
   next.crypt?.owner === before.crypt?.owner && next.crypt?.encrypt === before.crypt?.encrypt && next.crypt?.decrypt === before.crypt?.decrypt
+  && next.rendezvous?.owner === before.rendezvous?.owner && next.rendezvous?.deviceKey === before.rendezvous?.deviceKey &&
+  next.rendezvous?.provisionOwner === before.rendezvous?.provisionOwner && next.rendezvous?.provision === before.rendezvous?.provision
 async function join(work: readonly Promise<unknown>[]): Promise<void> {
   const results = await Promise.allSettled(work)
   const failure = results.find(result => result.status === 'rejected')
@@ -70,6 +74,7 @@ export class BrowserMlsRoomDevelopmentOwner {
    * actual endpoint, witness and foreground tails, even when another fails. */
   pause(): Promise<void> {
     this.#epoch++; this.#foreground.invalidate()
+    this.#services?.rooms.invalidate()
     this.#services?.vault.bump(); this.#services?.coordinator.invalidate()
     const previous = this.#stopping, endpoint = this.#endpoint.stop()
     const witnesses = this.#services?.links.pause() ?? Promise.resolve()
@@ -84,6 +89,7 @@ export class BrowserMlsRoomDevelopmentOwner {
         account.authority.crypt && (!account.authority.crypt.owner || typeof account.authority.crypt.owner !== 'object' ||
           typeof account.authority.crypt.encrypt !== 'function' || typeof account.authority.crypt.decrypt !== 'function')) throw stale()
     const authority = Object.freeze({ ...account.authority,
+      ...(account.authority.rendezvous ? { rendezvous: Object.freeze({ ...account.authority.rendezvous }) } : {}),
       ...(account.authority.crypt ? { crypt: Object.freeze({ ...account.authority.crypt }) } : {}) })
     const captured = { ...account, authority }
     if (network && captured.mode !== 'normal') throw new Error('Room and witness connections are held in quiet and Tor-only modes.')
@@ -121,7 +127,9 @@ export class BrowserMlsRoomDevelopmentOwner {
   #create(): Services {
     const links = new BrowserPersonaLinks(() => !!this.#active?.current() && this.#active.account.mode === 'normal')
     const coordinator = new BrowserPersonaCoordinator(new BrowserMlsPersonaStore(), links.channels)
-    const vault = new CoordinatedMlsVault(coordinator, { generation: () => this.#epoch })
-    return { links, coordinator, vault, rooms: new BrowserMlsRoomOperations(coordinator, vault) }
+    const vault = new RoomCoordinatedMlsVault(coordinator, this.#foreground, { generation: () => this.#epoch })
+    const creation = new BrowserMlsRoomCreateCustody(this.#foreground,
+      () => this.#active?.current() ? this.context()?.authority.rendezvous : undefined)
+    return { links, coordinator, vault, rooms: new BrowserMlsRoomOperations(coordinator, vault), creation }
   }
 }

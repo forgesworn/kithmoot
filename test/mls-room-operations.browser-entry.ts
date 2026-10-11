@@ -1,4 +1,7 @@
 import { BrowserMlsRoomOperations } from '../app/src/mls-room-operations.js'
+import { BrowserMlsRoomForeground } from '../app/src/mls-room-foreground.js'
+import { RoomCoordinatedMlsVault } from '../app/src/mls-room-coordinated-vault.js'
+import { BrowserMlsRoomCreateCustody, withMlsRoomCreateRendezvous, type MlsRoomCreateRendezvous, type MlsRoomCreateDevice } from '../app/src/mls-room-create-rendezvous.js'
 import { readMlsRoom, saveMlsRoom, MAX_ROOM_MESSAGES } from '../app/src/mls-room-store.js'
 import { readMlsMembership, saveMlsMembership } from '../app/src/mls-membership-store.js'
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js'
@@ -826,6 +829,82 @@ export async function provisionJoin(index = 1, lifetime = 600) {
   return result
 }
 export async function clearJoinChild() { await new RendezvousVault(new BrowserRendezvousVaultStorage(rzDatabase)).clear(persona) }
+
+// Dormant creation foundation: real encrypted child, actual room foreground,
+// coordinated signing/journal and pinned WASM. Only witness/provision reply
+// peers are fixtures. This bypasses no application create gate and proves no
+// production/live box or pre/post-capabilities ceremony.
+let creationForeground: BrowserMlsRoomForeground, creationRooms: BrowserMlsRoomOperations
+let creationVault: RoomCoordinatedMlsVault, creationResult: Promise<any>
+let creationApprove: (decision: 'approve' | 'deny') => void
+let creationLowerSettled = false, creationOwnerSettled = false, creationChild: MlsRoomCreateRendezvous | undefined
+export async function startCreationCustody(mode: 'cancel' | 'expiry' | 'foreground' | 'hold' | 'success') {
+  creationForeground = new BrowserMlsRoomForeground()
+  creationVault = new RoomCoordinatedMlsVault(host, creationForeground, { now: () => clock, generation: () => generation })
+  creationRooms = new BrowserMlsRoomOperations(host, creationVault, () => clock)
+  creationLowerSettled = false; creationOwnerSettled = false
+  let ready!: () => void
+  const began = new Promise<void>(resolve => { ready = resolve })
+  creationResult = creationForeground.run(persona, () => true, async scope => {
+    const result = await withMlsRoomCreateRendezvous(rzVault, creationForeground, scope, getPublicKey(provisionDevice), () => clock, async custody => {
+      creationChild = custody
+      try {
+        return await creationRooms.create({ vault: creationVault.context(principal, persona), rendezvousKey: custody.receipt.rendezvousPubkey,
+          current: () => custody.current() }, { name: 'Child-custodied room', homeBox: boxId, installation, expiresAt: clock + 86400 }, async () => {
+          ready()
+          const decision = mode === 'success' ? 'approve' : await new Promise<'approve' | 'deny'>(resolve => { creationApprove = resolve })
+          // A real private consent owner must suppress late permission.
+          return mode !== 'cancel' && custody.current() ? decision : 'deny'
+        })
+      } finally { creationLowerSettled = true }
+    })
+    if (!creationChild?.releaseCurrent()) return { state: 'pending', reason: 'stale', refused: false }
+    if (result.state === 'active') roomId = result.value.session
+    return result
+  }).then(result => { creationOwnerSettled = true; return result }, error => {
+    creationOwnerSettled = true; return { error: error instanceof Error ? error.message : String(error) }
+  })
+  await began
+  if (mode === 'cancel') creationRooms.invalidate()
+  if (mode === 'expiry') { clock = rzReceipt.expiresAt; creationRooms.invalidate() }
+  if (mode === 'foreground') { creationForeground.invalidate(); creationRooms.invalidate() }
+}
+export function creationCustodyStatus() {
+  return { lowerSettled: creationLowerSettled, ownerSettled: creationOwnerSettled,
+    current: creationChild?.current(), releaseCurrent: creationChild?.releaseCurrent() }
+}
+export async function finishCreationCustody() { creationApprove?.('approve'); return creationResult }
+export async function creationChildLockAvailable() {
+  return navigator.locks.request(rzDatabase + ':custody', { ifAvailable: true }, lock => !!lock)
+}
+export async function creationPermissions() { return creationVault.overview(creationVault.context(principal, persona)) }
+export async function readCreationCustody() {
+  return creationRooms.members({ vault: creationVault.context(principal, persona), rendezvousKey: rzReceipt.rendezvousPubkey, current: () => true }, roomId)
+}
+export async function fixedCreationDevice(mode: string) {
+  const deviceKey = provisionDevice.slice(), device = getPublicKey(deviceKey), nonce = new Uint8Array(16).fill(9)
+  const fields = { v: 1, p: persona, d: device, rz: joinRz, u: 'rendezvous', i: 1, n: base64urlnopad.encode(nonce), e: clock + 600 }
+  const plain = JSON.stringify({ ...fields, k: base64urlnopad.encode(joinRzSecret) })
+  const accepted = await new RendezvousVault(new BrowserRendezvousVaultStorage()).accept(JSON.stringify({ ...fields,
+    c: encrypt(plain, getConversationKey(joinRzSecret, device)) }), { identity: persona, device, nonce, now: clock },
+    { decrypt: async (peer, value) => decrypt(value, getConversationKey(deviceKey, peer)) })
+  if (!accepted.ok) throw new Error(accepted.reason)
+  const foreground = new BrowserMlsRoomForeground()
+  let raw: MlsRoomCreateDevice = { owner: {}, deviceKey, provisionOwner: {}, provision: async () => '' }
+  const custody = new BrowserMlsRoomCreateCustody(foreground, () => raw)
+  return foreground.run(persona, () => true, async scope => {
+    const held = await custody.withCurrent(scope, async held => {
+      if (mode === 'owner') raw = { ...raw, owner: {} }
+      if (mode === 'key-reference') raw = { ...raw, deviceKey: deviceKey.slice() }
+      if (mode === 'key-material') deviceKey.fill(47)
+      if (mode === 'provision-owner') raw = { ...raw, provisionOwner: {} }
+      if (mode === 'provision-function') raw = { ...raw, provision: async () => '' }
+      return { held, inside: held.current(), keys: Object.keys(held).sort(), frozen: Object.isFrozen(held) && Object.isFrozen(held.receipt) }
+    })
+    return { inside: held.inside, released: held.held.current(), releaseCurrent: held.held.releaseCurrent(), keys: held.keys,
+      frozen: held.frozen, actualDevice: held.held.receipt.device === device }
+  })
+}
 export async function typedJoin(mode = 'approve') {
   const result = await rooms.join(joinContext(), { operation, name: 'Joined room', homeBox: boxId, introductionBox: boxId, adderRz: inviterRz, keeper: joinKeeper, counter: 0n, expiresAt: clock + 86400, rendezvous: rzReceipt }, rzVault, async () => {
     if (mode === 'clear') await clearJoinChild()
