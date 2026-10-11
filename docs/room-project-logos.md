@@ -39,10 +39,16 @@ cross-client image/removal decoding and rejection of mismatched hashes, extra
 conversation fields, borrowed credentials and ordinary-channel metadata.
 After `npm run build:lib`, `node vectors/generate-room-logo-chat.mjs` generates
 this separate fixture using synthetic room and identity keys.
-Android's reader is a protocol foundation in
-[PR #242](https://github.com/forgesworn/kithmoot-android/pull/242), not yet a native
-editor or renderer. Native pixel decoding, room/project controls and recovery
-still need integration.
+Android's codec, encrypted room controls and local display/cache have merged in
+[PR #242](https://github.com/forgesworn/kithmoot-android/pull/242),
+[PR #243](https://github.com/forgesworn/kithmoot-android/pull/243) and
+[PR #244](https://github.com/forgesworn/kithmoot-android/pull/244).
+The local crop/preview/replace/remove editor has merged in
+[PR #245](https://github.com/forgesworn/kithmoot-android/pull/245), after 14 real
+API 35 emulator cases and all four hosted checks passed. Native project
+companion handling/inheritance, closed-room
+catch-up, full recovery and physical acceptance still need completion. No new
+production APK is published by these source changes.
 
 Format references: [PNG specification](https://www.w3.org/TR/png-3/) and
 [WebP container specification](https://developers.google.com/speed/webp/docs/riff_container).
@@ -159,11 +165,11 @@ cross-client invitation/admission branding remains an acceptance gate.
 
 - Qualify disjoint-relay delivery and recovery in the complete browser client.
 - Complete invitation/admission branding across client routes and account
-  recovery, with Android editor/rendering and interoperable metadata handling.
+  recovery, including native project companions and contextual inheritance.
 - Qualify temporary-room expiry, invalid compressed pixel fallback and all
   permission/identity changes in the complete client journey.
-- Integrate the Android codec into room/project controls and UI, with
-  cross-client member/removal tests.
+- Qualify the Android room editor/display and finish native project controls,
+  with cross-client member/removal and closed-room catch-up tests.
 - Test light/dark, small phone layouts, invalid compressed pixels, permission
   changes, reload/recovery, cancelled editing and physical devices.
 
@@ -240,3 +246,21 @@ Nine affected project, mobile navigation and unread/pinning journeys pass in
 Chromium, Firefox and WebKit. This corrects test expectations for the new logo
 markup, rather than changing unread or project behaviour. The installed-window
 rail-to-admission journey also passes against the desktop build.
+
+The navigation revision preserves room-title nodes during rail updates and
+defers home repainting until an in-progress Projects press finishes. Two
+deterministic press/update/release regressions failed before the change and
+pass in all three browsers. Wider qualification exposed a separate WebKit
+archive-key storage refusal; the [bounded session cache](room-archive-session-cache.md)
+now keeps recent signed encrypted events through room switches and explains
+failed persistence in Room details.
+
+Reconciled with main `7ae8472`, typecheck and all 4,055 unit tests in 288 files
+pass. The sequential browser run passes 98 selected cases with two intentional
+skips, followed by 24 desktop cases and two durable history/reseeding journeys
+in Chromium and Firefox. WebKit session-history recovery and deliberately
+failed storage pass; durable WebKit recovery on this M4 test session remains
+unqualified because it refuses non-extractable key persistence. Hosted checks,
+publication and physical acceptance remain separate gates. Native room editor
+PR #245 has passed all four hosted gates and merged; native project integration
+and the complete G15 journey remain open.
