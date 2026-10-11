@@ -13982,7 +13982,9 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   const c = dockedCall
   if (!c) return
   const key = callLockKey()
-  if (activeRecording?.session === c.session) void stopRecording().catch(err => setStatus(describeError(err)))
+  // Keep the original roster transport alive until its recording Off has
+  // been confirmed. Closing it concurrently loses the participant warning.
+  if (activeRecording?.session === c.session) await stopRecording().catch(err => setStatus(describeError(err)))
   clearTimeout(c.conferenceEndTimer)
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
