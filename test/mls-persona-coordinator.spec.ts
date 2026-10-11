@@ -5,6 +5,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils.js'
 import { pairingFixture } from './mls-pairing-fixture.js'
+import type { AdmissionIntent, AdmissionIntentLedger } from '../app/src/mls-admission-intent.js'
 const origin = 'https://browser-mls-host.kithmoot.test'
 let bundle: string
 test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-persona-coordinator.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'M', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })
@@ -53,6 +54,50 @@ async function fixture(context: BrowserContext) {
   return { page, witness, ids }
 }
 const local = (page: Page) => page.evaluate('M.local()')
+type IntentResult = { state: string; value: AdmissionIntent | { held: string } }
+type IntentRead = { state: string; value: AdmissionIntentLedger }
+test('admission intents hold missing ledgers and malformed proposals do not fence a healthy predecessor', async ({ context }) => {
+  const f = await fixture(context)
+  expect(await f.page.evaluate('M.intentReserve()')).toMatchObject({ state: 'active', value: { held: 'missing-ledger' } })
+  expect(f.witness.advances).toBe(0)
+  await f.page.evaluate('M.syntheticIntentLedger()')
+  await expect(f.page.evaluate('M.intentReserve(true)')).rejects.toThrow('Invalid admission intent input')
+  expect(await f.page.evaluate('M.status()')).toMatchObject({ state: 'active' })
+  expect(f.witness.advances).toBe(1)
+})
+test('admission intent reservations serialize across real native persona transactions', async ({ context }) => {
+  const f = await fixture(context); await f.page.evaluate('M.syntheticIntentLedger()')
+  const second = await context.newPage(); await second.goto(origin)
+  const values = await Promise.all([f.page.evaluate<IntentResult>('M.intentReserve()'), second.evaluate<IntentResult>('M.intentReserve()')])
+  expect(values.filter(v => v.state === 'active' && 'counter' in v.value && v.value.counter === '0')).toHaveLength(1)
+  expect(values.filter(v => v.state === 'active' && 'held' in v.value && v.value.held === 'busy')).toHaveLength(1)
+  const read = await f.page.evaluate<IntentRead>('M.intentRead()')
+  expect(read).toMatchObject({ state: 'active', value: { nextCounter: '1', entries: [{ counter: '0', state: 'reserved' }] } })
+  expect(read.value.entries).toHaveLength(1); expect(f.witness.advances).toBe(2)
+})
+test('lost intent promotion acknowledgement reopens the exact burn after reload and refuses a second reservation', async ({ context }) => {
+  const f = await fixture(context); await f.page.evaluate('M.syntheticIntentLedger()'); f.witness.loseAdvance = true
+  expect(await f.page.evaluate('M.intentReserve()')).toMatchObject({ state: 'pending', reason: 'witness-unavailable' })
+  await f.page.reload()
+  const reopened = await f.page.evaluate<IntentRead>('M.intentRead()')
+  expect(reopened).toMatchObject({ state: 'active', value: { nextCounter: '1', entries: [{ counter: '0', state: 'reserved' }] } })
+  expect(await f.page.evaluate('M.intentReserve()')).toMatchObject({ state: 'active', value: { held: 'busy' } })
+  expect(f.witness.advances).toBe(2)
+  await f.page.evaluate(op => (window as any).M.intentAbandon(op), reopened.value.entries[0].operation)
+  const second = await f.page.evaluate<{ state: string; value: AdmissionIntent }>('M.intentReserve()')
+  expect(second).toMatchObject({ state: 'active', value: { counter: '1' } })
+  expect(second.value.operation).not.toBe(reopened.value.entries[0].operation)
+})
+test('witness outage prevents reservation; whole-profile rollback fences the spent counter after restart', async ({ context }) => {
+  const f = await fixture(context); await f.page.evaluate('M.syntheticIntentLedger()'); await f.page.evaluate('M.saveProfile()')
+  f.witness.offline = true
+  expect(await f.page.evaluate('M.intentReserve()')).toMatchObject({ state: 'pending', reason: 'witness-unavailable' }); expect(f.witness.advances).toBe(1)
+  f.witness.offline = false
+  expect(await f.page.evaluate('M.intentReserve()')).toMatchObject({ state: 'active', value: { counter: '0' } })
+  await f.page.evaluate('M.restoreProfile()'); await f.page.reload()
+  expect(await f.page.evaluate('M.intentReserve()')).toMatchObject({ state: 'fenced', reason: 'witness-mismatch' })
+  expect(f.witness.advances).toBe(2)
+})
 for (const mode of ['ok','stale-close','stale-effect','close-error','effect-error','invalid','offline'] as const) test(`confirmed effect retains native writer ownership after read-only cleanup: ${mode}`, async ({ context }) => {
   const f = await fixture(context)
   expect(await f.page.evaluate('M.commit(8, 1)')).toMatchObject({ state: 'active' })
