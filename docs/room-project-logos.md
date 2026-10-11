@@ -125,8 +125,10 @@ not change that call's context. Updates to its own project still propagate.
 The arrival screen has a separate brand row before joining. It matches the
 exact invitation fragment against already verified, deliberately joined
 projects, chooses the selected project or a sole matching project and refuses
-ambiguous/mismatching room IDs. Unknown links and unavailable projects get no
-preview. Archival updates clear the row while that door is still open. Names
+ambiguous/mismatching room IDs. After verified invitation resolution establishes
+the room ID, a refreshed invitation can reuse that same authorised local project
+context; an unknown invitation cannot choose a project before that resolution.
+Unknown links and unavailable projects get no preview. Archival updates clear the row while that door is still open. Names
 remain visible, and the preview grants no room access or media permission.
 No logo bytes or new fields are added to bearer invitation links. Complete
 cross-client invitation/admission branding remains an acceptance gate.
@@ -181,3 +183,12 @@ archives its project and verifies the preview disappears. Exact-link,
 ambiguous-context, room-ID mismatch and unavailable-project cases also have
 focused coverage. The first fixture attempted a same-document hash change;
 it was corrected to exercise a cold invitation opening.
+
+The current-main admission-preview reconciliation passes 3,965 unit tests in
+282 files. Across the four browser clients, 62 distinct cases passed and ten
+synthetic-media cases are intentionally skipped on Firefox/WebKit. The initial
+combined run recorded one WebKit fresh-account logo recovery failure; an
+unchanged isolated six-case WebKit rerun passed. The refreshed-invitation case
+also checks the cold arrival brand while the room remains unentered. This
+qualification retains that initial failure and does not establish physical
+or disjoint-relay acceptance.

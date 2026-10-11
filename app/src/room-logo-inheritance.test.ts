@@ -45,6 +45,18 @@ describe('locally authorised admission branding', () => {
     p.withdrawn = false; p.definition!.archived = true
     expect(projectAdmissionBrand(link, [p])).toBeUndefined()
   })
+  it('waits for admission to prove a room behind a refreshed invitation', () => {
+    const refreshed = 'https://app.invalid/j/#refreshed-invitation'
+    expect(projectAdmissionBrand(refreshed, [previewProject('a')])).toBeUndefined()
+    expect(projectAdmissionBrand(refreshed, [previewProject('a')], room)?.image).toEqual(image)
+    expect(projectAdmissionBrand(refreshed, [previewProject('a')], 'ef'.repeat(32))).toBeUndefined()
+  })
+  it('still requires project selection when an admitted room has several contexts', () => {
+    const refreshed = 'https://app.invalid/j/#refreshed-invitation'
+    const projects = [previewProject('a'), previewProject('b')]
+    expect(projectAdmissionBrand(refreshed, projects, room)).toBeUndefined()
+    expect(projectAdmissionBrand(refreshed, projects, room, 'shared:b')?.projectName).toBe('b')
+  })
 })
 
 describe('room logo inheritance', () => {

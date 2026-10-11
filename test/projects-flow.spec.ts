@@ -3,7 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { npubEncode } from 'nostr-tools/nip19'
 import { RoomAgent } from '../src/agent.js'
-import { encodeRoomLink } from '../src/link.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
 import { writeFile } from 'node:fs/promises'
 import { openRoomDetails } from './browser.js'
@@ -137,6 +137,12 @@ test('project logos recover privately and follow explicit room and call contexts
       await fresh.screenshot({ path: info.outputPath(`admission-logo-320-${colourScheme}.png`), fullPage: true })
       expect(await fresh.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     }
+    const refreshed = encodeRoomLink(baseURL!, { ...parseRoomLink(side.link), name: 'Refreshed invitation label' })
+    expect(new URL(refreshed).hash).not.toBe(new URL(side.link).hash)
+    await fresh.goto('about:blank'); await fresh.goto(refreshed)
+    await expect(fresh.locator('#arrivalLogo img')).toHaveAttribute('src', sources.get('Red project')!)
+    await expect(fresh.locator('#arrivalRoomBrandName')).toHaveText('Side workshop · Red project')
+    await expect(fresh.locator('#roomArea')).not.toBeVisible()
     // An archival directory update revokes the preview on the open door.
     await card(a!, 'Red project').getByRole('button', { name: 'Edit project', exact: true }).click()
     await a!.locator('#sharedProjectArchived').check(); await a!.locator('#sharedProjectSave').click()
