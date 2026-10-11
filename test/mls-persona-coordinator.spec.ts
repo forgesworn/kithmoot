@@ -53,6 +53,24 @@ async function fixture(context: BrowserContext) {
   return { page, witness, ids }
 }
 const local = (page: Page) => page.evaluate('M.local()')
+for (const mode of ['ok','stale-close','stale-effect','close-error','effect-error','invalid','offline'] as const) test(`confirmed effect retains native writer ownership after read-only cleanup: ${mode}`, async ({ context }) => {
+  const f = await fixture(context)
+  expect(await f.page.evaluate('M.commit(8, 1)')).toMatchObject({ state: 'active' })
+  if (mode === 'offline') f.witness.offline = true
+  const actual = await f.page.evaluate(mode => (window as any).M.confirmedEffect(mode === 'offline' ? 'ok' : mode), mode)
+  if (mode === 'ok' || mode === 'stale-effect' || mode === 'effect-error') {
+    expect(actual).toMatchObject({ read: 1, effects: 1, closed: true, recursive: true, readerExpired: true, nativeHeld: true, laterEntered: true, wiped: true })
+    if (mode === 'ok') expect(actual.outcome).toMatchObject({ state: 'active', value: { readOnly: true, selected: 'original' } })
+    if (mode === 'stale-effect') expect(actual.outcome).toEqual({ state: 'pending', reason: 'stale', refused: false })
+    if (mode === 'effect-error') expect(actual.outcome).toEqual({ error: 'fixture accepted uncertain effect' })
+  } else {
+    expect(actual.effects).toBe(0)
+    if (mode === 'stale-close') expect(actual.outcome).toEqual({ state: 'pending', reason: 'stale', refused: false })
+    if (mode === 'close-error') expect(actual.outcome).toEqual({ error: 'fixture close error' })
+    if (mode === 'invalid') expect(actual.outcome.state).toBe('fenced')
+    if (mode === 'offline') { expect(actual.read).toBe(0); expect(actual.outcome.state).toBe('pending') }
+  }
+})
 for (const mode of ['commit', 'callback-error', 'read-error', 'stale-close'] as const) test(`holds writer ownership through channel shutdown: ${mode}`, async ({ context }) => {
   const f = await fixture(context)
   const value = await f.page.evaluate(mode => (window as any).M.channelLifetime(mode), mode)

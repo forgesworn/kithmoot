@@ -9,7 +9,7 @@ import { BrowserLinkRelay } from './browser-link-relay.js'
 import type { BrowserLink, PairedBox } from './browser-link.js'
 import { BrowserRendezvousVaultStorage, type RendezvousVaultStorage } from './rendezvous-vault.js'
 import type { MlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
-import { BrowserMlsKeeperAdmission } from './mls-keeper-admission.js'
+import { BrowserMlsKeeperAdmission, type MlsVerifiedGrantRoom } from './mls-keeper-admission.js'
 import { withMlsDeviceAdmissionGate } from './mls-device-admission-gate.js'
 
 export const VMLS_GRANT_TERM = 30 * 86400
@@ -219,6 +219,21 @@ export class BrowserMlsGrantLedger {
       this.#identity(keeper.pubkey)
       if (!(this.admission instanceof BrowserMlsKeeperAdmission)) throw new Error('A witnessed keeper admission owner is required before grant installation.')
       const live = await this.admission.admit(keeper.pubkey, persona, device, () => this.identity()?.pubkey === keeper.pubkey)
+      return this.#installAdmitted(keeper, box, node, persona, device, room, boxNow, live)
+    })
+  }
+  /** Runtime installation authority is validated again under the persona
+   * lock, which remains owned through native ledger/carrier settlement.
+   * Lock order: device -> persona -> node/device -> custody. */
+  async installVerified(box: PairedBox, persona: string, device: string, room: MlsVerifiedGrantRoom, boxNow = this.now()): Promise<MlsGrantRecord> {
+    const selectedBox = structuredClone(box), selectedRoom = structuredClone(room), keeper = this.#identity(), node = mlsBoxNode(selectedBox)
+    if (!hex32.test(device) || selectedRoom.homeBox !== node || !(this.admission instanceof BrowserMlsKeeperAdmission)) throw new Error('A concrete verified keeper room admission is required.')
+    return this.installation(device, 'shared', () => this.admission!.withVerifiedRoom(keeper.pubkey, persona, device, selectedRoom,
+      () => this.identity() === keeper, live => this.#installAdmitted(keeper, selectedBox, node, persona, device,
+        { session: selectedRoom.session, leaf: selectedRoom.leaf, name: selectedRoom.name }, boxNow, live), this.now))
+  }
+  #installAdmitted(keeper: ParticipantIdentity, box: PairedBox, node: string, persona: string, device: string, room: MlsGrantRoom,
+    boxNow: number, live: () => boolean): Promise<MlsGrantRecord> {
       const check = () => { this.#identity(keeper.pubkey); if (!live()) throw new Error('The keeper account or foreground session changed.') }
       return this.exclusive(`${node}.${device}`, async () => {
         check()
@@ -251,7 +266,6 @@ export class BrowserMlsGrantLedger {
         check()
         return record
       })
-    })
   }
   async withdraw(node: string, device: string, expectedReference: string, session: string, expectedLeaves: readonly string[], compromised: boolean): Promise<MlsGrantWithdrawal> {
     const keeper = this.#identity()

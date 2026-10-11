@@ -68,6 +68,71 @@ async function joinedWithMemberDevice(page: Page) {
   expect(await run(page, 'M.firstJoinUpdate()')).toMatchObject({ state: 'active' })
   expect(await run(page, 'M.addJoinedMemberDevice()')).toBe('active')
 }
+for (const mode of ['ok','offline','removed','device','identity','rendezvous','publication'] as const) test(`verified grant installation rechecks the genuine witnessed roster before effects: ${mode}`, async ({ context }) => {
+  const { page, witness } = await enrolled(context)
+  expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')
+  await run(page, 'M.captureVerifiedGrant()')
+  if (mode === 'offline') witness.offline = true
+  if (mode === 'removed') {
+    expect(await run(page, 'M.beginGuestRemoval()')).toMatchObject({ state: 'active' })
+    expect(await run(page, 'M.applyGuestRemoval()')).toMatchObject({ state: 'active' })
+  }
+  await page.evaluate(mode => (window as any).M.startVerifiedGrant('', mode), mode)
+  const actual = await run(page, 'M.finishVerifiedGrant()')
+  if (mode === 'ok') expect(actual).toEqual({ state: 'active' })
+  else expect(actual.error).toBeTruthy()
+  const effects = await run(page, 'M.verifiedGrantStatus()')
+  if (mode === 'ok') expect(effects).toMatchObject({ signed: 2, published: 1 })
+  else if (mode === 'publication') {
+    expect(effects).toMatchObject({ signed: 2, writes: 1, published: 1 })
+    expect(await run(page, 'M.verifiedGrantRecords()')).toMatchObject([{ state: 'installing' }])
+  } else expect(effects).toEqual({ entered: false, signed: 0, writes: 0, published: 0 })
+})
+for (const stage of ['sign','publish'] as const) test(`verified grant ${stage} settlement retains the persona lock while genuine Remove queues`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.captureVerifiedGrant()')
+  await page.evaluate(stage => (window as any).M.startVerifiedGrant(stage), stage)
+  await expect.poll(() => run(page, 'M.verifiedGrantStatus()')).toMatchObject({ entered: true })
+  await run(page, 'window.removalDone = false; void(window.removal = M.beginCompetingGuestRemoval().then(value => { window.removalDone = true; return value }))')
+  await expect.poll(async () => (await run(page, 'navigator.locks.query()')).pending.some((lock: any) => lock.name.includes('persona'))).toBe(true)
+  expect(await run(page, 'window.removalDone')).toBe(false)
+  expect(await run(page, 'M.finishVerifiedGrant()')).toEqual({ state: 'active' })
+  expect(await run(page, 'window.removal')).toMatchObject({ state: 'active' })
+})
+for (const stage of ['sign','publish'] as const) test(`verified grant ${stage} interruption retains honest durable state and releases no active success`, async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, 'M.addGuest(false, undefined, false, true)'); await run(page, 'M.captureVerifiedGrant()')
+  await page.evaluate(stage => (window as any).M.startVerifiedGrant(stage), stage)
+  await expect.poll(() => run(page, 'M.verifiedGrantStatus()')).toMatchObject({ entered: true })
+  await run(page, 'M.invalidateVerifiedGrant()')
+  expect((await run(page, 'M.finishVerifiedGrant()')).error).toBeTruthy()
+  const records = await run(page, 'M.verifiedGrantRecords()')
+  expect(records).toEqual(stage === 'sign' ? [] : expect.arrayContaining([expect.objectContaining({ state: 'installing' })]))
+})
+for (const mode of ['revoked','replaced','own-binding','own-credential','target-binding','target-credential'] as const) test(`verified grant refuses ${mode} authority at its exact boundary before any effects`, async ({ context }) => {
+  const f = await fixture(context), page = f.page
+  expect(await run(page, mode === 'own-credential' ? 'M.enrol(false, 600)' : 'M.enrol()')).toMatchObject({ ok: true })
+  expect(await run(page, mode === 'own-binding' || mode === 'own-credential' ? 'M.create("approve", 600)' : 'M.create()')).toMatchObject({ state: 'active' })
+  // Genuine Introduction admission requires more than an hour remaining.
+  if (mode === 'target-binding') await run(page, 'M.configureGuestLifetime(86400, 7200)')
+  if (mode === 'target-credential') await run(page, 'M.configureGuestLifetime(7200, 7200)')
+  expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')
+  await run(page, 'M.captureVerifiedGrant()')
+  if (mode === 'revoked') expect(await run(page, 'M.revoke()')).toMatchObject({ ok: true })
+  else if (mode === 'replaced') expect(await run(page, 'M.enrol(true)')).toMatchObject({ ok: true })
+  else await run(page, mode.startsWith('target') ? 'M.advance(7200)' : 'M.advance(600)')
+  await run(page, 'M.startVerifiedGrant()')
+  expect((await run(page, 'M.finishVerifiedGrant()')).error).toBeTruthy()
+  expect(await run(page, 'M.verifiedGrantStatus()')).toEqual({ entered: false, signed: 0, writes: 0, published: 0 })
+})
+test('verified grant accepts a genuine target one second before its binding and credential boundary', async ({ context }) => {
+  const { page } = await enrolled(context)
+  await run(page, 'M.configureGuestLifetime(7200, 7200)')
+  expect(await run(page, 'M.addGuest(false, undefined, false, true)')).toBe('active')
+  await run(page, 'M.captureVerifiedGrant()'); await run(page, 'M.advance(7199)'); await run(page, 'M.startVerifiedGrant()')
+  expect(await run(page, 'M.finishVerifiedGrant()')).toEqual({ state: 'active' })
+  expect(await run(page, 'M.verifiedGrantStatus()')).toMatchObject({ signed: 2, published: 1 })
+})
 test('device install hold blocks existing and new nodes across tabs while another device remains independent', async ({ context }) => {
   const { page } = await enrolled(context, false)
   const existing = await run(page, 'M.startFenceInstall(77)')
