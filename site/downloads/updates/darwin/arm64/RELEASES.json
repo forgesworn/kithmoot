@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.75",
+  "currentRelease": "0.1.76",
   "releases": [
     {
-      "version": "0.1.75",
+      "version": "0.1.76",
       "updateTo": {
-        "version": "0.1.75",
-        "pub_date": "2026-10-11T19:48:23Z",
-        "notes": "Anyone on a group or private call can record, with independent warnings for each recorder. The live gallery, audience and screen shares stay visible while you browse other conversations; Hide gallery remains your choice. Update every participant to enable participant recording.",
-        "name": "0.1.75",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.75/KithMoot-0.1.75-mac-arm64.zip",
-        "sha256": "069a21c16654d1c30cbce6c406d624c397656212a691006a6a1cff8bd78d3257",
-        "size": 175432062
+        "version": "0.1.76",
+        "pub_date": "2026-10-11T21:02:01Z",
+        "notes": "Anyone on a group or private call can record, with independent warnings for each recorder. The gallery, audience and screen shares stay visible while you browse other chats. Leaving a recorded call stops your microphone and camera immediately, and your saved clip is available while the stop notice waits for confirmation. Update every participant to enable participant recording.",
+        "name": "0.1.76",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.76/KithMoot-0.1.76-mac-arm64.zip",
+        "sha256": "82169c03f74f44e44b63c93fda6834543092bdb1ecea2a2d48d75325be25f542",
+        "size": 175431738
       }
     }
   ]
