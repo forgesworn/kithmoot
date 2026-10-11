@@ -77,7 +77,7 @@ export async function create() {
     const req = pending.request(), signature = schnorr.sign(req.digest, device)
     return await host.create(context(), () => {
       const made = pending.complete(now, req.operation, signature)
-      ids.push(bytesToHex(made.session.id()))
+      ids.push(bytesToHex(made.session.id())); groupIds.push(made.session.groupId())
       savedCreation = structuredClone(made.step)
       return { session: track(made.session), step: step(made.step) }
     })
@@ -133,11 +133,14 @@ export async function fault(kind: string) {
 export async function concurrent() { return Promise.all([send(), send()]) }
 export async function bumpVault() { return coord.transact(persona, async tx => { await tx.putVault('00', new Uint8Array([7])) }, () => true) }
 
+const groupIds: Uint8Array[] = []
 async function proposeAdd() {
   const wasm = await loadMlsEngine(), guestKey = new Uint8Array(32).fill(44), rz = schnorr.getPublicKey(secret)
   const guestPlatform = new wasm.Platform(schnorr.getPublicKey(guestKey), rz, { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
   const credential = finalizeEvent({ kind: 20460, created_at: Number(now), content: '', tags: [['d', persona], ['scope', 'person'], ['device', bytesToHex(schnorr.getPublicKey(guestKey))], ['expiration', String(now + 20n * 86400n)]] }, secret)
+  if (!groupIds[0]) throw new Error('fixture active group unavailable')
   const joining = wasm.Session.prepareCapability(guestPlatform, now, {
+    expectedGroupId: groupIds[0],
     binding: { credential: { pubkey: hexToBytes(credential.pubkey), createdAt: BigInt(credential.created_at), tags: credential.tags, content: '', sig: hexToBytes(credential.sig) }, homeBox, expiresAt: now + 10n * 86400n },
     expiresAt: now + 2n * 86400n, adderRz: rz, counter: 0n,
   })

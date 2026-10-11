@@ -20,7 +20,7 @@ import { mlsPendingAddMatches, verifyMlsPriorAddRemoval, type MlsPendingAdd } fr
 export interface MlsRoomContext { vault: VaultContext; rendezvousKey: string; current(): boolean }
 export interface MlsJoinOptions {
   /** Account authenticated as the keeper by the accepted invitation answer. */
-  operation: string; name: string; homeBox: string; introductionBox: string; adderRz: string; keeper: string; counter: bigint; expiresAt: number
+  operation: string; name: string; expectedGroupId: string; homeBox: string; introductionBox: string; adderRz: string; keeper: string; counter: bigint; expiresAt: number
   rendezvous: RendezvousReceipt
 }
 export type MlsRoomResult<T> = HostedMlsResult<T> | { state: 'refused'; reason: string }
@@ -186,7 +186,7 @@ export class BrowserMlsRoomOperations {
     let ownedResult: MlsRoomResult<MlsRoomEffect> | undefined, released = false
     let credentialExpiresAt = 0, deadline = 0
     try {
-      if (!hex(options.operation) || options.rendezvous.identity !== ctx.persona || options.rendezvous.rendezvousPubkey !== rz || !hex(options.homeBox) || !hex(options.introductionBox) || !hex(options.adderRz) || !hex(options.keeper) ||
+      if (!hex(options.operation) || options.rendezvous.identity !== ctx.persona || options.rendezvous.rendezvousPubkey !== rz || typeof options.expectedGroupId !== 'string' || !hex(options.expectedGroupId) || !hex(options.homeBox) || !hex(options.introductionBox) || !hex(options.adderRz) || !hex(options.keeper) ||
         typeof options.counter !== 'bigint' || options.counter < 0n || options.counter > 0x7fffffffffffffffn || !Number.isSafeInteger(options.expiresAt) || typeof options.name !== 'string' || options.name.length < 1 || options.name.length > 120) throw new MlsRoomRefused('malformed')
       let releaseCurrent = () => false
       const result = await withMlsRendezvous(source, options.rendezvous, this.now, current, async custody => {
@@ -196,7 +196,7 @@ export class BrowserMlsRoomOperations {
           const { host, wasm, platform, device, credentialId, hostContext } = scope
           const pending = wasm.Session.prepareCapability(platform, BigInt(this.now()), {
             binding: { ...scope.binding, homeBox: hexToBytes(options.homeBox), expiresAt: BigInt(options.expiresAt) },
-            expiresAt: BigInt(options.expiresAt), adderRz: hexToBytes(options.adderRz), counter: options.counter,
+            expectedGroupId: hexToBytes(options.expectedGroupId), expiresAt: BigInt(options.expiresAt), adderRz: hexToBytes(options.adderRz), counter: options.counter,
           })
           let disposed = false, wake!: () => void, timer: ReturnType<typeof setTimeout> | undefined, poll: ReturnType<typeof setInterval> | undefined
           let cleanupFailure: { error: unknown } | undefined, held: HostedMlsResult<MlsRoomEffect> | undefined
@@ -742,6 +742,15 @@ export class BrowserMlsRoomOperations {
           return effect(s, s.completeUpdate(BigInt(this.now()), ask.operation, hexToBytes(reply.signature)))
         }, this.#edits(scope.ctx, scope, id, r => { room = r }, undefined, () => signatureReturned), this.now)
     }, expiresAt)
+  }
+
+  /** Actual loaded MLS group id, not the local session id or an authority
+   * assertion. Pending joins return null until exact-group Welcome adoption. */
+  groupId(context: MlsRoomContext, id: string): Promise<MlsRoomResult<string | null>> {
+    return this.#using<string | null>(context, async scope => scope.host.step<string | null>(scope.hostContext, id, session => {
+      const group = session.groupId()
+      return { snapshot: null, value: group ? bytesToHex(group) : null }
+    }, this.#edits(scope.ctx, scope, id, () => undefined)))
   }
 
   read(context: MlsRoomContext, id: string) {
