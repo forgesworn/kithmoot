@@ -365,6 +365,7 @@ test('the concrete development grant panel opens without I/O and reads local rec
   expect(await page.evaluate('indexedDB.databases()')).toEqual([])
   expect(await page.evaluate('navigator.locks.query()')).toEqual({ held: [], pending: [] })
   await page.getByRole('button', { name: 'Read grant ledger', exact: true }).click()
+  await expect.poll(() => page.evaluate('indexedDB.databases()')).toEqual([{ name: 'kithmoot-vmls-grants-v1', version: 2 }])
   await expect.poll(() => page.evaluate('G.inspect()')).toMatchObject({ database: 2, value: { phase: 'ready', records: [] } })
   expect((await page.evaluate('indexedDB.databases()') as any[]).map(item => item.name)).toEqual(['kithmoot-vmls-grants-v1'])
   expect(await page.evaluate('G.counters()')).toEqual({ publications: 0, cleanups: 0 })
