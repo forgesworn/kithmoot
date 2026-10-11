@@ -1,0 +1,40 @@
+{
+  "sourceRevision": "9d23af51eb6c7636ab1c2055edbaa2e9403857b3",
+  "versionName": "0.6.82",
+  "versionCode": 105,
+  "qualifiedSourceFiles": 1450,
+  "sourceMismatch": [],
+  "tests": {
+    "protocol": {
+      "tests": 478,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "debug": {
+      "tests": 2181,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 2181,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "apkBytes": 79698590,
+  "apkSha256": "a4533eca03b9402a448241a8f4ee05e5f1de04ade3e1246e01209687facb7445",
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "signatureSchemes": {
+    "v1": false,
+    "v2": false,
+    "v3": true
+  },
+  "nonOwnerCaptureAndDockGalleryEmulatorJourney": true,
+  "productionSigned": true,
+  "published": false,
+  "physicalAcceptance": false,
+  "state": "verified-candidate-awaiting-hosted-ci-and-publication"
+}

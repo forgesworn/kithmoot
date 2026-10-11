@@ -3663,6 +3663,36 @@
   ],
   "android": [
     {
+      "version": "0.6.82",
+      "published": "2026-10-11",
+      "files": [
+        {
+          "os": "android",
+          "arch": "any",
+          "kind": "production",
+          "filename": "kithmoot-0.6.82-production.apk",
+          "url": "/apk/kithmoot-0.6.82-production.apk",
+          "bytes": 79698590,
+          "sha256": "a4533eca03b9402a448241a8f4ee05e5f1de04ade3e1246e01209687facb7445"
+        }
+      ]
+    },
+    {
+      "version": "0.6.81",
+      "published": "2026-10-11",
+      "files": [
+        {
+          "os": "android",
+          "arch": "any",
+          "kind": "production",
+          "filename": "kithmoot-0.6.81-production.apk",
+          "url": "/apk/kithmoot-0.6.81-production.apk",
+          "bytes": 79510174,
+          "sha256": "4c00e02a1c7d64e89c4945ddbd93209d91835f24ccfdad52727c9f37ad91fb30"
+        }
+      ]
+    },
+    {
       "version": "0.6.80",
       "published": "2026-10-10",
       "files": [
