@@ -16,7 +16,7 @@ const notReady = () => new Error('The VMLS grant writer barrier is not ready.')
 
 export interface MlsGrantCustody { version: 2; phase: 'fenced' | 'ready'; fence: string; records: MlsGrantRecord[] }
 interface Encrypted { key: 'active'; version: 1 | 2; nonce: ArrayBuffer; ciphertext: ArrayBuffer }
-interface Snapshot { key?: CryptoKey; encrypted?: Encrypted; custody?: MlsGrantCustody; records: MlsGrantRecord[] }
+interface Snapshot { keyPresent: boolean; key?: CryptoKey; encrypted?: Encrypted; custody?: MlsGrantCustody; records: MlsGrantRecord[] }
 export type MlsGrantPreparation = { state: 'ready' | 'blocked' | 'interrupted' | 'refused' }
 
 /** Strict primitive validation precedes the legacy signed-term validator. */
@@ -83,50 +83,50 @@ export class BrowserMlsGrantCustody {
   #db?: IDBDatabase
   #opening?: Promise<IDBDatabase>
   #revision = 0
-  #upgradePending = false
 
   async prepare(current: () => boolean, signal: AbortSignal): Promise<MlsGrantPreparation> {
     if (typeof current !== 'function' || !(signal instanceof AbortSignal) || !globalThis.navigator?.locks || !globalThis.indexedDB) return { state: 'refused' }
     const live = () => { try { return !signal.aborted && current() === true } catch { return false } }
     const check = () => { if (!live()) throw notReady() }
     try {
-      return await navigator.locks.request(dbName + ':migration-v2', async () => {
-        check()
-        if (this.#upgradePending) return { state: 'blocked' }
-        const frozen = await navigator.locks.request(dbName, async () => {
+      return await new Promise<MlsGrantPreparation>((resolve, reject) => {
+        void navigator.locks.request(dbName + ':migration-v2', async (): Promise<MlsGrantPreparation> => {
           check()
-          const db = await this.#database(), snapshot = await this.#read(db)
-          check()
-          if (snapshot.custody) return snapshot.custody
-          if (db.version !== 1) throw invalid()
-          const key = snapshot.key ?? await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt','decrypt'])
-          check()
-          const custody: MlsGrantCustody = { version: 2, phase: 'fenced', fence: bytesToHex(crypto.getRandomValues(new Uint8Array(32))), records: snapshot.records }
-          await this.#write(db, snapshot, custody, key, check, signal)
-          check()
-          return custody
-        })
-        if (frozen.phase === 'ready') return { state: 'ready' }
-        const digest = mlsGrantCustodyDigest(frozen)
-        const keys = frozen.records.map(record => `kithmoot.vmls-grant.${record.node}.${record.device}`)
-        const drain = async (at: number): Promise<MlsGrantPreparation> => {
-          check()
-          if (at < keys.length) return navigator.locks.request(keys[at], () => drain(at + 1))
-          const upgraded = await this.#upgrade(check)
-          check()
-          if (!upgraded) return { state: 'blocked' }
-          return navigator.locks.request(dbName, async () => {
+          const frozen = await navigator.locks.request(dbName, async () => {
             check()
-            const snapshot = await this.#read(upgraded)
+            const db = await this.#database(), snapshot = await this.#read(db)
             check()
-            if (!snapshot.custody || snapshot.custody.phase !== 'fenced' || !snapshot.key ||
-                mlsGrantCustodyDigest(snapshot.custody) !== digest || upgraded.version !== 2) throw invalid()
-            await this.#write(upgraded, snapshot, { ...snapshot.custody, phase: 'ready' }, snapshot.key, check, signal)
+            if (snapshot.custody) return snapshot.custody
+            if (db.version !== 1) throw invalid()
+            const key = snapshot.key ?? await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt','decrypt'])
             check()
-            return { state: 'ready' }
+            const custody: MlsGrantCustody = { version: 2, phase: 'fenced', fence: bytesToHex(crypto.getRandomValues(new Uint8Array(32))), records: snapshot.records }
+            await this.#write(db, snapshot, custody, key, check, signal)
+            check()
+            return custody
           })
-        }
-        return drain(0)
+          if (frozen.phase === 'ready') return { state: 'ready' }
+          const digest = mlsGrantCustodyDigest(frozen)
+          const keys = frozen.records.map(record => `kithmoot.vmls-grant.${record.node}.${record.device}`)
+          const drain = async (at: number): Promise<MlsGrantPreparation> => {
+            check()
+            if (at < keys.length) return navigator.locks.request(keys[at], () => drain(at + 1))
+            const upgraded = await this.#upgrade(check, () => resolve({ state: 'blocked' }))
+            check()
+            if (!upgraded) return { state: 'blocked' }
+            return navigator.locks.request(dbName, async () => {
+              check()
+              const snapshot = await this.#read(upgraded)
+              check()
+              if (!snapshot.custody || snapshot.custody.phase !== 'fenced' || !snapshot.key ||
+                  mlsGrantCustodyDigest(snapshot.custody) !== digest || upgraded.version !== 2) throw invalid()
+              await this.#write(upgraded, snapshot, { ...snapshot.custody, phase: 'ready' }, snapshot.key, check, signal)
+              check()
+              return { state: 'ready' }
+            })
+          }
+          return drain(0)
+        }).then(resolve, reject)
       })
     } catch { return { state: live() ? 'refused' : 'interrupted' } }
   }
@@ -173,38 +173,42 @@ export class BrowserMlsGrantCustody {
     void work.finally(() => { if (this.#opening === work) this.#opening = undefined }).catch(() => {})
     return work
   }
-  #upgrade(check: () => void): Promise<IDBDatabase | undefined> {
+  #upgrade(check: () => void, blocked: () => void): Promise<IDBDatabase | undefined> {
     check()
     this.#db?.close(); this.#db = undefined; this.#revision++
-    this.#upgradePending = true
     return new Promise((resolve, reject) => {
       let abandoned = false
       const open = indexedDB.open(dbName, 2)
-      open.onblocked = () => { abandoned = true; resolve(undefined) }
+      // Report promptly, but retain the shared migration and drained writer
+      // locks until this native request actually terminates. Other owners
+      // cannot enqueue another upgrade while the abandoned request is pending.
+      open.onblocked = () => { abandoned = true; blocked() }
       open.onupgradeneeded = () => {
         try { if (abandoned) throw notReady(); check() } catch { abandoned = true; open.transaction!.abort() }
       }
       open.onsuccess = () => {
-        this.#upgradePending = false
-        try { if (abandoned) { open.result.close(); return }; check(); resolve(this.#adopt(open.result)) }
+        try { if (abandoned) { open.result.close(); resolve(undefined); return }; check(); resolve(this.#adopt(open.result)) }
         catch (error) { open.result.close(); reject(error) }
       }
-      open.onerror = () => { this.#upgradePending = false; if (!abandoned) reject(open.error); else resolve(undefined) }
+      open.onerror = () => { if (!abandoned) reject(open.error); else resolve(undefined) }
     })
   }
   async #read(db: IDBDatabase): Promise<Snapshot> {
     const revision = this.#revision
     const transaction = db.transaction(['keys','records'], 'readonly'), done = completed(transaction)
-    const [keyRecord, raw] = await Promise.all([request(transaction.objectStore('keys').get('device')), request(transaction.objectStore('records').get('active'))])
+    void done.catch(() => {})
+    const [keyRecord, keySlot, raw] = await Promise.all([request(transaction.objectStore('keys').get('device')),
+      request(transaction.objectStore('keys').getKey('device')), request(transaction.objectStore('records').get('active'))])
     await done
     if (db !== this.#db || revision !== this.#revision) throw notReady()
     const key = keyRecord?.key as CryptoKey | undefined
-    if (keyRecord && (!object(keyRecord) || !exact(keyRecord, 'key') || !(key instanceof CryptoKey) || key.extractable ||
+    const keyPresent = keySlot !== undefined
+    if (keyPresent && (!object(keyRecord) || !exact(keyRecord, 'key') || !(key instanceof CryptoKey) || key.extractable ||
         key.algorithm.name !== 'AES-GCM' || (key.algorithm as AesKeyAlgorithm).length !== 256 ||
         [...key.usages].sort().join(',') !== 'decrypt,encrypt')) throw invalid()
     if (!raw) {
       if (db.version !== 1) throw invalid()
-      return { key, records: [] }
+      return { keyPresent, key, records: [] }
     }
     if (!object(raw) || !exact(raw, 'ciphertext,key,nonce,version') || raw.key !== 'active' || raw.version !== 1 && raw.version !== 2 ||
         !(raw.nonce instanceof ArrayBuffer) || raw.nonce.byteLength !== 12 || !(raw.ciphertext instanceof ArrayBuffer) ||
@@ -216,7 +220,7 @@ export class BrowserMlsGrantCustody {
       const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
       const custody = encrypted.version === 2 ? mlsGrantCustody(value) : undefined
       if (custody?.phase === 'ready' && db.version !== 2 || db !== this.#db || revision !== this.#revision) throw invalid()
-      return { key, encrypted, custody, records: custody?.records ?? mlsGrantCustodyRecords(value) }
+      return { keyPresent, key, encrypted, custody, records: custody?.records ?? mlsGrantCustodyRecords(value) }
     } finally { bytes.fill(0) }
   }
   async #write(db: IDBDatabase, snapshot: Snapshot, custody: MlsGrantCustody, key: CryptoKey, check: () => void, signal?: AbortSignal): Promise<void> {
@@ -234,10 +238,12 @@ export class BrowserMlsGrantCustody {
     const abort = () => { try { transaction.abort() } catch { /* A committed transaction cannot be rolled back. */ } }
     signal?.addEventListener('abort', abort, { once: true })
     try {
-      const [savedKey, saved] = await Promise.all([request(transaction.objectStore('keys').get('device')), request(transaction.objectStore('records').get('active'))])
+      const [savedKey, savedKeySlot, saved] = await Promise.all([request(transaction.objectStore('keys').get('device')),
+        request(transaction.objectStore('keys').getKey('device')), request(transaction.objectStore('records').get('active'))])
       check()
-      if (!same(snapshot.encrypted, saved) || !!snapshot.key !== !!savedKey?.key || db !== this.#db || revision !== this.#revision) throw invalid()
-      if (!snapshot.key) transaction.objectStore('keys').put({ key }, 'device')
+      if (!same(snapshot.encrypted, saved) || snapshot.keyPresent !== (savedKeySlot !== undefined) ||
+          !!snapshot.key !== !!savedKey?.key || db !== this.#db || revision !== this.#revision) throw invalid()
+      if (!snapshot.keyPresent) transaction.objectStore('keys').put({ key }, 'device')
       transaction.objectStore('records').put(encrypted)
       await done
     } catch (error) {

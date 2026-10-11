@@ -92,6 +92,46 @@ export async function inspect() {
 export async function emptyKey() {
   await legacyStorage.saveKey(await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt','decrypt']))
 }
+export async function malformedKey(mode: 'null' | 'false' | 'zero' | 'empty' | 'undefined') {
+  await legacyStorage.key(); closeLegacy()
+  const db = await latest()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('keys', 'readwrite')
+      transaction.oncomplete = () => resolve(); transaction.onabort = () => reject(transaction.error)
+      transaction.objectStore('keys').put({ null: null, false: false, zero: 0, empty: '', undefined: undefined }[mode], 'device')
+    })
+  } finally { db.close() }
+}
+export async function keySlot() {
+  const db = await latest()
+  try {
+    const transaction = db.transaction(['keys','records'], 'readonly')
+    const read = <T>(operation: IDBRequest<T>) => new Promise<T>((resolve, reject) => {
+      operation.onsuccess = () => resolve(operation.result); operation.onerror = () => reject(operation.error)
+    })
+    const [slot, value, record] = await Promise.all([read(transaction.objectStore('keys').getKey('device')),
+      read(transaction.objectStore('keys').get('device')), read(transaction.objectStore('records').getKey('active'))])
+    return { database: db.version, present: slot !== undefined, value: value === undefined ? 'undefined' : value, record: record !== undefined }
+  } finally { db.close() }
+}
+export function changeKeyBeforeFence() {
+  const original = crypto.subtle.encrypt.bind(crypto.subtle)
+  crypto.subtle.encrypt = async (...args: Parameters<SubtleCrypto['encrypt']>) => {
+    crypto.subtle.encrypt = original
+    await malformedKey('null')
+    return original(...args)
+  }
+}
+let upgradeRequests = 0
+export function observeUpgrades() {
+  const original = IDBFactory.prototype.open
+  IDBFactory.prototype.open = function(name: string, version?: number) {
+    if (name === dbName && version === 2) upgradeRequests++
+    return version === undefined ? original.call(this, name) : original.call(this, name, version)
+  }
+}
+export function upgrades() { return upgradeRequests }
 export async function capacity() {
   const records = await Promise.all(Array.from({ length: 256 }, (_, index) => record(index + 1)))
   for (const item of records) item.rooms = Array.from({ length: 32 }, (_, index) => ({ session: (index + 1).toString(16).padStart(64, '0'), leaf: item.device, name: 'x' }))

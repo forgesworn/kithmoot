@@ -24,6 +24,9 @@ of object insertion order. The digest never replaces retained authority.
 An absent record is empty legacy custody. Reuse its existing non-extractable
 AES-GCM key, or generate the first key only when both record and key are absent.
 Initial key and fenced ciphertext are saved atomically across both stores.
+Key-slot existence is read independently of its value, including a stored
+undefined value. Any present malformed key refuses; the write transaction
+compares slot existence again before generating custody in an empty store.
 Existing ciphertext with missing/changed/invalid key refuses without repair.
 Version-1 data restored into an upgraded database and unknown schemas refuse;
 keys, ciphertext and signed withdrawal material are never deleted to recover.
@@ -51,8 +54,11 @@ While retaining those locks, preparation closes its own connection and requests
 database version 2. An idle old connection may block that upgrade. A blocked
 attempt returns blocked, remains fenced, and aborts any late upgrade transaction;
 it never converts a late success into readiness. A subsequent current attempt
-may resume after the abandoned request actually terminates. New connections
-close and invalidate on version change. Fresh legacy version-1 opens refuse
+may resume after the abandoned request actually terminates.
+The native migration and drained writer locks remain held after reporting
+blocked until that request terminates, so another owner cannot enqueue an
+additional upgrade. The store lock remains released during this wait.
+New connections close and invalidate on version change. Fresh legacy version-1 opens refuse
 after a completed upgrade.
 
 After the actual upgrade, preparation reacquires the store lock, decrypts the
@@ -72,11 +78,13 @@ lock order with simulated carrier settlement. It is not a complete historical
 app, separate-process or live Bothy acceptance test.
 
 Coverage includes empty/no-key and empty/existing-key storage, initial-key and
-record quota rollback, all four retained states, exactly 256 records/2 MiB,
+record quota rollback, malformed falsy/undefined key slots and a key-slot
+insertion race, all four retained states, exactly 256 records/2 MiB,
 fence-before-drain, an unseen-node writer, idle legacy connection blocking,
 abandoned upgrades, foreground abort during the ready transaction, changed
 fence evidence, missing/changed keys, restored legacy data, missing records,
-concurrent owners and cached-connection invalidation. Unit checks cover hostile
+concurrent owners during normal and blocked upgrades, and cached-connection
+invalidation. Unit checks cover hostile
 coercions, canonical binding, duplicate/excessive authority and changed genuine
 signed statements.
 

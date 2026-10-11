@@ -44,6 +44,37 @@ test('a saved legacy key with no record is reused through migration', async ({ c
   expect(await page.evaluate('G.prepare()')).toEqual({ state: 'ready' })
   expect(await page.evaluate('G.inspect()')).toMatchObject({ database: 2, extractable: false, value: { records: [] } })
 })
+for (const mode of ['null','false','zero','empty','undefined'] as const) test(`present malformed ${mode} key custody is refused without replacement`, async ({ context }) => {
+  const page = await fixture(context)
+  await page.evaluate(mode => (window as any).G.malformedKey(mode), mode)
+  const before = await page.evaluate('G.keySlot()')
+  expect(before).toMatchObject({ database: 1, present: true, record: false })
+  expect(await page.evaluate('G.prepare()')).toEqual({ state: 'refused' })
+  await expect(page.evaluate('G.all()')).rejects.toThrow()
+  await expect(page.evaluate('G.put()')).rejects.toThrow()
+  expect(await page.evaluate('G.keySlot()')).toEqual(before)
+})
+test('a malformed key slot inserted after the custody read cannot be overwritten by the atomic fence write', async ({ context }) => {
+  const page = await fixture(context)
+  await page.evaluate('G.changeKeyBeforeFence()')
+  expect(await page.evaluate('G.prepare()')).toEqual({ state: 'refused' })
+  expect(await page.evaluate('G.keySlot()')).toEqual({ database: 1, present: true, value: null, record: false })
+})
+test('a blocked upgrade retains shared ownership until termination before another owner may retry', async ({ context }) => {
+  const page = await fixture(context)
+  await page.evaluate('G.seed()'); await page.evaluate('G.observeUpgrades()')
+  expect(await page.evaluate('G.prepare()')).toEqual({ state: 'blocked' })
+  await page.evaluate('void(window.second = G.secondPrepare())')
+  await expect.poll(async () => (await page.evaluate('navigator.locks.query()') as any).pending
+    .some((lock: any) => lock.name === 'kithmoot-vmls-grants-v1:migration-v2')).toBe(true)
+  expect(await page.evaluate('G.upgrades()')).toBe(1)
+  expect((await page.evaluate('navigator.locks.query()') as any).held
+    .some((lock: any) => lock.name === 'kithmoot-vmls-grants-v1:migration-v2')).toBe(true)
+  await page.evaluate('G.closeLegacy()')
+  expect(await page.evaluate('window.second')).toEqual({ state: 'ready' })
+  expect(await page.evaluate('G.upgrades()')).toBe(2)
+  expect(await page.evaluate('G.inspect()')).toMatchObject({ database: 2, value: { phase: 'ready' } })
+})
 test('migration releases the store lock then drains a persisted legacy publisher through actual local settlement', async ({ context }) => {
   const page = await fixture(context), device = await page.evaluate('G.startWriter()')
   await expect.poll(async () => (await page.evaluate('G.progress()') as any).version).toBe(1)
