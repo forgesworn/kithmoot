@@ -24,6 +24,7 @@ import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
+import { verifyLiveRecordingState, type LiveRecordingState } from './live-recording.js'
 import { ChatLog, MAX_PAST_EPOCHS } from './chat.js'
 import type { EpochRoot, PastEpoch } from './chat.js'
 import type { EventArchive } from './archive.js'
@@ -56,6 +57,11 @@ import type {
   RosterEntry,
   SingularRole,
   TrackAdvert, CallMembership } from './types.js'
+
+export interface ReceivedLiveRecording {
+  state: LiveRecordingState
+  sentAt: number
+}
 
 /** One person, however many devices they brought. */
 export interface ParticipantView {
@@ -647,6 +653,7 @@ export class RoomSession {
   readonly #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
+  #liveRecording?: ReceivedLiveRecording
   /**
    * Remote-track subscribers, held HERE rather than on the mesh.
    *
@@ -2774,6 +2781,20 @@ export class RoomSession {
     // of them would not terminate.
     if (!existing && !entry.reply && entry.device !== this.device) this.#scheduleReply()
 
+    const live = entry.recordingProfile === 3 ? entry.liveRecording : undefined
+    if (live && this.#opts.authority && verifyLiveRecordingState(this.roomId, live, this.#opts.authority)) {
+      const before = this.#liveRecording
+      const recording = live.recording, previous = before?.state.recording
+      const capture = live.capture, previousCapture = before?.state.capture
+      const same = previous?.on === recording.on && previous.id === recording.id &&
+        previousCapture?.capture === capture?.capture && previousCapture?.recorder === capture?.recorder &&
+        previousCapture?.device === capture?.device
+      if (!before || recording.version > before.state.recording.version ||
+          (recording.version === before.state.recording.version && same)) {
+        this.#liveRecording = { state: live, sentAt: before && recording.version === before.state.recording.version
+          ? Math.max(before.sentAt, entry.updatedAt) : entry.updatedAt }
+      }
+    }
     this.#notify()
   }
 
@@ -2947,6 +2968,11 @@ export class RoomSession {
     }
 
     return [...byParticipant.values()]
+  }
+
+  /** Latest complete authority-signed warning; callers cannot mutate the cached state. */
+  get liveRecording(): ReceivedLiveRecording | undefined {
+    return this.#liveRecording ? structuredClone(this.#liveRecording) : undefined
   }
 
   onChange(cb: (views: ParticipantView[]) => void): () => void {

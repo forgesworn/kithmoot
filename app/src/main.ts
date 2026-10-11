@@ -7915,6 +7915,22 @@ function ingestRecordingCapture(control: Extract<ControlMessage, { op: 'recordin
   renderRecording()
 }
 
+/** The roster has verified both authority signatures before exposing this pair. */
+function ingestLiveRecording(s: RoomSession): void {
+  const received = s.liveRecording
+  if (!received) return
+  const { recording, capture } = received.state
+  const before = recordings.get(s.roomId), previousCapture = recordingCaptures.get(s.roomId)
+  if (before && (before.version > recording.version ||
+      (before.version === recording.version && (before.on !== recording.on || before.id !== recording.id)))) return
+  if (capture && previousCapture?.version === capture.version &&
+      (previousCapture.id !== capture.id || previousCapture.capture !== capture.capture ||
+       previousCapture.recorder !== capture.recorder || previousCapture.device !== capture.device)) return
+  if (capture) recordingCaptures.set(s.roomId, capture)
+  else if (!previousCapture || previousCapture.version <= recording.version) recordingCaptures.delete(s.roomId)
+  adoptRecording(s, recording, received.sentAt)
+}
+
 function currentRecordingCapture(s = session): RecordingCaptureNotice | undefined {
   if (!s) return undefined
   const notice = recordings.get(s.roomId), capture = recordingCaptures.get(s.roomId)
@@ -7935,6 +7951,7 @@ function adoptRecording(s: RoomSession, notice: SignedRecording, sentAt: number)
   const before = recordings.get(s.roomId)
   if (before && before.version > notice.version) return
   if (before && before.version === notice.version) {
+    if (before.on !== notice.on || before.id !== notice.id) return
     before.heardAt = Math.max(before.heardAt, sentAt)
     renderRecording()
     return
@@ -12073,6 +12090,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     s.onChange((views) => {
       const isDocked = dockedCall?.session === s
       if (session !== s && !isDocked) return
+      ingestLiveRecording(s)
       if (s === mediaSession()) {
         const byDevice = new Map<string, string[]>()
         for (const view of views) for (const t of view.tracks) byDevice.set(t.device, [...(byDevice.get(t.device) ?? []), t.role])

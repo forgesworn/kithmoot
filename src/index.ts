@@ -169,6 +169,7 @@ export {
 } from './session.js'
 export { withExpiration, isRoomEnds, requireRoomEnds, MAX_ROOM_ENDS_SECONDS } from './expiration.js'
 export type {
+  ReceivedLiveRecording,
   ParticipantView,
   CallView,
   PublishOptions,
