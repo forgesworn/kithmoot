@@ -29,6 +29,8 @@ test('the app exposes witness preparation only in development preview and retain
   await expect(page.locator('#homeSignIn')).toBeHidden()
   await page.locator('#openAppSettings').click(); await page.locator('#appConnections > summary').click()
   if (production) {
+    await expect(page.locator('#mlsRoomDevelopmentOpen')).toHaveCount(0)
+    await expect(page.locator('#mlsRoomDevelopment')).toHaveCount(0)
     await expect(page.locator('#mlsGrantDevelopmentOpen')).toHaveCount(0)
     await expect(page.locator('#mlsGrantDevelopment')).toHaveCount(0)
     await expect(page.locator('#mlsWitnessSettingsOpen')).toBeHidden()
@@ -37,6 +39,15 @@ test('the app exposes witness preparation only in development preview and retain
     expect(pageErrors).toEqual([])
     return
   }
+  const initialDatabases = await page.evaluate(() => indexedDB.databases())
+  await page.locator('#mlsRoomDevelopmentOpen').click()
+  await expect(page.locator('#mlsRoomDevelopment')).toBeVisible()
+  await expect(page.locator('#mlsRoomDevelopment [data-account]')).toHaveText(pubkey)
+  await expect(page.locator('#mlsRoomDevelopment')).toContainText('Room creation, authenticated invitation joining and message delivery are still held.')
+  expect(await page.evaluate(() => indexedDB.databases())).toEqual(initialDatabases)
+  expect(mlsRequests).toEqual([])
+  await page.locator('#mlsRoomDevelopment [data-close]').click()
+  await page.locator('#openAppSettings').click()
   await page.locator('#mlsGrantDevelopmentOpen').click()
   await expect(page.locator('#mlsGrantDevelopment')).toBeVisible()
   await expect(page.locator('#mlsGrantDevelopment [data-account]')).toHaveText(`${pubkey.slice(0, 12)}…`)
@@ -63,9 +74,23 @@ test('the app exposes witness preparation only in development preview and retain
   await expect(page.locator('#mlsGrantDevelopment')).not.toBeVisible()
   await expect(page.locator('#mlsGrantDevelopment [data-account]')).toHaveText('')
   await expect(page.locator('#mlsGrantDevelopment [data-status]')).toHaveText('')
+  await expect(page.locator('#mlsRoomDevelopment [data-account]')).toHaveText('')
+  await expect(page.locator('#mlsRoomDevelopment [data-status]')).toHaveText('')
   await expect(page.locator('#headerSignIn')).toBeVisible()
   await expect(page.locator('#status')).toContainText('Signed out.')
   expect(await page.locator('#mlsWitnessAccount').textContent()).toBe('')
+  await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
+  await expect(page.locator('#homeSignIn')).toBeHidden()
+  await page.locator('#openAppSettings').click(); await page.locator('#appConnections > summary').click(); await page.locator('#mlsRoomDevelopmentOpen').click()
+  await page.locator('#mlsRoomDevelopment [data-code]').fill('unsent-private-code')
+  await page.locator('#mlsRoomDevelopment [data-relays]').fill('wss://fixture.invalid/link')
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>('#signOut')!.click())
+  await expect(page.locator('#mlsRoomDevelopment')).not.toBeVisible()
+  await expect(page.locator('#mlsRoomDevelopment [data-account]')).toHaveText('')
+  await expect(page.locator('#mlsRoomDevelopment [data-status]')).toHaveText('')
+  await expect(page.locator('#mlsRoomDevelopment [data-code]')).toHaveValue('')
+  await expect(page.locator('#mlsRoomDevelopment [data-relays]')).toHaveValue('')
+  expect((await page.evaluate(() => indexedDB.databases())).some(db => db.name?.startsWith('kithmoot-vmls-room-link-v1'))).toBe(false)
   await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()
   await page.locator('#openAppSettings').click(); await page.locator('#appConnections > summary').click(); await page.locator('#mlsWitnessSettingsOpen').click()
@@ -78,4 +103,27 @@ test('the app exposes witness preparation only in development preview and retain
   await expect(page.locator('#signOut')).toBeHidden()
   expect(pageErrors).toEqual([])
   expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.') || k.startsWith('signet:login.')))).toEqual([])
+})
+
+test('production and preview both refuse forgetting retained room custody', async ({ context, page, baseURL }) => {
+  await context.addInitScript(() => {
+    const Native = window.WebSocket
+    window.WebSocket = class extends Native {
+      constructor(_url: string | URL, protocols?: string | string[]) { super(`wss://${location.host}/__test-relay`, protocols) }
+    }
+  })
+  await context.route('**/*', route => new URL(route.request().url()).origin === new URL(baseURL!).origin ? route.continue() : route.abort())
+  await page.goto(baseURL!)
+  await page.evaluate(async () => {
+    const open = indexedDB.open('kithmoot-vmls-room-link-v1:names', 1)
+    open.onupgradeneeded = () => open.result.createObjectStore('keys')
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error) })
+    // Even interrupted naming creation, without a well-formed key, is held.
+    db.close()
+  })
+  await page.locator('#openAppSettings').click()
+  await page.locator('#forgetBrowser').click()
+  await expect(page.locator('#status')).toContainText('Retained MLS room connection data prevents forgetting this browser')
+  await expect(page.locator('#actionDialog')).toHaveCount(0)
+  expect((await page.evaluate(() => indexedDB.databases())).some(db => db.name === 'kithmoot-vmls-room-link-v1:names')).toBe(true)
 })
