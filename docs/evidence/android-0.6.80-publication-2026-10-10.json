@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-10",
+  "state": "verified-apk-and-signed-feed-awaiting-website-and-zapstore-publication",
+  "version": "0.6.80",
+  "versionCode": 103,
+  "mergedNativeSource": "2f09b118de0081723e6c6e009a3466f4ae0a9322",
+  "nativePullRequest": "https://github.com/forgesworn/kithmoot-android/pull/240",
+  "nativeCI": {
+    "run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38086343050",
+    "passedChecks": 4
+  },
+  "githubRelease": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.80",
+  "apk": {
+    "bytes": 79411870,
+    "sha256": "09a5e5de88aa670a3f64318a1e11ed12b05c39c7b9d80897b07d7faea7944c10",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "v3Only": true,
+    "reviewedLineageVerified": true,
+    "freshGitHubDownloadVerified": true
+  },
+  "ownerMirrors": [
+    {
+      "url": "https://kithmoot.app/apk/09a5e5de88aa670a3f64318a1e11ed12b05c39c7b9d80897b07d7faea7944c10",
+      "headStatus": 200,
+      "getStatus": 200,
+      "bytes": 79411870,
+      "sha256": "09a5e5de88aa670a3f64318a1e11ed12b05c39c7b9d80897b07d7faea7944c10",
+      "finalUrl": "https://kithmoot.app/apk/09a5e5de88aa670a3f64318a1e11ed12b05c39c7b9d80897b07d7faea7944c10"
+    },
+    {
+      "url": "https://kithmoot.app/apk/kithmoot-0.6.80-production.apk",
+      "headStatus": 200,
+      "getStatus": 200,
+      "bytes": 79411870,
+      "sha256": "09a5e5de88aa670a3f64318a1e11ed12b05c39c7b9d80897b07d7faea7944c10",
+      "finalUrl": "https://kithmoot.app/apk/kithmoot-0.6.80-production.apk"
+    }
+  ],
+  "updateFeed": {
+    "originalReleaseKeySignatureVerified": true,
+    "desktopVersionUnchanged": "0.1.72"
+  },
+  "qualifiedBeforeSigning": {
+    "protocolTests": 417,
+    "debugUnitTests": 1939,
+    "releaseUnitTests": 1939,
+    "emulatorEntryTests": 12,
+    "physicalAcceptance": false
+  },
+  "includes": [
+    "Authenticated account proof in admission requests",
+    "Signed declines with immutable decision retry",
+    "Single-draft send guard and chat activity fixes retained"
+  ],
+  "excludes": [
+    "The new explicit native guest preview remains separate work",
+    "Native Android call recording/export remains open"
+  ],
+  "websitePublished": false,
+  "zapstorePublished": false,
+  "physicalInstallationVerified": false,
+  "websiteQualification": {
+    "typecheck": "passed",
+    "unitTests": 3844,
+    "unitFiles": 272,
+    "productionBuild": "passed",
+    "noTelemetryCheck": "passed",
+    "signedAndroidAndDesktopFeeds": "verified"
+  }
+}
