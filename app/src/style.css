@@ -509,9 +509,9 @@ details#appConnections button { display: block; }
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.05rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
   margin: 0;
   padding: 0.25rem 0.4rem;
   background: transparent;
@@ -543,7 +543,7 @@ details#appConnections button { display: block; }
 .privateLogo { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; width: 2.25rem; height: 2.25rem; border-radius: .65rem; background: var(--control); color: var(--text); font-weight: 650; }
 .privateLogo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 #callSurfaceLogo { width: 1.5rem; height: 1.5rem; border-radius: .4rem; font-size: .85rem; }
-.roomIdentity > .privateLogo { float: left; margin-right: .6rem; }
+.roomIdentityText { display: flex; flex-direction: column; align-items: flex-start; gap: .05rem; min-width: 0; flex: 1 1 auto; }
 .roomLogoControls { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
 .roomLogoControls .note { flex-basis: 100%; margin: 0; }
 .arrivalRoomBrand { display: flex; align-items: center; gap: .65rem; margin-top: 1rem; min-width: 0; }

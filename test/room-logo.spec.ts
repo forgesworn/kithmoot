@@ -103,6 +103,13 @@ for (const scheme of ['light', 'dark'] as const) test(`an unusable signed room l
     await expect(page.locator('#roomLogo img')).toHaveCount(0)
     await expect(page.locator('#roomLogo')).toHaveText('W')
     await expect(page.locator('#roomTitle')).toHaveText('Workshop')
+    // The image sits beside the text: stacking it above the name consumes
+    // chat space and clips call controls in shorter windows.
+    const logoBox = await page.locator('#roomLogo').boundingBox()
+    const textBox = await page.locator('.roomIdentityText').boundingBox()
+    expect(logoBox).not.toBeNull(); expect(textBox).not.toBeNull()
+    expect(logoBox!.x + logoBox!.width).toBeLessThanOrEqual(textBox!.x)
+    expect(Math.abs(logoBox!.y + logoBox!.height / 2 - textBox!.y - textBox!.height / 2)).toBeLessThan(2)
     await page.locator('#backToRooms:visible, #workspaceSwitch:visible').first().click()
     await page.locator('#roomSwitcherHome').click()
     const row = page.locator(`#roomList .roomRow[data-room="${keeper.roomId}"]`)
