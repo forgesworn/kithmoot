@@ -2286,8 +2286,11 @@ export class RoomSession {
     const generation = this.#recordingPublicationGeneration
     const lifetimeAllowed = () => {
       try {
-        return !this.#left && !this.#closed && this.#epoch.id === epoch &&
-          this.#recordingPublicationGeneration === generation && stillAllowed() && this.#liveRecordingStillCurrent(state) &&
+        const now = this.#now()
+        return !this.#left && !this.#closed && !this.#ended() && !this.#opts.admissionSignal?.aborted &&
+          !!this.#self && verifyDeviceCredential(this.#self.credential, { roomId: this.roomId, now }).ok &&
+          (!this.#opts.policy || evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, now, this.roomId).admitted) &&
+          this.#epoch.id === epoch && this.#recordingPublicationGeneration === generation && stillAllowed() && this.#liveRecordingStillCurrent(state) &&
           (!state.recording.on || (!!call && this.#self?.call?.id === call.id && this.liveRecordingCompatible(call.id)))
       } catch { return false }
     }
@@ -2356,8 +2359,11 @@ export class RoomSession {
     })
     if (allowed) {
       if (!this.#opts.transport.publishGuarded) throw new Error('This connection cannot confirm a recording warning safely.')
-      await this.#opts.transport.publishGuarded(event, allowed)
-      if (!allowed()) throw new Error('The original call changed before the warning was confirmed.')
+      const publicationAllowed = () => allowed() &&
+        verifyDeviceCredential(entry.credential, { roomId: this.roomId, now: this.#now() }).ok
+      if (!publicationAllowed()) throw new Error('The recording device needs a current room credential.')
+      await this.#opts.transport.publishGuarded(event, publicationAllowed)
+      if (!publicationAllowed()) throw new Error('The original call changed before the warning was confirmed.')
       this.#ingest(event)
     } else await this.#opts.transport.publish(event)
   }

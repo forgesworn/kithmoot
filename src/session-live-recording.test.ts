@@ -1,7 +1,9 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { generateSecretKey, type Event } from 'nostr-tools/pure'
-import { RoomSession } from './session.js'
+import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
+import { RoomSession, type RoomSessionBaseOptions } from './session.js'
 import { localIdentity } from './identity.js'
+import { deriveRoom } from './room.js'
+import { issueKindredProof } from './access.js'
 import { signRecordingNotice, signRecordingCaptureNotice } from './meeting.js'
 import { type LiveRecordingState } from './live-recording.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
@@ -22,10 +24,12 @@ class ConfirmedTransport extends SimTransport {
     if (!allowed()) throw new Error('cancelled')
   }
 }
-function client(relay: SimRelay, profile?: 2 | 4, now: () => number = () => NOW) {
-  const deviceSk = generateSecretKey(), transport = new ConfirmedTransport(relay)
-  const s = new RoomSession({ transport, secret, identity: localIdentity(generateSecretKey()), deviceSk,
-    recordingProfile: profile, now, announceJitterMs: 0 })
+function client(relay: SimRelay, profile?: 2 | 4, now: () => number = () => NOW,
+  options: Pick<RoomSessionBaseOptions, 'endsAt' | 'admissionSignal'> = {},
+  access?: (participant: string) => Pick<RoomSessionBaseOptions, 'policy' | 'proof'>) {
+  const deviceSk = generateSecretKey(), transport = new ConfirmedTransport(relay), identity = localIdentity(generateSecretKey())
+  const s = new RoomSession({ transport, secret, identity, deviceSk,
+    recordingProfile: profile, now, announceJitterMs: 0, ...options, ...access?.(identity.pubkey) })
   opened.push(s)
   const warning = (on = true, version = NOW * 1000, id = '23'.repeat(16)): LiveRecordingState => {
     const notice = { on, version, id }, capture = { id, version, capture: 'audio' as const, recorder: s.participant, device: s.device }
@@ -177,4 +181,57 @@ test('a new recorder retires stale ownership before its warning ACK', async () =
   a.transport.beforeAck = async () => { await a.s.announce() }
   await a.s.publishLiveRecording(a.warning(true, NOW * 1000 + 2, '45'.repeat(16)))
   expect(a.s.liveRecordings()[0]?.state.recording.id).toBe('45'.repeat(16))
+})
+
+
+test('an expired recording credential cannot authorise a new On', async () => {
+  let at = NOW
+  const a = client(new SimRelay(), 4, () => at)
+  await join(a)
+  const expiry = Number(a.s.credential!.tags.find(tag => tag[0] === 'expiration')![1])
+  at = expiry + 1
+  await expect(a.s.publishLiveRecording(a.warning())).rejects.toThrow()
+  expect(a.s.liveRecordings()).toHaveLength(0)
+})
+
+test('credential expiry during acknowledgement refuses capture and retires refresh', async () => {
+  let at = NOW
+  const a = client(new SimRelay(), 4, () => at)
+  await join(a)
+  const expiry = Number(a.s.credential!.tags.find(tag => tag[0] === 'expiration')![1])
+  a.transport.beforeAck = async () => { at = expiry + 1 }
+  await expect(a.s.publishLiveRecording(a.warning())).rejects.toThrow('cancelled')
+  a.transport.beforeAck = undefined
+  await a.s.announce()
+  expect(a.s.liveRecordings()[0]?.sentAt).toBe(NOW)
+})
+
+
+test('the room ending during warning acknowledgement refuses capture', async () => {
+  let at = NOW
+  const a = client(new SimRelay(), 4, () => at, { endsAt: NOW + 60 })
+  await join(a)
+  a.transport.beforeAck = async () => { at = NOW + 60 }
+  await expect(a.s.publishLiveRecording(a.warning())).rejects.toThrow('cancelled')
+})
+
+test('revoked admission during warning acknowledgement refuses capture', async () => {
+  const admission = new AbortController()
+  const a = client(new SimRelay(), 4, () => NOW, { admissionSignal: admission.signal })
+  await join(a)
+  a.transport.beforeAck = async () => { admission.abort() }
+  await expect(a.s.publishLiveRecording(a.warning())).rejects.toThrow('cancelled')
+})
+
+
+test('an access proof expiring during warning acknowledgement refuses capture', async () => {
+  let at = NOW
+  const hostSk = generateSecretKey()
+  const a = client(new SimRelay(), 4, () => at, {}, participant => ({
+    policy: { tier: 'kith', admitted: [getPublicKey(hostSk)] },
+    proof: issueKindredProof({ hostSk, participant, tier: 'kith', roomId: deriveRoom(secret).roomId, expiresAt: NOW + 60 }),
+  }))
+  await join(a)
+  a.transport.beforeAck = async () => { at = NOW + 61 }
+  await expect(a.s.publishLiveRecording(a.warning())).rejects.toThrow('cancelled')
 })
