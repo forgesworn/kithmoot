@@ -392,7 +392,14 @@ const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.
 /** This browser's copy of every room it has been in: the original signed
  *  events, sealed under a device key. Undefined where the browser keeps no
  *  storage, and the rooms then read from relays alone. See room-archive.ts. */
-const roomArchive = (() => { try { return new RoomArchive(new BrowserRoomArchiveStorage()) } catch { return undefined } })()
+function archiveStorageUnavailable(): void {
+  $('archiveStorageNotice').hidden = false
+  $('roomMenu').setAttribute('aria-describedby', 'archiveStorageNotice')
+}
+const roomArchive = (() => {
+  try { return new RoomArchive(new BrowserRoomArchiveStorage(), globalThis.crypto, { onStorageFailure: archiveStorageUnavailable }) }
+  catch { archiveStorageUnavailable(); return undefined }
+})()
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))

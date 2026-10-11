@@ -415,8 +415,18 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
   }
 })
 
-test('switching rooms restores independent reading places after delayed history and honours Jump to latest', async ({ browser, baseURL }) => {
+for (const unavailableStorage of [false, true]) {
+test(`switching rooms restores independent reading places after delayed history and honours Jump to latest${unavailableStorage ? ' when archive storage fails' : ''}`, async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
+  if (unavailableStorage) await context.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+      if (this.transaction.db.name === 'kithmoot-room-archive-v1' && this.name === 'keys') {
+        throw new DOMException('Archive key storage refused', 'DataCloneError')
+      }
+      return put.call(this, value, key)
+    }
+  })
   // Reading-position restore, not the agent feature: an agent's unaddressed
   // message no longer counts as unread - see `classifyMessage` in
   // `src/messages.ts`.
@@ -499,8 +509,15 @@ test('switching rooms restores independent reading places after delayed history 
     await page.setViewportSize({ width: 390, height: 600 })
     await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
     await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+    if (unavailableStorage) {
+      await page.locator('#roomMenu').click()
+      await expect(page.locator('#archiveStorageNotice')).toBeVisible()
+      await expect(page.locator('#archiveStorageNotice')).toContainText('after closing it')
+      await page.locator('#roomSheetClose').click()
+    }
   } finally { first.leave(); second.leave(); await context.close() }
 })
+}
 
 test('keyboard section shortcuts preserve drafts, skip hidden areas and leave dialogs in control', async ({ browser, baseURL }, testInfo) => {
   const { context, page, rooms } = await setup(browser, baseURL!)

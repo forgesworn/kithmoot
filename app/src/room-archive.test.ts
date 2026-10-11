@@ -1,5 +1,5 @@
 import { webcrypto } from 'node:crypto'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
 import { RoomArchive, reseedRelays, resetReseedHistory, type ArchiveKeys, type ArchivedRecord, type ReseedPool, type RoomArchiveStorage } from './room-archive.js'
@@ -23,6 +23,100 @@ const chat = (text: string, at: number, d = ROOM, kind = 1460): Event =>
   finalizeEvent({ kind, created_at: at, tags: [['d', d]], content: `ciphertext:${text}` }, sk)
 
 describe('room archive at rest', () => {
+  it('keeps original encrypted events across room switches when opaque keys cannot be saved, and reports it once', async () => {
+    const storage = new MemoryStorage()
+    storage.adoptKeys = async () => { throw new DOMException('Cannot clone key', 'DataCloneError') }
+    const notice = vi.fn()
+    const archive = new RoomArchive(storage, crypt, { onStorageFailure: notice })
+    const event = chat('still here', 10)
+    archive.keep(event)
+    await archive.flushed()
+    archive.release({ kind: 1460, d: ROOM })
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([JSON.parse(JSON.stringify(event))])
+    expect(notice).toHaveBeenCalledTimes(1)
+    expect(storage.stored).toBeUndefined()
+    expect(storage.records.size).toBe(0)
+    // A session copy is not represented as durable history.
+    expect(await new RoomArchive(storage, crypt).read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([])
+  })
+
+  it('retries failed durable writes without treating the session copy as persisted', async () => {
+    const storage = new MemoryStorage()
+    const put = storage.put.bind(storage)
+    storage.put = async () => { throw new Error('Full device') }
+    const archive = new RoomArchive(storage, crypt)
+    const event = chat('retry', 10)
+    archive.keep(event)
+    await archive.flushed()
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(1)
+    expect(storage.records.size).toBe(0)
+    storage.put = put
+    archive.keep(event)
+    await archive.flushed()
+    expect(await new RoomArchive(storage, crypt).read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([JSON.parse(JSON.stringify(event))])
+  })
+
+  it('bounds session events by recency and streams by last use when storage is unavailable', async () => {
+    const storage = new MemoryStorage()
+    storage.keys = async () => { throw new Error('Storage blocked') }
+    const archive = new RoomArchive(storage, crypt, { sessionEvents: 2, sessionStreams: 2 })
+    archive.keep(chat('new', 3)); archive.keep(chat('middle', 2)); archive.keep(chat('old', 1))
+    archive.keep(chat('elsewhere', 4, OTHER))
+    expect((await archive.read({ kind: 1460, d: ROOM, limit: 10 })).map(e => e.created_at)).toEqual([3, 2])
+    const third = 'ef'.repeat(32)
+    archive.keep(chat('third', 5, third))
+    expect(await archive.read({ kind: 1460, d: OTHER, limit: 10 })).toEqual([])
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(2)
+    expect(await archive.read({ kind: 1460, d: third, limit: 10 })).toHaveLength(1)
+  })
+
+  it('bounds session bytes across streams and does not retain an oversized event', async () => {
+    const storage = new MemoryStorage()
+    storage.keys = async () => { throw new Error('Storage blocked') }
+    const event = chat('fits', 1)
+    const bytes = new TextEncoder().encode(JSON.stringify({ event })).byteLength
+    const archive = new RoomArchive(storage, crypt, { sessionBytes: bytes + 1 })
+    archive.keep(event)
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(1)
+    archive.keep(chat('fits', 2, OTHER))
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([])
+    expect(await archive.read({ kind: 1460, d: OTHER, limit: 10 })).toHaveLength(1)
+    archive.keep(chat('x'.repeat(bytes), 3))
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([])
+    expect(await archive.read({ kind: 1460, d: OTHER, limit: 10 })).toHaveLength(1)
+  })
+
+  it('never reseeds a quiet session event, even after a non-quiet duplicate or release', async () => {
+    const storage = new MemoryStorage()
+    storage.keys = async () => { throw new Error('Storage blocked') }
+    const archive = new RoomArchive(storage, crypt)
+    const quiet = chat('quiet', 1)
+    archive.keep(quiet, { quiet: true }); archive.keep(quiet)
+    archive.keep(chat('ordinary', 2))
+    await archive.flushed()
+    archive.release({ kind: 1460, d: ROOM })
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(2)
+    expect((await archive.read({ kind: 1460, d: ROOM, limit: 10, reseedable: true })).map(e => e.created_at)).toEqual([2])
+  })
+
+  it('purges session history immediately on forgetting, rejects late events, and still clears it if disk deletion fails', async () => {
+    const storage = new MemoryStorage()
+    const archive = new RoomArchive(storage, crypt)
+    archive.keep(chat('here', 1)); archive.keep(chat('elsewhere', 2, OTHER))
+    await archive.flushed()
+    let release: () => void = () => {}
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    storage.keys = async () => { await blocked; throw new Error('Storage unavailable') }
+    storage.stream = async () => { throw new Error('Storage unavailable') }
+    const forgetting = archive.forget({ kind: 1460, d: ROOM })
+    archive.keep(chat('late', 3))
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([])
+    release()
+    await expect(forgetting).rejects.toThrow('Storage unavailable')
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([])
+    expect(await archive.read({ kind: 1460, d: OTHER, limit: 10 })).toHaveLength(1)
+  })
+
   it('round-trips original events, newest first, by kind and conversation, with a strict cursor', async () => {
     const storage = new MemoryStorage()
     const archive = new RoomArchive(storage, crypt)
