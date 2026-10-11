@@ -14909,9 +14909,11 @@ if (browserMlsPreview) {
       browserMlsRoomPanel ??= new BrowserMlsRoomDevelopmentPanel(() => {
         const current = nostrSession
         if (!current) return undefined
-        const signer = current.signer, crypt = signer.nip44
+        const signer = current.signer, crypt = signer.nip44, bunker = rendezvousBunker(current)
         return { persona: current.pubkey, identity: { pubkey: current.pubkey, signEvent: signer.signEvent.bind(signer) },
           authority: { owner: signer, signEvent: signer.signEvent,
+            ...(bunker ? { rendezvous: { owner: bunker, deviceKey: bunker.clientSecretKey,
+              provisionOwner: bunker.nip46, provision: bunker.nip46.provisionRendezvous } } : {}),
             ...(crypt ? { crypt: { owner: crypt, encrypt: crypt.encrypt, decrypt: crypt.decrypt } } : {}) },
           generation: `${identityGeneration}:${roomGeneration}`,
           mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal' }

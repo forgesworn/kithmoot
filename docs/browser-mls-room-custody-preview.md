@@ -55,6 +55,40 @@ engine stop permanently retains the native writer lock until page exit.
 Blocked IndexedDB opens and genuinely unfinished native/signer work may retain
 shutdown indefinitely; there is no timeout release or false remote rollback.
 
+## Dormant room creation custody foundation
+
+The actual private owner now constructs a fixed-namespace creation wrapper
+around the existing concrete encrypted rendezvous vault. It binds the current
+account to the actual retained NIP-46 bunker device key and raw signer/provision
+owner and function references. Replacement of a reference or mutation of the
+device key material invalidates the captured ceremony. No text field, enrolled
+MLS device, caller receipt or injected storage supplies that authority.
+
+Creation custody exposes only a frozen public receipt and boolean current and
+release predicates. It exposes no child, scalar, ECDH or provision operation.
+The current predicate ends at child callback release. The release predicate
+freshly checks the original vault revision, child expiry and foreground after
+unlock, including through later client and endpoint cleanup.
+
+The owner privately constructs a concrete coordinated-vault subclass which
+registers the entire actual leaf signing promise with its room foreground
+before yielding. Lower creation cancellation can finish while consent,
+signing or journal storage continues. The child callback always dynamically
+drains those registered tails before unlocking, even after an exception or
+invalidation. External owner pause also invalidates lower room operations
+synchronously. A genuinely nonreturning consent/signing promise retains
+custody; a later private consent UI must explicitly settle to denial on
+invalidation/deadline rather than claim a timeout unlocked real work.
+
+This is a dormant foundation. There is no application create API or new UI
+control. Native regressions use the real encrypted provision reader, concrete
+vault, signing journal and pinned MLS WASM with fixture peers. They prove
+actual tail retention, cross-tab child invalidation, device capability changes
+and a room binding lifetime independent of the short child receipt. They do
+not prove the private paired-route client, authenticated pre/post installation
+readback, final effect fencing after client/endpoint shutdown or live Bothy.
+Those ceremonies must land before an application creation control is enabled.
+
 ## Forget integrity in every build
 
 The small read-only room-custody guard is deliberately included in production.

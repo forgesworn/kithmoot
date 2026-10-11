@@ -60,6 +60,51 @@ async function enrolled(context: BrowserContext, room = true) {
   if (room) { const created = await run(f.page, 'M.create()'); expect(created).toMatchObject({ state: 'active' }) }
   return f
 }
+
+for (const mode of ['cancel', 'expiry', 'foreground'] as const) test(`room creation custody retains actual signing after lower ${mode}`, async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  expect(await run(page, 'M.provisionJoin()')).toMatchObject({ ok: true })
+  await run(page, `M.startCreationCustody('${mode}')`)
+  await expect.poll(() => run(page, 'M.creationCustodyStatus()')).toMatchObject({ lowerSettled: true, ownerSettled: false })
+  expect(await run(page, 'M.creationChildLockAvailable()')).toBe(false)
+  const finished = await run(page, 'M.finishCreationCustody()')
+  expect(finished.state).toBe(mode === 'foreground' ? 'interrupted' : 'done')
+  if (finished.state === 'done') expect(finished.value.state).not.toBe('active')
+  expect(await run(page, 'M.creationChildLockAvailable()')).toBe(true)
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+  expect((await run(page, 'M.creationPermissions()')).value.approved).toEqual([])
+})
+test('another tab invalidates creation custody before waiting for an actual consent tail', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, 'M.provisionJoin()'); await run(page, "M.startCreationCustody('hold')")
+  const other = await context.newPage(); await other.goto(origin)
+  await run(other, '(() => { window.childClearDone = false; window.childClear = M.clearJoinChild().then(() => { window.childClearDone = true }) })()')
+  await expect.poll(() => run(page, 'M.creationCustodyStatus()')).toMatchObject({ current: false, releaseCurrent: false, ownerSettled: false })
+  expect(await run(other, 'window.childClearDone')).toBe(false)
+  expect(await run(page, 'M.creationChildLockAvailable()')).toBe(false)
+  expect(await run(page, 'M.finishCreationCustody()')).toMatchObject({ state: 'done', value: { state: 'pending', reason: 'stale' } })
+  await run(other, 'window.childClear')
+  expect((await run(page, 'M.creationPermissions()')).value.approved).toEqual([])
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+})
+test('room creation foundation uses the actual child without truncating the room lifetime', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  const provision = await run(page, 'M.provisionJoin()')
+  await run(page, "M.startCreationCustody('success')")
+  expect(await run(page, 'M.finishCreationCustody()')).toMatchObject({ state: 'done', value: { state: 'active' } })
+  expect(await run(page, 'M.creationChildLockAvailable()')).toBe(true)
+  const read = await run(page, 'M.readCreationCustody()')
+  expect(read.state).toBe('active')
+  expect(read.value[0].bindingExpiresAt).toBeGreaterThan(provision.receipt.expiresAt)
+})
+for (const mode of ['success', 'owner', 'key-reference', 'key-material', 'provision-owner', 'provision-function'])
+  test(`fixed room creation custody binds the retained device ceremony: ${mode}`, async ({ context }) => {
+    const { page } = await fixture(context)
+    expect(await run(page, `M.fixedCreationDevice('${mode}')`)).toEqual({ state: 'done', value: {
+      inside: mode === 'success', released: false, releaseCurrent: mode === 'success', keys: ['current', 'receipt', 'releaseCurrent'],
+      frozen: true, actualDevice: true,
+    } })
+  })
 async function joinedWithMemberDevice(page: Page) {
   await run(page, 'M.provisionJoin()')
   expect(await run(page, 'M.typedJoin()')).toMatchObject({ state: 'active' })
