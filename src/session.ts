@@ -100,7 +100,7 @@ export interface ParticipantView {
    */
   callProfiles?: Record<string, number>
   /** Devices whose UI understands signed audio/video capture details. */
-  recordingProfiles?: Record<string, 2>
+  recordingProfiles?: Record<string, 2 | 3>
   tracks: Array<TrackAdvert & { device: string }>
   /**
    * Offers this person's devices have made to relay for the room.
@@ -229,7 +229,7 @@ export interface RoomSessionBaseOptions {
    * day is one reload away from today's behaviour. See `MeshOptions.callProfile`.
    */
   callProfile?: 1 | 2
-  recordingProfile?: 2
+  recordingProfile?: 2 | 3
   /** Maps this app's local tracks into profile-2 fixed media slots. */
   trackRole?: RoleResolver
   /** Declare this device an automated participant on every entry it
@@ -2252,6 +2252,13 @@ export class RoomSession {
       before.capture?.recorder === state.capture?.recorder && before.capture?.device === state.capture?.device
   }
 
+  get requiresLiveRecordingWarnings(): boolean { return this.#opts.policy?.quiet === true }
+
+  /** Inspect each admitted device's own call claim before UI delivery. */
+  liveRecordingCompatible(callId: string): boolean {
+    return [...this.#entries.values()].every(entry => entry.left || entry.call?.id !== callId || entry.recordingProfile === 3)
+  }
+
   /** Publish the exact signed warning through an acknowledged guarded carrier.
    * A quiet queue or local echo cannot arm capture. */
   publishLiveRecordingConfirmed(value: LiveRecordingState, stillAllowed: () => boolean = () => true): Promise<void> {
@@ -2328,6 +2335,7 @@ export class RoomSession {
       ...(this.#name !== undefined ? { name: this.#name } : {}),
       ...(this.#opts.callProfile === 2 ? { callProfile: 2 as const } : {}),
       ...(live && !left ? { recordingProfile: 3 as const, liveRecording: live } :
+        this.#opts.recordingProfile === 3 ? { recordingProfile: this.#opts.authority ? 3 as const : 2 as const } :
         this.#opts.recordingProfile === 2 ? { recordingProfile: 2 as const } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
@@ -3038,9 +3046,10 @@ export class RoomSession {
 
     for (const view of byParticipant.values()) {
       for (const device of view.devices) {
-        if (recordingPresence.get(device)?.recordingProfile === 2) {
+        const profile = recordingPresence.get(device)?.recordingProfile
+        if (profile === 2 || profile === 3) {
           view.recordingProfiles ??= {}
-          view.recordingProfiles[device] = 2
+          view.recordingProfiles[device] = profile
         }
         const session = sessions.get(device)
         if (!session) continue

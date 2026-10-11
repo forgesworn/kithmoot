@@ -14,7 +14,7 @@ retain their existing encoding.
 
 The independent codecs pass 446 Kotlin protocol tests, 49 focused TypeScript
 tests and library/app type-checking. These are codec checks, not call runtime
-or quiet-room capacity qualification. Neither client advertises profile 3 yet.
+or quiet-room capacity qualification.
 
 Verified announcements now feed the native meeting warning and the web active
 or docked call warning. Reception rejects conflicting same-version states and
@@ -27,8 +27,15 @@ The web API requires an acknowledged guarded carrier, isolates the signed input,
 and checks ownership, admission, credential expiry, presence freshness and room
 generation at dispatch and after acknowledgement. Quiet presence forwards this
 guard without queueing or spending counters; chat and public file announcements
-cannot use that bypass. Unsupported carriers fail closed. Ordinary call recording
-still uses the existing path and does not advertise profile 3.
+cannot use that bypass. Unsupported carriers fail closed.
+
+Both application candidates advertise profile 3 when a room authority is pinned,
+and video accepts profiles 2 and 3. Web recording still uses its existing control
+route. Native quiet recording now uses confirmed live publication for startup,
+refresh and retained Stop, with authenticated per-call compatibility checks at
+dispatch and capture installation, and input rejection when compatibility is
+lost. Native controller/session/video checks passed 85 tests. The web capability
+follow-up passed 149 focused tests and library/app type-checking.
 
 The latest web checks passed 193 tests with library/app type-checking, including
 the guarded WebSocket and room-route regressions. Simulated 45-minute refreshes
@@ -36,8 +43,8 @@ spent no quiet counters. Rekey clears outgoing On, invalidates queued warnings,
 and cannot turn the publisher's own echo into acknowledgement. These checks are
 not physical capture or cross-client runtime qualification.
 
-Remaining integration must connect confirmed live publication to capture, require
-compatible call participants before capture, and stop or exclude media before
-an incompatible device can enter a recording. Join, refresh, cancellation,
+Remaining web integration must connect confirmed live publication to capture,
+require compatible call participants, and stop or exclude media before an
+incompatible device can enter a recording. Join, refresh, cancellation,
 Stop, process recovery and rekey need cross-client runtime evidence. Existing
 quiet Send/delegation and physical recording gates remain separate.

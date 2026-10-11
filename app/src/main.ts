@@ -8003,7 +8003,7 @@ function recordingVideoPeople(s: RoomSession): RecordingPerson[] {
     for (const device of view.call.devices) {
       if (!view.devices.includes(device)) continue
       const local = view.participant === mediaMe() && device === myDeviceId
-      const supported = local || view.recordingProfiles?.[device] === 2
+      const supported = local || view.recordingProfiles?.[device] === 2 || view.recordingProfiles?.[device] === 3
       const permitted = !meetingGated(device)
       const name = shownAs(view.participant, view.name).name ?? shortKey(view.participant)
       const label = `${shortKey(view.participant)} · ${device.slice(0, 6)} · ${name}`
@@ -8031,7 +8031,7 @@ function recordingShareChoices(s: RoomSession): RecordingShareChoice[] {
     if (!s.call || !view.call || view.call.id !== s.call.id) continue
     for (const device of view.call.devices) {
       const local = view.participant === mediaMe() && device === myDeviceId
-      if (!local && view.recordingProfiles?.[device] !== 2 || meetingGated(device)) continue
+      if (!local && view.recordingProfiles?.[device] !== 2 && view.recordingProfiles?.[device] !== 3 || meetingGated(device)) continue
       const source = screenSource(view.participant, device, s)
       if (!source || (source.status !== 'live' && source.status !== 'reconnecting')) continue
       choices.push({ participant: view.participant, device, label: `${source.owner?.name ?? shortKey(view.participant)} · ${shortKey(view.participant)} · ${device.slice(0, 6)}` })
@@ -8049,7 +8049,7 @@ function recordingVideoSnapshot(s: RoomSession, callId: string, origin: ReturnTy
   if (selected) {
     const person = s.participants().find(view => view.participant === selected.participant && view.call?.id === callId && view.call.devices.includes(selected.device))
     const local = selected.participant === mediaMe() && selected.device === myDeviceId
-    const permitted = !!person && (local || person.recordingProfiles?.[selected.device] === 2) && !meetingGated(selected.device)
+    const permitted = !!person && (local || person.recordingProfiles?.[selected.device] === 2 || person.recordingProfiles?.[selected.device] === 3) && !meetingGated(selected.device)
     const source = permitted ? screenSource(selected.participant, selected.device, s, origin) : undefined
     snapshot.share = {
       label: source?.owner ? `${shortKey(selected.participant)} · ${selected.device.slice(0, 6)} · ${source.owner.name}` : `${shortKey(selected.participant)} · ${selected.device.slice(0, 6)} · ${selected.label}`,
@@ -11978,7 +11978,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
-          recordingProfile: 2,
+          recordingProfile: 3,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
@@ -12039,7 +12039,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
-          recordingProfile: 2,
+          recordingProfile: 3,
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
