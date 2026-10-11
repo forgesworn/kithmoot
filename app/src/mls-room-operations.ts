@@ -131,6 +131,9 @@ async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<
   for (const prompt of journal.inbox?.prompts ?? []) if (prompt.approval && ['approved', 'done'].includes(prompt.state)) {
     for (const intent of prompt.approval.rooms) if (intent.session === session) {
       if (room.keeper !== persona || prompt.request.keeper !== persona) throw new InvalidPersonaRecord('Keeper send hold no longer matches its room')
+      // Lapse evidence is durable, but terminal completion is gated until
+      // affected-device grant installation can be held across its witness.
+      if (prompt.state === 'approved' && prompt.grantOutcomes?.some(item => item.outcome === 'no-live')) throw new MlsRoomRefused('compromised-removal')
       if (memberStatuses(active).some(member => member.device === prompt.request.device)) throw new MlsRoomRefused('compromised-removal')
     }
   }

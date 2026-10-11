@@ -260,6 +260,7 @@ export class BrowserMlsPanel {
         : 'The witness has not confirmed the retained requests. Check again when it is available.')); return
     }
     if (!result.value.length) { root.append(message('No retained device requests are recorded for this account.')); return }
+    if (value.revocationError) root.append(message(value.revocationError))
     for (const record of result.value) {
       const article = this.root.createElement('article')
       article.className = 'mlsWitnessIdentifier'
@@ -267,14 +268,16 @@ export class BrowserMlsPanel {
       article.append(message(`Device: ${record.device}`), message(`Keeper: ${record.keeper}`),
         message(`Observed room hints: ${record.sessions.join(', ')}`), message(`Observed box hints: ${record.boxes.join(', ')}`))
       if (record.sentAt !== null) article.append(message('Request sent to a keeper relay. Keeper receipt, removal and grant revocation are unconfirmed.'))
-      else {
+      else if (record.requestState === 'unconfirmed') article.append(message('Request publication is unconfirmed. An earlier attempt may have reached a relay. It will not be resent automatically.'))
+      else article.append(message('No current confirmed request is retained. This does not establish whether an earlier request reached its keeper or whether any device or grant was removed.'))
+      {
         article.append(message('Ask this keeper to remove your lost or compromised device and revoke its grants now. Room and box hints are retained observations; the keeper must check its current ledger. Public DM relays can see the recipient, your connection address, timing and volume. Sending does not prove that the keeper read or performed the request.'))
         const button = this.root.createElement('button')
-        button.type = 'button'; button.textContent = 'Send request to keeper'
+        button.type = 'button'; button.textContent = record.requestRevision ? 'Send a fresh request to keeper' : 'Send request to keeper'
         button.disabled = !this.revocationTransport || !this.context()?.revocationIdentity
         button.onclick = () => { void this.#run(() => {
           if (!this.revocationTransport) throw new VaultActionError('No keeper relay transport is available.')
-          return this.account.sendRevocation(record.operation, this.revocationTransport())
+          return this.account.sendRevocation(record.operation, this.revocationTransport(), record.requestRevision || undefined)
         }) }
         article.append(button)
         if (!this.context()?.revocationIdentity) article.append(message('Connect this account’s signer with private-message encryption before sending.'))

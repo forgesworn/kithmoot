@@ -20,6 +20,12 @@ let panel: BrowserMlsPanel, account: BrowserMlsAccount
 let coordinator: BrowserPersonaCoordinator
 let rejectPublish = false, directoryWait: Promise<void> | undefined, releaseDirectory: (() => void) | undefined
 const transportCalls: string[] = []
+const wallNow = Date.now.bind(Date)
+let fixtureTime: number | undefined
+Date.now = () => fixtureTime === undefined ? wallNow() : fixtureTime * 1000
+export function revocationTime(value?: number) { if (value !== undefined) fixtureTime = value; return Math.floor(Date.now() / 1000) }
+const publications: { id: string; createdAt: number; expiration: number }[] = []
+export function revocationPublications() { return publications }
 const keeperSecret = new Uint8Array(32).fill(43)
 const keeper = { pubkey: getPublicKey(keeperSecret), signEvent: async (event: any) => finalizeEvent(event, keeperSecret), ...localPeerCrypt(keeperSecret) }
 const transport = {
@@ -30,6 +36,7 @@ const transport = {
   publish: async (publication: any) => {
     transportCalls.push('publish')
     const request = await unwrapVmlsRevocationRequest(publication.event, keeper)
+    if (request) publications.push({ id: publication.event.id, createdAt: request.createdAt, expiration: request.expiration })
     if (!request || request.sender !== identity.pubkey || request.device !== '34'.repeat(32) || request.keeper !== keeper.pubkey ||
         JSON.stringify(request.sessions) !== JSON.stringify(['12'.repeat(32)]) || JSON.stringify(request.boxes) !== JSON.stringify(['56'.repeat(32)])) throw new Error('Wrong retained request wire payload')
     if (rejectPublish) throw new Error('Keeper relay refused the request')

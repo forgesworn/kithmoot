@@ -7,7 +7,8 @@ export interface MlsKeeperRequestProgress {
   operation: string
   state: 'approved' | 'done'
   rooms: { session: string; operation: string; state: 'pending' | 'committed' | 'ledger-only' | 'absent'; failure?: string; effect?: MlsRemovalEffect }[]
-  grants: { node: string; reference: string; state: 'pending' | 'revoked'; failure?: string }[]
+  grants: { node: string; reference: string; state: 'pending' | 'revoked' | 'unavailable' | 'no-live'; access?: 'unconfirmed'; failure?: string }[]
+  completion?: 'awaiting-grant-install-hold'
 }
 type Operations = Pick<BrowserMlsRoomOperations, 'removeRequestedDevice' | 'driveRemoval' | 'membership' | 'retryRemoval' | 'setRemovalGrants'>
 const failure = (error: unknown): string => error instanceof Error ? error.message : 'The operation could not be confirmed.'
@@ -91,6 +92,8 @@ export class BrowserMlsKeeperRequestController {
       progress.grants.push(row)
       try {
         plan = await execution()
+        if (plan.lapsed.includes(authority.reference)) { row.state = 'no-live'; continue }
+        if (plan.unavailable.includes(authority.reference)) { row.state = 'unavailable'; row.access = 'unconfirmed'; continue }
         if (!plan.revoked.includes(authority.reference)) await this.grants.withdrawRequestedDevice(authority, plan.prompt.request.sender, plan.prompt.request.device, current)
         check()
         plan = await execution()
@@ -109,10 +112,13 @@ export class BrowserMlsKeeperRequestController {
       } catch (error) { check(); row.failure = failure(error) }
     }
     plan = await execution()
-    if (progress.grants.every(grant => grant.state === 'revoked') && progress.rooms.every(room => room.state !== 'pending')) {
-      const done = await this.decisions.complete(operation)
-      check()
-      if (done.state === 'active') progress.state = 'done'
+    if (progress.grants.every(grant => grant.state !== 'pending') && progress.rooms.every(room => room.state !== 'pending')) {
+      if (plan.lapsed.length) progress.completion = 'awaiting-grant-install-hold'
+      else {
+        const done = await this.decisions.complete(operation)
+        check()
+        if (done.state === 'active') progress.state = 'done'
+      }
     }
     return progress
   }

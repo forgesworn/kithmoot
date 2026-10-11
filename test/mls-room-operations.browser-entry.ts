@@ -8,6 +8,7 @@ import { bytesToHex, hexToBytes, randomBytes, concatBytes } from '@noble/hashes/
 import { finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { base32 } from '@scure/base'
 import { BrowserMlsBoxClient } from '../app/src/mls-box-client.js'
+import { BrowserMlsKeeperBoxClock } from '../app/src/mls-keeper-box-clock.js'
 import type { LinkRequest } from '../app/src/browser-link-types.js'
 import { BrowserMlsPersonaStore, LockedPersonaStore, type PersonaWitnessRoute } from '../app/src/mls-persona-store.js'
 import { BrowserPersonaCoordinator } from '../app/src/mls-persona-coordinator.js'
@@ -25,9 +26,12 @@ import { wrapVmlsRevocationRequest } from '../src/vmls-revocation-request.js'
 import { localIdentity } from '../src/identity.js'
 import { localPeerCrypt } from '../src/dm.js'
 import { BrowserMlsRevocationInbox } from '../app/src/mls-revocation-inbox.js'
-import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant } from '../app/src/mls-grant-ledger.js'
+import { BrowserMlsGrantStore, BrowserMlsGrantLedger, planMlsGrant, mlsGrantReference } from '../app/src/mls-grant-ledger.js'
+import { mlsKeeperGrantAuthority } from '../app/src/mls-revocation-decision-store.js'
 import { BrowserMlsKeeperDecisions, type MlsKeeperDecisionPlan } from '../app/src/mls-keeper-decisions.js'
 import { BrowserMlsKeeperRequestController, type MlsKeeperRequestProgress } from '../app/src/mls-keeper-request-controller.js'
+import { BrowserMlsKeeperAdmission } from '../app/src/mls-keeper-admission.js'
+import { BrowserMlsRevocationOutbox } from '../app/src/mls-revocation-outbox.js'
 export { saveProfile, restoreProfile, damage } from './mls-persona-coordinator.browser-entry.js'
 export { boxRequest } from '../app/src/mls-coordinated-vault.js'
 
@@ -253,7 +257,8 @@ export async function receiveKeeperRequest(wrongPerson = false, ledgerOnly = fal
   return keeperInbox().receive([wrapper], keeper)
 }
 export async function keeperRequests() { return keeperInbox().view() }
-const keeperDecisions = () => new BrowserMlsKeeperDecisions(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+const keeperDecisions = () => new BrowserMlsKeeperDecisions(host, inboxGrants, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock,
+  undefined, undefined, new BrowserMlsGrantLedger(() => localIdentity(secret), {} as any, inboxGrants))
 export async function deferKeeperRequest() {
   const read = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => ['pending', 'approved'].includes(prompt.state))!.operation, () => true)
   if (read.state !== 'active') return read
@@ -273,15 +278,185 @@ export async function decideKeeperRequest(approve = true) {
   return keeperDecisions().decide(plan.value, approve)
 }
 export async function decideReviewedKeeperRequest(plan: MlsKeeperDecisionPlan) { return keeperDecisions().decide(plan, true) }
+let heldKeeperApproval: Promise<unknown> | undefined, heldKeeperInstall: Promise<unknown> | undefined
+let releaseKeeperInstall: (() => void) | undefined
+export function beginKeeperApproval(plan: MlsKeeperDecisionPlan) {
+  heldKeeperApproval = keeperDecisions().decide(plan, true).then(result => ({ result }), error => ({ error: error.message }))
+}
+export async function finishKeeperApproval() { return heldKeeperApproval }
+let heldKeeperCompletion: Promise<unknown> | undefined, heldKeeperDevice: Promise<unknown> | undefined, releaseKeeperDevice: (() => void) | undefined, keeperCompletionStatus: unknown
+export async function beginKeeperCompletion() {
+  const retained = await keeperDecisions().approvals(true)
+  if (retained.state !== 'active' || !retained.value[0]) throw new Error('fixture approval missing')
+  keeperCompletionStatus = undefined
+  heldKeeperCompletion = keeperDecisions().complete(retained.value[0].operation).then(result => keeperCompletionStatus = { result }, error => keeperCompletionStatus = { error: error.message })
+}
+export function completionStatus() { return keeperCompletionStatus }
+export async function finishKeeperCompletion() { return heldKeeperCompletion }
+export async function holdKeeperDevice() {
+  let started!: () => void
+  const began = new Promise<void>(resolve => { started = resolve }), wait = new Promise<void>(resolve => { releaseKeeperDevice = resolve })
+  const ledger = new BrowserMlsGrantLedger(() => localIdentity(secret), {} as any, inboxGrants)
+  heldKeeperDevice = ledger.withDeviceInstallHold(inboxGrants, persona, guestDevice, () => true, async () => { started(); await wait })
+  await began
+}
+export async function releaseHeldKeeperDevice() { releaseKeeperDevice?.(); return heldKeeperDevice }
+const heldKeeperWithdrawals = new Map<string, Promise<unknown>>(), keeperWithdrawalPublications: string[] = []
+let keeperWithdrawalPause: Promise<void> | undefined, releaseKeeperWithdrawal: (() => void) | undefined, keeperWithdrawalRefused = false
+export function pauseKeeperWithdrawals(refused = false) {
+  keeperWithdrawalRefused = refused
+  keeperWithdrawalPause = new Promise<void>(resolve => { releaseKeeperWithdrawal = resolve })
+}
+export function resumeKeeperWithdrawals() { releaseKeeperWithdrawal?.(); keeperWithdrawalPause = undefined }
+export async function beginKeeperWithdrawal(kind = 'requested') {
+  const record = (await inboxGrants.all())[0]!, keeper = localIdentity(secret)
+  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [record.box], pairedBoxes: async () => [] } as any, inboxGrants,
+    () => ({ publish: async event => { keeperWithdrawalPublications.push(event.id); await keeperWithdrawalPause; if (keeperWithdrawalRefused) throw new Error('fixture uncertain withdrawal') }, close: () => undefined }), () => clock)
+  const key = `${kind}/${heldKeeperWithdrawals.size}`
+  heldKeeperWithdrawals.set(key, (kind === 'room' ? ledger.withdraw(record.node, record.device, mlsGrantReference(record.node, record.grantId), roomId, [guestLeaf], true) :
+    ledger.withdrawRequestedDevice(mlsKeeperGrantAuthority(record), record.persona, record.device, () => true))
+    .then(result => ({ state: result.record.state, result: result.result }), error => ({ error: error.message })))
+  return key
+}
+export async function finishKeeperWithdrawal(key: string) { return heldKeeperWithdrawals.get(key) }
+export async function keeperWithdrawalSnapshot() {
+  return { publications: keeperWithdrawalPublications.slice(), records: (await inboxGrants.all()).map(record => ({ node: record.node, state: record.state })) }
+}
+export async function beginKeeperInstall(stage = '', wait = true) {
+  let started!: () => void, entered = false
+  const began = new Promise<void>(resolve => { started = resolve })
+  const pending = new Promise<void>(resolve => { releaseKeeperInstall = resolve })
+  const pause = async (at: string) => { if (!entered && stage === at) { entered = true; started(); await pending } }
+  const keeper = localIdentity(secret), context = () => ({ vault: ctx(), current: () => true, foreground: () => true })
+  const original = inboxGrants.put.bind(inboxGrants)
+  inboxGrants.put = async record => {
+    if (record.device === guestDevice && record.box.routeId === secondKeeperBox.routeId) await pause(record.state)
+    return original(record)
+  }
+  const ledger = new BrowserMlsGrantLedger(() => ({ pubkey: keeper.pubkey, signEvent: async template => { await pause('sign'); return keeper.signEvent(template) } }),
+    { resume: async () => undefined, boxes: () => [secondKeeperBox], pairedBoxes: async () => [] } as any, inboxGrants,
+    () => ({ publish: async () => { await pause('publish') }, close: () => undefined }), () => clock, undefined, undefined, new BrowserMlsKeeperAdmission(host, context))
+  heldKeeperInstall = ledger.install(secondKeeperBox, getPublicKey(new Uint8Array(32).fill(44)), guestDevice, { session: roomId, name: 'Witnessed room', leaf: guestLeaf })
+    .then(record => ({ state: record.state }), error => ({ error: error.message })).finally(() => { inboxGrants.put = original })
+  if (wait) await began
+}
+export async function finishKeeperInstall() { releaseKeeperInstall?.(); return heldKeeperInstall }
+export async function keeperInstallAttempt(node = 'current') {
+  const grant = (await inboxGrants.all())[0]!, keeper = localIdentity(secret), context = () => ({ vault: ctx(), current: () => true, foreground: () => true })
+  let signed = 0, writes = 0, published = 0
+  const original = inboxGrants.put.bind(inboxGrants)
+  inboxGrants.put = async record => { writes++; return original(record) }
+  const box = node === 'current' ? grant.box : secondKeeperBox
+  const ledger = new BrowserMlsGrantLedger(() => ({ pubkey: keeper.pubkey, signEvent: async template => { signed++; return keeper.signEvent(template) } }),
+    { resume: async () => undefined, boxes: () => [box], pairedBoxes: async () => [] } as any, inboxGrants,
+    () => ({ publish: async () => { published++ }, close: () => undefined }), () => clock, undefined, undefined, new BrowserMlsKeeperAdmission(host, context))
+  try { return { record: await ledger.install(box, grant.persona, grant.device, { session: roomId, name: 'Expanded use', leaf: guestLeaf }), signed, writes, published } }
+  catch (error) { return { error: (error as Error).message, signed, writes, published } }
+  finally { inboxGrants.put = original }
+}
+/** Short signed lifetime keeps the real room live while its grant lapses. */
+export async function shortenKeeperGrant(seconds = 60, revoking = false) {
+  const grant = (await inboxGrants.all())[0]!, keeper = localIdentity(secret)
+  grant.expiration = clock + seconds
+  for (const key of ['active', 'revocation'] as const) {
+    const event = grant[key]
+    grant[key] = await keeper.signEvent({ kind: event.kind, created_at: event.created_at, content: event.content,
+      tags: event.tags.map(tag => tag[0] === 'expiration' ? ['expiration', String(grant.expiration)] : tag) })
+  }
+  if (revoking) grant.state = 'revoking'
+  await inboxGrants.put(grant)
+}
+export async function lapseKeeperRequest(route: PersonaWitnessRoute, mode = 'ok') {
+  const grant = (await inboxGrants.all())[0]!, calls: string[] = []
+  const retained = await host.transact(persona, async tx => (await readMlsMembership(tx)).inbox!.prompts.find(prompt => !!prompt.approval)!.operation, () => true)
+  if (retained.state !== 'active') return { result: retained, calls }
+  const context = () => ({ vault: ctx(), current: () => true, foreground: () => true })
+  const transport = { request: async (req: LinkRequest) => {
+    const event = JSON.parse(atob(req.authorization.slice(6)))
+    if (!verifyEvent(event) || event.pubkey !== deviceId || event.kind !== 27235 || JSON.stringify(event.tags) !== JSON.stringify([
+      ['u', `http://${base32.encode(hexToBytes(grant.node)).replace(/=+$/, '').toLowerCase()}${req.path}`],
+      ['method', req.method], ['payload', bytesToHex(sha256(req.body))],
+    ])) throw new Error('Invalid fixture clock authentication')
+    calls.push(req.path)
+    const refused = mode === 'refused' && req.path.endsWith('/fetch')
+    const body = req.path.endsWith('/capabilities') ? { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation } :
+      { v: 1, code: refused ? 'clock-unsafe' : 'ok', server_time: clock + (mode === 'behind' ? -1 : 0), ...(refused ? {} : { records: [], next: null }) }
+    return { status: refused ? 503 : 200, body: new TextEncoder().encode(JSON.stringify(body)), witnessRefused: false,
+      path: { status: 'up' as const, relay: null, direct: null, cause: '' } }
+  } }
+  const client = new BrowserMlsBoxClient(transport, { routeId: grant.box.routeId, card: hexToBytes(route.card), pairedRouteSecret: hexToBytes(route.pairedRouteSecret),
+    cardSerial: BigInt(route.cardSerial), cardVerifiedAt: BigInt(route.cardVerifiedAt) }, grant.node, vault, ctx(), async () => 'approve', () => true)
+  const probe = new BrowserMlsKeeperBoxClock(client, context, () => clock)
+  const decisions = new BrowserMlsKeeperDecisions(host, inboxGrants, context, () => clock, undefined, node => node === grant.node ? probe : undefined)
+  try {
+    const evidence = await probe.probe(grant)
+    if (!evidence) return { result: { state: 'held' }, calls }
+    return { result: await decisions.lapse(retained.value, grant, evidence), calls }
+  } catch (error) { return { error: (error as Error).message, calls } }
+  finally { probe.invalidate(); client.invalidate() }
+}
+// Real encrypted storage and origin-wide Web Locks, with simulated transport.
+const fenceDevice = '61'.repeat(32)
+const fenceStore = new BrowserMlsGrantStore(new BrowserRendezvousVaultStorage('mls-install-fence-test'))
+let fenceIdentity = localIdentity(secret), fenceLive = true, fenceWork = 0
+let releaseFenceWork: (() => void) | undefined, releaseFencePublication: (() => void) | undefined
+let fencePublication: Promise<void> | undefined, fenceHold: Promise<unknown> | undefined
+const fencePublications: string[] = [], fenceInstalls = new Map<string, Promise<unknown>>()
+const fenceBox = (node: number) => ({ routeId: `fence-${node}`, eventUrl: `ws://${base32.encode(new Uint8Array(32).fill(node)).replace(/=+$/, '').toLowerCase()}/events` })
+const fenceLedger = () => new BrowserMlsGrantLedger(() => fenceIdentity, {
+  resume: async () => undefined, boxes: () => [fenceBox(77), fenceBox(78)], pairedBoxes: async () => [],
+} as any, fenceStore, () => ({ publish: async event => { fencePublications.push(event.id); await fencePublication }, close: () => undefined }), undefined, undefined, undefined,
+  new BrowserMlsKeeperAdmission(host, () => ({ vault: ctx(), current: () => true, foreground: () => fenceLive })))
+export function startFenceInstall(node = 77, device = fenceDevice) {
+  const key = `${node}/${device}/${fenceInstalls.size}`
+  fenceInstalls.set(key, fenceLedger().install(fenceBox(node), '62'.repeat(32), device,
+    { session: '63'.repeat(32), name: 'Install fence', leaf: '64'.repeat(32) })
+    .then(record => ({ state: 'installed', node: record.node }), error => ({ error: error.message })))
+  return key
+}
+export async function finishFenceInstall(key: string) { return fenceInstalls.get(key) }
+export function pauseFencePublications() { fencePublication = new Promise<void>(resolve => { releaseFencePublication = resolve }) }
+export function resumeFencePublications() { releaseFencePublication?.(); fencePublication = undefined }
+export async function startFenceHold(wait = true, reject = false) {
+  let started!: () => void
+  const began = new Promise<void>(resolve => { started = resolve })
+  const pending = new Promise<void>(resolve => { releaseFenceWork = resolve })
+  fenceHold = fenceLedger().withDeviceInstallHold(fenceStore, persona, fenceDevice, () => fenceLive, async current => {
+    fenceWork++; started()
+    await pending
+    if (!current()) throw new Error('fixture callback stale')
+    if (reject) throw new Error('fixture witness rejected')
+    return 'settled'
+  }).then(value => ({ value }), error => ({ error: error.message }))
+  if (wait) await began
+}
+export async function finishFenceHold() { releaseFenceWork?.(); return fenceHold }
+export function changeFenceAccount() { fenceIdentity = localIdentity(new Uint8Array(32).fill(43)) }
+export function hideFenceForeground() { fenceLive = false }
+export async function fenceSnapshot() {
+  const locks = await navigator.locks.query()
+  return { work: fenceWork, publications: fencePublications.slice(), records: (await fenceStore.all()).map(record => ({ node: record.node, device: record.device })),
+    held: locks.held, pending: locks.pending }
+}
 let keeperWithdrawalFails = false, keeperProgress: MlsKeeperRequestProgress | undefined
+let keeperRouteForgotten = false
+const secondKeeperBox = { routeId: 'keeper-second-fixture', eventUrl: `ws://${base32.encode(new Uint8Array(32).fill(77)).replace(/=+$/, '').toLowerCase()}/events` }
+export function forgetKeeperRoute(value = true) { keeperRouteForgotten = value }
+export async function addSecondKeeperGrant() {
+  const previous = (await inboxGrants.all())[0]!
+  const grant = await planMlsGrant(localIdentity(secret), secondKeeperBox, previous.persona, previous.device, { session: roomId, name: 'Witnessed room', leaf: guestLeaf }, clock)
+  grant.state = 'active'; grant.rooms = []; await inboxGrants.put(grant)
+}
 const keeperWithdrawals: string[] = []
 export function failKeeperWithdrawal(value: boolean) { keeperWithdrawalFails = value }
 export function keeperWithdrawalAttempts() { return keeperWithdrawals.slice() }
 const keeperController = () => {
   const keeper = localIdentity(secret), box = { routeId: 'keeper-inbox-fixture', eventUrl: `ws://${base32.encode(hexToBytes(boxId)).replace(/=+$/, '').toLowerCase()}/events` }
-  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: () => [box] } as any, inboxGrants,
+  const routes = () => [...(keeperRouteForgotten ? [] : [box]), secondKeeperBox]
+  const ledger = new BrowserMlsGrantLedger(() => keeper, { resume: async () => undefined, boxes: routes, pairedBoxes: async () => routes() } as any, inboxGrants,
     () => ({ publish: async event => { keeperWithdrawals.push(event.id); if (keeperWithdrawalFails) throw new Error('fixture box withdrawal refused') }, close: () => undefined }), () => clock)
-  return new BrowserMlsKeeperRequestController(keeperDecisions(), rooms, ledger, () => ({ vault: ctx(), current: () => true, foreground: () => true }))
+  const context = () => ({ vault: ctx(), current: () => true, foreground: () => true })
+  return new BrowserMlsKeeperRequestController(new BrowserMlsKeeperDecisions(host, inboxGrants, context, () => clock, ledger, undefined, ledger), rooms, ledger, context)
 }
 export async function approveKeeperRequest(failRemove = false) {
   const plan = await keeperDecisionPlan()
@@ -299,6 +474,11 @@ export async function applyKeeperRemoval() {
   const slot = keeperProgress?.rooms.flatMap(room => room.effect?.outbound ?? []).find((item: any) => item.destination.type === 'CommitSlot')
   if (!slot) throw new Error('fixture keeper Remove has no commit slot')
   return rooms.process(roomContext(), roomId, boxInput(slot, receipt(slot)))
+}
+export async function settleKeeperRemovalJournal() {
+  const operation = keeperProgress?.rooms[0]?.operation
+  if (!operation) throw new Error('fixture keeper removal missing')
+  return rooms.driveRemoval(roomContext(), roomId, operation)
 }
 export async function unapprovedKeeperRemoval() {
   const plan = await keeperDecisionPlan()
@@ -409,7 +589,7 @@ export async function completedCleanup() {
 /** Wire/signing integration with the real typed vault and WASM parser. The
  * transport is an in-process fixture, not a live Bothy acceptance claim. */
 export async function boxClientScenario(route: PersonaWitnessRoute, mode: string) {
-  const calls: { path: string; event: string }[] = [], encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
+  const calls: { path: string; event: string; body: string }[] = [], encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v))
   const mailbox = new Uint8Array(32).fill(11), envelope = Uint8Array.of(1, 2, 3), hash = bytesToHex(sha256(envelope))
   const box = bytesToHex(hexToBytes(route.card).subarray(5, 37))
   const caps = { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation }
@@ -421,11 +601,17 @@ export async function boxClientScenario(route: PersonaWitnessRoute, mode: string
         ['u', `http://${base32.encode(hexToBytes(box)).replace(/=+$/, '').toLowerCase()}${req.path}`],
         ['method', req.method], ['payload', bytesToHex(sha256(req.body))],
       ])) throw new Error('Invalid fixture authentication')
-    calls.push({ path: req.path, event: event.id })
+    calls.push({ path: req.path, event: event.id, body: bytesToHex(req.body) })
+    if (mode === 'clock-account' && req.path.endsWith('/fetch')) generation++
     if (mode === 'late-reply') generation++
     if (mode === 'lost-reply' && calls.length === 1) throw new Error('reply lost')
-    if (req.path.endsWith('/capabilities')) return response(200, mode === 'caps-invalid' ? encode({ ...caps, extra: 1 }) : encode(caps))
-    if (req.path.endsWith('/fetch')) return response(200, encode({ v: 1, code: 'ok', server_time: clock, records: [{ mailbox: bytesToHex(mailbox), receipt: mode === 'bad-receipt' ? '00'.repeat(32) : hash, envelope: base64Encode(envelope) }], next: null }))
+    if (req.path.endsWith('/capabilities')) return response(200, mode === 'caps-invalid' ? encode({ ...caps, extra: 1 }) : encode({ ...caps, ...(mode === 'clock-installation' && calls.length === 3 ? { installation: '88'.repeat(32) } : {}) }))
+    if (req.path.endsWith('/fetch')) {
+      if (mode === 'clock-refused') return response(503, encode({ v: 1, code: 'clock-unsafe', server_time: clock + 30 * 86400 }))
+      if (mode === 'clock-rewind') clock--
+      return response(200, encode({ v: 1, code: 'ok', server_time: clock + (mode === 'clock-server-ahead' ? 30 * 86400 : 0),
+        records: mode.startsWith('clock-') ? [] : [{ mailbox: bytesToHex(mailbox), receipt: mode === 'bad-receipt' ? '00'.repeat(32) : hash, envelope: base64Encode(envelope) }], next: null }))
+    }
     if (req.path.endsWith('/ack')) return response(200, encode({ v: 1, code: 'marked', server_time: clock, acked: 1 }))
     if (req.path.includes('/packages/')) return response(req.method === 'DELETE' ? 200 : 201, encode({ v: 1, code: req.method === 'DELETE' ? 'withdrawn' : 'registered', server_time: clock }))
     return response(201, encode({ v: 1, code: 'stored', server_time: clock, receipt: hash }))
@@ -440,6 +626,22 @@ export async function boxClientScenario(route: PersonaWitnessRoute, mode: string
     if (mode === 'stale-consent') generation++
     return mode === 'denied' ? 'deny' : 'approve'
   }, () => true, mode === 'timeout-consent' ? 1000 : 20_000)
+  if (mode.startsWith('clock-')) {
+    const grant = await planMlsGrant(localIdentity(secret), { routeId: route.routeId, eventUrl: `ws://${base32.encode(hexToBytes(box)).replace(/=+$/, '').toLowerCase()}/events` },
+      getPublicKey(new Uint8Array(32).fill(43)), '33'.repeat(32), { session: '44'.repeat(32), name: 'Clock fixture', leaf: '55'.repeat(32) }, clock)
+    const probe = new BrowserMlsKeeperBoxClock(client, () => ({ vault: ctx(), current: () => true, foreground: () => true }), () => clock)
+    try {
+      const evidence = await probe.probe(grant)
+      if (evidence) {
+        if (mode === 'clock-admission-account') generation++
+        if (mode === 'clock-admission-grant') grant.state = 'revoking'
+        probe.acceptEvidence(grant, mode === 'clock-admission-clone' ? structuredClone(evidence) : evidence)
+      }
+      return { evidence, calls, distinctEvents: new Set(calls.map(c => c.event)).size,
+        lapsed: evidence !== null && grant.expiration <= Math.min(evidence.phoneTime, evidence.boxTime) }
+    } catch (error) { return { error: (error as Error).message, calls } }
+    finally { probe.invalidate(); client.invalidate() }
+  }
   const first = client.capabilities()
   if (mode === 'cancel-consent' || mode === 'timeout-consent') {
     await entering
@@ -475,7 +677,8 @@ export async function joinRevocationAuthority() { return rooms.roomRevocationAut
 export async function addJoinedMemberDevice() { return addGuest(false, fixturePackageClient(), true) }
 export async function joinMembership() { return rooms.membership(joinContext(), roomId) }
 export async function standaloneRequests() {
-  return host.transact(persona, async tx => structuredClone((await readMlsMembership(tx)).requests), () => true)
+  const outbox = new BrowserMlsRevocationOutbox(host, () => ({ vault: ctx(), current: () => true }), () => clock)
+  return outbox.records()
 }
 export async function provisionJoin(index = 1, lifetime = 600) {
   const nonce = new Uint8Array(16).fill(9), device = getPublicKey(provisionDevice)

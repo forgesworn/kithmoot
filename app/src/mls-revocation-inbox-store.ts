@@ -2,6 +2,7 @@ import { InvalidPersonaRecord } from './mls-persona-coordinator.js'
 import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 import { createVmlsRevocationRumor, VMLS_REVOCATION_FUTURE_SKEW_SECONDS, type VmlsRevocationRequest } from '../../src/vmls-revocation-request.js'
 import { validateMlsKeeperApproval, type MlsKeeperApproval } from './mls-revocation-decision-store.js'
+import type { MlsKeeperBoxClockEvidence } from './mls-keeper-box-clock.js'
 
 export const MAX_MLS_REVOCATION_SEEN = 1024
 export const MAX_MLS_REVOCATION_PROMPTS = 64
@@ -14,9 +15,15 @@ export interface MlsRevocationInboxPrompt {
   receivedAt: number
   state: 'pending' | 'dismissed' | 'approved' | 'done'
   approval?: MlsKeeperApproval
+  /** Terminal observations about frozen authority, never about replacement grants. */
+  grantOutcomes?: MlsKeeperGrantOutcome[]
   deferredUntil?: number
   revision?: number
 }
+export type MlsKeeperGrantOutcome = { node: string; reference: string; at: number } & (
+  { outcome: 'revoked' | 'route-unavailable' } |
+  { outcome: 'no-live'; evidence: MlsKeeperBoxClockEvidence; recordDigest: string }
+)
 export interface MlsRevocationInboxState {
   keeper: string
   checkedAt: number
@@ -66,7 +73,7 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     seen.add(item.id)
   }
   for (const prompt of value.prompts) {
-    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), ...(prompt.deferredUntil === undefined ? [] : ['deferredUntil']), ...(prompt.revision === undefined ? [] : ['revision']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
+    if (!prompt || typeof prompt !== 'object' || !exact(prompt, [...(prompt.approval === undefined ? [] : ['approval']), ...(prompt.grantOutcomes === undefined ? [] : ['grantOutcomes']), ...(prompt.deferredUntil === undefined ? [] : ['deferredUntil']), ...(prompt.revision === undefined ? [] : ['revision']), 'operation', 'receivedAt', 'request', 'state'].sort().join(',')) || !hex32(prompt.operation) ||
         !time(prompt.receivedAt) || prompt.receivedAt > value.checkedAt || !['pending', 'dismissed', 'approved', 'done'].includes(prompt.state) || operations.has(prompt.operation)) invalid()
     try { createVmlsRevocationRumor(prompt.request) } catch { invalid() }
     if (prompt.request.keeper !== value.keeper || prompt.operation !== mlsStandaloneRevocationOperation(prompt.request.sender, value.keeper, prompt.request.device) ||
@@ -77,6 +84,26 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     if (prompt.approval) {
       validateMlsKeeperApproval(prompt.approval, prompt.request, prompt.operation, prompt.receivedAt)
       if (prompt.approval.approvedAt > value.checkedAt) invalid()
+    }
+    if (prompt.grantOutcomes !== undefined) {
+      const outcomes = prompt.grantOutcomes
+      if (!prompt.approval || !['approved', 'done'].includes(prompt.state) || !Array.isArray(outcomes) || outcomes.length > 256 ||
+        outcomes.some((item, index) => !item || !exact(item, item.outcome === 'no-live' ? 'at,evidence,node,outcome,recordDigest,reference' : 'at,node,outcome,reference') || !hex32(item.node) || !hex32(item.reference) ||
+          !time(item.at) || item.at < prompt.approval!.approvedAt || item.at > value.checkedAt || !['revoked','route-unavailable','no-live'].includes(item.outcome) ||
+          index > 0 && outcomes[index - 1]!.reference >= item.reference || !prompt.approval!.grants.some(grant => grant.node === item.node && grant.reference === item.reference)) ||
+        prompt.state === 'done' && (outcomes.length !== prompt.approval.grants.length || outcomes.some(item => item.outcome === 'no-live'))) invalid()
+      for (const item of outcomes) if (item.outcome === 'no-live') {
+        const evidence = item.evidence, binding = evidence?.binding
+        const grant = prompt.approval!.grants.find(grant => grant.reference === item.reference)!
+        if (!hex32(item.recordDigest) || !evidence || !exact(evidence, 'binding,boxTime,expiration,installation,node,observedAt,phoneTime,reference') ||
+            !binding || !exact(binding, 'generation,persona,principal,revision') || binding.persona !== value.keeper ||
+            typeof binding.principal !== 'string' || !binding.principal || binding.principal.length > 2048 ||
+            !time(binding.generation) || typeof binding.revision !== 'string' || !binding.revision || binding.revision.length > 256 ||
+            evidence.node !== item.node || evidence.reference !== item.reference || !hex32(evidence.installation) ||
+            !time(evidence.expiration) || evidence.expiration < 1 || evidence.expiration !== grant.expiration ||
+            !time(evidence.boxTime) || !time(evidence.phoneTime) || !time(evidence.observedAt) || evidence.observedAt !== evidence.phoneTime ||
+            evidence.observedAt > item.at || evidence.expiration > Math.min(evidence.phoneTime, evidence.boxTime)) invalid()
+      }
     }
     operations.add(prompt.operation)
   }

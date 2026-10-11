@@ -3,8 +3,7 @@ import { BrowserPersonaLinks } from './mls-persona-link.js'
 import { BrowserPersonaEnrolment, type PersonaEnrolment } from './mls-persona-enrolment.js'
 import { BrowserPersonaCoordinator, type CoordinationResult } from './mls-persona-coordinator.js'
 import { CoordinatedMlsVault, type VaultOverview, type BoxRequest, type BoxReply, BrowserCoordinatedVaultSignals } from './mls-coordinated-vault.js'
-import { BrowserMlsRevocationOutbox } from './mls-revocation-outbox.js'
-import type { MlsStandaloneRevocationRecord } from './mls-membership-store.js'
+import { BrowserMlsRevocationOutbox, type MlsStandaloneRevocationView } from './mls-revocation-outbox.js'
 import type { VmlsRevocationIdentity, VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 
 import type { ParticipantIdentity } from '../../src/identity.js'
@@ -17,7 +16,8 @@ export interface MlsAccountView {
   vault?: VaultResult<VaultOverview | null>
   installation?: string
   retirement?: { subject: string; installation: string; verified: boolean }
-  revocations?: CoordinationResult<MlsStandaloneRevocationRecord[]>
+  revocations?: CoordinationResult<MlsStandaloneRevocationView[]>
+  revocationError?: string
 }
 interface Services { store: BrowserMlsPersonaStore; links: BrowserPersonaLinks; enrolment: BrowserPersonaEnrolment; coordinator: BrowserPersonaCoordinator }
 
@@ -122,13 +122,19 @@ export class BrowserMlsAccount {
       enrolment: await s.enrolment.status(c.persona, current),
     }), true)
   }
-  sendRevocation(operation: string, transport: VmlsRevocationTransport): Promise<MlsAccountView> {
+  sendRevocation(operation: string, transport: VmlsRevocationTransport, revision?: number): Promise<MlsAccountView> {
     return this.#run(async (s, c, current) => {
       const identity = c.revocationIdentity
       if (!identity || identity.pubkey !== c.persona) throw new Error('This account needs a signer with private-message encryption to send the request.')
-      const outbox = this.#outbox(s, c, current), sent = await outbox.send(operation, { identity, transport })
-      return { revocations: sent.state === 'active' ? await outbox.records() : sent,
-        enrolment: await s.enrolment.status(c.persona, current) }
+      const outbox = this.#outbox(s, c, current)
+      try {
+        const sent = revision === undefined ? await outbox.send(operation, { identity, transport }) : await outbox.retry(operation, revision, { identity, transport })
+        return { revocations: sent.state === 'active' ? await outbox.records() : sent,
+          enrolment: await s.enrolment.status(c.persona, current) }
+      } catch {
+        return { revocations: await outbox.records(), revocationError: 'The send was not confirmed. Check the current request before choosing a fresh retry.',
+          enrolment: await s.enrolment.status(c.persona, current) }
+      }
     }, true, true)
   }
   #outbox(s: Services, c: MlsAccountContext, current: () => boolean): BrowserMlsRevocationOutbox {
