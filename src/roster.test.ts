@@ -34,12 +34,14 @@ async function fixture() {
 }
 
 describe('roster events', () => {
-  it('requires exact recording capability 2 and keeps absent clients byte-compatible', async () => {
+  it('requires exact recording capabilities and keeps absent clients byte-compatible', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
     const opts = { roomId, roomKey, deviceSk }
-    const withCapability = encodeRosterEvent({ ...entry, recordingProfile: 2 }, opts)
-    expect(decodeRosterEvent(withCapability, { roomId, roomKey, now: NOW })?.recordingProfile).toBe(2)
-    for (const bad of [undefined, null, true, '2', 1, 3, {}, []]) {
+    for (const profile of [2, 3, 4] as const) {
+      const withCapability = encodeRosterEvent({ ...entry, recordingProfile: profile }, opts)
+      expect(decodeRosterEvent(withCapability, { roomId, roomKey, now: NOW })?.recordingProfile).toBe(profile)
+    }
+    for (const bad of [undefined, null, true, '2', '4', 1, 5, 4.1, {}, []]) {
       const offered = { ...entry, recordingProfile: bad } as unknown as RosterEntry
       const event = encodeRosterEvent(offered, opts)
       const plaintext = JSON.parse(nip44.v2.decrypt(event.content, roomKey))

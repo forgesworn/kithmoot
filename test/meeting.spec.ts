@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { createRoom, INSTRUMENT, joinWithMedia, newDeviceContext, open, openCall, remotePictures } from './browser.js'
+import { collectAppDiagnostics } from './app-diagnostics.js'
 
 /**
  * Meeting mode and recording, from both sides of the call.
@@ -170,8 +171,8 @@ test('a recording is announced to everybody, before joining as well as during, a
     await expect(a.locator('#recordToggle')).toBeInViewport()
     await expect(a.locator('#callExtras')).not.toHaveAttribute('open', '')
     await expect(b.locator('#recordToggle')).toBeVisible()
-    await expect(b.locator('#recordToggle')).toBeDisabled()
-    await expect(b.locator('#recordingAuthorityHint')).toBeVisible()
+    await expect(b.locator('#recordToggle')).toBeEnabled()
+    await expect(b.locator('#recordingAuthorityHint')).toBeHidden()
     await a.locator('#recordToggle').click()
     await expect(a.locator('#actionDialog')).toBeVisible()
     await a.locator('#actionConfirm').click()
@@ -181,7 +182,13 @@ test('a recording is announced to everybody, before joining as well as during, a
     await expect(a.locator('#recordingBannerText')).toContainText('You are recording')
 
     // Somebody already on the call is told.
-    await expect(b.locator('#recordingBanner')).toBeVisible()
+    try { await expect(b.locator('#recordingBanner')).toBeVisible() }
+    catch (error) {
+      for (const [label, page] of [['recorder', a], ['listener', b]] as const) await info.attach(`${label}-warning-diagnostics`, {
+        contentType: 'application/json', body: await collectAppDiagnostics(page),
+      })
+      throw error
+    }
     await expect(b.locator('#recordingBannerText')).toContainText('being recorded')
     await expect(b.locator('#recordingBannerText')).toContainText('Ada')
     await expect(b.locator('#recordingBannerText')).toContainText('capturing call audio')
