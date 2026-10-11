@@ -522,6 +522,11 @@ RSS, not instantaneous A/V offset or battery use. The runtime predates the local
 save-retention UI fix. Native/physical cross-client, encrypted long-recording
 sharing and the complete latest-release journey remain open.
 
+The [recording permission receipt](evidence/recording-permission-guidance-2026-10-10.json)
+adds a visible disabled Record control and explanation for non-creators in
+the Call view and persistent call dock. Browser capture, sharing and navigation
+checks passed; publication and physical-device acceptance remain separate.
+
 ## G12 — Tested room capacity and a gallery that scales
 
 Answer “how many people can we support?” with measured supported configurations,

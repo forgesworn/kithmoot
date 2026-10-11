@@ -5,6 +5,17 @@ screen sharing. Joining the call enables it; meeting mode is not required.
 This control is available in the desktop client and browser, including the
 phone Call view.
 
+To record on desktop, open the room's **Call** view, join the call, then press
+**Record call** beside the microphone and camera controls. Choose **Audio only**, **Gallery and audio**,
+**Speaker and audio**, or **Screen share with camera and audio**, then confirm.
+Use **Stop recording** to finish and **Save** to export the local file.
+
+Other participants see the disabled control with a visible explanation that
+only the room creator can record. The originating call's dock shows the same
+permission feedback while viewing another conversation. Unsupported recording
+capabilities are explained beside the disabled dock control. Making a control
+visible does not grant recording authority.
+
 The recording confirmation offers audio only, gallery with audio,
 speaker with audio, or a selected screen share with that sharer's camera and
 audio. It states local retention, paused-timeline behaviour, unsupported

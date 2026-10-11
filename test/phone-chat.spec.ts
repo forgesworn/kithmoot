@@ -197,9 +197,12 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
       await expect(page.locator('#chatForm')).toBeHidden()
       const stage = (await page.locator('#whoIsHere').boundingBox())!
       expect(stage.height).toBeGreaterThan(viewport.height * .45)
-      for (const name of ['Microphone', 'Camera', 'Screen share', 'Leave call']) {
+      for (const name of ['Microphone', 'Camera', 'Screen share', 'Record call', 'Leave call']) {
         await expect(page.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
       }
+      await expect(page.locator('#recordToggle .callShort')).toBeVisible()
+      await expect(page.locator('#recordToggle .callShort')).toHaveText('Record')
+      await expect(page.locator('#recordingAuthorityHint')).toBeVisible()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.screenshot({ path: info.outputPath(`call-${viewport.width}.png`) })
       await page.locator('#mobileChat').click()
