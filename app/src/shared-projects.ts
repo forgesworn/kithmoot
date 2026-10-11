@@ -82,7 +82,7 @@ export class SharedProjectsPanel {
   }
   forRoom(room: string): readonly SharedProject[] { return this.#roomProjects.get(room) ?? [] }
   async attach(identity: ProjectIdentity, transport: RelayTransport): Promise<void> {
-    const detached = this.detach(transport), generation = this.#generation
+    const detached = this.detach(transport, true), generation = this.#generation
     await detached
     if (generation !== this.#generation) return
     this.#identity = identity; this.#transport = transport
@@ -118,7 +118,10 @@ export class SharedProjectsPanel {
   /** The panel owns the transport it was attached with, and closes it here
    *  unless it is about to be attached with the same one again: each sign-in
    *  used to leave one more pool connected to the default relays. */
-  async detach(keep?: RelayTransport): Promise<void> {
+  async detach(keep?: RelayTransport, keepWaitingPanel = false): Promise<void> {
+    // Projects may open while the first sign-in finishes. Keep that empty
+    // panel; replacing an attached account still closes its old surfaces.
+    const waitingPanel = keepWaitingPanel && !this.#identity && this.dialog.open
     this.#logoEditor?.close(); this.#logoEditor = undefined
     ++this.#generation
     this.#off?.(); this.#off = undefined
@@ -128,12 +131,12 @@ export class SharedProjectsPanel {
     this.#status = 'Sign in with your Nostr account to share projects across people and devices.'
     ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = false
     ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
-    this.editor.close(); this.dialog.close(); this.render()
+    this.editor.close(); if (!waitingPanel) this.dialog.close(); this.render()
     await directory?.close(); release?.()
     if (transport && transport !== keep) transport.close()
   }
   async unavailable(message: string): Promise<void> {
-    const detached = this.detach(), generation = this.#generation
+    const detached = this.detach(undefined, true), generation = this.#generation
     await detached
     if (generation !== this.#generation) return
     this.#status = message; this.render()

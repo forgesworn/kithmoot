@@ -189,6 +189,36 @@ async function signedDevice(browser: Browser, base: string, nip44 = true, key = 
   return { context, pubkey, relay: relay.href, key }
 }
 
+for (const nip44 of [true, false]) test(`Projects opened as sign-in finishes stays available with ${nip44 ? 'an encrypted-project' : 'an incompatible'} signer`, async ({ browser, baseURL }) => {
+  const device = await signedDevice(browser, baseURL!, nip44)
+  try {
+    // Reproduce the user opening Projects in the gap between the signer's
+    // picker closing and the account directory attaching. Mutation delivery
+    // makes this ordering deterministic without a timing delay or app hook.
+    await device.context.addInitScript(() => {
+      let sawPicker = false, opened = false
+      const observer = new MutationObserver(() => {
+        if (document.getElementById('signet-login-dialog')) sawPicker = true
+        else if (sawPicker && !opened) {
+          opened = true; observer.disconnect()
+          document.getElementById('homeSharedProjects')?.click()
+        }
+      })
+      observer.observe(document, { subtree: true, childList: true })
+    })
+    const page = await device.context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    const panel = page.locator('#sharedProjects')
+    await expect(panel).toBeVisible()
+    await expect(page.locator('#sharedProjectsStatus')).toContainText(nip44 ? 'Shared with' : 'does not support encrypted shared projects')
+    await expect(panel).toBeVisible()
+    await page.locator('#sharedProjectsClose').click()
+    await expect(panel).not.toBeVisible()
+  } finally { await device.context.close() }
+})
+
 test('project navigation stays available after initial sign-in', async ({ browser, baseURL }) => {
   test.setTimeout(45_000)
   const device = await signedDevice(browser, baseURL!)
