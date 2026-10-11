@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.74",
+  "currentRelease": "0.1.75",
   "releases": [
     {
-      "version": "0.1.74",
+      "version": "0.1.75",
       "updateTo": {
-        "version": "0.1.74",
-        "pub_date": "2026-10-11T16:51:42Z",
-        "notes": "Room details no longer includes the bug-report control. Room and project artwork and invitation review match the latest web client; authenticated MLS group pinning is included. Existing send, unread-count and recording improvements remain.",
-        "name": "0.1.74",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.74/KithMoot-0.1.74-mac-arm64.zip",
-        "sha256": "7f534e20a231c59eb0aa2f9e50c8efcc8581c19294310a1d77992505c40d3b9b",
-        "size": 175431530
+        "version": "0.1.75",
+        "pub_date": "2026-10-11T19:48:23Z",
+        "notes": "Anyone on a group or private call can record, with independent warnings for each recorder. The live gallery, audience and screen shares stay visible while you browse other conversations; Hide gallery remains your choice. Update every participant to enable participant recording.",
+        "name": "0.1.75",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.75/KithMoot-0.1.75-mac-arm64.zip",
+        "sha256": "069a21c16654d1c30cbce6c406d624c397656212a691006a6a1cff8bd78d3257",
+        "size": 175432062
       }
     }
   ]

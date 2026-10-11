@@ -1,0 +1,56 @@
+{
+  "checkedAt": "2026-10-11T19:42:44.704Z",
+  "sourceCommit": "69419e117e3e9e51629aff03d1ff8180e85b619d",
+  "version": "0.1.75",
+  "build": 60,
+  "webFiles": 265,
+  "desktopRuntimeFiles": 22,
+  "files": [
+    {
+      "filename": "KithMoot-0.1.75-mac-arm64.zip",
+      "bytes": 175432062,
+      "sha256": "069a21c16654d1c30cbce6c406d624c397656212a691006a6a1cff8bd78d3257",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "KithMoot-0.1.75-linux-arm64.tar.gz",
+      "bytes": 171131895,
+      "sha256": "d5bae79e13bfa8098b2cfdcf1320c1ba8a861c13e4b03de7d7daa2d2a5c16e06",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "KithMoot-0.1.75-linux-x64.tar.gz",
+      "bytes": 170013094,
+      "sha256": "969cb91e2f04cb6fea337bcf0f9801b933ff5d56e30cc6c5304d0554ac7520bf",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "KithMoot-0.1.75-windows-x64.zip",
+      "bytes": 205381915,
+      "sha256": "331f2209e11eebd20256c52e5212858dd95bc52cb81bef72def2a7b02edfeee0",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "kithmoot_0.1.75_amd64.deb",
+      "bytes": 133511408,
+      "sha256": "5e24e0fd438dce849397dddcb94e5739de4cf09d2d0029576333a9c3e49c9bfa",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "kithmoot_0.1.75_arm64.deb",
+      "bytes": 128548640,
+      "sha256": "649e6e24d0a6b1a8bef976946d50fedb5374ce8318abba5893f4d122bd0d24d9",
+      "packagedRuntimeMatchesSource": true
+    }
+  ],
+  "productionReportControlAbsent": true,
+  "productionAcceptanceHookAbsent": true,
+  "macSignatureNotarisationGatekeeper": true,
+  "physicalAcceptance": false,
+  "publiclyShipped": false,
+  "state": "verified-candidate-awaiting-ci-and-publication",
+  "unitTests": 4168,
+  "desktopUnitTests": 98,
+  "callAcceptanceJourneys": 10,
+  "expectedProjectSkips": 2
+}
