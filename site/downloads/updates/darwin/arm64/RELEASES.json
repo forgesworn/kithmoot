@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.72",
+  "currentRelease": "0.1.73",
   "releases": [
     {
-      "version": "0.1.72",
+      "version": "0.1.73",
       "updateTo": {
-        "version": "0.1.72",
-        "pub_date": "2026-10-10T18:15:18Z",
-        "notes": "Opening a conversation no longer moves it to the top or changes its activity time. Temporary-room guests wait for an admission decision unless a matching signed account proof qualifies them for automatic admission. Record call remains beside microphone, camera and screen sharing for the room creator.",
-        "name": "0.1.72",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.72/KithMoot-0.1.72-mac-arm64.zip",
-        "sha256": "a7d1902846a6c36ba7c5577394174982e9b5cb67122208ff0049c0bba0411092",
-        "size": 175413102
+        "version": "0.1.73",
+        "pub_date": "2026-10-11T02:18:35Z",
+        "notes": "Record call is visible to every participant, with a clear explanation when only the room creator can use it. Open Call, join the call, then choose audio only, gallery, speaker or screen with camera. The call dock shows the same permission guidance.",
+        "name": "0.1.73",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.73/KithMoot-0.1.73-mac-arm64.zip",
+        "sha256": "18250e5065dad6ad6d9c51df1a3f2ed3ccdf2d9075c1151efee44d5a5916f44b",
+        "size": 175419441
       }
     }
   ]

@@ -1,0 +1,61 @@
+{
+  "recordedAt": "2026-10-11T02:19:06.829156+00:00",
+  "state": "verified-candidate-awaiting-release-ci-and-publication",
+  "version": "0.1.73",
+  "build": 58,
+  "sourceCommit": "c71863cbd687027aecf62766a2671ae98a298b78",
+  "recordingMerge": "1d27fccc2e5cf29b2049eebd12ac536388da5c95",
+  "recordingPR": 364,
+  "recordingPRChecksPassed": 12,
+  "rootUnitTests": 3912,
+  "desktopUnitTests": 98,
+  "recordingBrowserJourneys": 11,
+  "packagedMacRecordingJourneys": 1,
+  "macNotarisation": {
+    "id": "6b17ea1f-711d-4d83-a196-cf24c6083ab3",
+    "message": "Processing complete",
+    "status": "Accepted"
+  },
+  "archives": [
+    {
+      "name": "KithMoot-0.1.73-mac-arm64.zip",
+      "sha256": "18250e5065dad6ad6d9c51df1a3f2ed3ccdf2d9075c1151efee44d5a5916f44b",
+      "bytes": 175419441
+    },
+    {
+      "name": "KithMoot-0.1.73-linux-x64.tar.gz",
+      "bytes": 169917858,
+      "sha256": "945ad12e910af9c62aa759d258b6f54917c6eee7a75b47067d93025e13278a70"
+    },
+    {
+      "name": "KithMoot-0.1.73-linux-arm64.tar.gz",
+      "bytes": 171038735,
+      "sha256": "150f30378c86491286b59977db671e789d089d09bd34f173a09bd1657b7837f6"
+    },
+    {
+      "name": "KithMoot-0.1.73-windows-x64.zip",
+      "bytes": 205369424,
+      "sha256": "f4eb3f4f672960446a498cb0e621c9ae3e3475824b951871c982d757d71accfc"
+    },
+    {
+      "name": "kithmoot_0.1.73_amd64.deb",
+      "bytes": 133499944,
+      "sha256": "99c8464badddd776a9e2e54ec43ca019310aa5975b2d3876878081613c7c2f7a"
+    },
+    {
+      "name": "kithmoot_0.1.73_arm64.deb",
+      "bytes": 128543360,
+      "sha256": "d93e1a683094734af591186030306bd236c744af687c1d5eb09e3e42f0cc0756"
+    }
+  ],
+  "allArchivePayloadsVerified": true,
+  "updateManifestSignatureVerified": true,
+  "aptSignatureVerified": true,
+  "publiclyShipped": false,
+  "physicalAcceptance": false,
+  "remaining": [
+    "Release PR hosted checks and merged-source runtime comparison.",
+    "GitHub packages, APT indexes, website and signed update feed publication and full public download verification.",
+    "Physical microphone, camera, screen capture and update acceptance on both Macs."
+  ]
+}
