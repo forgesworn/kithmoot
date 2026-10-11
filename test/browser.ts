@@ -460,8 +460,17 @@ export async function expectToSeeAndHear(page: Page, who: string): Promise<void>
     })
     .toBeGreaterThan(0)
 
-  const first = await page.evaluate(remotePictures)
-  expect(first[0]!.spread, `${who}'s remote tile is a flat colour, not a picture`).toBeGreaterThan(3)
+  // Camera recovery initially blurs the whole new source. A decoded frame
+  // can therefore still be flat while the privacy pipeline is warming up.
+  // Keep the actual picture threshold and use the successful sample as the
+  // movement baseline, rather than assuming metadata means it has settled.
+  let first = await page.evaluate(remotePictures)
+  await expect.poll(async () => {
+    first = await page.evaluate(remotePictures)
+    return first[0]?.spread ?? 0
+  }, {
+    message: `${who}'s remote tile remains a flat colour, not a picture`, timeout: 30_000,
+  }).toBeGreaterThan(3)
 
   // Moving, not a single frame frozen on arrival. Sampled twice with a real
   // gap, because "changed" is the only evidence of "live".
