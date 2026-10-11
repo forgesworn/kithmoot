@@ -1539,15 +1539,6 @@ button.primary:hover:not(:disabled) {
   margin-bottom: 0.4rem;
 }
 
-/* A bug report is not a setting. It sat in the row of switches an ordinary
-   person reads through, where "Copy a bug report" reads as one of the
-   things they are being asked to decide about. One disclosure away, named
-   for the day you would want it. */
-#troubleshooting > summary {
-  cursor: pointer;
-  color: var(--accent);
-  margin: 0.75rem 0 0.4rem;
-}
 
 .log {
   border: 1px solid var(--border);
@@ -2025,29 +2016,6 @@ button.primary:hover:not(:disabled) {
 #toggleAssist:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-/* Diagnostics: what this page knows about its connections, for pasting
-   into a bug report. Short keys, candidate types and counters; never an
-   address. */
-#diagnostics.quiet {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  margin-right: 0.5rem;
-}
-
-#diagnosticsOut {
-  width: 100%;
-  margin: 0.5rem 0;
-  font-family: monospace;
-  font-size: 0.85rem;
-  background: var(--panel);
-  color: var(--fg, #eae6dc);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.5rem;
-  box-sizing: border-box;
 }
 
 /* Inviting an agent: one row per agent a host can run. */

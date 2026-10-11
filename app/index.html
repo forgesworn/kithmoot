@@ -1415,11 +1415,6 @@
           </div>
         </details>
 
-        <!-- One disclosure away rather than sitting among the settings.
-             "Copy a bug report" beside the switches a person uses reads
-             as one of them, and a bug report is not a setting: it is what
-             you reach for on a bad day. Still here, still one click, and
-             now it says what it is for before you press it. -->
         <h3 class="sheetHead">Settings</h3>
         <!-- The same three sizes as the Android app, remembered on this
              device. Applied by app/src/text-size.ts. -->
@@ -1436,23 +1431,10 @@
           <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
           <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
         </div>
-        <details id="troubleshooting">
-          <summary>If something here is not working</summary>
-          <p class="note">
-            This copies what this page knows about its own connections:
-            which route each person is on, what the relays answered, what
-            this browser can and cannot do. It carries no messages and no
-            keys. Paste it wherever you are reporting the problem.
-          </p>
-          <div class="toolRow">
-            <button id="diagnostics" type="button" class="quiet">Copy a bug report</button>
-          </div>
-          <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Bug report"></textarea>
-          <p class="note">
-            Something unsafe or illegal, rather than broken?
-            <a href="https://kithmoot.forgesworn.dev/report/" target="_blank" rel="noopener noreferrer">Report abuse</a>
-          </p>
-        </details>
+        <p class="note">
+          Something unsafe or illegal?
+          <a href="https://kithmoot.forgesworn.dev/report/" target="_blank" rel="noopener noreferrer">Report abuse</a>
+        </p>
 
         <div class="sheetRow">
           <button id="leave" type="button" class="danger">Leave this room</button>

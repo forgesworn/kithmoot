@@ -1,3 +1,4 @@
+import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, type Page } from '@playwright/test'
 import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUDIO } from './browser.js'
 
@@ -35,16 +36,7 @@ async function clickShareArea(page: Page): Promise<void> {
 }
 
 async function readDiagnostics(page: Page): Promise<{ me: { publishing: string[]; screenAudio: { present: boolean; muted?: boolean; readyState?: string } } }> {
-  // Cleared first, and every call in these specs re-clicks: collection is
-  // async (it walks every peer connection's stats), so a read taken soon
-  // after a previous one could otherwise see the still-truthy old value
-  // rather than wait for the refreshed one.
-  await page.evaluate(() => { (document.getElementById('diagnosticsOut') as HTMLTextAreaElement).value = '' })
-  await page.evaluate(() => (document.getElementById('diagnostics') as HTMLButtonElement).click())
-  const text = await expect
-    .poll(async () => page.locator('#diagnosticsOut').inputValue(), { timeout: 10_000 })
-    .toBeTruthy()
-    .then(() => page.locator('#diagnosticsOut').inputValue())
+  const text = await collectAppDiagnostics(page)
   return JSON.parse(text)
 }
 
