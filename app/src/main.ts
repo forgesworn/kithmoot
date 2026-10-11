@@ -4669,8 +4669,9 @@ function roomHasPictures(views: ParticipantView[]): boolean {
 }
 
 function applyCallPane(views: ParticipantView[], state: CallStanceInput): void {
-  // A docked call is out of sight: the room on screen has the whole window.
-  const target = docked() ? 'resting' : callPane({ ...state, pictures: roomHasPictures(views) })
+  // The docked gallery still belongs to the live call while another chat is
+  // open. Its explicit Hide gallery control manages collapse independently.
+  const target = docked() ? 'live' : callPane({ ...state, pictures: roomHasPictures(views) })
   const shown = paneSettler.settle(target, Date.now())
   if (document.documentElement.dataset.callPane !== shown) document.documentElement.dataset.callPane = shown
   if (paneTimer !== undefined) { clearTimeout(paneTimer); paneTimer = undefined }
