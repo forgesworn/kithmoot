@@ -138,7 +138,7 @@ for (const phone of [false, true]) {
       await expect(bo!.getByRole('button', { name: 'Expand screen share from Ada', exact: true })).toBeVisible()
       await ada!.locator('#callDockScreen').click()
       await expect(bo!.getByRole('button', { name: 'Expand screen share from Ada', exact: true })).toHaveCount(0)
-      // Recording uses the original room's authority and notice, while C's
+      // Recording uses the original call's device key and notice, while C's
       // own banner and the permission to share the resulting file stay separate.
       await ada!.locator('#callDockRecording').click()
       await expect(ada!.locator('#actionTitle')).toContainText('Record the call in')
@@ -175,9 +175,11 @@ for (const phone of [false, true]) {
       await bo!.keyboard.press('Control+k'); await bo!.locator('#roomSwitcherHome').click()
       await expect(bo!.locator('#home')).toBeVisible()
       await expect(bo!.locator('#callDockRecording')).toBeVisible()
-      await expect(bo!.locator('#callDockRecording')).toBeDisabled()
-      await expect(bo!.locator('#callDockRecordingHint')).toContainText('Only the person who created this call’s room')
-      await expect(bo!.locator('#callDockRecording')).toHaveAttribute('aria-describedby', 'callDockRecordingHint')
+      await expect(bo!.locator('#callDockRecording')).toBeEnabled()
+      await expect(bo!.locator('#callDockRecordingHint')).toBeHidden()
+      await bo!.locator('#callDockRecording').click()
+      await expect(bo!.locator('#actionTitle')).toContainText('Record the call in')
+      await bo!.locator('#actionCancel').click()
       const permissionScreenshot = info.outputPath('participant-recording-permission.png')
       await bo!.screenshot({ path: permissionScreenshot })
       await info.attach('participant-recording-permission.png', { path: permissionScreenshot, contentType: 'image/png' })
