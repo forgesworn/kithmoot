@@ -1,0 +1,67 @@
+{
+  "checkedAt": "2026-10-11T16:58:20.542Z",
+  "sourceCommit": "db271a651066969e54c7736e2ab6773797d63bbf",
+  "version": "0.1.74",
+  "build": 59,
+  "webFiles": 265,
+  "desktopRuntimeFiles": 22,
+  "files": [
+    {
+      "filename": "KithMoot-0.1.74-mac-arm64.zip",
+      "bytes": 175431530,
+      "sha256": "7f534e20a231c59eb0aa2f9e50c8efcc8581c19294310a1d77992505c40d3b9b",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "KithMoot-0.1.74-linux-arm64.tar.gz",
+      "bytes": 171119268,
+      "sha256": "a7ec972a6233899cc7dea1b1617fbf11d515fe0ebe75789954737b8feb4cb8d2",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "KithMoot-0.1.74-linux-x64.tar.gz",
+      "bytes": 170001975,
+      "sha256": "ac0ec1c2b444e7834d82ad9d84355f2e132d4968ac9b4e5140e3892c2a05a087",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "KithMoot-0.1.74-windows-x64.zip",
+      "bytes": 205381485,
+      "sha256": "4f39bff31593300e718228c2670c47b878eb177b301c2c40b26abd8674106be8",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "kithmoot_0.1.74_amd64.deb",
+      "bytes": 133510308,
+      "sha256": "726da838521ea969448702247350fe6a141dac7605deb71d033e74a8842bfec4",
+      "packagedRuntimeMatchesSource": true
+    },
+    {
+      "filename": "kithmoot_0.1.74_arm64.deb",
+      "bytes": 128543704,
+      "sha256": "d4c004ec94a08c72b554cc690e8dd28fba50b2da500e852c586625e666f3e33a",
+      "packagedRuntimeMatchesSource": true
+    }
+  ],
+  "productionReportControlAbsent": true,
+  "productionAcceptanceHookAbsent": true,
+  "macSignatureNotarisationGatekeeper": true,
+  "physicalAcceptance": false,
+  "publiclyShipped": false,
+  "state": "verified-candidate-awaiting-release-ci-and-publication",
+  "rootUnitTests": 4101,
+  "desktopUnitTests": 98,
+  "browserAndDesktopRecordingJourneys": 2,
+  "packagedMacUiBoundarySmoke": true,
+  "updateManifestSignaturesVerified": true,
+  "githubDraftAssetsVerified": true,
+  "nativeScreenChooserSmoke": {
+    "passed": false,
+    "reason": "The existing M4 smoke fixture did not reach its mocked screen-chooser callback. Actual macOS screen-picker and physical-media acceptance remain open."
+  },
+  "remaining": [
+    "Exact-head hosted release checks and merged-source runtime comparison.",
+    "GitHub release, owner archives, APT and signed-feed publication with independent public downloads.",
+    "Physical microphone, camera, screen-picker and update acceptance."
+  ]
+}

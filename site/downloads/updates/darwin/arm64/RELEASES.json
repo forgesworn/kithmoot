@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.73",
+  "currentRelease": "0.1.74",
   "releases": [
     {
-      "version": "0.1.73",
+      "version": "0.1.74",
       "updateTo": {
-        "version": "0.1.73",
-        "pub_date": "2026-10-11T02:18:35Z",
-        "notes": "Record call is visible to every participant, with a clear explanation when only the room creator can use it. Open Call, join the call, then choose audio only, gallery, speaker or screen with camera. The call dock shows the same permission guidance.",
-        "name": "0.1.73",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.73/KithMoot-0.1.73-mac-arm64.zip",
-        "sha256": "8d886f1e123e72c0b8d60dede8d7ae197c99df16d83c62e8a0e4ffa67e8bed54",
-        "size": 175419354
+        "version": "0.1.74",
+        "pub_date": "2026-10-11T16:51:42Z",
+        "notes": "Room details no longer includes the bug-report control. Room and project artwork and invitation review match the latest web client; authenticated MLS group pinning is included. Existing send, unread-count and recording improvements remain.",
+        "name": "0.1.74",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.74/KithMoot-0.1.74-mac-arm64.zip",
+        "sha256": "7f534e20a231c59eb0aa2f9e50c8efcc8581c19294310a1d77992505c40d3b9b",
+        "size": 175431530
       }
     }
   ]
