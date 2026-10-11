@@ -1,0 +1,34 @@
+{
+  "qualification": "Desktop quiet recording cancellation and Stop restart recovery",
+  "source_base": "f283c9d",
+  "unit_tests": 22,
+  "typecheck": "passed",
+  "browser": {
+    "project": "chromium",
+    "gallery_export": "passed; decoded video and mixed call audio",
+    "quiet_runtime": "passed",
+    "cancelled_startup_recorders_created": 0,
+    "recording_additional_quiet_counters": 0,
+    "recording_additional_quiet_queue_entries": 0,
+    "public_chat_added": 0,
+    "stop_recovery": "exact signed Off retained after refused publication, delivered after page/controller reload",
+    "background_traffic": "Fixed-cadence gift-wrap fillers continue. Ordinary catalogue request uses one counter on each join."
+  },
+  "source_sha256": {
+    "app/src/main.ts": "7dac6ada287f0a86c5f15dcb7a90c41b06ed76b93cf99fa7b98d8670ac0cc68b",
+    "app/src/recording-stop-journal.ts": "a7b66c2b2d48bf0b3a0fd43fafe1be60b8a34d32129b002b6d1cf316a1174697",
+    "app/src/recording-stop-journal.test.ts": "de563d9ef00f5be57dba7833f5344298c48b4c7f58693f58129c91d5b7bb50e5",
+    "test/recording-video.spec.ts": "77ff92c0b5fd460b533dd4ac7eae375bec85c00725a659a29150a4421802fd5c"
+  },
+  "log_sha256": {
+    "typecheck": "caa298209aa942cc5ab18c6756f73b50b8a325269b5da448077f6e2ab19f7e45",
+    "unit": "c8ed7b8dc5fe86264efea831fabe5366be931f195fcff2be8f3b8835952e403a",
+    "gallery_and_quiet_browser": "fe6c157a92909dbf452fd4e6bc083a6b3769a3dfbd5c71ffb8a85f2961471b69",
+    "quiet_usage_browser": "dbd916fdaeb7fe09082f9bb269ac21562fd0cf2a7a65c758342bd6d6b88746a9"
+  },
+  "limits": [
+    "Synthetic Chromium clients on local relay, not Android-desktop runtime or physical hardware",
+    "Quiet lifecycle beyond this startup/cancel/Stop/reload journey remains separate",
+    "Hosted CI for these cancellation changes, signed distribution and physical endurance remain open"
+  ]
+}

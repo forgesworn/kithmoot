@@ -51,12 +51,27 @@ screen layout remains bound to the selected participant and device through
 share replacement, and reports an ended share or departed owner instead of
 switching to another person's screen.
 
-Only devices advertising recording-profile 2 can contribute video; this
+Only devices advertising recording-profile 2 or 3 can contribute video; this
 ensures their client explains video recording. An older client is excluded
 from video, appears with a named update fallback, and can still contribute
 audio under the unchanged legacy warning. Capability claims do not prove
 identity or consent. All inputs are checked against the originating call and
 meeting access rules repeatedly, including after roster or track changes.
+
+Quiet rooms require profile 3 from every admitted device in the originating
+call. Their authority-signed recording and capture notices travel together in
+live encrypted presence, outside the quiet chat queue and slot counters.
+Capture starts only after guarded relay confirmation. The recording control
+offers Cancel while that confirmation is pending; cancellation revokes the
+startup guard and cannot create a recorder. A device joining without profile 3
+cuts recording inputs and stops local capture.
+
+Before publishing On, the recording device retains an exact authority-signed
+Off scoped to its room, participant, device and pinned root authority. A
+refused Stop stays in storage. After reload, an admitted session retries that
+same Off without recovering On or requiring the authority secret. Another
+recording cannot start while its previous Stop remains unconfirmed. This
+journal retains a notice, not an unsaved recording file.
 
 Independent muted video elements decode only the chosen layout's inputs.
 Gallery paging, collapse and popouts therefore cannot freeze the export or

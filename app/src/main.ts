@@ -8075,6 +8075,8 @@ function recordingJournal(s: RoomSession): RecordingStopJournal {
   return journal
 }
 async function deliverRecordingStop(s: RoomSession, off: SignedRecordingOff): Promise<void> {
+  const newer = s.liveRecording?.state.recording
+  if (newer && recordingJournal(s).retireSuperseded(newer)) return
   if (s.requiresLiveRecordingWarnings) await s.publishLiveRecordingConfirmed({ recording: off })
   else await s.channel(CONTROL_CHANNEL).send(encodeControl(off))
   recordingJournal(s).confirm(off)
@@ -8102,14 +8104,28 @@ async function publishRecordingOn(s: RoomSession, signed: SignedRecording,
 }
 
 let recordingStartPending = false
+let recordingStartAttempt: { session: RoomSession | undefined; cancelled: boolean } | undefined
+function cancelRecordingStart(): void {
+  if (!recordingStartAttempt) return
+  recordingStartAttempt.cancelled = true
+  setStatus('Recording cancelled. Waiting to confirm that its notice has stopped.')
+  renderMeeting()
+  renderDock()
+}
 async function startRecording(): Promise<void> {
   if (recordingStartPending) return
   recordingStartPending = true
-  try { await beginRecording() }
-  finally { recordingStartPending = false }
+  const attempt = recordingStartAttempt = { session: mediaSession(), cancelled: false }
+  try { await beginRecording(attempt) }
+  finally {
+    recordingStartPending = false
+    recordingStartAttempt = undefined
+    renderMeeting()
+    renderDock()
+  }
 }
 
-async function beginRecording(): Promise<void> {
+async function beginRecording(attempt: { session: RoomSession | undefined; cancelled: boolean }): Promise<void> {
   const s = mediaSession(), authoritySk = callRecordingAuthority()
   if (!s || !authoritySk) throw new Error('Only the person who made this room can record its calls.')
   if (activeRecording) return
@@ -8184,7 +8200,7 @@ async function beginRecording(): Promise<void> {
     content: options,
     confirmLabel: 'Start recording',
   }) } finally { clearInterval(shareTimer) }
-  if (!confirmed) return
+  if (!confirmed || attempt.cancelled) return
   if (mediaSession() !== s || s.call?.id !== callId || s.closed || activeRecording) return
   const chosen = layout as 'audio' | VideoRecordingLayout
   const selectedShare = shares.find(share => `${share.participant}:${share.device}` === shareSelect.value)
@@ -8200,10 +8216,13 @@ async function beginRecording(): Promise<void> {
   // recording that never starts.
   const offNotice = { on: false as const, id: signed.id, version: signed.version + 1 }
   journal.arm({ op: 'recording', ...offNotice, sig: signRecordingNotice({ roomId: s.roomId, notice: offNotice, authoritySk }) })
-  const allowed = () => !s.closed && mediaSession() === s && s.call?.id === callId &&
+  const allowed = () => !attempt.cancelled && !s.closed && mediaSession() === s && s.call?.id === callId &&
     (!s.requiresLiveRecordingWarnings || s.liveRecordingCompatible(callId)) &&
     (chosen === 'audio' || !!activeRecording || !document.hidden) &&
     (activeRecording?.notice.id === signed.id || (recordingStartPending && !activeRecording))
+  setStatus('Waiting for the room to confirm the recording notice. You can cancel.')
+  renderMeeting()
+  renderDock()
   try { await publishRecordingOn(s, signed, capture, allowed) }
   catch (error) { await postRecordingOff(s, authoritySk, signed); throw error }
   recordingCaptures.set(s.roomId, capture)
@@ -8489,20 +8508,21 @@ function renderMeeting(): void {
 
   const record = $('recordToggle') as HTMLButtonElement
   const recordingHere = activeRecording?.session === session && activeRecording !== undefined
-  const recordLabel = recordingHere ? 'Stop recording' : 'Record call'
+  const startingHere = recordingStartAttempt?.session === session && !!recordingStartAttempt
+  const recordLabel = startingHere ? recordingStartAttempt!.cancelled ? 'Cancelling recording' : 'Cancel recording' : recordingHere ? 'Stop recording' : 'Record call'
   record.hidden = !session && !recordingHere
   record.querySelector('.callWord')!.textContent = recordLabel
-  record.querySelector('.callShort')!.textContent = recordingHere ? 'Stop' : 'Record'
+  record.querySelector('.callShort')!.textContent = startingHere ? 'Cancel' : recordingHere ? 'Stop' : 'Record'
   record.setAttribute('aria-label', recordLabel)
   record.setAttribute('aria-pressed', String(recordingHere))
   record.dataset.on = String(recordingHere)
   const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
-  record.disabled = !recordingHere && (!moderator || !session?.call || mediaSession() !== session || !canRecord)
+  record.disabled = startingHere ? recordingStartAttempt!.cancelled : !recordingHere && (!moderator || !session?.call || mediaSession() !== session || !canRecord)
   const authorityHint = $('recordingAuthorityHint')
   authorityHint.hidden = moderator || recordingHere || !session
   if (!authorityHint.hidden) record.setAttribute('aria-describedby', 'recordingAuthorityHint')
   else record.removeAttribute('aria-describedby')
-  record.title = recordingHere ? 'Stop recording' : !moderator ? authorityHint.textContent! : record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : 'Record audio or video'
+  record.title = startingHere ? recordLabel : recordingHere ? 'Stop recording' : !moderator ? authorityHint.textContent! : record.disabled ? (canRecord ? 'Join the call to record it.' : 'This browser cannot record calls.') : 'Record audio or video'
 
   const panel = $('meetingPanel') as HTMLDetailsElement
   panel.hidden = !moderator
@@ -8552,6 +8572,7 @@ $('meetingModeToggle').addEventListener('click', () => {
   setMeetingMode(on).catch((err) => setStatus(describeError(err)))
 })
 $('recordToggle').addEventListener('click', () => {
+  if (recordingStartAttempt?.session === session) { cancelRecordingStart(); return }
   if (activeRecording) { void stopRecording(); return }
   startRecording().catch((err) => setStatus(describeError(err)))
 })
@@ -14055,18 +14076,19 @@ function renderDock(): void {
   renderRecordingPause('callDockRecordingPause', !!recordingMine)
   renderRecordingElapsed()
   const recording = $('callDockRecording') as HTMLButtonElement
+  const startingHere = recordingStartAttempt?.session === c.session && !!recordingStartAttempt
   const recordingAuthority = !!callRecordingAuthority()
   const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
   recording.hidden = false
-  recording.disabled = !recordingMine && (!recordingAuthority || !canRecord)
+  recording.disabled = startingHere ? recordingStartAttempt!.cancelled : !recordingMine && (!recordingAuthority || !canRecord)
   const recordingHint = $('callDockRecordingHint')
   recordingHint.hidden = !recording.disabled
-  recordingHint.textContent = !recordingAuthority ? 'Only the person who created this call’s room can record it.' : 'This browser cannot record calls.'
-  recording.title = recording.disabled ? recordingHint.textContent : recordingMine ? 'Stop recording' : 'Record audio or video'
+  recordingHint.textContent = startingHere ? 'Recording cancelled. Waiting to confirm that its notice has stopped.' : !recordingAuthority ? 'Only the person who created this call’s room can record it.' : 'This browser cannot record calls.'
+  recording.title = startingHere ? recordingStartAttempt!.cancelled ? 'Cancelling recording' : 'Cancel recording' : recording.disabled ? recordingHint.textContent : recordingMine ? 'Stop recording' : 'Record audio or video'
   if (recording.disabled) recording.setAttribute('aria-describedby', 'callDockRecordingHint')
   else recording.removeAttribute('aria-describedby')
-  recording.textContent = recordingMine ? 'Stop recording' : 'Record call'
-  recording.setAttribute('aria-label', `${recordingMine ? 'Stop recording' : 'Record the call'} in ${c.label}`)
+  recording.textContent = startingHere ? recordingStartAttempt!.cancelled ? 'Cancelling recording' : 'Cancel recording' : recordingMine ? 'Stop recording' : 'Record call'
+  recording.setAttribute('aria-label', `${startingHere ? 'Cancel recording' : recordingMine ? 'Stop recording' : 'Record the call'} in ${c.label}`)
   $('callDockBack').setAttribute('aria-label', `Back to the call in ${c.label}`)
 }
 
@@ -15187,7 +15209,7 @@ $('toggleMirror').addEventListener('click', () => {
 $('callDockMic').addEventListener('click', () => { void toggleMic().catch(err => setStatus(describeError(err))) })
 $('callDockCamera').addEventListener('click', () => { void toggleCamera().catch(err => setStatus(describeError(err))) })
 $('callDockScreen').addEventListener('click', () => { void toggleScreen().catch(err => setStatus(describeError(err))) })
-$('callDockRecording').addEventListener('click', () => { void (activeRecording?.session === mediaSession() ? stopRecording() : startRecording()).catch(err => setStatus(describeError(err))) })
+$('callDockRecording').addEventListener('click', () => { void (recordingStartAttempt?.session === mediaSession() ? Promise.resolve(cancelRecordingStart()) : activeRecording?.session === mediaSession() ? stopRecording() : startRecording()).catch(err => setStatus(describeError(err))) })
 $('callGalleryCollapse').addEventListener('click', () => { galleryCollapsed = !galleryCollapsed; renderDock(); callStage.refresh() })
 $('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })
 $('callDockLeave').addEventListener('click', () => { void endDockedCall() })

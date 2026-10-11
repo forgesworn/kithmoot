@@ -36,6 +36,15 @@ export class RecordingStopJournal {
     if (!saved || saved.id !== off.id || saved.version !== off.version || saved.sig !== off.sig)
       throw new Error('This device could not retain the recording stop')
   }
+  /** A newer root-signed state supersedes this Stop. Never take down a
+   * different recorder with an old recovery, or trust unsigned UI state. */
+  retireSuperseded(notice: Extract<ControlMessage, { op: 'recording' }>): boolean {
+    const before = this.pending()
+    if (!before || notice.version <= before.version ||
+        !verifyRecordingNotice({ roomId: this.room, notice, sig: notice.sig, authority: this.authority })) return false
+    this.confirm(before)
+    return true
+  }
   confirm(off: SignedRecordingOff): void {
     const before = this.pending()
     if (before?.id === off.id && before.version === off.version && before.sig === off.sig) this.store.remove(this.#key)

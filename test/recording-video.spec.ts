@@ -1,5 +1,7 @@
+import { Relay } from 'nostr-tools/relay'
+import { KINDS } from '../src/kinds.js'
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 import { execFileSync } from 'node:child_process'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { arch, hostname, platform, totalmem } from 'node:os'
@@ -265,3 +267,126 @@ for (const { layout, phone } of [
     } finally { await aContext.close(); await bContext.close() }
   })
 }
+
+
+test('quiet recording uses live warnings and recovers its exact Stop after a refused publication and reload', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name !== 'chromium', 'Chromium runtime fixture; cross-client and physical qualification remain separate')
+  test.setTimeout(180_000)
+  const creator = await newDeviceContext(browser, baseURL!), guest = await newDeviceContext(browser, baseURL!)
+  const watcher = await Relay.connect(TEST_RELAY_WS)
+  const traffic: number[] = []
+  watcher.subscribe([{ kinds: [KINDS.CHAT], since: Math.floor(Date.now() / 1000) - 5 }, { kinds: [1059] }], {
+    onevent: event => traffic.push(event.kind),
+  })
+  try {
+    const rowan = await creator.newPage(), ada = await guest.newPage()
+    await syntheticMedia(rowan, '#ed2020'); await syntheticMedia(ada, '#2020ed')
+    // Refuse only this browser's live roster publication when the test
+    // explicitly asks. No fake acknowledgement or quiet queue fallback.
+    await rowan.addInitScript(kind => {
+      const NativeRecorder = window.MediaRecorder
+      ;(window as unknown as { recordingCreations: number }).recordingCreations = 0
+      window.MediaRecorder = class extends NativeRecorder {
+        constructor(stream: MediaStream, options?: MediaRecorderOptions) {
+          super(stream, options)
+          ;(window as unknown as { recordingCreations: number }).recordingCreations++
+        }
+      }
+      const send = WebSocket.prototype.send
+      WebSocket.prototype.send = function(data) {
+        if (typeof data === 'string' && localStorage.getItem('__testHoldRecordingPresence') === '1') {
+          try {
+            const frame = JSON.parse(data)
+            if (frame[0] === 'EVENT' && frame[1]?.kind === kind) return
+          } catch { /* Other frames keep their ordinary transport behaviour. */ }
+        }
+        return send.call(this, data)
+      }
+    }, KINDS.ROSTER)
+    const url = await createRoom(rowan, baseURL!)
+    await open(rowan, url, 'Rowan'); await rowan.locator('#join').click()
+    await open(ada, url, 'Ada'); await ada.locator('#join').click()
+    await expect(ada.locator('#roomArea')).toBeVisible()
+    await openRoomDetails(rowan)
+    await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
+    await expect(rowan.locator('#status')).toContainText('Quiet conversation with Ada')
+    await expect(ada.locator('#chatLog')).toContainText('started a quiet conversation with you')
+    await rowan.locator('#roomSheetClose').click()
+    await openRoomDetails(rowan)
+    await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
+    await expect(rowan.locator('#roomTitle')).toHaveText('Quiet: Ada')
+    await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Quiet: Rowan' }).click()
+    await expect(ada.locator('#roomTitle')).toHaveText('Quiet: Rowan')
+    await turnOnMedia(rowan)
+    await expect(ada.locator('#callToggle')).toHaveText('Join call')
+    await turnOnMedia(ada)
+    await expect.poll(async () => (await rowan.evaluate(remotePictures)).length).toBeGreaterThan(0)
+    await openCall(rowan)
+    const chatCount = () => traffic.filter(kind => kind === KINDS.CHAT).length
+    const readQuietUsage = () => rowan.evaluate(() => {
+      const states = Object.keys(localStorage).filter(key => key.startsWith('kithmoot.quiet.v1.'))
+        .map(key => JSON.parse(localStorage.getItem(key)!))
+      return {
+        counters: states.flatMap(state => Object.values(state.used ?? {}).flatMap(value => (value as { counters: number[] }).counters)),
+        queued: states.flatMap(state => state.queued ?? []),
+      }
+    })
+    // Joining asks the keeper for its catalogue through the ordinary
+    // quiet control channel. Let that known initial message leave before
+    // measuring the recording's additional queue/counter use.
+    await expect.poll(async () => { const usage = await readQuietUsage(); return { counters: usage.counters.length, queued: usage.queued.length } }, { timeout: 30_000 }).toEqual({ counters: 1, queued: 0 })
+    const quietBefore = await readQuietUsage()
+    const before = chatCount()
+    // A refused startup remains visibly cancellable. Cancelling must
+    // revoke the pending carrier guard before any recorder is created.
+    await rowan.evaluate(() => localStorage.setItem('__testHoldRecordingPresence', '1'))
+    await rowan.locator('#recordToggle').click()
+    await rowan.locator('input[name="recording-layout"][value="gallery"]').check()
+    await rowan.locator('#actionConfirm').click()
+    await expect(rowan.locator('#recordToggle')).toHaveAttribute('aria-label', 'Cancel recording')
+    await rowan.locator('#recordToggle').click()
+    await rowan.evaluate(() => localStorage.removeItem('__testHoldRecordingPresence'))
+    await expect(rowan.locator('#recordToggle')).toHaveAttribute('aria-label', 'Record call', { timeout: 30_000 })
+    expect(await rowan.evaluate(() => (window as unknown as { recordingCreations: number }).recordingCreations)).toBe(0)
+    await expect(ada.locator('#recordingBanner')).toBeHidden()
+    expect(chatCount()).toBe(before)
+    expect(await readQuietUsage()).toEqual(quietBefore)
+    await rowan.locator('#recordToggle').click()
+    await rowan.locator('input[name="recording-layout"][value="gallery"]').check()
+    await rowan.locator('#actionConfirm').click()
+    await expect(rowan.locator('#recordingElapsed')).toBeVisible()
+    await expect(ada.locator('#recordingBannerText')).toContainText('Rowan')
+    await expect(ada.locator('#recordingBannerText')).toContainText('gallery video')
+    const readStop = () => rowan.evaluate(() => {
+      const key = Object.keys(localStorage).find(key => key.startsWith('kithmoot.recording-stop.v1.'))
+      return key ? JSON.parse(localStorage.getItem(key)!) : undefined
+    })
+    const off = await readStop()
+    expect(off).toMatchObject({ op: 'recording', on: false })
+    await rowan.waitForTimeout(2500)
+    expect(chatCount()).toBe(before)
+    expect(await readQuietUsage()).toEqual(quietBefore)
+    await rowan.evaluate(() => localStorage.setItem('__testHoldRecordingPresence', '1'))
+    await rowan.locator('#recordingStop').click()
+    await expect(rowan.locator('#recordingReady')).toBeVisible({ timeout: 30_000 })
+    expect(await readStop()).toEqual(off)
+    expect(chatCount()).toBe(before)
+    expect(await readQuietUsage()).toEqual(quietBefore)
+    // Restore the carrier, then recreate the page/device controller.
+    // The prior failed Stop is still exact in storage immediately before
+    // reload; the new admitted session must deliver it without capturing.
+    await rowan.evaluate(() => localStorage.removeItem('__testHoldRecordingPresence'))
+    expect(await readStop()).toEqual(off)
+    await rowan.reload()
+    await expect(rowan.locator('#join')).toBeVisible()
+    await rowan.locator('#join').click()
+    await expect(rowan.locator('#roomArea')).toBeVisible()
+    await expect(rowan.locator('#recordingElapsed')).toBeHidden()
+    await expect.poll(readStop, { timeout: 45_000 }).toBeUndefined()
+    await expect(ada.locator('#recordingBanner')).toBeHidden({ timeout: 30_000 })
+    expect(chatCount()).toBe(before)
+    // Rejoining makes its one ordinary catalogue request again. Stop
+    // recovery must add no third control message/counter.
+    await expect.poll(async () => { const usage = await readQuietUsage(); return { counters: usage.counters.length, queued: usage.queued.length } }, { timeout: 30_000 }).toEqual({ counters: 2, queued: 0 })
+  } finally { watcher.close(); await creator.close(); await guest.close() }
+})

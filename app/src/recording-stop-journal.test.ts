@@ -53,3 +53,16 @@ it('accepts the same signed stop regardless of JSON property ordering', () => {
   journal.arm({ sig: signed.sig, version: signed.version, id: signed.id, on: false, op: 'recording' })
   expect(journal.pending()).toEqual(signed)
 })
+
+it('retires recovery only for a strictly newer state signed by the pinned room authority', () => {
+  const store = memoryDeviceStore(), journal = new RecordingStopJournal(store, room, participant, device, authority)
+  const retained = off(); journal.arm(retained)
+  const notice = { on: true, id: '34'.repeat(16), version: retained.version + 1 }
+  const newer = { op: 'recording' as const, ...notice, sig: signRecordingNotice({ roomId: room, notice, authoritySk }) }
+  expect(journal.retireSuperseded({ ...newer, sig: '00'.repeat(64) })).toBe(false)
+  expect(journal.retireSuperseded(retained)).toBe(false)
+  expect(journal.retireSuperseded({ ...newer, sig: signRecordingNotice({ roomId: 'cd'.repeat(32), notice, authoritySk }) })).toBe(false)
+  expect(journal.pending()).toEqual(retained)
+  expect(journal.retireSuperseded(newer)).toBe(true)
+  expect(journal.pending()).toBeUndefined()
+})
