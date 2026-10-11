@@ -13748,6 +13748,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
+  if (activeRecording?.session === old && old !== dockedCall?.session) await stopRecording()
   if (!keepCall) {
     ++callGeneration
     const key = callLockKey()
