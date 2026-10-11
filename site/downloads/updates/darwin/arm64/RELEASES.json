@@ -9,8 +9,8 @@
         "notes": "Record call is visible to every participant, with a clear explanation when only the room creator can use it. Open Call, join the call, then choose audio only, gallery, speaker or screen with camera. The call dock shows the same permission guidance.",
         "name": "0.1.73",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.73/KithMoot-0.1.73-mac-arm64.zip",
-        "sha256": "18250e5065dad6ad6d9c51df1a3f2ed3ccdf2d9075c1151efee44d5a5916f44b",
-        "size": 175419441
+        "sha256": "8d886f1e123e72c0b8d60dede8d7ae197c99df16d83c62e8a0e4ffa67e8bed54",
+        "size": 175419354
       }
     }
   ]
