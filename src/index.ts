@@ -69,6 +69,9 @@ export { signMeetingPolicy, verifyMeetingPolicy, signRecordingNotice, verifyReco
 export { signRecordingCaptureNotice, verifyRecordingCaptureNotice, isRecordingCapture, type RecordingCapture, type RecordingCaptureNotice } from './meeting.js'
 export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, invitationRelaysFrom, withRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
 export { renameRoomOp, carryRoomNameOp, roomNameFromMessage, compareRoomNames, followRoomName, RoomNameBook, ROOM_NAME_REPOST_SECONDS, ROOM_NAME_REKEY_GRACE_SECONDS, type RoomNameOp, type RoomNameRecord, type RoomNameEpochs, type RoomNameSession, type FollowRoomNameOptions, type RoomNameFollower } from './room-name.js'
+export { createLogoImage, readLogoImage, logoDataUrl, logoFromCanvasEncoding, MAX_LOGO_BYTES, MAX_LOGO_PIXELS, type LogoImage } from './logo-image.js'
+export { roomLogoOp, roomLogoFromMessage, compareRoomLogos, followRoomLogo, RoomLogoBook, type RoomLogoRecord, type RoomLogoSession, type RoomLogoFollower } from './room-logo.js'
+export { type RoomLogoOp } from './room-logo-payload.js'
 export type {
   RoomEpoch,
   EpochKeys,
@@ -578,6 +581,7 @@ export { ProjectDirectory } from './project-directory.js'
 export type { ProjectDirectoryStorage, ProjectDirectorySnapshot, SharedProject } from './project-directory.js'
 export { PROJECT_APP, PROJECT_KIND, PROJECT_WRAP_KIND, projectKey, projectId, projectAuthority, projectRecord, signProject, projectForRecipient, wrapProject, unwrapProject } from './projects.js'
 export type { ProjectIdentity, ProjectMember, ProjectRoom, ProjectDefinition, ProjectReference, ProjectRevision, ProjectRecord } from './projects.js'
+export { PROJECT_LOGO_APP, MAX_PROJECT_LOGO_BYTES, MAX_PROJECT_LOGO_WRAP_BYTES, projectLogoRecord, signProjectLogo, wrapProjectLogo, unwrapProjectLogo, type ProjectLogoContext, type ProjectLogoRecord } from './project-logo.js'
 
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 

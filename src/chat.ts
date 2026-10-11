@@ -5,6 +5,8 @@ import { KINDS } from './kinds.js'
 import { withExpiration } from './expiration.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
 import { normaliseArtwork, normaliseOutgoingArtwork, MAX_CHAT_ARTWORK, type ChatArtwork } from './artwork.js'
+import { roomLogoPayload } from './room-logo-payload.js'
+import type { LogoImage } from './logo-image.js'
 import { compareMessages } from './message-order.js'
 import { assignmentPayload, ASSIGNMENT_CHANNEL } from './assignments.js'
 import {
@@ -137,6 +139,8 @@ export interface ChatMessage {
   attachments?: ChatAttachment[]
   /** Bundled stickers and GIFs, inside the encrypted chat payload only. */
   artwork?: ChatArtwork[]
+  /** Private room metadata; null deliberately removes the room override. */
+  roomLogo?: LogoImage | null
   /**
    * Whose agent the sender is, when it is one and its principal has said
    * so. Carried on the message for the reason the credential is: chat is
@@ -372,6 +376,8 @@ function rootOf(opts: { roomId: string; roomKey: Uint8Array; epoch?: EpochRoot }
  * a DURABLE kind (see `KINDS.CHAT`).
  */
 export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Event {
+  const roomLogo = msg.roomLogo === undefined ? undefined : roomLogoPayload(msg.text, msg.roomLogo, opts.channel)
+  if (msg.roomLogo !== undefined && roomLogo === undefined) throw new Error('Invalid room logo envelope')
   if (msg.assignment) {
     const payload = assignmentPayload(msg.assignment, opts.roomId)
     if (opts.channel !== ASSIGNMENT_CHANNEL || !payload || msg.assignment.pubkey !== msg.participant ||
@@ -400,6 +406,7 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
     attachments: honestAttachments(msg.attachments),
     artwork: normaliseOutgoingArtwork(msg.artwork),
+    roomLogo,
     reaction: msg.reaction === undefined ? undefined : normaliseReaction(msg.reaction),
     owner: currentOwner,
     ownerClaim: historicalOwner ?? (claimedOwner && inspectAgentOwnershipSignature(claimedOwner, { agent: msg.participant, now: msg.sentAt }).ok ? claimedOwner : undefined),
@@ -520,11 +527,16 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     // favour.
     const raw = msg as unknown as Record<string, unknown>
     const has = (field: string): boolean => raw[field] !== undefined
-    const statements = ['reaction', 'replaces', 'retracts', 'invite', 'assignment'].filter(has)
+    const statements = ['reaction', 'replaces', 'retracts', 'invite', 'assignment', 'roomLogo'].filter(has)
     if (statements.length > 1) return null
-    if ((has('reaction') || has('retracts') || has('invite') || has('assignment')) &&
+    if ((has('reaction') || has('retracts') || has('invite') || has('assignment') || has('roomLogo')) &&
         (has('kind') || has('attachments') || has('artwork') || has('reply') || has('thread') || has('mentions'))) return null
     if (has('replaces') && (has('kind') || has('reply') || has('thread'))) return null
+    if (has('roomLogo')) {
+      const roomLogo = roomLogoPayload(msg.text, msg.roomLogo, opts.channel)
+      if (roomLogo === undefined) return null
+      msg.roomLogo = roomLogo
+    }
     if (msg.assignment) {
       const payload = assignmentPayload(msg.assignment, opts.roomId)
       if (opts.channel !== ASSIGNMENT_CHANNEL || !payload || msg.assignment.pubkey !== msg.participant ||
@@ -738,6 +750,8 @@ export interface PreparedSend {
 export const CONVERSATION_MOVED = 'This conversation has closed or changed its key. Copy your message into the current conversation to send it.'
 
 export interface SendOptions {
+  /** A matching logo op on the control channel; never ordinary chat content. */
+  roomLogo?: LogoImage | null
   reaction?: ChatReaction
   /** Mark the message a transcript of `speaker`'s words. See
    *  `ChatMessage.kind`. */
@@ -1081,11 +1095,11 @@ export class ChatLog {
     }
     // One statement per message, checked here as a caller's mistake so it
     // is never silently sent as something else. See `decodeChatEvent`.
-    const statements = [sendOpts.reaction, sendOpts.replaces, sendOpts.retracts, sendOpts.invite].filter((x) => x !== undefined)
+    const statements = [sendOpts.reaction, sendOpts.replaces, sendOpts.retracts, sendOpts.invite, sendOpts.roomLogo].filter((x) => x !== undefined)
     if (statements.length > 1) throw new Error('a message says one thing about another message, not two')
     const isConversation = statements.length === 0
     if (!isConversation && sendOpts.replyTo !== undefined) throw new Error('only a message can answer another')
-    if ((sendOpts.reaction !== undefined || sendOpts.retracts !== undefined || sendOpts.invite !== undefined) &&
+    if ((sendOpts.reaction !== undefined || sendOpts.retracts !== undefined || sendOpts.invite !== undefined || sendOpts.roomLogo !== undefined) &&
         (sendOpts.mentions !== undefined || sendOpts.attachments !== undefined || sendOpts.artwork !== undefined || sendOpts.transcriptOf !== undefined || sendOpts.directive)) {
       throw new Error('a reaction, a retraction or an invitation carries nothing else')
     }
@@ -1122,6 +1136,8 @@ export class ChatLog {
       if (attachments.length === 0) attachments = undefined
     }
     const artwork = normaliseOutgoingArtwork(sendOpts.artwork)
+    const roomLogo = sendOpts.roomLogo === undefined ? undefined : roomLogoPayload(text, sendOpts.roomLogo, this.#opts.channel)
+    if (sendOpts.roomLogo !== undefined && roomLogo === undefined) throw new Error('Invalid room logo envelope')
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
       participant: credential.pubkey,
@@ -1139,6 +1155,7 @@ export class ChatLog {
       ...this.#sentAt(),
       ...(attachments ? { attachments } : {}),
       ...(artwork ? { artwork } : {}),
+      ...(roomLogo !== undefined ? { roomLogo } : {}),
       ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
       ...(this.#opts.ownerClaim ? { ownerClaim: this.#opts.ownerClaim } : {}),
       ...(reply ? { reply } : {}),

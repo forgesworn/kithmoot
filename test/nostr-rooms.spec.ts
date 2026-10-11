@@ -832,7 +832,7 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
 
     await a.locator('#sharedProjectsList').getByRole('button', { name: 'Kithmoot room', exact: true }).click()
     await expect(a.locator('#roomArea')).toBeVisible()
-    await expect(a.locator('#workspaceRooms h3')).toHaveText(['Bothy', 'Kithmoot', 'Research'])
+    await expect(a.locator('#workspaceRooms .workspaceProjectName')).toHaveText(['Bothy', 'Kithmoot', 'Research'])
     await a.locator('#chatInput').fill('Keep this draft in Kithmoot')
     await a.locator('#workspaceRooms').getByRole('button', { name: 'Bothy room', exact: true }).click()
     await expect(a.locator('#roomTitle')).toHaveText('Bothy room')

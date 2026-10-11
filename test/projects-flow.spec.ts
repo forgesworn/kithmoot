@@ -3,9 +3,159 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { npubEncode } from 'nostr-tools/nip19'
 import { RoomAgent } from '../src/agent.js'
-import { encodeRoomLink } from '../src/link.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
 import { writeFile } from 'node:fs/promises'
+import { openRoomDetails } from './browser.js'
+
+test('project logos recover privately and follow explicit room and call contexts', async ({ browser, baseURL }, info) => {
+  const owner = await signedDevice(browser, baseURL!), member = await signedDevice(browser, baseURL!)
+  const externalImages: string[] = []
+  const checkImages = (device: Awaited<ReturnType<typeof signedDevice>>) => device.context.on('request', request => {
+    if (request.resourceType() === 'image' && /^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(baseURL!).origin) externalImages.push(request.url())
+  })
+  checkImages(owner); checkImages(member)
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Shared workshop', ...agentRelaysFor(baseURL!) })
+  const sideKeeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Side workshop', ...agentRelaysFor(baseURL!) })
+  const saved = { roomId: keeper.roomId, name: 'Shared workshop', link: encodeRoomLink(baseURL!, { ...keeper.link, relays: [owner.relay] }), openedAt: 1, readAt: 0 }
+  const side = { roomId: sideKeeper.roomId, name: 'Side workshop', link: encodeRoomLink(baseURL!, { ...sideKeeper.link, relays: [owner.relay] }), openedAt: 1, readAt: 0 }
+  await owner.context.addInitScript(({ saved, side, pubkey }) => {
+    localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${saved.roomId}`, JSON.stringify(saved))
+    localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${side.roomId}`, JSON.stringify(side))
+  }, { saved, side, pubkey: owner.pubkey })
+  let recovered: Awaited<ReturnType<typeof signedDevice>> | undefined
+  const openProjects = async (page: Page) => {
+    await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible, #switcherSharedProjects:visible').first().click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
+    await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
+  }
+  const card = (page: Page, name: string) => page.locator('.sharedProjectCard').filter({ has: page.getByRole('heading', { name, exact: true }) })
+  const picture = (page: Page, name: string) => card(page, name).locator('.sharedProjectLogo img')
+  const png = async (page: Page, colour: string) => Buffer.from(await page.evaluate(colour => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 100
+    const context = canvas.getContext('2d')!; context.fillStyle = colour; context.fillRect(0, 0, 100, 100)
+    return canvas.toDataURL('image/png').split(',')[1]!
+  }, colour), 'base64')
+  const choose = async (page: Page, colour: string) => {
+    await page.locator('.logoEditor input[type=file]').setInputFiles({ name: 'private-source.png', mimeType: 'image/png', buffer: await png(page, colour) })
+    await expect(page.locator('.logoEditor [data-action=save]')).toBeEnabled()
+  }
+  const create = async (page: Page, name: string) => {
+    await page.locator('#sharedProjectNew').click(); await page.locator('#sharedProjectName').fill(name)
+    await page.locator('#sharedProjectNpub').fill(npubEncode(member.pubkey)); await page.locator('#sharedProjectAddPerson').click()
+    await page.locator('#sharedProjectRooms').getByRole('checkbox', { name: saved.name, exact: true }).check()
+    if (name === 'Red project') await page.locator('#sharedProjectRooms').getByRole('checkbox', { name: side.name, exact: true }).check()
+    await page.locator('#sharedProjectSave').click(); await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
+  }
+  try {
+    const [a, b] = await Promise.all([owner, member].map(async device => {
+      const page = await device.context.newPage(); await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
+      await openProjects(page); return page
+    }))
+    await create(a!, 'Red project'); await create(a!, 'Blue project')
+    const sources = new Map<string, string>()
+    for (const [name, colour] of [['Red project', '#ff0000'], ['Blue project', '#0000ff']] as const) {
+      await card(a!, name).getByRole('button', { name: 'Change project logo' }).click(); await choose(a!, colour)
+      await a!.locator('.logoEditor [data-action=save]').click(); await expect(a!.locator('.logoEditor')).toHaveCount(0)
+      await expect(picture(a!, name)).toHaveAttribute('src', /^data:image\/(png|webp);base64,/)
+      const source = (await picture(a!, name).getAttribute('src'))!; sources.set(name, source)
+      await expect(picture(b!, name)).toHaveAttribute('src', source)
+      expect(await picture(b!, name).evaluate(async (image: HTMLImageElement) => { await image.decode(); return image.naturalWidth })).toBeGreaterThan(0)
+      await expect(card(b!, name).getByRole('button', { name: 'Change project logo' })).toHaveCount(0)
+      await expect(b!.locator('#roomArea')).not.toBeVisible()
+      await card(b!, name).getByRole('button', { name: 'Review and join' }).click()
+      await b!.locator('#sharedProjectSave').click(); await expect(b!.locator('#sharedProjectEditor')).not.toBeVisible()
+    }
+    // Cancelling a new crop leaves the shared artwork unchanged.
+    await card(a!, 'Red project').getByRole('button', { name: 'Change project logo' }).click(); await choose(a!, '#00ff00')
+    await a!.locator('.logoEditor [data-action=cancel]').click()
+    await expect(picture(b!, 'Red project')).toHaveAttribute('src', sources.get('Red project')!)
+    await b!.locator('#sharedProjectsClose').click()
+    const row = b!.locator(`#roomList [data-room="${saved.roomId}"]`)
+    await expect(row.locator('.roomAvatar img')).toHaveCount(0)
+    const filters = b!.locator('#homeProject')
+    const options = await filters.locator('option').evaluateAll(options => options.map(option => ({ value: (option as HTMLOptionElement).value, text: option.textContent })))
+    const red = options.find(option => option.text === 'Red project')!.value, blue = options.find(option => option.text === 'Blue project')!.value
+    await filters.selectOption(red); await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', sources.get('Red project')!)
+    await filters.selectOption(blue); await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', sources.get('Blue project')!)
+    await row.getByRole('button', { name: `Open ${saved.name}`, exact: true }).click()
+    if (await b!.locator('#displayName').isVisible()) { await b!.locator('#displayName').fill('Member'); await b!.locator('#join').click() }
+    await expect(b!.locator('#roomArea')).toBeVisible()
+    await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
+    await openRoomDetails(b!); await b!.getByRole('button', { name: 'Change room logo', exact: true }).click(); await choose(b!, '#00ff00')
+    await b!.locator('.logoEditor [data-action=save]').click(); await expect(b!.locator('.logoEditor')).toHaveCount(0)
+    const override = await b!.locator('#roomLogo img').getAttribute('src')
+    expect(override).not.toBe(sources.get('Blue project'))
+    await b!.getByRole('button', { name: 'Change room logo', exact: true }).click()
+    await b!.locator('.logoEditor [data-action=remove]').click(); await expect(b!.locator('.logoEditor')).toHaveCount(0)
+    await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
+    await b!.locator('#roomSheetClose').click()
+    // One call retains its chosen project while the same room is opened
+    // from a different project. No camera or microphone is requested.
+    await b!.setViewportSize({ width: 1440, height: 900 }); await b!.locator('#callToggle').click()
+    await expect(b!.locator('#callSurfaceLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
+    await expect(b!.locator('#callSurfaceOrigin')).toHaveText('Call in Shared workshop · Blue project')
+    await openProjects(b!); await card(b!, 'Red project').getByRole('button', { name: saved.name, exact: true }).click()
+    await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Red project')!)
+    await expect(b!.locator('#callSurfaceLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
+    await expect(b!.locator('#callSurfaceOrigin')).toHaveText('Call in Shared workshop · Blue project')
+    await openProjects(b!); await card(b!, 'Red project').getByRole('button', { name: side.name, exact: true }).click()
+    if (await b!.locator('#displayName').isVisible()) { await b!.locator('#displayName').fill('Member'); await b!.locator('#join').click() }
+    await expect(b!.locator('#roomTitle')).toHaveText(side.name)
+    await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Red project')!)
+    await expect(b!.locator('#callSurfaceLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
+    await expect(b!.locator('#callSurfaceOrigin')).toHaveText('Call in Shared workshop · Blue project')
+    // Recover from signed encrypted relays without copying a local cache.
+    recovered = await signedDevice(browser, baseURL!, true, member.key)
+    checkImages(recovered)
+    const fresh = await recovered.context.newPage(); await fresh.setViewportSize({ width: 320, height: 640 })
+    await fresh.goto(baseURL! + '?signin=nostr'); await fresh.getByRole('button', { name: /Browser extension/ }).click(); await openProjects(fresh)
+    for (const name of ['Red project', 'Blue project']) await expect(picture(fresh, name)).toHaveAttribute('src', sources.get(name)!)
+    const stored = await fresh.evaluate(() => Object.entries(localStorage).filter(([key]) => key.includes('shared-projects')).map(([, value]) => value).join(''))
+    expect(stored).not.toContain('Red project'); expect(stored).not.toContain('private-source.png'); expect(stored).not.toContain(sources.get('Red project'))
+    for (const colourScheme of ['light', 'dark'] as const) {
+      await fresh.emulateMedia({ colorScheme: colourScheme }); await fresh.screenshot({ path: info.outputPath(`project-logos-320-${colourScheme}.png`), fullPage: true })
+      expect(await fresh.locator('#sharedProjects').evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth)).toBe(true)
+    }
+    await card(a!, 'Blue project').getByRole('button', { name: 'Change project logo' }).click()
+    await a!.locator('.logoEditor [data-action=remove]').click(); await expect(a!.locator('.logoEditor')).toHaveCount(0)
+    await expect(picture(fresh, 'Blue project')).toHaveCount(0)
+    await expect(b!.locator('#callSurfaceLogo img')).toHaveCount(0)
+    await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Red project')!)
+    expect(externalImages).toEqual([])
+    // The fresh account has directory membership, but has never joined
+    // this room. Direct opening must show the authorised local brand.
+    await fresh.goto('about:blank')
+    await fresh.goto(side.link)
+    await expect(fresh.locator('#join')).toBeVisible()
+    await expect(fresh.locator('#arrivalRoomBrand')).toBeVisible()
+    await expect(fresh.locator('#arrivalLogo img')).toHaveAttribute('src', sources.get('Red project')!)
+    await expect(fresh.locator('#arrivalRoomBrandName')).toHaveText('Side workshop · Red project')
+    await expect(fresh.locator('#roomArea')).not.toBeVisible()
+    for (const colourScheme of ['light', 'dark'] as const) {
+      await fresh.emulateMedia({ colorScheme: colourScheme })
+      await fresh.screenshot({ path: info.outputPath(`admission-logo-320-${colourScheme}.png`), fullPage: true })
+      expect(await fresh.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    const refreshed = encodeRoomLink(baseURL!, { ...parseRoomLink(side.link), name: 'Refreshed invitation label' })
+    expect(new URL(refreshed).hash).not.toBe(new URL(side.link).hash)
+    await fresh.goto('about:blank'); await fresh.goto(refreshed)
+    await expect(fresh.locator('#arrivalLogo img')).toHaveAttribute('src', sources.get('Red project')!)
+    await expect(fresh.locator('#arrivalRoomBrandName')).toHaveText('Side workshop · Red project')
+    await expect(fresh.locator('#roomArea')).not.toBeVisible()
+    // An archival directory update revokes the preview on the open door.
+    await card(a!, 'Red project').getByRole('button', { name: 'Edit project', exact: true }).click()
+    await a!.locator('#sharedProjectArchived').check(); await a!.locator('#sharedProjectSave').click()
+    await expect(a!.locator('#sharedProjectEditor')).not.toBeVisible()
+    await expect(fresh.locator('#arrivalRoomBrand')).not.toBeVisible()
+    await expect(fresh.locator('#arrivalLogo img')).toHaveCount(0)
+    await expect(fresh.locator('#roomArea')).not.toBeVisible()
+    expect(externalImages).toEqual([])
+  } finally {
+    await recovered?.context.close(); await Promise.all([owner.context.close(), member.context.close()]); await Promise.all([keeper.leave(), sideKeeper.leave()])
+  }
+})
 
 /** Synthetic NIP-07 signer: private keys stay in the test process. */
 async function signedDevice(browser: Browser, base: string, nip44 = true, key = generateSecretKey()) {
@@ -39,6 +189,75 @@ async function signedDevice(browser: Browser, base: string, nip44 = true, key = 
   return { context, pubkey, relay: relay.href, key }
 }
 
+test('a Projects press survives rooms arriving before pointer release', async ({ browser, baseURL }) => {
+  const device = await signedDevice(browser, baseURL!)
+  try {
+    const page = await device.context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(baseURL!)
+    const opener = page.locator('#homeSharedProjects')
+    await opener.hover(); await page.mouse.down()
+    try {
+      await page.evaluate(() => {
+        const roomId = 'a'.repeat(64)
+        localStorage.setItem(`kithmoot.room.${roomId}`, JSON.stringify({ roomId, name: 'Arriving room', link: location.href, openedAt: 1, readAt: 0 }))
+        window.dispatchEvent(new StorageEvent('storage', { key: 'kithmoot.project.v1.arriving' }))
+      })
+    } finally { await page.mouse.up() }
+    await expect(page.locator('#sharedProjects')).toBeVisible()
+  } finally { await device.context.close() }
+})
+
+for (const nip44 of [true, false]) test(`Projects opened as sign-in finishes stays available with ${nip44 ? 'an encrypted-project' : 'an incompatible'} signer`, async ({ browser, baseURL }) => {
+  const device = await signedDevice(browser, baseURL!, nip44)
+  try {
+    // Reproduce the user opening Projects in the gap between the signer's
+    // picker closing and the account directory attaching. Mutation delivery
+    // makes this ordering deterministic without a timing delay or app hook.
+    await device.context.addInitScript(() => {
+      let sawPicker = false, opened = false
+      const observer = new MutationObserver(() => {
+        if (document.getElementById('signet-login-dialog')) sawPicker = true
+        else if (sawPicker && !opened) {
+          opened = true; observer.disconnect()
+          document.getElementById('homeSharedProjects')?.click()
+        }
+      })
+      observer.observe(document, { subtree: true, childList: true })
+    })
+    const page = await device.context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    const panel = page.locator('#sharedProjects')
+    await expect(panel).toBeVisible()
+    await expect(page.locator('#sharedProjectsStatus')).toContainText(nip44 ? 'Shared with' : 'does not support encrypted shared projects')
+    await expect(panel).toBeVisible()
+    await page.locator('#sharedProjectsClose').click()
+    await expect(panel).not.toBeVisible()
+  } finally { await device.context.close() }
+})
+
+test('project navigation stays available after initial sign-in', async ({ browser, baseURL }) => {
+  test.setTimeout(45_000)
+  const device = await signedDevice(browser, baseURL!)
+  try {
+    const page = await device.context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await page.locator('#homeSharedProjects:visible').click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
+    await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
+    await page.locator('#sharedProjectNew').click()
+    await expect(page.locator('#sharedProjectEditor')).toBeVisible()
+    await page.locator('#sharedProjectName').fill('My first project')
+    await page.locator('#sharedProjectSave').click()
+    await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
+    await expect(page.locator('.sharedProjectCard h3')).toHaveText(['My first project'])
+  } finally { await device.context.close() }
+})
+
 test('three projects deliver only intended human and agent memberships to fresh devices', async ({ browser, baseURL }, info) => {
   const ada = await signedDevice(browser, baseURL!), bob = await signedDevice(browser, baseURL!)
   const carol = await signedDevice(browser, baseURL!), worker = await signedDevice(browser, baseURL!)
@@ -60,6 +279,7 @@ test('three projects deliver only intended human and agent memberships to fresh 
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
     return page
   }))

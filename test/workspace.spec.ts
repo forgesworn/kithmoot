@@ -55,6 +55,21 @@ async function project(page: Page, room: string, name: string) {
   await expect(page.locator('#projectEditor')).not.toBeVisible()
 }
 
+test('a room title press survives a rail update before pointer release', async ({ browser, baseURL }) => {
+  const { context, page, rooms } = await setup(browser, baseURL!)
+  try {
+    await join(page, rooms[0]!.link)
+    const target = page.locator('#workspaceRooms .workspaceRoomName').filter({ hasText: rooms[1]!.name })
+    const node = await target.elementHandle()
+    await target.hover(); await page.mouse.down()
+    try {
+      await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'kithmoot.project.v1.arriving' })))
+      expect(await node!.evaluate(element => element.isConnected)).toBe(true)
+    } finally { await page.mouse.up() }
+    await expect(page.locator('#roomTitle')).toHaveText(rooms[1]!.name)
+  } finally { await context.close() }
+})
+
 test('local groups organise rooms, filter by name, survive reload and remain reachable on mobile', async ({ browser, baseURL }, testInfo) => {
   const { context, page, rooms } = await setup(browser, baseURL!)
   try {
@@ -73,7 +88,7 @@ test('local groups organise rooms, filter by name, survive reload and remain rea
     await expect(page.locator('#workspaceRooms .workspaceRoom')).toHaveCount(2)
     await group.getByRole('button', { name: 'Design workshop', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Design workshop')
-    await expect(page.locator('#workspaceRooms [aria-current=true]')).toHaveText('Design workshop')
+    await expect(page.locator('#workspaceRooms [aria-current=true]')).toHaveAccessibleName('Design workshop')
     await expect(page.locator('#workspaceQuery')).toHaveValue('kithmoot')
     await page.locator('#workspaceQuery').fill('')
     await expect(page.locator('#workspaceRooms h3')).toContainText(['KithMoot', 'No project'])
@@ -400,8 +415,18 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
   }
 })
 
-test('switching rooms restores independent reading places after delayed history and honours Jump to latest', async ({ browser, baseURL }) => {
+for (const unavailableStorage of [false, true]) {
+test(`switching rooms restores independent reading places after delayed history and honours Jump to latest${unavailableStorage ? ' when archive storage fails' : ''}`, async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
+  if (unavailableStorage) await context.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+      if (this.transaction.db.name === 'kithmoot-room-archive-v1' && this.name === 'keys') {
+        throw new DOMException('Archive key storage refused', 'DataCloneError')
+      }
+      return put.call(this, value, key)
+    }
+  })
   // Reading-position restore, not the agent feature: an agent's unaddressed
   // message no longer counts as unread - see `classifyMessage` in
   // `src/messages.ts`.
@@ -484,8 +509,15 @@ test('switching rooms restores independent reading places after delayed history 
     await page.setViewportSize({ width: 390, height: 600 })
     await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
     await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+    if (unavailableStorage) {
+      await page.locator('#roomMenu').click()
+      await expect(page.locator('#archiveStorageNotice')).toBeVisible()
+      await expect(page.locator('#archiveStorageNotice')).toContainText('after closing it')
+      await page.locator('#roomSheetClose').click()
+    }
   } finally { first.leave(); second.leave(); await context.close() }
 })
+}
 
 test('keyboard section shortcuts preserve drafts, skip hidden areas and leave dialogs in control', async ({ browser, baseURL }, testInfo) => {
   const { context, page, rooms } = await setup(browser, baseURL!)
@@ -858,10 +890,10 @@ test('the installed window shows each other room\'s unread messages in the rail,
     await planning.getByRole('button', { name: 'Pin Planning room', exact: true }).click()
     const pinnedSection = rail.locator('section[data-project="pinned:"]')
     await expect(rail.locator('section').first()).toHaveAttribute('data-project', 'pinned:')
-    await expect(pinnedSection.locator('h3')).toHaveText('Pinned')
-    await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
+    await expect(pinnedSection.locator('h3')).toHaveAccessibleName('Pinned')
+    await expect(pinnedSection.locator('.workspaceRoomName')).toHaveText(['Planning room'])
     await reenter(page, withRelays(here.url, [relay]))
-    await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
+    await expect(pinnedSection.locator('.workspaceRoomName')).toHaveText(['Planning room'])
     // A real watched message can redraw the rail between pointer down and
     // up. Keep its section, row and pressed action connected while still
     // showing the new unread count immediately; releasing must unpin it.

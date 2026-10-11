@@ -808,7 +808,7 @@ test('switching from the rail to a room that has to let you in shows the door, n
     await expect(again).toContainText('Rowan wants to join', { timeout: 60_000 })
     await again.getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(rowan.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
-    await expect(rowan.locator('.workspaceRoomLink[aria-current="true"]')).toHaveText('Asked in')
+    await expect(rowan.locator('.workspaceRoomLink[aria-current="true"]')).toHaveAccessibleName('Asked in')
   } finally {
     await a.close()
     await b.close()

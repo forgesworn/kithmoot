@@ -7,6 +7,8 @@ import { parseRoomLink } from '../../src/link.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
 import type { KnownRoom } from './rooms-store.js'
 import type { DeviceStore } from './device-store.js'
+import { openLogoEditor } from './logo-editor.js'
+import { renderLogo } from './logo-view.js'
 
 type Person = { pubkey: string; label: string; agent: boolean }
 const shortPerson = (pubkey: string) => { const npub = npubEncode(pubkey); return npub.slice(0, 14) + '…' + npub.slice(-6) }
@@ -31,6 +33,7 @@ export class SharedProjectsPanel {
   #joined: SharedProject[] = []
   #roomProjects = new Map<string, SharedProject[]>()
   #roomToAdd?: KnownRoom
+  #logoEditor?: HTMLDialogElement
   readonly dialog: HTMLDialogElement
   readonly editor: HTMLDialogElement
   constructor(readonly root: Document, readonly options: {
@@ -38,10 +41,11 @@ export class SharedProjectsPanel {
     rooms: () => KnownRoom[]
     people: () => Person[]
     changed: () => void
-    openRoom: (room: KnownRoom) => void
+    openRoom: (room: KnownRoom, project: string) => void
     signIn: () => void
     /** Hands a wrap for another member to the relays that member reads. */
     deliver?: (wrap: NostrEvent, recipient: string) => Promise<void>
+    deliverGuarded?: (wrap: NostrEvent, recipient: string, current: () => boolean) => Promise<void>
   }) {
     this.dialog = this.el('sharedProjects') as HTMLDialogElement
     this.editor = this.el('sharedProjectEditor') as HTMLDialogElement
@@ -78,7 +82,7 @@ export class SharedProjectsPanel {
   }
   forRoom(room: string): readonly SharedProject[] { return this.#roomProjects.get(room) ?? [] }
   async attach(identity: ProjectIdentity, transport: RelayTransport): Promise<void> {
-    const detached = this.detach(transport), generation = this.#generation
+    const detached = this.detach(transport, true), generation = this.#generation
     await detached
     if (generation !== this.#generation) return
     this.#identity = identity; this.#transport = transport
@@ -95,7 +99,7 @@ export class SharedProjectsPanel {
       })
       if (generation !== this.#generation) { release?.(); return }
       this.#release = release
-      const directory = new ProjectDirectory({ identity, transport, deliver: this.options.deliver, storage: {
+      const directory = new ProjectDirectory({ identity, transport, deliver: this.options.deliver, deliverGuarded: this.options.deliverGuarded, storage: {
         load: async () => this.options.store.get(key) ?? undefined,
         save: async value => { this.options.store.set(key, value) },
       } })
@@ -114,7 +118,11 @@ export class SharedProjectsPanel {
   /** The panel owns the transport it was attached with, and closes it here
    *  unless it is about to be attached with the same one again: each sign-in
    *  used to leave one more pool connected to the default relays. */
-  async detach(keep?: RelayTransport): Promise<void> {
+  async detach(keep?: RelayTransport, keepWaitingPanel = false): Promise<void> {
+    // Projects may open while the first sign-in finishes. Keep that empty
+    // panel; replacing an attached account still closes its old surfaces.
+    const waitingPanel = keepWaitingPanel && !this.#identity && this.dialog.open
+    this.#logoEditor?.close(); this.#logoEditor = undefined
     ++this.#generation
     this.#off?.(); this.#off = undefined
     const directory = this.#directory, release = this.#release, transport = this.#transport
@@ -123,12 +131,12 @@ export class SharedProjectsPanel {
     this.#status = 'Sign in with your Nostr account to share projects across people and devices.'
     ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = false
     ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
-    this.editor.close(); this.dialog.close(); this.render()
+    this.editor.close(); if (!waitingPanel) this.dialog.close(); this.render()
     await directory?.close(); release?.()
     if (transport && transport !== keep) transport.close()
   }
   async unavailable(message: string): Promise<void> {
-    const detached = this.detach(), generation = this.#generation
+    const detached = this.detach(undefined, true), generation = this.#generation
     await detached
     if (generation !== this.#generation) return
     this.#status = message; this.render()
@@ -177,7 +185,11 @@ export class SharedProjectsPanel {
     this.el('sharedProjectsEmpty').hidden = visible.length !== 0 || !state?.ready
     for (const project of visible) {
       const card = this.root.createElement('article'); card.className = 'sharedProjectCard'; card.dataset.project = project.key
-      const title = this.root.createElement('h3'); title.textContent = project.definition?.name ?? 'Project has conflicting edits'; card.append(title)
+      const heading = this.root.createElement('div'); heading.className = 'sharedProjectHeading'
+      const icon = this.root.createElement('span'); icon.className = 'privateLogo sharedProjectLogo'
+      const name = project.definition?.name ?? 'Project has conflicting edits'
+      renderLogo(icon, project.logo, name)
+      const title = this.root.createElement('h3'); title.textContent = name; heading.append(icon, title); card.append(heading)
       const owner = this.root.createElement('p'); owner.className = 'note'; owner.textContent = project.owner === this.#identity?.pubkey ? 'Your project' : `Shared by ${shortPerson(project.owner)}`; owner.title = npubEncode(project.owner); card.append(owner)
       if (project.conflicted) {
         const error = this.root.createElement('p'); error.textContent = 'Different changes were signed at the same revision. The owner must reconcile them before this project can be used.'; card.append(error)
@@ -191,11 +203,20 @@ export class SharedProjectsPanel {
         if (!project.joined && !d.archived) card.append(this.#button('Review and join', () => this.review(project), true))
         else if (!d.archived) {
           const rooms = this.root.createElement('div'); rooms.className = 'sharedProjectRooms'
-          for (const room of d.rooms) rooms.append(this.#button(room.name, () => { this.dialog.close(); this.options.openRoom({ roomId: room.room, name: room.name, link: room.link, openedAt: 0, readAt: 0 }) }, false, `room:${room.room}`))
+          for (const room of d.rooms) rooms.append(this.#button(room.name, () => { this.dialog.close(); this.options.openRoom({ roomId: room.room, name: room.name, link: room.link, openedAt: 0, readAt: 0 }, `shared:${project.key}`) }, false, `room:${room.room}`))
           card.append(rooms)
         }
         if (project.owner === this.#identity?.pubkey) {
           card.append(this.#button('Edit project', () => this.edit(project)))
+          if (!d.archived) {
+            const logo = this.#button(project.logoConflicted ? 'Resolve project logo' : 'Change project logo', () => this.editLogo(project), false, 'logo')
+            logo.disabled = !state?.ready || this.#busy
+            card.append(logo)
+          }
+          if (project.logoConflicted) {
+            const note = this.root.createElement('p'); note.className = 'note'
+            note.textContent = 'Different logos were signed at the same revision. Choose a replacement or remove the logo to resolve them.'; card.append(note)
+          }
           const room = this.#roomToAdd
           if (room && this.persistent(room) && !d.archived) {
             const existing = d.rooms.some(r => r.room === room.roomId)
@@ -224,6 +245,26 @@ export class SharedProjectsPanel {
     ;(this.el('sharedProjectSave') as HTMLButtonElement).textContent = 'Join project'
     this.renderSelections(true)
     if (!this.editor.open) this.editor.showModal()
+  }
+  editLogo(project: SharedProject): void {
+    const directory = this.#directory, generation = this.#generation
+    if (!directory?.snapshot().ready || this.#busy || project.owner !== this.#identity?.pubkey || !project.definition || project.definition.archived || project.conflicted) return
+    this.#logoEditor?.close()
+    const heads = [...project.heads], logoHeads = [...(project.logoHeads ?? [])], request = crypto.randomUUID()
+    const editor = openLogoEditor({
+      name: project.definition.name, image: project.logo, canRemove: project.logoConflicted,
+      save: async image => {
+        if (generation !== this.#generation || directory !== this.#directory) throw new Error('Your account changed. Reopen the project before sharing its logo.')
+        await directory.updateLogo(project, heads, logoHeads, image, request)
+      },
+    })
+    this.#logoEditor = editor
+    editor.addEventListener('close', () => {
+      if (this.#logoEditor !== editor) return
+      this.#logoEditor = undefined
+      const card = [...this.el('sharedProjectsList').querySelectorAll<HTMLElement>('[data-project]')].find(card => card.dataset.project === project.key)
+      if (this.dialog.open) (card?.querySelector<HTMLElement>('[data-action=logo]') ?? this.el('sharedProjectsClose')).focus({ preventScroll: true })
+    })
   }
   edit(project?: SharedProject, room?: KnownRoom): void {
     if (!this.#identity || project && !this.#directory?.snapshot().ready) return

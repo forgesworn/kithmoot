@@ -57,6 +57,7 @@
       <div id="workspaceContent">
       <section id="callSurface" aria-label="Call surface" hidden>
         <div id="callSurfaceHeader" hidden>
+          <span id="callSurfaceLogo" class="privateLogo" hidden></span>
           <strong id="callSurfaceOrigin"></strong>
           <button id="callGalleryCollapse" type="button" aria-expanded="true" aria-controls="callStage">Hide gallery</button>
         </div>
@@ -313,9 +314,12 @@
                they answer the same question and a reader who wants more
                about either taps the thing they are looking at. -->
           <button id="roomIdentity" type="button" class="roomIdentity" aria-haspopup="dialog">
-            <span id="roomTitle" class="roomTitle"></span>
-            <span id="roomEndsLine" class="roomEndsLine" hidden></span>
-            <span id="roomWho" class="roomWho"></span>
+            <span id="roomLogo" class="privateLogo" hidden></span>
+            <span class="roomIdentityText">
+              <span id="roomTitle" class="roomTitle"></span>
+              <span id="roomEndsLine" class="roomEndsLine" hidden></span>
+              <span id="roomWho" class="roomWho"></span>
+            </span>
           </button>
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
                   title="Call: microphone, camera and screen share" aria-label="Call controls">Call</button>
@@ -597,6 +601,10 @@
           </details>
         </div>
         <button id="forgetBrowser" type="button" class="danger" hidden>Forget this browser</button>
+        <div id="arrivalRoomBrand" class="arrivalRoomBrand" hidden>
+          <span id="arrivalLogo" class="privateLogo"></span>
+          <span id="arrivalRoomBrandName"></span>
+        </div>
         <h2 id="arrivalTitle">Open your room</h2>
         <p id="arrivalLead" class="lead" hidden></p>
         <p id="status" role="status"></p>
@@ -1162,12 +1170,18 @@
                  aria-label="Room name" />
           <button type="submit" id="roomRenameSave">Rename for everyone</button>
         </form>
+        <div id="roomLogoControls" class="roomLogoControls" hidden>
+          <span id="roomLogoPreview" class="privateLogo"></span>
+          <button id="roomLogoEdit" type="button" aria-haspopup="dialog">Change room logo</button>
+          <p class="note">Shared with everyone in this room. Removing the room logo restores its project logo, or initials when no project is selected.</p>
+        </div>
         <p id="roomLockState" class="note" hidden></p>
         <!-- A self-destructing room says once what that can and cannot do. -->
         <p id="roomDestructState" class="note" hidden></p>
         <p id="quietState" class="note" hidden></p>
 
         <h3 class="sheetHead">Conversations</h3>
+        <p id="archiveStorageNotice" class="note" role="status" hidden>This browser could not save some conversation history. Recent messages stay available while this app is open; after closing it, missing history may need to come from another member or a relay.</p>
         <button id="searchConversation" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search this conversation</button>
         <button id="openContext" type="button" aria-haspopup="dialog" aria-controls="contextPanel">Context</button>
         <div id="channelBar" class="channelBar" aria-label="Conversations"></div>

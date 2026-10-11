@@ -4,6 +4,7 @@ import { MAX_ROOM_RELAYS } from './room-relays.js'
 import { validateAssignmentActions, type AssignmentAction } from './assignments.js'
 import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
 import { canonicalSpeakers, isRecordingCapture, type RecordingCaptureNotice } from './meeting.js'
+import { readRoomLogoOp, type RoomLogoOp } from './room-logo-payload.js'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -47,6 +48,9 @@ export interface RunningAgent {
 }
 
 export type ControlMessage =
+  /** An admitted member's logo change; pixels ride separately inside the same
+   * encrypted message. Existing clients ignore this unfamiliar operation. */
+  | RoomLogoOp
   /** A host, saying what it can run and what it is running. Sent when it
    *  starts, whenever that changes, and in answer to `catalogue?`. */
   | { op: 'catalogue'; host: string; name: string; agents: CatalogueEntry[]; running: RunningAgent[] }
@@ -226,6 +230,7 @@ export function decodeControl(text: string): ControlMessage | null {
   const agent = str(m.agent, 32)
   const agentOk = agent !== undefined && ID.test(agent)
   switch (m.op) {
+    case 'logo': return readRoomLogoOp(m) ?? null
     case 'catalogue?':
       return { op: 'catalogue?' }
     case 'catalogue': {

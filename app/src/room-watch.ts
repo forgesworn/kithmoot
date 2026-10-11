@@ -39,6 +39,7 @@ import { ChatLog, type ChatMessage, type EpochRoot, type PastEpoch } from '../..
 import { decodeRekeyEvent, deriveEpoch, peekRekeyEvent, type EpochKeys, type RekeyNotice, type RoomEpoch } from '../../src/epoch.js'
 import { CONTROL_CHANNEL } from '../../src/control.js'
 import { RoomNameBook, roomNameFromMessage, type RoomNameRecord } from '../../src/room-name.js'
+import { RoomLogoBook, roomLogoFromMessage, type RoomLogoRecord } from '../../src/room-logo.js'
 import { HEARTBEAT_INTERVAL_MS, PRESENCE_TTL_SECONDS } from '../../src/session.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import type { RoomPolicy, RosterEntry } from '../../src/types.js'
@@ -134,6 +135,8 @@ export class PresenceLedger {
 }
 
 export interface RoomWatchOptions {
+  /** Previously accepted private metadata, with the epoch it was read under. */
+  logo?: { record: RoomLogoRecord; epoch: number }
   transport: RelayTransport
   roomId: string
   roomKey: Uint8Array
@@ -200,6 +203,7 @@ export class RoomWatch {
   readonly #chat?: ChatLog
   readonly #control?: ChatLog
   readonly #names = new RoomNameBook()
+  readonly #logos = new RoomLogoBook()
   readonly #namesSeen = new Set<string>()
   readonly #presence = new PresenceLedger()
   /** The roster, and the authority's rekeys when this watch follows them:
@@ -227,6 +231,7 @@ export class RoomWatch {
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.#startedAt = this.#now()
     this.#epoch = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : undefined
+    if (opts.logo) this.#logos.seed(opts.logo.record, opts.logo.epoch)
     const epoch = this.#epochRoot()
     if (!opts.quiet) {
       const log = (channel?: string) => new ChatLog({
@@ -283,6 +288,10 @@ export class RoomWatch {
    *  it has read no rename. Undefined for a quiet room. */
   roomName(): RoomNameRecord | undefined {
     return this.#names.current(this.#epoch?.epoch ?? 0, { rekeyedAt: (epoch) => this.#rekeyedAt.get(epoch) })
+  }
+
+  roomLogo(): RoomLogoRecord | undefined {
+    return this.#logos.current(this.epoch, { rekeyedAt: epoch => this.#rekeyedAt.get(epoch) })
   }
 
   /** The epoch this watch reads the room in now. */
@@ -430,6 +439,8 @@ export class RoomWatch {
       this.#namesSeen.add(message.id)
       const record = roomNameFromMessage(message)
       if (record && this.#names.add(record, this.epoch)) added = true
+      const logo = roomLogoFromMessage(message)
+      if (logo && this.#logos.add(logo, this.epoch)) added = true
     }
     if (!added || !announce) return
     try {

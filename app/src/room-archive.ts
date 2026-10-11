@@ -67,6 +67,21 @@ export interface RoomArchiveStorage {
 
 /** What a sealed record holds. */
 interface Sealed { event: Event; quiet?: true }
+interface CachedEvent { kept: Sealed; bytes: number }
+
+/** Session history is separate from durable storage: original room-encrypted
+ *  events only, bounded even when storage is unavailable. */
+const SESSION_BYTES = 8 * 1024 * 1024
+const SESSION_STREAMS = 64
+const SESSION_EVENTS = 500
+
+interface ArchiveOptions {
+  perStream?: number
+  sessionBytes?: number
+  sessionStreams?: number
+  sessionEvents?: number
+  onStorageFailure?: () => void
+}
 
 export class RoomArchive implements EventArchive {
   #keys?: Promise<ArchiveKeys>
@@ -80,11 +95,14 @@ export class RoomArchive implements EventArchive {
   readonly #pending = new Map<string, number>()
   readonly #drained = new Map<string, (() => void)[]>()
   readonly #released = new Set<string>()
+  readonly #session = new Map<string, Map<string, CachedEvent>>()
+  readonly #forgetting = new Set<string>()
+  #sessionBytes = 0
   #warned = false
 
   readonly #perStream: number
 
-  constructor(private readonly storage: RoomArchiveStorage, private readonly crypt: Crypto = globalThis.crypto, limits: { perStream?: number } = {}) {
+  constructor(private readonly storage: RoomArchiveStorage, private readonly crypt: Crypto = globalThis.crypto, private readonly limits: ArchiveOptions = {}) {
     if (!crypt?.subtle || !crypt.getRandomValues) throw new Error('This device cannot keep an encrypted room archive.')
     this.#perStream = limits.perStream ?? MAX_ARCHIVED_PER_STREAM
   }
@@ -93,8 +111,11 @@ export class RoomArchive implements EventArchive {
     try {
       if (!wellFormed(event)) return
       const name = streamName(event.kind, archiveTag(event)!)
+      if (this.#forgetting.has(name)) return
+      const kept: Sealed = { event: copyEvent(event), ...(meta?.quiet ? { quiet: true as const } : {}) }
+      this.#remember(name, kept)
       this.#pending.set(name, (this.#pending.get(name) ?? 0) + 1)
-      this.#queue.push({ event: copyEvent(event), ...(meta?.quiet ? { quiet: true as const } : {}) })
+      this.#queue.push(kept)
       this.#flushing ??= Promise.resolve().then(() => this.#flush()).finally(() => { this.#flushing = undefined })
     } catch {
       // Keeping is best effort; the room goes on without it.
@@ -110,9 +131,21 @@ export class RoomArchive implements EventArchive {
     if (!Number.isSafeInteger(query.limit) || query.limit < 1) throw new Error('Use an archive read limit of at least one.')
     const d = query.d.toLowerCase()
     const name = streamName(query.kind, d)
+    if (this.#forgetting.has(name)) return []
     this.#released.delete(name)
     if (this.#pending.get(name)) await new Promise<void>(resolve => this.#drained.set(name, [...(this.#drained.get(name) ?? []), resolve]))
-    const events = await this.#load(query.kind, d)
+    let stored: Map<string, Sealed> = new Map()
+    try { stored = await this.#load(query.kind, d) } catch (error) { this.#storageFailed(error) }
+    if (this.#forgetting.has(name)) return []
+    const events = new Map(stored)
+    const session = this.#session.get(name)
+    if (session) {
+      this.#session.delete(name); this.#session.set(name, session)
+      for (const [id, { kept }] of session) {
+        const prior = events.get(id)
+        events.set(id, prior?.quiet ? prior : kept)
+      }
+    }
     return [...events.values()]
       .filter(kept => !(query.reseedable && kept.quiet))
       .map(kept => kept.event)
@@ -132,13 +165,61 @@ export class RoomArchive implements EventArchive {
   /** Delete one conversation's records: part of forgetting a room. Waits for
    *  anything still being written, so nothing lands after it. */
   async forget(query: Pick<ArchiveQuery, 'kind' | 'd'>): Promise<void> {
-    await this.flushed()
-    // No keys yet means nothing was ever kept: never mint a pair to forget nothing.
-    if (!await this.storage.keys()) return
-    const stream = await this.#streamHandle(query.kind, query.d.toLowerCase())
-    const records = await this.storage.stream(stream)
-    if (records.length) await this.storage.put([], records.map(record => record.key))
-    this.#streams.delete(streamName(query.kind, query.d.toLowerCase()))
+    const name = streamName(query.kind, query.d.toLowerCase())
+    this.#forgetting.add(name)
+    this.#dropSession(name)
+    try {
+      await this.flushed()
+      // No keys yet means nothing was ever kept: never mint a pair to forget nothing.
+      if (!await this.storage.keys()) return
+      const stream = await this.#streamHandle(query.kind, query.d.toLowerCase())
+      const records = await this.storage.stream(stream)
+      if (records.length) await this.storage.put([], records.map(record => record.key))
+    } finally {
+      this.#streams.delete(name)
+      this.#forgetting.delete(name)
+    }
+  }
+
+  #remember(name: string, kept: Sealed): void {
+    const byteLimit = this.limits.sessionBytes ?? SESSION_BYTES
+    const streamLimit = this.limits.sessionStreams ?? SESSION_STREAMS
+    const eventLimit = Math.min(this.#perStream, this.limits.sessionEvents ?? SESSION_EVENTS)
+    if (byteLimit < 1 || streamLimit < 1 || eventLimit < 1) return
+    const events = this.#session.get(name) ?? new Map<string, CachedEvent>()
+    const existing = events.get(kept.event.id)
+    // Once quiet, always excluded from relay reseeding, including duplicates.
+    if (existing?.kept.quiet) kept = existing.kept
+    const bytes = new TextEncoder().encode(JSON.stringify(kept)).byteLength
+    if (bytes > byteLimit) return
+    if (existing) this.#sessionBytes -= existing.bytes
+    events.set(kept.event.id, { kept, bytes })
+    this.#sessionBytes += bytes
+    this.#session.delete(name); this.#session.set(name, events)
+    for (const oldest of [...events.values()].sort((a, b) => compareArchived(a.kept.event, b.kept.event)).slice(eventLimit)) {
+      events.delete(oldest.kept.event.id); this.#sessionBytes -= oldest.bytes
+    }
+    while (this.#session.size > streamLimit || this.#sessionBytes > byteLimit) {
+      const oldestName = this.#session.keys().next().value!
+      if (this.#session.size > 1) this.#dropSession(oldestName)
+      else {
+        const oldest = [...events.values()].sort((a, b) => compareArchived(a.kept.event, b.kept.event)).at(-1)!
+        events.delete(oldest.kept.event.id); this.#sessionBytes -= oldest.bytes
+        if (!events.size) this.#session.delete(name)
+      }
+    }
+  }
+
+  #dropSession(name: string): void {
+    for (const { bytes } of this.#session.get(name)?.values() ?? []) this.#sessionBytes -= bytes
+    this.#session.delete(name)
+  }
+
+  #storageFailed(error: unknown): void {
+    if (this.#warned) return
+    this.#warned = true
+    console.warn('room archive could not keep events', error)
+    try { this.limits.onStorageFailure?.() } catch { /* A notice must not interrupt a room. */ }
   }
 
   async #flush(): Promise<void> {
@@ -176,7 +257,7 @@ export class RoomArchive implements EventArchive {
       } catch (error) {
         // Not on disk, so not remembered as kept: a later copy tries again.
         for (const [events, id] of added) events.delete(id)
-        if (!this.#warned) { this.#warned = true; console.warn('room archive could not keep events', error) }
+        this.#storageFailed(error)
       } finally {
         for (const { event } of batch) this.#settled(streamName(event.kind, archiveTag(event)!))
       }
