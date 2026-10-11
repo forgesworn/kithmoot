@@ -2810,6 +2810,13 @@ label.note {
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
 .recordingChoices { margin: 1rem 0 0; padding: .5rem; min-width: 0; }
+.admissionPreview { margin: 1rem 0; padding: .75rem; min-width: 0; }
+.admissionPreview[hidden], .admissionPreview [hidden] { display: none; }
+.admissionPreviewButtons { display: flex; flex-wrap: wrap; gap: .5rem; }
+main:has(#admissionPreview:not([hidden])) #notify { display: none; }
+.admissionPreviewButtons button { min-height: 44px; }
+.admissionPreview video { width: 100%; max-height: 180px; object-fit: contain; margin: .75rem 0; background: #111; }
+.admissionPreview meter { display: block; width: 100%; height: 24px; margin: .75rem 0; }
 .actionDialog:has(.recordingChoices) { box-sizing: border-box; overflow-y: auto; }
 .recordingChoices label { display: flex; align-items: center; gap: .65rem; min-height: 44px; margin: .25rem 0; }
 .recordingChoices input { flex: 0 0 auto; }
@@ -4443,18 +4450,21 @@ input[type="search"] { font-family: inherit; }
   #callStage > #whoIsHere { margin: 0; }
 
   #callStage > #callBay { padding: .4rem .45rem; }
-  #deviceControls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .3rem; align-items: center; }
+  #deviceControls { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .3rem; align-items: center; }
   #deviceControls > .callHead,
   #deviceControls > .toggles { display: contents; }
   #callWho,
   #deviceControls > #micIndicator { min-width: 0; min-height: 0; margin: 0; font-size: .875rem; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #callWho { grid-area: 1 / 1 / 2 / 4; }
-  #deviceControls > #micIndicator { grid-area: 1 / 4 / 2 / 6; text-align: right; }
+  #deviceControls > #micIndicator { grid-area: 1 / 4 / 2 / 7; text-align: right; }
   #toggleMic { grid-area: 2 / 1; }
   #toggleCamera { grid-area: 2 / 2; }
   #toggleScreen { grid-area: 2 / 3; }
-  #callExtras { grid-area: 2 / 4; min-width: 0; }
-  #leaveCall { grid-area: 2 / 5; }
+  #recordToggle { grid-area: 2 / 4; }
+  #recordToggle > .callWord { display: none; }
+  #callExtras { grid-area: 2 / 5; min-width: 0; }
+  #leaveCall { grid-area: 2 / 6; }
+  #deviceControls > #recordingAuthorityHint { grid-area: 3 / 1 / 4 / 7; margin: 0; font-size: .8rem; line-height: 1.4; }
   #deviceControls > .toggles > .toggle,
   #leaveCall,
   #callExtras > summary {
@@ -4466,9 +4476,9 @@ input[type="search"] { font-family: inherit; }
   #callExtras > summary::-webkit-details-marker { display: none; }
   #callExtras[open] > summary { border-color: var(--accent); background: var(--accent-dim); }
   #callExtras > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #deviceControls > #speakingLine { grid-area: 3 / 1 / 4 / 6; margin: 0; }
+  #deviceControls > #speakingLine { grid-area: 4 / 1 / 5 / 7; margin: 0; }
   /* Open, More takes a row of its own under the controls. */
-  #callExtras[open] { grid-area: 4 / 1 / 5 / 6; }
+  #callExtras[open] { grid-area: 5 / 1 / 6 / 7; }
   #callExtras[open] > summary { width: auto; display: inline-flex; padding-inline: .8rem; }
   #deviceControls > .otherDevice { grid-column: 1 / -1; margin: 0; }
   #deviceControls > #local:empty { display: none; }

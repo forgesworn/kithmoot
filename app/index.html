@@ -64,6 +64,7 @@
           <span id="callDockText" class="callDockText" aria-live="polite"></span>
           <span id="callDockRecordingNotice" role="status" hidden></span>
           <span id="callDockRecordingElapsed" aria-live="off" hidden></span>
+          <span id="callDockRecordingHint" class="note" hidden></span>
           <span class="callDockActions">
             <button id="callDockMic" type="button" aria-pressed="false">Microphone</button>
             <button id="callDockCamera" type="button" aria-pressed="false">Camera</button>
@@ -121,12 +122,13 @@
               <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D" title="Microphone"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 5 2.2M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/></svg><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
               <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E" title="Camera"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h4a2 2 0 0 1 2 2v4m0 4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2M16 10l6-3v10l-6-3M3 3l18 18"/></svg><span class="callWord">Camera</span></button>
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share" title="Share screen"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 13V8M9.5 10.5 12 8l2.5 2.5"/></svg><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
-              <button id="recordToggle" type="button" class="toggle" data-on="false" aria-pressed="false" aria-label="Record call" title="Record audio or video" hidden><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg><span class="callWord">Record call</span></button>
+              <button id="recordToggle" type="button" class="toggle" data-on="false" aria-pressed="false" aria-label="Record call" title="Record audio or video" hidden><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg><span class="callWord">Record call</span><span class="callShort">Record</span></button>
             </div>
             <!-- Filled by `announceCallShortcut` in main.ts, only for a
                  toggle made from the keyboard: a click already carries its
                  own feedback through focus and `aria-pressed`. -->
             <div id="callShortcutAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+            <p id="recordingAuthorityHint" class="note" hidden>Only the room creator can record.</p>
             <p id="micIndicator" class="indicator"></p>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>
@@ -626,6 +628,21 @@
             autocomplete="nickname"
             enterkeyhint="go"
           />
+          <fieldset id="admissionPreview" class="admissionPreview" hidden>
+            <legend>Before you request to join</legend>
+            <p id="admissionPreviewStatus" class="note" role="status"></p>
+            <div class="admissionPreviewButtons">
+              <button id="previewAdmissionCamera" type="button">Preview camera</button>
+              <button id="previewAdmissionMic" type="button">Test microphone</button>
+            </div>
+            <video id="admissionPreviewVideo" muted autoplay playsinline hidden aria-label="Your camera preview"></video>
+            <meter id="admissionPreviewMeter" min="0" max="1" value="0" hidden aria-label="Microphone level"></meter>
+            <p class="note">Device checks stay on this device and stop when you request to join. Your call microphone and camera start only when you choose them.</p>
+            <div class="admissionPreviewButtons">
+              <button id="requestAdmission" type="button" class="primary">Request to join</button>
+              <button id="cancelAdmission" type="button" class="quiet">Close invitation</button>
+            </div>
+          </fieldset>
           <fieldset id="joinMediaChoice" class="joinMediaChoice">
             <legend>Turn on as you join</legend>
             <label><input id="joinMic" type="checkbox" /> Microphone</label>

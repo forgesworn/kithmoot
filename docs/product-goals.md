@@ -522,6 +522,11 @@ RSS, not instantaneous A/V offset or battery use. The runtime predates the local
 save-retention UI fix. Native/physical cross-client, encrypted long-recording
 sharing and the complete latest-release journey remain open.
 
+The [recording permission receipt](evidence/recording-permission-guidance-2026-10-10.json)
+adds a visible disabled Record control and explanation for non-creators in
+the Call view and persistent call dock. Browser capture, sharing and navigation
+checks passed; publication and physical-device acceptance remain separate.
+
 ## G12 — Tested room capacity and a gallery that scales
 
 Answer “how many people can we support?” with measured supported configurations,
@@ -694,6 +699,11 @@ Acceptance:
   repeat alongside the existing physical-feedback register.
 
 ## Delivery and evidence
+
+The [guest admission preview](guest-admission-preview.md) provides the browser
+and desktop review screen, local camera/microphone checks, deliberate request,
+cancel/retry and relay connection feedback. It does not establish native parity,
+authenticated host availability or unfamiliar-person physical acceptance.
 
 The [closed-room feedback foundation](closed-room-admission-ui.md) distinguishes
 approval, grant publication and send failure, preserves pending controls during

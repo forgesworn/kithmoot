@@ -214,3 +214,27 @@ referencing APK asset
 `2a11e34ac43c689f7213584970a9dd4f678bfe0624f508367898bc063eb5bca0`.
 The public download matched the production manifest. Store-client and physical
 installation acceptance were not claimed by that publication check.
+
+
+## Android 0.6.80 website publication — 11 October 2026
+
+[PR #367](https://github.com/forgesworn/kithmoot/pull/367) merged after all twelve
+hosted checks passed. Merged source `a76de8ad7711ab25b063f64eebd6430d45639e98`
+passed typecheck, 3,903 unit tests, 132 MLS browser checks and 19 website/update
+browser checks before deployment. Website release `20261010T235516Z` now serves
+the signed 0.6.80 (103) update manifest and stable Android download.
+
+The public stable APK is the same immutable 79,411,870-byte production artifact
+already published on GitHub and Zapstore, SHA-256
+`09a5e5de88aa670a3f64318a1e11ed12b05c39c7b9d80897b07d7faea7944c10`.
+A fresh full download passed independent package, SDK, original certificate,
+V3-only signature and reviewed-lineage verification. All 305 server and public
+HTTP files matched the build; clean 390/1440-pixel light/dark browser checks
+found no page errors or horizontal overflow. Desktop 0.1.72 and previous
+installers/APKs remain available. The previous website release is retained.
+
+The native guest camera/microphone preview on Android main, the newer recording
+permission guidance and draft logo feature are separate changes and are not
+included in this publication. Physical Android and Zapstore-client installation
+acceptance remain open. The [publication receipt](evidence/android-0.6.80-website-publication-2026-10-11.json)
+records the exact source and these boundaries.

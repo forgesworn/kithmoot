@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-10",
+  "sourceBase": "0c8685fe81c9913f96a7b8fe9e226c8b8d32d49a",
+  "change": "Show Record call and explain existing creator-only authority in the Call view and originating call dock",
+  "automated": {
+    "typecheck": "passed",
+    "unitTests": 3834,
+    "unitFiles": 272,
+    "recordingSharingMeetingAndCallSurface": {
+      "passed": 20,
+      "skipped": 2
+    },
+    "additionalParticipantDockNavigation": {
+      "passed": 4,
+      "skipped": 0
+    },
+    "browserProjects": [
+      "chromium",
+      "chromium-desktop"
+    ],
+    "syntheticMediaInputs": true,
+    "recordingAuthorityGuardRetained": true,
+    "disabledParticipantSyntheticClickRejected": true,
+    "finalPhoneAndDesktopLayoutRegression": {
+      "passed": 10,
+      "skipped": 0,
+      "duration": "2.8m",
+      "projects": [
+        "chromium",
+        "chromium-desktop"
+      ],
+      "scope": [
+        "Separate recording slot never overlays Microphone in short landscape",
+        "Record and creator-only explanation visible without shrinking gallery below45percent",
+        "Room-bar geometry measured after committed room entry",
+        "Gallery audio/video export and originating-call navigation retained"
+      ]
+    },
+    "finalRecordingNoticeAndExportRegression": {
+      "passed": 2,
+      "skipped": 0,
+      "duration": "29.6s",
+      "projects": [
+        "chromium",
+        "chromium-desktop"
+      ],
+      "scope": "Visible stop label and accessible name; signed notices, late-joiner warning, pause/resume, local audio decode/export"
+    }
+  },
+  "publication": "pending pull request CI and release",
+  "physicalAcceptance": false,
+  "nativeAndroidRecording": false,
+  "longSessionAcceptance": "not established by these short browser checks",
+  "priorCI": {
+    "run": "https://github.com/forgesworn/kithmoot/actions/runs/38087081629",
+    "passedChecks": 11,
+    "remainingJob": "Chromium rest stopped at20minute limit; phone overlap and gallery-height failures reproduced and repaired"
+  },
+  "finalCiFollowup": {
+    "run": "https://github.com/forgesworn/kithmoot/actions/runs/38091050574",
+    "finding": "Chromium rest stopped at20minutes after167of168 cases; its recording test expected the combined hidden and visible label text",
+    "repair": "Assert the accessible stop name and the actually visible desktop or phone label; both full recording journeys pass. Chromium rest receives30minutes for MLS gates plus168 acceptance cases; individual test timeouts remain unchanged.",
+    "hostedQualification": "pending new final-head CI"
+  }
+}
