@@ -122,9 +122,14 @@ rows and headers use this context. Removing a room override restores its
 inherited project image. A call captures its own selected project on joining;
 changing the conversation or opening the same room from another project does
 not change that call's context. Updates to its own project still propagate.
-Pre-admission branding remains open: its implementation must use project
-branding only when that project is already authorised and joined locally.
-No logo bytes or new fields are added to bearer invitation links.
+The arrival screen has a separate brand row before joining. It matches the
+exact invitation fragment against already verified, deliberately joined
+projects, chooses the selected project or a sole matching project and refuses
+ambiguous/mismatching room IDs. Unknown links and unavailable projects get no
+preview. Archival updates clear the row while that door is still open. Names
+remain visible, and the preview grants no room access or media permission.
+No logo bytes or new fields are added to bearer invitation links. Complete
+cross-client invitation/admission branding remains an acceptance gate.
 
 ## Remaining acceptance
 
@@ -167,3 +172,12 @@ under another project and when navigation docks it beside another room. A
 separate Chromium call-dock journey passes with decoded live synthetic audio
 continuity. These are automated browser checks, not physical device or
 disjoint-relay qualification.
+
+The arrival-brand revision passes typecheck and all 3,954 unit tests in 281
+files, with the same 40 browser journeys across all four clients. The account
+recovery journey opens a never-joined room from a cold document, checks its
+actual 320-pixel light/dark arrival brand without entering the room, then
+archives its project and verifies the preview disappears. Exact-link,
+ambiguous-context, room-ID mismatch and unavailable-project cases also have
+focused coverage. The first fixture attempted a same-document hash change;
+it was corrected to exercise a cold invitation opening.

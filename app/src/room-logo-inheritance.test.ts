@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { createLogoImage } from '../../src/logo-image.js'
 import type { SharedProject } from '../../src/project-directory.js'
-import { inheritedRoomLogo } from './room-logo-inheritance.js'
+import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 
 const room = 'ab'.repeat(32)
 const image = createLogoImage(new Uint8Array(readFileSync(new URL('../../desktop/icons/kithmoot-128.png', import.meta.url))), 'image/png')
@@ -10,6 +10,41 @@ const project = (key: string): SharedProject => ({
   key, owner: 'cd'.repeat(32), project: key, heads: [], revision: 1,
   joined: true, withdrawn: false, conflicted: false, pendingSends: 0, logo: image,
   definition: { name: key, members: [], rooms: [{ room, name: 'Workshop', link: 'unused by display' }], archived: false, authorityRevision: 1 },
+})
+
+describe('locally authorised admission branding', () => {
+  const link = 'https://app.invalid/j/#exact-persistent-invitation'
+  const previewProject = (key: string): SharedProject => {
+    const p = project(key); p.definition!.rooms[0]!.link = link; return p
+  }
+  it('previews only a joined verified directory invitation without granting room access', () => {
+    const p = previewProject('a')
+    expect(projectAdmissionBrand(link, [p])).toEqual({ room, name: 'Workshop', projectName: 'a', image })
+    expect(p.joined).toBe(true); expect(p.definition!.rooms).toHaveLength(1)
+    p.joined = false
+    expect(projectAdmissionBrand(link, [p])).toBeUndefined()
+  })
+  it('matches the exact fragment across app origins and rejects unknown or malformed links', () => {
+    expect(projectAdmissionBrand('https://another-app.invalid/j/#exact-persistent-invitation', [previewProject('a')])?.image).toEqual(image)
+    for (const other of ['not a URL', 'https://app.invalid/j/', 'https://app.invalid/j/#another-invitation']) expect(projectAdmissionBrand(other, [previewProject('a')])).toBeUndefined()
+  })
+  it('withholds ambiguous project branding and all mismatching resolved room IDs', () => {
+    const a = previewProject('a'), b = previewProject('b')
+    expect(projectAdmissionBrand(link, [a, b])).toBeUndefined()
+    expect(projectAdmissionBrand(link, [a, b], room, 'shared:b')?.projectName).toBe('b')
+    expect(projectAdmissionBrand(link, [a], 'ef'.repeat(32))).toBeUndefined()
+    b.definition!.rooms[0]!.room = 'ef'.repeat(32)
+    expect(projectAdmissionBrand(link, [a, b], undefined, 'shared:a')).toBeUndefined()
+  })
+  it('clears withdrawn or archived previews and does not display conflicting artwork', () => {
+    const p = previewProject('a')
+    p.logoConflicted = true
+    expect(projectAdmissionBrand(link, [p])?.image).toBeUndefined()
+    p.withdrawn = true
+    expect(projectAdmissionBrand(link, [p])).toBeUndefined()
+    p.withdrawn = false; p.definition!.archived = true
+    expect(projectAdmissionBrand(link, [p])).toBeUndefined()
+  })
 })
 
 describe('room logo inheritance', () => {

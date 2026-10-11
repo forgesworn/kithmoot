@@ -251,7 +251,7 @@ import { RoomLogoCache } from './room-logo-store.js'
 import { openLogoEditor } from './logo-editor.js'
 import { renderLogo } from './logo-view.js'
 import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
-import { inheritedRoomLogo } from './room-logo-inheritance.js'
+import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
@@ -2887,6 +2887,7 @@ function renderIdentity(): void {
   renderHistoryRecovery()
   renderImportedHistorySearch()
   renderAccountMore()
+  renderAdmissionRoomBrand()
   $('joinNostr').hidden = !!nostrSession || !!loadCredential()
   // A signer extension in this browser, and no account signed in here: the
   // door used to show a visitor with the typed name and a small link, and
@@ -4892,6 +4893,7 @@ function closeRoomSheet(): void {
  *  they type their name in. A room you started yourself says so instead:
  *  "you have been invited" is not true of your own room. */
 function renderArrival(): void {
+  renderAdmissionRoomBrand()
   const lead = $('arrivalLead')
   const roomId = currentRoomId()
   if (!roomId) {
@@ -7090,6 +7092,21 @@ function logoForRoom(roomId: string): RoomLogoRecord | undefined {
 
 function displayedRoomLogo(roomId: string, selected?: string) {
   return inheritedRoomLogo(roomId, logoForRoom(roomId)?.image, sharedProjects.forRoom(roomId), selected)
+}
+
+function renderAdmissionRoomBrand(): void {
+  const me = meParticipant || currentParticipant()
+  let policy: RoomPolicy | undefined
+  try { policy = parseRoomLink(location.href).policy } catch {
+    $('arrivalRoomBrand').hidden = true; $('arrivalLogo').replaceChildren(); $('arrivalRoomBrandName').textContent = ''; return
+  }
+  const permitted = !session && !$('identity').hidden && $('arrivalActions').hidden &&
+    !isQuietPolicy(policy) && !(me && dmPeer(policy, me)) && !conferenceEnded(roomEndsAt, nowSeconds())
+  const brand = permitted ? projectAdmissionBrand(location.href, sharedProjects.joined(), currentRoomId(), roomProjectContext) : undefined
+  $('arrivalRoomBrand').hidden = !brand
+  $('arrivalRoomBrandName').textContent = brand ? `${brand.name} · ${brand.projectName}` : ''
+  if (brand) renderLogo($('arrivalLogo'), brand.image, brand.name)
+  else $('arrivalLogo').replaceChildren()
 }
 
 function renderCurrentRoomLogo(): void {
@@ -13407,6 +13424,7 @@ function showDoorWhileSwitching(): void {
 /** The door while a room you already know is opening: its name and a
  *  word about connecting, never "pick a name", which belongs to invitations. */
 function showOpening(room: KnownRoom): void {
+  renderAdmissionRoomBrand()
   $('arrivalTitle').textContent = `Opening ${knownRoomLabel(room)}`
   // One line of progress: the status under the title, which joining
   // itself goes on to update.
@@ -13622,6 +13640,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
 }
 
 function resetRoomState(): void {
+  $('arrivalRoomBrand').hidden = true; $('arrivalLogo').replaceChildren(); $('arrivalRoomBrandName').textContent = ''
   roomProjectContext = undefined
   admissionController?.abort()
   admissionController = undefined
@@ -14618,7 +14637,7 @@ const sharedProjects = new SharedProjectsPanel(document, {
   store: deviceStore,
   rooms: navigationRooms,
   people: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true })),
-  changed: () => { renderRooms(); renderCurrentRoomLogo(); renderRoomLogoControls(); renderDock() },
+  changed: () => { renderRooms(); renderCurrentRoomLogo(); renderRoomLogoControls(); renderAdmissionRoomBrand(); renderDock() },
   openRoom: (room, project) => { void switchRoom(room, project) },
   deliver: deliverProjectWrap,
   deliverGuarded: (wrap, recipient, current) => deliverGuardedProjectInbox(wrap, recipient, current, {

@@ -546,6 +546,8 @@ details#appConnections button { display: block; }
 .roomIdentity > .privateLogo { float: left; margin-right: .6rem; }
 .roomLogoControls { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
 .roomLogoControls .note { flex-basis: 100%; margin: 0; }
+.arrivalRoomBrand { display: flex; align-items: center; gap: .65rem; margin-top: 1rem; min-width: 0; }
+#arrivalRoomBrandName { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .logoEditor { box-sizing: border-box; width: min(29rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: 1rem; border: 1px solid var(--border); border-radius: 12px; overflow-y: auto; background: var(--bg); color: var(--text); }
 .logoEditor::backdrop { background: rgb(0 0 0 / 55%); }
 .logoEditor h2 { margin: 0 0 .75rem; font-size: 1.2rem; overflow-wrap: anywhere; }

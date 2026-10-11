@@ -123,6 +123,28 @@ test('project logos recover privately and follow explicit room and call contexts
     await expect(b!.locator('#callSurfaceLogo img')).toHaveCount(0)
     await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Red project')!)
     expect(externalImages).toEqual([])
+    // The fresh account has directory membership, but has never joined
+    // this room. Direct opening must show the authorised local brand.
+    await fresh.goto('about:blank')
+    await fresh.goto(side.link)
+    await expect(fresh.locator('#join')).toBeVisible()
+    await expect(fresh.locator('#arrivalRoomBrand')).toBeVisible()
+    await expect(fresh.locator('#arrivalLogo img')).toHaveAttribute('src', sources.get('Red project')!)
+    await expect(fresh.locator('#arrivalRoomBrandName')).toHaveText('Side workshop · Red project')
+    await expect(fresh.locator('#roomArea')).not.toBeVisible()
+    for (const colourScheme of ['light', 'dark'] as const) {
+      await fresh.emulateMedia({ colorScheme: colourScheme })
+      await fresh.screenshot({ path: info.outputPath(`admission-logo-320-${colourScheme}.png`), fullPage: true })
+      expect(await fresh.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    // An archival directory update revokes the preview on the open door.
+    await card(a!, 'Red project').getByRole('button', { name: 'Edit project', exact: true }).click()
+    await a!.locator('#sharedProjectArchived').check(); await a!.locator('#sharedProjectSave').click()
+    await expect(a!.locator('#sharedProjectEditor')).not.toBeVisible()
+    await expect(fresh.locator('#arrivalRoomBrand')).not.toBeVisible()
+    await expect(fresh.locator('#arrivalLogo img')).toHaveCount(0)
+    await expect(fresh.locator('#roomArea')).not.toBeVisible()
+    expect(externalImages).toEqual([])
   } finally {
     await recovered?.context.close(); await Promise.all([owner.context.close(), member.context.close()]); await Promise.all([keeper.leave(), sideKeeper.leave()])
   }
