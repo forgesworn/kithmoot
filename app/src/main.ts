@@ -2371,6 +2371,8 @@ window.addEventListener('storage', (event) => {
 })
 
 let session: RoomSession | undefined
+/** Recording signatures always use the originating session's device key. */
+const recordingDeviceKeys = new WeakMap<RoomSession, Uint8Array>()
 let joining = false
 let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
 
@@ -8121,7 +8123,7 @@ async function startRecording(): Promise<void> {
 
 async function beginRecording(): Promise<void> {
   const s = mediaSession(), useLive = participantRecordingReady(s)
-  const authoritySk = useLive ? deviceKey() : legacyRecordingReady(s) ? callRecordingAuthority() : undefined
+  const authoritySk = useLive && s ? recordingDeviceKeys.get(s) : legacyRecordingReady(s) ? callRecordingAuthority() : undefined
   if (!s || !authoritySk) throw new Error(recordingPermissionHint(s))
   if (activeRecording) return
   if (recordingStops.size) throw new Error('The previous recording is finishing. Try again when it is ready.')
@@ -12153,6 +12155,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     }
     session = s
     created = s
+    recordingDeviceKeys.set(s, deviceSk)
     sessionConnections.set(s, ownConnections)
     meParticipant = s.participant
 
