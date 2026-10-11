@@ -147,7 +147,7 @@ describe('witnessed browser MLS message driver', () => {
     f.s.join = { operation: hex(), counter: '0', adderRz: hex(9), introductionBox: hex(), expiresAt: 200 }
     f.s.outbox = [{ ...leaf(10), destination: { type: 'Introduction', peerRz: id(9) } }]
     f.client.deposit.mockImplementation(async (...args: any[]) => { f.clock(200); expect(args[2]()).toBe(false); return { state: 'unavailable' } })
-    expect(await f.driver.round()).toMatchObject({ stalled: true, delivered: 0 }); expect(f.s.outbox).toHaveLength(1)
+    expect(await f.driver.round()).toEqual({ state: 'stopped', phase: 'Expired' }); expect(f.s.outbox).toHaveLength(1)
     expect(await f.driver.round()).toMatchObject({ state: 'stopped', phase: 'Expired' })
   })
   it('prunes decided commits without redepositing and suppresses current commits during Gap', async () => {

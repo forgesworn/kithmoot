@@ -10,11 +10,12 @@ import { BrowserPersonaCoordinator } from './mls-persona-coordinator.js'
 import { RoomCoordinatedMlsVault } from './mls-room-coordinated-vault.js'
 import { BrowserMlsRoomCreateCustody, type MlsRoomCreateDevice, type MlsRoomCreateRendezvous } from './mls-room-create-rendezvous.js'
 import { BrowserMlsRoomOperations, type MlsRoomResult, type MlsRoomEffect } from './mls-room-operations.js'
-import { mlsRoomIds, readMlsRoom } from './mls-room-store.js'
+import { mlsRoomIds, readMlsRoom, type MlsRoomBinding } from './mls-room-store.js'
 import { BrowserMlsRoomLinkVault } from './mls-room-link-vault.js'
 import { BrowserMlsBoxClient } from './mls-box-client.js'
 import { BrowserMlsRoomConsent } from './mls-room-consent.js'
 import { BrowserMlsRoomCeremonyClock } from './mls-room-ceremony-clock.js'
+import { BrowserMlsMessageDriver, type MlsDriverRound } from './mls-message-driver.js'
 import { pairedWitnessIdentity } from './mls-writer-identity.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { wipeLinkState } from './browser-link-vault.js'
@@ -27,13 +28,15 @@ export interface MlsRoomDevelopmentContext extends MlsAccountContext {
     readonly rendezvous?: MlsRoomCreateDevice
   }
 }
-interface Active { account: MlsRoomDevelopmentContext; identity: ParticipantIdentity; scope: MlsRoomForegroundScope; clients: Set<BrowserMlsBoxClient>; current(): boolean }
+interface Active { account: MlsRoomDevelopmentContext; identity: ParticipantIdentity; scope: MlsRoomForegroundScope; clients: Set<BrowserMlsBoxClient>; drivers: Set<BrowserMlsMessageDriver>; current(): boolean }
 interface Services { links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: RoomCoordinatedMlsVault; rooms: BrowserMlsRoomOperations; creation: BrowserMlsRoomCreateCustody }
 const stale = () => new Error('Reopen the development room workflow in the current foreground account.')
 const hex = (value: string) => /^[0-9a-f]{64}(?![\s\S])/.test(value)
 const routeShape = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(value)
 export type MlsRoomCreateView = { state: 'saved'; session: string; generation: string } | { state: 'pending'; reason: string; session?: string } |
   { state: 'held'; reason: string }
+export type MlsRoomManualView = { state: 'done'; session: string; generation: string; resolved: number; processed: number; held: number; leafHeld: number; stalled: boolean; limited: boolean } |
+  { state: 'held' | 'pending'; reason: string }
 function wipe(value: unknown, seen = new Set<object>()): void {
   if (!value || typeof value !== 'object' || seen.has(value)) return
   seen.add(value)
@@ -55,7 +58,8 @@ async function join(work: readonly Promise<unknown>[]): Promise<void> {
 /** Concrete room-only application composition. Construction performs no I/O.
  * It privately owns endpoint, persona and signer custody; callers cannot supply
  * service substitutes or a grant preparation/readiness mark. Creation has its
- * own exact route/child/readback ceremony; joining and driver rounds stay held. */
+ * own exact route/child/readback ceremony. Manual rounds use only an exact
+ * saved room and route; authenticated invitation joining stays held. */
 export class BrowserMlsRoomDevelopmentOwner {
   readonly #foreground = new BrowserMlsRoomForeground()
   readonly #endpoint = new BrowserMlsRoomEndpoint(this.#foreground,
@@ -146,6 +150,89 @@ export class BrowserMlsRoomDevelopmentOwner {
     }, clock.current)
   }
 
+  manualRound(routeId: string, session: string): Promise<MlsRoomForegroundResult<MlsRoomManualView>> {
+    if (!routeShape(routeId) || !hex(session)) throw new Error('Choose one saved room and its paired route.')
+    const selected = Object.freeze({ routeId, session }), clock = new BrowserMlsRoomCeremonyClock()
+    const rawKey = this.context()?.authority.rendezvous?.deviceKey, key = rawKey?.slice()
+    const ceremonyCurrent = () => clock.current() && (!key || !!rawKey && rawKey.length === key.length && key.every((byte, index) => rawKey[index] === byte))
+    let client: BrowserMlsBoxClient | undefined, ctx: VaultContext | undefined, rz = '', confirmed = false
+    let candidate: MlsDriverRound | undefined, activeScope: Active | undefined, ownedServices: Services | undefined
+    let initialBinding: Readonly<MlsRoomBinding> | undefined
+    const pending = (reason: string): MlsRoomManualView => ({ state: 'pending', reason })
+    return this.#run<MlsRoomManualView>(true, async (services, active) => {
+      activeScope = active; ownedServices = services
+      try {
+        // Endpoint lifecycle precedes driver then persona custody. The saved
+        // witnessed binding, never a caller's key, supplies room authority.
+        await this.#endpoint.resume(active.account.persona)
+        ctx = services.vault.context(location.origin, active.account.persona)
+        const credential = await services.vault.credential(ctx)
+        if (!credential.ok) return { state: 'held', reason: 'Enrol a current MLS device in witness settings first.' }
+        const consent: ConsentPrompt = permission => this.#consent.ask(this.#foreground, active.scope, permission, clock.deadline, active.current)
+        client = await this.#client(active, services, selected.routeId, ctx, consent)
+        const binding = await this.#foreground.track(active.scope, () => services.coordinator.transact(active.account.persona, async tx => {
+          if (!(await mlsRoomIds(tx)).includes(selected.session)) return undefined
+          const room = await readMlsRoom(tx, selected.session)
+          return { ...room.binding, introductionBox: room.join?.introductionBox }
+        }, active.current))
+        if (binding.state !== 'active') return pending('The saved room requires a fresh witnessed check.')
+        const b = binding.value
+        if (!b) return { state: 'held', reason: 'The selected saved room is absent. Check saved rooms again.' }
+        if (b.homeBox !== client.box || b.introductionBox !== undefined && b.introductionBox !== client.box) {
+          return { state: 'held', reason: 'Select the saved room’s exact home-box route. Delivery across different boxes remains held.' }
+        }
+        if (b.installation === null) return { state: 'held', reason: 'This join is still pending. Authenticated invitation and join recovery remain held.' }
+        if (b.device !== credential.value.device.device || b.credentialId !== credential.value.device.credentialId) {
+          return { state: 'held', reason: 'The saved room belongs to a different MLS device or credential.' }
+        }
+        initialBinding = Object.freeze({ device: b.device, credentialId: b.credentialId, rendezvousKey: b.rendezvousKey, homeBox: b.homeBox, installation: b.installation })
+        rz = b.rendezvousKey
+        const context = { vault: ctx, rendezvousKey: rz, current: active.current }
+        const driver = new BrowserMlsMessageDriver(services.rooms, client, context, selected.session, () => this.#endpoint.stop(), navigator.locks,
+          () => { const now = clock.read(); if (now === undefined) throw stale(); return now })
+        active.drivers.add(driver)
+        candidate = await this.#foreground.track(active.scope, () => driver.round())
+        if (candidate.state !== 'done') return candidate.state === 'stopped'
+          ? { state: 'held', reason: `This room is held in ${candidate.phase}. Retained state requires explicit recovery.` }
+          : pending('The round could not be confirmed. Any room and uncertain outbox records remain retained.')
+        if (candidate.phase !== 'Active') return { state: 'held', reason: `The bounded round finished with this room in ${candidate.phase}. Retained state requires explicit recovery.` }
+        if (candidate.installation !== initialBinding.installation) return pending('The authenticated installation changed. Retained work requires explicit recovery.')
+        const expected = { generation: candidate.generation, homeBox: initialBinding.homeBox, installation: candidate.installation,
+          device: initialBinding.device, credentialId: initialBinding.credentialId }
+        const check = await this.#foreground.track(active.scope, () => services.rooms.confirmTransport(context, selected.session, expected))
+        confirmed = check.state === 'active'
+        if (!confirmed) return pending('The room changed after the round. Any committed or uncertain work remains retained.')
+        return { state: 'done', session: selected.session, generation: candidate.generation, resolved: candidate.delivered,
+          processed: candidate.processed, held: candidate.held, leafHeld: candidate.leafHeld, stalled: candidate.stalled, limited: candidate.limited }
+      } catch {
+        return pending('The round could not be confirmed. Check the saved room before another explicit round; uncertain records remain retained.')
+      }
+    }, async (result, cleanupFailure) => {
+      try {
+        if (cleanupFailure) return pending('Cleanup failed. Close this page before another round; any committed or uncertain room/outbox state remains retained.')
+        if (result.state !== 'done') return result
+        if (!confirmed || candidate?.state !== 'done' || !initialBinding || !activeScope?.current() || !ownedServices || !ctx || !client ||
+            !client.usesBinding(selected.routeId, client.box, ctx) || !client.isCurrent() || !clock.current()) {
+          return pending('Round authority changed during cleanup. Retained work requires a fresh witnessed check.')
+        }
+        const expected = candidate, context = ctx, owned = ownedServices, actualClient = client
+        const binding = initialBinding
+        // The owner-current confirmation outlives the closed driver, but not
+        // a durable persona revision change. This is local readback only:
+        // no endpoint restart or witness exchange after actual cleanup.
+        const final = await owned.coordinator.readConfirmed(activeScope.account.persona, async tx => {
+          if (!(await mlsRoomIds(tx)).includes(selected.session)) return false
+          const room = await readMlsRoom(tx, selected.session), b = room.binding
+          return room.generation === expected.generation && b.homeBox === actualClient.box && b.installation === expected.installation &&
+            b.rendezvousKey === binding.rendezvousKey && b.device === binding.device && b.credentialId === binding.credentialId &&
+            b.homeBox === binding.homeBox && b.installation === binding.installation && (await owned.vault.checkRoomDevice(tx, context, b.device, b.credentialId)).ok
+        }, activeScope.current)
+        return final.state === 'active' && final.value && activeScope.current() && clock.current() ? result
+          : pending('The exact witnessed room changed during cleanup. Any committed or uncertain work remains retained.')
+      } finally { wipe(candidate); candidate = undefined }
+    }, ceremonyCurrent).finally(() => key?.fill(0))
+  }
+
   async #client(active: Active, services: Services, routeId: string, context: VaultContext, consent: ConsentPrompt): Promise<BrowserMlsBoxClient> {
     if (!this.#endpoint.ownsScope(active.scope) || !routeShape(routeId)) throw stale()
     const state = await new BrowserMlsRoomLinkVault(this.#foreground, this.#endpoint).read()
@@ -189,17 +276,19 @@ export class BrowserMlsRoomDevelopmentOwner {
     this.#epoch++; this.#foreground.invalidate()
     this.#consent.cancel()
     const clients = [...this.#active?.clients ?? []]
+    const drivers = [...this.#active?.drivers ?? []]
+    drivers.forEach(driver => driver.invalidate())
     clients.forEach(client => client.invalidate())
     this.#services?.rooms.invalidate()
     this.#services?.vault.bump(); this.#services?.coordinator.invalidate()
     const previous = this.#stopping, endpoint = this.#endpoint.stop()
     const witnesses = this.#services?.links.pause() ?? Promise.resolve()
-    this.#stopping = join([previous, endpoint, witnesses, this.#foreground.settled(), ...clients.map(client => client.settled())])
+    this.#stopping = join([previous, endpoint, witnesses, this.#foreground.settled(), ...clients.map(client => client.settled()), ...drivers.map(driver => driver.close())])
     void this.#stopping.catch(() => {})
     return this.#stopping
   }
   async #run<T>(network: boolean, work: (services: Services, active: Active) => Promise<T>,
-    finish?: (result: T, cleanupFailure?: unknown) => T, ceremonyCurrent: () => boolean = () => true): Promise<MlsRoomForegroundResult<T>> {
+    finish?: (result: T, cleanupFailure?: unknown) => T | Promise<T>, ceremonyCurrent: () => boolean = () => true): Promise<MlsRoomForegroundResult<T>> {
     const account = this.context(), epoch = this.#epoch
     if (!account?.identity || account.identity.pubkey !== account.persona || !hex(account.persona) ||
         !account.authority?.owner || typeof account.authority.owner !== 'object' || typeof account.authority.signEvent !== 'function' ||
@@ -222,7 +311,7 @@ export class BrowserMlsRoomDevelopmentOwner {
       const sign = authority.signEvent.bind(authority.owner)
       const identity: ParticipantIdentity = { pubkey: captured.persona,
         signEvent: template => this.#foreground.track(scope, () => sign(template)) }
-      const active: Active = { account: captured, identity, scope, clients: new Set(), current: () => scope.current() }
+      const active: Active = { account: captured, identity, scope, clients: new Set(), drivers: new Set(), current: () => scope.current() }
       this.#active = active
       const services = this.#services ??= this.#create()
       try {
@@ -236,7 +325,7 @@ export class BrowserMlsRoomDevelopmentOwner {
           try {
             // Client settlement and endpoint/witness release are outside all
             // child/persona callbacks, before the final result fence.
-            try { await join([...active.clients].map(client => client.settled())) }
+            try { await join([...active.drivers].map(driver => driver.close()).concat([...active.clients].map(client => client.settled()))) }
             finally { await join([this.#endpoint.stop(), services.links.pause()]) }
           } catch (error) {
             cleanupFailure = error
@@ -244,8 +333,8 @@ export class BrowserMlsRoomDevelopmentOwner {
             if (!finish) { wipe(result); throw error }
           }
         }
-        if (!scope.current()) { if (finish) wipe(finish(result, cleanupFailure ?? stale())); wipe(result); throw stale() }
-        return finish ? finish(result, cleanupFailure) : result
+        if (!scope.current()) { if (finish) wipe(await finish(result, cleanupFailure ?? stale())); wipe(result); throw stale() }
+        return finish ? await finish(result, cleanupFailure) : result
       } finally { if (this.#active === active) this.#active = undefined }
     })
   }
