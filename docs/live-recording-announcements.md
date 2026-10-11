@@ -20,9 +20,23 @@ Verified announcements now feed the native meeting warning and the web active
 or docked call warning. Reception rejects conflicting same-version states and
 older On replays after Off; the web getter returns an isolated snapshot. Native
 receiver/meeting/session checks passed 61 tests, and focused web checks passed
-120 tests with library/app type-checking. No profile-3 publishing is enabled.
+120 tests with library/app type-checking.
 
-Remaining integration must publish and confirm the exact live state, require
+Both session implementations now have an explicit guarded publication API.
+The web API requires an acknowledged guarded carrier, isolates the signed input,
+and checks ownership, admission, credential expiry, presence freshness and room
+generation at dispatch and after acknowledgement. Quiet presence forwards this
+guard without queueing or spending counters; chat and public file announcements
+cannot use that bypass. Unsupported carriers fail closed. Ordinary call recording
+still uses the existing path and does not advertise profile 3.
+
+The latest web checks passed 193 tests with library/app type-checking, including
+the guarded WebSocket and room-route regressions. Simulated 45-minute refreshes
+spent no quiet counters. Rekey clears outgoing On, invalidates queued warnings,
+and cannot turn the publisher's own echo into acknowledgement. These checks are
+not physical capture or cross-client runtime qualification.
+
+Remaining integration must connect confirmed live publication to capture, require
 compatible call participants before capture, and stop or exclude media before
 an incompatible device can enter a recording. Join, refresh, cancellation,
 Stop, process recovery and rekey need cross-client runtime evidence. Existing

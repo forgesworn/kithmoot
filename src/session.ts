@@ -24,7 +24,7 @@ import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
-import { verifyLiveRecordingState, type LiveRecordingState } from './live-recording.js'
+import { sanitiseLiveRecordingState, verifyLiveRecordingState, type LiveRecordingState } from './live-recording.js'
 import { ChatLog, MAX_PAST_EPOCHS } from './chat.js'
 import type { EpochRoot, PastEpoch } from './chat.js'
 import type { EventArchive } from './archive.js'
@@ -654,6 +654,10 @@ export class RoomSession {
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
   #liveRecording?: ReceivedLiveRecording
+  #outgoingLiveRecording?: { state: LiveRecordingState; allowed: () => boolean }
+  #liveRecordingGeneration = 0
+  #liveRecordingPublications: Promise<void> = Promise.resolve()
+  #livePublicationReady = false
   /**
    * Remote-track subscribers, held HERE rather than on the mesh.
    *
@@ -1193,6 +1197,7 @@ export class RoomSession {
     })
     if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
     this.#openMemberDesk()
+    this.#livePublicationReady = true
   }
 
   /** A conference room whose end has come. Never true for a room with no
@@ -1718,6 +1723,7 @@ export class RoomSession {
     const why: EpochWaitReason = waiting && this.#unknownHere ? 'unknown' : 'unanswered'
     if (this.#awaitingEpoch === waiting && this.#awaitingWhy === why) return
     this.#awaitingEpoch = waiting
+    if (waiting) this.#clearOutgoingLiveRecording()
     this.#awaitingWhy = why
     try {
       this.#opts.onEpochWaiting?.(waiting, why)
@@ -1839,6 +1845,7 @@ export class RoomSession {
    * never restates itself under the new key lapses on the ordinary timeout.
    */
   #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly (RoomEpoch & { leftAt?: number })[] = []): void {
+    this.#clearOutgoingLiveRecording()
     if (notice.members) this.#members = new Set(notice.members)
     const from = this.#epoch.epoch
     const left = this.#epochRoot()
@@ -2232,7 +2239,69 @@ export class RoomSession {
     await this.#publishEntry(false)
   }
 
-  async #publishEntry(reply: boolean, left = false): Promise<void> {
+  #clearOutgoingLiveRecording(): void {
+    this.#outgoingLiveRecording = undefined
+    this.#liveRecordingGeneration++
+  }
+
+  #liveRecordingStillCurrent(state: LiveRecordingState): boolean {
+    const before = this.#liveRecording?.state
+    if (!before || before.recording.version < state.recording.version) return true
+    return before.recording.version === state.recording.version && before.recording.on === state.recording.on &&
+      before.recording.id === state.recording.id && before.capture?.capture === state.capture?.capture &&
+      before.capture?.recorder === state.capture?.recorder && before.capture?.device === state.capture?.device
+  }
+
+  /** Publish the exact signed warning through an acknowledged guarded carrier.
+   * A quiet queue or local echo cannot arm capture. */
+  publishLiveRecordingConfirmed(value: LiveRecordingState, stillAllowed: () => boolean = () => true): Promise<void> {
+    const state = sanitiseLiveRecordingState(value)
+    if (!state || !this.#opts.authority || !verifyLiveRecordingState(this.roomId, state, this.#opts.authority))
+      return Promise.reject(new Error('The recording warning is not authorised.'))
+    if (state.capture && (state.capture.recorder !== this.participant || state.capture.device !== this.device))
+      return Promise.reject(new Error('Only the recording device can publish its running warning.'))
+    const generation = this.#liveRecordingGeneration
+    const send = async () => {
+      const transport = this.#opts.transport
+      if (!transport.publishGuarded) throw new Error('Guarded recording publication is unavailable.')
+      const epoch = this.#epoch.epoch
+      const entry = this.#announcementEntry(true, false, state)
+      if (!entry) throw new Error('Recording publication is no longer allowed.')
+      const deadline = Math.min(credentialExpiresAt(entry.credential), this.#opts.endsAt ?? Infinity,
+        entry.updatedAt + (this.#opts.timing?.presenceTtlSeconds ?? PRESENCE_TTL_SECONDS))
+      let retired = false
+      const allowed = () => {
+        try {
+          return !retired && this.#livePublicationReady && stillAllowed() && !this.#left && !this.#closed && !this.#awaitingEpoch &&
+            !this.#behind() && generation === this.#liveRecordingGeneration && epoch === this.#epoch.epoch &&
+            this.#now() < deadline && this.#liveRecordingStillCurrent(state) &&
+            (!this.#opts.policy || evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now(), this.roomId).admitted)
+        } catch { return false }
+      }
+      if (!allowed()) throw new Error('Recording publication is no longer allowed.')
+      const event = encodeRosterEvent(entry, { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk,
+        ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt })
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([transport.publishGuarded(event, allowed), new Promise<never>((_, reject) => {
+          timer = setTimeout(() => { retired = true; reject(new Error('The recording warning was not confirmed.')) }, 15_000)
+        })])
+        if (!allowed()) throw new Error('Recording publication is no longer allowed.')
+        // Heartbeats retain the caller's ownership guard, but not this attempt's deadline.
+        this.#outgoingLiveRecording = { state, allowed: stillAllowed }
+        this.#liveRecording = { state, sentAt: entry.updatedAt }
+        this.#notify()
+      } finally {
+        retired = true
+        clearTimeout(timer)
+      }
+    }
+    const request = this.#liveRecordingPublications.then(send)
+    this.#liveRecordingPublications = request.then(() => {}, () => {})
+    return request
+  }
+
+  #announcementEntry(reply: boolean, left = false, live?: LiveRecordingState): RosterEntry | undefined {
     const self = this.#self
     if (!self || this.#left) return
 
@@ -2248,7 +2317,7 @@ export class RoomSession {
       assist = null
     }
 
-    const entry: RosterEntry = {
+    return {
       participant: this.participant,
       device: this.device,
       sid: this.sid,
@@ -2258,7 +2327,8 @@ export class RoomSession {
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
       ...(this.#opts.callProfile === 2 ? { callProfile: 2 as const } : {}),
-      ...(this.#opts.recordingProfile === 2 ? { recordingProfile: 2 as const } : {}),
+      ...(live && !left ? { recordingProfile: 3 as const, liveRecording: live } :
+        this.#opts.recordingProfile === 2 ? { recordingProfile: 2 as const } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
@@ -2269,6 +2339,18 @@ export class RoomSession {
       ...(left ? { left: true } : {}),
       ...(self.call && !left ? { call: self.call } : {}),
     }
+  }
+
+  async #publishEntry(reply: boolean, left = false): Promise<void> {
+    const outgoing = this.#outgoingLiveRecording
+    if (outgoing) {
+      let owned = false
+      try { owned = !this.#closed && !this.#awaitingEpoch && !this.#behind() && outgoing.allowed() &&
+        this.#liveRecordingStillCurrent(outgoing.state) } catch { /* Revoked. */ }
+      if (!owned) this.#clearOutgoingLiveRecording()
+    }
+    const entry = this.#announcementEntry(reply, left, this.#outgoingLiveRecording?.state)
+    if (!entry) return
     const event = encodeRosterEvent(entry, {
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -2782,7 +2864,7 @@ export class RoomSession {
     if (!existing && !entry.reply && entry.device !== this.device) this.#scheduleReply()
 
     const live = entry.recordingProfile === 3 ? entry.liveRecording : undefined
-    if (live && this.#opts.authority && verifyLiveRecordingState(this.roomId, live, this.#opts.authority)) {
+    if (key !== this.#selfKey() && live && this.#opts.authority && verifyLiveRecordingState(this.roomId, live, this.#opts.authority)) {
       const before = this.#liveRecording
       const recording = live.recording, previous = before?.state.recording
       const capture = live.capture, previousCapture = before?.state.capture
@@ -2991,6 +3073,8 @@ export class RoomSession {
    * Everything else here is immediate.
    */
   leave(): Promise<void> {
+    this.#livePublicationReady = false
+    this.#clearOutgoingLiveRecording()
     this.#admissionAbort.abort()
     // The last thing this device says is an entry claiming nothing,
     // publishing nothing, and marked `left`. That releases a singular role

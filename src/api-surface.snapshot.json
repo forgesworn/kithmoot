@@ -502,6 +502,7 @@
     "ReadPosition",
     "ReadPositionRecord",
     "ReadPositions",
+    "ReceivedLiveRecording",
     "RecordingCapture",
     "RecordingCaptureNotice",
     "RecordingNotice",

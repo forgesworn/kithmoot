@@ -193,12 +193,14 @@ export function quietRoomTransport(inner: RelayTransport, opts: QuietRoomOptions
   }
 
   let keyed = false
+  let liveGeneration = 0
   const transport: QuietRoomTransport = {
     quiet: true,
     canSend,
     get pending() { return waiting.size },
     queued: () => order.map((id) => waiting.get(id)!.event),
     rekey(key) {
+      liveGeneration++
       quiet.rekey(key)
       if (keyed) {
         // Whatever waited was written for the key just left.
@@ -207,6 +209,15 @@ export function quietRoomTransport(inner: RelayTransport, opts: QuietRoomOptions
         keyed = true
         if (opts.used) quiet.importUsed(opts.used)
       }
+    },
+    async publishGuarded(event, allowed) {
+      if (QUIET_KINDS.includes(event.kind)) throw new Error('Quiet chat cannot use the live publication carrier')
+      if (QUIET_BLOCKED_KINDS.includes(event.kind)) throw new Error(QUIET_NO_FILE_ANNOUNCE)
+      const generation = liveGeneration
+      const current = () => !closed && generation === liveGeneration && allowed()
+      if (!current() || !inner.publishGuarded) throw new Error('Guarded live publication is unavailable')
+      await inner.publishGuarded(event, current)
+      if (!current()) throw new Error('Live publication is no longer allowed')
     },
     async publish(event) {
       if (!QUIET_KINDS.includes(event.kind)) {

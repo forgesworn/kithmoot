@@ -1,0 +1,27 @@
+{
+  "qualification": "Web guarded live recording publication candidate",
+  "source_base": "2df15d6",
+  "tests": {
+    "files": 11,
+    "passed": 193,
+    "failed": 0,
+    "typecheck_passed": true
+  },
+  "source_sha256": {
+    "src/session.ts": "effa7651f916b908f29ebc5a13c6e5c3474fcfdbfb0a72564a1e1faa0394d622",
+    "src/quiet.ts": "f1c71696e470a6dcf657bfa5be00e2e80ae0131670f3b6f8ac21749398ce2cf5",
+    "src/session-live-recording-publication.test.ts": "b82add13931122e999eb379f194af8c75b6537ac9c69aa58d9dc94ac09516fe2",
+    "src/api-surface.snapshot.json": "6d505a5cad93570ce4d5dbbb30990598ffc981c72185f9864097711ec140660d"
+  },
+  "test_log_sha256": "3a77d1c5464084081f03c292dbfebad164e1cd6a966011cd2a10e0fa2a3e39b1",
+  "typecheck_log_sha256": "caa298209aa942cc5ab18c6756f73b50b8a325269b5da448077f6e2ab19f7e45",
+  "limits": [
+    "Simulated relay and guarded socket fixtures, not cross-client or physical qualification",
+    "Ordinary recording still uses the existing announcement path",
+    "Compatibility preflight, media fencing and capture integration remain open"
+  ],
+  "hosted_followup": {
+    "run": "https://github.com/forgesworn/kithmoot/actions/runs/38143565751",
+    "known_failure": "Public API snapshot omitted ReceivedLiveRecording; regenerated snapshot passes locally"
+  }
+}
