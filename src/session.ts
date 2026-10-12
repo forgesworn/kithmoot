@@ -451,6 +451,15 @@ export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
    *  at each renewal, and the secret of the seal key it names, so the
    *  embedding can keep both to offer as `resume` and in `sealKeys`. */
   onCredential?: (credential: DeviceCredential, sealSk?: Uint8Array) => void
+  /** Required retention before a newly minted own credential can be used.
+   * Resolve only after atomically retaining the exact credential and seal.
+   * Rejection or a lost acknowledgement keeps the same private candidate for
+   * retry; expiry is not proof of absence. Inputs are isolated copies; mutable
+   * seal bytes are wiped when the callback settles, so copy anything retained.
+   * A durable embedding must reconcile pending storage on restart before
+   * constructing a new session. This hook alone supplies no crash recovery.
+   * `onCredential` remains a convenience observer, called after acknowledgement. */
+  retainCredential?: (credential: DeviceCredential, sealSk?: Uint8Array) => Promise<void>
 }
 
 /**
@@ -466,6 +475,7 @@ export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
   resume?: never
   sealKeys?: never
   onCredential?: never
+  retainCredential?: never
 }
 
 export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessionOptions
@@ -582,6 +592,9 @@ export class EpochUnreachableError extends Error {
   }
 }
 
+/** A pre-effect handoff may be retried in the same session. */
+class CredentialRetentionError extends Error {}
+
 /** The timings that govern presence. All of them are tunable guesses; none of
  *  them changes what is correct. Matches the Android client's `SessionTiming`. */
 export interface SessionTiming {
@@ -634,6 +647,10 @@ export class RoomSession {
    * caught has lapsed and the room has rekeyed. See `seal.ts`.
    */
   readonly #sealKeys = new Map<string, Uint8Array>()
+  #pendingCredential?: { credential: DeviceCredential; sealSk?: Uint8Array }
+  #credentialWork?: Promise<DeviceCredential>
+  #retentionWork?: Promise<void>
+  #joinWork?: Promise<void>
   /**
    * The newest credential seen for each device, from the roster. Only ever
    * moves forward: a roster entry is signed by the device key, so a thief
@@ -855,21 +872,100 @@ export class RoomSession {
     devicePubkey: string,
     ttlSeconds = CREDENTIAL_TTL_SECONDS,
   ): Promise<DeviceCredential> {
+    if (normaliseHex(devicePubkey) === this.device && this.#opts.retainCredential) {
+      return this.#ownCredential(ttlSeconds)
+    }
+    const candidate = await this.#mintCredential(devicePubkey, ttlSeconds)
+    if (candidate.sealSk) {
+      this.#keepSealKey(candidate.sealSk)
+      candidate.sealSk.fill(0)
+    }
+    return candidate.credential
+  }
+
+  async #mintCredential(devicePubkey: string, ttlSeconds: number): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
     const identity = this.#opts.identity
     if (!identity) throw new Error('this device cannot sign for the participant, so it cannot issue credentials')
-    // This device's own credential names a fresh seal key. A credential for
-    // another device does not: that device would have to mint the key, and
-    // the pairing flow does not carry one yet.
     const seal = normaliseHex(devicePubkey) === this.device ? generateSealKey() : undefined
-    const credential = await createDeviceCredential({
-      identity,
-      devicePubkey,
-      roomId: this.roomId,
-      expiresAt: this.#now() + ttlSeconds,
-      ...(seal ? { seal: seal.pubkey } : {}),
-      now: this.#now,
-    })
-    if (seal) this.#keepSealKey(seal.secretKey)
+    try {
+      const credential = await createDeviceCredential({
+        identity,
+        devicePubkey,
+        roomId: this.roomId,
+        expiresAt: this.#now() + ttlSeconds,
+        ...(seal ? { seal: seal.pubkey } : {}),
+        now: this.#now,
+      })
+      return { credential, ...(seal ? { sealSk: seal.secretKey } : {}) }
+    } catch (error) {
+      seal?.secretKey.fill(0)
+      throw error
+    }
+  }
+
+  #discardPendingCredential(): void {
+    this.#pendingCredential?.sealSk?.fill(0)
+    this.#pendingCredential = undefined
+  }
+
+  /** One exact candidate and one retention attempt at a time. Uncertain
+   * outcomes stay private, including after expiry, until acknowledged. */
+  #ownCredential(ttlSeconds = this.#credentialTtl()): Promise<DeviceCredential> {
+    if (this.#credentialWork) return this.#credentialWork
+    const work = this.#retainOwnCredential(ttlSeconds)
+    this.#credentialWork = work
+    void work.finally(() => {
+      if (this.#credentialWork === work) this.#credentialWork = undefined
+    }).catch(() => {})
+    return work
+  }
+
+  async #retainOwnCredential(ttlSeconds: number): Promise<DeviceCredential> {
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+    if (!this.#pendingCredential) {
+      const candidate = await this.#mintCredential(this.device, ttlSeconds)
+      this.#pendingCredential = candidate
+    }
+    const candidate = this.#pendingCredential
+    // A signer may have completed after leave. Do not invoke storage or expose
+    // its seal. A late signer result is never handed to storage.
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) {
+      this.#discardPendingCredential()
+      throw new Error('room admission cancelled')
+    }
+    const hook = this.#opts.retainCredential
+    if (hook) {
+      const sealCopy = candidate.sealSk?.slice()
+      const credentialCopy = { ...candidate.credential, tags: candidate.credential.tags.map(tag => [...tag]) }
+      // Register the handoff before invoking embedding code: even a callback
+      // that closes synchronously must see the work orderly close waits for.
+      const retention = Promise.resolve().then(() => {
+        if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+        return hook(credentialCopy, sealCopy)
+      })
+      this.#retentionWork = retention
+      try {
+        await retention
+      } catch (error) {
+        throw new CredentialRetentionError(error instanceof Error ? error.message : 'device credential retention failed', { cause: error })
+      } finally {
+        sealCopy?.fill(0)
+        if (this.#retentionWork === retention) this.#retentionWork = undefined
+      }
+    }
+    // Acknowledgement reconciles even an expired candidate. Never check expiry
+    // first and mint a replacement for a write whose outcome is still unknown.
+    const credential = candidate.credential
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || this.#ended()) {
+      this.#discardPendingCredential()
+      throw new Error('room admission cancelled')
+    }
+    if (credentialExpiresAt(credential) <= this.#now()) {
+      this.#discardPendingCredential()
+      throw new CredentialRetentionError('retained device credential expired before use')
+    }
+    if (candidate.sealSk) this.#keepSealKey(candidate.sealSk)
+    this.#discardPendingCredential()
     return credential
   }
 
@@ -969,7 +1065,18 @@ export class RoomSession {
     return this.#newestCredentials.get(normaliseHex(device))
   }
 
-  async join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+  join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+    if (this.#joinWork) return this.#joinWork
+    if (this.#self) return Promise.reject(new Error('room already joined'))
+    const work = this.#joinWithAdmission(tracks, claims)
+    this.#joinWork = work
+    void work.finally(() => {
+      if (this.#joinWork === work) this.#joinWork = undefined
+    }).catch(() => {})
+    return work
+  }
+
+  async #joinWithAdmission(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
     if (!this.#opts.requireFreshEpoch) return this.#join(tracks, claims)
     const signal = this.#opts.admissionSignal
     const cancel = () => { void this.leave() }
@@ -977,7 +1084,13 @@ export class RoomSession {
     try {
       await this.#join(tracks, claims)
       if (this.#left || signal?.aborted) throw new Error('room admission cancelled')
-    } catch (error) { await this.leave(); throw error }
+    } catch (error) {
+      // No room effects have started: keep an uncertain exact candidate for
+      // retry, or allow a replacement after acknowledged expiry. Authority
+      // failures after adoption still close everything as before.
+      if (!(error instanceof CredentialRetentionError) || this.#self || this.#left || signal?.aborted) await this.leave()
+      throw error
+    }
     finally { signal?.removeEventListener('abort', cancel) }
   }
 
@@ -1000,8 +1113,10 @@ export class RoomSession {
     // which is the only endpoint holding the participant key, can mint one,
     // and it reuses the one it minted last time while that is still good.
     const resumed = this.#resumable()
-    const credential = this.#credential ?? resumed ?? (await this.issueDeviceCredential(device, this.#credentialTtl()))
+    const credential = this.#credential ?? resumed ?? (await this.#ownCredential())
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || this.#ended()) throw new Error('room admission cancelled')
     if (!this.#credential && !resumed) this.#announceCredential(credential)
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
 
     this.#self = { credential, tracks, claims }
 
@@ -2072,8 +2187,8 @@ export class RoomSession {
   async #renewCredential(): Promise<void> {
     if (this.#left || !this.#self || !this.#opts.identity) return
     try {
-      const credential = await this.issueDeviceCredential(this.device, this.#credentialTtl())
-      if (this.#left || !this.#self) return
+      const credential = await this.#ownCredential()
+      if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || !this.#self) return
       this.#self = { ...this.#self, credential }
       this.#chat?.setCredential(credential)
       for (const log of this.#channels.values()) log.setCredential(credential)
@@ -2081,7 +2196,7 @@ export class RoomSession {
       await this.#publishEntry(true)
       this.#scheduleRenewal(this.#renewalDelayMs(credential))
     } catch {
-      this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
+      if (!this.#left && !this.#closed) this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
     }
   }
 
@@ -3069,6 +3184,8 @@ export class RoomSession {
    * `leave()` returns has not said goodbye: the publish is a socket write
    * that has not happened yet, and the room waits out the presence timeout
    * for a device that meant to leave politely. Await it before exiting.
+   * A required credential-retention handoff is also awaited before releasing
+   * its private candidate. It has no timeout: uncertainty cannot prove absence.
    * Everything else here is immediate.
    */
   leave(): Promise<void> {
@@ -3136,6 +3253,9 @@ export class RoomSession {
     this.#listeners.clear()
     this.#entries.clear()
     this.#seenAt.clear()
-    return farewell
+    const retention = this.#retentionWork?.catch(() => {}).then(() => {
+      this.#discardPendingCredential()
+    }) ?? Promise.resolve().then(() => { this.#discardPendingCredential() })
+    return Promise.all([farewell, retention]).then(() => {})
   }
 }

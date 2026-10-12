@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { encodeEpochGrant } from './epoch.js'
 import { RoomSession } from './session.js'
@@ -6,6 +6,8 @@ import { RoomAgent } from './agent.js'
 import { LiveKeeperJournal } from './live-keeper.js'
 import { localIdentity } from './identity.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
+import * as seals from './seal.js'
+import type { DeviceCredential } from './types.js'
 import { KINDS } from './kinds.js'
 
 const NOW = 1_800_000_000, now = () => NOW
@@ -35,6 +37,61 @@ async function setup(host = true, dropGrants = 0) {
 const outcome = (p: Promise<void>) => p.then(() => undefined, error => error as Error)
 
 describe('fresh root epoch gate', () => {
+  it('retries uncertain retention before any root request without leaving the fresh-epoch session', async () => {
+    const f = await setup()
+    const inner = localIdentity(generateSecretKey())
+    const sign = vi.fn(inner.signEvent.bind(inner))
+    const entropy = vi.spyOn(seals, 'generateSealKey')
+    const kept: { credential: DeviceCredential; seal: Uint8Array }[] = []
+    const client = f.create({ identity: { pubkey: inner.pubkey, signEvent: sign }, retainCredential: async (credential, seal) => {
+      kept.push({ credential: structuredClone(credential), seal: seal!.slice() })
+      if (kept.length === 1) throw new Error('acknowledgement unknown')
+    } })
+    try {
+      await expect(client.join([], {})).rejects.toThrow('unknown')
+      expect(f.sent).toEqual([])
+      expect(client.credential).toBeUndefined()
+      await client.join([], {})
+      expect(kept[1]).toEqual(kept[0])
+      expect(sign).toHaveBeenCalledTimes(1)
+      expect(entropy).toHaveBeenCalledTimes(1)
+      expect(client.credential?.id).toBe(kept[0]!.credential.id)
+      await client.chat.send('after exact retention and fresh root round trip')
+      expect(f.root!.chat.messages().some(m => m.text === 'after exact retention and fresh root round trip')).toBe(true)
+    } finally { entropy.mockRestore() }
+  })
+
+  it('reconciles acknowledged expiry and can mint a replacement for the fresh-epoch join', async () => {
+    const f = await setup()
+    let clock = NOW, acknowledge = false
+    const inner = localIdentity(generateSecretKey())
+    const sign = vi.fn(inner.signEvent.bind(inner))
+    const entropy = vi.spyOn(seals, 'generateSealKey')
+    const kept: DeviceCredential[] = []
+    const client = f.create({ now: () => clock, identity: { pubkey: inner.pubkey, signEvent: sign },
+      timing: { credentialTtlSeconds: 10 }, retainCredential: async credential => {
+        kept.push(structuredClone(credential))
+        if (!acknowledge) throw new Error('write outcome unknown')
+      } })
+    try {
+      await expect(client.join([], {})).rejects.toThrow('unknown')
+      clock += 11
+      await expect(client.join([], {})).rejects.toThrow('unknown')
+      expect(kept[1]).toEqual(kept[0])
+      acknowledge = true
+      await expect(client.join([], {})).rejects.toThrow('expired before use')
+      expect(kept[2]).toEqual(kept[0])
+      expect(sign).toHaveBeenCalledTimes(1)
+      expect(entropy).toHaveBeenCalledTimes(1)
+      expect(f.sent).toEqual([])
+      await client.join([], {})
+      expect(sign).toHaveBeenCalledTimes(2)
+      expect(entropy).toHaveBeenCalledTimes(2)
+      expect(client.credential?.id).toBe(kept[3]!.id)
+      expect(kept[3]!.id).not.toBe(kept[0]!.id)
+    } finally { entropy.mockRestore() }
+  })
+
   it('requires a root round trip at epoch zero before publishing roster or chat', async () => {
     const f = await setup(), client = f.create()
     await client.join([], {})
