@@ -46,8 +46,8 @@ history; a Matrix homeserver holds the room state; a NIP-29 relay holds the
 group. KithMoot has none. Membership is who holds the key, and the key is
 handed out by whoever holds the link, so there is no server whose removal
 takes the workspace with it, and no server that can read it. The trade-offs
-that buys are written down in `docs/decisions.md`, starting with why this
-is not built on NIP-29 or on Marmot.
+that buys are written down in [the design decisions](docs/decisions.md),
+including room authority, the ordinary key schedule and relay independence.
 
 And every incumbent bolts agents on through an operator's API. Here an
 agent is a member on the same terms as a person, with one addition: it says
@@ -98,6 +98,24 @@ link-preview fetchers, not from the service carrying the message. In an
 end-to-end encrypted conversation that service cannot read the link; in a
 cloud-hosted group it can. Treat the messaging group's confidentiality as part
 of the invitation's threat model.
+
+## Encryption and local storage
+
+Ordinary rooms encrypt chat with keys derived from a shared room epoch.
+Fresh credential seal keys can heal a copied device key after renewal,
+expiry of the copied credential and rekeying, provided the participant signer
+remains uncompromised. This is conditional recovery, not a per-message
+ratchet or a forward-secrecy claim.
+Scheduled rekeying is optional and off by default in the agent runtime.
+
+An external signer protects the participant secret; ordinary browser room
+device keys, seal keys, retained epoch keys and admissions still use
+unencrypted `localStorage`. Separate encrypted Link and MLS stores do not migrate them.
+MLS room creation and a manual round exist only in an explicit development
+preview; production MLS and authenticated preview joining remain unavailable.
+
+See [security and privacy boundaries](docs/security-model.md) for the source,
+transport defaults, upload consent and remaining acceptance limits.
 
 ## No operator, not no infrastructure
 
@@ -157,8 +175,10 @@ the [workspace delivery](docs/workspace-delivery.md).
   its chat then rides the kind 1059 gift-wrap stream as dead drops: each
   message to a key derived from the epoch key, the member and a counter,
   one wrap every five minutes with fillers between, read back from the
-  whole stream. A relay cannot tell whether anything was said, by whom,
-  or when. Started with "Message quietly" on a person's row; the chip
+  whole stream. Padding and fillers reduce direct message authorship and
+  timing disclosure; network addresses and traffic correlation remain.
+  Presence, signalling and rekeys retain their ordinary routes.
+  Started with "Message quietly" on a person's row; the chip
   beside the composer and the note on the room sheet say exactly what it
   hides and what it does not. Built on `nostr-deaddrop`; see
   `docs/decisions.md`.
@@ -492,7 +512,9 @@ roster and the chat. So the whole surface an identity has to cover is a
 pubkey and an async `signEvent`, which is
 `ParticipantIdentity` in `src/identity.ts`. A locally generated key and an
 external signer both satisfy it, and nothing else in the protocol can tell
-which it has.
+which it has. This protects the participant secret, not every secret in the
+browser: ordinary room device, seal and retained epoch keys and admissions remain
+in unencrypted `localStorage`. See [the storage boundary](docs/security-model.md#browser-storage-and-signers).
 
 A signer that can prove who you are but cannot sign afterwards (an
 auth-only session) is refused with a reason, because a room needs that one

@@ -7,11 +7,15 @@ live in one sealed IndexedDB record under a non-extractable AES-GCM key. No
 pairing capability is persisted. Sign-out and account changes stop the engine;
 Forget this browser removes its local pairing as well.
 
-This prepares a carrier. It does **not** change any existing room's transport.
-Room activation, persistent grant installation/withdrawal, cross-tab closure of
-public room pools and browser MLS/witness coordination remain follow-up work.
-The UI states that limitation. A connection is not a claim that a room is
-sheltered, anonymous or using MLS. The Link relay can observe network addresses,
+Pairing prepares a carrier and does **not** change an existing room's transport
+by itself. Explicit [Bothy room activation](browser-room-activation.md) now
+provides scoped text routing, persisted grants and withdrawal, and cross-tab
+closure of public room pools. Its current scope is ordinary main-chat text,
+presence and control before the first rekey; it does not provide calls,
+new invitations, quiet rooms or ungranted channels/epochs. The separate
+[MLS room custody preview](browser-mls-room-custody-preview.md) remains
+development-only. A connection is not a claim that a room is anonymous or
+using MLS. The Link relay can observe network addresses,
 connection timing and volume. This vault is not rollback protection.
 
 ## Lifecycle and transport boundary

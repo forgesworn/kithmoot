@@ -23,8 +23,11 @@ channels and are disclosed as such in the README.
 
 Known gaps against this yardstick, stated rather than fixed by the
 statement above: relays, TURN, Blossom and a forwarder see the connecting
-device's IP address, and every other member sees it in a mesh call because
-`iceTransportPolicy` is never set to relay-only. Default ICE discovery is
+device's IP address. Direct peers can learn it in a default mesh call. The
+optional **Hide my IP address from other people in this call** mode sets
+`iceTransportPolicy: 'relay'`, removes STUN and requires authenticated TURN.
+It refuses without a usable relay rather than silently becoming direct;
+the TURN operator still sees the connection. Default ICE discovery is
 derived from the app's own origin; a room that explicitly names a third-
 party STUN or TURN service discloses its IP there too. Context uploads use
 a fresh, discarded signing key by default, so the Blossom authorisation is
@@ -41,11 +44,22 @@ operator's list of the rooms it serves is wrong here by construction,
 however standard it is elsewhere. An operator's list of rooms is a guest
 list under another name.
 
-**3. Security.** The room key never leaves the members. A person's identity
-is theirs across their devices. A removed member is out by the epoch. A
-bearer capability that leaks is rotatable. Untrusted input is projected
+**3. Security.** Infrastructure does not receive the room key. A person's
+identity is theirs across their devices. Removal withholds the new epoch
+from the removed devices; retained history and re-admission through a still
+valid open invitation remain possible. A bearer capability that leaks is
+rotatable. Untrusted input is projected
 onto named fields, never validated and passed through. A secret is never
 on a command line, in a URL a relay sees, or in a log.
+
+Ordinary rooms have no per-message ratchet or current forward-secrecy claim.
+Credential seal-key renewal can heal a copied device key only with an
+uncompromised participant signer, expiry of the copied credential and a
+subsequent rekey using the renewed credential. Ordinary browser
+room secrets remain in unencrypted `localStorage`, even with an external
+signer. Specialised encrypted Link/MLS stores and development witness checks
+do not protect that ordinary store. Review against the
+[current security boundaries](security-model.md), not planned properties.
 
 When two of these conflict, the order decides, and the answer is almost
 always a different design rather than a weaker one. The worked example: a
@@ -62,7 +76,7 @@ the claim it costs named, not shipped as a patch.
 - The person, not the device, is the member. Identity and membership
   survive a closed tab, a restart and a new day.
 - A room stays open with nobody online, and a member returns to it.
-- The link is the key. No registration, no account, no guest list.
+- The link is an admission capability. No registration, no account, no guest list.
 - Calls hold, on the networks where STUN alone does not.
 - A file can be shared privately by any member.
 - An agent is a member with attested ownership, a sender-side consent
@@ -110,14 +124,20 @@ is bound to the device, not the identity, so the service cannot tie what it
 serves to a person. It is issued on admission and re-issued on each epoch,
 so no keeper has to be online to keep it fresh, and a member may sign
 passes for their own devices under it. It names the room by a per-service
-pseudonym, never the id the relay sees. No pass means degrade, never fail:
-the mesh instead of the forwarder, STUN instead of TURN, no push. An open
+pseudonym, never the id the relay sees. Alternative routes may be used only
+when the person's selected privacy policy permits them: mesh instead of a
+forwarder, STUN instead of TURN, or no push. Relay-only calls and selected
+Bothy room routes refuse or hold rather than silently downgrade. An open
 service accepts any valid pass and quotas per room; it never asks a room to
 register. The forwarder is the first consumer, and the pass arrives as a
 protocol change with vectors, not as a patch.
 
 ## Read before reviewing
 
+- [Security and privacy boundaries](security-model.md): ordinary encryption,
+  storage, optional routing and the development-only MLS boundary.
+- [Browser room routing](browser-room-activation.md): the implemented Bothy
+  scope and its remaining acceptance gates.
 - `README.md`: "The claim", "The link, and what a relay sees", "No
   operator, not no infrastructure".
 - `docs/decisions.md`, all of it. Every design that looks like an omission
