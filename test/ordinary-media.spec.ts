@@ -49,7 +49,7 @@ for (const fault of MEDIA_FAULTS) test(`raw media holds ${fault} before entropy,
    finally{restoreCrypto();IDBObjectStore.prototype.put=put;IDBObjectStore.prototype.delete=del}
   })()`)).toEqual([true, 0, 0, 0, 0, 0, true, true]); await context.close()
 })
-for (const fault of ['wrapped', 'effect', 'voice', 'blur-alternate', 'camera-empty', 'profile-browser-on'] as const)
+for (const fault of ['wrapped', 'effect', 'voice', 'blur-alternate', 'camera-empty', 'profile-browser-value'] as const)
   test(`completed media holds ${fault} without rewriting custody`, async ({ browser }) => {
     const context = await browser.newContext(), page = await open(context)
     expect(await page.evaluate(`(async()=>{

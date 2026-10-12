@@ -1,3 +1,4 @@
+import { readCallProfile } from './call-profile.js'
 import { expect, it, vi } from 'vitest'
 import { validateOrdinaryMediaSnapshot as validate } from './ordinary-media-snapshot.js'
 import { OrdinaryStateHold, ORDINARY_VALUE_BYTES } from './ordinary-state-codec.js'
@@ -35,4 +36,12 @@ it('holds oversized UTF8 values before interpretation', () => {
 })
 it('leaves unrelated namespaces for the required full composite', () => {
   expect(validate(new Map([['kithmoot.camera.framing', 'true']]), false, { kind: 'browser' }).cameraChoices).toBe(0)
+})
+
+it('retains the historical durable on value without enabling the current loader', () => {
+  const f = mediaFixture('profile-browser-legacy-on')
+  expect(f.records.get('kithmoot.callProfile')).toBe('2')
+  expect(validate(f.records, false, { kind: 'browser' }).callProfiles).toBe(1)
+  expect(readCallProfile('', { getItem: k => f.records.get(k) ?? null, setItem: (k, v) => { f.records.set(k, v) } })).toBe(1)
+  expect(f.records.get('kithmoot.callProfile')).toBe('2')
 })

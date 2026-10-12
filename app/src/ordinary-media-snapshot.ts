@@ -11,7 +11,7 @@ function reserved(name: string): boolean {
 
 /** Count-only custody of the current call writers. These raw choices are
  * not permission to open media, identify hardware or enable negotiation.
- * Unknown/historical formats hold intact for recovery; no defaults, repair,
+ * Unknown formats hold intact for recovery; no defaults, repair,
  * live loaders, URL interpretation or effects run here. A complete source
  * composite and real browser/tab owners are still required before startup. */
 export function validateOrdinaryMediaSnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
@@ -27,10 +27,10 @@ export function validateOrdinaryMediaSnapshot(records: ReadonlyMap<string, strin
     if (name.length > ORDINARY_NAME_UNITS || typeof raw !== 'string') hold()
     ordinaryUtf8Length(raw)
     if (name === PROFILE) {
-      // Current writer remembers only off durably, but either exact value
-      // in the page session. Older durable on values remain an intact HOLD,
-      // rather than silently being migrated into a usable preference.
-      if (raw !== '1' && !(options.kind === 'tab' && raw === '2')) hold()
+      // The archived 76ee9bc writer also stored durable 2. Retain it as
+      // inert custody; the current loader ignores durable 2. This count
+      // must never enable negotiation or move a durable choice into a tab.
+      if (raw !== '1' && raw !== '2') hold()
       counts.callProfiles++; continue
     }
     if (options.kind !== 'browser') hold()

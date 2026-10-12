@@ -1,7 +1,8 @@
 # Call preference custody
 
 This unpublished count-only helper validates the six current `call-prefs.ts`
-writers and the current `readCallProfile` writer. It does not connect the
+writers, the current `readCallProfile` writer and the exact historical
+`readCallProfile` source from commit `76ee9bc` (archived under test fixtures). It does not connect the
 protected production root, finish the complete source inventory or satisfy DG08.
 
 | Physical name | Owner | Custody rule |
@@ -12,13 +13,14 @@ protected production root, finish the complete source inventory or satisfy DG08.
 | `kithmoot.call.voicePreset` | Browser | Exact off, lower, higher, neutral, deep or bright |
 | `kithmoot.call.cameraDeviceId` | Browser | Nonempty opaque text |
 | `kithmoot.call.micDeviceId` | Browser | Nonempty opaque text |
-| `kithmoot.callProfile` | Browser | Exact 1, the current durable off writer |
+| `kithmoot.callProfile` | Browser | Exact 1 or 2; historical 2 remains inert and the current loader ignores it |
 | `kithmoot.callProfile` | Tab | Exact 1 or 2, current page-session writer |
 
 Reserved unknown keys, versions, account wrapping, invalid values, values above
 the 8 MiB UTF8 custody limit and relocation of browser media choices to a tab
-owner hold the complete original bytes. The older durable profile-2 form also
-holds intact for recovery; historical-format migration remains open. No default
+owner hold the complete original bytes. The older durable profile-2 form is
+preserved byte-exactly as inert custody, without promotion into page-session
+state or activation of media negotiation. No default
 is substituted and no malformed row is dropped. Completed images receive the
 same checks. Unrelated families remain for the required complete composite.
 
