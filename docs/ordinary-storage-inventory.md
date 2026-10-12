@@ -99,6 +99,63 @@ Other identifier-free keys currently written by layout modules include
 They remain protected in the proposed scope until an explicit exact-value
 allowlist is reviewed. A name containing `call` or `home` is insufficient.
 
+## Encrypted journal custody
+
+`ordinary-journal-snapshot.ts` classifies the existing browser-owned
+`shared-projects.v1.<account>`, `assignments.v1.<account>.<room>` and
+`context.v1.<account>` rows. It preserves every raw byte and original physical
+owner, refuses account wrappers and temporary tab relocation, and returns only
+frozen counts. The raw 8 MiB UTF-8 limit is checked before JSON parsing. Direct
+writer objects require their fixed fields and insertion order; a signer-returned
+nested event may have any standard-field insertion order. Whitespace, duplicate
+JSON fields, unknown fields and unsupported versions hold intact. No loader,
+decryption, signer, network, clock, expiry pruning or repair runs during custody.
+
+Projects bind the visible account, recognise the 131-byte NIP44 self-key carrier
+produced by encryption of the 64-character recovery key, and check V2 envelope
+framing. Their encrypted project, logo and request state remains opaque.
+Assignments retain up to 20,000 encrypted events and 100 pending entries in
+their original order, including the actual `(0,1)`, `(1,1)` and `(1,0)` writer
+cuts. A physically present fully empty journal has no established writer cut
+and holds. Its account and room binding is physical, not authenticated by this
+offline validator. NIP44 checks support both the two-byte and extended six-byte
+encrypted-prefix length profiles written by pinned nostr-tools 2.25. They check
+canonical Base64, version and compatible total length, not the encrypted prefix,
+MAC, recipient or plaintext meaning.
+
+Context allows the actual empty save and up to 32 collections. Each standard
+cache event has an uncached signature check, the exact cache domain, account and
+recipient, content below 1 MiB and serialized event at most 1 MiB. Its encrypted
+policy, key, head and access pointer remain opaque. V2 envelopes have an upper
+callable-writer bound of 2 MiB + 88 bytes: a 1 MiB signed snapshot plus metadata
+rounds to a 2 MiB padding bucket, with two tags and a 56-byte header. Current
+restore validates the decrypted pointer against a narrower 2 MiB envelope limit
+and can reject such a writer output. This recovery mismatch remains open.
+The exact-ceiling fixture uses a synthetic signer that returns an unsigned
+extra snapshot property, permitted by the current primary writer, to reach a
+1 MiB serialized snapshot; its later signed cache event has ordinary fields.
+It proves the callable writer/restore mismatch, not typical app content or
+external-signer acceptance.
+
+Current Context save also preserves FSWNENC1 and WBLMENC1 envelopes accepted
+through import/restore. Primary historical writers, authenticated current
+restore and current save generated the retained synthetic regression vectors.
+The 2 MiB legacy bound is the current accepted passthrough profile, not a
+historical writer/format maximum. Envelope checks authenticate no ciphertext:
+only Base64, magic/header, 1 MiB chunk size, record count, total length and a legal
+visible padding bucket are checked. Encrypted metadata/source length, tags,
+salt and nonce provenance remain unproven. Larger potentially legitimate
+values hold intact; complete recovery/export or chunked custody is still owed.
+
+Native tests use direct SDK writers with synthetic signers and an in-process
+relay, native IDB/Web Locks/AES and a no-op client fence. They cover exact
+migration/reload, historical passthrough, rejected raw values before entropy or
+owner-row writes, and invalid completed custody without rewriting its frame.
+Explicit source Storage adapters are used for over-quota fault snapshots and
+the synthetic signer-extension ceiling; those cases do not prove native
+localStorage accepts their size. This helper is not the complete composite,
+production root, runtime authority or full DG08 acceptance.
+
 ## Coordination and adjacent encrypted stores
 
 The local ordinary custody acceptance profile now bounds each raw value at
