@@ -102,5 +102,12 @@
     },
     "desktop_sha256": "e7dca45126e7ac600f74f65a86bd1a9ee146a329ccb8cf16fe012678dad4b3eb",
     "signature_sha256": "e0d30411af790da1ac7758907033123e7e3652ac6acc760b6d3730803e1a12a7"
-  }
+  },
+  "final_release_metadata_tests": {
+    "passed": 98,
+    "failed": 0,
+    "skipped": 0,
+    "log_sha256": "936090c0bab4e14d0e7dbab059d61a4035dc43a64cde97657418458310cf7ceb"
+  },
+  "metadata_follow_up": "The download history now includes all six measured 0.1.77 candidates and preserves earlier versions. The preceding hosted run correctly rejected the mismatch between the 0.1.77 Mac feed and the older 0.1.76 history; all 98 desktop tests pass after the correction."
 }
