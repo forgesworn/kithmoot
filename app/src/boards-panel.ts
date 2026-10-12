@@ -225,6 +225,9 @@ export class BoardsPanel {
   private mountPopup(popup: Window, account: SignetSession, context: BoardContext): BoardView {
     const doc = popup.document; doc.title = boardContextTitle(context)
     doc.documentElement.lang = 'en-GB'; doc.body.replaceChildren(); doc.body.className = 'boardsPopup'
+    // The home-page width rule also matches this document without a room.
+    // A board window owns the full width, including at desktop sizes.
+    doc.body.style.maxWidth = 'none'
     const meta = doc.createElement('meta'); meta.name = 'referrer'; meta.content = 'no-referrer'; doc.head.append(meta)
     // Clone only the host's stylesheet links; no code or inline event handlers.
     for (const sheet of this.root.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) doc.head.append(sheet.cloneNode(true))
