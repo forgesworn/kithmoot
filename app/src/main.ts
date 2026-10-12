@@ -16116,9 +16116,9 @@ function showTidyReport(report: TidyUpReport): void {
   const results = $('tidyUpResults')
   results.replaceChildren()
   const heading = document.createElement('h3')
-  heading.textContent = report.refused ? 'Nothing was deleted' : report.remaining.length ? 'What a fresh query still finds' : 'Tidied up'
+  heading.textContent = report.refused ? 'Nothing was deleted' : report.localRetained ? 'Tidy-up paused' : report.remaining.length ? 'What a fresh query still finds' : 'Tidied up'
   const lead = document.createElement('p')
-  lead.textContent = report.refused ?? (report.remaining.length ? 'These relays still return records of yours for this room:' : 'Every relay that answered returned nothing more of yours for this room.')
+  lead.textContent = report.refused ?? report.localRetained ?? (report.remaining.length ? 'These relays still return records of yours for this room:' : 'Every relay that answered returned nothing more of yours for this room.')
   results.append(heading, lead)
   if (report.remaining.length) {
     const list = document.createElement('ul')
@@ -16138,10 +16138,11 @@ function showTidyReport(report: TidyUpReport): void {
 function deleteRoomFiles(context: TidyUpContext): (deviceEvents: readonly NostrEvent[]) => Promise<FileDeletionReport> {
   return async deviceEvents => {
     const recorded = roomUploads(deviceStore, context.roomId)
-    const origins = [blossomServer(), ...recorded.map(blob => { try { return new URL(blob.url).origin } catch { return '' } })].filter(Boolean)
+    const origins = [blossomServer()].filter(Boolean)
     return deleteUploads({
       blobs: [...recorded, ...uploadsFromEvents(deviceEvents, getPublicKey(context.deviceSk))],
       origins,
+      signedUploads: deviceEvents,
       sk: context.deviceSk,
       now: nowSeconds,
       store: deviceStore,
@@ -16243,7 +16244,7 @@ async function runRoomTidyUp(): Promise<void> {
       progress: showTidyStep,
     })
     showTidyReport(report)
-    if (report.refused) {
+    if (report.refused || report.localRetained) {
       ;($('tidyUpCancel') as HTMLButtonElement).hidden = false
       ;($('tidyUpCancel') as HTMLButtonElement).textContent = 'Close'
       return
@@ -16604,7 +16605,7 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
             addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
           },
         })
-        if (report.refused) throw new Error(report.refused)
+        if (report.refused || report.localRetained) throw new Error(report.refused ?? report.localRetained)
         console.info(`room self-destructed: ${report.steps.map(step => `${step.id}${step.skipped ? ' (skipped)' : ''}`).join(', ')}; ${report.remaining.length} relay record groups still found`)
       } finally {
         --roomOperation

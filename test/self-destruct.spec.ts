@@ -551,3 +551,48 @@ test('Leave and tidy up deletes the files this device shared, and tries again at
     await context.close()
   }
 })
+
+for (const failure of ['quota', 'malformed-journal', 'unsigned-old-operator'] as const) test(`file cleanup ${failure} pauses tidy-up and retains local room custody`, async ({ browser, baseURL }) => {
+  const context = await device(browser, baseURL!)
+  try {
+    const page = await context.newPage(), calls = recordBlossom(page), external: string[] = []
+    await context.route('https://untrusted-files.example/**', route => {external.push(route.request().url());return route.abort()})
+    await page.goto(baseURL!)
+    await openNewRoomForm(page);await page.locator('#roomName').fill('Retained file recovery')
+    await page.locator('#create').click();await page.locator('#displayName').fill('Host');await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await shareFile(page,baseURL!,'retained.txt')
+    const before = await page.evaluate(failure => {
+      const roomId = Object.keys(localStorage).find(key=>key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length)
+      const uploadKey = `kithmoot.uploads.v1.${roomId}`, deviceKey = `kithmoot.device.${roomId}`
+      if(failure === 'unsigned-old-operator') {
+        const rows = JSON.parse(localStorage.getItem(uploadKey)!)
+        rows.push({url: `https://untrusted-files.example/${'ef'.repeat(32)}`,sha256:'ef'.repeat(32)})
+        localStorage.setItem(uploadKey,JSON.stringify(rows))
+      }
+      if(failure === 'malformed-journal')localStorage.setItem('kithmoot.blob-deletes.v1','[{"url":"unverified"}]')
+      const uploads = localStorage.getItem(uploadKey), key = localStorage.getItem(deviceKey)
+      if(failure === 'quota'){
+        const set = Storage.prototype.setItem
+        Storage.prototype.setItem = function(name,value){if(name === 'kithmoot.blob-deletes.v1')throw new DOMException('Synthetic quota','QuotaExceededError');return set.call(this,name,value)}
+      }
+      return {roomId,uploadKey,deviceKey,uploads,key}
+    },failure)
+    expect(before.key).toBeTruthy(); expect(before.uploads).toBeTruthy()
+    await openRoomDetails(page);await page.locator('#tidyUpRoom').click();await page.locator('#tidyUpRun').click()
+    await expect(page.locator('#tidyUpResults h3')).toHaveText('Tidy-up paused',{timeout:60_000})
+    await expect(page.locator('#tidyUpResults')).toContainText('Local room keys and upload records were retained')
+    await expect(page.locator('#tidyUpDone')).toBeHidden();await expect(page.locator('#tidyUpCancel')).toHaveText('Close')
+    const retained = await page.evaluate(before=>({uploads:localStorage.getItem(before.uploadKey),device:localStorage.getItem(before.deviceKey)}),before)
+    expect(retained.uploads).toBe(before.uploads)
+    // Reading the device key legitimately refreshes its last-used timestamp.
+    expect(JSON.parse(retained.device!).sk).toBe(JSON.parse(before.key!).sk)
+    expect(JSON.parse(retained.device!).at).toBeGreaterThanOrEqual(JSON.parse(before.key!).at)
+    expect(external).toEqual([])
+    if(failure !== 'unsigned-old-operator') {
+      expect(calls.filter(c=>c.method==='DELETE')).toEqual([])
+      for(const upload of calls.filter(c=>c.method==='PUT'))expect(await stored(upload.hash)).toBe(true)
+    }
+    if(failure==='malformed-journal')expect(await page.evaluate(()=>localStorage.getItem('kithmoot.blob-deletes.v1'))).toBe('[{"url":"unverified"}]')
+  } finally {await context.close()}
+})

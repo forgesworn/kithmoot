@@ -54,6 +54,8 @@ export interface TidyUpReport {
   remaining: TidyRemaining[]
   /** Set when the tidy-up stopped before deleting anything. */
   refused?: string
+  /** Some remote steps ran, but local custody must remain available for recovery. */
+  localRetained?: string
 }
 
 /** What nobody can delete, said every time. */
@@ -268,9 +270,13 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
   if (deps.files) {
     let files: FileDeletionReport | undefined
     try { files = await deps.files(device.events) } catch (error) {
-      record({ id: 'files', found: 0, answers: [], unread: [], skipped: `The file server was not asked: ${error instanceof Error ? error.message : String(error)}` })
+      record({ id: 'files', found: 0, answers: [], unread: [], skipped: `File cleanup paused: ${error instanceof Error ? error.message : String(error)}` })
+      return { steps, remaining: [], localRetained: 'Local room keys and upload records were retained because file cleanup could not finish safely.' }
     }
-    if (files) record({ id: 'files', found: files.found, answers: [], unread: [], files })
+    if (files) {
+      record({ id: 'files', found: files.found, answers: [], unread: [], files })
+      if (files.refused) return { steps, remaining: [], localRetained: 'Some file targets could not be verified. Local room keys and upload records were retained for recovery.' }
+    }
   }
 
   let tombstoneD: string | undefined
