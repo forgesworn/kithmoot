@@ -12,7 +12,7 @@ test.beforeAll(async()=>{
     format:'iife',globalName:'Ordinary',platform:'browser',write:false,target:'es2022'})).outputFiles[0]!.text
 })
 const setup=`async()=>{
-  window.live=true;window.guard=()=>live;window.kind='browser';window.storage=localStorage;window.links=[]
+  window.live=true;window.guard=()=>live;window.kind='browser';window.storage=localStorage
   window.owner=new Ordinary.OrdinaryStateOwner();window.lifetime=undefined
   window.seed=async(mode='signed')=>{
     window.fixture=await Ordinary.bookmarkFixture(mode)
@@ -21,7 +21,7 @@ const setup=`async()=>{
   }
   window.validate=Ordinary.validateOrdinaryRoomBookmarkSnapshot
   window.migrate=()=>Ordinary.migrateOrdinaryStorage({owner,storage,selected:name=>name.startsWith('kithmoot.')&&name!==Ordinary.ORDINARY_TAB_MARKER,
-    validate:(records,migrated)=>validate(records,migrated,{kind,links}),checkClients:async()=>{},live:guard})
+    validate:(records,migrated)=>validate(records,migrated,{kind}),checkClients:async()=>{},live:guard})
   window.raw=()=>new Promise((resolve,reject)=>{
     const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,1);r.onerror=()=>reject(r.error);r.onsuccess=()=>{
       const db=r.result,tx=db.transaction('owners'),q=tx.objectStore('owners').get(kind==='tab'?'tab:'+sessionStorage.getItem(Ordinary.ORDINARY_TAB_MARKER):'browser')
@@ -92,7 +92,7 @@ for(const mode of ['signed','older','unsigned-pending','signed-pending','record-
   const context=await browser.newContext(),page=await open(context)
   expect(await page.evaluate(`(async()=>{
     const initial=await seed('${mode}'),published=fixture.published.length;countCrypto();await migrate()
-    const saved=await raw(),image=await Ordinary.openOrdinaryFrame(saved.frame,saved.key),summary=validate(image.records,true,{kind,links})
+    const saved=await raw(),image=await Ordinary.openOrdinaryFrame(saved.frame,saved.key),summary=validate(image.records,true,{kind})
     const out=[generated,image.migration.phase,image.records.size===initial.size,[...initial].every(([name,value])=>image.records.get(name)===value),
       summary.bookmarks.length,summary.bookmarks[0].removed,fixture.published.length===published,Object.keys(localStorage),Object.keys(sessionStorage),saved.key.extractable]
     restoreCrypto();return out
@@ -146,7 +146,7 @@ test('completed pending tombstone survives reload unchanged without stale room r
   const before=await page.evaluate<string>(`(async()=>{await seed('pending-tombstone');await migrate();const row=await raw(),image=await Ordinary.openOrdinaryFrame(row.frame,row.key);await owner.close();return JSON.stringify([...image.records])})()`)
   await page.reload();await page.evaluate(`(${setup})()`)
   expect(await page.evaluate(`(async()=>{
-    countCrypto();await migrate();const row=await raw(),image=await Ordinary.openOrdinaryFrame(row.frame,row.key),summary=validate(image.records,true,{kind,links})
+    countCrypto();await migrate();const row=await raw(),image=await Ordinary.openOrdinaryFrame(row.frame,row.key),summary=validate(image.records,true,{kind})
     const out=[generated,JSON.stringify([...image.records]),summary.bookmarks[0].pending,summary.bookmarks[0].removed,Object.keys(localStorage)];restoreCrypto();return out
   })()`)).toEqual([0,before,true,true,[]]);await context.close()
 })
@@ -156,7 +156,7 @@ test('an account bookmark pins creator custody even when the room list was never
     await seed();for(const name of Object.keys(localStorage))if(name!==fixture.name)localStorage.removeItem(name)
     const owned=Ordinary.roomAccessFixture({owner:true,persistent:true})
     for(const [name,value]of owned.records)if(name.startsWith('kithmoot.invitation-owner.'))localStorage.setItem(name,value)
-    countCrypto();await migrate();const row=await raw(),image=await Ordinary.openOrdinaryFrame(row.frame,row.key),summary=validate(image.records,true,{kind,links})
+    countCrypto();await migrate();const row=await raw(),image=await Ordinary.openOrdinaryFrame(row.frame,row.key),summary=validate(image.records,true,{kind})
     const out=[generated,image.records.size,summary.bookmarks.length,summary.access.invitations.length,Object.keys(localStorage)];restoreCrypto();return out
   })()`)).toEqual([1,2,1,1,[]]);await context.close()
 })

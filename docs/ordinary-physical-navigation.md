@@ -41,23 +41,25 @@ Storage mutation belongs to these checks.
 Navigation rows belong to a separate tab partition. Capture takes the complete
 physical snapshot before partitioning and retains its exact access names/bytes
 privately. The public frozen context contains only counts; copied tokens,
-changed/different access partitions, physical-owner changes and duplicated raw
-navigation dispatch hold. Consumption lives in the access module; there is no
+changed/different access partitions, physical-owner changes, reused tokens
+and duplicated raw navigation dispatch hold. Consumption lives in the access module; there is no
 public raw-link visitor. Candidate bytes cannot change when the caller changes
 the source map. This binds navigation to its access partition, not every other
 family in the future complete image.
 
 Opaque way-back links and empty switch hashes remain inert custody. Only when an
-access row lacks a binding does the access consumer parse the retained candidates
-with its existing strict link parser and verify the actual invitation, room and
+access row lacks a binding does the access consumer classify retained candidates
+and parse recognisable room payloads with its existing strict link parser and verify the actual invitation, room and
 delegation. It never defaults an empty hash or uses a navigation account reminder
 as authenticated identity. A token is not current admission or startup authority.
 
-Existing raw startup-link and bookmark retained-room parameters remain family
-helper APIs. The complete composer must replace their arbitrary caller handoff
-with private provenance-bound contexts and bind accounts, devices, credentials,
-epochs, traffic, drops and inner messages across both owners. This source slice
-does not implement that composer or the production root.
+The public raw startup-link and bookmark retained-room parameters have been
+removed. The [access/bookmark composer](ordinary-access-composition.md) now
+captures actual startup location and the exact browser access/bookmark and tab
+access/navigation partitions privately, consumes them once and resolves their
+union. The complete ordinary composer still must bind every protected family to
+one full image, including accounts, devices, credentials, epochs, traffic, drops
+and inner messages across both owners. Production root integration remains open.
 
 Native tests prepare the actual three revision writers, text-size module/change
 control and call-lock storage fallback before blocking effects. Main navigation

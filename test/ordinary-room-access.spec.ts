@@ -2,7 +2,7 @@ import { build } from 'esbuild'
 import { expect,test,type BrowserContext } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 
-// Family migration only: synthetic startup links and noop client fence.
+// Component migration: actual native location and noop client fence.
 // Production bootstrap, bookmark caches and cross-owner inventory remain open.
 const ORIGIN='https://ordinary-room-access.kithmoot.test'
 let bundle=''
@@ -11,7 +11,7 @@ test.beforeAll(async()=>{
     format:'iife',globalName:'Ordinary',platform:'browser',write:false,target:'es2022'})).outputFiles[0]!.text
 })
 const setup=`async()=>{
-  window.live=true;window.guard=()=>live;window.kind='browser';window.storage=localStorage;window.links=[]
+  window.live=true;window.guard=()=>live;window.kind='browser';window.storage=localStorage
   window.owner=new Ordinary.OrdinaryStateOwner();window.lifetime=undefined
   window.openOwner=async(mode)=>{
     kind=mode;storage=mode==='tab'?sessionStorage:localStorage
@@ -20,12 +20,12 @@ const setup=`async()=>{
   window.seed=(mode='meeting-kept')=>{
     window.fixture=Ordinary.roomAccessFixture({owner:mode.includes('owner'),persistent:mode.includes('group'),tab:mode.startsWith('tab')})
     for(const [name,value]of fixture.records)storage.setItem(name,value)
-    if(mode==='owner-before-list'){storage.removeItem(fixture.roomName);links=[fixture.url]}
+    if(mode==='owner-before-list'){storage.removeItem(fixture.roomName);history.replaceState(null,'',new URL(fixture.url).hash)}
     return new Map(Object.keys(storage).filter(name=>name!==Ordinary.ORDINARY_TAB_MARKER).map(name=>[name,storage.getItem(name)]))
   }
   window.validate=Ordinary.validateOrdinaryRoomAccessSnapshot
   window.migrate=()=>Ordinary.migrateOrdinaryStorage({owner,storage,selected:name=>name.startsWith('kithmoot.')&&name!==Ordinary.ORDINARY_TAB_MARKER,
-    validate:(records,migrated)=>validate(records,migrated,{kind,links}),checkClients:async()=>{},live:guard})
+    validate:(records,migrated)=>validate(records,migrated,{kind}),checkClients:async()=>{},live:guard})
   window.raw=()=>new Promise((resolve,reject)=>{
     const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,1);r.onerror=()=>reject(r.error);r.onsuccess=()=>{
       const db=r.result,tx=db.transaction('owners'),q=tx.objectStore('owners').get(kind==='tab'?'tab:'+sessionStorage.getItem(Ordinary.ORDINARY_TAB_MARKER):'browser')
@@ -51,7 +51,7 @@ for(const mode of ['meeting-owner','group-owner','meeting-kept','group-kept','ow
   const context=await browser.newContext(),page=await open(context),tab=mode.startsWith('tab')
   expect(await page.evaluate(`(async()=>{
     await openOwner('${tab?'tab':'browser'}');const initial=seed('${mode}');countCrypto();await migrate()
-    const saved=await raw(),image=await Ordinary.openOrdinaryFrame(saved.frame,saved.key),summary=validate(image.records,true,{kind,links})
+    const saved=await raw(),image=await Ordinary.openOrdinaryFrame(saved.frame,saved.key),summary=validate(image.records,true,{kind})
     const out=[generated,image.migration.phase,image.records.size===initial.size,[...initial].every(([name,value])=>image.records.get(name)===value),
       summary.invitations.length,Object.keys(localStorage),Object.keys(sessionStorage),saved.key.extractable,kind==='tab'?image.expiresAt===lifetime.expiresAt:image.expiresAt===0]
     restoreCrypto();await lifetime?.close();return out
@@ -86,7 +86,6 @@ for(const fault of ['signature','wrong-room','wrong-delegate','missing-link','du
     if(fault==='shared-delegate'||fault==='shared-owner'||fault==='cross-role'){
       const other=Ordinary.roomAccessFixture({owner:fault==='shared-owner',rootSeed:fault==='shared-owner'?5:6,inviterSeed:fault==='shared-owner'?1:3,requesterSeed:fault==='cross-role'?1:2,bearerSeed:8})
       for(const [name,value]of other.records)storage.setItem(name,value)
-      links=[fixture.url,other.url]
     }
     const before=Object.fromEntries(Object.keys(storage).map(name=>[name,storage.getItem(name)]));countCrypto();let refusal
     try{await migrate()}catch(error){refusal=error.name}
@@ -107,7 +106,6 @@ for(const family of ['room','owner','kept','cache','way-back','switch'] as const
     const name='${family}'==='room'?foreign.roomName:'${family}'==='owner'?'kithmoot.invitation-owner.v1.'+foreign.id:
       '${family}'==='kept'?'kithmoot.admission-kept.v1.'+foreign.id:'${family}'==='cache'?'kithmoot.admission.v1.'+foreign.id:
       '${family}'==='way-back'?'kithmoot.way-back':'kithmoot.room-switch.v1'
-    links=[foreign.url]
     if(${completed}){
       seed('${browserFamily?'tab-meeting':'meeting-kept'}');await migrate()
       const scope=await owner.capture('@relocate',guard)

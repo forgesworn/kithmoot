@@ -1,5 +1,5 @@
 import { captureOrdinaryNavigationContext } from './ordinary-navigation-snapshot.js'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { bytesToHex } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 import { getPublicKey } from 'nostr-tools/pure'
@@ -10,7 +10,7 @@ import { memoryDeviceStore, storeKeptAdmission, KEPT_ADMISSION_PREFIX } from './
 import { storeInvitationOwner, INVITATION_OWNER_PREFIX } from './invitation-store.js'
 import { rememberRoom, ROOM_PREFIX } from './rooms-store.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
-import { validateOrdinaryRoomAccessSnapshot as validate } from './ordinary-room-access-snapshot.js'
+import { validateOrdinaryRoomAccessSnapshot as validate, captureOrdinaryStartupContext, validateOrdinaryRoomAccessAndBookmarksSnapshot } from './ordinary-room-access-snapshot.js'
 
 const key=(n:number)=>{const bytes=new Uint8Array(32);bytes[31]=n;return bytes}
 const ROOT=new Uint8Array(32).fill(5), ROOM=deriveRoom(ROOT).roomId, ACCOUNT=getPublicKey(key(4))
@@ -24,6 +24,14 @@ function fixture(persistent=false,owner=false) {
   if(owner)storeInvitationOwner(store,invitation,ROOT,inviter,100)
   else storeKeptAdmission(store,id,persistent?{secret:ROOT,persistent:true,epoch:0}:admission,100)
   return {records:new Map(store.keys().map(name=>[name,store.get(name)!])),id,url,invitation,inviter,admission}
+}
+function startup(records: ReadonlyMap<string, string>, url: string, kind: 'browser' | 'tab' = 'browser') {
+  vi.stubGlobal('location', { href: url })
+  try {
+    const browser = kind === 'browser' ? records : new Map<string, string>(), tab = kind === 'tab' ? records : new Map<string, string>()
+    const context = captureOrdinaryStartupContext(browser, tab)
+    return validateOrdinaryRoomAccessAndBookmarksSnapshot(browser, tab, { browser: false, tab: false }, context).access
+  } finally { vi.unstubAllGlobals() }
 }
 const options={kind:'browser' as const}
 describe('strict ordinary room/access snapshots',()=>{
@@ -49,7 +57,7 @@ describe('strict ordinary room/access snapshots',()=>{
   it('requires a captured pinned link for creator records written before a room was listed',()=>{
     const {records,url}=fixture(false,true);records.delete(ROOM_PREFIX+ROOM)
     expect(()=>validate(records,false,options)).toThrow(OrdinaryStateHold)
-    expect(validate(records,false,{...options,links:[url]}).invitations[0]!.roomId).toBe(ROOM)
+    expect(startup(records,url).invitations[0]!.roomId).toBe(ROOM)
   })
   it('preserves an explicit group conversion beside an older meeting link',()=>{
     const {records,id,invitation,inviter}=fixture(false,true),store=memoryDeviceStore()
@@ -75,7 +83,7 @@ describe('strict ordinary room/access snapshots',()=>{
   it.each(['room','owner','kept'] as const)('rejects browser %s records in tab custody even with a pinned link',family=>{
     const {records,id,url}=fixture(false,family==='owner')
     const physical=family==='room'?ROOM_PREFIX+ROOM:(family==='owner'?INVITATION_OWNER_PREFIX:KEPT_ADMISSION_PREFIX)+id
-    expect(()=>validate(new Map([[physical,records.get(physical)!]]),false,{kind:'tab',links:[url]})).toThrow(OrdinaryStateHold)
+    expect(()=>startup(new Map([[physical,records.get(physical)!]]),url,'tab')).toThrow(OrdinaryStateHold)
   })
   it('binds two different room claims for the same invitation as a hold',()=>{
     const {records}=fixture();records.set(ROOM_PREFIX+'a'.repeat(64),records.get(ROOM_PREFIX+ROOM)!)
@@ -89,7 +97,7 @@ describe('strict ordinary room/access snapshots',()=>{
   it('refuses reuse of a creator key across two distinct invitation rendezvous',()=>{
     const {records,inviter}=fixture(false,true),other=roomInvitation(new Uint8Array(32).fill(8),getPublicKey(inviter)),store=memoryDeviceStore()
     storeInvitationOwner(store,other,ROOT,inviter,100);for(const name of store.keys())records.set(name,store.get(name)!)
-    expect(()=>validate(records,false,{...options,links:[encodeRoomLink(BASE,{invitation:other,relays:[],iceUrls:[]})]})).toThrow(OrdinaryStateHold)
+    expect(()=>startup(records,encodeRoomLink(BASE,{invitation:other,relays:[],iceUrls:[]}))).toThrow(OrdinaryStateHold)
   })
   it('refuses a delegate key reused across distinct rooms even when both grant chains verify',()=>{
     const {records}=fixture(),root=new Uint8Array(32).fill(6),otherRoom=deriveRoom(root).roomId,inviter=key(3),requester=key(2)
@@ -130,7 +138,7 @@ describe('strict ordinary room/access snapshots',()=>{
     expect(admission).not.toBeNull()
     const store=memoryDeviceStore();storeKeptAdmission(store,deriveInvitationId(other),admission,100)
     for(const name of store.keys())records.set(name,store.get(name)!)
-    expect(validate(records,false,{...options,links:[url,encodeRoomLink(BASE,{invitation:other,relays:[],iceUrls:[]})]}).invitations).toHaveLength(2)
+    expect(startup(records,encodeRoomLink(BASE,{invitation:other,relays:[],iceUrls:[]})).invitations).toHaveLength(2)
   })
   it('preserves recognised restrictive access policy fields',()=>{
     const {records,url}=fixture(),payload=JSON.parse(new TextDecoder().decode(base64urlnopad.decode(new URL(url).hash.slice(1))))
@@ -143,7 +151,7 @@ describe('strict ordinary room/access snapshots',()=>{
     storeInvitationOwner(store,other,ROOT,key(3),100);for(const name of store.keys())records.set(name,store.get(name)!)
     const otherUrl=encodeRoomLink(BASE,{invitation:other,relays:[],iceUrls:[]})
     expect(()=>validate(records,false,options)).toThrow(OrdinaryStateHold)
-    expect(validate(records,false,{...options,links:[url,otherUrl]}).invitations).toHaveLength(2)
+    expect(startup(records,otherUrl).invitations).toHaveLength(2)
   })
   it.each(['json','extra','bad-time','bad-room','wrong-inviter','zero-inviter','temporary-end','false-persistent'] as const)
     ('holds %s owner corruption before permissive removal loaders',fault=>{

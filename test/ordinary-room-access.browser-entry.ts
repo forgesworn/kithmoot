@@ -1,7 +1,5 @@
 export * from './ordinary-state.browser-entry.js'
-import { validateOrdinaryRoomAccessSnapshot as access } from '../app/src/ordinary-room-access-snapshot.js'
-import { captureOrdinaryNavigationContext } from '../app/src/ordinary-navigation-snapshot.js'
-import { classifyOrdinaryPhysicalName } from '../app/src/ordinary-physical-snapshot.js'
+import { captureOrdinaryStartupContext, validateOrdinaryRoomAccessAndBookmarksSnapshot } from '../app/src/ordinary-room-access-snapshot.js'
 export { base64urlnopad } from '@scure/base'
 
 import { getPublicKey } from 'nostr-tools/pure'
@@ -35,15 +33,12 @@ export function roomAccessFixture(options:{persistent?:boolean;owner?:boolean;ta
   return {records,id,url,roomId,roomName:ROOM_PREFIX+roomId}
 }
 
-// Test-only component partitioner: no complete production bindings or root.
+// Test-only component composition with the other owner explicitly empty. The
+// actual production barrier and the other ordinary family bindings remain open.
 export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string, string>, migrated: boolean,
-  options: { kind: 'browser' | 'tab'; links?: readonly string[] }) {
-  const rows = new Map<string, string>(), navigation = new Map<string, string>()
-  for (const [name, raw] of records) {
-    const route = classifyOrdinaryPhysicalName(name, options.kind)
-    if (route?.family === 'navigation') navigation.set(name, raw)
-    else if (route?.family === 'access') rows.set(name, raw)
-    else throw new Error('Unexpected room-access fixture family')
-  }
-  return access(rows, migrated, { ...options, navigation: captureOrdinaryNavigationContext(records, options) })
+  options: { kind: 'browser' | 'tab' }) {
+  const browser = options.kind === 'browser' ? records : new Map<string, string>()
+  const tab = options.kind === 'tab' ? records : new Map<string, string>()
+  const context = captureOrdinaryStartupContext(browser, tab)
+  return validateOrdinaryRoomAccessAndBookmarksSnapshot(browser, tab, { browser: migrated, tab: migrated }, context).access
 }
