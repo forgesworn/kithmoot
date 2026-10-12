@@ -66,6 +66,7 @@
     "@forgesworn/context": "0.2.0",
     "@forgesworn/context-tools": "0.2.0",
     "@forgesworn/fold-kit": "github:forgesworn/fold-kit#eaa3495127e55242cf8a09e4c57963c570d68e8d",
+    "@forgesworn/girnel-embed": "file:vendor/forgesworn-girnel-embed-1.1.0-kithmoot.3.tgz",
     "@forgesworn/signet-contacts": "github:forgesworn/signet-contacts#fbb13cdeefb3e07421228ab3245b7e17e403ecab",
     "@mediapipe/tasks-vision": "0.10.35",
     "@modelcontextprotocol/sdk": "^1.30.0",

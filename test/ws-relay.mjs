@@ -95,12 +95,15 @@ const http = createServer((req, res) => {
       if (res.headersSent) return
       const bytes = Buffer.concat(chunks)
       const hash = createHash('sha256').update(bytes).digest('hex')
-      if (req.headers['x-sha-256'] !== hash) {
+      const auth = blossomAuth(req)
+      // BUD-02 clients may bind the upload hash in their signed authorisation
+      // rather than the older X-SHA-256 header.
+      const signedHash = auth?.tags.some(tag => tag[0] === 'x' && tag[1] === hash) && auth.tags.some(tag => tag[0] === 't' && tag[1] === 'upload')
+      if (req.headers['x-sha-256'] !== hash && !signedHash) {
         res.writeHead(400, { 'content-type': 'text/plain' }).end('hash mismatch')
         return
       }
       blobs.set(hash, bytes)
-      const auth = blossomAuth(req)
       if (auth && !owners.has(hash)) owners.set(hash, auth.pubkey)
       const origin = typeof req.headers.origin === 'string' ? req.headers.origin : 'https://localhost:4173'
       res.writeHead(201, { 'content-type': 'application/json' })
