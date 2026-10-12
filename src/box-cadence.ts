@@ -245,8 +245,9 @@ export function deriveCadenceDropPublicKeys(
   for (let epoch = startEpoch; epoch < endEpoch; epoch++) {
     for (let counter = counterLo; counter < counterLo + CADENCE_COUNTERS_PER_DEVICE; counter++) {
       // Drop the private scalar immediately. It is never returned or serialised.
-      const { publicKey } = deriveRoomDropKey(roomKey, epoch, member, counter)
-      out.push({ epoch, counter, pubkey: publicKey })
+      const key = deriveRoomDropKey(roomKey, epoch, member, counter)
+      try { out.push({ epoch, counter, pubkey: key.publicKey }) }
+      finally { key.privateKey.fill(0) }
     }
   }
   return out
