@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   decodeOrdinaryImage, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, OrdinaryStateHold, ORDINARY_FENCES, ORDINARY_RECORDS,
-  type OrdinaryImage, type OrdinaryFrame, ORDINARY_IMAGE_BYTES,
+  type OrdinaryImage, type OrdinaryFrame, ORDINARY_IMAGE_BYTES, ORDINARY_VALUE_BYTES, ordinaryUtf8Length, ordinaryImageByteLength,
 } from './ordinary-state-codec.js'
 const image = (): OrdinaryImage => ({ purpose: 'browser', keyId: '1'.repeat(64), generation: '2'.repeat(64), revision: 7,
   expiresAt: 0, records: new Map([['room/private', 'secret capability'], ['device/private', 'private key']]),
@@ -84,8 +84,70 @@ describe('ordinary whole-image custody encoding', () => {
 
   it('bounds encoded UTF-8 bytes even when each individual value fits', () => {
     const input = image()
-    input.records = new Map(Array.from({ length: 5 }, (_, i) => [String(i), '𐀀'.repeat(500_000)]))
+    input.records = new Map(Array.from({ length: 17 }, (_, i) => [String(i), '𐀀'.repeat(500_000)]))
     expect(() => encodeOrdinaryImage(input)).toThrow(OrdinaryStateHold)
+  })
+
+  it.each(['🧭', 'é', '"'])('measures the exact raw UTF-8 boundary for %s', text => {
+    const width = new TextEncoder().encode(text).length
+    const raw = text.repeat(ORDINARY_VALUE_BYTES / width)
+    expect(ordinaryUtf8Length(raw)).toBe(ORDINARY_VALUE_BYTES)
+    const input = image(); input.records = new Map([['large', raw]])
+    const encoded = encodeOrdinaryImage(input)
+    expect(encoded.length).toBeLessThanOrEqual(ORDINARY_IMAGE_BYTES); encoded.fill(0)
+    expect(() => encodeOrdinaryImage({ ...input, records: new Map([['large', raw + 'x']]) })).toThrow(OrdinaryStateHold)
+    expect(input.records.get('large')).toBe(raw)
+  })
+
+  it('matches actual canonical encoding for controls, lone surrogates and astral pairs', () => {
+    const input = image(); input.records = new Map([['a\u0000\\"\ud800', '\b\t\n\f\r\u0000\u001f\ud800x\udfff🧭é']])
+    const encoded = encodeOrdinaryImage(input)
+    expect(decodeOrdinaryImage(encoded).records).toEqual(input.records)
+    expect(ordinaryUtf8Length('\ud800x\udfff🧭é')).toBe(new TextEncoder().encode('\ud800x\udfff🧭é').length)
+  })
+
+  it('caps scanning when the maximum number of records share a maximum-size string', () => {
+    const input = image(), value = 'x'.repeat(ORDINARY_VALUE_BYTES)
+    input.records = new Map(Array.from({ length: ORDINARY_RECORDS }, (_, i) => [String(i).padStart(6, '0'), value]))
+    const read = String.prototype.charCodeAt; let inspected = 0
+    String.prototype.charCodeAt = function (i) { inspected++; return read.call(this, i) }
+    try { expect(() => encodeOrdinaryImage(input)).toThrow(OrdinaryStateHold) }
+    finally { String.prototype.charCodeAt = read }
+    expect(inspected).toBeLessThanOrEqual(ORDINARY_IMAGE_BYTES)
+    expect(input.records.size).toBe(ORDINARY_RECORDS)
+  })
+
+  it('rejects aggregate escaping and migration duplication before whole-image string allocation', () => {
+    const input = image(), raw = '\u0000'.repeat(ORDINARY_VALUE_BYTES)
+    input.records = new Map([['large', raw]])
+    input.migration = { phase: 'sealed', sources: input.records, names: ['large'] }
+    const stringify = vi.spyOn(JSON, 'stringify')
+    try {
+      expect(() => encodeOrdinaryImage(input)).toThrow(OrdinaryStateHold)
+      expect(stringify).not.toHaveBeenCalled()
+    } finally { stringify.mockRestore() }
+    expect(input.records.get('large')).toBe(raw)
+  })
+
+  it('admits exactly 32 MiB with sealed duplication and rejects the next canonical byte', () => {
+    const input = image(); input.revision = 9; input.fences = new Map()
+    let names = ['a', 'b']; input.records = new Map(names.map(name => [name, '']))
+    input.migration = { phase: 'sealed', sources: input.records, names }
+    let overhead = encodeOrdinaryImage(input).length
+    if ((ORDINARY_IMAGE_BYTES - overhead) % 2) {
+      names = ['a', 'bb']; input.records = new Map(names.map(name => [name, '']))
+      input.migration = { phase: 'sealed', sources: input.records, names }; overhead = encodeOrdinaryImage(input).length
+    }
+    const second = (ORDINARY_IMAGE_BYTES - overhead) / 2 - ORDINARY_VALUE_BYTES
+    input.records = new Map([[names[0]!, 'x'.repeat(ORDINARY_VALUE_BYTES)], [names[1]!, 'y'.repeat(second)]])
+    input.migration = { phase: 'sealed', sources: input.records, names }
+    expect(ordinaryImageByteLength(input)).toBe(ORDINARY_IMAGE_BYTES)
+    const encoded = encodeOrdinaryImage(input); expect(encoded.length).toBe(ORDINARY_IMAGE_BYTES); encoded.fill(0)
+    const stringify = vi.spyOn(JSON, 'stringify')
+    try {
+      expect(() => encodeOrdinaryImage({ ...input, revision: 10 })).toThrow(OrdinaryStateHold)
+      expect(stringify).not.toHaveBeenCalled()
+    } finally { stringify.mockRestore() }
   })
 
   it('uses non-extractable custody, fresh 96-bit nonces and exact whole-frame equality', async () => {

@@ -1,5 +1,5 @@
 import type { DeviceStore } from './device-store.js'
-import { OrdinaryStateHold, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
+import { OrdinaryStateHold, ordinaryImageByteLength, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
 
@@ -226,9 +226,15 @@ export class OrdinaryStateOwner {
         if (this.#generation !== undefined) hold() // Deleted custody is not a fresh installation.
         // Fixed-width placeholders check canonical encoding and capacity before
         // expensive validators, key creation or entropy. Never retain this image.
-        const checked = encodeOrdinaryImage({ purpose: this.purpose, keyId: '0'.repeat(64), generation: '0'.repeat(64), revision: 0,
-          expiresAt: this.expiresAt, records, migration: manifest, fences: new Map() })
-        checked.fill(0)
+        const checked: OrdinaryImage = { purpose: this.purpose, keyId: '0'.repeat(64), generation: '0'.repeat(64), revision: 0,
+          expiresAt: this.expiresAt, records, migration: manifest, fences: new Map() }
+        ordinaryImageByteLength(checked)
+        if (manifest?.phase === 'sealed') {
+          // 'cleaning' adds two canonical bytes before any source is removed.
+          // Reserve that control transition before committing initial custody.
+          // Later source-pair removal outweighs revision digit growth.
+          ordinaryImageByteLength({ ...checked, revision: 1, migration: { ...manifest, phase: 'cleaning' } })
+        }
       }
       // The sealed full image, rather than the partially cleaned plaintext,
       // is the validation source on restart. New custody is validated before

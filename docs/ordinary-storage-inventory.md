@@ -101,6 +101,46 @@ allowlist is reviewed. A name containing `call` or `home` is insufficient.
 
 ## Coordination and adjacent encrypted stores
 
+The local ordinary custody acceptance profile now bounds each raw value at
+8 MiB of UTF-8 and the canonical whole image at 32 MiB of encoded bytes. Family
+validators explicitly using `ORDINARY_VALUE_UNITS` retain their independent
+2 MiB UTF-16 shape bound; the codec
+extension alone does not admit a newly classified family. Initial sealed
+migration retains source values twice, in records and its cleanup manifest.
+Exact canonical sizing counts both copies, key names, escaping, punctuation,
+surrogate handling and metadata before allocating the whole JSON string, key,
+nonce or encrypted candidate. A preliminary aggregate bound also limits scans
+when many rows reference the same large string. Over-cap sources hold intact;
+capacity rejection never compacts, truncates, drops or normalises a record.
+Initialisation also preflights the longer `cleaning` phase before any entropy,
+so an exactly full `sealed` image cannot commit and then immediately become
+unfinishable. The size preflight allocates neither the whole JSON string nor an
+encoded placeholder. Native database/schema discovery may occur beforehand;
+overflow tests require zero owner-row writes, rather than no schema creation.
+
+This is a codec ceiling, not available browser quota or a device performance
+guarantee. Active and pending frames, cloning, plaintext, ciphertext and IDB
+transactions can require considerably more memory and storage. Native tests
+exercise a real writer-produced context journal over 2 MiB, migration and
+reopening, synchronous injected `QuotaExceededError` write faults at native
+`IDBObjectStore.put` during initial/cleaning commits, and exact large-frame
+reconciliation after a lost staging acknowledgement. The write-fault cases do
+not measure actual origin quota exhaustion or a native transaction abort.
+Injected over-profile
+snapshots exercise zero-entropy/zero-cleanup rejection; they do not imply that
+native localStorage itself can store an 8 MiB record.
+
+The v1 frame identifier does not advertise this expanded profile. Earlier local
+v1 readers reject values above 2 MiB of UTF-16 units and images above 8 MiB.
+Production must fence both old limits across tabs, service workers and desktop
+hosts before committing any newly admitted image. Current helpers have no such
+production embedding. ProjectDirectory and ContextVault permit larger caches,
+and AssignmentLog can retain 20,000 events; some legitimate writer outputs still
+exceed this profile. Their intact recovery/export or a later reviewed chunked
+construction remains required before claiming complete production migration.
+Neither this extension nor an outer framing check decrypts or authenticates an
+encrypted journal, establishes account/room authority, or closes DG08.
+
 | Surface | Actual storage / boundary | Required embedding work |
 | --- | --- | --- |
 | `kithmoot.call-tab-lock.msg` | Plaintext Storage fallback includes `roomId\|devicePubkey`, tab ID, timestamp and claim/release/probe | Remove the metadata-leaking fallback or replace it with reviewed protected coordination; moving the row alone breaks its storage-event protocol |

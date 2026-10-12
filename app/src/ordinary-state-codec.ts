@@ -1,11 +1,17 @@
 /** The ordinary-state frame is custody, never membership or rollback authority.
  * Names and values exist only inside the authenticated whole image. Mutable
  * encoding buffers are wiped; immutable JavaScript strings cannot be erased. */
-export const ORDINARY_IMAGE_BYTES = 8 * 1024 * 1024
+// Acceptance profile, not a browser quota or memory guarantee. Older v1
+// clients only accepted 2 MiB values / 8 MiB images: production must fence
+// that profile too, even when a new frame still fits the old image ceiling.
+export const ORDINARY_IMAGE_BYTES = 32 * 1024 * 1024
 export const ORDINARY_RECORDS = 16_384
 export const ORDINARY_FENCES = 4_096
 export const ORDINARY_NAME_UNITS = 512
 export const ORDINARY_VALUE_UNITS = 2 * 1024 * 1024
+/** Existing family validators retain their independent UTF-16 shape bound
+ * above. The codec and encrypted-journal profile measure raw UTF-8 bytes. */
+export const ORDINARY_VALUE_BYTES = 8 * 1024 * 1024
 const HEX = /^[0-9a-f]{64}$/
 export type OrdinaryPurpose = 'browser' | `tab:${string}`
 export interface OrdinaryMigration {
@@ -42,6 +48,44 @@ export class OrdinaryStateHold extends Error {
 }
 function hold(): never { throw new OrdinaryStateHold() }
 function integer(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0 }
+/** Count without allocating an encoded copy. Matches TextEncoder, including
+ * its three-byte replacement for an unpaired UTF-16 surrogate. */
+export function ordinaryUtf8Length(value: string, limit = ORDINARY_VALUE_BYTES): number {
+  if (value.length > limit) hold() // UTF-8 cannot use fewer bytes than UTF-16 units.
+  let bytes = 0
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i)
+    if (c < 0x80) bytes++
+    else if (c < 0x800) bytes += 2
+    else if (c >= 0xd800 && c <= 0xdbff && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) { bytes += 4; i++ }
+    else bytes += 3
+    if (bytes > limit) hold()
+  }
+  return bytes
+}
+/** Exact canonical JSON UTF-8 size for the already validated, array-only
+ * tuple. Stop at the ceiling before JSON.stringify can allocate a huge image.
+ * Unlike raw UTF-8, JSON preserves lone surrogates as six-byte escapes. */
+function canonicalBytes(value: unknown, budget: { left: number }): void {
+  const take = (n: number) => { budget.left -= n; if (budget.left < 0) hold() }
+  if (typeof value === 'string') {
+    take(2)
+    for (let i = 0; i < value.length; i++) {
+      const c = value.charCodeAt(i)
+      if (c === 0x22 || c === 0x5c || c === 8 || c === 9 || c === 10 || c === 12 || c === 13) take(2)
+      else if (c < 0x20) take(6)
+      else if (c < 0x80) take(1)
+      else if (c < 0x800) take(2)
+      else if (c >= 0xd800 && c <= 0xdbff && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) { take(4); i++ }
+      else take(c >= 0xd800 && c <= 0xdfff ? 6 : 3)
+    }
+  } else if (Array.isArray(value)) {
+    take(2 + Math.max(0, value.length - 1))
+    for (const item of value) canonicalBytes(item, budget)
+  } else if (value === null) take(4)
+  else if (typeof value === 'number' && integer(value)) take(String(value).length)
+  else hold()
+}
 function text(value: unknown, max: number): value is string { return typeof value === 'string' && value.length > 0 && value.length <= max }
 function purpose(value: unknown): value is OrdinaryPurpose {
   return value === 'browser' || typeof value === 'string' && value.startsWith('tab:') && value.length === 68 && HEX.test(value.slice(4))
@@ -55,10 +99,16 @@ function header(value: Pick<OrdinaryImage, 'purpose' | 'keyId' | 'generation' | 
 function pairs(input: unknown, max: number, numbers: boolean, revision: number): [string, string | number][] {
   if (!Array.isArray(input) || input.length > max) hold()
   let previous: string | undefined
+  let units = 0
   for (const row of input) {
     if (!Array.isArray(row) || row.length !== 2 || !text(row[0], ORDINARY_NAME_UNITS) ||
         (previous !== undefined && row[0] <= previous) ||
-        (numbers ? !integer(row[1]) || row[1] > revision : typeof row[1] !== 'string' || row[1].length > ORDINARY_VALUE_UNITS)) hold()
+        (numbers ? !integer(row[1]) || row[1] > revision : typeof row[1] !== 'string' || row[1].length > ORDINARY_VALUE_BYTES)) hold()
+    // A cheap necessary aggregate bound caps subsequent UTF-8 scanning too,
+    // even if thousands of entries share the same large string object.
+    units += row[0].length + (numbers ? 0 : row[1].length)
+    if (units > ORDINARY_IMAGE_BYTES) hold()
+    if (!numbers) ordinaryUtf8Length(row[1])
     previous = row[0]
   }
   return input as [string, string | number][]
@@ -93,9 +143,18 @@ function tuple(image: OrdinaryImage): unknown[] {
   }
   return [1, image.purpose, image.keyId, image.generation, image.revision, image.expiresAt, records, manifest, fences]
 }
+function checkedTuple(image: OrdinaryImage): { value: unknown[]; bytes: number } {
+  const value = tuple(image)
+  const budget = { left: ORDINARY_IMAGE_BYTES }
+  canonicalBytes(value, budget)
+  return { value, bytes: ORDINARY_IMAGE_BYTES - budget.left }
+}
+/** Validate and size without allocating the whole canonical string or bytes. */
+export function ordinaryImageByteLength(image: OrdinaryImage): number { return checkedTuple(image).bytes }
 export function encodeOrdinaryImage(image: OrdinaryImage): Uint8Array<ArrayBuffer> {
-  const bytes = new TextEncoder().encode(JSON.stringify(tuple(image)))
-  if (bytes.length > ORDINARY_IMAGE_BYTES) { bytes.fill(0); hold() }
+  const checked = checkedTuple(image), value = checked.value
+  const bytes = new TextEncoder().encode(JSON.stringify(value))
+  if (bytes.length !== checked.bytes || bytes.length > ORDINARY_IMAGE_BYTES) { bytes.fill(0); hold() }
   return bytes
 }
 export function decodeOrdinaryImage(bytes: Uint8Array): OrdinaryImage {
