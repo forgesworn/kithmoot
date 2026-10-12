@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.76",
+  "currentRelease": "0.1.77",
   "releases": [
     {
-      "version": "0.1.76",
+      "version": "0.1.77",
       "updateTo": {
-        "version": "0.1.76",
-        "pub_date": "2026-10-11T21:02:01Z",
-        "notes": "Anyone on a group or private call can record, with independent warnings for each recorder. The gallery, audience and screen shares stay visible while you browse other chats. Leaving a recorded call stops your microphone and camera immediately, and your saved clip is available while the stop notice waits for confirmation. Update every participant to enable participant recording.",
-        "name": "0.1.76",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.76/KithMoot-0.1.76-mac-arm64.zip",
-        "sha256": "82169c03f74f44e44b63c93fda6834543092bdb1ecea2a2d48d75325be25f542",
-        "size": 175431738
+        "version": "0.1.77",
+        "pub_date": "2026-10-12T00:11:49Z",
+        "notes": "Recording stops using expired credentials or admission permissions immediately. Participant recording, independent warnings and the persistent call gallery remain available. Save recordings locally without Wildbloom, or explicitly choose a private node for encrypted Upload and a separate Send.",
+        "name": "0.1.77",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/KithMoot-0.1.77-mac-arm64.zip",
+        "sha256": "01d00ec6c7ef6df0443bfe49a73c61abeeffb6770378889e1682e872ce51c037",
+        "size": 176786911
       }
     }
   ]
