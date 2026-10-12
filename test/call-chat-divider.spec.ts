@@ -65,6 +65,80 @@ async function dragDivider(page: Page, dx: number): Promise<void> {
   await page.waitForTimeout(150)
 }
 
+for (const chosen of ['divider', 'opener', 'closed'] as const) {
+  test(`deferred chat focus respects the ${chosen} choice`, async ({ browser, baseURL }) => {
+    test.skip(!baseURL, 'no baseURL resolved')
+    test.setTimeout(300_000)
+    const contexts: BrowserContext[] = []
+    try {
+      const context = await newDeviceContext(browser, baseURL!)
+      contexts.push(context)
+      const ada = await context.newPage()
+      await ada.setViewportSize({ width: 1440, height: 900 })
+      const url = await createRoom(ada, baseURL!)
+      await joinWithMedia(ada, url, 'Ada')
+      await joinCall(browser, baseURL!, url, 'Bob', contexts)
+      await expect(ada.locator('html')).toHaveAttribute('data-call-first', '', { timeout: 60_000 })
+      const toggle = ada.locator('#callChatToggle')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      await toggle.focus()
+
+      // Hold a single frame boundary in the real app, so another deliberate
+      // focus choice can land between opening chat and its deferred callback.
+      const frame = await ada.evaluateHandle(() => {
+        const request = window.requestAnimationFrame
+        const cancel = window.cancelAnimationFrame
+        const pending = new Map<number, FrameRequestCallback>()
+        let id = 0
+        let released = false
+        window.requestAnimationFrame = callback => { pending.set(--id, callback); return id }
+        window.cancelAnimationFrame = value => {
+          if (value < 0) pending.delete(value)
+          else cancel.call(window, value)
+        }
+        return { release() {
+          if (released) return
+          released = true
+          window.requestAnimationFrame = request
+          window.cancelAnimationFrame = cancel
+          for (const callback of pending.values()) callback(performance.now())
+          pending.clear()
+        } }
+      })
+      try {
+        await ada.evaluate(choice => {
+          document.getElementById('callChatToggle')!.click()
+          if (choice === 'divider') document.getElementById('callChatDivider')!.focus()
+          if (choice === 'closed') {
+            document.getElementById('callChatToggle')!.click()
+            document.getElementById('toggleMic')!.focus()
+          }
+        }, chosen)
+        await frame.evaluate(control => control.release())
+        if (chosen === 'divider') {
+          const divider = ada.locator('#callChatDivider')
+          await expect(divider).toBeFocused()
+          const before = (await ada.locator('#callStage').boundingBox())!.width
+          await ada.keyboard.press('ArrowLeft')
+          await expect.poll(async () => (await ada.locator('#callStage').boundingBox())!.width).toBeLessThan(before)
+        } else if (chosen === 'opener') {
+          await expect(ada.locator('#chatInput')).toBeFocused()
+        } else {
+          await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+          await expect(ada.locator('#toggleMic')).toBeFocused()
+        }
+      } finally {
+        await frame.evaluate(control => control.release())
+        await frame.dispose()
+      }
+    } finally {
+      for (const context of contexts) await context.close()
+    }
+  })
+}
+
 test('the divider drags, keys, clamps and is remembered', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved')
   test.setTimeout(300_000)

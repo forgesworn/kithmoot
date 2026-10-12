@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-12",
+  "versionName": "0.6.83",
+  "versionCode": 106,
+  "sourceCommit": "6d8cb86dbedf827726cd7e20c166afc5f4ec4b12",
+  "sourceTree": "f72dd1e7f441c38cbf6304f5eeb9ff0bbc1d33f0",
+  "apkBytes": 79747742,
+  "apkSha256": "74f006412ece18a4fbfe11c5b05ac799d174bbafb3e69a34619306046c0b37ef",
+  "unsignedSha256": "928b18724e5bc41a31c0e963db642396a6a95a23cca1a483cadeffd09c51039e",
+  "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "signatureSchemes": {
+    "v1": false,
+    "v2": false,
+    "v3": true
+  },
+  "ownerCertificateVerified": true,
+  "fullEmbeddedLineageAndCapabilitiesVerified": true,
+  "manifestVerified": true,
+  "independentPayloadVerification": {
+    "allZipEntriesUnchanged": 799,
+    "signedBytesVerifiedOnIndependentHost": true,
+    "freshUnsignedSha256MatchesSigningHost": true,
+    "firstComparisonDiffered": [
+      "assets/dexopt/baseline.prof",
+      "classes4.dex"
+    ],
+    "freshCompileWithoutGradleBuildCacheOrKotlinIncremental": {
+      "exitCode": 0,
+      "elapsedSeconds": 144.468,
+      "clearedOnlyOwnedKotlinOutputs": true,
+      "gradleBuildCache": false,
+      "kotlinIncremental": false,
+      "logSha256": "a9c200a06e795b79795938eca080742f24632ad4ff1951683c83f7b7edce97ca",
+      "payloadEntries": 799,
+      "differentPayloadEntries": [],
+      "unsignedApkSha256": "928b18724e5bc41a31c0e963db642396a6a95a23cca1a483cadeffd09c51039e"
+    },
+    "initialDifferenceDiagnosis": "Synthetic Compose stability field computes 8 | 8 versus an encoded 8; fresh compilation produces identical bytes. The initial mismatch was investigated before claiming identity."
+  },
+  "build": {
+    "head": "6d8cb86dbedf827726cd7e20c166afc5f4ec4b12",
+    "exitCode": 0,
+    "elapsedSeconds": 142.702,
+    "logSha256": "c4f9279791e95d7d9a8780d2bca82eb7b49d4a27713a9fb6f23fdaec49214fff",
+    "published": false
+  },
+  "integrationMainQualification": {
+    "commit": "5cac2b5f6fa4bf83e67b30166536ad00b9c34cb5",
+    "runId": 38273471159,
+    "executedJobs": 16,
+    "conclusion": "success",
+    "actualReportsAudited": true,
+    "protocolCases": 484,
+    "debugCases": 2252,
+    "releaseCases": 2241,
+    "ordinaryCases": 206,
+    "originalOrdinaryGroups": 55,
+    "coldRecoveries": 15,
+    "strictFaultRows": 55,
+    "realNodeProfiles": [
+      "default",
+      "google_apis"
+    ]
+  },
+  "hostedReleaseCi": {
+    "runId": 38274621908,
+    "status": "pending full report audit"
+  },
+  "published": false,
+  "physicalAcceptance": false,
+  "zapstoreClientAcceptance": false
+}

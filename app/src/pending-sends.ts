@@ -304,7 +304,7 @@ export class PendingSends {
     if (!item.publish || item.state === 'holding' || item.state === 'sending' || item.state === 'moved' ||
       this.#items.get(item.id) !== item || !this.#here(item) || this.#blocked.has(item.id)) return Promise.resolve()
     if (!asked && !this.#opts.connected()) {
-      item.retryAt = this.#opts.now() + CONNECT_POLL_MS; this.#schedule(() => this.wake(), CONNECT_POLL_MS); return Promise.resolve()
+      item.retryAt = this.#opts.now() + CONNECT_POLL_MS; this.#scheduleRetry(item, CONNECT_POLL_MS); return Promise.resolve()
     }
     const version = this.#version(item.roomId)
     const work = this.#send(item, version).catch(error => {
@@ -334,7 +334,18 @@ export class PendingSends {
   }
   #later(item: PrivatePendingSend): void {
     const seconds = RETRY_SECONDS[Math.min(item.attempts, RETRY_SECONDS.length - 1)]!
-    item.retryAt = this.#opts.now() + seconds * 1000; this.#schedule(() => this.wake(), seconds * 1000)
+    item.retryAt = this.#opts.now() + seconds * 1000; this.#scheduleRetry(item, seconds * 1000)
+  }
+  /** A timer can run before the wall clock reports its deadline. Keep the
+   * remaining wait without releasing a held or superseded custody owner. */
+  #scheduleRetry(item: PrivatePendingSend, ms: number): void {
+    this.#schedule(() => {
+      if (this.#items.get(item.id) !== item || !this.#here(item) || !item.publish || this.#blocked.has(item.id) ||
+          (item.state !== 'waiting' && item.state !== 'refused' && item.state !== 'unknown')) return
+      const remaining = (item.retryAt ?? 0) - this.#opts.now()
+      if (remaining > 0) this.#scheduleRetry(item, remaining)
+      else void this.#attempt(item)
+    }, ms)
   }
   #schedule(run: () => void, ms: number): void {
     const guarded = () => { if (!this.#closed) run() }

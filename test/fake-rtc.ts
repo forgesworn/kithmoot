@@ -545,6 +545,13 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     // mode too: the answer it writes has to name the same mids back.
     if (parsed) this.#structured = true
     if (parsed) this.#enforceMLineOrder(parsed)
+    if (description.type === 'answer' && parsed && this.#pendingLocalOffer) {
+      const offered = this.#pendingLocalOffer
+      if (parsed.length !== offered.length || parsed.some((media, index) =>
+        media.kind !== offered[index]?.kind || media.mid !== offered[index]?.mid)) {
+        throw new Error("The order of m-lines in answer doesn't match order in offer")
+      }
+    }
     this.remoteDescription = description
     if (description.type === 'offer') {
       if (parsed) {

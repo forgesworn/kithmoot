@@ -68,6 +68,65 @@ describe('unsent messages', () => {
     expect(publish).toHaveBeenCalledOnce()
   })
 
+  it.each(['connection', 'refusal'] as const)('retains the next attempt when its %s timer fires just before the deadline', async cause => {
+    let now = 1_000_000
+    let connected = cause === 'refusal'
+    let refuse = cause === 'refusal'
+    const scheduled: Array<{ run: () => void; ms: number }> = []
+    const publish = vi.fn(async () => {
+      if (refuse) { refuse = false; throw new Error('every relay rejected the event') }
+    })
+    const pending = new PendingSends({ store: memoryDeviceStore(), connected: () => connected, now: () => now,
+      schedule: (run, ms) => { scheduled.push({ run, ms }) } })
+    const item = await add(pending, 'survives', publish)
+    await flush()
+    const callsBefore = publish.mock.calls.length
+    const timer = scheduled.shift()!
+    expect(timer.ms).toBe(cause === 'connection' ? CONNECT_POLL_MS : RETRY_SECONDS[1]! * 1000)
+    now += timer.ms - 1
+    connected = true
+    timer.run()
+    await flush()
+    expect(publish).toHaveBeenCalledTimes(callsBefore)
+    expect(scheduled).toHaveLength(1)
+    expect(scheduled[0]!.ms).toBe(1)
+    now++
+    scheduled.shift()!.run()
+    await flush()
+    expect(publish).toHaveBeenCalledTimes(callsBefore + 1)
+    expect(pending.items(ROOM).find(saved => saved.id === item.id)?.acknowledged).toBe(true)
+    expect(item.event).toEqual(event('survives'))
+    expect(scheduled).toHaveLength(0)
+  })
+
+  it.each(['removed', 'replaced'] as const)('does not re-arm an early callback belonging to a %s message', async change => {
+    let now = 1_000_000
+    let connected = false
+    const scheduled: Array<() => void> = []
+    const publish = vi.fn(async () => {})
+    const replacement = vi.fn(async () => {})
+    const pending = new PendingSends({ store: memoryDeviceStore(), connected: () => connected, now: () => now,
+      schedule: run => { scheduled.push(run) } })
+    await add(pending, 'removed', publish)
+    await pending.take('removed')
+    if (change === 'replaced') await add(pending, 'removed', replacement)
+    now += CONNECT_POLL_MS - 1
+    scheduled.shift()!()
+    await flush()
+    expect(publish).not.toHaveBeenCalled()
+    expect(replacement).not.toHaveBeenCalled()
+    expect(scheduled).toHaveLength(change === 'replaced' ? 1 : 0)
+    if (change === 'replaced') {
+      now++
+      connected = true
+      scheduled.shift()!()
+      await flush()
+      expect(replacement).toHaveBeenCalledOnce()
+      expect(publish).not.toHaveBeenCalled()
+      expect(scheduled).toHaveLength(0)
+    }
+  })
+
   it('keeps an accepted row until its message is on screen, even without an echo', async () => {
     const h = harness()
     await add(h.pending, 'one', async () => {}); await add(h.pending, 'two', async () => {})
