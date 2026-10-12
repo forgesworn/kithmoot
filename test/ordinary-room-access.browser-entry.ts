@@ -1,5 +1,7 @@
 export * from './ordinary-state.browser-entry.js'
-export { validateOrdinaryRoomAccessSnapshot } from '../app/src/ordinary-room-access-snapshot.js'
+import { validateOrdinaryRoomAccessSnapshot as access } from '../app/src/ordinary-room-access-snapshot.js'
+import { captureOrdinaryNavigationContext } from '../app/src/ordinary-navigation-snapshot.js'
+import { classifyOrdinaryPhysicalName } from '../app/src/ordinary-physical-snapshot.js'
 export { base64urlnopad } from '@scure/base'
 
 import { getPublicKey } from 'nostr-tools/pure'
@@ -31,4 +33,17 @@ export function roomAccessFixture(options:{persistent?:boolean;owner?:boolean;ta
     records.set('kithmoot.room-switch.v1',JSON.stringify({hash:new URL(url).hash,account:null,at:1000}))
   }
   return {records,id,url,roomId,roomName:ROOM_PREFIX+roomId}
+}
+
+// Test-only component partitioner: no complete production bindings or root.
+export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string, string>, migrated: boolean,
+  options: { kind: 'browser' | 'tab'; links?: readonly string[] }) {
+  const rows = new Map<string, string>(), navigation = new Map<string, string>()
+  for (const [name, raw] of records) {
+    const route = classifyOrdinaryPhysicalName(name, options.kind)
+    if (route?.family === 'navigation') navigation.set(name, raw)
+    else if (route?.family === 'access') rows.set(name, raw)
+    else throw new Error('Unexpected room-access fixture family')
+  }
+  return access(rows, migrated, { ...options, navigation: captureOrdinaryNavigationContext(records, options) })
 }

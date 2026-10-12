@@ -1,3 +1,4 @@
+import { validateOrdinaryNavigationRecord } from './ordinary-navigation-snapshot.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
 import { OrdinaryStateHold, ORDINARY_NAME_UNITS, ordinaryUtf8Length } from './ordinary-state-codec.js'
 
@@ -90,14 +91,9 @@ export function validateOrdinaryUiSnapshot(records: ReadonlyMap<string, string>,
         if (!Array.isArray(v) || v.length > 36 || v.some(e => typeof e !== 'string' || !e)) hold()
         c.recentLists++; c.recents += v.length
       } else if (name === 'kithmoot.way-back') {
-        const v = json(raw); object(v, ['link', 'name'])
-        if (typeof v.link !== 'string' || !v.link || typeof v.name !== 'string') hold()
-        c.wayBacks++ // Exact link/name are retained as opaque candidates, never opened.
+        validateOrdinaryNavigationRecord(name, raw); c.wayBacks++
       } else if (name === 'kithmoot.room-switch.v1') {
-        const v = json(raw); object(v, ['hash', 'account', 'at'])
-        if (typeof v.hash !== 'string' || v.hash !== '' && !v.hash.startsWith('#')
-          || v.account !== null && !hex(v.account) || !integer(v.at)) hold()
-        c.roomSwitches++ // Authenticated current account and real-clock age checks remain owed.
+        validateOrdinaryNavigationRecord(name, raw); c.roomSwitches++
       } else if (name === 'kithmoot.notice') c.notices++ // The writer accepts arbitrary display text.
       else hold()
     }

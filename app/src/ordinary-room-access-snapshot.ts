@@ -1,3 +1,4 @@
+import { validateOrdinaryNavigationRecord, type OrdinaryNavigationContext } from './ordinary-navigation-snapshot.js'
 import { base64urlnopad } from '@scure/base'
 import { hexToBytes } from '@noble/hashes/utils'
 import { getPublicKey } from 'nostr-tools/pure'
@@ -10,11 +11,55 @@ import { ROOM_PREFIX } from './rooms-store.js'
 import { INVITATION_OWNER_PREFIX } from './invitation-store.js'
 import { KEPT_ADMISSION_PREFIX } from './device-store.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
+import { classifyOrdinaryPhysicalName, validateOrdinaryPhysicalSnapshot } from './ordinary-physical-snapshot.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const CACHE = 'kithmoot.admission.v1.'
-const WAY_BACK = 'kithmoot.way-back', SWITCH = 'kithmoot.room-switch.v1'
+const WAY_BACK = 'kithmoot.way-back'
 function hold(): never { throw new OrdinaryStateHold() }
+interface CapturedNavigation {
+  readonly kind: 'browser' | 'tab'
+  readonly access: ReadonlyMap<string, string>
+  readonly candidates: readonly string[]
+}
+const capturedNavigation = new WeakMap<object, CapturedNavigation>()
+/** Capture the complete physical snapshot, before partitioning. Candidate bytes
+ * stay private to the binding consumer and match this exact access partition.
+ * This is custody provenance, never current account/admission authority. */
+export function captureOrdinaryNavigationContext(records: ReadonlyMap<string, string>, options: { kind: 'browser' | 'tab' }): OrdinaryNavigationContext {
+  try {
+    const snapshot = new Map(records)
+    validateOrdinaryPhysicalSnapshot(snapshot, options)
+    const access = new Map<string, string>(), candidates: string[] = []
+    let wayBacks = 0, roomSwitches = 0
+    for (const [name, raw] of snapshot) {
+      const route = classifyOrdinaryPhysicalName(name, options.kind)
+      if (route?.family === 'access') access.set(name, raw)
+      if (route?.family !== 'navigation') continue
+      validateOrdinaryNavigationRecord(name, raw)
+      const value = JSON.parse(raw)
+      if (name === WAY_BACK) { wayBacks++; candidates.push(value.link) }
+      else { roomSwitches++; if (value.hash !== '') candidates.push('https://ordinary.invalid/' + value.hash) }
+    }
+    const context = Object.freeze({ wayBacks, roomSwitches }) as OrdinaryNavigationContext
+    capturedNavigation.set(context, { kind: options.kind, access, candidates: Object.freeze(candidates) })
+    return context
+  } catch { return hold() }
+}
+function navigationFor(records: ReadonlyMap<string, string>, kind: 'browser' | 'tab', context: OrdinaryNavigationContext): CapturedNavigation {
+  const captured = capturedNavigation.get(context)
+  if (!captured || captured.kind !== kind) hold()
+  let count = 0
+  for (const [name, raw] of records) {
+    const route = classifyOrdinaryPhysicalName(name, kind)
+    if (route?.family === 'navigation') hold() // Once-only dispatch.
+    if (route?.family !== 'access') continue
+    if (captured.access.get(name) !== raw) hold()
+    count++
+  }
+  if (count !== captured.access.size) hold()
+  return captured
+}
 function integer(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0 }
 function hex(value: unknown): asserts value is string { if (typeof value !== 'string' || !HEX.test(value)) hold() }
 function parsed(raw: string): unknown { try { return JSON.parse(raw) } catch { return hold() } }
@@ -65,15 +110,16 @@ export interface OrdinaryRoomAccessSnapshot {
 }
 /** Complete snapshots of this family, without pruning expiry, guessing a
  * missing pinned invitation or granting current responder authority. Exact
- * links from already captured startup/navigation context may bind creator
+ * links from captured startup and explicit navigation context may bind creator
  * records written before a room was listed, and rotated links. Missing such
  * evidence holds the original records for explicit recovery. Bookmark caches
  * and the other production families still need their composite validators. */
 export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,string>, migrated: boolean,
-  options: { kind: 'browser' | 'tab'; links?: readonly string[]; retainedRooms?: readonly { roomId: string; link: string }[] }): OrdinaryRoomAccessSnapshot {
+  options: { kind: 'browser' | 'tab'; links?: readonly string[]; navigation?: OrdinaryNavigationContext; retainedRooms?: readonly { roomId: string; link: string }[] }): OrdinaryRoomAccessSnapshot {
   const kind = options.kind, hints = [...(options.links ?? [])]
   const retainedRooms = [...(options.retainedRooms ?? [])]
   if (kind !== 'browser' && kind !== 'tab') hold()
+  const navigation = options.navigation === undefined ? undefined : navigationFor(records, kind, options.navigation)
   const allocated: RoomLink[] = [], bindings = new Map<string,Binding>(), access: (Access & { kind: 'owner' | 'kept' | 'tab' })[] = []
   const rooms: { roomId: string; account?: string }[] = []
   const bind = (value: RoomLink, expected?: string) => {
@@ -119,18 +165,9 @@ export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,s
         rooms.push(Object.freeze({ roomId, ...(account ? { account } : {}) }))
         continue
       }
-      if (logical === WAY_BACK || logical === SWITCH) {
-        if (kind !== 'tab' || account !== undefined) hold()
-        const value = parsed(raw)
-        if (logical === WAY_BACK) { object(value,['link','name']); name(value.name); bind(link(value.link,allocated)) }
-        else {
-          object(value,['hash','account','at'])
-          if (typeof value.hash !== 'string' || !value.hash.startsWith('#') || !integer(value.at)) hold()
-          if (value.account !== null) hex(value.account)
-          bind(link('https://ordinary.invalid/'+value.hash,allocated))
-        }
-        continue
-      }
+      // Navigation is a separately captured physical partition. Never parse
+      // or dispatch those rows through access a second time.
+      if (logical === WAY_BACK || logical.startsWith(WAY_BACK + '.') || logical === 'kithmoot.room-switch' || logical.startsWith('kithmoot.room-switch.')) hold()
       const prefix = [INVITATION_OWNER_PREFIX,KEPT_ADMISSION_PREFIX,CACHE].find(prefix => logical.startsWith(prefix))
       if (!prefix) continue
       if (account !== undefined && !migrated || (prefix === CACHE ? kind !== 'tab' : kind !== 'browser')) hold()
@@ -149,6 +186,9 @@ export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,s
             !Object.hasOwn(value,'delegateSk') || !Object.hasOwn(value,'delegation')) hold()
       }
       access.push({ id, raw: value, owner, ...(account ? { account } : {}), kind: owner ? 'owner' : kept ? 'kept' : 'tab' })
+    }
+    if (navigation && access.some(value => !bindings.has(value.id))) {
+      for (const raw of navigation.candidates) bind(link(raw, allocated))
     }
     const invitations: { invitationId: string; roomId: string; kind: 'owner' | 'kept' | 'tab'; persistent: boolean }[] = []
     const signerOwners = new Map<string,string>()

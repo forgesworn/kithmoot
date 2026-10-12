@@ -1,3 +1,4 @@
+import { captureOrdinaryNavigationContext } from './ordinary-navigation-snapshot.js'
 import { describe, expect, it } from 'vitest'
 import { bytesToHex } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
@@ -65,7 +66,10 @@ describe('strict ordinary room/access snapshots',()=>{
     const {records,id,url}=fixture();const value=JSON.parse(records.get(KEPT_ADMISSION_PREFIX+id)!);delete value.createdAt
     const tab=new Map([[CACHE+id,JSON.stringify(value)],['kithmoot.way-back',JSON.stringify({link:url,name:'Bench'})],
       ['kithmoot.room-switch.v1',JSON.stringify({hash:new URL(url).hash,account:null,at:1000})]])
-    expect(validate(tab,false,{kind:'tab'}).invitations[0]!.kind).toBe('tab')
+    expect(() => validate(tab,false,{kind:'tab'})).toThrow(OrdinaryStateHold)
+    const navigation = captureOrdinaryNavigationContext(tab,{kind:'tab'})
+    const rows = new Map([...tab].filter(([name]) => name !== 'kithmoot.room-switch.v1' && name !== 'kithmoot.way-back'))
+    expect(validate(rows,false,{kind:'tab',navigation}).invitations[0]!.kind).toBe('tab')
     expect(()=>validate(tab,false,options)).toThrow(OrdinaryStateHold)
   })
   it.each(['room','owner','kept'] as const)('rejects browser %s records in tab custody even with a pinned link',family=>{

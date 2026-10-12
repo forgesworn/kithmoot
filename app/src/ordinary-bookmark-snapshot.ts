@@ -1,3 +1,4 @@
+import type { OrdinaryNavigationContext } from './ordinary-navigation-snapshot.js'
 import { base64 } from '@scure/base'
 import { hexToBytes } from '@noble/hashes/utils'
 import { deriveRoom } from '../../src/room.js'
@@ -32,7 +33,7 @@ export interface OrdinaryBookmarkSnapshot {
  * still needs the account signer to decrypt and compare it before effects.
  * No expiry pruning, relay repair, signing or publication occurs here. */
 export function validateOrdinaryRoomBookmarkSnapshot(records:ReadonlyMap<string,string>,migrated:boolean,
-  options:{kind:'browser'|'tab';links?:readonly string[]}):OrdinaryBookmarkSnapshot {
+  options:{kind:'browser'|'tab';links?:readonly string[];navigation?:OrdinaryNavigationContext}):OrdinaryBookmarkSnapshot {
   const links:{roomId:string;link:string}[]=[],bookmarks:{account:string;roomId:string;record:boolean;pending:boolean;removed:boolean}[]=[]
   const addresses=new Map<string,string>(),ids=new Map<string,string>(),events=new Map<string,{scope:string;d:string;value:string}>()
   const claimId=(id:string,scope:string)=>{

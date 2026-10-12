@@ -42,7 +42,7 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | `signet:login.*` | Signet SDK login, auth event, bunker/client scalars and pending redirects | Existing required async Signet adapter; audited published SDK pin still needed |
 | `kithmoot.device.H`, `.device-owner.*`, `.credential.H`, `.own-credential.H`, `.own-seal.H` | `device-store.ts`: room keys, credentials, complete seal history | Existing strict checks and awaited adapter; account conversion must preserve explicit ownership |
 | `kithmoot.device`, `.credential` | Previous shared-device layout | Hold/recovery under explicit legacy policy; do not silently remove at startup |
-| `kithmoot.room.H`, `.rooms.v1`, `.account.H.kithmoot.room.H` | `rooms-store.ts` / `room-bookmarks.ts`: room links and account-scoped room metadata | Existing room-access/bookmark validation; signer must compare cached plaintext with authenticated decrypt |
+| `kithmoot.room.H`, `.account.H.kithmoot.room.H` | `rooms-store.ts` / `room-bookmarks.ts`: room links and account-scoped room metadata | Existing room-access/bookmark validation; signer must compare cached plaintext with authenticated decrypt. `kithmoot.rooms.v1` is an event/address namespace inside values, not a raw Storage key |
 | `kithmoot.bookmarks.H.H` | `room-bookmarks.ts`: signed/encrypted bookmark records and pending retries | Existing bookmark custody validation; durable retention before signing/publishing |
 | `kithmoot.invitation-owner.v1.H`, `.admission-kept.v1.H`, `.admission.v1.H` | `invitation-store.ts`, `device-store.ts`, `main.ts`: ownership and kept/temporary admissions | Existing strict access checks; no current authority from cache |
 | `kithmoot.room-epoch.v1.H`, `.room-epoch.v2.H` | `room-epoch-store.ts`: epoch roots and rekey evidence | Existing strict epoch snapshot; actual required before-transition async library/runtime boundary remains open |
@@ -69,7 +69,7 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | `kithmoot.destructed.v1`, `.destruct-heads-up.H` | `self-destruct.ts`, `main.ts`: UI dismissal/history timestamps | Preserve without time pruning; these are not permanent owner/deletion fences |
 | `kithmoot.knock.v1.H`, `.invited.v1.H`, `.nudge.H` | `main.ts`: room-bound choices and notification markers | Private room metadata; exact scope/value validation and awaited dependent effects |
 | `kithmoot.conversation.v1.A.H`, `.room-switch.v1`, `.way-back`, `.notice` | `main.ts`: tab channel/room navigation and notice state | Distinct protected tab owner; preserve supported existing lifetime and exact bytes |
-| `kithmoot.home.fold.*` | `main.ts`: section state, including dynamic project labels | Private selector metadata; not a generic visual-prefix exception |
+| `kithmoot.home.fold.*` | `main.ts`: six typed room sections (pinned, unread, recent, older, other, ended) | Private selector metadata; unknown sections hold, no visual-prefix exception |
 | `kithmoot.call.cameraDeviceId`, `.call.micDeviceId`, `.call.background` | `call-prefs.ts`: device identifiers and background selection | Protected metadata; do not exempt all `call.*` preferences |
 | `kithmoot.call.voicePreset`, `.call.effectMode`, `.call.blurStrength`, `.callProfile` | `call-prefs.ts`, `call-profile.ts`: media preferences and selected call diagnostic profile | Protected unless separately reviewed; profile can affect runtime media/routing |
 | `kithmoot.agents-hear`, `.notify`, `.notify-text`, `.send-delay`, `.profiles.enabled` | `main.ts`, `notify.ts`, `relay-settings.ts`: consent, disclosure and send behaviour | Protected settings; durable commit before dependent changes |
@@ -83,13 +83,13 @@ project selector strings as inert metadata. It returns counts only. Unsupported
 wrappers, relocation into tab custody, invalid or noncanonical rows hold intact;
 completed custody does not waive those checks.
 
-## Candidate visual exception, not yet production-wired
+## Protected appearance values, not yet production-wired
 
-The only proposed initial visual exception is the exact browser key
+The physical classifier keeps protected the exact browser key
 `kithmoot.textSize` with `standard`, `large` or `huge`, from independently loaded
 `text-size.ts`. It contains no identifier and only selects a root-font scale.
-Invalid values must not be silently normalised during the strict preflight.
-The exception must be reviewed and its embedding verified before release.
+Invalid values hold during strict preflight. Its independent module must move
+behind protected startup before release; no visual exception is adopted.
 
 Other identifier-free keys currently written by layout modules include
 `kithmoot.call-chat-panel`, `.call-chat-divider`, `.call-view`,

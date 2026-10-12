@@ -53,9 +53,10 @@ root must precede bootstrap and independently loaded roots, require the real
 client/capacity fences and await durable consumers and coordinated forgetting.
 Live account authentication, current admission, freshness and media/deletion
 consent must be rechecked before effects. Restored tab links/intents must not
-trigger dialing or admission from custody acceptance alone. `kithmoot.textSize`
-is deliberately unclassified here; any exact visual exception needs its own
-source-backed decision. No blanket UI, home, call or colon exemption is made.
+trigger dialing or admission from custody acceptance alone. The separate
+[physical classifier](ordinary-physical-navigation.md) keeps exact text-size
+values protected and transfers navigation through a private access-partition
+context. No blanket UI, home, call or colon exemption is made.
 
 The generic `scrubStore` API is also a primary writer: a sweep can retain an empty
 profile dictionary or empty tombstone/recents list. Those cuts are now preserved,
