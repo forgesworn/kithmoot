@@ -765,8 +765,33 @@ async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>, opene
     opened()
     return connected
   } catch (error) {
-    const socket = (relay as unknown as { ws?: { readyState: number; close(): void } } | undefined)?.ws
-    if (socket?.readyState === 0) try { socket.close() } catch { /* already going */ }
+    const socket = (relay as { ws?: {
+      readyState: number
+      close(): void
+      on?(event: string, listener: () => void): unknown
+      once?(event: string, listener: () => void): unknown
+      removeListener?(event: string, listener: () => void): unknown
+    } } | undefined)?.ws
+    if (socket?.readyState === 0) {
+      let detach = () => {}
+      try {
+        // Node ws emits an asynchronous error when an unfinished handshake is
+        // closed. nostr-tools has already removed its observer after timeout.
+        // Keep closure local to this abandoned socket and preserve its failure.
+        if (socket.on && socket.once && socket.removeListener) {
+          const closingError = () => {}
+          detach = () => {
+            socket.removeListener!('error', closingError)
+            socket.removeListener!('close', detach)
+          }
+          socket.on('error', closingError)
+          socket.once('close', detach)
+        }
+        socket.close()
+      } catch {
+        try { detach() } catch { /* preserve the original connection failure */ }
+      }
+    }
     throw error
   }
 }
