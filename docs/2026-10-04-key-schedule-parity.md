@@ -14,32 +14,36 @@ the seventh, the eighth is decided, and the work so far follows them.
 
 ## Scope
 
-This plan covers rooms admitted by link on ordinary relays: every room
-KithMoot has today. Rooms on Vennel's sheltered lane get MLS through the
-circle's box (`vennel/VENNEL.md` §4.1, the P3 tickets), and this does not
-compete with that. MLS cannot serve a link-admitted room on public relays,
-for the reasons in "Not NIP-29, and not Marmot" (`decisions.md`): nobody is
-online to issue welcomes, and key packages are never published in the clear.
-So the epoch scheme stays, and it should stop losing to Marmot on the
-properties a reviewer checks first.
+This plan covers link-admitted rooms using the ordinary epoch scheme. The
+separate browser MLS work now has a bounded development custody preview;
+it has not migrated ordinary rooms. Admission, offline recovery and
+participant grouping need explicit integration with any new key schedule.
+See [the ordinary room decisions](decisions.md#relay-authority-and-the-ordinary-room-key-schedule)
+and [current security boundaries](security-model.md). The dated release
+status above records this plan's checkpoints, not fresh deployment evidence.
 
-## Where White Noise is ahead today
+## Security gaps that motivated the plan
 
-- **Post-compromise security.** A device's key does two jobs: it signs, and
-  every rekey and epoch grant is sealed to it (`fold-kit` `epoch.ts`, the
-  rekey's `keys` map and the 20469 grant; `member-epoch.ts`, the 20472
-  grant). Whoever copies it opens every future rekey for that device until
-  somebody notices and removes it. In MLS a member heals by updating its
-  leaf.
-- **Forward secrecy.** An epoch key is static until the next rekey, and a
-  room that never removes anybody never rekeys, so a stolen key reads back
-  to the room's first message.
+These describe the 4 October starting point, with shipped work distinguished
+from the remaining phases:
+
+- **Post-compromise recovery.** Device keys originally both signed events
+  and opened rekeys and epoch grants. Phase 1 introduced fresh seal keys in
+  participant-signed credential renewal. Together with phase 2a's optional
+  scheduled rekeys, this can heal a copied device key after renewal, expiry
+  of the copied credential and rekeying if the participant signer remains
+  uncompromised. Devices still using legacy device-key sealing remain outside
+  that protection.
+- **Forward secrecy.** Epoch keys remain static between rekeys. Optional
+  cadence changes that boundary, but retained keys and re-derivable grants
+  mean ordinary rooms still make no forward-secrecy claim. Phase 2b is
+  separate from the shipped healing work.
 - **Per-message authorship.** Chat is signed by the device key
   (`src/chat.ts`, `encodeChat`), and a relay can count messages per device.
-  Marmot signs each group message with a throwaway key.
+  Quieter per-message authorship remains phase 3 work.
 
-Marmot's cipher suite should be checked against MIP-00 before anyone says
-White Noise is or is not post-quantum. Phase 4 below does not depend on it.
+Phases 1–3 make no post-quantum claim. Phase 4 requires its own cryptographic
+design and implementation review.
 
 ## What the evidence already fixes
 
@@ -185,8 +189,8 @@ this changes in the plan" takes precedence where they differ.
   secret and every key derived from it once that epoch drops out of the
   history window. Over a scheduled cadence that is forward secrecy whose
   window is the history window. No in-epoch ratchet is proposed. That
-  replaces the last sentence of "Not NIP-29, and not Marmot", which planned
-  one: a ratchet buys something only if history is kept for less time than
+  supersedes the earlier proposal for an in-epoch ratchet: a ratchet buys
+  something only if history is kept for less time than
   an epoch lasts, and it would make every grant carry step keys.
 - **Erasure caps member catch-up.** A member building a grant chain reads
   the secret before each rekey to check its evidence (`member-epoch.ts`,
@@ -271,18 +275,21 @@ this changes in the plan" takes precedence where they differ.
 - Each phase ships readers before writers. A device without the feature
   keeps working, unhealed, and nobody's room goes quiet.
 
-## Where this leaves KithMoot against White Noise
+## Intended outcomes and current limits
 
-- **Healing:** level after phases 1–2, and ahead for anybody whose
-  participant key lives in a signer, since the anchor is off the device.
-- **Forward secrecy:** level at epoch granularity after phase 2, except
-  epoch 0, which is the link. If White Noise keeps a local plaintext store,
-  as MDK's storage layer suggests (unverified), its forward secrecy against
-  a device thief is limited in the same way that history limits it here.
-- **Authorship:** level after phase 3.
-- **Already ahead:** no forks (only the authority rekeys), catch-up after
-  absence, one member per person, entry by link.
-- **Post-quantum:** ahead after phase 4 if Marmot is still classical.
+- **Healing:** fresh seal-key renewal, expiry of the copied credential and
+  a subsequent rekey can recover from a copied device key. It requires an
+  uncompromised participant signer and a compatible device; ongoing endpoint
+  control defeats that condition.
+- **Forward secrecy:** remains phase 2b work. Erasure must cover retained
+  secrets, grants and archives; a history-window limit alone is insufficient.
+  Ordinary browser room secrets still use unencrypted localStorage.
+- **Authorship:** ordinary chat retains a room device signature. Phase 3
+  proposes changing the relay-visible author, not a shipped guarantee.
+- **Recovery and membership:** authority rekeys, conflict reporting,
+  catch-up, participant grouping and link admission are implemented. A
+  single authority does not prevent conflicting rekeys from its own copies.
+- **Post-quantum:** remains phase 4 design work, with no current claim.
 
 ## Owner decisions
 

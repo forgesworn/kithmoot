@@ -1,9 +1,12 @@
 # Browser MLS integration (P3-03c)
 
 This branch implements the browser portion of Vennel's approved witness and
-MLS contract, following the existing Android integration. It is not yet wired
-to MLS rooms or enabled in production. Account controls are available only in
-an explicit development preview. Ordinary Bothy text routing remains separate.
+MLS contract, following the existing Android integration. Production MLS
+remains unavailable. An explicit development preview now includes account
+controls and [bounded local room creation and a manual round](browser-mls-room-custody-preview.md).
+Authenticated invitation joining and uncertain-join recovery remain held.
+Ordinary Bothy text routing remains separate. The verification counts below
+record their respective implementation checkpoints, not a new test run.
 
 The [independent agent security review](browser-mls-security-review.md) found
 no blockers for merging the production-disabled foundation at `b19508c`.
@@ -182,21 +185,25 @@ review does not authorise production enablement or close browser integration.
 The [coordinated vault implementation](browser-mls-coordinated-vault.md) adds
 explicit legacy transfer, witnessed credential/policy/journal changes and typed
 box authentication. Its review and validation are separate from the foundation
-review above. It has no production or room caller yet.
+review above. The development room custody preview now uses the coordinated
+vault; there is no production caller.
 
 ## Session persistence follow-up
 
 The [browser session host](browser-mls-session-host.md) now connects real engine
 snapshots to the coordinator: exact generations, acknowledgement under the
 writer lock, withheld effects through cleanup, durable outbox recovery and
-witnessed session-id tombstones. It has no app or network caller. The subsequent
+witnessed session-id tombstones. The subsequent
 [room operations](browser-mls-room-operations.md) add typed create/Update and
 atomic metadata/history persistence. The [strict box client](browser-mls-box-client.md)
 adds pinned request signing and bounded reply parsing. The
 [typed join](browser-mls-join.md) adds current provisioned-child custody and
 witnessed pending/Welcome recovery. The [message driver](browser-mls-message-driver.md)
-adds guarded authenticated rounds and durable receipt queries. Dedicated endpoint
-composition and app wiring remain open. The [membership slice](browser-mls-membership.md)
+adds guarded authenticated rounds and durable receipt queries. The
+[room custody preview](browser-mls-room-custody-preview.md) now supplies a
+dedicated development endpoint and bounded creation/manual-round wiring;
+the combined create/join/driver journey and P3-08 acceptance remain open.
+The [membership slice](browser-mls-membership.md)
 adds D5 registration-before-Add, durable Welcome routing and the witnessed
 removal journal; grant transport, UI and live room acceptance remain open.
 

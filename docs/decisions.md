@@ -1175,13 +1175,11 @@ behaves badly, and everything above about weighing what an agent says still
 holds. It is the narrowest answer to one question, which is whose machine
 gets spent.
 
-## Not NIP-29, and not Marmot
+## Relay authority and the ordinary room key schedule
 
-KithMoot is an open Slack with agents, and the first question a Nostr
-developer asks of anything that calls itself that is why it is not built
-on one of the two group layers the ecosystem already has. Both were
-considered, both were refused, for different reasons, and neither refusal
-is about quality.
+KithMoot's ordinary rooms keep relay authority separate from room membership
+and use an authority-controlled epoch schedule. These are decisions about
+the ordinary room protocol. They do not rule out a separate MLS room mode.
 
 **NIP-29 makes the relay the operator.** A relay-based group lives on one
 relay, and that relay is the authority on it: it holds the member list,
@@ -1209,43 +1207,30 @@ who guessed its id, and there are several clients already. The first two
 are what a keeper provides here, optionally. The third is the price of
 not being NIP-29.
 
-**Marmot moves the key schedule, and only the key schedule.** Marmot is
-MLS over Nostr: a key package per client, a welcome per invitee, and a
-group event per message encrypted under the MLS epoch's exporter secret,
-with forward secrecy and post-compromise security from the ratchet. Those
-two properties are real and KithMoot does not have them: an epoch key
-here is a static secret until the next rekey, so a device compromised
-today reads everything since the last removal. That gap is acknowledged,
-and it is the one thing worth borrowing.
+**The ordinary epoch scheme has explicit limits.** A room key stays static
+until the authority rekeys. Roster, chat, channels, descriptor and media
+keys are derived from it, and the next epoch is sealed to admitted devices.
+Scheduled rekeying is optional and off by default in the agent runtime.
+It does not introduce a per-message ratchet.
 
-What Marmot is not is a workspace layer, and the things this product is
-built on are not in it. An MLS member is a client, one leaf per device, so
-a person on a phone and a laptop is two members and the tree has no notion
-that they are one; KithMoot's whole claim is that they are. MLS knows who
-is in a group; it does not know who is here, so presence, calls, a device
-carrying media for another and channels inside a group would all be built
-beside it rather than on it, which is where they are built now. Group
-changes are commits that every member processes in order, so a member
-away for a week replays a stack before it can read, and an agent that
-comes and goes twenty times a day churns the tree for everybody. And a
-welcome is addressed to one key package, so "drop this link in a group
-chat and anyone it reaches can enter" is not something MLS can express
-without an admitting party online to issue welcomes, which is the keeper
-dependency the v3 group invitation was built to remove.
+Fresh seal keys in renewed, participant-signed web credentials can heal a
+copied device key after the copied credential expires and a subsequent rekey
+uses the renewed credential, provided the participant signer is uncompromised.
+Legacy device-key sealing and retained history constrain that protection.
+The [erasure audit](2026-10-05-erasure-audit.md) found that
+pruning an epoch from the history window alone is insufficient: persisted
+keys, grants and archive paths must also be addressed. Forward secrecy is
+therefore still work to complete, not a shipped property.
 
-So the group layer stays as it is: a room key per epoch, sealed to every
-device that stays and none that does not, with the roster, chat, channels,
-descriptor and media keys all derived from it. When forward secrecy is
-worth its cost here, the change is to ratchet the epoch key between rekeys,
-per message or per interval. That is a change to `epoch.ts` and a vector
-group, not a change of foundation.
-
-**Why this is recorded as a refusal and not an open question.** Both
-answers change everything downstream. NIP-29 puts the guest list on a
-server and ends the no-operator claim; Marmot puts the device, not the
-person, at the centre of the model. Either would be a different product,
-and this entry exists so the next person to ask does not have to
-reconstruct why it was not built that way.
+**MLS is a separate room integration.** Participant grouping, room admission,
+presence, channels, calls and agents are application responsibilities that
+must be connected to any new key schedule. The current
+[browser custody preview](browser-mls-room-custody-preview.md) implements
+bounded local witnessed creation and an explicit manual round. It remains
+development-only, with authenticated invitation joining and uncertain-join
+recovery held. It does not migrate ordinary link-admitted rooms or close
+production, cross-client or physical-device acceptance. See
+[security and privacy boundaries](security-model.md) for the current model.
 
 ## A DM is a room, and a read position is a bookmark-shaped record
 
@@ -1744,19 +1729,12 @@ step on its own branch.
 
 ## An epoch is not forgotten the moment it is left, 3 October 2026
 
-Clients of Marmot, the MLS group layer White Noise is built on, spent much
-of 2026 on two kinds of failure that the epoch design here could also have
-walked into, so they were checked against it one by one.
+The October review checked relay echoes, conflicting authority rekeys,
+delayed chat and skipped epochs against the room's recovery rules.
 
-**Forks.** In Marmot any admin may commit. Amethyst, testing against White
-Noise over Tor, found that a commit whose relay acknowledgement came late
-was applied by its author and then, when the relay echoed it back,
-processed again as somebody else's: the group forked, and every later
-message from the other side failed to decrypt "on no canonical epoch"
-([amethyst#4232](https://github.com/vitorpamplona/amethyst/pull/4232);
-the wider interop batch is
-[amethyst#4245](https://github.com/vitorpamplona/amethyst/pull/4245)). Here only the authority rekeys, and a member follows only rekeys
-it signs, so there is no second committer. Two gaps remained and are closed:
+**Forks.** Only the room authority rekeys, and a member follows only rekeys
+it signs. That excludes unrelated committers, but the authority may run in
+more than one place. Two gaps remained and are closed:
 
 - The authority's own rekey, coming back from a relay while its publish was
   still out, was taken for one sealed to somebody else and sent the
@@ -1771,11 +1749,7 @@ it signs, so there is no second committer. Two gaps remained and are closed:
   is not resolved automatically: a device that has followed one side cannot
   step back, and the fix is for the authority to rekey from one place.
 
-**Silent loss on catch-up.** In the Marmot development kit
-([mdk#2086](https://github.com/marmot-protocol/mdk/issues/2086)) a returning member
-advanced its epoch past the five MLS keeps before downloading the messages
-sent in the epochs it skipped, and those messages were lost without any
-sign. Here it was worse. A chat log stopped listening to an epoch the
+**Silent loss on catch-up.** A chat log stopped listening to an epoch the
 moment it left it, so a message under the old key that reached the relay
 after the rekey was never heard, and a device applying three rekeys in a
 row on returning tore each subscription down before any relay had answered
