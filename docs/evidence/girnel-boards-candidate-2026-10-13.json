@@ -28,7 +28,9 @@
     "caddy_candidate": "validated on deployment host; live configuration unchanged",
     "girnel_browser_regressions": "7 tests passed",
     "girnel_full_units": "running; first CPU timeout passed individually in 8.13 seconds",
-    "girnel_production_build": "passed"
+    "girnel_production_build": "passed",
+    "native_call_layout_baseline": "Both the Boards candidate and the preserved 0.1.77 checkout fail the same existing 1024x700 composer/Leave-call bounds assertion. No call/layout source is changed by Boards. This pre-existing native call limitation remains separate from the passing native Boards journey.",
+    "browser_regression_run": "12 passed, one compiled Den prerequisite skip, two failures: navigation test used a hidden home control (corrected); the call-retention case requested a removed JS asset during another local build (rerun against a stable build)."
   },
   "open_gates": [
     "final browser navigation regression run",
