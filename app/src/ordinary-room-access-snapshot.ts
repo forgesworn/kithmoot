@@ -70,8 +70,9 @@ export interface OrdinaryRoomAccessSnapshot {
  * evidence holds the original records for explicit recovery. Bookmark caches
  * and the other production families still need their composite validators. */
 export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,string>, migrated: boolean,
-  options: { kind: 'browser' | 'tab'; links?: readonly string[] }): OrdinaryRoomAccessSnapshot {
+  options: { kind: 'browser' | 'tab'; links?: readonly string[]; retainedRooms?: readonly { roomId: string; link: string }[] }): OrdinaryRoomAccessSnapshot {
   const kind = options.kind, hints = [...(options.links ?? [])]
+  const retainedRooms = [...(options.retainedRooms ?? [])]
   if (kind !== 'browser' && kind !== 'tab') hold()
   const allocated: RoomLink[] = [], bindings = new Map<string,Binding>(), access: (Access & { kind: 'owner' | 'kept' | 'tab' })[] = []
   const rooms: { roomId: string; account?: string }[] = []
@@ -86,6 +87,11 @@ export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,s
   }
   try {
     for (const raw of hints) bind(link(raw,allocated))
+    for (const value of retainedRooms) {
+      if (kind !== 'browser') hold()
+      object(value,['roomId','link']); hex(value.roomId)
+      bind(link(value.link,allocated),value.roomId)
+    }
     for (const [physical,raw] of records) {
       let logical = physical, account: string | undefined
       if (logical.startsWith('kithmoot.account.')) {
@@ -184,7 +190,7 @@ export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,s
     return Object.freeze({ rooms:Object.freeze(rooms),invitations:Object.freeze(invitations) })
   } finally {
     for (const value of allocated) { value.secret?.fill(0); value.invitation?.bearer.fill(0); value.pairingCode?.fill(0) }
-    bindings.clear(); access.length=0
+    bindings.clear(); access.length=0; hints.length=0; retainedRooms.length=0
   }
 }
 function roomHex(secret: Uint8Array): string {
