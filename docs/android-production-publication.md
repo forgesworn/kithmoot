@@ -6,6 +6,26 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.83 preparation — 12 October 2026
+
+The production candidate is version **0.6.83**, code **106**, from source
+`6d8cb86dbedf827726cd7e20c166afc5f4ec4b12`. It retains interrupted invitation
+changes and refuses reconnection when required hosting data is missing or damaged.
+Room-list refreshes and artwork updates preserve the latest accepted state.
+
+The immutable APK is 79,747,742 bytes, SHA-256
+`74f006412ece18a4fbfe11c5b05ac799d174bbafb3e69a34619306046c0b37ef`.
+Independent verification checks version/SDKs, the production certificate,
+V3-only signing and the complete reviewed lineage. A fresh build on a second
+Mac matches all 799 unsigned/signed ZIP payload entries. The initial cached
+build differed in a generated Compose stability flag and baseline profile;
+that mismatch is retained in the [signed-build receipt](evidence/android-0.6.83-signed-build-2026-10-12.json).
+
+Integration main CI passes all sixteen jobs with actual reports audited.
+The release's own sixteen-job PR/main gates, website CI, publication readbacks,
+Zapstore publication/client indexing and physical acceptance remain separate.
+This preparation does not claim publication or physical-device installation.
+
 ## Prepare one reviewable publication
 
 The Android build must produce `kithmoot-0.6.0-production.apk` and print its APK,
