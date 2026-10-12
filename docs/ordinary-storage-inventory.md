@@ -141,6 +141,15 @@ construction remains required before claiming complete production migration.
 Neither this extension nor an outer framing check decrypts or authenticates an
 encrypted journal, establishes account/room authority, or closes DG08.
 
+The ordinary native test config gives each fixed spec its own project and
+worker/browser process, with one worker, zero retries and the same 30-second
+timeout and desktop browser profiles. Select an engine with a wildcard, for
+example `--project='webkit-*'`. This bounds process lifetime after repeated
+initial-navigation stalls reproduced on a minimal WebKit page without app or
+storage code. It is harness isolation, not a WebKit root-cause or engine-fix
+claim. List and run receipts must retain every prior case, with project names
+normalised to their engine, and distinguish original failures from later runs.
+
 | Surface | Actual storage / boundary | Required embedding work |
 | --- | --- | --- |
 | `kithmoot.call-tab-lock.msg` | Plaintext Storage fallback includes `roomId\|devicePubkey`, tab ID, timestamp and claim/release/probe | Remove the metadata-leaking fallback or replace it with reviewed protected coordination; moving the row alone breaks its storage-event protocol |
