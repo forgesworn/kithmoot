@@ -3,6 +3,20 @@ import { isSessionMismatch, replacesSession, sameShape, sdpSession, sdpShape, ty
 import type { SignalBody } from './signal.js'
 import type { TrackRole } from './types.js'
 
+/** Compare section kinds and mids, preserving order. Incomplete descriptions
+ * stay with the RTC stack rather than being classified as stale here. */
+function mediaSectionOrder(sdp: string | undefined): string | undefined {
+  if (sdp === undefined) return undefined
+  const sections: Array<{ kind: string; mid?: string }> = []
+  for (const raw of sdp.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith('m=')) sections.push({ kind: line.slice(2).split(/\s+/)[0]! })
+    else if (line.startsWith('a=mid:') && sections.length) sections.at(-1)!.mid = line.slice(6)
+  }
+  if (!sections.length || sections.some(section => !section.kind || !section.mid)) return undefined
+  return JSON.stringify(sections.map(section => [section.kind, section.mid]))
+}
+
 /** The half of an `RTCRtpSender` a fixed slot uses, and nothing else:
  *  swapping what a slot carries without renegotiating it. */
 export interface RtpSenderLike {
@@ -923,6 +937,18 @@ export class Peer implements NegotiatingPeer {
           await this.#offer()
         }
         return
+      }
+      // Legacy signals do not correlate an answer with its offer. A replay
+      // already seen on this connection can arrive after a replacement camera
+      // adds a section to a new offer. It cannot answer that offer; leave its
+      // retry and pending description intact for the actual answer. Unknown
+      // answers and known answers with matching sections still reach the stack.
+      const answerShape = sdpShape(body.sdp)
+      if (this.#pc.signalingState === 'have-local-offer' && answerShape !== undefined &&
+          this.#knownAnswerShapes.has(answerShape)) {
+        const answerOrder = mediaSectionOrder(body.sdp)
+        const offerOrder = mediaSectionOrder(this.#pc.localDescription?.sdp)
+        if (answerOrder !== undefined && offerOrder !== undefined && answerOrder !== offerOrder) return
       }
       await this.#pc.setRemoteDescription({ type: 'answer', sdp: body.sdp })
       this.#remoteSession = sdpSession(body.sdp)

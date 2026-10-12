@@ -140,7 +140,7 @@ describe('fake-rtc: slots and negotiation', () => {
     expect(compatible.getTransceivers()[0]!.sender.track, 'the slot still stops sending').toBeNull()
   })
 
-  it('an answerer that opens its own slots doubles the m-line count, which is why A1 exists', async () => {
+  it('an answerer that opens its own slots creates an invalid doubled answer, which is why A1 exists', async () => {
     const a = new FakeRTCPeerConnection()
     const b = new FakeRTCPeerConnection()
     openSlots(a)
@@ -148,9 +148,10 @@ describe('fake-rtc: slots and negotiation', () => {
     // associate them with the offerer's m-lines, so four more are created.
     openSlots(b)
     const link = new FakeRtcLink(a, b)
-    await link.negotiate()
+    await expect(link.negotiate()).rejects.toThrow('order of m-lines')
     expect(b.getTransceivers()).toHaveLength(8)
-    expect(a.getTransceivers(), 'and the offerer now has four m-lines it never asked for').toHaveLength(8)
+    expect(a.getTransceivers(), 'the stack rejects sections the offerer never asked for').toHaveLength(4)
+    expect(a.signalingState).toBe('have-local-offer')
   })
 })
 
