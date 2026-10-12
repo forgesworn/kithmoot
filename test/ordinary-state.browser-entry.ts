@@ -1,0 +1,6 @@
+export * from '../app/src/ordinary-state-owner.js'
+export * from '../app/src/ordinary-state-codec.js'
+export { storeOwnCredentialFor, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX } from '../app/src/device-store.js'
+export { migrateOrdinaryStorage } from '../app/src/ordinary-state-migration.js'
+export { OrdinaryLegacyGuard } from '../app/src/ordinary-state-legacy-guard.js'
+export * from '../app/src/ordinary-state-tab.js'

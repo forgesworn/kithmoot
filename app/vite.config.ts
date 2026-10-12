@@ -182,12 +182,12 @@ export default defineConfig({
       // half of a pair that is useless apart is the worst of both.
       workbox: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        globIgnores: ['**/mediapipe/**', '**/link-web/**', '**/vmls-wasm/**', '**/vision_bundle-*.js', 'notify-sw.js'],
+        globIgnores: ['**/mediapipe/**', '**/link-web/**', '**/vmls-wasm/**', '**/vision_bundle-*.js', 'notify-sw.js', 'ordinary-state-sw.js'],
         // A click on a notification shown through the registration arrives
         // in the worker, not the page. The handler is a plain script in
         // app/public, imported into the generated worker rather than
         // precached by it, so it is fetched with the worker itself.
-        importScripts: ['notify-sw.js'],
+        importScripts: ['notify-sw.js', 'ordinary-state-sw.js'],
       },
       // Serves a real manifest and service worker under `npm run demo` too,
       // not only after a production build - otherwise the manifest link in
