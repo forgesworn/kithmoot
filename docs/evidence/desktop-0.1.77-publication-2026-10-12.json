@@ -1,0 +1,188 @@
+{
+  "date": "2026-10-12",
+  "version": "0.1.77",
+  "channel": "preview",
+  "production_source": "094a7afdea76943a197f47e7f23d41d3fae5c808",
+  "merged_pr": 401,
+  "hosted_ci": {
+    "run": 38188291989,
+    "tested_head": "d7c4b6435356b4b6ef1fc1ac6c70df7a775048d4",
+    "checks": 12,
+    "result": "All twelve checks passed before merge; merged tree matches tested candidate."
+  },
+  "website_deployment": {
+    "release": "20261012T010237Z",
+    "public_metadata": [
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/release.json",
+        "bytes": 1298,
+        "sha256": "e7dca45126e7ac600f74f65a86bd1a9ee146a329ccb8cf16fe012678dad4b3eb"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/release.json.sig",
+        "bytes": 89,
+        "sha256": "e0d30411af790da1ac7758907033123e7e3652ac6acc760b6d3730803e1a12a7"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/SHA256SUMS.txt",
+        "bytes": 10312,
+        "sha256": "f6c5ac1cce242c21eb69d7c1b6ea8ddc0d126a9abc43e79bbb6f2a8810c5e1bd"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/index.html",
+        "bytes": 53709,
+        "sha256": "35b750c466174095b9b5282bb6edaf723e6a01f560fe6a5dfbd765708fa3187b"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/android-release.json",
+        "bytes": 804,
+        "sha256": "34ecce03bf98ef9717e5c025cc0a2e6cc8828b9e19cad99b4f6f2f638bec147d"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/android-release.json.sig",
+        "bytes": 89,
+        "sha256": "f7d84c695b8c8801f1a462a290115aaf9f7642ec8d48a749e8d92193625f1136"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json",
+        "bytes": 1298,
+        "sha256": "e7dca45126e7ac600f74f65a86bd1a9ee146a329ccb8cf16fe012678dad4b3eb"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json.sig",
+        "bytes": 89,
+        "sha256": "e0d30411af790da1ac7758907033123e7e3652ac6acc760b6d3730803e1a12a7"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/SHA256SUMS.txt",
+        "bytes": 10312,
+        "sha256": "f6c5ac1cce242c21eb69d7c1b6ea8ddc0d126a9abc43e79bbb6f2a8810c5e1bd"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/index.html",
+        "bytes": 53709,
+        "sha256": "35b750c466174095b9b5282bb6edaf723e6a01f560fe6a5dfbd765708fa3187b"
+      },
+      {
+        "url": "https://kithmoot.app/android-release.json",
+        "bytes": 804,
+        "sha256": "34ecce03bf98ef9717e5c025cc0a2e6cc8828b9e19cad99b4f6f2f638bec147d"
+      },
+      {
+        "url": "https://kithmoot.app/android-release.json.sig",
+        "bytes": 89,
+        "sha256": "f7d84c695b8c8801f1a462a290115aaf9f7642ec8d48a749e8d92193625f1136"
+      }
+    ],
+    "feeds_and_site": [
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/updates/darwin/arm64/RELEASES.json",
+        "bytes": 746,
+        "sha256": "70802d2eda903a406b7fc11e035be6b020a9581d9d54b508c31c3ef816ddbe94"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/versions.json",
+        "bytes": 164372,
+        "sha256": "607ac9fe7a24ca2bff5ec741113e07ec3877e4c0b90df8dcabbeda3c54968125"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/",
+        "bytes": 20955,
+        "sha256": "fca9a90de8ca4d2cad508ee6c96978150158edba20db1858105f62be98816f7e"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/style.css",
+        "bytes": 12784,
+        "sha256": "2a53e3107ff811503ad130ff9d10d1f90e1253d391d760caa8d94ce9223c2fd0"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/updates/darwin/arm64/RELEASES.json",
+        "bytes": 746,
+        "sha256": "70802d2eda903a406b7fc11e035be6b020a9581d9d54b508c31c3ef816ddbe94"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/versions.json",
+        "bytes": 164372,
+        "sha256": "607ac9fe7a24ca2bff5ec741113e07ec3877e4c0b90df8dcabbeda3c54968125"
+      },
+      {
+        "url": "https://kithmoot.app/",
+        "bytes": 20955,
+        "sha256": "fca9a90de8ca4d2cad508ee6c96978150158edba20db1858105f62be98816f7e"
+      },
+      {
+        "url": "https://kithmoot.app/style.css",
+        "bytes": 12784,
+        "sha256": "2a53e3107ff811503ad130ff9d10d1f90e1253d391d760caa8d94ce9223c2fd0"
+      }
+    ],
+    "pwa_files_verified": 269,
+    "pwa_verification": "All deployed PWA files fetched over public HTTPS and compared byte-for-byte with the build output.",
+    "pwa_manifest_sha256": "5ef530fdc0d05f71a6a7fa99d7a2cc37bc4ac016c7adb404f3f2e0a04becc8f9"
+  },
+  "archives": [
+    {
+      "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/KithMoot-0.1.77-mac-arm64.zip",
+      "bytes": 176786911,
+      "sha256": "01d00ec6c7ef6df0443bfe49a73c61abeeffb6770378889e1682e872ce51c037"
+    },
+    {
+      "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/KithMoot-0.1.77-linux-arm64.tar.gz",
+      "bytes": 171132397,
+      "sha256": "f1c245432d1141f84c3f8b25f21cf90f7154301b0dfec88ec4389b0e6f143e34"
+    },
+    {
+      "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/KithMoot-0.1.77-linux-x64.tar.gz",
+      "bytes": 170014095,
+      "sha256": "fd907a591ea2b45111632bc2a497be79f0ce4039e17eaaf754b659bfd1f14741"
+    },
+    {
+      "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/KithMoot-0.1.77-windows-x64.zip",
+      "bytes": 205382870,
+      "sha256": "0d5ae587151342d4a24719686360f9d889f34998b56ca185c567e8ec25071a81"
+    },
+    {
+      "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/kithmoot_0.1.77_amd64.deb",
+      "bytes": 133511104,
+      "sha256": "06b364f6a2f8988599f29ef3969532d1da71303fc95ebe5381abf5aa1094acac"
+    },
+    {
+      "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/kithmoot_0.1.77_arm64.deb",
+      "bytes": 128540292,
+      "sha256": "41d9cc3cefb1abfc50afe49e2f3320627ab44d74f9b574a0bc94d53c8d6a099f"
+    }
+  ],
+  "github_release": {
+    "url": "https://github.com/forgesworn/kithmoot/releases/tag/v0.1.77",
+    "targetCommitish": "094a7afdea76943a197f47e7f23d41d3fae5c808",
+    "publishedAt": "2026-10-12T01:16:35Z",
+    "isDraft": false
+  },
+  "github_asset_verification": "All six public GitHub asset SHA-256 digests and sizes match the signed desktop manifest.",
+  "apt": {
+    "version": "0.1.77",
+    "existing_key_custody": "M4",
+    "signature_verification": "Both InRelease and Release.gpg verified with the existing APT signing setup.",
+    "package_hashes_match_signed_desktop_manifest": true,
+    "metadata_sha256": {
+      "Packages": "53b349502d732b1fe7e1ad1528a04b6bfa9776304a70216b128098c13e1e38f5",
+      "Packages.gz": "b15d16d3ab9e7c7b69015def4c54a093ce171ad1214429f412aff50167115eee",
+      "Release": "49ed16e4a210a2099d6ab305db70a3060ac2dd05d8cff03aa5c728bee7814cc6",
+      "InRelease": "5dc7a9615479873b0e16aadd69519a665f4312c4b32f4c4e0f780d82054c6daa",
+      "Release.gpg": "aa901d87d1681fc66d4eadb0f9ff55b2e8140acec78a0dd6168a78ec99578785",
+      "kithmoot.sources": "b3805fc9a233f9d9a85fe1b251711b2b693dcb4c3899e90c9124dc169276abdf"
+    },
+    "published": true,
+    "public_https_metadata_bytes_verified": true,
+    "public_signatures_verified_against_preexisting_key": true,
+    "prior_deb_assets_preserved": true
+  },
+  "trust": "Desktop and Android manifests verified using existing application-pinned update keys. Live APT InRelease and Release.gpg verified against the pre-existing public archive key; embedded source trust unchanged.",
+  "candidate_evidence": "desktop-0.1.77-candidate-2026-10-12.json",
+  "limits": [
+    "Windows remains an unsigned portable preview.",
+    "Physical Windows/Linux calls and shares, Wayland chooser and desktop platform acceptance remain separate gates.",
+    "No Android APK was replaced by this deployment; native publication remains 0.6.82/code 105.",
+    "This release receipt does not establish native 45-minute recording, interruption/Save-provider acceptance, delegated recording Send, or native voice effects."
+  ]
+}
