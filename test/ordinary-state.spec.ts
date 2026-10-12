@@ -195,7 +195,7 @@ test('migration phases and exact legacy manifest survive a reload inside ciphert
 const migrationSetup = `() => {
   window.owner=new Ordinary.OrdinaryStateOwner();window.live=true;window.guard=()=>live
   window.migrate=()=>Ordinary.migrateOrdinaryStorage({owner,storage:localStorage,selected:name=>name.startsWith('secret.'),
-    validate:(name,value)=>{if(!/^[0-9a-f]{64}$/.test(value))throw new Ordinary.OrdinaryStateHold()},
+    validate:records=>{for(const value of records.values())if(!/^[0-9a-f]{64}$/.test(value))throw new Ordinary.OrdinaryStateHold()},
     checkClients:async()=>{},live:guard})
 }`
 // These tests exercise actual Storage/IDB cuts. checkClients is deliberately a

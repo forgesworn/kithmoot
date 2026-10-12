@@ -32,7 +32,9 @@ export async function migrateOrdinaryStorage(options: {
   owner: OrdinaryStateOwner
   storage: Storage
   selected(name: string): boolean
-  validate(name: string, value: string): void
+  /** Validate the complete coherent image. Completed custody can contain the
+   * newer account-scoped forms; unfinished custody retains its legacy forms. */
+  validate(records: ReadonlyMap<string, string>, migrated: boolean): void
   checkClients(): Promise<void>
   live(): boolean
 }): Promise<void> {
@@ -42,8 +44,15 @@ export async function migrateOrdinaryStorage(options: {
     const check = () => { if (!live()) hold() }
     check(); await checkClients(); check()
     const initial = snapshot(storage, selected)
-    for (const [name, value] of initial) validate(name, value)
-    await owner.prepare(live, initial, { phase: 'sealed', sources: initial, names: [...initial.keys()] })
+    await owner.prepare(live, initial, { phase: 'sealed', sources: initial, names: [...initial.keys()] }, (store, migrated) => {
+      const complete = new Map(store.keys().map(name => [name, store.get(name)!]))
+      try {
+        const result: unknown = validate(complete, migrated)
+        if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+          void Promise.resolve(result).catch(() => {}); hold()
+        }
+      } finally { complete.clear() }
+    })
     check()
     const scope = await owner.capture('@migration', live)
     const loaded = await owner.migration(scope, live)

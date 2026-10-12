@@ -1,5 +1,5 @@
 import type { DeviceStore } from './device-store.js'
-import { OrdinaryStateHold, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
+import { OrdinaryStateHold, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
 
@@ -215,14 +215,35 @@ export class OrdinaryStateOwner {
   }
   /** Initialisation is allowed only after the caller has verified the complete
    * legacy snapshot and old-client handshake. Key and image have one commit. */
-  prepare(live: () => boolean, initial: ReadonlyMap<string, string>, migration?: OrdinaryMigration): Promise<void> {
+  prepare(live: () => boolean, initial: ReadonlyMap<string, string>, migration?: OrdinaryMigration,
+    validate?: (store: DeviceStore, migrated: boolean) => void): Promise<void> {
     // Capture all caller input before a lock/crypto await.
     const records = new Map(initial)
     const manifest = migration ? { ...migration, sources: new Map(migration.sources), names: [...migration.names] } : undefined
     return this.#track(this.#locked(live, async () => {
       const previous = await this.#snapshot(live)
+      if (!previous.image) {
+        if (this.#generation !== undefined) hold() // Deleted custody is not a fresh installation.
+        // Fixed-width placeholders check canonical encoding and capacity before
+        // expensive validators, key creation or entropy. Never retain this image.
+        const checked = encodeOrdinaryImage({ purpose: this.purpose, keyId: '0'.repeat(64), generation: '0'.repeat(64), revision: 0,
+          expiresAt: this.expiresAt, records, migration: manifest, fences: new Map() })
+        checked.fill(0)
+      }
+      // The sealed full image, rather than the partially cleaned plaintext,
+      // is the validation source on restart. New custody is validated before
+      // any key/nonce creation. Helpers cannot edit or retain the private view.
+      if (validate) {
+        const privateView = view(new Map(previous.image?.records ?? records), false)
+        try {
+          const result: unknown = validate(privateView.store, previous.image?.migration?.phase === 'complete')
+          if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+            void Promise.resolve(result).catch(() => {}); hold()
+          }
+          this.#check(live)
+        } finally { privateView.close() }
+      }
       if (previous.image) { this.#generation = previous.image.generation; return }
-      if (this.#generation !== undefined) hold() // Deleted custody is not a fresh installation.
       if (this.purpose !== 'browser') {
         const names = await this.#ownerNames(live)
         if (names.filter(name => name !== 'browser').length >= MAX_ORDINARY_TAB_OWNERS) hold()

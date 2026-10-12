@@ -36,7 +36,7 @@ const setup = `async(fault)=>{
   // This exercises the native cross-store mechanism with fixture validation;
   // the complete production inventory/client fence is a separate open gate.
   await Ordinary.migrateOrdinaryStorage({owner,storage:localStorage,selected:name=>sources.has(name),
-    validate:(name,value)=>{if(sources.get(name)!==value)throw Error('fixture changed')},checkClients:async()=>{},live:()=>foreground})
+    validate:records=>{if(records.size!==sources.size||[...records].some(([name,value])=>sources.get(name)!==value))throw Error('fixture changed')},checkClients:async()=>{},live:()=>foreground})
   window.scope=await owner.capture('room:'+roomId,()=>foreground)
   window.raw=()=>new Promise((resolve,reject)=>{
     const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,1);r.onerror=()=>reject(r.error)
