@@ -43,9 +43,10 @@ export interface PendingSend {
   artwork?: ChatArtwork[]
   event: Event
   state: PendingState
-  /** Publishes the event. Absent on a row put back after a reload until
-   *  the room is open again to give it one. */
-  publish?: () => Promise<void>
+  /** A private publisher is attached; a restored row waits for its room. */
+  ready?: boolean
+  /** Storage failure holds automatic sending until an explicit retry. */
+  held?: boolean
   /** Whether this row is kept across a reload. */
   durable: boolean
   /** A plain new message, which Edit can put back in the message box as it
@@ -60,8 +61,14 @@ export interface PendingSend {
   acknowledged?: boolean
 }
 
+export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held'> & { publish?: (event: Event) => Promise<void> }
+type PrivatePendingSend = Omit<PendingSend, 'ready' | 'held'> & { publish?: (event: Event) => Promise<void> }
+
 export interface PendingSendsOptions {
-  store: DeviceStore
+  store?: DeviceStore
+  /** Named async custody; rejection never falls back to the legacy store. */
+  storage?: PendingStorage
+  onStorageHold?: (error: unknown) => void
   /** Whether a relay can be reached now. A message is not offered to the
    *  relays while this is false, so it stays cleanly unsent. */
   connected: () => boolean
@@ -74,13 +81,20 @@ export interface PendingSendsOptions {
   schedule?: (run: () => void, ms: number) => void
 }
 
+export interface PendingStorage {
+  load(roomId: string): Promise<{ durable: string | null; transient: string | null }>
+  /** Retain both classes before acknowledgement. Transient sends belong to
+   * encrypted tab custody; they must not become a successful empty write. */
+  retain(roomId: string, durable: string | null, transient: string | null): Promise<void>
+}
+
 /** Seconds before each automatic retry, the last repeating. */
 export const RETRY_SECONDS = [5, 15, 30, 60]
 /** How often a message waiting for a connection looks for one. */
 export const CONNECT_POLL_MS = 1_000
 const PREFIX = 'kithmoot.pending.'
 /** A reload keeps this many unsent messages a room, newest last. */
-const MAX_KEPT = 50
+export const MAX_KEPT = 50
 
 const REFUSED = /every relay rejected the event/
 const UNANSWERED = /no relay could be reached in time/
@@ -97,7 +111,7 @@ export function stateAfter(error: unknown): PendingState {
   return 'unknown'
 }
 
-interface Kept { id: string; channel: string; text: string; files: string[]; artwork?: ChatArtwork[]; event: Event; state: PendingState; editable?: boolean }
+export interface KeptPendingSend { id: string; channel: string; text: string; files: string[]; artwork?: ChatArtwork[]; event: Event; state: PendingState; editable?: boolean }
 
 /** States in which nothing of the message has reached any relay, so taking
  *  it back leaves no trace. */
@@ -106,197 +120,233 @@ export function neverLeft(item: PendingSend): boolean {
 }
 
 export class PendingSends {
-  readonly #items = new Map<string, PendingSend>()
-  readonly #opts: Required<Omit<PendingSendsOptions, 'schedule' | 'active'>> & Pick<PendingSendsOptions, 'schedule' | 'active'>
+  readonly #items = new Map<string, PrivatePendingSend>()
+  readonly #opts: PendingSendsOptions & { now: () => number; onChange: () => void }
+  readonly #storage: PendingStorage
+  readonly #versions = new Map<string, number>()
+  readonly #attempting = new Map<string, Promise<void>>()
+  readonly #blocked = new Set<string>()
+  #writes: Promise<void> = Promise.resolve()
+  readonly #timers = new Set<ReturnType<typeof setTimeout>>()
+  #closed = false
 
   constructor(opts: PendingSendsOptions) {
+    if (!!opts.store === !!opts.storage) throw new Error('choose exactly one pending-message storage owner')
     this.#opts = { now: () => Date.now(), onChange: () => {}, ...opts }
+    this.#storage = opts.storage ?? {
+      load: async room => ({ durable: opts.store!.get(PREFIX + room), transient: null }),
+      retain: async (room, encoded) => { if (encoded === null) opts.store!.remove(PREFIX + room); else opts.store!.set(PREFIX + room, encoded) },
+    }
   }
-
-  #here(item: PendingSend): boolean {
-    return !this.#opts.active || this.#opts.active() === item.roomId
+  #version(room: string): number { return this.#versions.get(room) ?? 0 }
+  #check(room: string, version: number): void {
+    if (this.#closed || this.#version(room) !== version) throw new Error(CONVERSATION_MOVED)
   }
-
-  /** Every unsent message for a room, oldest first. */
-  items(roomId?: string): PendingSend[] {
-    return [...this.#items.values()].filter(item => roomId === undefined || item.roomId === roomId)
+  #here(item: PrivatePendingSend): boolean { return !this.#closed && (!this.#opts.active || this.#opts.active() === item.roomId) }
+  #serial<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.#writes.then(work)
+    this.#writes = result.then(() => {}, () => {})
+    return result
   }
-
+  /** Only acknowledged snapshots enter the active map. Keep stable item
+   * references for the outbox; no timer can publish a provisional candidate. */
+  #change(room: string, work: (items: Map<string, PrivatePendingSend>) => boolean, version = this.#version(room)): Promise<void> {
+    return this.#serial(async () => {
+      this.#check(room, version)
+      const candidate = new Map(this.#privateItems(room).map(item => [item.id, { ...item }]))
+      if (!work(candidate)) return
+      const encode = (durable: boolean): string | null => {
+        const kept: KeptPendingSend[] = [...candidate.values()].filter(item => !item.acknowledged && item.durable === durable)
+        .map(({ id, channel, text, files, artwork, event, state, editable }) => ({ id, channel, text, files,
+          ...(artwork?.length ? { artwork } : {}), event, state: state === 'sending' ? 'unknown' : state === 'holding' ? 'waiting' : state,
+          ...(editable ? { editable: true } : {}) }))
+        return kept.length ? JSON.stringify(kept) : null
+      }
+      if ([...candidate.values()].filter(item => !item.acknowledged).length > MAX_KEPT) throw new Error('pending-message storage is full')
+      await this.#storage.retain(room, encode(true), encode(false))
+      this.#check(room, version)
+      for (const old of this.#privateItems(room)) if (!candidate.has(old.id)) this.#items.delete(old.id)
+      for (const [id, item] of candidate) {
+        const old = this.#items.get(id)
+        if (old) Object.assign(old, item)
+        else this.#items.set(id, item)
+      }
+      this.#notify()
+    })
+  }
+  #notify(): void { try { this.#opts.onChange() } catch { /* Rendering is not a custody receipt. */ } }
+  #privateItems(roomId?: string): PrivatePendingSend[] { return [...this.#items.values()].filter(item => roomId === undefined || item.roomId === roomId) }
+  #snapshot(item: PrivatePendingSend): PendingSend {
+    const { publish, ...value } = item
+    const snapshot = structuredClone({ ...value, ready: !!publish, held: this.#blocked.has(item.id) })
+    for (const tag of snapshot.event.tags) Object.freeze(tag)
+    Object.freeze(snapshot.event.tags); Object.freeze(snapshot.event); Object.freeze(snapshot.files)
+    for (const art of snapshot.artwork ?? []) Object.freeze(art)
+    if (snapshot.artwork) Object.freeze(snapshot.artwork)
+    return Object.freeze(snapshot)
+  }
+  #hold(error: unknown): void { try { this.#opts.onStorageHold?.(error) } catch { /* The hold cannot be waived by an observer. */ } }
+  items(roomId?: string): PendingSend[] { return this.#privateItems(roomId).map(item => this.#snapshot(item)) }
   get pending(): boolean { return this.#items.size > 0 }
-
-  /** Queue a prepared message and send it as soon as a relay can be reached,
-   *  or, given `holdMs`, once that moment to take it back has passed. */
-  add(item: Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil'>, holdMs = 0): void {
-    const added: PendingSend = { ...item, state: holdMs > 0 ? 'holding' : 'waiting', attempts: 0 }
-    if (holdMs > 0) added.holdUntil = this.#opts.now() + holdMs
-    this.#items.set(item.id, added)
-    this.#persist(item.roomId)
-    this.#opts.onChange()
-    if (holdMs > 0) this.#schedule(() => this.#release(added), holdMs)
-    else void this.#attempt(added)
-  }
-
-  /** Whether any message is in its moment to be taken back. */
   get holding(): boolean { return [...this.#items.values()].some(item => item.state === 'holding') }
 
-  /** The hold is over: it goes like any other message. */
-  #release(item: PendingSend): void {
-    if (this.#items.get(item.id) !== item || item.state !== 'holding') return
-    item.state = 'waiting'
-    item.holdUntil = undefined
-    this.#persist(item.roomId)
-    this.#opts.onChange()
-    void this.#attempt(item)
+  /** Return only after custody acknowledges the exact prepared event. */
+  async add(input: PendingSendInput, holdMs = 0): Promise<void> {
+    const item: PrivatePendingSend = { ...input, files: [...input.files], event: structuredClone(input.event),
+      ...(input.artwork ? { artwork: structuredClone(input.artwork) } : {}), state: holdMs > 0 ? 'holding' : 'waiting', attempts: 0 }
+    if (holdMs > 0) item.holdUntil = this.#opts.now() + holdMs
+    await this.#change(item.roomId, items => { if (this.#items.has(item.id)) throw new Error('pending message already exists'); items.set(item.id, item); return true })
+    const installed = this.#items.get(item.id)!
+    try {
+      if (holdMs > 0) this.#schedule(() => { void this.#release(installed).catch(error => this.#hold(error)) }, Math.max(0, installed.holdUntil! - this.#opts.now()))
+      else void this.#attempt(installed)
+    } catch (error) { this.#hold(error) }
   }
-
-  /** Messages now in the chat: their rows have done their job. */
-  arrived(ids: Iterable<string>): void {
-    let changed = false
-    for (const id of ids) {
-      const item = this.#items.get(id)
-      if (!item) continue
-      this.#items.delete(id)
-      this.#persist(item.roomId)
-      changed = true
-    }
-    if (changed) this.#opts.onChange()
+  async #release(item: PrivatePendingSend): Promise<void> {
+    if (this.#items.get(item.id) !== item) return
+    await this.#change(item.roomId, items => {
+      const saved = items.get(item.id); if (!saved || saved.state !== 'holding') return false
+      saved.state = 'waiting'; saved.holdUntil = undefined; return true
+    })
+    if (this.#items.get(item.id) === item) void this.#attempt(item)
   }
-
-  /** Offer every message that is due, now that a relay may be reachable. */
+  async arrived(ids: Iterable<string>): Promise<void> {
+    const selected = new Set(ids), rooms = new Set(this.items().filter(item => selected.has(item.id)).map(item => item.roomId))
+    // Separate custody owners cannot atomically change both partitions.
+    // Independent arrivals can acknowledge one class before the other holds.
+    for (const room of rooms) for (const durable of [true, false]) await this.#change(room, items => {
+      let changed = false
+      for (const [id, item] of items) if (selected.has(id) && item.durable === durable) changed = items.delete(id) || changed
+      return changed
+    })
+  }
   wake(): void {
     const now = this.#opts.now()
-    for (const item of this.#items.values()) {
-      if (item.publish && this.#here(item) && (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && (item.retryAt ?? 0) <= now) void this.#attempt(item)
-    }
+    for (const item of this.#items.values()) if (!this.#blocked.has(item.id) && item.publish && this.#here(item) &&
+      (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && (item.retryAt ?? 0) <= now) void this.#attempt(item)
   }
-
-  /** Send one again now, whatever its back-off or hold says. */
-  retry(id: string): void {
+  async retry(id: string): Promise<void> {
     const item = this.#items.get(id)
-    if (item?.state === 'holding') { item.holdUntil = this.#opts.now(); this.#release(item); return }
     if (!item || item.state === 'sending' || item.state === 'moved' || !item.publish) return
+    this.#blocked.delete(id)
+    if (item.state === 'holding') { await this.#release(item); return }
     item.retryAt = undefined
-    void this.#attempt(item, true)
+    await this.#attempt(item, true)
   }
-
-  /** Stop showing a message. Whether it already reached a relay depends on
-   *  its state; the caller says so before asking. */
-  dismiss(id: string): PendingSend | undefined {
-    const item = this.#items.get(id)
-    if (!item || item.state === 'sending') return undefined
-    this.#items.delete(id)
-    this.#persist(item.roomId)
-    this.#opts.onChange()
-    return item
+  async dismiss(id: string): Promise<PendingSend | undefined> {
+    const old = this.#items.get(id); if (!old) return undefined
+    let removed = false
+    await this.#change(old.roomId, items => {
+      const item = items.get(id); if (!item || item.state === 'sending' || this.#attempting.has(id)) return false
+      removed = items.delete(id); return removed
+    })
+    if (removed) { this.#blocked.delete(id); return this.#snapshot(old) }
+    return undefined
   }
-
-  /** Take back a message nothing of which has left this device, to be
-   *  written again. Undefined when it may already be on a relay. */
-  take(id: string): PendingSend | undefined {
-    const item = this.#items.get(id)
-    if (!item || !neverLeft(item)) return undefined
+  async take(id: string): Promise<PendingSend | undefined> {
+    const item = this.#items.get(id); if (!item || !neverLeft(item)) return undefined
     return this.dismiss(id)
   }
-
-  /** Let go of a room's kept messages held in memory, so the room's next
-   *  opening restores them with a way to publish through its new session.
-   *  One on its way out stays to learn how that ended. */
+  /** Revoke old callbacks immediately; queued native work may finish custody
+   * but cannot reinstall an old item or start its publisher. */
   release(roomId: string): void {
-    for (const item of this.items(roomId)) if (item.durable && item.state !== 'sending' && !item.acknowledged) this.#items.delete(item.id)
-  }
-
-  /** The messages a reload left for a room, to be given a way to publish
-   *  by `resume`. They are listed straight away, still waiting. */
-  restore(roomId: string): PendingSend[] {
-    let kept: Kept[] = []
-    try { kept = JSON.parse(this.#opts.store.get(PREFIX + roomId) ?? '[]') as Kept[] } catch { /* An unreadable list is an empty one. */ }
-    const restored: PendingSend[] = []
-    // A message a reload caught on its way out may have arrived: `unknown`.
-    for (const k of Array.isArray(kept) ? kept : []) {
-      if (!k || typeof k.id !== 'string' || !k.event || this.#items.has(k.id)) continue
-      const state: PendingState = k.state === 'moved' ? 'moved' : k.state === 'refused' ? 'refused' : k.state === 'unknown' ? 'unknown' : 'waiting'
-      const item: PendingSend = { id: k.id, roomId, channel: k.channel, text: k.text, files: Array.isArray(k.files) ? k.files : [], event: k.event, state, durable: true, attempts: 0, ...(k.editable === true ? { editable: true } : {}) }
-      const artwork = (Array.isArray(k.artwork) ? k.artwork : []).slice(0, MAX_CHAT_ARTWORK).flatMap(raw => normaliseArtwork(raw) ?? [])
-      if (artwork.length) item.artwork = artwork
-      this.#items.set(k.id, item)
-      restored.push(item)
+    if (!this.#versions.has(roomId) && this.#versions.size >= 4096) throw new Error('pending-message room fencing is full')
+    this.#versions.set(roomId, this.#version(roomId) + 1)
+    for (const item of this.#privateItems(roomId)) {
+      this.#items.delete(item.id); this.#blocked.delete(item.id); this.#attempting.delete(item.id)
     }
-    if (restored.length) this.#opts.onChange()
-    return restored
   }
-
-  /** Give a restored message its way to publish, and offer it. */
-  resume(id: string, publish: () => Promise<void>): void {
-    const item = this.#items.get(id)
-    if (!item || item.publish) return
-    item.publish = publish
-    void this.#attempt(item)
+  async restore(roomId: string): Promise<PendingSend[]> {
+    const version = this.#version(roomId)
+    return this.#serial(async () => {
+      this.#check(roomId, version)
+      if (this.#privateItems(roomId).length) throw new Error('release the room before restoring pending messages')
+      const encoded = await this.#storage.load(roomId)
+      this.#check(roomId, version)
+      const durable: unknown = JSON.parse(encoded.durable ?? '[]'), transient: unknown = JSON.parse(encoded.transient ?? '[]')
+      if (!Array.isArray(durable) || !Array.isArray(transient)) throw new Error('pending-message storage is unreadable')
+      const kept = [...durable.map(value => ({ value, durable: true })), ...transient.map(value => ({ value, durable: false }))]
+      if (kept.length > MAX_KEPT || new Set(kept.map(k => k.value?.id)).size !== kept.length) throw new Error('pending-message storage is unreadable')
+      const restored: PrivatePendingSend[] = []
+      for (const entry of kept) {
+        const k = entry.value
+        if (!k || typeof k.id !== 'string' || !k.id || typeof k.channel !== 'string' || typeof k.text !== 'string' ||
+          !Array.isArray(k.files) || k.files.some((file: unknown) => typeof file !== 'string') || !k.event || typeof k.event.id !== 'string' || !k.event.id ||
+          typeof k.event.content !== 'string' || typeof k.event.pubkey !== 'string' || typeof k.event.sig !== 'string' ||
+          !Number.isSafeInteger(k.event.kind) || k.event.kind < 0 || !Number.isSafeInteger(k.event.created_at) || k.event.created_at < 0 ||
+          !Array.isArray(k.event.tags) || k.event.tags.some((tag: unknown) => !Array.isArray(tag) || tag.some(value => typeof value !== 'string')) ||
+          !['waiting','refused','unknown','moved','sending','holding'].includes(k.state)) throw new Error('pending-message storage is unreadable')
+        const existing = this.#items.get(k.id)
+        if (existing && existing.roomId !== roomId) throw new Error('pending-message storage conflicts with another room')
+        const state: PendingState = k.state === 'moved' ? 'moved' : k.state === 'refused' ? 'refused' : k.state === 'unknown' || k.state === 'sending' ? 'unknown' : 'waiting'
+        const artwork = k.artwork === undefined ? [] : Array.isArray(k.artwork) && k.artwork.length <= MAX_CHAT_ARTWORK ? k.artwork.map(normaliseArtwork) : undefined
+        if (!artwork || artwork.some((art: unknown) => !art)) throw new Error('pending-message storage is unreadable')
+        if (existing) continue
+        restored.push({ id: k.id, roomId, channel: k.channel, text: k.text, files: [...k.files], event: structuredClone(k.event), state, durable: entry.durable, attempts: 0,
+          ...(k.editable === true ? { editable: true } : {}), ...(artwork.length ? { artwork } : {}) })
+      }
+      for (const item of restored) this.#items.set(item.id, item)
+      if (restored.length) this.#notify()
+      return restored.map(item => this.#snapshot(item))
+    })
   }
-
-  /** A restored message that can no longer go as it stands. */
-  strand(id: string): void {
-    const item = this.#items.get(id)
-    if (!item) return
-    item.state = 'moved'
-    this.#persist(item.roomId)
-    this.#opts.onChange()
+  resume(id: string, publish: (event: Event) => Promise<void>): void {
+    const item = this.#items.get(id); if (!item || item.publish || this.#closed) return
+    item.publish = publish; this.#notify(); void this.#attempt(item)
   }
-
-  async #attempt(item: PendingSend, asked = false): Promise<void> {
-    if (!item.publish || item.state === 'holding' || item.state === 'sending' || item.state === 'moved' || this.#items.get(item.id) !== item || !this.#here(item)) return
-    // Not offered while nothing can be reached: it stays cleanly unsent,
-    // and is tried when a relay is back. An explicit retry tries anyway.
+  async strand(id: string): Promise<void> {
+    const item = this.#items.get(id); if (!item) return
+    await this.#change(item.roomId, items => { const saved = items.get(id); if (!saved) return false; saved.state = 'moved'; return true })
+  }
+  #attempt(item: PrivatePendingSend, asked = false): Promise<void> {
+    try {
+    const existing = this.#attempting.get(item.id); if (existing) return existing
+    if (!item.publish || item.state === 'holding' || item.state === 'sending' || item.state === 'moved' ||
+      this.#items.get(item.id) !== item || !this.#here(item) || this.#blocked.has(item.id)) return Promise.resolve()
     if (!asked && !this.#opts.connected()) {
-      // Checking is cheap and in memory, so look again soon: a message
-      // written just after joining should not wait out a back-off.
-      item.retryAt = this.#opts.now() + CONNECT_POLL_MS
-      this.#schedule(() => this.wake(), CONNECT_POLL_MS)
-      return
+      item.retryAt = this.#opts.now() + CONNECT_POLL_MS; this.#schedule(() => this.wake(), CONNECT_POLL_MS); return Promise.resolve()
     }
-    item.state = 'sending'
-    item.attempts++
-    // A reload from here on cannot say it never left.
-    this.#persist(item.roomId)
-    this.#opts.onChange()
-    try {
-      await item.publish()
-      if (this.#items.get(item.id) !== item) return
-      item.acknowledged = true
-      // It is on a relay now: a reload has nothing left to send.
-      item.durable = false
-      this.#persist(item.roomId)
-      this.#opts.onChange()
-      // Keep the visible accepted row until the conversation has rendered
-      // its message. A timer must never leave neither row nor message.
-    } catch (error) {
-      if (this.#items.get(item.id) !== item) return
-      console.error('send failed:', message(error))
-      item.state = stateAfter(error)
-      this.#persist(item.roomId)
-      this.#opts.onChange()
-      if (item.state !== 'moved') this.#later(item)
-    }
+    const version = this.#version(item.roomId)
+    const work = this.#send(item, version).catch(error => {
+      if (this.#closed || this.#version(item.roomId) !== version || this.#items.get(item.id) !== item) return
+      if (item.state === 'sending') item.state = 'unknown'
+      this.#blocked.add(item.id); this.#notify(); this.#hold(error)
+    })
+    this.#attempting.set(item.id, work)
+    void work.finally(() => { if (this.#attempting.get(item.id) === work) this.#attempting.delete(item.id) }).catch(() => {})
+    return work
+    } catch (error) { this.#hold(error); return Promise.resolve() }
   }
-
-  /** Try again after the back-off, or sooner if `wake` finds a relay. */
-  #later(item: PendingSend): void {
+  async #send(item: PrivatePendingSend, version: number): Promise<void> {
+    await this.#change(item.roomId, items => { const saved = items.get(item.id); if (!saved || saved.state === 'moved') return false; saved.state = 'sending'; saved.attempts++; return true }, version)
+    this.#check(item.roomId, version)
+    if (this.#items.get(item.id) !== item || !this.#here(item)) return
+    let error: unknown, failed = false
+    try { await item.publish!(structuredClone(item.event)) } catch (caught) { failed = true; error = caught }
+    this.#check(item.roomId, version)
+    await this.#change(item.roomId, items => {
+      const saved = items.get(item.id); if (!saved) return false
+      if (failed) saved.state = stateAfter(error)
+      else { saved.acknowledged = true; saved.durable = false }
+      return true
+    }, version)
+    if (failed && this.#items.get(item.id) === item && item.state !== 'moved') this.#later(item)
+  }
+  #later(item: PrivatePendingSend): void {
     const seconds = RETRY_SECONDS[Math.min(item.attempts, RETRY_SECONDS.length - 1)]!
-    item.retryAt = this.#opts.now() + seconds * 1000
-    this.#schedule(() => this.wake(), seconds * 1000)
+    item.retryAt = this.#opts.now() + seconds * 1000; this.#schedule(() => this.wake(), seconds * 1000)
   }
-
   #schedule(run: () => void, ms: number): void {
-    if (this.#opts.schedule) this.#opts.schedule(run, ms)
-    else setTimeout(run, ms)
+    const guarded = () => { if (!this.#closed) run() }
+    if (this.#opts.schedule) this.#opts.schedule(guarded, ms)
+    else { const timer = setTimeout(() => { this.#timers.delete(timer); guarded() }, ms); this.#timers.add(timer) }
   }
-
-  #persist(roomId: string): void {
-    const kept: Kept[] = this.items(roomId).filter(item => item.durable)
-      .map(({ id, channel, text, files, artwork, event, state, editable }) => ({ id, channel, text, files, ...(artwork?.length ? { artwork } : {}), event, state: state === 'sending' ? 'unknown' : state === 'holding' ? 'waiting' : state, ...(editable ? { editable } : {}) }))
-      .slice(-MAX_KEPT)
-    try {
-      if (kept.length) this.#opts.store.set(PREFIX + roomId, JSON.stringify(kept))
-      else this.#opts.store.remove(PREFIX + roomId)
-    } catch { /* Storage may be unavailable; the message is still held for this visit. */ }
+  /** Native writes join; a remote publish that has not settled cannot delay
+   * immediate revocation or make a closed queue release another effect. */
+  async close(): Promise<void> {
+    this.#closed = true
+    for (const timer of this.#timers) clearTimeout(timer)
+    this.#timers.clear(); this.#items.clear(); this.#blocked.clear(); this.#attempting.clear()
+    await this.#writes
   }
 }

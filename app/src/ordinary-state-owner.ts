@@ -246,11 +246,19 @@ export class OrdinaryStateOwner {
     }))
   }
   read<T>(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore) => T): Promise<T> {
+    return this.#reading(scope, live, work)
+  }
+  /** Production adapters cannot expose records from an incomplete migration. */
+  readMigrated<T>(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore) => T): Promise<T> {
+    return this.#reading(scope, live, work, true)
+  }
+  #reading<T>(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore) => T, requireCompleteMigration = false): Promise<T> {
     const captured = { ...scope }
     return this.#track(this.#locked(live, async () => {
       const current = await this.#snapshot(live)
       if (!current.image || this.#generation === undefined) hold()
       this.#scope(current.image, captured)
+      if (requireCompleteMigration && current.image.migration?.phase !== 'complete') hold()
       const privateView = view(new Map(current.image.records), false)
       try {
         const value = work(privateView.store)
