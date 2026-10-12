@@ -5,6 +5,7 @@ import { sanitiseDisplayName } from '../src/display-name.js'
 import { renameRoomOp } from '../src/room-name.js'
 import { LastKnownNames } from '../app/src/profile-name.js'
 import { addTombstone, dismissTombstone } from '../app/src/self-destruct.js'
+import { scrubStore } from '../app/src/storage-scrub.js'
 import { capturedMainWriter } from './ordinary-main-writer-fixture.js'
 import { capturedStorageExpression, capturedRecentWriter, primaryModuleProvenance, type WriterProvenance } from './ordinary-ui-writer-fixture.js'
 import { UI_ROOM, type UiMode } from './ordinary-ui-fixture-cases.js'
@@ -80,10 +81,14 @@ export function uiFixture(mode: UiMode = 'browser-all') {
     if (mode==='tombstone-extension') records.set('kithmoot.destructed.v1',JSON.stringify([{id:'b'.repeat(16),at:-1.5,old:{opaque:true}}]))
     if (mode==='tombstone-extension') dismissTombstone(deviceStore,'c'.repeat(16))
     else {
-      addTombstone(deviceStore,mode==='tombstone-expired'?0:1700000000,'b'.repeat(16))
+      addTombstone(deviceStore,mode==='tombstone-expired'?0:1700000000,mode==='tombstone-scrub-empty'?UI_ROOM:'b'.repeat(16))
       if (mode==='tombstone-duplicate') addTombstone(deviceStore,1700000000,'b'.repeat(16))
       if (mode==='tombstone-cap') for(let i=0;i<51;i++) addTombstone(deviceStore,1700000000+i,i.toString(16).padStart(16,'0'))
     }
+  }
+  if(mode.endsWith('-scrub-empty')) {
+    provenance.push(primaryModuleProvenance('app/src/storage-scrub.ts','Actual generic sweep API with synthetic targets; recents target is an emoji, not the main room-only caller; no app forget/deletion acceptance'))
+    scrubStore(deviceStore,[mode==='recents-scrub-empty'?'👍':UI_ROOM])
   }
   // Synthetic compatibility reader format; no historical writer was found.
   if (mode==='legacy-desktop-bell') records.set('kithmoot.desktop-bell','false')

@@ -23,6 +23,9 @@ it.each(UI_MODES)('retains %s writer-cut bytes without clock, catalogue or ident
     if (mode==='recents-cap') expect(result.recents).toBe(36)
     if (mode==='tombstone-duplicate') expect(result.tombstones).toBe(2)
     if (mode==='tombstone-cap') expect(result.tombstones).toBe(50)
+    if (mode==='profile-scrub-empty') expect([result.profileCaches,result.profileNames]).toEqual([1,0])
+    if (mode==='tombstone-scrub-empty') expect([result.tombstoneLists,result.tombstones]).toEqual([1,0])
+    if (mode==='recents-scrub-empty') expect([result.recentLists,result.recents]).toEqual([1,0])
     if (mode!=='legacy-desktop-bell') expect(f.provenance.length).toBeGreaterThan(0)
     for(const p of f.provenance) { expect(p.fileSha256).toMatch(/^[0-9a-f]{64}$/); expect(p.snippetSha256).toMatch(/^[0-9a-f]{64}$/) }
   } finally { clock.mockRestore(); fetcher.mockRestore() }

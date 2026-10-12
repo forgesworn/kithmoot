@@ -2,12 +2,13 @@ export const UI_ROOM = 'a'.repeat(64)
 export const UI_MODES = ['browser-all', 'booleans-off', 'profile-opaque', 'profile-cap', 'fold-open', 'fold-all',
   'delay-zero', 'delay-ten', 'tone-zero', 'tone-five', 'recents-duplicate', 'recents-cap',
   'tombstone-duplicate', 'tombstone-extension', 'tombstone-expired', 'tombstone-cap', 'legacy-desktop-bell',
-  'tab-all', 'tab-no-account', 'tab-stale-switch', 'tab-empty-hash', 'tab-empty-notice'] as const
+  'tab-all', 'tab-no-account', 'tab-stale-switch', 'tab-empty-hash', 'tab-empty-notice',
+  'profile-scrub-empty','tombstone-scrub-empty','recents-scrub-empty'] as const
 export type UiMode = typeof UI_MODES[number]
 export const UI_FAULTS = ['wrapped', 'family-root', 'version', 'boolean', 'name', 'account', 'method',
-  'profile-type', 'profile-cap', 'profile-empty', 'room-id', 'room-name', 'room-at', 'room-extra',
+  'profile-type', 'profile-cap', 'profile-array', 'room-id', 'room-name', 'room-at', 'room-extra',
   'fold', 'fold-value', 'delay', 'nudge-room', 'nudge-off', 'heads-up', 'tombstone-id', 'tombstone-at',
-  'tombstone-empty', 'tombstone-cap', 'tone', 'recents-type', 'recents-empty', 'recents-cap', 'noncanonical-json'] as const
+  'tombstone-object', 'tombstone-cap', 'tone', 'recents-type', 'recents-object', 'recents-cap', 'noncanonical-json'] as const
 export type UiFault = typeof UI_FAULTS[number]
 export const UI_TAB_FAULTS = ['way-back-link', 'way-back-extra', 'switch-hash', 'switch-account', 'switch-at',
   'switch-extra', 'tab-version', 'tab-wrapped'] as const
@@ -26,7 +27,7 @@ export function damageUiFixture(records: Map<string, string>, fault: UiFault | U
     case 'method': records.set('kithmoot.last-nostr-method', ''); break
     case 'profile-type': change(profile, v => { v.bad = 3 }); break
     case 'profile-cap': records.set(profile, JSON.stringify(Object.fromEntries(Array.from({length:501}, (_,i) => [String(i), 'Name'])))); break
-    case 'profile-empty': records.set(profile, '{}'); break
+    case 'profile-array': records.set(profile, '[]'); break
     case 'room-id': records.set('kithmoot.room-name.v1.bad', records.get(room)!); records.delete(room); break
     case 'room-name': change(room, v => { v.name = '\u0000' }); break
     case 'room-at': change(room, v => { v.at = 0 }); break
@@ -39,11 +40,11 @@ export function damageUiFixture(records: Map<string, string>, fault: UiFault | U
     case 'heads-up': records.set('kithmoot.destruct-heads-up.' + UI_ROOM, '1e3'); break
     case 'tombstone-id': change(tomb, v => { v[0].id = 'bad' }); break
     case 'tombstone-at': change(tomb, v => { v[0].at = '1' }); break
-    case 'tombstone-empty': records.set(tomb, '[]'); break
+    case 'tombstone-object': records.set(tomb, '{}'); break
     case 'tombstone-cap': change(tomb, v => { while(v.length < 51) v.push(v[0]) }); break
     case 'tone': records.set('kithmoot:emoji:skinTone', '6'); break
     case 'recents-type': records.set(recents, '[1]'); break
-    case 'recents-empty': records.set(recents, '[]'); break
+    case 'recents-object': records.set(recents, '{}'); break
     case 'recents-cap': records.set(recents, JSON.stringify(Array(37).fill('😀'))); break
     case 'noncanonical-json': records.set(profile, ' ' + records.get(profile)); break
     case 'way-back-link': change('kithmoot.way-back', v => { v.link = '' }); break

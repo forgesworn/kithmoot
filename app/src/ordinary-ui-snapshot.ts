@@ -55,7 +55,7 @@ export function validateOrdinaryUiSnapshot(records: ReadonlyMap<string, string>,
         const values = Object.values(v)
         // Main loads any string-valued entries and LastKnownNames preserves
         // them on a later remember/save. No profile signature is stored here.
-        if (!values.length || values.length > 500 || values.some(n => typeof n !== 'string')) hold()
+        if (values.length > 500 || values.some(n => typeof n !== 'string')) hold()
         c.profileCaches++; c.profileNames += values.length
       } else if (name.startsWith('kithmoot.room-name.v1.') && hex(name.slice('kithmoot.room-name.v1.'.length))) {
         const v = json(raw); object(v, ['name', 'id', 'at'])
@@ -72,7 +72,7 @@ export function validateOrdinaryUiSnapshot(records: ReadonlyMap<string, string>,
         clockString(raw); c.headsUps++
       } else if (name === 'kithmoot.destructed.v1') {
         const v = json(raw)
-        if (!Array.isArray(v) || !v.length || v.length > 50) hold()
+        if (!Array.isArray(v) || v.length > 50) hold()
         for (const row of v) {
           // Current read/writeTombstones carries extra JSON and duplicate ids.
           // Retain even expired/fractional finite times, never prune on custody.
@@ -87,7 +87,7 @@ export function validateOrdinaryUiSnapshot(records: ReadonlyMap<string, string>,
         const v = json(raw)
         // The writer removes only the selected emoji from the previous list;
         // duplicates of other entries can survive, as can obsolete choices.
-        if (!Array.isArray(v) || !v.length || v.length > 36 || v.some(e => typeof e !== 'string' || !e)) hold()
+        if (!Array.isArray(v) || v.length > 36 || v.some(e => typeof e !== 'string' || !e)) hold()
         c.recentLists++; c.recents += v.length
       } else if (name === 'kithmoot.way-back') {
         const v = json(raw); object(v, ['link', 'name'])
