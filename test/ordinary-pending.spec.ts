@@ -253,7 +253,7 @@ test('closing while queued for the outer lock revokes immediately and creates no
     window.published=0;window.receipt='pending'
     window.pending=queue.add({...input('closed'),publish:async()=>published++}).then(()=>receipt='success',error=>receipt=error.name)
   })()`)
-  await page.waitForFunction(async()=> (await navigator.locks.query()).pending.some(lock=>lock.name==='kithmoot-ordinary-state-v1:pending'))
+  await page.waitForFunction(async()=> (await navigator.locks.query()).pending?.some(lock=>lock.name==='kithmoot-ordinary-state-v1:pending') === true)
   await page.evaluate('void(window.closing=storage.close())')
   expect(await page.evaluate('[published,queue.items().length]')).toEqual([0,0])
   await page.evaluate('releaseLock()');await page.evaluate('Promise.all([pending,closing,lockWork])')

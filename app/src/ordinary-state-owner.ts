@@ -276,6 +276,11 @@ export class OrdinaryStateOwner {
   mutateMigrated<T>(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore, migratedNames: readonly string[]) => T): Promise<T> {
     return this.#mutation(scope, live, (store, names) => { if (!names) hold(); return work(store, names) }, undefined, true)
   }
+  /** Compare and replace in one authenticated snapshot. A definite mismatch
+   * discards the private view without allocating a nonce or writing a frame. */
+  compareAndMutateMigrated(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore) => boolean): Promise<boolean> {
+    return this.#mutation(scope, live, work, undefined, true, true)
+  }
   /** The fence is committed with deletion; a captured pre-forget scope can
    * never repopulate this room. Capacity is checked by the canonical codec. */
   forget(scope: OrdinaryScope, live: () => boolean, selected: (name: string, value: string) => boolean): Promise<void> {
@@ -301,7 +306,7 @@ export class OrdinaryStateOwner {
       .finally(() => manifest.sources.clear())
   }
   #mutation<T>(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore, migratedNames?: readonly string[]) => T,
-    control?: (image: OrdinaryImage) => void, requireCompleteMigration = false): Promise<T> {
+    control?: (image: OrdinaryImage) => void, requireCompleteMigration = false, commitIfTrue = false): Promise<T> {
     const captured = { ...scope }
     return this.#track(this.#locked(live, async () => {
       const current = await this.#snapshot(live)
@@ -314,6 +319,10 @@ export class OrdinaryStateOwner {
         const result = work(privateView.store, requireCompleteMigration ? Object.freeze([...current.image.migration!.names]) : undefined)
         if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') hold()
         this.#check(live)
+        if (commitIfTrue) {
+          if (typeof result !== 'boolean') hold()
+          if (!result) return result
+        }
         // Copy before revoking the helper view; no escaped helper may edit the candidate.
         image.records = new Map(records)
         privateView.close()
