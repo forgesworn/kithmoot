@@ -276,8 +276,11 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     if (chatOpen) {
       // Opened to say something, the way every call app's chat opens.
       const input = document.getElementById('chatInput') as HTMLTextAreaElement | null
+      const focusAtOpen = document.activeElement
       requestAnimationFrame(() => {
-        if (input && !input.disabled && input.getClientRects().length > 0) input.focus({ preventScroll: true })
+        // The deferred frame may follow another deliberate focus choice.
+        if (chatOpen && document.activeElement === focusAtOpen && input &&
+            !input.disabled && input.getClientRects().length > 0) input.focus({ preventScroll: true })
       })
     } else if (focusWasInChat) chat.focus()
   })
