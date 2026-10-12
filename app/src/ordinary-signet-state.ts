@@ -1,25 +1,12 @@
-import type { SignetAuthEvent, SignetStorage } from 'signet-login'
-import { verifyLogin } from 'signet-login/verify'
-import { getPublicKey } from 'nostr-tools/pure'
-import { hexToBytes } from '@noble/hashes/utils'
+import type { SignetStorage } from 'signet-login'
 import type { DeviceStore } from './device-store.js'
 import { OrdinaryStateHold, ORDINARY_VALUE_UNITS } from './ordinary-state-codec.js'
 import { OrdinaryStateOwner, type OrdinaryScope } from './ordinary-state-owner.js'
-
-/** Exact SDK namespace. No room, participant or unrelated preference writer
- * is exposed through this adapter. Values remain inside the native image. */
-export const ORDINARY_SIGNET_KEYS = Object.freeze({
-  pubkey: 'signet:login.pubkey', method: 'signet:login.method', authEvent: 'signet:login.authEvent',
-  bunkerUri: 'signet:login.bunkerUri', bunkerClientSk: 'signet:login.bunkerClientSk',
-  expiresAt: 'signet:login.expiresAt', displayName: 'signet:login.displayName',
-  clientSk: 'signet:login.clientSk', pendingRedirect: 'signet:login.pendingRedirect',
-  pendingRelayAuth: 'signet:login.pendingRelayAuth',
-})
+import { ORDINARY_SIGNET_KEYS, validateOrdinarySignetSnapshot } from './ordinary-signet-snapshot.js'
+export { ORDINARY_SIGNET_KEYS } from './ordinary-signet-snapshot.js'
 const SESSION: readonly string[] = Object.freeze(['pubkey', 'method', 'authEvent', 'bunkerUri', 'bunkerClientSk', 'expiresAt', 'displayName']
   .map(name => ORDINARY_SIGNET_KEYS[name as keyof typeof ORDINARY_SIGNET_KEYS]))
 const SINGLE = new Set<string>([ORDINARY_SIGNET_KEYS.clientSk, ORDINARY_SIGNET_KEYS.pendingRedirect, ORDINARY_SIGNET_KEYS.pendingRelayAuth])
-const ALL: readonly string[] = Object.values(ORDINARY_SIGNET_KEYS)
-const HEX = /^[0-9a-f]{64}$/i
 function hold(): never { throw new OrdinaryStateHold() }
 type Values = Readonly<Record<string, string | null>>
 function value(raw: unknown): asserts raw is string | null {
@@ -29,18 +16,6 @@ function plain(raw: unknown, fields: readonly string[]): asserts raw is Record<s
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
       ![Object.prototype, null].includes(Object.getPrototypeOf(raw)) ||
       Reflect.ownKeys(raw).length !== fields.length || fields.some(name => !Object.hasOwn(raw, name))) hold()
-}
-function secret(raw: string): void {
-  if (!HEX.test(raw)) hold()
-  const bytes = hexToBytes(raw)
-  try { getPublicKey(bytes) } catch { hold() } finally { bytes.fill(0) }
-}
-function relay(raw: unknown): void {
-  if (typeof raw !== 'string') hold()
-  try {
-    const url = new URL(raw)
-    if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.hash) hold()
-  } catch { hold() }
 }
 function integer(raw: unknown): raw is number { return Number.isSafeInteger(raw) && (raw as number) >= 0 }
 interface Options {
@@ -106,56 +81,9 @@ export class OrdinarySignetState implements SignetStorage {
     }
   }
   #validate(store: DeviceStore): void {
-    if (store.keys().some(key => key.startsWith('signet:login.') && !ALL.includes(key))) hold()
-    const values = Object.fromEntries(ALL.map(key => [key, store.get(key)]))
-    for (const raw of Object.values(values)) value(raw)
-    const k = ORDINARY_SIGNET_KEYS
-    if (values[k.clientSk] !== null) secret(values[k.clientSk]!)
-    for (const [key, fields] of [
-      [k.pendingRedirect, ['challenge', 'origin', 'appName', 'createdAt']],
-      [k.pendingRelayAuth, ['challenge', 'origin', 'appName', 'relayUrl', 'sessionSkHex', 'issuedAt']],
-    ] as const) if (values[key] !== null) {
-      let record: unknown
-      try { record = JSON.parse(values[key]!) } catch { hold() }
-      plain(record, fields)
-      if (typeof record.challenge !== 'string' || !HEX.test(record.challenge) || record.origin !== this.#options.origin || record.appName !== this.#options.appName) hold()
-      if (key === k.pendingRedirect) { if (!integer(record.createdAt)) hold() }
-      else {
-        if (!integer(record.issuedAt) || typeof record.sessionSkHex !== 'string') hold()
-        secret(record.sessionSkHex); relay(record.relayUrl)
-      }
-    }
-    if (SESSION.every(key => values[key] === null)) return
-    const pubkey = values[k.pubkey], method = values[k.method], proof = values[k.authEvent]
-    if (!pubkey || !HEX.test(pubkey) || !method || !['nip07', 'redirect', 'bunker', 'amber'].includes(method) || !proof ||
-        this.#options.account !== undefined && pubkey.toLowerCase() !== this.#options.account) hold()
-    let parsed: unknown
-    try { parsed = JSON.parse(proof) } catch { hold() }
-    plain(parsed, ['id', 'pubkey', 'kind', 'created_at', 'tags', 'content', 'sig'])
-    if (!integer(parsed.created_at) || !Array.isArray(parsed.tags) || parsed.tags.length > 128 ||
-        parsed.tags.some(tag => !Array.isArray(tag) || tag.length > 32 || tag.some(part => typeof part !== 'string' || part.length > 1024))) hold()
-    const bindings = (name: string) => (parsed.tags as string[][]).filter(tag => tag[0] === name)
-    const challenge = bindings('challenge'), origin = bindings('origin'), app = bindings('app')
-    if (challenge.length !== 1 || challenge[0]!.length !== 2 || origin.length !== 1 || origin[0]!.length !== 2 ||
-        app.length > 1 || app.length === 1 && (app[0]!.length !== 2 || app[0]![1] !== this.#options.appName)) hold()
-    const event = parsed as unknown as SignetAuthEvent
-    if (event.pubkey !== pubkey) hold()
-    // Stored proof integrity is checked at its signed time. It is not a fresh
-    // server login and is never accepted as MLS membership evidence here.
-    const checked = verifyLogin(event, { expectedOrigin: this.#options.origin,
-      expectedChallenge: challenge[0]![1]!, now: () => event.created_at * 1000 })
-    if (!checked.valid || checked.pubkey !== pubkey) hold()
-    const expires = values[k.expiresAt]
-    if (expires !== null && (!integer(Number(expires)) || String(Number(expires)) !== expires)) hold()
-    if (method === 'bunker') {
-      if (!values[k.bunkerClientSk] || !values[k.bunkerUri]) hold()
-      secret(values[k.bunkerClientSk]!)
-      try {
-        const url = new URL(values[k.bunkerUri]!)
-        if (url.protocol !== 'bunker:' || !HEX.test(url.hostname) || url.username || url.password || url.hash || url.pathname || !url.searchParams.getAll('relay').length) hold()
-        for (const item of url.searchParams.getAll('relay')) relay(item)
-      } catch { hold() }
-    } else if (values[k.bunkerClientSk] !== null || values[k.bunkerUri] !== null) hold()
+    validateOrdinarySignetSnapshot(new Map(store.keys().map(key => [key, store.get(key)!])), {
+      kind: 'browser', origin: this.#options.origin, appName: this.#options.appName, account: this.#options.account,
+    })
   }
   getItems(keys: readonly string[]): Promise<Values> {
     let captured: string[]

@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import { expect, test, type BrowserContext } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
+import { preflightProbe, noPreflightEffects } from './ordinary-preflight-probe.js'
 
 // Native encrypted custody plus the actual SDK, with a synthetic extension.
 // These are component checks, not the application's production bootstrap.
@@ -267,5 +268,26 @@ test('SDK logout clears exactly its partition and a forgotten scope refuses late
     const saved=await raw(),records=(await Ordinary.openOrdinaryFrame(saved.frame,saved.key)).records
     return [Object.values(cleared).every(value=>value===null),client,refusal,stops,records.get('room:keep'),Ordinary.sameOrdinaryFrame(before,saved.frame)]
   })()`)).toEqual([true,null,'OrdinaryStateHold',1,'value',true])
+  await context.close()
+})
+
+for (const fault of ['valid', 'unknown', 'signature', 'tab', 'wrapped'] as const) test(`raw Signet ${fault} preflight completes before any key, marker or owner effect`, async ({ browser }) => {
+  const context = await browser.newContext(); await serve(context); const page = await context.newPage(); await page.goto(ORIGIN)
+  const result = await page.evaluate(`(async()=>{
+    const key=new Uint8Array(32);key[31]=1;const account=Ordinary.getPublicKey(key),k=Ordinary.ORDINARY_SIGNET_KEYS;
+    const proof=Ordinary.finalizeEvent({kind:21236,created_at:1,tags:[['challenge','a'.repeat(64)],['origin',location.origin],['app','KithMoot']],content:''},key);
+    if('${fault}'==='signature')proof.content='tampered';
+    const image=new Map([[k.pubkey,account],[k.method,'nip07'],[k.authEvent,JSON.stringify(proof)]]);
+    if('${fault}'==='unknown')image.set('signet:login.future','true');
+    if('${fault}'==='wrapped'){image.clear();image.set('kithmoot.account.'+account+'.'+k.clientSk,'03'.repeat(32))}
+    const physical='${fault}'==='tab'?sessionStorage:localStorage;
+    for(const [name,value]of image)physical.setItem(name,value);
+    const before=JSON.stringify([...image].sort());const databasesBefore=await indexedDB.databases();
+    ${preflightProbe}
+    let summary,refusal;try{summary=Ordinary.validateOrdinarySignetSnapshot(image,{kind:'${fault}'==='tab'?'tab':'browser',origin:location.origin,appName:'KithMoot',account})}catch(error){refusal=error.name}finally{restore()}
+    const after=new Map(Object.keys(physical).map(name=>[name,physical.getItem(name)]));
+    return {summary,refusal,effects,unchanged:before===JSON.stringify([...after].sort()),databasesUnchanged:JSON.stringify(databasesBefore)===JSON.stringify(await indexedDB.databases()),noMarker:sessionStorage.getItem('kithmoot.ordinary-tab.v1')===null};
+  })()`)
+  expect(result).toEqual({ ...(fault === 'valid' ? { summary: { sessions: 1, clientKeys: 0, pendingRedirects: 0, pendingRelayAuths: 0 } } : { refusal: 'OrdinaryStateHold' }), effects: noPreflightEffects, unchanged: true, databasesUnchanged: true, noMarker: true })
   await context.close()
 })

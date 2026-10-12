@@ -1,8 +1,7 @@
-import { verifyEvent } from 'nostr-tools/pure'
-import { normaliseArtwork, MAX_CHAT_ARTWORK } from '../../src/artwork.js'
+import { validateOrdinaryPendingPair } from './ordinary-pending-snapshot.js'
 import { OrdinaryStateOwner, type OrdinaryScope } from './ordinary-state-owner.js'
-import { OrdinaryStateHold, ORDINARY_VALUE_UNITS } from './ordinary-state-codec.js'
-import { MAX_KEPT, type KeptPendingSend, type PendingStorage } from './pending-sends.js'
+import { OrdinaryStateHold } from './ordinary-state-codec.js'
+import { type KeptPendingSend, type PendingStorage } from './pending-sends.js'
 
 const LOCK = 'kithmoot-ordinary-state-v1:pending'
 const PREFIX = 'kithmoot.pending.'
@@ -78,37 +77,7 @@ export class OrdinaryPendingState implements PendingStorage {
       try { this.#options.stop() } catch { /* Revocation failure never waives the hold. */ }
     }
   }
-  #records(raw: string | null): KeptPendingSend[] {
-    if (raw === null) return []
-    if (raw.length > ORDINARY_VALUE_UNITS) hold()
-    let values: unknown
-    try { values = JSON.parse(raw) } catch { hold() }
-    if (!Array.isArray(values) || values.length > MAX_KEPT) hold()
-    for (const row of values) {
-      if (!row || Object.getPrototypeOf(row) !== Object.prototype ||
-          Object.keys(row).some(name => !['id','channel','text','files','artwork','event','state','editable'].includes(name)) ||
-          typeof row.id !== 'string' || !row.id.length || row.id.length > 128 || typeof row.channel !== 'string' ||
-          !row.channel.length || row.channel.length > 512 || typeof row.text !== 'string' || !Array.isArray(row.files) ||
-          row.files.some((file: unknown) => typeof file !== 'string') ||
-          !['waiting','refused','unknown','moved'].includes(row.state) ||
-          (row.editable !== undefined && row.editable !== true)) hold()
-      const event = row.event
-      if (!event || Object.getPrototypeOf(event) !== Object.prototype || Object.keys(event).sort().join(',') !== 'content,created_at,id,kind,pubkey,sig,tags' ||
-          !HEX.test(event.id) || !HEX.test(event.pubkey) || typeof event.sig !== 'string' || !/^[0-9a-f]{128}$/.test(event.sig) ||
-          !Number.isSafeInteger(event.kind) || event.kind < 0 || !Number.isSafeInteger(event.created_at) || event.created_at < 0 ||
-          typeof event.content !== 'string' || !Array.isArray(event.tags) ||
-          event.tags.some((tag: unknown) => !Array.isArray(tag) || tag.some(value => typeof value !== 'string'))) hold()
-      try { if (!verifyEvent(event)) hold() } catch { hold() }
-      if (row.artwork !== undefined && (!Array.isArray(row.artwork) || row.artwork.length > MAX_CHAT_ARTWORK || row.artwork.some((art: unknown) => !normaliseArtwork(art)))) hold()
-      // JSON decoding removes verifier cache symbols and escaped object aliases.
-      if (this.#options.accepts(structuredClone(row)) !== true) hold()
-    }
-    return values
-  }
-  #validate(pair: Pair): void {
-    const records = [...this.#records(pair.durable), ...this.#records(pair.transient)]
-    if (records.length > MAX_KEPT || new Set(records.map(record => record.id)).size !== records.length) hold()
-  }
+  #validate(pair: Pair): void { validateOrdinaryPendingPair(pair, row => this.#options.accepts(row)) }
   async #read(): Promise<Pair> {
     const read = (owner: OrdinaryStateOwner, scope: OrdinaryScope) => owner.readMigrated(scope, this.#live, store => {
       if (store.get(PREFIX + this.#options.roomId) !== null) hold() // No guessed legacy account binding.

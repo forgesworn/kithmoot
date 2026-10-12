@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import { expect, test, type BrowserContext } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
+import { preflightProbe, noPreflightEffects } from './ordinary-preflight-probe.js'
 
 const ORIGIN = 'https://ordinary-pending.kithmoot.test'
 let bundle = ''
@@ -289,5 +290,24 @@ for(const purpose of ['browser','tab'] as const)test(`close during unknown ${pur
     const saved=await next.load(roomId)
     return [JSON.parse(saved.${purpose==='browser'?'durable':'transient'})[0].id,Ordinary.sameOrdinaryFrame(intended,(await raw(${purpose==='browser'?"'browser'":"tab.purpose"})).frame)]
   })()`)).toEqual(['closed-unknown',true])
+  await context.close()
+})
+
+for (const fault of ['valid', 'signature', 'duplicate', 'capacity', 'legacy', 'binding'] as const) test(`raw two-owner pending ${fault} preflight completes before any key, marker or owner effect`, async ({ browser }) => {
+  const context = await browser.newContext(); await serve(context); const page = await context.newPage(); await page.goto(ORIGIN)
+  const result = await page.evaluate(`(async()=>{
+    const key=new Uint8Array(32);key[31]=1;const account=Ordinary.getPublicKey(key),roomId='a'.repeat(64),name='kithmoot.account.'+account+'.kithmoot.pending.'+roomId;
+    const row=id=>({id,channel:'Chat',text:'text '+id,files:[],state:'waiting',event:Ordinary.finalizeEvent({kind:1,created_at:1,tags:[['d',roomId],['p',account]],content:id},key)});
+    const a=[row('one')],b=[row('${fault}'==='duplicate'?'one':'two')];
+    if('${fault}'==='signature')a[0].event.content='tampered';
+    if('${fault}'==='capacity')for(let i=0;i<49;i++)a.push(row('more'+i));
+    localStorage.setItem('${fault}'==='legacy'?'kithmoot.pending.'+roomId:name,JSON.stringify(a));sessionStorage.setItem(name,JSON.stringify(b));
+    const capture=storage=>new Map(Object.keys(storage).map(name=>[name,storage.getItem(name)]));
+    const browserImage=capture(localStorage),tabImage=capture(sessionStorage),before=JSON.stringify([[...browserImage],[...tabImage]]),databasesBefore=await indexedDB.databases();
+    ${preflightProbe}
+    let summary,refusal;try{summary=Ordinary.validateOrdinaryPendingSnapshot(browserImage,tabImage,{accepts:(acct,room,value)=>'${fault}'!=='binding'&&acct===account&&room===roomId&&value.event.content===value.id&&value.event.tags.some(t=>t[0]==='d'&&t[1]===room)&&value.event.tags.some(t=>t[0]==='p'&&t[1]===acct)})}catch(error){refusal=error.name}finally{restore()}
+    return {summary,refusal,effects,unchanged:before===JSON.stringify([[...capture(localStorage)],[...capture(sessionStorage)]]),databasesUnchanged:JSON.stringify(databasesBefore)===JSON.stringify(await indexedDB.databases()),noMarker:sessionStorage.getItem('kithmoot.ordinary-tab.v1')===null};
+  })()`)
+  expect(result).toEqual({ ...(fault === 'valid' ? { summary: { queues: 1, records: 2, durableRecords: 1, transientRecords: 1 } } : { refusal: 'OrdinaryStateHold' }), effects: noPreflightEffects, unchanged: true, databasesUnchanged: true, noMarker: true })
   await context.close()
 })
