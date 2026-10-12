@@ -224,6 +224,17 @@ function readHeader(envelope: Uint8Array): Header {
   return readHeaderWithLength(envelope, envelope.length)
 }
 
+/** Visible framing only, never ciphertext authentication. A bounded header
+ * prefix may be supplied with the actual complete encrypted byte length. */
+export function inspectEnvelopeHeader(envelope: Uint8Array, envelopeLength = envelope.length): Readonly<{
+  format: 'FSWNENC2' | 'FSWNENC1' | 'WBLMENC1'; headerBytes: number; recordCount: number
+}> {
+  if (!Number.isSafeInteger(envelopeLength) || envelopeLength < envelope.length) throw new Error('The Wildbloom envelope length is invalid.')
+  const header = readHeaderWithLength(envelope, envelopeLength)
+  return Object.freeze({ format: String.fromCharCode(...header.bytes.subarray(0, 8)) as 'FSWNENC2' | 'FSWNENC1' | 'WBLMENC1',
+    headerBytes: header.bytes.length, recordCount: header.recordCount })
+}
+
 interface Metadata {
   name: string
   size: number

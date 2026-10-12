@@ -128,14 +128,30 @@ cache event has an uncached signature check, the exact cache domain, account and
 recipient, content below 1 MiB and serialized event at most 1 MiB. Its encrypted
 policy, key, head and access pointer remain opaque. V2 envelopes have an upper
 callable-writer bound of 2 MiB + 88 bytes: a 1 MiB signed snapshot plus metadata
-rounds to a 2 MiB padding bucket, with two tags and a 56-byte header. Current
-restore validates the decrypted pointer against a narrower 2 MiB envelope limit
-and can reject such a writer output. This recovery mismatch remains open.
+rounds to a 2 MiB padding bucket, with two tags and a 56-byte header. Context
+restore/import now use that V2 bound and preserve the stricter 2 MiB legacy
+passthrough bound. Canonical Base64 and shared visible framing precede the
+existing hash, GCM, snapshot, policy, grant and history checks.
 The exact-ceiling fixture uses a synthetic signer that returns an unsigned
 extra snapshot property, permitted by the current primary writer, to reach a
 1 MiB serialized snapshot; its later signed cache event has ordinary fields.
-It proves the callable writer/restore mismatch, not typical app content or
-external-signer acceptance.
+It exercises callable create/save/restore/resave and upload/access/import
+compatibility, not typical app content or external-signer acceptance. Signer
+JSON is captured once, bounded, cloned and revalidated before retention.
+
+Access and self-cache ciphertext now use the existing 1 MiB event-content
+profile rather than the incompatible 65,536-character loader limit. The
+maximum save image is bounded by 123,037,605 UTF-8 bytes, derived from 32
+maximum signed cache events, maximum V2 Base64 envelopes and exact save
+punctuation. Restore counts UTF-8 without allocating a second complete
+encoded backup before parsing. Panel file gates share the SDK event/cache
+limits. This bound is not proof that every maximum can occur simultaneously
+or that a device has that memory or Storage quota. The >90 MiB panel fixture
+uses permitted unsigned cache-event padding as well as maximum snapshots,
+a real File and an explicit in-memory Storage adapter. Maximum envelopes
+alone occupy only 85.34 MiB. Ordinary custody still holds records above
+8 MiB and whole images above 32 MiB; this repair does not wire the panel
+to the protected root or solve larger-family recovery/chunking.
 
 Current Context save also preserves FSWNENC1 and WBLMENC1 envelopes accepted
 through import/restore. Primary historical writers, authenticated current

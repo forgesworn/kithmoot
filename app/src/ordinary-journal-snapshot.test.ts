@@ -62,10 +62,10 @@ describe('encrypted journal offline custody', () => {
     finally { parse.mockRestore() }
     expect([...records.values()]).toEqual([raw])
   })
-  it('recognises the real v2 envelope upper writer bucket and records the current restore mismatch', async () => {
+  it('recognises the real v2 envelope upper writer bucket and restores its encrypted bytes', async () => {
     const fixture = await upperContextJournal(), [key, raw] = [...fixture.records][0]!, value = JSON.parse(raw)
     const binary = atob(value.collections[0].envelope)
-    expect(binary.length).toBe(2 * 1024 * 1024 + 88); expect(fixture.restoreRefused).toBe(true)
+    expect(binary.length).toBe(2 * 1024 * 1024 + 88); expect(fixture.envelopePreserved).toBe(true)
     expect(fixture.snapshotBytes).toBe(1024 * 1024); expect(binary.slice(0, 8)).toBe('FSWNENC2')
     expect(new DataView(Uint8Array.from(binary.slice(0, 56), c => c.charCodeAt(0)).buffer).getUint32(12, false)).toBe(2)
     expect(validate(fixture.records, false, { kind: 'browser' }).collections).toBe(1)

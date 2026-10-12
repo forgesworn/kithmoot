@@ -80,10 +80,10 @@ test('all journal rows hold in a temporary tab owner before mutation', async ({ 
     const out=[held,entropy,generated,encryptions,Object.keys(localStorage).length,!(await raw())];restoreCrypto();return out})()`))
     .toEqual([true, 0, 0, 0, 3, true]); await context.close()
 })
-test('synthetic signer-extension Context writer ceiling survives native IDB custody with injected source Storage while restore refuses it', async ({ browser }) => {
+test('synthetic signer-extension Context writer ceiling survives native IDB custody with injected source Storage and restores its encrypted bytes', async ({ browser }) => {
   const context = await browser.newContext(), page = await open(context)
   expect(await page.evaluate(`(async()=>{fixture=await Ordinary.upperContextJournal();injectStorage(fixture.records)
     const bytes=atob(JSON.parse(fixture.raw).collections[0].envelope).length;await migrate();const row=await raw(),image=await Ordinary.openOrdinaryFrame(row.frame,row.key)
-    return[fixture.snapshotBytes,bytes,fixture.restoreRefused,image.records.get([...fixture.records.keys()][0])===fixture.raw,image.migration.phase,storage.length]})()`))
+    return[fixture.snapshotBytes,bytes,fixture.envelopePreserved,image.records.get([...fixture.records.keys()][0])===fixture.raw,image.migration.phase,storage.length]})()`))
     .toEqual([1024 * 1024, 2 * 1024 * 1024 + 88, true, true, 'complete', 0]); await context.close()
 })

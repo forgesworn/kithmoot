@@ -1,6 +1,8 @@
 import { nip44 } from 'nostr-tools'
 import type { Event } from 'nostr-tools/pure'
 import { verifyEventUncached } from '../../src/verify.js'
+import { inspectEnvelopeHeader } from '../../packages/context/src/blossom.js'
+import { CONTEXT_ENVELOPE_V2_BYTES, CONTEXT_ENVELOPE_LEGACY_BYTES } from '../../packages/context/src/limits.js'
 import { OrdinaryStateHold, ORDINARY_NAME_UNITS, ordinaryUtf8Length } from './ordinary-state-codec.js'
 
 const FAMILIES = ['kithmoot.shared-projects', 'kithmoot.assignments', 'kithmoot.context']
@@ -55,17 +57,14 @@ function envelope(value: unknown, context: boolean): void {
   if (typeof value !== 'string' || length < 24) hold()
   const bytes = Uint8Array.from(atob(value.slice(0, Math.min(value.length, 76))), c => c.charCodeAt(0))
   try {
-    const magic = String.fromCharCode(...bytes.subarray(0, 8)), v2 = magic === 'FSWNENC2'
-    if (!v2 && (!context || !['FSWNENC1', 'WBLMENC1'].includes(magic))) hold()
-    const header = v2 ? 56 : 24
+    const header = inspectEnvelopeHeader(bytes, length), v2 = header.format === 'FSWNENC2'
+    if (!v2 && !context) hold()
     // A <=1MiB signed snapshot plus metadata can round up to a 2MiB
-    // bucket. The writer's resulting v2 envelope exceeds the 2MiB loader
-    // limit by 88 bytes; the narrower loader is not our writer ceiling.
-    if (bytes.length < header || context && length > (v2 ? 2 * CHUNK + 88 : 2 * CHUNK)) hold()
-    const view = new DataView(bytes.buffer), records = view.getUint32(12, false)
-    const plaintext = length - header - records * 16
-    if (view.getUint32(8, false) !== CHUNK || records < 1 || records > 258 ||
-        records !== Math.ceil(plaintext / CHUNK) || plaintext < 65536 ||
+    // bucket. V2 custody and recovery share that writer ceiling; legacy
+    // Context passthrough retains its stricter 2MiB acceptance bound.
+    if (context && length > (v2 ? CONTEXT_ENVELOPE_V2_BYTES : CONTEXT_ENVELOPE_LEGACY_BYTES)) hold()
+    const plaintext = length - header.headerBytes - header.recordCount * 16
+    if (header.recordCount !== Math.ceil(plaintext / CHUNK) || plaintext < 65536 ||
         (plaintext <= CHUNK ? !Number.isInteger(Math.log2(plaintext)) : plaintext % CHUNK !== 0)) hold()
   } finally { bytes.fill(0) }
 }

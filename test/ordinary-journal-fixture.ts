@@ -12,7 +12,7 @@ export const JOURNAL_MODES = ['project-pending', 'project-delivered', 'assignmen
 export type JournalMode = typeof JOURNAL_MODES[number]
 /** Deliberate synthetic signer extension, permitted by current Context event
  * validation: fill an opaque unsigned snapshot field to the exact signed-event
- * ceiling. Actual create/save then exposes the writer/restore size mismatch.
+ * ceiling. Actual create/save/restore exercises the repaired writer ceiling.
  * This is not typical app content or real external-signer acceptance. */
 export async function upperContextJournal() {
   const secret = new Uint8Array(32).fill(7), account = getPublicKey(secret)
@@ -36,10 +36,12 @@ export async function upperContextJournal() {
     const vault = new ContextVault({ identity, now: () => 1700000000, fetch: async () => { throw new Error('No network') } })
     await vault.create({ title: 'Exact writer ceiling', scope: 'personal' })
     const raw = await vault.save()
-    let restoreRefused = false
-    try { await new ContextVault({ identity }).restore(raw) }
-    catch (error) { if (!(error instanceof Error) || error.message !== 'Invalid encrypted context pointer.') throw error; restoreRefused = true }
-    return { account, room: '0'.repeat(64), raw, snapshotBytes, restoreRefused, records: new Map([[`kithmoot.context.v1.${account}`, raw]]) }
+    const restarted = new ContextVault({ identity })
+    await restarted.restore(raw)
+    const resaved = await restarted.save()
+    const envelopePreserved = JSON.parse(raw).collections[0].envelope === JSON.parse(resaved).collections[0].envelope
+    if (!envelopePreserved || restarted.list().length !== 1) throw new Error('Writer ceiling recovery failed')
+    return { account, room: '0'.repeat(64), raw, snapshotBytes, envelopePreserved, records: new Map([[`kithmoot.context.v1.${account}`, raw]]) }
   } finally { secret.fill(0) }
 }
 /** Actual direct SDK writers with synthetic identity and in-process relay.
