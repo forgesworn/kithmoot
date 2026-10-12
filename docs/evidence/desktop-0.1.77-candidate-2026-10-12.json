@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-12",
+  "source": "376fd9db5adcd2a20125864abde0cf411d7110f4",
+  "version": "0.1.77",
+  "mac_build": 62,
+  "notarisation": {
+    "status": "Accepted",
+    "id": "c18bd2cb-a212-4c13-8e20-4a8e05a7c57e",
+    "message": "Processing complete"
+  },
+  "mac_signature_assessment": "accepted; source=Notarized Developer ID",
+  "bundles": [
+    {
+      "archive": "desktop/out/KithMoot-darwin-arm64/KithMoot.app/Contents/Resources/app.asar",
+      "sha256": "12bd8790d1644a6526ff972870952888dd17392926e439e2b86f704ef9ba0173",
+      "matchedFiles": 280,
+      "version": "0.1.77"
+    },
+    {
+      "archive": "desktop/out/KithMoot-linux-x64/resources/app.asar",
+      "sha256": "12bd8790d1644a6526ff972870952888dd17392926e439e2b86f704ef9ba0173",
+      "matchedFiles": 280,
+      "version": "0.1.77"
+    },
+    {
+      "archive": "desktop/out/KithMoot-linux-arm64/resources/app.asar",
+      "sha256": "12bd8790d1644a6526ff972870952888dd17392926e439e2b86f704ef9ba0173",
+      "matchedFiles": 280,
+      "version": "0.1.77"
+    },
+    {
+      "archive": "desktop/out/KithMoot-win32-x64/resources/app.asar",
+      "sha256": "12bd8790d1644a6526ff972870952888dd17392926e439e2b86f704ef9ba0173",
+      "matchedFiles": 280,
+      "version": "0.1.77"
+    }
+  ],
+  "unit_tests": {
+    "passed": 98,
+    "failed": 0,
+    "skipped": 0
+  },
+  "packaged_mac_smoke": "passed: native area frame, resize, chooser gesture, closure, secure bundled UI, restricted sandbox bridge, no Node exposure, CSP, traversal denial, no service worker, notification availability and isolated profile persistence across restart",
+  "files": [
+    {
+      "filename": "KithMoot-0.1.77-mac-arm64.zip",
+      "version": "0.1.77",
+      "bytes": 176786911,
+      "sha256": "01d00ec6c7ef6df0443bfe49a73c61abeeffb6770378889e1682e872ce51c037"
+    },
+    {
+      "filename": "KithMoot-0.1.77-linux-arm64.tar.gz",
+      "version": "0.1.77",
+      "bytes": 171132397,
+      "sha256": "f1c245432d1141f84c3f8b25f21cf90f7154301b0dfec88ec4389b0e6f143e34"
+    },
+    {
+      "filename": "KithMoot-0.1.77-linux-x64.tar.gz",
+      "version": "0.1.77",
+      "bytes": 170014095,
+      "sha256": "fd907a591ea2b45111632bc2a497be79f0ce4039e17eaaf754b659bfd1f14741"
+    },
+    {
+      "filename": "KithMoot-0.1.77-windows-x64.zip",
+      "version": "0.1.77",
+      "bytes": 205382870,
+      "sha256": "0d5ae587151342d4a24719686360f9d889f34998b56ca185c567e8ec25071a81"
+    },
+    {
+      "filename": "kithmoot_0.1.77_amd64.deb",
+      "version": "0.1.77",
+      "bytes": 133511104,
+      "sha256": "06b364f6a2f8988599f29ef3969532d1da71303fc95ebe5381abf5aa1094acac"
+    },
+    {
+      "filename": "kithmoot_0.1.77_arm64.deb",
+      "version": "0.1.77",
+      "bytes": 128540292,
+      "sha256": "41d9cc3cefb1abfc50afe49e2f3320627ab44d74f9b574a0bc94d53c8d6a099f"
+    }
+  ],
+  "logs": {
+    "kithmoot-desktop-0.1.77-tests.log": "2eac2024a7ceb59af7af3f096c039db0120777405caa6ebbaab492913858ff48",
+    "kithmoot-desktop-0.1.77-packaged-smoke.log": "abdaa46f5cfbf972da922c01b6037d827fe106553a2ed488f38272701d3a0976",
+    "kithmoot-desktop-0.1.77-package-mac.log": "6e91afce2f088c7aa5da6e564b265c6c64ff40445c186cb2469049743a0a3f50",
+    "kithmoot-desktop-0.1.77-package-windows.log": "03423cd93359b220f8918eda855d07513d9298a49a607881327103dd6ed20de1",
+    "kithmoot-desktop-0.1.77-package-linux.log": "69e7dd70b788cff82fb13682b08e3446643fc5e828c6a6e82bb162c9ce0aebc0",
+    "kithmoot-desktop-0.1.77-update-manifest-tests.log": "f88d76e854a893518e4f7a7d75bacb42028bd8435ad109e519c94547312365ab"
+  },
+  "limits": [
+    "Release-branch hosted checks remain in progress; PR #400 source checks passed all twelve gates before merge.",
+    "Windows remains an unsigned preview; cross-packaging is not physical Windows acceptance.",
+    "No physical long-duration recording or production publication is established by this candidate receipt."
+  ],
+  "update_manifests": {
+    "result": "signed and verified against the update keys built into the apps",
+    "key_custody": "existing M4 release key",
+    "focused_tests": {
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0
+    },
+    "desktop_sha256": "e7dca45126e7ac600f74f65a86bd1a9ee146a329ccb8cf16fe012678dad4b3eb",
+    "signature_sha256": "e0d30411af790da1ac7758907033123e7e3652ac6acc760b6d3730803e1a12a7"
+  },
+  "final_release_metadata_tests": {
+    "passed": 98,
+    "failed": 0,
+    "skipped": 0,
+    "log_sha256": "936090c0bab4e14d0e7dbab059d61a4035dc43a64cde97657418458310cf7ceb"
+  },
+  "metadata_follow_up": "The download history now includes all six measured 0.1.77 candidates and preserves earlier versions. The preceding hosted run correctly rejected the mismatch between the 0.1.77 Mac feed and the older 0.1.76 history; all 98 desktop tests pass after the correction."
+}
