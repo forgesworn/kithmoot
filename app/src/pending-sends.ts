@@ -250,7 +250,7 @@ export class PendingSends {
       // Checking is cheap and in memory, so look again soon: a message
       // written just after joining should not wait out a back-off.
       item.retryAt = this.#opts.now() + CONNECT_POLL_MS
-      this.#schedule(() => this.wake(), CONNECT_POLL_MS)
+      this.#scheduleRetry(item, CONNECT_POLL_MS)
       return
     }
     item.state = 'sending'
@@ -282,7 +282,19 @@ export class PendingSends {
   #later(item: PendingSend): void {
     const seconds = RETRY_SECONDS[Math.min(item.attempts, RETRY_SECONDS.length - 1)]!
     item.retryAt = this.#opts.now() + seconds * 1000
-    this.#schedule(() => this.wake(), seconds * 1000)
+    this.#scheduleRetry(item, seconds * 1000)
+  }
+
+  /** A timer can run before the wall clock reports its deadline. Keep the
+   *  remaining wait instead of losing the record's only automatic retry. */
+  #scheduleRetry(item: PendingSend, ms: number): void {
+    this.#schedule(() => {
+      if (this.#items.get(item.id) !== item || !this.#here(item) || !item.publish ||
+          (item.state !== 'waiting' && item.state !== 'refused' && item.state !== 'unknown')) return
+      const remaining = (item.retryAt ?? 0) - this.#opts.now()
+      if (remaining > 0) this.#scheduleRetry(item, remaining)
+      else void this.#attempt(item)
+    }, ms)
   }
 
   #schedule(run: () => void, ms: number): void {
