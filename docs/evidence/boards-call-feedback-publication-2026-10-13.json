@@ -176,7 +176,7 @@
     }
   },
   "website": {
-    "release": "/var/www/kithmoot/releases/20261013T132121Z",
+    "release": "/var/www/kithmoot/releases/20261013T140635Z-inventory",
     "date": "2026-10-13T13:24:20.650Z",
     "pwaFiles": [
       {
@@ -2046,6 +2046,16 @@
         "finalUrl": "https://kithmoot.app/",
         "bytes": 21739,
         "sha256": "c0b1dd5b9ea1e76ebc57679a13e69c4e20ef0141a8df49faad109c0f3d4cdd93"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/versions.json",
+        "bytes": 169958,
+        "sha256": "c36311f5b794b332f019430f1b76e1f8f0322e63909641e3b37e6110c902457c"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/versions.json",
+        "bytes": 169958,
+        "sha256": "c36311f5b794b332f019430f1b76e1f8f0322e63909641e3b37e6110c902457c"
       }
     ],
     "installers": [
@@ -2530,5 +2540,26 @@
     "description": "Local Docker cleanup briefly interrupted unrelated containers; service was immediately restored",
     "restoredRunningContainers": 19,
     "unhealthy": 0
+  },
+  "inventoryFollowup": {
+    "pr": "https://github.com/forgesworn/kithmoot/pull/415",
+    "source": "96eb7eb78dd48e64474cfa069f9ad694ad2bee31",
+    "testedHead": "2ba580d692b4dc4e9cf41e53bd12ca761b4cbdf5",
+    "ci": "https://github.com/forgesworn/kithmoot/actions/runs/38405865910",
+    "checks": 12,
+    "publicMetadata": [
+      {
+        "url": "https://kithmoot.app/downloads/versions.json",
+        "bytes": 169958,
+        "sha256": "c36311f5b794b332f019430f1b76e1f8f0322e63909641e3b37e6110c902457c"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/versions.json",
+        "bytes": 169958,
+        "sha256": "c36311f5b794b332f019430f1b76e1f8f0322e63909641e3b37e6110c902457c"
+      }
+    ],
+    "oldReleaseUnchanged": true,
+    "pwaAndSignedUpdateMetadataUnchanged": true
   }
 }
