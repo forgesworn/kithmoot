@@ -3,3 +3,5 @@ export { boardContextFixture, damageBoardContextFixture } from './ordinary-board
 export { validateOrdinaryMetadataSnapshot } from '../app/src/ordinary-metadata-snapshot.js'
 export { ordinaryPrivateStorageName, validateOrdinaryPhysicalSnapshot } from '../app/src/ordinary-physical-snapshot.js'
 export { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from '../app/src/ordinary-snapshot.js'
+export { OrdinaryBoardContextState } from '../app/src/ordinary-board-context-state.js'
+export { BoardContextView } from '../app/src/board-context-view.js'

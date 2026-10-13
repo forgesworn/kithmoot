@@ -317,6 +317,7 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
 import { BoardsPanel } from './boards-panel.js'
+import { legacyBoardContextCustody } from './board-context-custody.js'
 import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
 import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -1270,13 +1271,13 @@ async function signInWithNostr(): Promise<void> {
   if (loginBusy) return
   if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
   workspaceWork?.reset()
-  boardsPanel?.reset()
   loginBusy = true
   identityGeneration++
   admissionController?.abort()
   clearImportedHistorySearch()
   let account: SignetSession | null
   try {
+    await boardsPanel?.reset()
     if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
     account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
       // 'nsec' is the dangerous route, kept behind Advanced by the picker:
@@ -1330,7 +1331,7 @@ async function signOutOfNostr(): Promise<void> {
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
   workspaceWork?.reset()
-  boardsPanel?.reset()
+  await boardsPanel?.reset()
   // A signed-out account must not leave its device-specific rendezvous child
   // behind. Do this before changing the visible account state: a storage
   // failure keeps the account connected rather than pretending the clear won.
@@ -1411,6 +1412,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     danger: true,
   })) return
 
+  await boardsPanel?.reset()
   contextPanel.close()
   await browserLinkPanel.link.forget()
   // As above, avoid creating a vault on a browser that never held one.
@@ -1420,7 +1422,6 @@ async function forgetThisBrowserContents(): Promise<void> {
   clearImportedHistorySearch()
   const s = session
   workspaceWork?.reset()
-  boardsPanel?.reset()
   session = undefined
   sessionTransport = undefined
   resetIncomingCall()
@@ -14922,7 +14923,8 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
 }
 
 boardsPanel = new BoardsPanel(document, {
-  session: () => nostrSession ?? undefined, store: deviceStore,
+  session: () => nostrSession ?? undefined,
+  contexts: async (account,current) => legacyBoardContextCustody(deviceStore,account.pubkey,current),
   projects: () => projectChoices(workspaceActivityRooms()).map(p => ({id: p.key, name: p.name})),
   rooms: project => workspaceActivityRooms().filter(room => !project || matchesRoom(room, '', project)).map(room => ({id: room.roomId, name: knownRoomLabel(room)})),
   currentRoom: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); return room ? {id: room.roomId, name: knownRoomLabel(room)} : undefined},
