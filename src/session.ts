@@ -1,6 +1,7 @@
 import { getPublicKey } from 'nostr-tools/pure'
 import type { ProtocolExecution } from './protocol-execution.js'
-import { captureProtocolData } from './protocol-execution.js'
+import { captureProtocolData, protocolTask } from './protocol-execution.js'
+import { ProtocolTimers } from './protocol-timers.js'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
 import { requestFreshRootEpoch } from './fresh-epoch.js'
@@ -709,6 +710,7 @@ export class RoomSession {
   #heartbeatTimer?: ReturnType<typeof setInterval>
   #sweepTimer?: ReturnType<typeof setInterval>
   #renewalTimer?: ReturnType<typeof setTimeout>
+  readonly #protocolTimers?: ProtocolTimers
   #left = false
   #rekeying = false
   readonly #admissionAbort = new AbortController()
@@ -853,6 +855,7 @@ export class RoomSession {
       // comparison against a roster entry or a credential is correct by
       // construction. See `hex.ts`'s `normaliseHex`.
       this.participant = normaliseHex(opts.identity.pubkey)
+      if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
       return
     }
 
@@ -864,6 +867,7 @@ export class RoomSession {
     if (verdict.device !== this.device) throw new Error('device credential names a different device')
     this.participant = verdict.participant
     this.#credential = opts.credential
+    if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
   }
 
   /**
@@ -893,13 +897,21 @@ export class RoomSession {
     return candidate.credential
   }
 
-  async #mintCredential(devicePubkey: string, ttlSeconds: number): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
+  #mintCredential(devicePubkey: string, ttlSeconds: number, execution = this.#opts.protocol): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
+    let candidate: { credential: DeviceCredential; sealSk?: Uint8Array } | undefined
+    return protocolTask(execution, 'credential-mint', async owned => {
+      candidate = await this.#mintOwnedCredential(devicePubkey, ttlSeconds, owned)
+      return candidate
+    }).catch(error => { candidate?.sealSk?.fill(0); throw error })
+  }
+
+  async #mintOwnedCredential(devicePubkey: string, ttlSeconds: number, execution: ProtocolExecution | undefined): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
     const identity = this.#opts.identity
     if (!identity) throw new Error('this device cannot sign for the participant, so it cannot issue credentials')
     let seal: ReturnType<typeof generateSealKey> | undefined
     try {
       const prepare = () => {
-      this.#opts.protocol?.check('credential-preparation')
+      execution?.check('credential-preparation')
       if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
       seal = normaliseHex(devicePubkey) === this.device ? generateSealKey() : undefined
       const pending = createDeviceCredential({
@@ -911,17 +923,17 @@ export class RoomSession {
         now: this.#now,
       })
       void pending.catch(() => {})
-      this.#opts.protocol?.retain(pending)
+      execution?.retain(pending)
       return { pending }
       }
-      const prepared = this.#opts.protocol ? await this.#opts.protocol.run('credential-preparation', prepare) : prepare()
-      const credential = await (this.#opts.protocol?.retain(prepared.pending) ?? prepared.pending)
+      const prepared = execution ? await execution.run('credential-preparation', prepare) : prepare()
+      const credential = await prepared.pending
       const handoff = () => {
-        this.#opts.protocol?.check('credential-handoff')
+        execution?.check('credential-handoff')
         if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
         return { credential, ...(seal ? { sealSk: seal.secretKey } : {}) }
       }
-      return this.#opts.protocol ? await this.#opts.protocol.run('credential-handoff', handoff) : handoff()
+      return execution ? await execution.run('credential-handoff', handoff) : handoff()
     } catch (error) {
       seal?.secretKey.fill(0)
       throw error
@@ -935,9 +947,9 @@ export class RoomSession {
 
   /** One exact candidate and one retention attempt at a time. Uncertain
    * outcomes stay private, including after expiry, until acknowledged. */
-  #ownCredential(ttlSeconds = this.#credentialTtl()): Promise<DeviceCredential> {
+  #ownCredential(ttlSeconds = this.#credentialTtl(), execution = this.#opts.protocol): Promise<DeviceCredential> {
     if (this.#credentialWork) return this.#credentialWork
-    const work = this.#retainOwnCredential(ttlSeconds)
+    const work = protocolTask(execution, 'credential-retention', owned => this.#retainOwnCredential(ttlSeconds, owned))
     this.#credentialWork = work
     void work.finally(() => {
       if (this.#credentialWork === work) this.#credentialWork = undefined
@@ -945,10 +957,10 @@ export class RoomSession {
     return work
   }
 
-  async #retainOwnCredential(ttlSeconds: number): Promise<DeviceCredential> {
+  async #retainOwnCredential(ttlSeconds: number, execution: ProtocolExecution | undefined): Promise<DeviceCredential> {
     if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
     if (!this.#pendingCredential) {
-      const candidate = await this.#mintCredential(this.device, ttlSeconds)
+      const candidate = await this.#mintCredential(this.device, ttlSeconds, execution)
       this.#pendingCredential = candidate
     }
     const candidate = this.#pendingCredential
@@ -1094,7 +1106,7 @@ export class RoomSession {
   join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
     if (this.#joinWork) return this.#joinWork
     if (this.#self) return Promise.reject(new Error('room already joined'))
-    const work = this.#joinWithAdmission(tracks, claims)
+    const work = protocolTask(this.#opts.protocol, 'session-join', execution => this.#joinWithAdmission(tracks, claims, execution))
     this.#joinWork = work
     this.#opts.protocol?.retain(work)
     void work.finally(() => {
@@ -1103,13 +1115,13 @@ export class RoomSession {
     return work
   }
 
-  async #joinWithAdmission(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
-    if (!this.#opts.requireFreshEpoch) return this.#join(tracks, claims)
+  async #joinWithAdmission(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>, execution = this.#opts.protocol): Promise<void> {
+    if (!this.#opts.requireFreshEpoch) return this.#join(tracks, claims, execution)
     const signal = this.#opts.admissionSignal
     const cancel = () => { void this.leave() }
     signal?.addEventListener('abort', cancel, { once: true })
     try {
-      await this.#join(tracks, claims)
+      await this.#join(tracks, claims, execution)
       if (this.#left || signal?.aborted) throw new Error('room admission cancelled')
     } catch (error) {
       // No room effects have started: keep an uncertain exact candidate for
@@ -1121,7 +1133,7 @@ export class RoomSession {
     finally { signal?.removeEventListener('abort', cancel) }
   }
 
-  async #join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+  async #join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>, execution = this.#opts.protocol): Promise<void> {
     if (this.#left || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
     if (this.#ended()) throw new Error(CONFERENCE_ENDED_MESSAGE)
     if (this.#opts.policy) {
@@ -1140,7 +1152,7 @@ export class RoomSession {
     // which is the only endpoint holding the participant key, can mint one,
     // and it reuses the one it minted last time while that is still good.
     const resumed = this.#resumable()
-    const credential = this.#credential ?? resumed ?? (await this.#ownCredential())
+    const credential = this.#credential ?? resumed ?? (await this.#ownCredential(undefined, execution))
     if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || this.#ended()) throw new Error('room admission cancelled')
     if (!this.#credential && !resumed) this.#announceCredential(credential)
     if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
@@ -1168,7 +1180,7 @@ export class RoomSession {
         // a relay that forgot them cannot put this device back in epoch 0.
         const kept = await this.#opts.archive?.read({ kind: KINDS.ROOM_REKEY, d: this.roomId, limit: 1_000 }).catch(() => [])
         for (const event of kept ?? []) this.#ingestRekey(event)
-        await this.#settleEpoch(replayed)
+        await this.#settleEpoch(replayed, execution)
         if (this.#left || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
         this.#freshEpochConfirmed = true
       } catch (err) {
@@ -1276,7 +1288,7 @@ export class RoomSession {
     )
 
     try {
-      await this.#publishEntry(false)
+      await this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution)
     } catch (err) {
       // Nobody heard us, so nothing of ours may stay on the network: a mesh
       // that never joined must not answer offers, and a subscription with no
@@ -1318,12 +1330,19 @@ export class RoomSession {
       protocol: this.#opts.protocol,
     })
     }
-    this.#chat = this.#opts.protocol ? await this.#opts.protocol.run('chat-construction', makeChat) : makeChat()
+    this.#chat = execution ? await execution.run('chat-construction', makeChat) : makeChat()
 
     // Presence is live state, so it has to be restated and it has to lapse -
     // see `PRESENCE_TTL_SECONDS`. Both timers are unreferenced where the
     // runtime allows it, because a library keeping a Node process alive after
     // its caller has finished is a bug in the library.
+    if (this.#protocolTimers) {
+      this.#startOwnedHeartbeat()
+      const interval = this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS
+      this.#protocolTimers.schedule('sweep', interval, () => {
+        if (!this.#left && this.#evictLapsed()) this.#notify()
+      }, interval)
+    } else {
     this.#heartbeatTimer = this.#every(
       this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
       () => {
@@ -1333,6 +1352,7 @@ export class RoomSession {
     this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
       if (this.#evictLapsed()) this.#notify()
     })
+    }
     if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
     this.#openMemberDesk()
   }
@@ -1583,9 +1603,9 @@ export class RoomSession {
    * same instruction to ask. Told the room is where this device is, or
    * behind it, say nothing and get on.
    */
-  async #settleEpoch(replayed: Promise<void>): Promise<void> {
+  async #settleEpoch(replayed: Promise<void>, execution = this.#opts.protocol): Promise<void> {
     if (this.#opts.requireFreshEpoch) {
-      if (this.#opts.protocol) await this.#opts.protocol.run('epoch-replay', () => this.#drainRekeys()); else this.#drainRekeys()
+      if (execution) await execution.run('epoch-replay', () => this.#drainRekeys()); else this.#drainRekeys()
       if (this.#refusedWhileJoining) throw new EpochRefusedError(this.#refusedWhileJoining)
       const floor = () => Math.max(this.#epoch.epoch, this.#opts.expectedEpoch ?? 0, ...this.#pendingRekeys.keys())
       try {
@@ -1595,15 +1615,15 @@ export class RoomSession {
           credential: this.#self!.credential, proof: this.#opts.proof, now: this.#now, floor,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
           expiresAt: this.#opts.endsAt, sealSks: () => this.#sealSks(),
-          signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])], protocol: this.#opts.protocol })
-        this.#opts.protocol?.retain(pending); void pending.catch(() => {})
+          signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])], protocol: execution })
+        execution?.retain(pending); void pending.catch(() => {})
         return { pending }
         }
-        const requested = this.#opts.protocol ? await this.#opts.protocol.run('epoch-request-start', request) : request()
+        const requested = execution ? await execution.run('epoch-request-start', request) : request()
         void requested.pending.catch(() => {})
-        const grant = await (this.#opts.protocol?.retain(requested.pending) ?? requested.pending)
+        const grant = await (execution?.retain(requested.pending) ?? requested.pending)
         const adopt = () => {
-        this.#opts.protocol?.check('epoch-adoption')
+        execution?.check('epoch-adoption')
         if (this.#left || this.#opts.admissionSignal?.aborted || grant.epoch.epoch < floor()) throw new Error('room admission changed while awaiting authority')
         if (grant.removed.includes(this.participant)) throw new EpochRefusedError('removed')
         if (grant.epoch.epoch === this.#epoch.epoch && grant.epoch.epoch > 0 &&
@@ -1614,7 +1634,7 @@ export class RoomSession {
           { epoch: grant.epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() }, grant.passed ?? [])
         for (const n of this.#pendingRekeys.keys()) if (n <= this.#epoch.epoch) this.#pendingRekeys.delete(n)
         }
-        if (this.#opts.protocol) await this.#opts.protocol.run('epoch-adoption', adopt); else adopt()
+        if (execution) await execution.run('epoch-adoption', adopt); else adopt()
       } catch (error) {
         if (error instanceof EpochRefusedError && error.refused !== 'unknown') throw error
         throw new EpochUnreachableError(error)
@@ -2221,6 +2241,10 @@ export class RoomSession {
   }
 
   #scheduleRenewal(afterMs: number): void {
+    if (this.#protocolTimers) {
+      this.#protocolTimers.schedule('renewal', afterMs, execution => this.#renewCredential(execution))
+      return
+    }
     if (this.#renewalTimer !== undefined) clearTimeout(this.#renewalTimer)
     const timer = setTimeout(() => {
       this.#renewalTimer = undefined
@@ -2239,16 +2263,20 @@ export class RoomSession {
    * fact. A signer that refuses, or a relay that is down, costs a retry
    * rather than the room - the old credential is still good for a while.
    */
-  async #renewCredential(): Promise<void> {
+  #renewCredential(execution = this.#opts.protocol): Promise<void> {
+    return protocolTask(execution, 'credential-renewal', owned => this.#renewOwnedCredential(owned))
+  }
+
+  async #renewOwnedCredential(execution: ProtocolExecution | undefined): Promise<void> {
     if (this.#left || !this.#self || !this.#opts.identity) return
     try {
-      const credential = await this.#ownCredential()
+      const credential = await this.#ownCredential(undefined, execution)
       if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || !this.#self) return
       this.#self = { ...this.#self, credential }
       this.#chat?.setCredential(credential)
       for (const log of this.#channels.values()) log.setCredential(credential)
       this.#announceCredential(credential)
-      await this.#publishEntry(true)
+      await this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, execution)
       this.#scheduleRenewal(this.#renewalDelayMs(credential))
     } catch {
       if (!this.#left && !this.#closed) this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
@@ -2338,13 +2366,17 @@ export class RoomSession {
    * because a forwarder is named by url and pubkey and is never given the
    * room key - see `RoomDescriptor`.
    */
-  async publishDescriptor(config: {
+  publishDescriptor(config: {
     forwarders?: ForwarderRef[]
     iceServers?: IceServerRef[]
     /** Unix seconds. Defaults to now; exposed so a caller can supersede a
      *  descriptor whose publisher's clock ran ahead. */
     updatedAt?: number
   }): Promise<void> {
+    return protocolTask(this.#opts.protocol, 'descriptor-publication', execution => this.#publishOwnedDescriptor(config, execution))
+  }
+  async #publishOwnedDescriptor(config: { forwarders?: ForwarderRef[]; iceServers?: IceServerRef[]; updatedAt?: number },
+    execution: ProtocolExecution | undefined): Promise<void> {
     if (this.#opts.protocol) config = captureProtocolData(config)
     const prepare = () => {
     this.#opts.protocol?.check('descriptor-preparation')
@@ -2366,8 +2398,13 @@ export class RoomSession {
     )
     return event
     }
-    const event = this.#opts.protocol ? await this.#opts.protocol.run('descriptor-preparation', prepare) : prepare()
-    await this.#opts.transport.publish(event)
+    if (execution) {
+      const prepared = await execution.run('descriptor-preparation', () => {
+        const event = prepare(), pending = this.#opts.transport.publish(event)
+        execution.retain(pending); void pending.catch(() => {}); return { pending }
+      })
+      await prepared.pending
+    } else await this.#opts.transport.publish(prepare())
   }
 
   /** Never throws - this runs inside a relay subscription handler.
@@ -2490,7 +2527,12 @@ export class RoomSession {
     }
   }
 
-  async #publishEntry(reply: boolean, left = false, live = this.#currentOutgoingLiveRecording(), allowed?: () => boolean): Promise<void> {
+  #publishEntry(reply: boolean, left = false, live = this.#currentOutgoingLiveRecording(), allowed?: () => boolean,
+    execution = this.#opts.protocol): Promise<void> {
+    return protocolTask(execution, 'roster-publication', owned => this.#publishOwnedEntry(reply, left, live, allowed, owned))
+  }
+  async #publishOwnedEntry(reply: boolean, left: boolean, live: LiveRecordingState | undefined, allowed: (() => boolean) | undefined,
+    execution: ProtocolExecution | undefined): Promise<void> {
     const prepare = () => {
     this.#opts.protocol?.check('roster-preparation')
     const self = this.#self
@@ -2537,9 +2579,13 @@ export class RoomSession {
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       expiresAt: this.#opts.endsAt,
     })
-    return { entry, event }
+    let pending: Promise<void> | undefined
+    if (execution && !allowed) {
+      pending = this.#opts.transport.publish(event); execution.retain(pending); void pending.catch(() => {})
     }
-    const prepared = this.#opts.protocol ? await this.#opts.protocol.run('roster-preparation', prepare) : prepare()
+    return { entry, event, pending }
+    }
+    const prepared = execution ? await execution.run('roster-preparation', prepare) : prepare()
     if (!prepared) return
     const { entry, event } = prepared
     if (allowed) {
@@ -2549,14 +2595,20 @@ export class RoomSession {
       if (!publicationAllowed()) throw new Error('The recording device needs a current room credential.')
       await this.#opts.transport.publishGuarded(event, publicationAllowed)
       if (!publicationAllowed()) throw new Error('The original call changed before the warning was confirmed.')
-      if (this.#opts.protocol) await this.#opts.protocol.run('roster-acknowledgement', () => this.#ingest(event)); else this.#ingest(event)
-    } else await this.#opts.transport.publish(event)
+      if (execution) await execution.run('roster-acknowledgement', () => this.#ingest(event)); else this.#ingest(event)
+    } else await (prepared.pending ?? this.#opts.transport.publish(event))
   }
 
   #every(intervalMs: number, run: () => void): ReturnType<typeof setInterval> {
     const timer = setInterval(run, intervalMs)
     ;(timer as unknown as { unref?: () => void }).unref?.()
     return timer
+  }
+
+  #startOwnedHeartbeat(): void {
+    const interval = this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS
+    this.#protocolTimers!.schedule('heartbeat', interval, execution =>
+      this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution), interval)
   }
 
   /**
@@ -2637,6 +2689,13 @@ export class RoomSession {
   /** Schedule one answer to a new arrival, jittered. Coalesced: an answer
    *  already pending covers every device that arrives before it fires. */
   #scheduleReply(): void {
+    if (this.#protocolTimers) {
+      if (this.#protocolTimers.has('reply') || this.#left || !this.#self) return
+      const jitter = this.#opts.announceJitterMs ?? DEFAULT_ANNOUNCE_JITTER_MS
+      this.#protocolTimers.schedule('reply', Math.floor(randomFraction() * jitter), execution =>
+        this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, execution))
+      return
+    }
     if (this.#replyTimer !== undefined || this.#left || !this.#self) return
     const jitter = this.#opts.announceJitterMs ?? DEFAULT_ANNOUNCE_JITTER_MS
     this.#replyTimer = setTimeout(
@@ -2781,6 +2840,7 @@ export class RoomSession {
    */
   pausePresence(): void {
     this.#mesh?.standDown()
+    if (this.#protocolTimers) { this.#protocolTimers.cancel('heartbeat'); return }
     if (this.#heartbeatTimer === undefined) return
     clearInterval(this.#heartbeatTimer)
     this.#heartbeatTimer = undefined
@@ -2791,6 +2851,10 @@ export class RoomSession {
    *  call repeatedly. */
   resumePresence(): void {
     this.#mesh?.standUp()
+    if (this.#protocolTimers) {
+      if (!this.#protocolTimers.has('heartbeat') && !this.#left && this.#self) this.#startOwnedHeartbeat()
+      return
+    }
     if (this.#heartbeatTimer !== undefined || this.#left || !this.#self) return
     this.#heartbeatTimer = this.#every(
       this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
@@ -3271,6 +3335,7 @@ export class RoomSession {
    */
   leave(): Promise<void> {
     this.#admissionAbort.abort()
+    this.#protocolTimers?.close()
     // The last thing this device says is an entry claiming nothing,
     // publishing nothing, and marked `left`. That releases a singular role
     // and takes the tile off everybody's screen at once, rather than making

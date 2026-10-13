@@ -105,11 +105,15 @@ and acknowledgement continuations retain their generation and must finish
 without joining the renewal promise itself. A bounded drain timeout makes no
 writes and closes the old session.
 
-Fence raw socket observations or queue at most 256 frames / 8 MiB while
-suspended, with terminal close on overflow. Continuous incoming traffic cannot
-postpone the drain or accumulate behind an unknown-ACK write lock. Reconnect
-and resubscribe only under the acknowledged successor; old queued observations
-cannot run with a new generation ticket.
+Drain observations registered before the latch and fence subsequent general
+socket observations. The sole old acknowledgement exception must identify an
+already-sent event, destination, raw socket and generation; arbitrary EVENT,
+EOSE or OK frames cannot keep the drain open. The existing ingress bound is
+256 frames / 8 MiB, with terminal close on overflow. Continuous incoming traffic
+cannot postpone the drain or accumulate behind an unknown-ACK write lock.
+Reconnect and resubscribe under a freshly authenticated unchanged predecessor
+after a definite abort, or under the acknowledged successor after adoption.
+Old callbacks remain fenced; they never acquire the resumed generation.
 
 After acknowledged commit, one fresh paired read authenticates the exact
 successor. In that same read swap the private root selection, expected full
@@ -133,6 +137,29 @@ the selected actor's lease together with its proof and advances the correct
 fences, preserving unrelated actors and rows.
 
 ## Acceptance still required
+
+The bounded first-credential implementation now has a shared ownership graph.
+It registers queued roots and descendants before their first await, keeps a
+parent nonterminal until its descendants finish, expires completed scopes and
+uses the exact producer root as its only drain exclusion. An abandoned producer
+or drain timeout closes terminally. Rejected retention cannot attach new native
+owner lifetimes. Synchronous nested task starts reuse an existing genuine native
+callback; asynchronous data/refusal handoffs still require fresh native reads.
+
+The native session's heartbeat, presence sweep, reply and renewal timers are
+fenced at suspension, including callbacks waiting for a native read. Original
+deadlines remain fixed and missed periodic ticks coalesce. A fresh admission
+wait cancels and unsubscribes when suspended. Caller-held prepared chat closures
+acquire fresh ownership only when published. Pool fan-out after the first ACK
+remains owned through actual settlement and close joins it.
+
+This graph and timer work does **not** activate native renewal. Full relay
+recovery/read-back/subscription suspension, the exact old-ACK exception, scoped
+AUTH and provider completion, the candidate producer and atomic acknowledged
+Session adoption remain unimplemented. General catch-up timers are outside this
+bounded factory, which still sets `epochCatchUp:false`. The first-credential
+factory refuses minting a replacement before entropy; refusal leaves the old
+credential usable only until its original fixed expiry.
 
 Exercise actual native owners and the real session for renewal, restart, both
 keep choices, concurrent tabs, exact-byte ABA, delayed predecessor completion,

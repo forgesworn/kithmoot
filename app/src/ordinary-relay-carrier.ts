@@ -9,6 +9,8 @@ import { OrdinaryStateOwner, ordinaryPairReadCustodyFor, type OrdinaryScope, typ
 import { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { OrdinaryForegroundSigner, captureOrdinarySigningStatement } from './ordinary-foreground-signer.js'
 import { signOrdinaryVisitorAuthentication } from './ordinary-participant-signing.js'
+import type { ProtocolExecution } from '../../src/protocol-execution.js'
+import type { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
 
 export const ORDINARY_RELAY_FRAME_BYTES = 2 * 1024 * 1024
 export const ORDINARY_RELAY_QUEUE_BYTES = 8 * 1024 * 1024
@@ -70,6 +72,8 @@ interface SubscriptionReceipt {
 }
 
 interface Options {
+  /** Ownership only. The actual carrier keeps its native custody predicate. */
+  readonly work?: OrdinaryProtocolWork
   readonly browser: OrdinaryStateOwner
   readonly tab: OrdinaryStateOwner
   readonly scope: string
@@ -165,12 +169,14 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       if (this.#image === undefined) this.#image = image
     } finally { b.clear(); t.clear() }
   }
-  #read<T>(effect: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T): Promise<T> {
+  #read<T>(effect: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T, scope?: ProtocolExecution): Promise<T> {
+    const graph = this.#options.work
+    if (graph && !scope) return graph.execution.task!('relay-read', owned => this.#read(effect, owned))
     const job = OrdinaryStateOwner.readPairMigrated({ browser: { owner: this.#options.browser, scope: this.#browserScope },
       tab: { owner: this.#options.tab, scope: this.#tabScope }, live: this.#live,
       work: (b, t, _bn, _tn, custody) => {
         this.#validate(b, t, custody)
-        const result = effect(b, t, custody)
+        const result = graph ? graph.enter(scope!, 'relay-read', () => effect(b, t, custody)) : effect(b, t, custody)
         this.#validate(b, t, custody)
         return result
       },
@@ -183,7 +189,11 @@ export class OrdinaryRelayCarrier implements RelayTransport {
           this.#queuedBytes + bytes > ORDINARY_RELAY_QUEUE_BYTES) hold()
     } catch { this.close(); return Promise.resolve() }
     this.#queuedFrames++; this.#queuedBytes += bytes
-    const job = tail.then(() => this.#read(effect)).catch(() => { this.close() }).finally(() => {
+    // Register before waiting for the queue tail. An already queued callback
+    // must not appear as new work on the far side of a suspension latch.
+    const run = async (scope?: ProtocolExecution) => { await tail; await this.#read(effect, scope) }
+    const pending = this.#options.work ? this.#options.work.own(run) : run()
+    const job = pending.catch(() => { this.close() }).finally(() => {
       this.#queuedFrames--; this.#queuedBytes -= bytes
     })
     return this.#track(job)
@@ -310,12 +320,23 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     let captured: NostrEvent
     try { captured = captureEvent(event); ordinaryUtf8Length(JSON.stringify(captured), ORDINARY_RELAY_FRAME_BYTES) }
     catch { this.close(); return Promise.reject(new OrdinaryStateHold()) }
-    return this.#track((async () => {
+    const run = async (scope?: ProtocolExecution) => {
       let pending: Promise<void> | undefined
-      await this.#read(() => { pending = this.#pool!.publish(captured); void pending.catch(() => {}) })
+      await this.#read(() => {
+        const pool = this.#pool!
+        pending = pool.publish(captured); void pending.catch(() => {})
+        // The public ACK may be the first relay. Keep its entire slower
+        // fan-out/retry tail owned by this publication's job graph too.
+        if (this.#options.work) {
+          const fanout = this.#options.work.own(async () => { while (pool.publishing) await pool.settled() })
+          this.#track(fanout); void fanout.catch(() => {})
+        }
+      }, scope)
       await pending
-      await this.#read(() => {})
-    })().catch(error => { if (this.#closed) hold(); throw error }))
+      await this.#read(() => {}, scope)
+    }
+    const pending = this.#options.work ? this.#options.work.execution.task!('relay-publication', run) : run()
+    return this.#track(pending.catch(error => { if (this.#closed) hold(); throw error }))
   }
   subscribe(filters: Filter[], onEvent: (event: NostrEvent, via?: string) => void, onEose?: () => void): () => void {
     if (!this.#relays.some(relay => relay.read)) { this.close(); return () => {} }

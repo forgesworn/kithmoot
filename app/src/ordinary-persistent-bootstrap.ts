@@ -11,7 +11,7 @@ import { generateSealKey } from '../../src/seal.js'
 import type { PersistentRoomAdmission } from '../../src/persistent-invitation.js'
 import { RelayConnections } from './relay-settings.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
-import { OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairProjectedByteLengths,
+import { OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths,
   type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 import { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
@@ -26,6 +26,7 @@ import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmission
   type PersistentDeviceCustody, type VerifiedPersistentProof } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected } from './persistent-creator-proof.js'
 import { MEMBER_LEASE_PREFIX } from './ordinary-member-lease.js'
+import { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
 import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions } from './ordinary-invitation-query.js'
 import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
@@ -97,12 +98,13 @@ export interface OrdinaryPersistentBootstrapResult {
   readonly credential: DeviceCredential
 }
 interface OrdinaryMemberProtocolExecution extends ProtocolExecution {
+  readonly work: OrdinaryProtocolWork
   /** Extra consumer on a genuine carrier's exact current read. */
   validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void
   close(): void
   joinLifetime(): Promise<void>
 }
-type MemberCarrierOptions = Omit<Parameters<typeof OrdinaryRelayCarrier.open>[0], 'browser' | 'tab' | 'scope' | 'account' | 'participant' | 'validate' | 'onClose'>
+type MemberCarrierOptions = Omit<Parameters<typeof OrdinaryRelayCarrier.open>[0], 'browser' | 'tab' | 'scope' | 'account' | 'participant' | 'validate' | 'onClose' | 'work'>
 export interface OrdinaryMemberSessionOptions extends MemberCarrierOptions {
   readonly name?: string
   readonly epochRequestTimeoutMs?: number
@@ -233,11 +235,11 @@ export class OrdinaryPersistentBootstrap {
     this.#preflight(browser, tab, custody)
     return { ...this.#image(browser, tab, custody), deviceCustody: this.#deviceCustody(browser, tab, custody, roomId) }
   }
-  #image(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): OpenedImage {
+  #image(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, readOnly = false): OpenedImage {
     const records = (store: DeviceStore) => store.keys().sort().map(name => [name, store.get(name)!] as const)
     const b = map(browser), t = map(tab)
     try {
-      const headers = ordinaryPairCustodyFor(custody, b, t)
+      const headers = readOnly ? ordinaryPairReadCustodyFor(custody, b, t) : ordinaryPairCustodyFor(custody, b, t)
       return { browser: records(browser), tab: records(tab), browserRevision: headers.browser.revision, tabRevision: headers.tab.revision }
     } finally { b.clear(); t.clear() }
   }
@@ -426,14 +428,20 @@ export class OrdinaryPersistentBootstrap {
         active = { b, t, c }
       } catch (error) { protocol.close(); throw error }
     }
-    const protocol: OrdinaryMemberProtocolExecution = {
-      validate,
-      check: () => { if (!active || !live()) hold(); validate(active.b, active.t, active.c) },
+    const native: ProtocolExecution = {
+      check: () => {
+        if (!active || !live() || !expected) hold()
+        // validate() has already checked the complete composer and signed
+        // selection in this exact read callback. Native read views are
+        // immutable; the callback repeats that full validation afterwards.
+        // Every intermediate check still proves the live opaque token,
+        // exact bytes/revisions, scopes and current selector/lifetimes.
+        OrdinaryStateOwner.validatePairBinding(active.c, binding)
+        if (JSON.stringify(owner.#image(active.b, active.t, active.c, true)) !== JSON.stringify(expected)) hold()
+        OrdinaryStateOwner.validatePairBinding(active.c, binding)
+      },
       retain,
       run: <T>(operation: string, effect: () => T): Promise<T> => {
-        // A renewed own seal/credential needs the missing atomic retention
-        // producer and capacity reservation before its first entropy.
-        if (operation === 'credential-preparation') return Promise.reject(new OrdinaryStateHold())
         let applicationRefusal: { error: unknown } | undefined
         return retain(OrdinaryStateOwner.readPairMigrated({ ...binding,
           work: (b, t, _bn, _tn, c) => {
@@ -454,12 +462,21 @@ export class OrdinaryPersistentBootstrap {
           },
         }).catch(error => { if (!applicationRefusal || applicationRefusal.error !== error) protocol.close(); throw error }))
       },
+    }
+    const graph = new OrdinaryProtocolWork(native, () => protocol.close(), operation => {
+      // A read-only first credential may keep running, but never mint its
+      // replacement before the atomic producer/capacity/handoff exists.
+      if (operation === 'credential-preparation') throw new Error('Native credential renewal is not yet enabled.')
+    })
+    const protocol: OrdinaryMemberProtocolExecution = {
+      ...graph.execution, work: graph, validate,
       close: () => {
         if (closed) return
         closed = true; active = undefined; expected = undefined; clearTimeout(leaseTimer); release?.(); release = undefined
+        try { graph.close() } catch { /* all native resources still revoke */ }
         try { revoke() } catch { /* retained work still belongs to both owners */ }
       },
-      joinLifetime: async () => { while (work.size) await Promise.allSettled([...work]) },
+      joinLifetime: async () => { await graph.join(); while (work.size) await Promise.allSettled([...work]) },
     }
     try {
       const material = await this.#load()
@@ -579,6 +596,7 @@ export class OrdinaryPersistentBootstrap {
         let starting = true
         carrier = await OrdinaryRelayCarrier.open({ browser: this.#options.browser, tab: this.#options.tab, scope: this.#browserScope.name,
           relays, profile, websocketImplementation, account: this.#options.account, participant: this.#participant, authentication,
+          work: protocol.work,
           live: () => !closed && this.#live() && live(),
           validate: (b, t, c) => {
             protocol!.validate(b, t, c)
@@ -599,18 +617,18 @@ export class OrdinaryPersistentBootstrap {
           requireFreshEpoch: true, expectedEpoch: 0, endsAt: material!.admission.endsAt, policy, name, epochRequestTimeoutMs: timeout,
           timing: { credentialTtlSeconds: this.#options.credentialExpiresAt - material!.credential.created_at },
         }))
-        const perform = async <T>(operation: string, effect: () => Promise<T>): Promise<T> => {
-          const started = await protocol!.run(operation, () => {
+        const perform = <T>(operation: string, effect: () => Promise<T>): Promise<T> => protocol!.task!(operation, async execution => {
+          const started = await execution.run(operation, () => {
             if (closed) hold()
-            const pending = effect(); protocol!.retain(pending); void pending.catch(() => {}); return { pending }
+            const pending = effect(); execution.retain(pending); void pending.catch(() => {}); return { pending }
           })
           let result: T
           try { result = await started.pending } catch (error) {
             if (operation === 'session-join') protocol!.close()
             if (closed) hold(); throw error
           }
-          return protocol!.run(operation + '-handoff', () => { if (closed) hold(); return result })
-        }
+          return execution.run(operation + '-handoff', () => { if (closed) hold(); return result })
+        }).catch(error => { if (closed) hold(); throw error })
         const conversation = (channel?: string): OrdinaryMemberConversation => {
           const log = () => channel === undefined ? session!.chat : session!.channel(channel)
           return Object.freeze({

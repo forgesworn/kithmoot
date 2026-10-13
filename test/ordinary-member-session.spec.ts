@@ -206,6 +206,9 @@ test('the first-credential lease refuses renewal without issuing or retaining a 
   await page.clock.fastForward(901_000)
   expect(await page.evaluate(`(async()=>{const current=await bootstrap.load();try{return[signCalls,current.credential.id===ownCredential.id]}
     finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(current)}})()`)).toEqual([1, true])
+  await page.evaluate('member.send("old credential remains usable after refused renewal")')
+  expect(await page.evaluate('(async()=>[(await member.messages()).some(m=>m.text==="old credential remains usable after refused renewal"),sockets.some(socket=>socket.readyState===1)])()'))
+    .toEqual([true, true])
   await page.evaluate('member.close()')
 })
 for (const change of ['catch-up', 'closed', 'removed', 'readable']) test(`actual signed ${change} rekey respects the bounded native session lifecycle`, async ({ page }) => {

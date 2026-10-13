@@ -1,6 +1,6 @@
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import type { ProtocolExecution } from './protocol-execution.js'
-import { captureProtocolData } from './protocol-execution.js'
+import { captureProtocolData, protocolTask } from './protocol-execution.js'
 import { nip44 } from 'nostr-tools'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
@@ -1076,10 +1076,13 @@ export class ChatLog {
     return this.#credential === undefined || this.#opts.deviceSk === undefined
   }
 
-  async send(text: string, sendOpts: SendOptions = {}): Promise<void> {
+  send(text: string, sendOpts: SendOptions = {}): Promise<void> {
+    return protocolTask(this.#opts.protocol, 'chat-send', execution => this.#sendOwned(text, sendOpts, execution))
+  }
+  async #sendOwned(text: string, sendOpts: SendOptions, execution: ProtocolExecution | undefined): Promise<void> {
     if (this.#opts.protocol) sendOpts = captureProtocolData(sendOpts)
-    const prepare = () => this.prepare(text, sendOpts)
-    const prepared = this.#opts.protocol ? await this.#opts.protocol.run('chat-preparation', prepare) : prepare()
+    const prepare = () => this.#prepareOwned(text, sendOpts, execution)
+    const prepared = execution ? await execution.run('chat-preparation', prepare) : prepare()
     await prepared.publish()
   }
 
@@ -1094,6 +1097,11 @@ export class ChatLog {
    *  for a caller that keeps an unsent message (to show it, or to send it
    *  again after a reload). */
   prepare(text: string, sendOpts: SendOptions = {}): PreparedSend {
+    // A caller-held retry acquires fresh ownership when it is invoked; its
+    // preparation scope is not retained as an indefinitely active job.
+    return this.#prepareOwned(text, sendOpts, this.#opts.protocol)
+  }
+  #prepareOwned(text: string, sendOpts: SendOptions, execution: ProtocolExecution | undefined): PreparedSend {
     this.#opts.protocol?.check('chat-preparation')
     if (this.#opts.protocol && typeof text !== 'string') throw new Error('chat text must be a string')
     if (this.#opts.protocol) { sendOpts = captureProtocolData(sendOpts); this.#opts.protocol.check('chat-preparation') }
@@ -1190,30 +1198,31 @@ export class ChatLog {
       expiresAt: this.#opts.expiresAt,
     })
     const epoch = this.#epoch
-    return { message: msg, event, publish: async () => {
+    return { message: msg, event, publish: () => protocolTask(execution, 'chat-publication', async owned => {
       const start = () => {
-      this.#opts.protocol?.check('chat-publication')
+      owned?.check('chat-publication')
       if (this.#closed || this.#epoch !== epoch) {
         throw new Error(CONVERSATION_MOVED)
       }
+      if (owned && this.#credential?.id !== credential.id) throw new Error('conversation changed its credential since this message was prepared')
       const pending = this.#opts.transport.publish(event)
-      this.#opts.protocol?.retain(pending)
+      owned?.retain(pending)
       void pending.catch(() => {})
       return { pending }
       }
-      const started = this.#opts.protocol ? await this.#opts.protocol.run('chat-publication', start) : start()
+      const started = owned ? await owned.run('chat-publication', start) : start()
       await started.pending
       // An acknowledgement need not be followed by a subscription echo.
       // Decode our accepted event through the same credential, policy and
       // rate checks as history, without inventing a relay/lane attribution.
       const acknowledge = () => {
-      this.#opts.protocol?.check('chat-acknowledgement')
+      owned?.check('chat-acknowledgement')
       if (this.#opts.protocol && (this.#closed || this.#epoch !== epoch)) throw new Error(CONVERSATION_MOVED)
       this.#opts.archive?.keep(event, this.#archiveMeta())
       if (!this.#closed && this.#epoch === epoch && this.#ingest(event, undefined, true)) this.#notify()
       }
-      if (this.#opts.protocol) await this.#opts.protocol.run('chat-acknowledgement', acknowledge); else acknowledge()
-    } }
+      if (owned) await owned.run('chat-acknowledgement', acknowledge); else acknowledge()
+    }) }
   }
 
   /**

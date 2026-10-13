@@ -8,6 +8,19 @@ export interface ProtocolExecution {
   check(operation: string): void
   /** Resource ownership only, never permission to run an effect. */
   retain<T>(work: Promise<T>): Promise<T>
+  /** Optional ownership of a complete asynchronous job and its descendants.
+   * The scoped executor expires when that callback and its owned work finish.
+   * Keeping a prepared closure does not keep its preparation scope alive. */
+  task?<T>(operation: string, work: (execution: ProtocolExecution) => Promise<T>): Promise<T>
+  /** Cleanup-only notification. The listener must synchronously disarm timers
+   * and resources; it must not create protocol effects or await anything. */
+  onSuspend?(listener: (suspended: boolean) => void): () => void
+}
+
+/** Preserve the existing call path when an embedding supplies no job graph. */
+export function protocolTask<T>(execution: ProtocolExecution | undefined, operation: string,
+  work: (scope: ProtocolExecution | undefined) => Promise<T>): Promise<T> {
+  return execution?.task ? execution.task(operation, work) : work(execution)
 }
 
 /** Capture bounded plain data without invoking accessor-backed fields. This
