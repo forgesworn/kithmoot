@@ -25,6 +25,8 @@ import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmission
   PERSISTENT_PROOF_V2_PREFIX, PERSISTENT_TAB_PROOF_V2_PREFIX,
   type PersistentDeviceCustody, type VerifiedPersistentProof } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected } from './persistent-creator-proof.js'
+import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions } from './ordinary-invitation-query.js'
+import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
 
 const HEX = /^[0-9a-f]{64}$/
 const DEVICE_OWNER = 'kithmoot.device-owner.'
@@ -108,6 +110,8 @@ export class OrdinaryPersistentBootstrap {
   #candidateOperation: string | undefined
   #ownedOperation: string | undefined
   #openedImage: OpenedImage | undefined
+  #queryStarting = false
+  #queryAbort: AbortController | undefined
   private constructor(options: Options, participant: string, sign: ParticipantIdentity['signEvent'], browser: OrdinaryScope, tab: OrdinaryScope) {
     this.#options = options; this.#participant = participant; this.#sign = sign
     this.#browserScope = browser; this.#tabScope = tab; this.#id = deriveInvitationId(options.invitation)
@@ -353,11 +357,35 @@ export class OrdinaryPersistentBootstrap {
     } catch (error) { wipeOrdinaryPersistentBootstrapResult(result); throw error }
   }
   load(): Promise<OrdinaryPersistentBootstrapResult | undefined> { return this.#track(this.#load()) }
+  /** Dedicated, explicitly selected relay query. Native custody guards the
+   * actual constructor, raw REQ/AUTH sends and bounded incoming observations.
+   * The result remains historical evidence; bootstrap independently verifies
+   * it again before any device entropy or participant credential signing. */
+  queryEvidence(input: OrdinaryInvitationQueryOptions): Promise<PersistentInvitationEvidenceResult['evidence']> {
+    if (this.#closed || this.#starting || this.#attempted || this.#forgetting || this.#queryStarting || this.#queryAbort) hold()
+    this.#queryStarting = true
+    const abort = new AbortController(); this.#queryAbort = abort
+    try {
+      if (!this.#live()) hold()
+      const guard = <T>(effect: () => T) => this.#read((browser, tab, custody) => {
+        this.#preflight(browser, tab, custody)
+        if (this.#options.credentialExpiresAt <= Math.floor(Date.now() / 1000) ||
+            this.#options.credentialExpiresAt > Math.floor(this.#options.tab.expiresAt / 1000)) hold()
+        if (!this.#openedImage || JSON.stringify(this.#image(browser, tab, custody)) !== JSON.stringify(this.#openedImage) ||
+            this.#selected(browser, tab, custody)?.operation !== this.#ownedOperation || !this.#live()) hold()
+        return effect()
+      })
+      const operation = queryInvitationOnProtectedCarrier(this.#options.invitation, input, guard, this.#live, abort.signal)
+        .finally(() => { if (this.#queryAbort === abort) this.#queryAbort = undefined })
+      return this.#track(operation)
+    } catch (error) { abort.abort(); this.#queryAbort = undefined; throw error }
+    finally { this.#queryStarting = false }
+  }
   /** One invocation per instance. Retry an unknown native acknowledgement with
    * retryRetention(); it joins this same candidate and never regenerates or
    * re-signs. A failed attempt needs explicit reopen, which rechecks custody. */
   bootstrap(evidence: unknown): Promise<OrdinaryPersistentBootstrapResult> {
-    if (this.#closed || this.#starting || this.#attempted || this.#forgetting || this.#ownedOperation !== undefined) hold()
+    if (this.#closed || this.#starting || this.#attempted || this.#forgetting || this.#ownedOperation !== undefined || this.#queryStarting || this.#queryAbort) hold()
     this.#starting = true; this.#attempted = true
     try {
       if (!this.#live()) hold()
@@ -447,6 +475,7 @@ export class OrdinaryPersistentBootstrap {
   forget(): Promise<void> {
     if (this.#closed || this.#forgetting) hold()
     this.#forgetting = true
+    this.#queryAbort?.abort()
     return this.#track(OrdinaryStateOwner.forgetPairMigrated(this.#input((browser, tab, custody) => {
       this.#preflight(browser, tab, custody)
       const selected = this.#selected(browser, tab, custody, false), roomId = selected?.roomId
@@ -495,7 +524,7 @@ export class OrdinaryPersistentBootstrap {
    * must finish before close returns. Late results are refused and keys wiped. */
   /** A signer callback may revoke synchronously and then return/reject. Never
    * await close() from the provider promise close itself is joining. */
-  revoke(): void { this.#closed = true }
+  revoke(): void { this.#closed = true; this.#queryAbort?.abort() }
   async close(): Promise<void> {
     this.revoke(); await Promise.allSettled([...this.#work]); this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)
   }

@@ -33,8 +33,10 @@ The device scope still binds the actual `room:<roomId>` generation and fence.
 ## Construction and retention
 
 `bootstrap(evidence)` accepts only actual bounded completed-query Fold evidence.
-It independently verifies the signed source and derives the first root. The
-caller still owes protected transport consent and guarded query effects. EOSE
+It independently verifies the signed source and derives the first root.
+`queryEvidence` now provides a dedicated native guarded carrier for explicitly
+selected destinations (see `ordinary-invitation-query.md`). The caller still owes
+actual transport consent and current lane authority. EOSE
 is a local query observation, not global absence or current authority.
 
 Before first-use randomness, the complete pair must match the opened image and
@@ -132,8 +134,8 @@ not bumped: that would invalidate other actors' retained device bindings.
 ## Remaining integration and acceptance
 
 First-use incoming-member custody is implemented here. Production still needs
-the V2 tab device/epoch renewal lifecycle, creator-member bootstrap, guarded query
-carrier, actual protected startup and foreground/background consumers, complete
+the V2 tab device/epoch renewal lifecycle, creator-member bootstrap, production
+mounting of the guarded query carrier, actual protected startup and foreground/background consumers, complete
 old/new-client and capacity fencing, recovery/quiet/Tor transitions, current
 admission/keeper/rekey authority and independent continuity. Browser/Android MLS,
 physical signer/device/Tor acceptance, reproducible production dependencies and
