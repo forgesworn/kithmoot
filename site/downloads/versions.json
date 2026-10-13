@@ -122,7 +122,7 @@
     },
     {
       "version": "0.1.77",
-      "published": "2026-10-12",
+      "published": "2026-10-11",
       "files": [
         {
           "os": "mac",
@@ -3918,6 +3918,36 @@
       ]
     },
     {
+      "version": "0.6.84",
+      "published": "2026-10-13",
+      "files": [
+        {
+          "os": "android",
+          "arch": "any",
+          "kind": "production",
+          "filename": "kithmoot-0.6.84-production.apk",
+          "url": "/apk/kithmoot-0.6.84-production.apk",
+          "bytes": 79837854,
+          "sha256": "2f8b3d85bd38b9432f41775f1b00943dfdad472dc08a4eb763dfe195b4ecf5d6"
+        }
+      ]
+    },
+    {
+      "version": "0.6.83",
+      "published": "2026-10-12",
+      "files": [
+        {
+          "os": "android",
+          "arch": "any",
+          "kind": "production",
+          "filename": "kithmoot-0.6.83-production.apk",
+          "url": "/apk/kithmoot-0.6.83-production.apk",
+          "bytes": 79747742,
+          "sha256": "74f006412ece18a4fbfe11c5b05ac799d174bbafb3e69a34619306046c0b37ef"
+        }
+      ]
+    },
+    {
       "version": "0.6.82",
       "published": "2026-10-11",
       "files": [
@@ -4009,7 +4039,7 @@
     },
     {
       "version": "0.6.76",
-      "published": "2026-10-10",
+      "published": "2026-10-09",
       "files": [
         {
           "os": "android",
