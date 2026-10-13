@@ -2,7 +2,7 @@ import type { EventTemplate, NostrEvent, SignetSession, SignetSigner, SignerEffe
 import { verifyEventUncached } from '../../src/verify.js'
 import type { DeviceStore } from './device-store.js'
 import { OrdinaryStateHold, ordinaryUtf8Length, ORDINARY_VALUE_BYTES, ORDINARY_VALUE_UNITS } from './ordinary-state-codec.js'
-import { OrdinaryStateOwner, type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
+import { OrdinaryStateOwner, ordinaryPairReadCustodyFor, type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 import { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { ORDINARY_SIGNET_KEYS as keys } from './ordinary-signet-snapshot.js'
 
@@ -129,6 +129,23 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   static isNativeSigner(input:unknown):input is OrdinaryForegroundSigner {
     return typeof input==='object'&&input!==null&&#options in input
   }
+  /** Read the exact immutable SDK deadline during another native component's
+   * acknowledged pair read. A public session property alone is not provenance. */
+  static nativeDeadline(signer: OrdinaryForegroundSigner, browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string): number | null {
+    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#participant !== participant) hold()
+    const b = records(browser), t = records(tab)
+    try {
+      // Refuse mutation projections and exact-byte substitutions first.
+      ordinaryPairReadCustodyFor(custody, b, t)
+      OrdinaryStateOwner.validatePairBinding(custody, {
+        browser: { owner: signer.#options.browser, scope: signer.#browserScope },
+        tab: { owner: signer.#options.tab, scope: signer.#tabScope }, live: signer.#live,
+      })
+      signer.#preflight(browser, tab, custody); signer.#check()
+      ordinaryPairReadCustodyFor(custody, b, t)
+      return signer.#sessionExpiresAt
+    } finally { b.clear(); t.clear() }
+  }
   /** Native consumers invoke the captured implementation, never a replaced
    * instance borrowing method supplied through a consent object. */
   static borrowNativeSignEvent(signer:OrdinaryForegroundSigner,input:OrdinaryForegroundConsumer):SignetSigner['signEvent'] {
@@ -148,6 +165,8 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   readonly #crypto: { nip04?: SignetSigner['nip04']; nip44?: SignetSigner['nip44'] }
   readonly #methods: { nip04?: NonNullable<SignetSigner['nip04']>; nip44?: NonNullable<SignetSigner['nip44']> }
   readonly #proof: string
+  readonly #participant: string
+  readonly #sessionExpiresAt: number | null
   readonly #browserScope: OrdinaryScope
   readonly #tabScope: OrdinaryScope
   readonly #work = new Set<Promise<unknown>>()
@@ -162,6 +181,8 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     this.pubkey = captured.pubkey; this.method = captured.method
     this.capabilities = Object.freeze({ ...this.#raw.capabilities })
     this.#proof = JSON.stringify(captured.authEvent)
+    this.#participant = captured.pubkey
+    this.#sessionExpiresAt = captured.expiresAt ?? null
     this.#crypto = { nip04: this.#raw.nip04, nip44: this.#raw.nip44 }
     this.#methods = { nip04: this.#raw.nip04 && { ...this.#raw.nip04 }, nip44: this.#raw.nip44 && { ...this.#raw.nip44 } }
     for (const family of ['nip04', 'nip44'] as const) if (this.#crypto[family]) {
@@ -191,12 +212,13 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       const raw = this.#raw
       const valid = live && generation === this.#options.generation && selected === this.#options.session &&
         current.pubkey === this.pubkey && current.method === this.method && current.signer === raw &&
-        JSON.stringify(current.authEvent) === this.#proof && current.expiresAt === this.session.expiresAt &&
+        JSON.stringify(current.authEvent) === this.#proof && (current.expiresAt ?? null) === this.#sessionExpiresAt &&
+        current.expiresAt === this.session.expiresAt &&
         current.displayName === this.session.displayName && raw.pubkey === this.pubkey && raw.method === this.method &&
         raw.providerEffectBoundary === 1 && raw.signEvent === this.#sign && raw.capabilities.canSignEvents === true &&
         raw.capabilities.hasNip44 === this.capabilities.hasNip44 &&
         this.#bunkerLive() &&
-        (this.session.expiresAt === undefined || Date.now() < this.session.expiresAt) &&
+        (this.#sessionExpiresAt === null || Date.now() < this.#sessionExpiresAt) &&
         Date.now() < this.#options.tab.expiresAt && ['nip04', 'nip44'].every(name => {
           const family = name as 'nip04' | 'nip44', value = raw[family], captured = this.#crypto[family], methods = this.#methods[family]
           return value === captured && (!value || value.encrypt === methods!.encrypt && value.decrypt === methods!.decrypt)
@@ -250,7 +272,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       validateOrdinarySnapshot(b, t, { browser: true, tab: true }, captureOrdinarySnapshotContext(b, t, custody))
       const session = SESSION_KEYS.map(name => browser.get(keys[name]))
       if (session[0] !== this.pubkey || session[1] !== this.method || session[2] !== this.#proof ||
-          session[5] !== (this.session.expiresAt === undefined ? null : String(this.session.expiresAt)) ||
+          session[5] !== (this.#sessionExpiresAt === null ? null : String(this.#sessionExpiresAt)) ||
           session[6] !== (this.session.displayName ?? null)) hold()
       if (this.#expected && session.some((value, index) => value !== this.#expected![index])) hold()
       if (this.#bunker && (session[3] !== this.#bunker.uri ||

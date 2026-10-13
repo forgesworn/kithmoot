@@ -25,6 +25,7 @@ import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmission
   PERSISTENT_PROOF_V2_PREFIX, PERSISTENT_TAB_PROOF_V2_PREFIX,
   type PersistentDeviceCustody, type VerifiedPersistentProof } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected } from './persistent-creator-proof.js'
+import { MEMBER_LEASE_PREFIX } from './ordinary-member-lease.js'
 import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions } from './ordinary-invitation-query.js'
 import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
@@ -771,6 +772,8 @@ export class OrdinaryPersistentBootstrap {
       if (!selected) return
       const prefix = accountPrefix(this.#participant), proofPrefix = prefix + PERSISTENT_PROOF_V2_PREFIX + this.#id + '.'
       for (const name of browser.keys()) if (name.startsWith(proofPrefix)) browser.remove(name)
+      const leasePrefix = prefix + MEMBER_LEASE_PREFIX + this.#id + '.'
+      for (const store of [browser, tab]) for (const name of store.keys()) if (name.startsWith(leasePrefix)) store.remove(name)
       browser.remove(prefix + KEPT_ADMISSION_PREFIX + this.#id)
       tab.remove(prefix + PERSISTENT_TAB_PROOF_V2_PREFIX + this.#id); tab.remove(prefix + TAB_ADMISSION_PREFIX + this.#id)
       if (roomId !== undefined) {

@@ -47,6 +47,7 @@ import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceCont
 import { inspectPersistentCreatorProofs, creatorIsSelected, CREATOR_PROOF_PREFIX, CREATOR_INTENT_PREFIX } from './persistent-creator-proof.js'
 import type { DeviceStore } from './device-store.js'
 import { ordinaryPairCustodyFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
+import { inspectOrdinaryMemberLeases } from './ordinary-member-lease.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const CACHE = 'kithmoot.admission.v1.'
@@ -717,6 +718,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     })
     if (part('browser', 'invitationProofs').size && !migrated.browser || part('tab', 'invitationProofs').size && !migrated.tab) hold()
     proofCustody = inspectPersistentAdmissionProofs(readonlyStore(image.browser), readonlyStore(image.tab))
+    inspectOrdinaryMemberLeases(readonlyStore(image.browser), readonlyStore(image.tab), proofCustody)
     creatorCustody = inspectPersistentCreatorProofs(readonlyStore(image.browser))
     for (const verified of creatorCustody.proofs.values()) {
       const bound = verified.proof.binding, retained = roots.get(bound.roomId), derived = deriveRoom(verified.admission.secret)
