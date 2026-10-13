@@ -35,13 +35,15 @@
     "ci_epoch_local_rerun": "All 17 session-epoch tests passed serially after a timer-sensitive CI failure.",
     "girnel_slow_local_run": "Stopped the redundant serial run on the heavily loaded local host after exact-source M4 qualification passed. Its initial 60-second epoch timeout passed individually; no assertions weakened.",
     "girnel_merged_tree": "Merged source tree matches the tested d67a8df embedded-source tree exactly.",
-    "electron_final_packaged_board_journey": "Passed against the final Developer ID signed/notarised 0.1.78/build 63 bundle using a disposable profile. Full-width first opening and reload are asserted; no renderer Node or embedded worker.",
-    "desktop_archived_code": "All six installer payloads contain ASAR d4290bb331814dd8af8265691c07a6f8b87f19c7125dd379efdb54375e6b4b21. All 350 desktop web files and runtime host/preload/policy files match the frozen tested build on all four platforms.",
-    "mac_signing": "Final 0.1.78/build 63: Developer ID signed, Apple notarisation aadb0ff9-e45f-4e38-8f80-d3be6d59231e Accepted; staple/validation and Gatekeeper passed.",
-    "update_metadata": "Prepared six installers, checksums, release catalogue and Mac feed; desktop manifest verified against pinned keys after signing on M4. Android 0.6.83/code 106 manifest and signature unchanged.",
-    "apt_metadata": "Built and verified InRelease and Release.gpg on M4 using the existing archive key; not published yet.",
+    "electron_final_packaged_board_journey": "Passed against the corrected final Developer ID signed/notarised 0.1.78/build 63 bundle using a disposable profile (15.4 seconds). Full-width first opening and reload are asserted; no renderer Node or embedded worker.",
+    "desktop_archived_code": "All six corrected installer payloads contain ASAR 65c0fb8e413003a1af9472723f254e217f43a3c843a8b8fffdc917796f96698b. All 350 desktop web files and runtime host/preload/policy files match the frozen corrected build on all four platforms.",
+    "mac_signing": "Corrected 0.1.78/build 63: Developer ID signed, Apple notarisation b435259b-6bad-4a56-8ec1-065b7dd6683a Accepted; staple/validation and Gatekeeper passed.",
+    "update_metadata": "Prepared corrected six installers, checksums, release catalogue and Mac feed; desktop manifest verified against pinned keys after signing on M4. Android 0.6.83/code 106 manifest and signature unchanged.",
+    "apt_metadata": "Rebuilt for corrected Debian files; InRelease and Release.gpg verified on M4 using the existing archive key; not published yet.",
     "portable_browser_fixtures": "Chromium cached reopening passed with the actual origin server stopped. Concurrent two-agent review passed after explicitly refreshing and re-reviewing the current audience when late signed presence arrives; the product guard remains unchanged.",
-    "mac_webkit_driver": "Local WebKit stalled in BrowserContext.newPage before app navigation; stopped the run and retained the trace. Linux hosted WebKit remains the automated browser gate."
+    "mac_webkit_driver": "Local WebKit stalled in BrowserContext.newPage before app navigation; stopped the run and retained the trace. Linux hosted WebKit remains the automated browser gate.",
+    "passive_chat_read": "Hosted Chromium desktop revealed an existing passive ResizeObserver read before room admission had established chat. Guard resize, focus and scroll callbacks while joining. Corrected exact desktop Boards journey passed (38.3 seconds), and type checking passed.",
+    "firefox_mls_exact_rerun": "The two unchanged MLS browser cases failing hosted attempt 1 both passed against the exact unchanged fixture locally in Firefox (10.5 seconds); no MLS source or timeout was changed."
   },
   "open_gates": [
     "hosted CI",
@@ -55,5 +57,6 @@
   ],
   "fixtures": "Synthetic identities and agents on the offline relay; no production room posts or agent execution.",
   "girnel_pr": "https://github.com/forgesworn/girnel/pull/7",
-  "girnel_merged_source": "9cf9b65a08126398d4804a4af55020ac70163ce3"
+  "girnel_merged_source": "9cf9b65a08126398d4804a4af55020ac70163ce3",
+  "runtime_source": "5f9510b27d33030f73c14ed8e3ccba8d613ac912"
 }
