@@ -30,5 +30,9 @@ Reuse KithMoot's canonical assignment log and executor authority. Never copy key
 into URLs, room messages, model prompts or the window context directory.
 
 Initial source baselines: KithMoot 7eec830; Girnel bbd4704. Original checkouts and
-unrelated work are preserved in place. These requirements are the accepted
-product direction, not a claim of current completion.
+unrelated work are preserved in place.
+
+The web app and desktop 0.1.78 were published on 13 October 2026. The
+[publication receipt](evidence/girnel-boards-publication-2026-10-13.json) records
+the exact CI/source, public files, signatures and live board-window check. Native
+Android Boards remains outside this delivery.
