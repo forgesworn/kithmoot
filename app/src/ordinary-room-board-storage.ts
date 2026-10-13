@@ -10,6 +10,7 @@ import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
 import { ORDINARY_SIGNET_KEYS } from './ordinary-signet-snapshot.js'
 import { validateOrdinaryRoomBoardSnapshot } from './ordinary-room-board-snapshot.js'
 import { captureOrdinaryRoomBoards, encodeOrdinaryRoomBoardChunks, decodeOrdinaryRoomBoardChunks, ORDINARY_ROOM_BOARD_PLAINTEXT_BYTES } from './ordinary-room-board-codec.js'
+import type { RoomBoardCatalogueCustody } from './room-board-custody.js'
 
 interface Options {
   browser: OrdinaryStateOwner
@@ -36,7 +37,7 @@ function projectedCipher(text:string):string {
 /** Native encrypted catalogue custody for one selected foreground/room.
  * The selected room is a root control binding, never MLS admission authority.
  * This does not initialise signers, subscribe, publish, or mount production. */
-export class OrdinaryRoomBoardStorage {
+export class OrdinaryRoomBoardStorage implements RoomBoardCatalogueCustody {
   readonly #options:Options
   readonly #browserScope:OrdinaryScope
   readonly #tabScope:OrdinaryScope
@@ -52,6 +53,14 @@ export class OrdinaryRoomBoardStorage {
   #held=false
   #busy=false
   #closing:Promise<void>|undefined
+  get account():string{return this.#options.session.pubkey}
+  get roomId():string{return this.#options.roomId}
+  /** Join the owning catalogue's whole queued operation before continuation.
+   * This grants no storage, signer, room or transport authority. */
+  joinLifetime<T>(operation:Promise<T>):Promise<T>{
+    OrdinaryStateOwner.joinPairLifetime(this.#options.browser,this.#options.tab,operation)
+    this.#work.add(operation);void operation.finally(()=>this.#work.delete(operation)).catch(()=>{});return operation
+  }
   private constructor(options:Options,browser:OrdinaryScope,tab:OrdinaryScope) {
     this.#options=options;this.#browserScope=browser;this.#tabScope=tab
     this.#name=`kithmoot.room-boards.v1.${options.session.pubkey}.${options.roomId}`
@@ -146,6 +155,7 @@ export class OrdinaryRoomBoardStorage {
       }finally{opened.length=0}
     })
   }
+  check():Promise<void>{return this.#run(()=>()=>this.#pair(()=>{}))}
   save(input:readonly RoomBoard[]):Promise<void> {
     return this.#run(()=>{
       if(!this.#loaded)hold()

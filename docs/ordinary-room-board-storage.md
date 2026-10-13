@@ -67,7 +67,10 @@ initial SDK read and actual wallet start are covered. This is source/browser
 evidence, not a real wallet, board grant, production or physical acceptance.
 The registry dependency still does not install that SDK candidate.
 
-Awaited `RoomBoards` consumer integration, guarded actual transport frames,
-legacy recovery, protected production startup and other login/restore carriers
-remain open. Current MLS authority, independent continuity, SDK consumer and
+The [awaited `RoomBoards` consumer](ordinary-room-board-consumer.md) can now own
+this adapter's complete queued operations through `joinLifetime`; its `check`
+performs a fresh paired read. Production still selects the explicit legacy
+adapter. Native RoomSession binding, guarded actual transport frames, legacy
+recovery, protected production startup and other login/restore carriers remain
+open. Current MLS authority, independent continuity, SDK consumer and
 registry release, deployment, physical acceptance and DG08 are not complete.

@@ -23,6 +23,7 @@ specs.push('ordinary-foreground-signer.spec.ts')
 specs.push('ordinary-initial-login.spec.ts')
 specs.push('ordinary-extension-restore.spec.ts')
 specs.push('ordinary-room-board-storage.spec.ts')
+specs.push('ordinary-room-board-catalogue.spec.ts')
 const stems = specs.map(spec => spec.replace(/\.spec\.ts$/, ''))
 if (new Set(stems).size !== specs.length) throw new Error('Duplicate ordinary spec')
 const consumerCases=/narrowed trusted consumer|narrowed consumer|consumer fields/

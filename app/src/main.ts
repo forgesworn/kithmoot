@@ -319,6 +319,8 @@ import { AssignmentPanel } from './assignment-panel.js'
 import { BoardsPanel } from './boards-panel.js'
 import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
+import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
+import { closeCataloguesBeforeAccountAdoption, closeFailedRoomWithCatalogues } from './room-board-lifecycle.js'
 import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
 import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -1164,7 +1166,10 @@ async function provisionRendezvousForThisBrowser(): Promise<void> {
 
 $('provisionRendezvous').addEventListener('click', () => { void provisionRendezvousForThisBrowser() })
 
-function adoptRestoredSession(account: SignetSession): void {
+async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
+  const generation=identityGeneration,previous=nostrSession
+  await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
+  if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
   if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) void pauseBrowserMls().catch(() => undefined)
   nostrSession = account
   browserRoomRoutes.resume()
@@ -1173,6 +1178,7 @@ function adoptRestoredSession(account: SignetSession): void {
   profiles.want([account.pubkey])
   renderIdentity()
   renderNudgeChoice()
+  return true
 }
 
 /** signet-login keeps a bunker's URI and client key when a restore fails,
@@ -1226,8 +1232,7 @@ function retryStoredBunker(): Promise<boolean> {
         return false
       }
       relayConnections.clearAuthentication()
-      adoptRestoredSession(restored)
-      return true
+      return adoptRestoredSession(restored)
     })
     .catch(() => false)
     .finally(() => { bunkerRetry = undefined })
@@ -1273,7 +1278,7 @@ async function signInWithNostr(): Promise<void> {
   if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
   workspaceWork?.reset()
   loginBusy = true
-  identityGeneration++
+  const generation=++identityGeneration,previousSession=nostrSession
   admissionController?.abort()
   clearImportedHistorySearch()
   let account: SignetSession | null
@@ -1288,6 +1293,7 @@ async function signInWithNostr(): Promise<void> {
       methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect', 'nsec'] })
   } finally { loginBusy = false; tryPendingJoin() }
   if (!account) return // cancelled or timed out - leave the page as it was
+  if(generation!==identityGeneration||nostrSession!==previousSession){if(nostrSession!==account)await account.signer.close();return}
 
   // An auth-only account proves who somebody is and then cannot sign
   // anything else. That is fine for a site that just wants a login; it is
@@ -1307,8 +1313,9 @@ async function signInWithNostr(): Promise<void> {
   // Say so, once, rather than leaving a person to work out why their rooms
   // are gone.
   browserRoomRoutes.pause()
-  await browserLinkPanel.stop()
   const previous = expectedAccount
+  await closeCataloguesBeforeAccountAdoption(account,async()=>{await browserLinkPanel.stop();await closeRoomBoardCatalogues()},()=>nostrSession)
+  if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
   relayConnections.clearAuthentication()
   nostrSession = account
   browserRoomRoutes.resume()
@@ -1333,6 +1340,7 @@ async function signOutOfNostr(): Promise<void> {
   if (session || joining) throw new Error('Leave the room before signing out.')
   workspaceWork?.reset()
   await boardsPanel?.reset()
+  await closeRoomBoardCatalogues()
   // A signed-out account must not leave its device-specific rendezvous child
   // behind. Do this before changing the visible account state: a storage
   // failure keeps the account connected rather than pretending the clear won.
@@ -1414,6 +1422,7 @@ async function forgetThisBrowserContents(): Promise<void> {
   })) return
 
   await boardsPanel?.reset()
+  await closeRoomBoardCatalogues()
   contextPanel.close()
   await browserLinkPanel.link.forget()
   // As above, avoid creating a vault on a browser that never held one.
@@ -12401,11 +12410,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const failed = session
     if (generation !== roomGeneration) return
     const failedTransport = sessionTransport
-    session = undefined
-    sessionTransport = undefined
-    resetIncomingCall()
-    void failed?.leave()
-    failedTransport?.close()
+    await closeFailedRoomWithCatalogues(failed,failedTransport,()=>failed?closeRoomBoardCatalogues(failed):Promise.resolve(),()=>{
+      if(session===failed&&sessionTransport===failedTransport){session=undefined;sessionTransport=undefined;resetIncomingCall()}
+    })
+    if(generation!==roomGeneration)return
     if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
     iceRefreshTimer = undefined
     // A relay that timed out never looked at the event; a phone whose
@@ -12532,16 +12540,37 @@ $('chatLog').addEventListener('scroll', () => {
 const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
 let workspaceWork: WorkspaceWorkPanel | undefined
 let boardsPanel: BoardsPanel | undefined
-const roomBoards = new WeakMap<RoomSession, RoomBoards>()
+const roomBoards = new Map<RoomSession, RoomBoards>()
+const openingRoomBoards = new Map<RoomSession, RoomBoards>()
+const closingRoomBoards = new Map<RoomSession, Promise<void>>()
+/** Revocation is immediate. Keep captured closing owners until their join
+ * succeeds; a failed close cannot turn into permission to clear the signer. */
+function closeRoomBoardCatalogues(selected?:RoomSession):Promise<void> {
+  const owners=new Map([...roomBoards,...openingRoomBoards])
+  for(const [s,boards]of owners){if(selected&&s!==selected)continue
+    roomBoards.delete(s);openingRoomBoards.delete(s)
+    const job=Promise.resolve().then(()=>boards.close());closingRoomBoards.set(s,job)
+    void job.then(()=>{if(closingRoomBoards.get(s)===job)closingRoomBoards.delete(s)},()=>{})
+    boards.revoke()
+  }
+  return Promise.all([...closingRoomBoards].filter(([s])=>!selected||s===selected).map(([,job])=>job)).then(()=>{})
+}
 function attachRoomBoards(s: RoomSession): void {
   const account = nostrSession
-  if (!account?.signer.nip44 || s.participant !== account.pubkey || roomBoards.has(s)) return
-  const boards = new RoomBoards(s, {account: account.pubkey, store: isQuietPolicy(roomPolicy) ? memoryDeviceStore() : deviceStore,
-    crypt: signerSelfCrypt({pubkey: account.pubkey, nip44: account.signer.nip44}),
-    current: () => nostrSession === account && (session === s || dockedCall?.session === s),
+  if (!account?.signer.nip44 || s.participant !== account.pubkey || roomBoards.has(s) || openingRoomBoards.has(s) || closingRoomBoards.has(s)) return
+  const current=()=>nostrSession===account&&(session===s||dockedCall?.session===s)
+  const custody=legacyRoomBoardCatalogueCustody({account:account.pubkey,roomId:s.roomId,
+    store:isQuietPolicy(roomPolicy)?memoryDeviceStore():deviceStore,
+    crypt:signerSelfCrypt({pubkey:account.pubkey,nip44:account.signer.nip44}),current})
+  const boards = new RoomBoards(s, {custody,current,
     changed: () => boardsPanel?.sync(), report: error => setStatus(describeError(error))})
-  roomBoards.set(s, boards)
-  void boards.open().catch(error => setStatus(describeError(error)))
+  openingRoomBoards.set(s,boards)
+  void boards.open().then(()=>{
+    if(openingRoomBoards.get(s)!==boards)return boards.close()
+    if(!current())return closeRoomBoardCatalogues(s)
+    openingRoomBoards.delete(s);roomBoards.set(s,boards);boardsPanel?.sync()
+  }).catch(async error=>{if(openingRoomBoards.get(s)===boards)await closeRoomBoardCatalogues(s);else await boards.close();if(current())setStatus(describeError(error))})
+    .catch(error=>{if(current())setStatus(describeError(error))})
 }
 let roomsTimer: ReturnType<typeof setInterval> | undefined
 /** Whether the list is what is on screen. Nothing below draws, or keeps a
@@ -13806,13 +13835,13 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   if (pendingRoom) pendingSends.release(pendingRoom)
   if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
   chatScroll.suspend()
-  ++roomGeneration
-  const old = session
+  const generation=++roomGeneration
+  const old = session,transport=sessionTransport
   // A docked call outlives the room on screen: its session, relays, media,
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
-  if (old && !keepCall) {roomBoards.get(old)?.close(); roomBoards.delete(old)}
+  const boardsClosing=old&&!keepCall?closeRoomBoardCatalogues(old):Promise.resolve()
   const recordingStop = activeRecording?.session === old && old !== dockedCall?.session
     ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
   if (!keepCall) {
@@ -13820,8 +13849,10 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
     const key = callLockKey()
     if (key) callTabLock.release(key)
   }
+  if(!keepCall)tearDownCallMedia()
+  await boardsClosing
+  if(generation!==roomGeneration||session!==old||sessionTransport!==transport)return
   if (heldElsewhereKey !== undefined) { heldElsewhereKey = undefined; renderCallTabNotice() }
-  const transport = sessionTransport
   persistQuiet()
   session = undefined
   sessionTransport = undefined
@@ -13851,7 +13882,6 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   if (!keepCall) {
     if (assistTimer !== undefined) clearInterval(assistTimer)
     assistTimer = undefined
-    tearDownCallMedia()
   }
   presenceAnnouncements = undefined
   if (departureNoticeTimer !== undefined) clearTimeout(departureNoticeTimer)
@@ -14047,6 +14077,7 @@ function resumeDockedCall(): void {
 async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: string): Promise<void> {
   const c = dockedCall
   if (!c) return
+  const boardsClosing=closeRoomBoardCatalogues(c.session)
   const key = callLockKey()
   // The warning needs its original transport; microphone and camera shutdown
   // must never wait for that transport's receipt.
@@ -14080,6 +14111,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   renderDock()
   renderWorkspace()
   setStatus(notice ?? `You left the call in ${c.label}.`, 'done')
+  await boardsClosing
   if (reason === 'preempted') await c.session.farewellCall().catch(() => {})
   void (recordingStop ? recordingStop.then(() => c.session.leave()) : c.session.leave())
     .finally(() => c.transport?.close()).catch(() => {})
@@ -18121,7 +18153,7 @@ async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null>
 }
 
 const identityReady = restoreSessionWithExtensionGrace()
-  .then((session) => {
+  .then(async (session) => {
     if (identityGeneration !== 0) return
     if (!session?.signer.capabilities.canSignEvents) {
       if (!location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
@@ -18130,7 +18162,7 @@ const identityReady = restoreSessionWithExtensionGrace()
       }
       return
     }
-    adoptRestoredSession(session)
+    await adoptRestoredSession(session)
   })
   .catch(() => {
     // No stored session, or a signer that is not answering today. Either

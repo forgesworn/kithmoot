@@ -4,6 +4,7 @@ import { encodeRoomBoard } from '../../src/room-boards.js'
 import type { RoomSession } from '../../src/session.js'
 import type { ChatMessage } from '../../src/chat.js'
 import { RoomBoards } from './room-boards.js'
+import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
 import { memoryDeviceStore } from './device-store.js'
 import { validateOrdinaryRoomBoardSnapshot as validate } from './ordinary-room-board-snapshot.js'
 import { classifyOrdinaryPhysicalName as classify } from './ordinary-physical-snapshot.js'
@@ -16,9 +17,10 @@ async function fixture() {
  const store=memoryDeviceStore(),messages:ChatMessage[]=[]
  let changed=()=>{}
  const session={roomId:room,participant:account,chat:{send:async()=>{}},channel:()=>({send:async()=>{},messages:()=>messages,onChange:(fn:()=>void)=>{changed=fn;return()=>{}}})} as unknown as RoomSession
- const catalogue=new RoomBoards(session,{account,store,crypt:localSelfCrypt(new Uint8Array(32).fill(1)),current:()=>true,changed:()=>{},report:err=>{throw err}})
+ const custody=legacyRoomBoardCatalogueCustody({account,roomId:room,store,crypt:localSelfCrypt(new Uint8Array(32).fill(1)),current:()=>true})
+ const catalogue=new RoomBoards(session,{custody,current:()=>true,changed:()=>{},report:err=>{throw err}})
  await catalogue.open();messages.push({id:'1',text:encodeRoomBoard(board),sentAt:1,participant:account} as ChatMessage);changed()
- await vi.waitFor(()=>expect(store.get(name)).not.toBeNull());catalogue.close()
+ await vi.waitFor(()=>expect(store.get(name)).not.toBeNull());await catalogue.close()
  return store.get(name)!
 }
 describe('opaque room-board catalogue custody',()=>{
