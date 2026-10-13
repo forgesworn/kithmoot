@@ -2177,5 +2177,69 @@
     "The existing 1024x700 native Mac call composer/Leave bounds failure reproduces in the preserved 0.1.77 baseline; Boards changes no call/layout source."
   ],
   "production_room_posts": 0,
-  "production_agents_started": 0
+  "production_agents_started": 0,
+  "post_merge_ci": {
+    "verified_at": "2026-10-13T06:34:42.015Z",
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/38336579361",
+    "source": "9e6966e2ad3fc93355dcc2cbb76286babc12a40d",
+    "attempt": 2,
+    "checks": [
+      {
+        "name": "test (22)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (webkit 1 of 2)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (webkit 2 of 2)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium call-relays)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (firefox 1 of 2)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (firefox 2 of 2)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium rest)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium desktop)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium media)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium calls)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium rooms)",
+        "result": "success"
+      },
+      {
+        "name": "test (24)",
+        "result": "success"
+      }
+    ],
+    "initial_failure": "The first run failed the existing chat-comfort reaction-toggle assertion in WebKit. The exact-source job passed on rerun without changing code, fixtures, assertions or timeouts."
+  },
+  "publication_recheck": {
+    "verified_at": "2026-10-13T06:34:42.017Z",
+    "public_app_and_all_18_metadata_files_match_receipt": true,
+    "live_framing_and_media_policies_match_receipt": true,
+    "github_six_asset_digests_and_sizes_match_receipt": true,
+    "production_release_unchanged": "20261013T022454Z"
+  }
 }
