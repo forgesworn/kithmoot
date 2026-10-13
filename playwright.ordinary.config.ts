@@ -19,6 +19,7 @@ specs.push('ordinary-board-context.spec.ts')
 specs.push('ordinary-board-consumer.spec.ts')
 specs.push('ordinary-creator.spec.ts')
 specs.push('ordinary-creator-delivery.spec.ts')
+specs.push('ordinary-foreground-signer.spec.ts')
 const stems = specs.map(spec => spec.replace(/\.spec\.ts$/, ''))
 if (new Set(stems).size !== specs.length) throw new Error('Duplicate ordinary spec')
 const projects = engines.flatMap(engine => specs.map((spec, index) => ({

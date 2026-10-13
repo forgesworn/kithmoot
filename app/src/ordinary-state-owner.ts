@@ -156,6 +156,16 @@ export class OrdinaryStateOwner {
     void work.finally(() => this.#work.delete(work)).catch(() => {})
     return work
   }
+  /** Resource ownership only: this does not authorise the operation or expose
+   * a native image. Register before its first continuation so closing either
+   * lifetime joins borrowed provider/deferred work after revoking storage.
+   * An operation must never await the close which is joining that same work. */
+  static joinPairLifetime<T>(browser: OrdinaryStateOwner, tab: OrdinaryStateOwner, operation: Promise<T>): Promise<T> {
+    if (!(browser instanceof OrdinaryStateOwner) || !(tab instanceof OrdinaryStateOwner) || browser === tab ||
+        browser.purpose !== 'browser' || !TAB_PURPOSE.test(tab.purpose) || !(operation instanceof Promise)) hold()
+    browser.#track(operation); tab.#track(operation)
+    return operation
+  }
   async #locked<T>(live: () => boolean, work: () => Promise<T>): Promise<T> {
     this.#check(live)
     if (!navigator.locks) hold()
