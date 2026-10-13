@@ -9708,6 +9708,8 @@ function markConversationRead(): boolean {
 
 /** Reading updates both the local badge and the position shared with other devices. */
 function readVisibleConversation(): void {
+  // A room can resize while admission is still establishing its chat log.
+  if (joining) return
   const changed = markConversationRead()
   if (session && currentChannel === undefined) noteChatRead(session.chat.messages())
   if (changed) renderConversationNav()
@@ -12487,11 +12489,12 @@ document.addEventListener('visibilitychange', () => {
 })
 window.addEventListener('focus', () => {
   notifier.seen()
+  if (joining) return
   if (markConversationRead()) renderConversationNav()
   if (session) noteChatRead(session.chat.messages())
 })
 $('chatLog').addEventListener('scroll', () => {
-  if (session && currentChannel === undefined) noteChatRead(session.chat.messages())
+  if (session && !joining && currentChannel === undefined) noteChatRead(session.chat.messages())
 })
 
 // ---------------------------------------------------------------------------
