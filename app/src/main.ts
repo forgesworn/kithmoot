@@ -13547,7 +13547,8 @@ const releaseRoomSwitcherPress = () => {setTimeout(() => {
   roomSwitcherPress = false
   if (roomSwitcherPaintPending) {roomSwitcherPaintPending = false; renderRoomSwitcher()}
 }, 0)}
-for (const event of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(event, releaseRoomSwitcherPress, {capture: true})
+for (const event of ['pointerup', 'pointercancel']) window.addEventListener(event, releaseRoomSwitcherPress, {capture: true})
+window.addEventListener('blur', releaseRoomSwitcherPress)
 
 function openRoomSwitcher(event?: Event): void {
   const dialog = $('roomSwitcher') as HTMLDialogElement
