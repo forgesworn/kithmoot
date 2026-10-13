@@ -40,6 +40,7 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | --- | --- | --- |
 | `kithmoot.participant`, `.name`, `.last-nostr-account`, `.last-nostr-method`, `.profiles.lastKnownName.v1` | `main.ts`: local identity, signer selection and display names | Existing identity check; signer/account reconciliation before use |
 | `signet:login.*` | Signet SDK login, auth event, bunker/client scalars and pending redirects | Existing required async Signet adapter; audited published SDK pin still needed |
+| `kithmoot.initial-login.v1` | Native tab-only pending NIP-07 login challenge/account and paired generation/fence binding | Full native provenance and explicit fenced cancellation; atomic SDK promotion; startup remains unmounted |
 | `kithmoot.device.H`, `.device-owner.*`, `.credential.H`, `.own-credential.H`, `.own-seal.H` | `device-store.ts`: room keys, credentials, complete seal history | Existing strict checks and awaited adapter; account conversion must preserve explicit ownership |
 | `kithmoot.device`, `.credential` | Previous shared-device layout | Hold/recovery under explicit legacy policy; do not silently remove at startup |
 | `kithmoot.room.H`, `.account.H.kithmoot.room.H` | `rooms-store.ts` / `room-bookmarks.ts`: room links and account-scoped room metadata | Existing room-access/bookmark validation; signer must compare cached plaintext with authenticated decrypt. `kithmoot.rooms.v1` is an event/address namespace inside values, not a raw Storage key |

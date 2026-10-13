@@ -4,7 +4,7 @@ const H = '[0-9a-f]{64}', A = `(?:visitor|${H})`, wrap = `(?:kithmoot\\.account\
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const signals = ['kithmoot-mls-vault-v1.revision', 'kithmoot.mls-coordinated-vault.revision', 'kithmoot-rendezvous-vault-v1:revision']
 const marker = 'kithmoot.ordinary-tab.v1'
-export const ORDINARY_PHYSICAL_FAMILIES = Object.freeze(['signet', 'identity', 'access', 'invitationProofs', 'epoch', 'bookmarks', 'quiet', 'cadence', 'pending',
+export const ORDINARY_PHYSICAL_FAMILIES = Object.freeze(['signet', 'initialLogin', 'identity', 'access', 'invitationProofs', 'epoch', 'bookmarks', 'quiet', 'cadence', 'pending',
   'contacts', 'grantedContacts', 'metadata', 'channelChecks', 'journals', 'private', 'media', 'routing', 'ui', 'navigation', 'entryLayout',
   'appearance', 'callCoordination', 'signal', 'tabMarker'] as const)
 export type OrdinaryPhysicalFamily = typeof ORDINARY_PHYSICAL_FAMILIES[number]
@@ -22,6 +22,7 @@ function add(family: OrdinaryPhysicalFamily, source: string, kinds: readonly Ord
 }
 const exact = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const names = (family: OrdinaryPhysicalFamily, values: readonly string[], kinds?: readonly OrdinaryPhysicalKind[]) => add(family, values.map(exact).join('|'), kinds)
+names('initialLogin', ['kithmoot.initial-login.v1'], ['tab'])
 add('identity', 'kithmoot\\.participant')
 add('identity', `kithmoot\\.(?:device|own-credential|own-seal)\\.${H}`)
 add('identity', wrap + `kithmoot\\.credential\\.${H}`)

@@ -3,6 +3,7 @@ import { validateOrdinaryEpochSnapshot } from './ordinary-epoch-snapshot.js'
 import { validateOrdinaryPendingSnapshot } from './ordinary-pending-snapshot.js'
 import { validateOrdinaryQuietSnapshot, type OrdinaryQuietScope } from './ordinary-quiet-snapshot.js'
 import { validateOrdinarySignetSnapshot } from './ordinary-signet-snapshot.js'
+import { validateOrdinaryInitialLoginSnapshot } from './ordinary-initial-login-snapshot.js'
 import { validateOrdinaryContactSnapshot } from './ordinary-contact-snapshot.js'
 import { validateOrdinaryGrantedContactSnapshot } from './ordinary-granted-contact-snapshot.js'
 import { validateOrdinaryMetadataSnapshot } from './ordinary-metadata-snapshot.js'
@@ -705,6 +706,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
       for (const [family, validate] of simple) validate(part(kind, family), migrated[kind], { kind })
       validateOrdinarySignetSnapshot(part(kind, 'signet'), { kind, origin: image.origin, appName: 'KithMoot' })
     }
+    validateOrdinaryInitialLoginSnapshot(image.browser, image.tab, image.origin, image.custody)
     if ((families.cadence ?? 0) !== 0) hold()
     const identity = validateOrdinaryIdentityPairSnapshot(part('browser', 'identity'), part('tab', 'identity'), migrated)
     const epochs = validateOrdinaryEpochSnapshot(part('browser', 'epoch'), migrated.browser)

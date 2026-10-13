@@ -82,7 +82,7 @@ function signedEvent(input: NostrEvent): NostrEvent {
   return Object.fromEntries(names.map(name => [name, Object.hasOwn(unsigned, name)
     ? unsigned[name as keyof typeof unsigned] : data[name]])) as unknown as NostrEvent
 }
-function captureSession(input: SignetSession): SignetSession {
+export function captureOrdinaryForegroundSession(input: SignetSession): SignetSession {
   if (!input || Object.getPrototypeOf(input) !== Object.prototype) hold()
   const required = ['pubkey', 'method', 'signer', 'authEvent'], optional = ['expiresAt', 'displayName']
   const names = Object.getOwnPropertyNames(input)
@@ -169,7 +169,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     try {
       const live = this.#options.live(), generation = this.#options.currentGeneration(), selected = this.#options.currentSession()
       if (!selected || selected !== this.#options.session) return false
-      const current = captureSession(selected)
+      const current = captureOrdinaryForegroundSession(selected)
       const raw = this.#raw
       const valid = live && generation === this.#options.generation && selected === this.#options.session &&
         current.pubkey === this.pubkey && current.method === this.method && current.signer === raw &&
@@ -232,7 +232,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     const options = { ...input }
     let state: OrdinaryForegroundSigner | undefined
     try {
-      const captured = captureSession(options.session)
+      const captured = captureOrdinaryForegroundSession(options.session)
       if (!Number.isSafeInteger(options.generation) || options.generation < 0 ||
           options.browser.purpose !== 'browser' || !/^tab:[0-9a-f]{64}$/.test(options.tab.purpose) ||
           captured.signer.providerEffectBoundary !== 1 || captured.signer.capabilities.canSignEvents !== true ||
