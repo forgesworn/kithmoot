@@ -29,7 +29,7 @@ function jsonStringBytes(text: string, remaining: number): number {
   if (bytes > remaining) hold()
   return bytes
 }
-function statement(input: EventTemplate): Required<EventTemplate> {
+export function captureOrdinarySigningStatement(input: EventTemplate): Required<EventTemplate> {
   // Capture data fields before yielding. Accessor-backed templates are not
   // allowed to run application code during a later authorisation decision.
   if (!input || Object.getPrototypeOf(input) !== Object.prototype) hold()
@@ -61,6 +61,7 @@ function statement(input: EventTemplate): Required<EventTemplate> {
   }
   return { kind, created_at, content, tags: copied }
 }
+const statement=captureOrdinarySigningStatement
 function frozenEvent<T extends NostrEvent>(event: T): T {
   return Object.freeze({ ...event, tags: Object.freeze(event.tags.map(tag => Object.freeze([...tag]))) }) as unknown as T
 }
@@ -124,6 +125,17 @@ interface Options {
  * This does not initialise login/connections, guard internal transport frames
  * or expose NIP-46 management. Protected startup must mount it explicitly. */
 export class OrdinaryForegroundSigner implements SignetSigner {
+  /** Private-field provenance, including refusal of prototype-only forgeries. */
+  static isNativeSigner(input:unknown):input is OrdinaryForegroundSigner {
+    return typeof input==='object'&&input!==null&&#options in input
+  }
+  /** Native consumers invoke the captured implementation, never a replaced
+   * instance borrowing method supplied through a consent object. */
+  static borrowNativeSignEvent(signer:OrdinaryForegroundSigner,input:OrdinaryForegroundConsumer):SignetSigner['signEvent'] {
+    if(!OrdinaryForegroundSigner.isNativeSigner(signer))hold()
+    const consumer=signer.#captureConsumer(input)
+    return Object.freeze((event:EventTemplate,external?:SignerEffectBoundary)=>signer.#signEvent(event,external,consumer))
+  }
   readonly pubkey: string
   readonly method: SignetSigner['method']
   readonly capabilities: SignerCapabilities
@@ -347,8 +359,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
    * It is checked at every SDK provider attempt, including delayed upgrades
    * and retries, and again before releasing the detached signed result. */
   borrowSignEvent(input: OrdinaryForegroundConsumer): SignetSigner['signEvent'] {
-    const consumer=this.#captureConsumer(input)
-    return Object.freeze((event:EventTemplate,external?:SignerEffectBoundary)=>this.#signEvent(event,external,consumer))
+    return OrdinaryForegroundSigner.borrowNativeSignEvent(this,input)
   }
   #captureConsumer(input: OrdinaryForegroundConsumer): OrdinaryForegroundConsumer {
     if(!input||Object.getPrototypeOf(input)!==Object.prototype)hold()

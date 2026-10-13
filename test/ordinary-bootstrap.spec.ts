@@ -29,7 +29,7 @@ for (const keep of [true,false]) test(`first member retains actual device/seal/c
       b.records.has(prefix+Ordinary.DEVICE_PREFIX+roomId),b.records.has(proofName),b.records.has(prefix+Ordinary.KEPT_ADMISSION_PREFIX+id),
       b.records.has(Ordinary.FIXED_INVITATION_RELAYS),Object.keys(localStorage),Object.keys(sessionStorage)]
     Ordinary.wipeOrdinaryPersistentBootstrapResult(result);Ordinary.wipeOrdinaryPersistentBootstrapResult(loaded);restoreCrypto();return output
-  })()`)).toEqual([1,2,true,true,true,true,true,2,keep?'browser':'tab',[await page.evaluate('event.id')],1,true,true,keep,keep,keep,keep,[],[]])
+  })()`)).toEqual([0,2,true,true,true,true,true,2,keep?'browser':'tab',[await page.evaluate('event.id')],1,true,true,keep,keep,keep,keep,[],[]])
 })
 
 for(const keep of [true,false])test(`exact owner reopen loads retained keys without signing, entropy or ciphertext, keep=${keep}`,async({page})=>{
@@ -51,7 +51,8 @@ for(const owner of ['browser','tab'])test(`actual full-composer ${owner} record 
   expect(await page.evaluate(`(async()=>{
     await bootstrap.close();const s=await scopes(),owner=${JSON.stringify(owner)}==='browser'?browserOwner:tabOwner
     await owner.mutateMigrated(${JSON.stringify(owner)}==='browser'?s.b:s.t,guard,store=>{
-      for(let i=0;i<Ordinary.ORDINARY_RECORDS-2;i++){
+      const remaining=Ordinary.ORDINARY_RECORDS-2-store.keys().length
+      for(let i=0;i<remaining;i++){
         const room=i.toString(16).padStart(64,'0')
         const name=${JSON.stringify(owner)}==='browser'?'kithmoot.nudge.'+room:'kithmoot.conversation.v1.visitor.'+room
         store.set(name,${JSON.stringify(owner)}==='browser'?'true':'')
@@ -121,7 +122,7 @@ test('signer reentry cannot start a second invocation or close past an unresolve
   await page.waitForFunction('signing')
   expect(await page.evaluate('[reentry,closedReceipt,answer,signCalls]')).toEqual(['OrdinaryStateHold',false,'pending',1])
   await page.evaluate('releaseSigner()');await page.evaluate('pending');await page.waitForFunction('closedReceipt')
-  expect(await page.evaluate(`(async()=>[answer,signCalls,(await images()).every(image=>image.records.size===0)])()`)).toEqual(['OrdinaryStateHold',1,true])
+  expect(await page.evaluate(`(async()=>[answer,signCalls,sourceSessionOnly(await images())])()`)).toEqual(['OrdinaryStateHold',1,true])
 })
 
 for(const keep of [true,false])test(`forget during pending signer fences both owners and forbids late retention, keep=${keep}`,async({page})=>{
@@ -130,8 +131,8 @@ for(const keep of [true,false])test(`forget during pending signer fences both ow
   await page.waitForFunction('signing')
   expect(await page.evaluate(`(async()=>{
     await bootstrap.forget();const [b,t]=await images();releaseSigner();const result=await pending
-    return [result,signCalls,b.fences.get(invScopeName),t.fences.get(invScopeName),b.records.size,t.records.size]
-  })()`)).toEqual(['OrdinaryStateHold',1,1,1,0,0])
+    return [result,signCalls,b.fences.get(invScopeName),t.fences.get(invScopeName),sourceSessionOnly([b,t]),t.records.size]
+  })()`)).toEqual(['OrdinaryStateHold',1,1,1,true,0])
 })
 
 for(const keep of [true,false])test(`committed member forget removes device/proof/admission atomically, keep=${keep}`,async({page})=>{
@@ -206,7 +207,7 @@ test('a fresh empty opt-out tab can bootstrap again from the exact saved link af
     bootstrap=await open();const second=await start(),newDevice=Ordinary.getPublicKey(second.deviceKey);Ordinary.wipeOrdinaryPersistentBootstrapResult(second)
     await preflight();const [b,t]=await images();return [signCalls,firstDevice!==newDevice,
       [...b.records.keys()].filter(n=>Ordinary.classifyOrdinaryPhysicalName(n,'browser')?.family==='identity'),!b.records.has(Ordinary.FIXED_INVITATION_RELAYS),t.records.size]
-  })()`)).toEqual([2,true,['kithmoot.participant'],true,6])
+  })()`)).toEqual([0,true,['kithmoot.participant'],true,6])
 })
 
 for(const changed of ['unknown-account','prepared-device','bookmark','fixed','epoch','ended-link','other-account-metadata'] as const)test(`fresh admission conflict ${changed} holds before entropy`,async({page})=>{
@@ -359,7 +360,7 @@ test('a signer can revoke synchronously and return; external close then joins wi
   await start(page)
   expect(await page.evaluate(`(async()=>{
     signHook=event=>{bootstrap.revoke();return signer.call(identity,event)}
-    const result=await outcome(start);await bootstrap.close();return [result,signCalls,(await images()).every(image=>image.records.size===0)]
+    const result=await outcome(start);await bootstrap.close();return [result,signCalls,sourceSessionOnly(await images())]
   })()`)).toEqual(['OrdinaryStateHold',1,true])
 })
 
@@ -390,7 +391,7 @@ for(const fault of ['account','keep','lease','credential-expiry','close'] as con
     const original=Ordinary.OrdinaryStateOwner.readPairMigrated,nativeNow=Date.now;let reads=0;window.handoff=undefined
     Ordinary.OrdinaryStateOwner.readPairMigrated=async input=>{
       const result=await original.call(Ordinary.OrdinaryStateOwner,input)
-      if(++reads===3){handoff=result;const fault=${JSON.stringify(fault)}
+      reads++;if(result?.admission?.secret instanceof Uint8Array&&result.deviceKey instanceof Uint8Array&&result.sealKey instanceof Uint8Array){handoff=result;const fault=${JSON.stringify(fault)}
         if(fault==='account')current={...current,account:null}
         if(fault==='keep')current={...current,keep:false}
         if(fault==='close')bootstrap.revoke()
@@ -400,9 +401,9 @@ for(const fault of ['account','keep','lease','credential-expiry','close'] as con
       return result
     }
     let result;try{result=await outcome(start)}finally{Ordinary.OrdinaryStateOwner.readPairMigrated=original;Date.now=nativeNow}
-    const [b,t]=await images();return [result,reads,signCalls,!!handoff,
+    const [b,t]=await images();return [result,reads>=3,signCalls,!!handoff,
       [handoff.admission.secret,handoff.deviceKey,handoff.sealKey].every(bytes=>bytes.every(v=>v===0)),b.records.has(proofName),t.records.has(tabProofName)]
-  })()`)).toEqual(['OrdinaryStateHold',3,1,true,true,true,true])
+  })()`)).toEqual(['OrdinaryStateHold',true,1,true,true,true,true])
 })
 
 test('credential expiry while candidate crypto is pending prevents both native frame writes',async({page})=>{

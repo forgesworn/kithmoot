@@ -28,7 +28,17 @@ const carrierSetup=`async (options={})=>{
  }
  window.NativeSocket=NativeSocket
  window.identity=Ordinary.localIdentity(participantSk);window.originalSign=identity.signEvent.bind(identity)
- identity.signEvent=template=>{signs++;return window.signer?signer(template):originalSign(template)}
+ if(options.auth){
+   window.nostr={getPublicKey:async()=>participant,signEvent:async template=>{
+    if(template.kind===22242){signs++;return window.signer?signer(template):originalSign(template)}
+    return Ordinary.finalizeEvent(template,participantSk)}}
+   const storage=await Ordinary.OrdinarySignetState.open({owner:browserOwner,generation:0,currentGeneration:()=>0,live:guard,
+    origin:location.origin,appName:'KithMoot',checkClients:async()=>{},stop:()=>{}})
+   window.sourceSession=await Ordinary.login({preferredMethod:'nip07',appName:'KithMoot',storage})
+   identity=await Ordinary.OrdinaryForegroundSigner.open({browser:browserOwner,tab:tabOwner,session:sourceSession,currentSession:()=>sourceSession,
+    generation:0,currentGeneration:()=>0,live:guard,checkClients:async()=>{},stop:()=>{}})
+   await creator.close();account=participant;current={...current,account};creator=await open()
+ }
  window.carrierCurrent={generation:carrierGeneration,profile:'direct',websocketImplementation:NativeSocket,
  authentication:options.auth?destinations.map(url=>({url,identity})):[]}
  window.delivery={...carrierCurrent,current:()=>carrierCurrent,timeoutMs:options.timeoutMs??2000,authenticationTimeoutMs:1000}
@@ -99,13 +109,27 @@ test('actual NIP-42 consent signs AUTH first; every exact EVENT follows its own 
  destinations.every(url=>{const frames=enqueues.filter(row=>row.url===url).map(row=>JSON.parse(row.data));return frames.length===2&&frames[0][0]==='AUTH'&&frames[1][0]==='EVENT'}),
  (await nativeIntent()).state]})()`)).toEqual(['ack',2,['AUTH','AUTH','EVENT','EVENT'],true,'acknowledged'])
 })
+for(const foreign of [false,true])test(`visitor creator ${foreign?'refuses foreign Fore consent':'ignores matching Fore provider'} before private SDK effects`,async({page})=>{
+ await start(page,{auth:true})
+ expect(await page.evaluate(`(async()=>{await creator.forget();account=null;current={...current,account};creator=await open();retained=await creator.prepare(now);let called=0;
+  if(${foreign}){
+   await identity.close();nostr={getPublicKey:async()=>Ordinary.getPublicKey(inviterSk),signEvent:async template=>Ordinary.finalizeEvent(template,inviterSk)};
+   const storage=await Ordinary.OrdinarySignetState.open({owner:browserOwner,generation:0,currentGeneration:()=>0,live:guard,origin:location.origin,appName:'KithMoot',checkClients:async()=>{},stop:()=>{}});
+   sourceSession=await Ordinary.login({preferredMethod:'nip07',appName:'KithMoot',storage});identity=await Ordinary.OrdinaryForegroundSigner.open({browser:browserOwner,tab:tabOwner,session:sourceSession,currentSession:()=>sourceSession,
+    generation:0,currentGeneration:()=>0,live:guard,checkClients:async()=>{},stop:()=>{}})
+  }
+  nostr.signEvent=async()=>{called++;throw Error('visitor provider forbidden')};carrierCurrent={...carrierCurrent,authentication:destinations.map(url=>({url,identity}))};delivery={...delivery,...carrierCurrent};
+  await begin();return[deliveryState,called,signs,dials.length,enqueues.length,(await nativeIntent()).state]})()`))
+ .toEqual(foreign?['OrdinaryStateHold',0,0,0,0,'pending']:['ack',0,0,2,4,'acknowledged'])
+})
 for(const fault of ['no-consent','signer-refusal','invalid-signer','withdrawn','late-signer'])test(`${fault} never enqueues AUTH or EVENT`,async({page})=>{
  await start(page,{autoOpen:false,auth:fault!=='no-consent'});await page.evaluate(`(fault=>{authChallenge=true;if(fault==='signer-refusal')window.signer=async()=>{throw Error('refused')}
  if(fault==='invalid-signer')window.signer=async template=>({...await originalSign(template),content:'changed'})
  if(fault==='late-signer')window.signer=template=>new Promise(resolve=>window.resolveSigner=async()=>resolve(await originalSign(template)))
  if(fault==='withdrawn')carrierCurrent={...carrierCurrent,authentication:[]};begin()})(${JSON.stringify(fault)})`)
  if(fault!=='withdrawn'){await page.waitForFunction('dials.length===2');await page.evaluate('sockets[0].open()')}
- if(fault==='late-signer'){await page.waitForFunction('signs===1');await page.evaluate('window.closing=creator.close();undefined');await page.evaluate('publishing');await page.evaluate('closing');await page.evaluate('resolveSigner()')}
+ if(fault==='late-signer'){await page.waitForFunction('signs===1');await page.evaluate('window.closedReceipt=false;window.closing=creator.close().then(()=>closedReceipt=true);undefined');
+ expect(await page.evaluate('closedReceipt')).toBe(false);await page.evaluate('resolveSigner()');await page.evaluate('publishing');await page.evaluate('closing')}
  else await page.evaluate('publishing')
  expect(await page.evaluate('(async()=>[deliveryState,enqueues.length,(await nativeIntent()).state,sockets.every(socket=>socket.readyState===3)])()')).toEqual(['OrdinaryStateHold',0,'pending',true])
 })

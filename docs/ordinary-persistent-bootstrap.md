@@ -15,6 +15,22 @@ expiry and current/live callbacks before native waits. A visitor must already
 have its exact global participant in protected browser custody. Neither this
 adapter nor a caller's decoded admission invents a participant or first root.
 
+An account selection requires the actual native `OrdinaryForegroundSigner`;
+a generic account `ParticipantIdentity` is refused before device entropy.
+Its borrowed signer rechecks this bootstrap's exact owner instances, invitation
+scopes, selected source bytes/revisions, keep choice and credential lifetime in
+the **same** native read as every real SDK attempt, retry and result handoff.
+Visitor credentials are signed synchronously from the matching acknowledged
+native participant key, with exact room/device/seal/expiry tags. The caller's
+generic sign method is not invoked. Both paths join whole component work with
+both owner lifetimes, including unabortable SDK operations.
+
+The dedicated invitation-query carrier uses these same account/visitor signing
+boundaries for NIP-42. Shared SDK signers serialise relay authentication, and a
+refusal cancels queued relay attempts. This implements these source consumers;
+general room transports and the production root are still unmounted. See
+[native visitor signing](ordinary-native-participant-signing.md).
+
 The native pair must have completed migration and pass the complete composer.
 Open pins the selected operation, or exact absence with full browser/tab record
 bytes and both native revisions. A stale instance cannot adopt or forget a

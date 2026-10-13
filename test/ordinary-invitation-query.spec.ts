@@ -21,8 +21,7 @@ const carrierSetup = `async (options={}) => {
   window.autoOpen=options.autoOpen!==false;window.autoEose=options.autoEose!==false;window.challenge=options.auth===true
   window.sourceEvents=[event]
   window.beforeEnqueue=undefined;window.afterEnqueue=undefined;window.authSigns=0
-  window.authIdentity=Ordinary.localIdentity(participantSk);window.authSign=authIdentity.signEvent
-  authIdentity.signEvent=function(value){authSigns++;return window.authHook?authHook(value):authSign.call(this,value)}
+  window.authIdentity=identity
   class NativeSocket {
     static CONNECTING=0;static OPEN=1;static CLOSING=2;static CLOSED=3
     CONNECTING=0;OPEN=1;CLOSING=2;CLOSED=3;readyState=0;onopen=null;onmessage=null;onclose=null;onerror=null
@@ -118,10 +117,10 @@ for (const fault of ['timeout','close','wrong-id','unsolicited-auth','binary','o
 test('late AUTH signer is joined after close; no late frame or evidence escapes', async ({ page }) => {
   await start(page, { auth: true })
   await page.evaluate(`window.authReleases=[];window.authHook=value=>new Promise(resolve=>authReleases.push(()=>resolve(authSign.call(authIdentity,value))));begin();undefined`)
-  await page.waitForFunction('authSigns===2')
+  await page.waitForFunction('authSigns===1')
   await page.evaluate('window.closedReceipt=false;window.closing=bootstrap.close().then(()=>closedReceipt=true);undefined')
   expect(await page.evaluate('[closedReceipt,frames.length]')).toEqual([false,0])
-  // Settle both captured providers, including the first independent relay.
+  // Settle the first provider; cancellation prevents the queued second start.
   await page.evaluate('authReleases.forEach(release=>release());undefined')
   await page.evaluate('querying');await page.evaluate('closing')
   expect(await page.evaluate('[queryState,closedReceipt,frames.length,typeof queried,sockets.every(s=>s.readyState===3)]')).toEqual(['OrdinaryStateHold',true,0,'undefined',true])

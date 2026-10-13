@@ -23,7 +23,7 @@ export interface OrdinaryPairMutation<T> {
 declare const pairCustodyBrand: unique symbol
 export interface OrdinaryPairCustody { readonly [pairCustodyBrand]: true }
 interface PairHeader { purpose: OrdinaryPurpose; expiresAt: number; generation: string; revision: number; fences: ReadonlyMap<string, number> }
-const pairCustody = new WeakMap<object, { browser: OrdinaryImage; tab: OrdinaryImage; browserStore: DeviceStore; tabStore: DeviceStore; browserScope: OrdinaryScope; tabScope: OrdinaryScope }>()
+const pairCustody = new WeakMap<object, { kind:'read'|'mutation'; browser: OrdinaryImage; tab: OrdinaryImage; browserOwner: OrdinaryStateOwner; tabOwner: OrdinaryStateOwner; browserStore: DeviceStore; tabStore: DeviceStore; browserScope: OrdinaryScope; tabScope: OrdinaryScope }>()
 /** Only a live native pair callback can supply this opaque provenance. Exact
  * record matching prevents substituting a different image under its headers. */
 export function ordinaryPairCustodyFor(token: OrdinaryPairCustody, browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>):
@@ -36,6 +36,15 @@ export function ordinaryPairCustodyFor(token: OrdinaryPairCustody, browser: Read
     return { purpose: image.purpose, expiresAt: image.expiresAt, generation: image.generation, revision: image.revision, fences: new Map(image.fences) }
   }
   return { browser: header(captured.browser, captured.browserStore, browser), tab: header(captured.tab, captured.tabStore, tab) }
+}
+/** Signing may consume only acknowledged input bytes from a read callback,
+ * never a writable projection which has not yet acquired a native receipt. */
+export function ordinaryPairReadCustodyFor(token:OrdinaryPairCustody,browser:ReadonlyMap<string,string>,tab:ReadonlyMap<string,string>) {
+  const captured=pairCustody.get(token)
+  if(captured?.kind!=='read')hold()
+  OrdinaryStateOwner.validatePairBinding(token,{browser:{owner:captured.browserOwner,scope:captured.browserScope},
+    tab:{owner:captured.tabOwner,scope:captured.tabScope},live:()=>true})
+  return ordinaryPairCustodyFor(token,browser,tab)
 }
 /** Capacity-only projection from a live authenticated pair callback. Exact
  * current bytes must still match the opaque token. The projected records do
@@ -165,6 +174,28 @@ export class OrdinaryStateOwner {
         browser.purpose !== 'browser' || !TAB_PURPOSE.test(tab.purpose) || !(operation instanceof Promise)) hold()
     browser.#track(operation); tab.#track(operation)
     return operation
+  }
+  /** Reuse a genuine current pair read for another native component's scopes.
+   * Exact owner instances and their live lifetimes are required; matching rows
+   * or caller-supplied generation strings cannot substitute for provenance.
+   * This synchronous restriction neither starts a read nor exports an image. */
+  static validatePairBinding(custody: OrdinaryPairCustody,
+    input: Pick<OrdinaryPairMutation<unknown>, 'browser' | 'tab' | 'live'>): void {
+    const browser=input.browser.owner,tab=input.tab.owner,
+      browserScope={...input.browser.scope},tabScope={...input.tab.scope},live=input.live
+    const captured=pairCustody.get(custody)
+    if(!captured||captured.browserOwner!==browser||captured.tabOwner!==tab||browser===tab||
+      !(browser instanceof OrdinaryStateOwner)||!(tab instanceof OrdinaryStateOwner)||typeof live!=='function')hold()
+    // Invoke the trusted selector before the final lifetime checks: it may
+    // synchronously close an owner while still returning true.
+    if(live()!==true||browser.#closed||tab.#closed||browser.#retry||tab.#retry||
+      browser.purpose!=='browser'||browser.expiresAt!==0||!TAB_PURPOSE.test(tab.purpose)||
+      captured.browser.purpose!==browser.purpose||captured.browser.expiresAt!==browser.expiresAt||
+      captured.tab.purpose!==tab.purpose||captured.tab.expiresAt!==tab.expiresAt||Date.now()>=tab.expiresAt||
+      captured.browser.generation!==browser.#generation||captured.tab.generation!==tab.#generation)hold()
+    for(const scope of [browserScope,tabScope])if(typeof scope.name!=='string'||!scope.name.length||scope.name.length>512||
+      !Number.isSafeInteger(scope.fence)||scope.fence<0)hold()
+    browser.#scope(captured.browser,browserScope);tab.#scope(captured.tab,tabScope)
   }
   async #locked<T>(live: () => boolean, work: () => Promise<T>): Promise<T> {
     this.#check(live)
@@ -435,7 +466,7 @@ export class OrdinaryStateOwner {
           browser.#scope(first, browserScope); tab.#scope(second, tabScope)
           const browserView = view(new Map(first.records), false), tabView = view(new Map(second.records), false)
           const custody = Object.freeze({}) as OrdinaryPairCustody
-          pairCustody.set(custody, { browser: first, tab: second, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
+          pairCustody.set(custody, { kind:'read', browser: first, tab: second, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
           try {
             const result = work(browserView.store, tabView.store,
               Object.freeze([...first.migration.names]), Object.freeze([...second.migration.names]), custody)
@@ -511,7 +542,7 @@ export class OrdinaryStateOwner {
           tabImage = copyImage(tabSnapshot.image!)
           const browserView = view(new Map(browserImage.records), true), tabView = view(new Map(tabImage.records), true)
           const custody = Object.freeze({}) as OrdinaryPairCustody
-          pairCustody.set(custody, { browser: browserImage, tab: tabImage, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
+          pairCustody.set(custody, { kind:'mutation', browser: browserImage, tab: tabImage, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
           let result: T
           try {
             result = work(browserView.store, tabView.store,

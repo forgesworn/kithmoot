@@ -16,6 +16,8 @@ import { RelayConnections } from './relay-settings.js'
 import { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
 import type { DeviceStore } from './device-store.js'
+import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
+import { signOrdinaryVisitorAuthentication } from './ordinary-participant-signing.js'
 import { accountPrefix, FIXED_INVITATION_RELAYS, inspectPersistentAdmissionProofs } from './persistent-admission-proof.js'
 import { creatorDestinations, makePersistentCreatorProof, inspectPersistentCreatorProofs, creatorProofName, creatorIntentName,
   creatorIntent, readCreatorIntent, creatorIsSelected, MAX_CREATOR_PROOFS_PER_ROOM, MAX_CREATOR_SOURCE_EVENTS,
@@ -61,6 +63,7 @@ interface DeliveryRun {
   readonly maxFrames:number; readonly maxBytes:number; readonly authenticationTimeoutMs:number
   readonly cancelled:Promise<void>
   readonly sockets:Set<WebSocket>; readonly rejectors:Set<()=>void>; readonly work:Set<Promise<unknown>>
+  readonly signingTails:Map<OrdinaryForegroundSigner,Promise<void>>
   retained?:RetainedCreatorPublication; active:boolean; failed:boolean; queuedFrames:number; queuedBytes:number
   stop(failed?:boolean):void
 }
@@ -127,8 +130,9 @@ export class OrdinaryInvitationCreator {
       return state
     }catch(error){if(state)await state.close();else{bearer.fill(0);root.fill(0);key.fill(0)}throw error}
   }
-  #live=():boolean=>!this.#closed&&this.#options.live()&&Date.now()<this.#options.tab.expiresAt
-  #track<T>(work:Promise<T>):Promise<T>{this.#work.add(work);void work.finally(()=>this.#work.delete(work)).catch(()=>{});return work}
+  #live=():boolean=>{if(this.#closed)return false;const live=this.#options.live();return live&&!this.#closed&&Date.now()<this.#options.tab.expiresAt}
+  #track<T>(work:Promise<T>):Promise<T>{OrdinaryStateOwner.joinPairLifetime(this.#options.browser,this.#options.tab,work)
+    this.#work.add(work);void work.finally(()=>this.#work.delete(work)).catch(()=>{});return work}
   #input<T>(work:(browser:DeviceStore,tab:DeviceStore,custody:OrdinaryPairCustody)=>T){return{browser:{owner:this.#options.browser,scope:this.#browserScope},
     tab:{owner:this.#options.tab,scope:this.#tabScope},live:this.#live,work:(b:DeviceStore,t:DeviceStore,_bn:readonly string[],_tn:readonly string[],custody:OrdinaryPairCustody)=>work(b,t,custody)}}
   #read<T>(work:(browser:DeviceStore,tab:DeviceStore,custody:OrdinaryPairCustody)=>T):Promise<T>{return this.#track(OrdinaryStateOwner.readPairMigrated(this.#input(work)))}
@@ -280,11 +284,13 @@ export class OrdinaryInvitationCreator {
       for(const value of options.authentication!){const url=creatorDestinations([value.url],options.profile)[0]!
         if(!this.#options.destinations.includes(url)||grants.has(url)||!value.identity||!/^[0-9a-f]{64}$/.test(value.identity.pubkey)||
           typeof value.identity.signEvent!=='function')hold()
+        if(this.#options.account!==null?(!OrdinaryForegroundSigner.isNativeSigner(value.identity)||value.identity.pubkey!==this.#options.account):
+          value.identity.pubkey!==this.#options.participant)hold()
         grants.set(url,{url,identity:value.identity,pubkey:value.identity.pubkey,sign:value.identity.signEvent})}
       let cancel:()=>void=()=>{}
       const cancelled=new Promise<void>(resolve=>{cancel=resolve})
       run={options,grants,cancelled,deadline:Date.now()+timeout,maxFrames,maxBytes,authenticationTimeoutMs:authTimeout,
-        sockets:new Set(),rejectors:new Set(),work:new Set(),active:true,failed:false,queuedFrames:0,queuedBytes:0,
+        sockets:new Set(),rejectors:new Set(),work:new Set(),signingTails:new Map(),active:true,failed:false,queuedFrames:0,queuedBytes:0,
         stop:(failed=true)=>{if(failed)run.failed=true;run.active=false;cancel()
           for(const reject of [...run.rejectors])reject()
           for(const socket of run.sockets)try{socket.close()}catch{} }}
@@ -309,20 +315,29 @@ export class OrdinaryInvitationCreator {
       for(const value of entries){const url=creatorDestinations([value.url],selected.profile)[0]!,grant=run.grants.get(url)
         if(seen.has(url)||!grant||value.identity!==grant.identity||value.identity.pubkey!==grant.pubkey||value.identity.signEvent!==grant.sign)return false
         seen.add(url)}
-      return true
+      return (receipt!==undefined||run.active&&!run.failed&&Date.now()<run.deadline)&&this.#live()&&
+        !deliveryAborted(run.options.signal)&&(receipt!==undefined||run.active&&!run.failed)
     }catch{return false}
   }
   #deliveryTrack<T>(run:DeliveryRun,work:Promise<T>):Promise<T>{run.work.add(work)
     void work.finally(()=>run.work.delete(work)).catch(()=>{});return work}
+  #deliverySigning<T>(run:DeliveryRun,identity:ParticipantIdentity,effect:()=>Promise<T>):Promise<T>{
+    if(this.#options.account===null||!OrdinaryForegroundSigner.isNativeSigner(identity))return this.#deliveryTrack(run,effect())
+    const pending=(run.signingTails.get(identity)??Promise.resolve()).then(effect),tail=pending.then(()=>{},()=>{})
+    run.signingTails.set(identity,tail)
+    void tail.finally(()=>{if(run.signingTails.get(identity)===tail)run.signingTails.delete(identity)})
+    return this.#deliveryTrack(run,pending)
+  }
   #deliveryGuard(run:DeliveryRun,b:DeviceStore,t:DeviceStore,custody:OrdinaryPairCustody,receipt?:object):RetainedCreatorPublication{
+    OrdinaryStateOwner.validatePairBinding(custody,this.#input(()=>{}))
     if(!this.#deliveryCurrent(run,receipt))hold()
     this.#sources(b,t,custody);const retained=this.#retained(b)
     if(!retained||run.retained&&JSON.stringify(retained.proof)!==JSON.stringify(run.retained.proof))hold()
     if(!this.#deliveryCurrent(run,receipt))hold()
     return retained
   }
-  #deliveryRead<T>(run:DeliveryRun,work:(retained:RetainedCreatorPublication)=>T):Promise<T>{
-    const input=this.#input((b,t,custody)=>work(this.#deliveryGuard(run,b,t,custody)))
+  #deliveryRead<T>(run:DeliveryRun,work:(retained:RetainedCreatorPublication,b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody)=>T):Promise<T>{
+    const input=this.#input((b,t,custody)=>work(this.#deliveryGuard(run,b,t,custody),b,t,custody))
     return this.#deliveryTrack(run,this.#track(OrdinaryStateOwner.readPairMigrated({...input,live:()=>this.#deliveryCurrent(run)})))
   }
   async #acknowledge(receipt:object):Promise<void>{
@@ -391,19 +406,28 @@ export class OrdinaryInvitationCreator {
       }
     }
     let authGrant:AuthenticationGrant|undefined
-    if(grant)authGrant={pubkey:grant.pubkey,sign:(template:UnsignedEvent)=>owner.#deliveryTrack(run,(async()=>{
-      const expected=JSON.stringify(template),statement:UnsignedEvent=JSON.parse(expected)
+    const sign=owner.#options.account!==null&&grant&&OrdinaryForegroundSigner.isNativeSigner(grant.identity)?OrdinaryForegroundSigner.borrowNativeSignEvent(grant.identity,{live:()=>current(),
+      validate:(b,t,custody)=>{if(!current())hold();owner.#deliveryGuard(run,b,t,custody);if(!current())hold()}}):undefined
+    if(grant)authGrant={pubkey:grant.pubkey,sign:(template:UnsignedEvent)=>{
+      const expected=JSON.stringify(template)
+      return owner.#deliverySigning(run,grant.identity,async()=>{
+      const statement:UnsignedEvent=JSON.parse(expected)
       if(statement.kind!==22242||statement.content!==''||!Number.isSafeInteger(statement.created_at)||statement.tags.length!==2||
         statement.tags[0]?.length!==2||statement.tags[0]?.[0]!=='relay'||statement.tags[0]?.[1]!==url||
         statement.tags[1]?.length!==2||statement.tags[1]?.[0]!=='challenge'||!statement.tags[1]?.[1]||statement.tags[1][1].length>1024)hold()
       let signing:Promise<Event>|undefined
-      await owner.#deliveryRead(run,()=>{if(!current())hold();signing=grant.sign.call(grant.identity,JSON.parse(expected))})
+      try{
+      await owner.#deliveryRead(run,(_retained,b,t,c)=>{if(!current())hold();signing=sign?sign.call(grant.identity,JSON.parse(expected)):
+        Promise.resolve(signOrdinaryVisitorAuthentication(b,t,c,{account:owner.#options.account,participant:grant.pubkey,url,
+          challenge:statement.tags[1]![1]!,createdAt:statement.created_at},JSON.parse(expected)))})
       const signed=await Promise.race([signing!,run.cancelled.then(()=>hold())]),event:Event={...statement,id:signed.id,pubkey:signed.pubkey,sig:signed.sig}
       if(!current()||signed.pubkey!==grant.pubkey||signed.kind!==statement.kind||signed.created_at!==statement.created_at||
         signed.content!==statement.content||JSON.stringify(signed.tags)!==JSON.stringify(statement.tags)||!verifyEventUncached(event))hold()
       await owner.#deliveryRead(run,()=>{if(!current()||expectedAuth!==undefined||authQueued)hold();expectedAuth=JSON.stringify(['AUTH',event])})
       return signed
-    })())}
+      }catch(error){failed();throw error}
+      finally{if(signing)await Promise.allSettled([signing])}
+    })}}
     const Auth=authenticatedWebSocket(QueuedSocket as typeof WebSocket,()=>authGrant,()=>current(),failed,run.authenticationTimeoutMs)
     try{
       await owner.#deliveryRead(run,()=>{

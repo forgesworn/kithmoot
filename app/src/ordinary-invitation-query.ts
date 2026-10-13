@@ -9,6 +9,10 @@ import { authenticatedWebSocket, AUTH_TIMEOUT_MS, type RelayAuthentication, type
 import { verifyEventUncached } from '../../src/verify.js'
 import { creatorDestinations } from './persistent-creator-proof.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
+import { OrdinaryForegroundSigner, type OrdinaryForegroundConsumer } from './ordinary-foreground-signer.js'
+import type { DeviceStore } from './device-store.js'
+import type { OrdinaryPairCustody } from './ordinary-state-owner.js'
+import { signOrdinaryVisitorAuthentication } from './ordinary-participant-signing.js'
 
 export interface OrdinaryInvitationQueryCarrier {
   readonly generation: string
@@ -35,7 +39,8 @@ interface Grant { url: string; identity: ParticipantIdentity; pubkey: string; si
  * supplied by that adapter, never by its external query options. No pool,
  * default destination, reconnect, publication or synthetic EOSE is provided. */
 export async function queryInvitationOnProtectedCarrier(invitation: RoomInvitation, input: OrdinaryInvitationQueryOptions,
-  guard: <T>(work: () => T) => Promise<T>, live: () => boolean, signal: AbortSignal): Promise<PersistentInvitationEvidenceResult['evidence']> {
+  guard: <T>(work: (b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody) => T) => Promise<T>, validate: OrdinaryForegroundConsumer['validate'],
+  selection:{account:string|null;identity:ParticipantIdentity},live: () => boolean, signal: AbortSignal): Promise<PersistentInvitationEvidenceResult['evidence']> {
   const captured = { ...input }
   const options = { ...captured, destinations: creatorDestinations(captured.destinations, captured.profile),
     authentication: (captured.authentication ?? []).map(value => ({ ...value })) }
@@ -50,9 +55,12 @@ export async function queryInvitationOnProtectedCarrier(invitation: RoomInvitati
     const url = creatorDestinations([value.url], options.profile)[0]!
     if (!options.destinations.includes(url) || grants.has(url) || !value.identity || !/^[0-9a-f]{64}$/.test(value.identity.pubkey) ||
         typeof value.identity.signEvent !== 'function') hold()
+    if(selection.account!==null?(value.identity!==selection.identity||value.identity.pubkey!==selection.account||!OrdinaryForegroundSigner.isNativeSigner(value.identity)):
+      value.identity.pubkey!==selection.identity.pubkey)hold()
     grants.set(url, { url, identity: value.identity, pubkey: value.identity.pubkey, sign: value.identity.signEvent })
   }
   const controller = new AbortController(), sockets = new Set<WebSocket>(), work = new Set<Promise<unknown>>()
+  const signingTails=new Map<OrdinaryForegroundSigner,Promise<void>>()
   let active = true, failed = false, queuedFrames = 0, queuedBytes = 0, messages = 0
   const deadline = Date.now() + timeout
   const stop = (failure = true) => {
@@ -81,7 +89,14 @@ export async function queryInvitationOnProtectedCarrier(invitation: RoomInvitati
   const track = <T>(promise: Promise<T>): Promise<T> => {
     work.add(promise); void promise.finally(() => work.delete(promise)).catch(() => {}); return promise
   }
-  const read = <T>(effect: () => T): Promise<T> => track(guard(() => { if (!current()) hold(); const value = effect(); if (!current()) hold(); return value }))
+  const read = <T>(effect: (b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody) => T): Promise<T> => track(guard((b,t,c) => { if (!current()) hold(); const value = effect(b,t,c); if (!current()) hold(); return value }))
+  const signing = <T>(identity:ParticipantIdentity, effect:()=>Promise<T>):Promise<T> => {
+    if(selection.account===null||!OrdinaryForegroundSigner.isNativeSigner(identity))return track(effect())
+    const pending=(signingTails.get(identity)??Promise.resolve()).then(effect),tail=pending.then(()=>{},()=>{})
+    signingTails.set(identity,tail)
+    void tail.finally(()=>{if(signingTails.get(identity)===tail)signingTails.delete(identity)})
+    return track(pending)
+  }
   const id = 'ordinary-invitation', filters = [{ kinds: [KINDS.GROUP_INVITATION, KINDS.INVITATION_RETIREMENT], authors: [invitation.inviter], '#d': [deriveInvitationId(invitation)] }]
   const request = JSON.stringify(['REQ', id, ...filters]), completed = new Set<string>()
   let subscribed = false
@@ -117,22 +132,29 @@ export async function queryInvitationOnProtectedCarrier(invitation: RoomInvitati
           }
         }
         let authentication: AuthenticationGrant | undefined
-        if (grant) authentication = { pubkey: grant.pubkey, sign: template => track((async () => {
-          const canonical = JSON.stringify(template), statement: UnsignedEvent = JSON.parse(canonical)
+        const sign=selection.account!==null&&grant&&OrdinaryForegroundSigner.isNativeSigner(grant.identity)?OrdinaryForegroundSigner.borrowNativeSignEvent(grant.identity,{live:()=>current(),
+          validate:(b,t,custody)=>{if(!current())hold();validate(b,t,custody);if(!current())hold()}}):undefined
+        if (grant) authentication = { pubkey: grant.pubkey, sign: template => {
+          const canonical = JSON.stringify(template)
+          return signing(grant.identity,async () => {
+          const statement: UnsignedEvent = JSON.parse(canonical)
           if (statement.kind !== 22242 || statement.content !== '' || !Number.isSafeInteger(statement.created_at) || statement.tags.length !== 2 ||
               JSON.stringify(statement.tags[0]) !== JSON.stringify(['relay', url]) || statement.tags[1]?.length !== 2 ||
               statement.tags[1]?.[0] !== 'challenge' || !statement.tags[1][1] || statement.tags[1][1].length > 1024) hold()
           let signing: Promise<Event> | undefined
           try {
-            await read(() => { signing = grant.sign.call(grant.identity, JSON.parse(canonical)); void signing.catch(() => {}) })
+            await read((b,t,c) => { signing = sign?sign.call(grant.identity, JSON.parse(canonical)):
+              Promise.resolve(signOrdinaryVisitorAuthentication(b,t,c,{account:selection.account,participant:grant.pubkey,url,
+                challenge:statement.tags[1]![1]!,createdAt:statement.created_at},JSON.parse(canonical))); void signing.catch(() => {}) })
             if (!signing) hold()
             const signed = await signing, event: Event = { ...statement, id: signed.id, pubkey: signed.pubkey, sig: signed.sig }
             if (!current() || signed.pubkey !== grant.pubkey || signed.kind !== statement.kind || signed.created_at !== statement.created_at ||
                 signed.content !== statement.content || JSON.stringify(signed.tags) !== JSON.stringify(statement.tags) || !verifyEventUncached(event)) hold()
             await read(() => { if (expectedAuth !== undefined || authQueued) hold(); expectedAuth = JSON.stringify(['AUTH', event]) })
             return event
-          } finally { if (signing) await Promise.allSettled([signing]) }
-        })()) }
+          } catch(error) { stop();throw error }
+          finally { if (signing) await Promise.allSettled([signing]) }
+        }) } }
         const Auth = authenticatedWebSocket(QuerySocket as typeof WebSocket, () => authentication, () => current(), () => stop(), authTimeout)
         void read(() => {
           socket = new Auth(url); sockets.add(socket)

@@ -79,8 +79,9 @@ per-call boundary is refused before any provider attempt. Consent and native
 room/carrier restrictions are checked inside each actual SDK attempt, after
 its result, and at the final detached event handoff. Signing and crypto share
 the foreground's single-operation latch and joined owner lifetimes.
-This is a source prerequisite for native consumers: production relay
-authentication, credential signing and `RoomSession` do not yet select it.
+The unmounted native invitation query, creator publisher and account member
+bootstrap now select it for authentication and credential signing. Production
+entry and `RoomSession` do not yet select these consumers.
 Its trusted consumer callbacks cannot establish current membership or MLS
 admission authority.
 

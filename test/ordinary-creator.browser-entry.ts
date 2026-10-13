@@ -5,3 +5,6 @@ export { storeInvitationOwner, INVITATION_OWNER_PREFIX } from '../app/src/invita
 export { revalidatePersistentInvitationSource } from '@forgesworn/fold-kit/persistent-invitation-evidence'
 export { captureOrdinaryStartupContext, validateOrdinaryRoomAccessAndBookmarksSnapshot } from '../app/src/ordinary-room-access-snapshot.js'
 export { hexToBytes } from '@noble/hashes/utils'
+export { OrdinaryForegroundSigner } from '../app/src/ordinary-foreground-signer.js'
+export { OrdinarySignetState } from '../app/src/ordinary-signet-state.js'
+export { login } from 'signet-login'

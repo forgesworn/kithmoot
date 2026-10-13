@@ -27,6 +27,8 @@ import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmission
 import { inspectPersistentCreatorProofs, creatorIsSelected } from './persistent-creator-proof.js'
 import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions } from './ordinary-invitation-query.js'
 import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
+import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
+import { signOrdinaryVisitorCredential } from './ordinary-participant-signing.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const DEVICE_OWNER = 'kithmoot.device-owner.'
@@ -124,7 +126,7 @@ export class OrdinaryPersistentBootstrap {
       invitation = roomInvitation(new Uint8Array(captured.invitation.bearer), captured.invitation.inviter, true)
       const options = { ...captured, invitation }
       if (captured.invitation.persistent !== true || !HEX.test(participant) || typeof sign !== 'function' ||
-          options.account !== null && options.account !== participant || typeof options.keep !== 'boolean' ||
+          options.account !== null && (options.account !== participant || !OrdinaryForegroundSigner.isNativeSigner(options.identity)) || typeof options.keep !== 'boolean' ||
           !integer(options.credentialExpiresAt) || options.credentialExpiresAt === 0 || typeof options.link !== 'string') hold()
       const link = parseRoomLink(options.link), id = deriveInvitationId(invitation)
       try {
@@ -163,6 +165,7 @@ export class OrdinaryPersistentBootstrap {
     return external && !this.#closed && now < this.#options.tab.expiresAt
   }
   #track<T>(work: Promise<T>): Promise<T> {
+    OrdinaryStateOwner.joinPairLifetime(this.#options.browser,this.#options.tab,work)
     this.#work.add(work); void work.finally(() => this.#work.delete(work)).catch(() => {}); return work
   }
   #input<T>(work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T, live = this.#live) {
@@ -367,15 +370,17 @@ export class OrdinaryPersistentBootstrap {
     const abort = new AbortController(); this.#queryAbort = abort
     try {
       if (!this.#live()) hold()
-      const guard = <T>(effect: () => T) => this.#read((browser, tab, custody) => {
+      const validate = (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => {
+        OrdinaryStateOwner.validatePairBinding(custody,this.#input(()=>{}))
         this.#preflight(browser, tab, custody)
         if (this.#options.credentialExpiresAt <= Math.floor(Date.now() / 1000) ||
             this.#options.credentialExpiresAt > Math.floor(this.#options.tab.expiresAt / 1000)) hold()
         if (!this.#openedImage || JSON.stringify(this.#image(browser, tab, custody)) !== JSON.stringify(this.#openedImage) ||
             this.#selected(browser, tab, custody)?.operation !== this.#ownedOperation || !this.#live()) hold()
-        return effect()
-      })
-      const operation = queryInvitationOnProtectedCarrier(this.#options.invitation, input, guard, this.#live, abort.signal)
+      }
+      const guard = <T>(effect: (b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody) => T) => this.#read((browser, tab, custody) => {validate(browser,tab,custody);return effect(browser,tab,custody)})
+      const operation = queryInvitationOnProtectedCarrier(this.#options.invitation, input, guard, validate,
+        {account:this.#options.account,identity:this.#options.identity},this.#live, abort.signal)
         .finally(() => { if (this.#queryAbort === abort) this.#queryAbort = undefined })
       return this.#track(operation)
     } catch (error) { abort.abort(); this.#queryAbort = undefined; throw error }
@@ -424,8 +429,13 @@ export class OrdinaryPersistentBootstrap {
         if (!deviceKey || !sealKey) hold()
         // createDeviceCredential invokes this sign method synchronously before
         // its first await. Preserve the provider's actual `this` binding.
+        const sign=this.#options.account!==null&&OrdinaryForegroundSigner.isNativeSigner(this.#options.identity)?OrdinaryForegroundSigner.borrowNativeSignEvent(this.#options.identity,{live:this.#live,
+          validate:(b,t,c)=>{OrdinaryStateOwner.validatePairBinding(c,this.#input(()=>{}));
+            this.#same(b,t,c,roomId,sources);this.#fresh(b,t,roomId,admission);this.#lifetime(admission)}}):undefined
         const identity: ParticipantIdentity = { pubkey: this.#participant,
-          signEvent: unsigned => this.#sign.call(this.#options.identity, unsigned) }
+          signEvent: unsigned => sign?sign.call(this.#options.identity, unsigned):
+            Promise.resolve(signOrdinaryVisitorCredential(browser,tab,custody,{account:this.#options.account,participant:this.#participant,roomId,
+              devicePubkey:getPublicKey(deviceKey!),seal:getPublicKey(sealKey!),expiresAt:this.#options.credentialExpiresAt,createdAt:now},unsigned)) }
         pending = createDeviceCredential({ identity, roomId, devicePubkey: getPublicKey(deviceKey), seal: getPublicKey(sealKey),
           expiresAt: this.#options.credentialExpiresAt, now: () => now })
         void pending.catch(() => {})

@@ -10,13 +10,27 @@ export const setup = `async (options={}) => {
   window.url=Ordinary.encodeRoomLink(location.origin+'/j/',{invitation,relays:['wss://hint.example/'],iceUrls:[],name:'Fresh group'})
   window.tabPurpose=options.tabPurpose??'tab:'+'a'.repeat(64);window.tabExpiry=Date.now()+3600_000
   window.credentialExpiresAt=now+1800;window.signCalls=0;window.unsigned=undefined
-  window.signer=identity.signEvent;identity.signEvent=function(event){if(this!==identity)throw Error('lost provider this');signCalls++;unsigned=structuredClone(event)
-    return window.signHook?signHook(event):signer.call(this,event)}
+  window.signer=identity.signEvent
   window.current={account,participant,invitationId:id,link:url,keep,credentialExpiresAt,identity}
   window.browserOwner=new Ordinary.OrdinaryStateOwner();window.tabOwner=new Ordinary.OrdinaryStateOwner(tabPurpose,tabExpiry)
   const migration={phase:'complete',sources:new Map(),names:[]}
   await browserOwner.prepare(guard,new Map(),migration);await tabOwner.prepare(guard,new Map(),migration)
   if(account===null){const scope=await browserOwner.capture('@ordinary-participant',guard);await browserOwner.mutateMigrated(scope,guard,b=>b.set('kithmoot.participant',Ordinary.bytesToHex(participantSk)))}
+  if(account!==null){
+    window.authSigns=0;window.authSign=event=>Promise.resolve(Ordinary.finalizeEvent(event,participantSk))
+    window.nostr={getPublicKey:async()=>participant,signEvent:async event=>{
+      if(event.kind===22242){authSigns++;return window.authHook?authHook(event):authSign(event)}
+      if(event.kind===20460){signCalls++;unsigned=structuredClone(event);return window.signHook?signHook(event):signer.call(identity,event)}
+      return Ordinary.finalizeEvent(event,participantSk)}}
+    const storage=await Ordinary.OrdinarySignetState.open({owner:browserOwner,generation:0,currentGeneration:()=>0,live:guard,
+      origin:location.origin,appName:'KithMoot',checkClients:async()=>{},stop:()=>{}})
+    const k=Ordinary.ORDINARY_SIGNET_KEYS,rows=await storage.getItems(['pubkey','method','authEvent','bunkerUri','bunkerClientSk','expiresAt','displayName'].map(n=>k[n])),raw=rows[k.authEvent]
+    window.sourceSession=raw?{pubkey:participant,method:'nip07',authEvent:JSON.parse(raw),signer:new Ordinary.Nip07Signer(participant,nostr)}:
+      await Ordinary.login({preferredMethod:'nip07',appName:'KithMoot',storage})
+    identity=await Ordinary.OrdinaryForegroundSigner.open({browser:browserOwner,tab:tabOwner,session:sourceSession,currentSession:()=>sourceSession,
+      generation:0,currentGeneration:()=>0,live:guard,checkClients:async()=>{},stop:()=>{}})
+    current={...current,identity}
+  }
   window.event=Ordinary.encodePersistentInvitation({invitation,inviterSk,roomSecret:secret,now,
     ...(options.noEnds?{}:{endsAt:now+3600,destruct:true}),...(options.noRelays?{}:{relays:['wss://signed.example/']})})
   const relay=new Ordinary.SimRelay({replay:true});relay.publish(event)
@@ -30,6 +44,9 @@ export const setup = `async (options={}) => {
       tx.oncomplete=()=>{db.close();resolve([b.result,t.result])};tx.onabort=()=>{db.close();reject(tx.error)}}})
   window.images=async()=>Promise.all((await rawBoth()).map(row=>Ordinary.openOrdinaryFrame(row.frame,row.key)))
   window.records=async()=>(await images()).map(image=>[...image.records])
+  window.sourceSessionOnly=images=>{const[b,t]=images,k=Ordinary.ORDINARY_SIGNET_KEYS;
+    return t.records.size===0&&b.records.size===3&&b.records.get(k.pubkey)===participant&&b.records.get(k.method)===sourceSession.method&&
+      b.records.get(k.authEvent)===JSON.stringify(sourceSession.authEvent)}
   window.outcome=async work=>{try{const result=await work();Ordinary.wipeOrdinaryPersistentBootstrapResult(result);return 'ok'}catch(e){return e.name}}
   window.scopes=async()=>({b:await browserOwner.capture('invitation:'+participant+':'+id,guard),t:await tabOwner.capture('invitation:'+participant+':'+id,guard)})
   window.pair=async work=>{const s=await scopes();return Ordinary.OrdinaryStateOwner.mutatePairMigrated({browser:{owner:browserOwner,scope:s.b},tab:{owner:tabOwner,scope:s.t},live:guard,work})}

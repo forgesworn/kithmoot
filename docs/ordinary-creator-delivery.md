@@ -17,6 +17,16 @@ identity authentication. The caller still owes a verified Tor carrier and fresh
 persona policy. There is no automatic reconnect; an explicit retry must pass
 fresh custody and carrier decisions.
 
+SDK authentication uses the actual native foreground signer. Its additional
+creator-proof, exact owner/scope and carrier-consent restrictions run inside
+each real SDK provider attempt and final signature handoff. Relays sharing one
+SDK signer are queued serially; cancellation prevents later queued starts.
+Visitor authentication can instead sign with the exact native participant key
+under the fresh pair read. It never calls a generic external sign method, and
+an account selection cannot fall back to a retained visitor key. Unabortable
+signatures remain joined after network cancellation and component/owner close.
+The production root still does not select this carrier.
+
 ## Effect and cancellation boundary
 
 Every socket construction and actual synchronous `WebSocket.send` occurs inside
