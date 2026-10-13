@@ -64,6 +64,14 @@ refused, and this adapter does not advertise the SDK support marker itself.
 NIP-46 management methods are deliberately absent until a separately authorised
 carrier/lifecycle adapter exists.
 
+`borrowNip44` permits an additional trusted native component's synchronous
+paired-image restrictions inside every actual SDK start and handoff decision.
+It captures exact data-method descriptors and refuses extra/accessor fields
+and asynchronous validators. The base image/session checks run again after
+the additional restriction. It never accepts an external SDK effect boundary
+or grants permission to replace the foreground checks. The first consumer is
+the unmounted [native room-board storage prerequisite](ordinary-room-board-storage.md).
+
 Native tests use real IndexedDB, Web Locks, WebCrypto, the complete composer and
 the reviewed unpublished SDK candidate. Extensions and bunker backends are
 synthetic. They check provider starts under the native lock, unlocked waiting,

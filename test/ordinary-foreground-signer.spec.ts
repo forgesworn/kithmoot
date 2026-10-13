@@ -255,3 +255,22 @@ test(`${family} ${method} joins a blocked provider after ${fault} and refuses it
  await page.evaluate('release();pending');if(fault.endsWith('close'))await page.evaluate('closing')
  expect(await page.evaluate('[receipt,result,startsUnderLock,rawCloses]')).toEqual(['OrdinaryStateHold',null,[true],0]);await context.close()
 })
+test('narrowed trusted consumer checks every actual NIP44 start and handoff under the native lock',async({browser})=>{
+ const c=await browser.newContext(),p=await open(c)
+ expect(await p.evaluate(`(async()=>{let checks=0,locked=true;const consumer={live:()=>true,validate:()=>{checks++;locked&&=nativeHeld>0}},borrowed=adapter.borrowNip44(consumer);
+  consumer.live=()=>false;consumer.validate=()=>{throw Error('changed alias')};const cipher=await borrowed.encrypt(account,'private');return[cipher,checks,locked,crypts,Object.isFrozen(borrowed),startsUnderLock]})()`))
+ .toEqual(['encrypted:private',4,true,1,true,[true]]);await c.close()
+})
+for(const fault of ['async','false-live','reentrant','base-mutation','late-revocation'] as const)test(`${fault} narrowed consumer cannot waive native provider guards`,async({browser})=>{
+ const c=await browser.newContext(),p=await open(c)
+ expect(await p.evaluate(`(async()=>{let checks=0,nested;const borrowed=adapter.borrowNip44({live:()=> '${fault}'!=='false-live'&&('${fault}'!=='late-revocation'||checks<2),validate:(b)=>{
+  checks++;if('${fault}'==='async')return Promise.resolve();if('${fault}'==='reentrant')nested=adapter.nip44.encrypt(account,'private').catch(e=>e.name);
+  if('${fault}'==='base-mutation')b.set(k.displayName,'changed')}});let error;try{await borrowed.encrypt(account,'private')}catch(e){error=e.name};if(nested)await nested;return[error,crypts,stops]})()`))
+ .toEqual(['OrdinaryStateHold',0,1]);await c.close()
+})
+for(const fault of ['accessor','extra','symbol'] as const)test(`${fault} consumer fields refuse without executing accessor code`,async({browser})=>{
+ const c=await browser.newContext(),p=await open(c)
+ expect(await p.evaluate(`(()=>{let calls=0,error;const consumer={live:()=>true,validate:()=>{}};if('${fault}'==='accessor')Object.defineProperty(consumer,'live',{get(){calls++;return()=>true}});
+  if('${fault}'==='extra')consumer.extra=true;if('${fault}'==='symbol')consumer[Symbol('extra')]=true;try{adapter.borrowNip44(consumer)}catch(e){error=e.name};return[error,calls,crypts]})()`))
+ .toEqual(['OrdinaryStateHold',0,0]);await c.close()
+})

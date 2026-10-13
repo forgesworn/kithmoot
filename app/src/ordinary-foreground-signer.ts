@@ -101,6 +101,12 @@ export function captureOrdinaryForegroundSession(input: SignetSession): SignetSe
   if (proof.kind !== 21236 || proof.pubkey !== data.pubkey || JSON.stringify(proof).length > ORDINARY_VALUE_UNITS) hold()
   return { ...data, authEvent: proof } as unknown as SignetSession
 }
+/** Additional trusted native-consumer restrictions; never replaces this
+ * signer's own complete image, session, SDK or lifetime checks. */
+export interface OrdinaryForegroundConsumer {
+  live(): boolean
+  validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void
+}
 interface Options {
   browser: OrdinaryStateOwner
   tab: OrdinaryStateOwner
@@ -207,11 +213,23 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     return pending
   }
   async #clients(): Promise<void> { this.#check(); await this.#options.checkClients(); this.#check() }
-  #read<T>(work: () => T): Promise<T> {
+  #read<T>(work: () => T, consumer?: OrdinaryForegroundConsumer): Promise<T> {
     return OrdinaryStateOwner.readPairMigrated({
       browser: { owner: this.#options.browser, scope: this.#browserScope },
       tab: { owner: this.#options.tab, scope: this.#tabScope }, live: this.#live,
-      work: (b, t, _bn, _tn, custody) => { this.#preflight(b, t, custody); this.#check(); const value = work(); this.#check(); return value },
+      work: (b, t, _bn, _tn, custody) => {
+        this.#preflight(b,t,custody);this.#check()
+        if(consumer) {
+          if(consumer.live()!==true)hold()
+          const checked:unknown=consumer.validate(b,t,custody)
+          if(checked&&typeof (checked as PromiseLike<unknown>).then==='function') {void Promise.resolve(checked).catch(()=>{});hold()}
+          this.#check();if(consumer.live()!==true)hold()
+          // A trusted extra restriction cannot weaken the base decision by
+          // changing the callback's stores or re-entering its selectors.
+          this.#preflight(b,t,custody);this.#check()
+        }
+        const value=work();this.#check();if(consumer&&consumer.live()!==true)hold();return value
+      },
     })
   }
   #preflight(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void {
@@ -247,7 +265,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       return state
     } catch (error) { if (state) { state.#stop(); await state.close() } else { try { options.stop() } catch {} }; throw error }
   }
-  #run<T>(capture: () => (boundary: SignerEffectBoundary) => Promise<T>, finish: (value: T) => T): Promise<T> {
+  #run<T>(capture: () => (boundary: SignerEffectBoundary) => Promise<T>, finish: (value: T) => T, consumer?: OrdinaryForegroundConsumer): Promise<T> {
     let invoke: (boundary: SignerEffectBoundary) => Promise<T>
     // Latch and capture before any caller-owned selector or live callback.
     if (this.#busy || this.#closed || this.#held) { this.#stop(); return Promise.reject(new OrdinaryStateHold()) }
@@ -269,10 +287,10 @@ export class OrdinaryForegroundSigner implements SignetSigner {
               // return its promise from the locked read callback.
               try { operation = Promise.resolve(provider()) } catch (error) { operation = Promise.reject(error) }
               void operation.catch(() => {})
-            })
+            },consumer)
             if (!operation) hold()
             const result = await operation
-            await this.#clients(); await this.#read(() => { if (!active) hold() }); this.#check()
+            await this.#clients(); await this.#read(() => { if (!active) hold() },consumer); this.#check()
             return result
           } finally {
             if (operation) await Promise.allSettled([operation])
@@ -281,11 +299,11 @@ export class OrdinaryForegroundSigner implements SignetSigner {
         })
       } })
       try {
-        await this.#clients(); await this.#read(() => {})
+        await this.#clients(); await this.#read(() => {},consumer)
         sdk = Promise.resolve(invoke(boundary)); void sdk.catch(() => {})
         const value = finish(await sdk)
         await this.#clients()
-        const result = await this.#read(() => value)
+        const result = await this.#read(() => value,consumer)
         this.#check(); return result
       } catch (error) { this.#stop(); throw error }
       finally { active = false; if (sdk) await Promise.allSettled([sdk]); this.#busy = false }
@@ -304,12 +322,28 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     })
   }
   #crypt(method: NonNullable<SignetSigner['nip44']>['encrypt'], receiver: NonNullable<SignetSigner['nip44']>,
-    peer: string, text: string, external?: SignerEffectBoundary): Promise<string> {
+    peer: string, text: string, external?: SignerEffectBoundary, consumer?: OrdinaryForegroundConsumer): Promise<string> {
     return this.#run(() => {
       if (external !== undefined || typeof peer !== 'string' || !HEX.test(peer) || typeof text !== 'string') hold()
       ordinaryUtf8Length(text)
       return boundary => method.call(receiver, peer, text, boundary)
-    }, value => { if (typeof value !== 'string') hold(); ordinaryUtf8Length(value); return value })
+    }, value => { if (typeof value !== 'string') hold(); ordinaryUtf8Length(value); return value },consumer)
+  }
+  /** Narrow this signer for a trusted native component. Its synchronous
+   * preflight runs in the SAME authentic read as every actual SDK attempt and
+   * final handoff; an earlier asynchronous decision is never a substitute. */
+  borrowNip44(input: OrdinaryForegroundConsumer): NonNullable<SignetSigner['nip44']> {
+    if(!input||Object.getPrototypeOf(input)!==Object.prototype)hold()
+    const names=Reflect.ownKeys(input)
+    if(names.length!==2||names.some(name=>name!=='live'&&name!=='validate'))hold()
+    const fields=['live','validate'].map(name=>Object.getOwnPropertyDescriptor(input,name))
+    if(fields.some(field=>!field||!Object.hasOwn(field,'value')))hold()
+    const live=fields[0]!.value as OrdinaryForegroundConsumer['live'],validate=fields[1]!.value as OrdinaryForegroundConsumer['validate']
+    if(typeof live!=='function'||typeof validate!=='function'||!this.#crypto.nip44||!this.#methods.nip44)hold()
+    const consumer=Object.freeze({live:()=>live.call(input),validate:(b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody)=>validate.call(input,b,t,c)})
+    const methods=this.#methods.nip44,receiver=this.#crypto.nip44
+    return Object.freeze({encrypt:(peer:string,text:string)=>this.#crypt(methods.encrypt,receiver,peer,text,undefined,consumer),
+      decrypt:(peer:string,text:string)=>this.#crypt(methods.decrypt,receiver,peer,text,undefined,consumer)})
   }
   revoke(): void { this.#closed = true }
   async close(): Promise<void> {

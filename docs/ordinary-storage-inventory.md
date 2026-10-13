@@ -80,6 +80,12 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | Other recognised finite visual keys below | Individual UI writers | Exempt only after explicit exact-key/value review; no prefix exemption |
 | Unknown/new `kithmoot` / Signet login names | Future, malformed or unclassified state | Select and hold until explicitly classified; never silently leave outside migration |
 
+The unmounted [native room-board storage prerequisite](ordinary-room-board-storage.md)
+adds account/room/whole-set bindings inside new authenticated version-2
+plaintexts while preserving the opaque physical v1 carrier. Legacy bare-array
+plaintexts hold intact pending explicit authenticated room recovery. Production
+consumer/publication integration and real invitation authority remain open.
+
 The project and notification APIs have permissive test inputs. The metadata
 snapshot validates the production physical account/room grammar and preserves
 project selector strings as inert metadata. It returns counts only. Unsupported
