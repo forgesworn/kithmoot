@@ -154,7 +154,7 @@ export class WorkspaceWorkPanel {
     if (this.#account !== this.options.account()) { this.reset(); return }
     const signedIn = !!this.#account
     this.el('workspaceWorkSignIn').hidden = signedIn
-    this.el('workspaceWorkTitle').textContent = this.#mode === 'inbox' ? 'Inbox' : 'Work across projects'
+    this.el('workspaceWorkTitle').textContent = this.#mode === 'inbox' ? 'Inbox' : 'Room task boards'
     this.el('workspaceInboxTab').setAttribute('aria-pressed', String(this.#mode === 'inbox'))
     this.el('workspaceWorkTab').setAttribute('aria-pressed', String(this.#mode === 'work'))
     const select = this.el('workspaceWorkProject') as HTMLSelectElement, selected = select.value || '*'
@@ -171,8 +171,14 @@ export class WorkspaceWorkPanel {
       snapshot?.messages.map(m => [m.id, m.text, m.mentions, m.reply, m.retracts, m.replaces, this.options.person(m.participant)]), snapshot?.people])])
     if (key === this.#renderKey) return
     this.#renderKey = key
-    const cards = this.el('workspaceWorkCards'); cards.replaceChildren()
+    const cards = this.el('workspaceWorkCards'); cards.replaceChildren(); cards.classList.toggle('taskBoards', this.#mode === 'work')
     const unavailableNotes: HTMLElement[] = []
+    const columns = new Map<string, HTMLElement>()
+    if (this.#mode === 'work') for (const name of ['Queued', 'In progress', 'Blocked', 'Review', 'Done', 'Stopped']) {
+      const column = this.text('section', '', 'taskBoardColumn'); column.setAttribute('aria-label', name)
+      column.append(this.text('h3', name)); columns.set(name, column); cards.append(column)
+    }
+    const destination = (status: string) => columns.get(status === 'offered' ? 'Queued' : status === 'running' ? 'In progress' : status === 'blocked' ? 'Blocked' : status === 'review' ? 'Review' : status === 'accepted' ? 'Done' : 'Stopped') ?? cards
     let count = 0, unavailable = 0, loading = 0
     for (const { room, snapshot } of signedIn ? sources : []) {
       const error = this.#unavailable.get(room.roomId) ?? snapshot?.error ?? snapshot?.work.error
@@ -192,14 +198,14 @@ export class WorkspaceWorkPanel {
       for (const assignment of snapshot.work.assignments) {
         const decision = workspaceDecision(assignment, this.#account!)
         if (this.#mode === 'inbox' && !decision) continue
-        if (this.#mode === 'work' && ['accepted', 'cancelled'].includes(assignment.status)) continue
+        if (this.#mode === 'work' && assignment.status === 'cancelled') continue
         count++
         const card = this.text('article', '', 'workspaceWorkCard'); card.dataset.room = room.roomId; card.dataset.assignment = assignment.id
         card.append(this.text('p', `${this.options.projectLabel(room) ?? 'No project'} · ${this.options.label(room)}`, 'workMeta'),
           this.text('h3', assignment.objective), this.text('p', `Responsible: ${snapshot.people.find(p => p.participant === assignment.owner)?.name ?? this.options.person(assignment.owner)}${this.options.agent(room, assignment.owner) || snapshot.people.some(p => p.participant === assignment.owner && p.agent) ? ' (agent)' : ''} · ${assignment.status}`))
         if (decision) card.append(this.text('p', decision, 'workDecision'))
         else card.append(this.text('p', assignment.next))
-        card.append(this.button('Open task in room', () => { void this.openOrigin(room, { assignment: assignment.id }) })); cards.append(card)
+        card.append(this.button('Open card in room', () => { void this.openOrigin(room, { assignment: assignment.id }) })); destination(assignment.status).append(card)
       }
       if (this.#mode === 'inbox') for (const message of workspaceMentions(snapshot.messages, this.#account!, room, snapshot.people)) {
         count++

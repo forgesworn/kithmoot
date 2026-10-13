@@ -85,6 +85,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@forgesworn/girnel-embed": "file:vendor/forgesworn-girnel-embed-1.1.0-kithmoot.3.tgz",
     "@playwright/test": "^1.62.1",
     "@types/node": "^22.20.1",
     "@types/qrcode": "^1.5.6",

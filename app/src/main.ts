@@ -315,6 +315,7 @@ import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
+import { BoardsPanel } from './boards-panel.js'
 import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
 import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -537,6 +538,7 @@ function approvedReload(): void {
   location.reload()
 }
 installUpdates(() => {
+  if (boardsPanel?.hasPendingEdits) return 'Finish or save your open board edits before updating. Your boards stay here until then.'
   if (hasUnsentWork()) return 'Send or discard your unfinished messages, files and Shared Work drafts before updating. Your work stays here until then.'
   if (switchingBlocked()) return 'Finish the current action before updating. You can keep using this version.'
   if (onCall() || micTrack || cameraTrack || screenTrack || pendingMedia.size > 0 || (!leftCall && (remoteAudios.size > 0 || remoteVideos.size > 0))) {
@@ -1260,6 +1262,7 @@ async function signInWithNostr(): Promise<void> {
   if (loginBusy) return
   if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
   workspaceWork?.reset()
+  boardsPanel?.reset()
   loginBusy = true
   identityGeneration++
   admissionController?.abort()
@@ -1310,6 +1313,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
+  if (boardsPanel?.hasPendingEdits) { setStatus('Save or finish the open board edits before signing out. Check your popped-out board windows too.'); return }
   if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
   participantCard.close()
   packGrant = undefined
@@ -1318,6 +1322,7 @@ async function signOutOfNostr(): Promise<void> {
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
   workspaceWork?.reset()
+  boardsPanel?.reset()
   // A signed-out account must not leave its device-specific rendezvous child
   // behind. Do this before changing the visible account state: a storage
   // failure keeps the account connected rather than pretending the clear won.
@@ -1407,6 +1412,7 @@ async function forgetThisBrowserContents(): Promise<void> {
   clearImportedHistorySearch()
   const s = session
   workspaceWork?.reset()
+  boardsPanel?.reset()
   session = undefined
   sessionTransport = undefined
   resetIncomingCall()
@@ -9702,6 +9708,8 @@ function markConversationRead(): boolean {
 
 /** Reading updates both the local badge and the position shared with other devices. */
 function readVisibleConversation(): void {
+  // A room can resize while admission is still establishing its chat log.
+  if (joining) return
   const changed = markConversationRead()
   if (session && currentChannel === undefined) noteChatRead(session.chat.messages())
   if (changed) renderConversationNav()
@@ -12481,11 +12489,12 @@ document.addEventListener('visibilitychange', () => {
 })
 window.addEventListener('focus', () => {
   notifier.seen()
+  if (joining) return
   if (markConversationRead()) renderConversationNav()
   if (session) noteChatRead(session.chat.messages())
 })
 $('chatLog').addEventListener('scroll', () => {
-  if (session && currentChannel === undefined) noteChatRead(session.chat.messages())
+  if (session && !joining && currentChannel === undefined) noteChatRead(session.chat.messages())
 })
 
 // ---------------------------------------------------------------------------
@@ -12503,6 +12512,7 @@ $('chatLog').addEventListener('scroll', () => {
 
 const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
 let workspaceWork: WorkspaceWorkPanel | undefined
+let boardsPanel: BoardsPanel | undefined
 let roomsTimer: ReturnType<typeof setInterval> | undefined
 /** Whether the list is what is on screen. Nothing below draws, or keeps a
  *  relay open, when it is not. */
@@ -12726,6 +12736,7 @@ function renderRooms(): void {
   if (!destructRun && dueDestructRooms().some(room => !destructing.has(room.roomId))) void runDueDestructs()
   retryFileDeletes()
   workspaceWork?.sync()
+  boardsPanel?.sync()
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (!roomsListShown) return
@@ -14907,6 +14918,35 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   })
 }
 
+boardsPanel = new BoardsPanel(document, {
+  session: () => nostrSession ?? undefined, store: deviceStore,
+  projects: () => projectChoices(workspaceActivityRooms()).map(p => ({id: p.key, name: p.name})),
+  rooms: project => workspaceActivityRooms().filter(room => !project || matchesRoom(room, '', project)).map(room => ({id: room.roomId, name: knownRoomLabel(room)})),
+  currentRoom: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); return room ? {id: room.roomId, name: knownRoomLabel(room)} : undefined},
+  currentProject: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); const choice = room && projectChoices([room]).find(p => !roomProjectContext || p.key === roomProjectContext); return choice ? {id: choice.key, name: choice.name} : undefined},
+  signIn: () => {void signInWithNostr().catch(error => setStatus(describeError(error)))},
+  roomTasks: from => workspaceWork?.open('work', from),
+  newRoomTask: async () => {if (!session) throw new Error('Join a chat before offering a room task.'); await assignmentPanel.openAssignment()},
+  roomInvitation: id => workspaceActivityRooms().find(room => room.roomId === id)?.link,
+  discuss: async (context, card) => {
+    const account = nostrSession?.pubkey, room = workspaceActivityRooms().find(room => room.roomId === context.room?.id)
+    if (!account || !room) throw new Error('Use this board’s labels to choose an admitted chat before discussing a card.')
+    await switchRoom(room)
+    if (nostrSession?.pubkey !== account || !session || session.participant !== account || currentRoomId() !== room.roomId) throw new Error('Complete admission in the linked chat before sharing a card.')
+    selectChannel(undefined); showMobileRoomView('chat')
+    const input = $('chatInput') as HTMLTextAreaElement
+    if (input.value.trim()) throw new Error('Your chat draft is still here. Send or save it before adding this card.')
+    const url = new URL('girnel/embedded/index.html', new URL(import.meta.env.BASE_URL, location.origin)); url.hash = `#/b/${context.boardId}/c/${card.id}`
+    input.value = `${card.title}\n${url.href}`
+    input.dispatchEvent(new Event('input', {bubbles: true})); input.focus()
+    setStatus(`Card title and link added to your draft in ${knownRoomLabel(room)}. Review it before sending to the room.`)
+  },
+})
+for (const id of ['workspaceWork', 'homeWork', 'switcherWork', 'mobileWorkspaceWork', 'openAssignments', 'mobileWork', 'workspaceWorkTab']) {
+  const button = $(id); button.textContent = 'Boards'; button.setAttribute('aria-controls', 'boardsPanel')
+  button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); ($('roomSwitcher') as HTMLDialogElement).close(); ($('workspaceWorkPanel') as HTMLDialogElement).close(); boardsPanel!.open(button)}, {capture: true})
+}
+
 workspaceWork = new WorkspaceWorkPanel(document, {
   account: () => nostrSession?.pubkey, rooms: workspaceActivityRooms, label: knownRoomLabel,
   projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
@@ -16718,7 +16758,7 @@ window.addEventListener('beforeunload', event => {
   // A recording running, or finished and not yet shared or saved, is lost
   // with the page.
   if (activeRecording || pendingRecording) { event.preventDefault(); event.returnValue = ''; return }
-  if (navigationApproved || !hasUnsentWork()) return
+  if (navigationApproved || (!boardsPanel?.hasPendingEdits && !hasUnsentWork())) return
   event.preventDefault()
   event.returnValue = ''
 })

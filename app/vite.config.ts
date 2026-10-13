@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { build as esbuild } from 'esbuild'
 import { defineConfig, type Plugin } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
+import { girnelAssets } from './girnel-assets.js'
 import { VitePWA } from 'vite-plugin-pwa'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -164,7 +165,7 @@ export default defineConfig({
     outDir: resolve(here, desktop ? '../desktop/web' : 'dist'),
     emptyOutDir: true,
   },
-  plugins: [pinnedWasmPreview(),
+  plugins: [girnelAssets(), pinnedWasmPreview(),
     mediapipeRuntime(),
     audioWorklet(),
     // getUserMedia and getDisplayMedia both require a secure context. A
@@ -182,6 +183,7 @@ export default defineConfig({
       // half of a pair that is useless apart is the worst of both.
       workbox: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+        globPatterns: ['**/*.{js,wasm,css,html}', 'girnel/assets/*.svg'],
         globIgnores: ['**/mediapipe/**', '**/link-web/**', '**/vmls-wasm/**', '**/vision_bundle-*.js', 'notify-sw.js'],
         // A click on a notification shown through the registration arrives
         // in the worker, not the page. The handler is a plain script in

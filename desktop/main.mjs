@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
-import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
+import { HOME, ORIGIN, CSP, appContentPolicy, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
 import { SCREEN_SETTINGS_URL, answerDisplayRequest, displayChoice, screenAccessGranted, refuse } from './screen-share.mjs'
 import platformFeatures from './platform-features.cjs'
 
@@ -137,7 +137,7 @@ async function createWindow() {
         const body = await readFile(file)
         return new Response(request.method === 'HEAD' ? null : body, { headers: {
           'Content-Type': mime[extname(file)] ?? 'application/octet-stream',
-          'Content-Security-Policy': testProfile ? CSP.replace("connect-src 'self'", "connect-src ws://127.0.0.1:* 'self'") : CSP,
+          'Content-Security-Policy': testProfile ? appContentPolicy(request.url).replace("connect-src 'self'", "connect-src ws://127.0.0.1:* 'self'") : appContentPolicy(request.url),
           'X-Content-Type-Options': 'nosniff',
           'Cache-Control': 'no-store',
         } })
