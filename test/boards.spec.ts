@@ -168,6 +168,42 @@ test('card colour saves when the colour label is clicked and survives reopening'
   } finally {await context.close()}
 })
 
+test('an existing private board keeps its cards and is shared only after the explicit room sharing action', async ({browser, baseURL}) => {
+  const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!)
+  const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Existing board room', agent: false, ...agentRelaysFor(baseURL!)})
+  const enter = async (who: typeof ada, name: string) => {
+    await who.page.evaluate(({pubkey, room}) => localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room)), {pubkey: who.pubkey, room: {roomId: keeper.roomId, name: 'Existing board room', link: keeper.url, openedAt: 1, readAt: 0}})
+    await who.page.reload()
+    await who.page.locator('#roomList').getByRole('button', {name: 'Open Existing board room', exact: true}).click()
+    if (await who.page.locator('#join').isVisible()) {await who.page.locator('#displayName').fill(name); await who.page.locator('#join').click()}
+    await expect(who.page.locator('#chatInput')).toBeEditable()
+  }
+  try {
+    let owner = await openBoards(ada.page)
+    await createBoard(owner, 'Existing notes'); await addCard(owner, 'Keep my existing card')
+    await ada.page.locator('#boardsClose').click()
+    await enter(ada, 'Ada')
+    await ada.page.locator('#openAssignments').click()
+    owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await owner.getByRole('link', {name: /^Existing notes/}).click()
+    await ada.page.locator('#boardsRoom').selectOption({label: 'Existing board room'}); await ada.page.locator('#boardsAssociate').click()
+    expect(keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')).toBe(false)
+    await ada.page.locator('#boardsShareRoom').click()
+    const share = owner.getByRole('dialog', {name: 'Share Existing notes with Existing board room', exact: true})
+    await share.getByLabel('Add a file server', {exact: true}).fill('https://board-files.test/')
+    await share.getByRole('button', {name: 'Add file server', exact: true}).click()
+    await expect(share.getByText(/^Shared with Existing board room\. People in the chat/)).toBeVisible({timeout: 60000})
+    await share.getByRole('button', {name: 'Close', exact: true}).click()
+    await enter(bo, 'Bo')
+    await expect(bo.page.locator('#chatLog')).toContainText('Shared board: Existing notes')
+    await bo.page.locator('#roomBoards').getByRole('button', {name: 'Existing notes', exact: true}).click()
+    const guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true}); if (await reminder.isVisible()) await reminder.click()
+    await guest.getByRole('button', {name: 'Join board', exact: true}).click()
+    await expect(guest.getByRole('link', {name: 'Keep my existing card', exact: true})).toBeVisible({timeout: 60000})
+  } finally {await keeper.leave(); await Promise.all([ada.context.close(), bo.context.close()])}
+})
+
 test('a room keeps its board discoverable after popping out, closing the window and reloading', async ({browser, baseURL}, info) => {
   const {context, page, pubkey} = await device(browser, baseURL!)
   const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Board workshop', agent: false, ...agentRelaysFor(baseURL!)})
