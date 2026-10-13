@@ -248,3 +248,9 @@ classification and binding, actual startup/client fence, every awaited consumer,
 quiet/epoch before-effect library hooks, authenticated restoration, and full
 forget/recovery. The current raw production startup still runs before migration.
 No helper, audit report or focused browser result closes that composition gap.
+
+Native NIP-07 session restore is implemented as an unmounted controller in
+`ordinary-extension-restore.ts`: historical proof verification precedes guarded
+account discovery, exact SDK/native bytes remain retained on refusal, and only
+the native foreground wrapper escapes. See [the restore contract](ordinary-extension-restore.md).
+Other carriers and full production startup remain open.

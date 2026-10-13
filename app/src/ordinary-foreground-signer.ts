@@ -64,7 +64,7 @@ function statement(input: EventTemplate): Required<EventTemplate> {
 function frozenEvent<T extends NostrEvent>(event: T): T {
   return Object.freeze({ ...event, tags: Object.freeze(event.tags.map(tag => Object.freeze([...tag]))) }) as unknown as T
 }
-function signedEvent(input: NostrEvent): NostrEvent {
+export function captureOrdinaryForegroundProof(input: NostrEvent): NostrEvent {
   if (!input || Object.getPrototypeOf(input) !== Object.prototype) hold()
   const names = Object.getOwnPropertyNames(input), fields = ['kind', 'created_at', 'tags', 'content', 'pubkey', 'id', 'sig']
   if (names.length !== fields.length || names.some(name => !fields.includes(name))) hold()
@@ -97,7 +97,7 @@ export function captureOrdinaryForegroundSession(input: SignetSession): SignetSe
       !['nip07','bunker','redirect','amber','nsec'].includes(data.method) || !data.signer || typeof data.signer !== 'object' ||
       data.expiresAt !== undefined && (!Number.isSafeInteger(data.expiresAt) || (data.expiresAt as number) < 0) ||
       data.displayName !== undefined && (typeof data.displayName !== 'string' || data.displayName.length > ORDINARY_VALUE_UNITS)) hold()
-  const proof = signedEvent(data.authEvent as NostrEvent)
+  const proof = captureOrdinaryForegroundProof(data.authEvent as NostrEvent)
   if (proof.kind !== 21236 || proof.pubkey !== data.pubkey || JSON.stringify(proof).length > ORDINARY_VALUE_UNITS) hold()
   return { ...data, authEvent: proof } as unknown as SignetSession
 }
@@ -298,7 +298,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       captured = statement(input)
       return boundary => this.#sign.call(this.#raw, statement(captured), boundary)
     }, signed => {
-      const event = signedEvent(signed)
+      const event = captureOrdinaryForegroundProof(signed)
       if (event.pubkey !== this.pubkey || JSON.stringify(statement(event)) !== JSON.stringify(captured) || !verifyEventUncached(event)) hold()
       return frozenEvent(event)
     })
