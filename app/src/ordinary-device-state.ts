@@ -1,6 +1,7 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { DeviceCredential } from '../../src/types.js'
+import { parseRoomLink } from '../../src/link.js'
 import { verifyDeviceCredential } from '../../src/credential.js'
 import { credentialSeal } from '../../src/seal.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
@@ -153,6 +154,21 @@ export class OrdinaryRoomDeviceState {
     for (const logical of this.#names.keys()) if (store.get(logical) !== null) hold()
     const binding = store.get(this.#binding)
     const present = [...this.#names.values()].some(name => store.get(name) !== null)
+    // V2 device lifecycle requires both actor invitation fences and a full
+    // paired image; this single-owner prepared-device adapter cannot renew it.
+    const prefix = 'kithmoot.account.' + this.#options.account + '.'
+    for (const name of store.keys()) if (name.startsWith(prefix + 'kithmoot.invitation-proof.v2.')) {
+      const proof = JSON.parse(store.get(name)!) as { binding: { roomId: string } }
+      if (proof.binding.roomId === this.#options.roomId) hold()
+    }
+    if (binding === null && !present) {
+      const raw = store.get(prefix + 'kithmoot.room.' + this.#options.roomId)
+      if (raw !== null) {
+        const metadata = JSON.parse(raw) as { link: string; keep?: boolean }, link = parseRoomLink(metadata.link)
+        try { if (metadata.keep === false && link.invitation?.persistent) hold() }
+        finally { link.secret?.fill(0); link.invitation?.bearer.fill(0); link.pairingCode?.fill(0) }
+      }
+    }
     if (binding === null) { if (present) hold() }
     else {
       let value: unknown; try { value = JSON.parse(binding) } catch { hold() }

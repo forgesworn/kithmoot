@@ -2,8 +2,10 @@
 
 This source checkpoint adds the custody grammar needed before an ordinary
 persistent invitation can bootstrap its first member device. It is **not mounted
-in the production entry flow**, and it does not yet implement first-use device
-creation, credential signing, admission queries, retention or forget.
+in the production entry flow**. The separate
+[first-member bootstrap](ordinary-persistent-bootstrap.md) now implements incoming
+device/credential creation, paired admission retention and actor-scoped forget
+over this grammar. Guarded admission queries and tab epoch lifecycle remain open.
 
 ## Proof formats
 
@@ -63,7 +65,8 @@ lifecycle as well as the actual first-member bootstrap adapter.
 
 ## Remaining bootstrap work
 
-The next adapter must preflight the complete native pair and projected capacity
+The separate bootstrap source implements the following requirements; production
+integration and authority gates remain open. It must preflight the complete native pair and projected capacity
 before device/seal entropy. It must start credential signing synchronously inside
 a fresh paired read, await outside the origin lock, and repeat exact-image CAS at
 commit. It must use actual Fold credentials and writer formats, avoid pruning
@@ -87,3 +90,10 @@ The expiry/reopen case closes the selected owner and opens a different empty tab
 owner; it checks the post-expiry browser topology, without claiming physical
 browser lease pruning acceptance. No external relays, physical Tor or Android
 acceptance is supplied by these checks.
+
+
+The incoming bootstrap extends V2 invitation scope names explicitly to
+`invitation:<participant>:<invitationId>`, with matching browser/tab names. Those
+names are already authenticated operation fields. Historical global V2 scopes
+remain readable; no existing proof is reinterpreted. Bootstrap uses only the
+actor form so forget preserves other actors sharing the same invitation.

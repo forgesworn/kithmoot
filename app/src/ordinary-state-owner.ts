@@ -22,8 +22,8 @@ export interface OrdinaryPairMutation<T> {
 }
 declare const pairCustodyBrand: unique symbol
 export interface OrdinaryPairCustody { readonly [pairCustodyBrand]: true }
-interface PairHeader { purpose: OrdinaryPurpose; expiresAt: number; generation: string; fences: ReadonlyMap<string, number> }
-const pairCustody = new WeakMap<object, { browser: OrdinaryImage; tab: OrdinaryImage; browserStore: DeviceStore; tabStore: DeviceStore }>()
+interface PairHeader { purpose: OrdinaryPurpose; expiresAt: number; generation: string; revision: number; fences: ReadonlyMap<string, number> }
+const pairCustody = new WeakMap<object, { browser: OrdinaryImage; tab: OrdinaryImage; browserStore: DeviceStore; tabStore: DeviceStore; browserScope: OrdinaryScope; tabScope: OrdinaryScope }>()
 /** Only a live native pair callback can supply this opaque provenance. Exact
  * record matching prevents substituting a different image under its headers. */
 export function ordinaryPairCustodyFor(token: OrdinaryPairCustody, browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>):
@@ -33,9 +33,47 @@ export function ordinaryPairCustodyFor(token: OrdinaryPairCustody, browser: Read
   const header = (image: OrdinaryImage, store: DeviceStore, records: ReadonlyMap<string, string>): PairHeader => {
     const names = store.keys()
     if (records.size !== names.length || names.some(name => records.get(name) !== store.get(name))) hold()
-    return { purpose: image.purpose, expiresAt: image.expiresAt, generation: image.generation, fences: new Map(image.fences) }
+    return { purpose: image.purpose, expiresAt: image.expiresAt, generation: image.generation, revision: image.revision, fences: new Map(image.fences) }
   }
   return { browser: header(captured.browser, captured.browserStore, browser), tab: header(captured.tab, captured.tabStore, tab) }
+}
+/** Capacity-only projection from a live authenticated pair callback. Exact
+ * current bytes must still match the opaque token. The projected records do
+ * not acquire semantic validity or mutation authority; no mutable image,
+ * keyId, key or migration carrier escapes. Both revision+1 images are sized
+ * before the caller starts first-use entropy or signing. */
+export function ordinaryPairProjectedByteLengths(token: OrdinaryPairCustody, browser: ReadonlyMap<string, string>,
+  tab: ReadonlyMap<string, string>, proposed: { readonly browser: ReadonlyMap<string, string>; readonly tab: ReadonlyMap<string, string> }, reserveScopes = false):
+  Readonly<{ browser: number; tab: number }> {
+  try {
+    ordinaryPairCustodyFor(token, browser, tab)
+    const captured = pairCustody.get(token)
+    if (!captured || typeof reserveScopes !== 'boolean' || !proposed || Object.getPrototypeOf(proposed) !== Object.prototype ||
+        Reflect.ownKeys(proposed).sort().join(',') !== 'browser,tab') hold()
+    const copy = (records: ReadonlyMap<string, string>) => {
+      // Native Map brand, no thenable or callback-backed projection object.
+      if (Reflect.ownKeys(records).length !== 0) hold()
+      return new Map(Map.prototype.entries.call(records) as MapIterator<[string, string]>)
+    }
+    const data = (name: 'browser' | 'tab') => {
+      const field = Object.getOwnPropertyDescriptor(proposed, name)
+      if (!field || !Object.hasOwn(field, 'value')) hold()
+      return copy(field.value as ReadonlyMap<string, string>)
+    }
+    const b = data('browser'), t = data('tab')
+    try {
+      const fences = (image: OrdinaryImage, scope: OrdinaryScope) => {
+        const copy = new Map(image.fences)
+        if (reserveScopes && !copy.has(scope.name)) copy.set(scope.name, scope.fence)
+        return copy
+      }
+      const first = ordinaryImageByteLength({ ...captured.browser, revision: captured.browser.revision + 1, records: b,
+        fences: fences(captured.browser, captured.browserScope) })
+      const second = ordinaryImageByteLength({ ...captured.tab, revision: captured.tab.revision + 1, records: t,
+        fences: fences(captured.tab, captured.tabScope) })
+      return Object.freeze({ browser: first, tab: second })
+    } finally { b.clear(); t.clear() }
+  } catch { return hold() }
 }
 interface Row { key: CryptoKey; frame?: OrdinaryFrame; pending?: OrdinaryFrame }
 class DefiniteAbort extends Error {}
@@ -387,7 +425,7 @@ export class OrdinaryStateOwner {
           browser.#scope(first, browserScope); tab.#scope(second, tabScope)
           const browserView = view(new Map(first.records), false), tabView = view(new Map(second.records), false)
           const custody = Object.freeze({}) as OrdinaryPairCustody
-          pairCustody.set(custody, { browser: first, tab: second, browserStore: browserView.store, tabStore: tabView.store })
+          pairCustody.set(custody, { browser: first, tab: second, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
           try {
             const result = work(browserView.store, tabView.store,
               Object.freeze([...first.migration.names]), Object.freeze([...second.migration.names]), custody)
@@ -410,12 +448,19 @@ export class OrdinaryStateOwner {
   static mutatePairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
     return this.#mutatePairMigrated(input, false)
   }
+  /** Reserve the two authenticated input scope names at their existing fence
+   * values in the SAME candidate. First-use producers size this reservation
+   * before entropy; later forget advances existing entries without needing new
+   * fence slots. No prior fence is evicted and no scope is advanced here. */
+  static retainPairScopesMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
+    return this.#mutatePairMigrated(input, false, true)
+  }
   /** Deletion and both invitation fences share one native commit. Old captured
    * queries cannot recreate forgotten custody, even when no record existed. */
   static forgetPairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
     return this.#mutatePairMigrated(input, true)
   }
-  static #mutatePairMigrated<T>(input: OrdinaryPairMutation<T>, fencing: boolean): Promise<T> {
+  static #mutatePairMigrated<T>(input: OrdinaryPairMutation<T>, fencing: boolean, reserveScopes = false): Promise<T> {
     const browser = input.browser.owner, tab = input.tab.owner
     const browserScope = { ...input.browser.scope }, tabScope = { ...input.tab.scope }
     const live = input.live, work = input.work
@@ -456,7 +501,7 @@ export class OrdinaryStateOwner {
           tabImage = copyImage(tabSnapshot.image!)
           const browserView = view(new Map(browserImage.records), true), tabView = view(new Map(tabImage.records), true)
           const custody = Object.freeze({}) as OrdinaryPairCustody
-          pairCustody.set(custody, { browser: browserImage, tab: tabImage, browserStore: browserView.store, tabStore: tabView.store })
+          pairCustody.set(custody, { browser: browserImage, tab: tabImage, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
           let result: T
           try {
             result = work(browserView.store, tabView.store,
@@ -471,6 +516,10 @@ export class OrdinaryStateOwner {
             tabImage.records = new Map(tabView.store.keys().map(name => [name, tabView.store.get(name)!]))
           } finally { pairCustody.delete(custody); browserView.close(); tabView.close() }
           browserImage.revision++; tabImage.revision++
+          if (reserveScopes) {
+            if (!browserImage.fences.has(browserScope.name)) (browserImage.fences as Map<string, number>).set(browserScope.name, browserScope.fence)
+            if (!tabImage.fences.has(tabScope.name)) (tabImage.fences as Map<string, number>).set(tabScope.name, tabScope.fence)
+          }
           if (fencing) {
             ;(browserImage.fences as Map<string, number>).set(browserScope.name, browserScope.fence + 1)
             ;(tabImage.fences as Map<string, number>).set(tabScope.name, tabScope.fence + 1)

@@ -96,9 +96,9 @@ export const persistentTabProofName = (binding: Pick<PersistentAdmissionBinding,
 function operation(proof: Omit<PersistentAdmissionProof, 'binding'> & { binding: Omit<PersistentAdmissionBinding, 'operation'> }): string {
   return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(proof))))
 }
-function scope(raw: unknown, id: string, tab: boolean, family = 'invitation'): OrdinaryScope & { purpose?: string } {
+function scope(raw: unknown, id: string, tab: boolean, family = 'invitation', actor?: string): OrdinaryScope & { purpose?: string } {
   object(raw, tab ? ['name','generation','fence','purpose','expiresAt'] : ['name','generation','fence'])
-  if (raw.name !== family + ':' + id) hold()
+  if (raw.name !== family + ':' + id && !(family === 'invitation' && actor && raw.name === 'invitation:' + actor + ':' + id)) hold()
   hex(raw.generation); integer(raw.fence)
   if (tab) { integer(raw.expiresAt); if (raw.expiresAt === 0 || typeof raw.purpose !== 'string' || !/^tab:[0-9a-f]{64}$/.test(raw.purpose)) hold() }
   return { name: raw.name as string, generation: raw.generation, fence: raw.fence,
@@ -160,8 +160,9 @@ function binding(raw: unknown, version: 1 | 2 = 1): PersistentAdmissionBinding {
       { owner, scope: captured as Extract<PersistentDeviceCustody, { owner: 'tab' }>['scope'] }
   }
   const bound: PersistentAdmissionBinding = { account: raw.account as string | null, participant: raw.participant, invitationId: raw.invitationId, roomId: raw.roomId,
-    browser: scope(raw.browser, raw.invitationId, false),
-    tab: scope(raw.tab, raw.invitationId, true) as PersistentAdmissionBinding['tab'], device: device(raw.device, raw.roomId, raw.participant), ...(deviceCustody ? { deviceCustody } : {}), operation: raw.operation }
+    browser: scope(raw.browser, raw.invitationId, false, 'invitation', version === 2 ? raw.participant : undefined),
+    tab: scope(raw.tab, raw.invitationId, true, 'invitation', version === 2 ? raw.participant : undefined) as PersistentAdmissionBinding['tab'], device: device(raw.device, raw.roomId, raw.participant), ...(deviceCustody ? { deviceCustody } : {}), operation: raw.operation }
+  if (version === 2 && bound.browser.name !== bound.tab.name) hold()
   if (deviceCustody) {
     const owner = deviceCustody.owner === 'browser' ? bound.browser : bound.tab
     if (deviceCustody.scope.generation !== owner.generation) hold()
