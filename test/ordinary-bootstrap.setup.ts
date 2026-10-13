@@ -7,7 +7,7 @@ export const setup = `async (options={}) => {
   window.account=options.visitor?null:participant;window.keep=options.keep!==false
   window.invitation=Ordinary.roomInvitation(new Uint8Array(32).fill(17),Ordinary.getPublicKey(inviterSk),true)
   window.id=Ordinary.deriveInvitationId(invitation);window.invScopeName='invitation:'+participant+':'+id;window.prefix=Ordinary.accountPrefix(participant)
-  window.url=Ordinary.encodeRoomLink(location.origin+'/j/',{invitation,relays:['wss://hint.example/'],iceUrls:[],name:'Fresh group'})
+  window.url=Ordinary.encodeRoomLink(location.origin+'/j/',{invitation,relays:['wss://hint.example/'],iceUrls:[],name:'Fresh group',...(options.policy?{policy:options.policy}:{})})
   window.tabPurpose=options.tabPurpose??'tab:'+'a'.repeat(64);window.tabExpiry=Date.now()+3600_000
   window.credentialExpiresAt=now+1800;window.signCalls=0;window.unsigned=undefined
   window.signer=identity.signEvent

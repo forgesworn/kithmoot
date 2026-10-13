@@ -9,3 +9,5 @@ export { Nip07Signer, BunkerSignerImpl, DeferredBunkerSigner } from '../node_mod
 export { signOrdinaryVisitorAuthentication, signOrdinaryVisitorCredential } from '../app/src/ordinary-participant-signing.js'
 export * from '../app/src/ordinary-relay-carrier.js'
 export { NostrRelayPool } from '../src/relay-pool.js'
+export { RoomSession } from '../src/session.js'
+export { encodeEpochGrant, encodeRekeyEvent } from '../src/epoch.js'

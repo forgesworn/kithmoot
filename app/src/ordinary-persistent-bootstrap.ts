@@ -29,6 +29,12 @@ import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions 
 import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
 import { signOrdinaryVisitorCredential } from './ordinary-participant-signing.js'
+import type { ProtocolExecution } from '../../src/protocol-execution.js'
+import { RoomSession, RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
+import { MAX_POOL_RELAYS, normaliseRelayConfig } from '../../src/relay-pool.js'
+import type { SendOptions, ChatMessage } from '../../src/chat.js'
+import { captureProtocolData } from '../../src/protocol-execution.js'
+import { OrdinaryRelayCarrier } from './ordinary-relay-carrier.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const DEVICE_OWNER = 'kithmoot.device-owner.'
@@ -89,6 +95,31 @@ export interface OrdinaryPersistentBootstrapResult {
   readonly sealKey: Uint8Array
   readonly credential: DeviceCredential
 }
+interface OrdinaryMemberProtocolExecution extends ProtocolExecution {
+  /** Extra consumer on a genuine carrier's exact current read. */
+  validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void
+  close(): void
+  joinLifetime(): Promise<void>
+}
+type MemberCarrierOptions = Omit<Parameters<typeof OrdinaryRelayCarrier.open>[0], 'browser' | 'tab' | 'scope' | 'account' | 'participant' | 'validate' | 'onClose'>
+export interface OrdinaryMemberSessionOptions extends MemberCarrierOptions {
+  readonly name?: string
+  readonly epochRequestTimeoutMs?: number
+}
+export interface OrdinaryMemberConversation {
+  send(text: string, options?: SendOptions): Promise<void>
+  prepare(text: string, options?: SendOptions): Promise<{ publish(): Promise<void> }>
+  messages(): Promise<ChatMessage[]>
+}
+export interface OrdinaryOwnedMemberSession extends OrdinaryMemberConversation {
+  readonly roomId: string
+  readonly participant: string
+  readonly device: string
+  join(): Promise<void>
+  channel(name: string): Promise<OrdinaryMemberConversation>
+  publishDescriptor(config: Parameters<RoomSession['publishDescriptor']>[0]): Promise<void>
+  close(): Promise<void>
+}
 export function wipeOrdinaryPersistentBootstrapResult(result: OrdinaryPersistentBootstrapResult | undefined): void {
   result?.admission.secret.fill(0); result?.deviceKey.fill(0); result?.sealKey.fill(0)
 }
@@ -104,6 +135,9 @@ export class OrdinaryPersistentBootstrap {
   readonly #tabScope: OrdinaryScope
   readonly #id: string
   readonly #work = new Set<Promise<unknown>>()
+  readonly #protocols = new Set<OrdinaryMemberProtocolExecution>()
+  readonly #sessionCleanup = new Set<Promise<void>>()
+  #sessionStarting = false
   #closed = false
   #attempted = false
   #starting = false
@@ -360,6 +394,247 @@ export class OrdinaryPersistentBootstrap {
     } catch (error) { wipeOrdinaryPersistentBootstrapResult(result); throw error }
   }
   load(): Promise<OrdinaryPersistentBootstrapResult | undefined> { return this.#track(this.#load()) }
+  /** Execution for an actual member session over this exact retained proof.
+   * The root supplies synchronous revocation of its owned session/carrier.
+   * This first-credential lease does not implement renewal or creator custody. */
+  async #borrowProtocolExecution(revoke: () => void, sessionLive: () => boolean): Promise<OrdinaryMemberProtocolExecution> {
+    if (typeof revoke !== 'function' || Object.getPrototypeOf(revoke) === Object.getPrototypeOf(async () => {})) hold()
+    const owner = this, work = new Set<Promise<unknown>>()
+    let closed = false, expected: OpenedImage | undefined, leaseTimer: ReturnType<typeof setTimeout> | undefined
+    let active: { b: DeviceStore; t: DeviceStore; c: OrdinaryPairCustody } | undefined, release: (() => void) | undefined
+    const live = () => {
+      if (closed || !owner.#live()) return false
+      const selected = sessionLive()
+      return selected === true && !closed && owner.#live() && Math.floor(Date.now() / 1000) < owner.#options.credentialExpiresAt
+    }
+    const retain = <T>(pending: Promise<T>): Promise<T> => {
+      if (!(pending instanceof Promise)) hold()
+      OrdinaryStateOwner.joinPairLifetime(owner.#options.browser, owner.#options.tab, pending)
+      work.add(pending); void pending.finally(() => work.delete(pending)).catch(() => {}); return pending
+    }
+    const binding = { browser: { owner: this.#options.browser, scope: this.#browserScope },
+      tab: { owner: this.#options.tab, scope: this.#tabScope }, live }
+    const validate = (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
+      try {
+        OrdinaryStateOwner.validatePairBinding(c, binding)
+        owner.#preflight(b, t, c)
+        const selected = owner.#selected(b, t, c)
+        if (!selected || owner.#ownedOperation === undefined || selected.operation !== owner.#ownedOperation ||
+            expected === undefined || JSON.stringify(owner.#image(b, t, c)) !== JSON.stringify(expected)) hold()
+        OrdinaryStateOwner.validatePairBinding(c, binding)
+        active = { b, t, c }
+      } catch (error) { protocol.close(); throw error }
+    }
+    const protocol: OrdinaryMemberProtocolExecution = {
+      validate,
+      check: () => { if (!active || !live()) hold(); validate(active.b, active.t, active.c) },
+      retain,
+      run: <T>(operation: string, effect: () => T): Promise<T> => {
+        // A renewed own seal/credential needs the missing atomic retention
+        // producer and capacity reservation before its first entropy.
+        if (operation === 'credential-preparation') return Promise.reject(new OrdinaryStateHold())
+        let applicationRefusal: { error: unknown } | undefined
+        return retain(OrdinaryStateOwner.readPairMigrated({ ...binding,
+          work: (b, t, _bn, _tn, c) => {
+            validate(b, t, c)
+            let result: T
+            try { result = effect() } catch (error) {
+              // An application refusal (for example a prepared send whose
+              // epoch moved) does not revoke an otherwise current owner.
+              // Still repeat custody before releasing that refusal.
+              validate(b, t, c)
+              if (!(error instanceof OrdinaryStateHold)) applicationRefusal = { error }
+              throw error
+            }
+            // The native owner rejects thenables; provider promises go in a
+            // captured container and are retained/awaited outside this read.
+            validate(b, t, c)
+            return result
+          },
+        }).catch(error => { if (!applicationRefusal || applicationRefusal.error !== error) protocol.close(); throw error }))
+      },
+      close: () => {
+        if (closed) return
+        closed = true; active = undefined; expected = undefined; clearTimeout(leaseTimer); release?.(); release = undefined
+        try { revoke() } catch { /* retained work still belongs to both owners */ }
+      },
+      joinLifetime: async () => { while (work.size) await Promise.allSettled([...work]) },
+    }
+    try {
+      const material = await this.#load()
+      try { if (!material) hold() } finally { wipeOrdinaryPersistentBootstrapResult(material) }
+      await this.#read((b, t, c) => {
+        expected = owner.#image(b, t, c); validate(b, t, c)
+        release = OrdinaryStateOwner.retainPairResource(c, binding, { revoke: protocol.close, join: protocol.joinLifetime })
+      })
+      const expire = () => {
+        if (closed) return
+        const remaining = owner.#options.credentialExpiresAt * 1000 - Date.now()
+        if (remaining <= 0) {
+          protocol.close()
+          OrdinaryStateOwner.joinPairLifetime(owner.#options.browser, owner.#options.tab, protocol.joinLifetime())
+        }
+        else leaseTimer = setTimeout(expire, Math.min(2_147_483_647, remaining))
+      }
+      expire()
+      this.#protocols.add(protocol)
+      return Object.freeze(protocol)
+    } catch (error) { protocol.close(); await protocol.joinLifetime(); throw error }
+  }
+  /** Create the genuine library session from acknowledged member material.
+   * The executor, buffers, raw session and exact carrier stay private. This
+   * initial member lease does not yet activate renewal, media or creator roles. */
+  openMemberSession(input: OrdinaryMemberSessionOptions): Promise<OrdinaryOwnedMemberSession> {
+    if (this.#sessionStarting || this.#protocols.size || this.#closed || this.#forgetting) hold()
+    this.#sessionStarting = true
+    let carrier: OrdinaryRelayCarrier | undefined, session: RoomSession | undefined, material: OrdinaryPersistentBootstrapResult | undefined
+    let protocol: OrdinaryMemberProtocolExecution | undefined, closed = false, closing: Promise<void> | undefined
+    const stop = () => {
+      closed = true
+      try { carrier?.close() } catch { /* other owned components still stop */ }
+      try {
+        if (session && protocol) {
+          const leaving = session.leave(); protocol.retain(leaving); void leaving.catch(() => {})
+        }
+      } catch { /* the closed protocol cannot permit further effects */ }
+    }
+    const close = (): Promise<void> => {
+      if (closing) return closing
+      if (protocol) protocol.close(); else stop()
+      // The owned revoke callback may have entered close synchronously.
+      if (closing) return closing
+      closing = (async () => {
+        await protocol?.joinLifetime(); await carrier?.joinLifetime()
+        try { session?.disposeProtocolSecrets() }
+        finally {
+          wipeOrdinaryPersistentBootstrapResult(material); material = undefined
+          if (protocol) this.#protocols.delete(protocol)
+        }
+      })()
+      this.#sessionCleanup.add(closing)
+      void closing.finally(() => this.#sessionCleanup.delete(closing!)).catch(() => {})
+      this.#track(closing)
+      return closing
+    }
+    const field = <T>(name: string): T => {
+      const descriptor = Object.getOwnPropertyDescriptor(input, name)
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) hold()
+      return descriptor.value as T
+    }
+    const optional = <T>(name: string): T | undefined => Object.hasOwn(input, name) ? field<T>(name) : undefined
+    const start = async (): Promise<OrdinaryOwnedMemberSession> => {
+      try {
+        if (!this.#live()) hold()
+        const live = field<() => boolean>('live'), name = optional<string>('name'), timeout = optional<number>('epochRequestTimeoutMs')
+        if (typeof live !== 'function' || name !== undefined && typeof name !== 'string' || timeout !== undefined &&
+            (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 90_000)) hold()
+        const relays = captureProtocolData(field<MemberCarrierOptions['relays']>('relays'))
+        const profile = field<MemberCarrierOptions['profile']>('profile'), websocketImplementation = field<typeof WebSocket>('websocketImplementation')
+        if (profile !== 'direct' && profile !== 'tor') hold()
+        const selectedRelays = normaliseRelayConfig(relays, profile)
+        // A URL or signed destination list does not prove circle ownership.
+        // This source has no verified box-status/keeper mark to attach a lane.
+        if (selectedRelays.some(relay => relay.circle)) hold()
+        // Snapshot consent before the first wait; keep the exact native
+        // signer instance so its private provenance and binding survive.
+        const grants = optional<MemberCarrierOptions['authentication']>('authentication')
+        let authentication: MemberCarrierOptions['authentication']
+        if (grants !== undefined) {
+          if (!Array.isArray(grants)) hold()
+          const length = Object.getOwnPropertyDescriptor(grants, 'length')?.value
+          if (!integer(length) || length > MAX_POOL_RELAYS) hold()
+          authentication = Object.freeze(Array.from({ length }, (_, index) => {
+            const entry = Object.getOwnPropertyDescriptor(grants, String(index))
+            if (!entry || !Object.hasOwn(entry, 'value') || typeof entry.value !== 'object' || entry.value === null) hold()
+            const url = Object.getOwnPropertyDescriptor(entry.value, 'url'), identity = Object.getOwnPropertyDescriptor(entry.value, 'identity')
+            if (!url || !identity || !Object.hasOwn(url, 'value') || !Object.hasOwn(identity, 'value') || typeof url.value !== 'string') hold()
+            return Object.freeze({ url: url.value, identity: identity.value })
+          }))
+        }
+        const linked = parseRoomLink(this.#options.link)
+        let policy: RoomLink['policy']
+        try {
+          policy = linked.policy
+          // Other policies need their actual admission proofs/carriers. The
+          // first-credential member lease supports only the default open rule.
+          if (policy && (policy.tier !== 'open' || Object.keys(policy).some(key => key !== 'tier'))) hold()
+        } finally { wipeLink(linked) }
+        protocol = await this.#borrowProtocolExecution(() => {
+          stop()
+          // Register owned cleanup synchronously so the bootstrap's own
+          // close/forget also joins carrier providers and secret erasure.
+          void close().catch(() => {})
+        }, () => !closed && carrier?.closed !== true && live())
+        material = await this.#load(); if (!material) hold()
+        // #load verifies the exact retained credential, device and own seal
+        // in native custody. Refuse a lease RoomSession would try to renew
+        // before the relay carrier can construct its first socket.
+        if (this.#options.credentialExpiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
+        if (material.admission.relays !== undefined) {
+          const destinations = (entries: MemberCarrierOptions['relays']) => JSON.stringify(normaliseRelayConfig(entries, profile)
+            .map(({ url, read, write }) => [url, read, write]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))))
+          if (destinations(relays) !== destinations(material.admission.relays)) hold()
+        }
+        let starting = true
+        carrier = await OrdinaryRelayCarrier.open({ browser: this.#options.browser, tab: this.#options.tab, scope: this.#browserScope.name,
+          relays, profile, websocketImplementation, account: this.#options.account, participant: this.#participant, authentication,
+          live: () => !closed && this.#live() && live(),
+          validate: (b, t, c) => {
+            protocol!.validate(b, t, c)
+            // Recheck on the actual pool/socket construction read, including
+            // waits in carrier.open. Later work uses the original lease end.
+            if (starting && this.#options.credentialExpiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
+          }, onClose: () => protocol!.close() })
+        const identity: ParticipantIdentity = { pubkey: this.#participant,
+          // Renewal needs its own capacity/CAS/credential retention owner.
+          // The initial session cannot mint a replacement without that ACK.
+          signEvent: () => Promise.reject(new OrdinaryStateHold()),
+        }
+        session = await protocol.run('session-construction', () => new RoomSession({ transport: carrier!, protocol: protocol!,
+          secret: material!.admission.secret, deviceSk: material!.deviceKey, identity, resume: material!.credential, sealKeys: [material!.sealKey],
+          retainCredential: () => Promise.reject(new OrdinaryStateHold()), authority: this.#options.invitation.inviter,
+          memberEpochDesk: false, epochCatchUp: false,
+          onClosed: () => protocol!.close(), onRemoved: () => protocol!.close(), onEpochConflict: () => protocol!.close(),
+          requireFreshEpoch: true, expectedEpoch: 0, endsAt: material!.admission.endsAt, policy, name, epochRequestTimeoutMs: timeout,
+          timing: { credentialTtlSeconds: this.#options.credentialExpiresAt - material!.credential.created_at },
+        }))
+        const perform = async <T>(operation: string, effect: () => Promise<T>): Promise<T> => {
+          const started = await protocol!.run(operation, () => {
+            if (closed) hold()
+            const pending = effect(); protocol!.retain(pending); void pending.catch(() => {}); return { pending }
+          })
+          let result: T
+          try { result = await started.pending } catch (error) {
+            if (operation === 'session-join') protocol!.close()
+            if (closed) hold(); throw error
+          }
+          return protocol!.run(operation + '-handoff', () => { if (closed) hold(); return result })
+        }
+        const conversation = (channel?: string): OrdinaryMemberConversation => {
+          const log = () => channel === undefined ? session!.chat : session!.channel(channel)
+          return Object.freeze({
+            send: (text: string, options: SendOptions = {}) => { if (typeof text !== 'string') hold(); const captured = captureProtocolData(options); return perform('chat-send', () => log().send(text, captured)) },
+            prepare: async (text: string, options: SendOptions = {}) => {
+              if (typeof text !== 'string') hold()
+              const captured = captureProtocolData(options), prepared = await protocol!.run('chat-preparation', () => log().prepare(text, captured))
+              return Object.freeze({ publish: () => perform('chat-retry', prepared.publish) })
+            },
+            messages: () => protocol!.run('chat-disclosure', () => structuredClone(log().messages())),
+          })
+        }
+        const chat = conversation()
+        return Object.freeze({ ...chat, roomId: session.roomId, participant: session.participant, device: session.device,
+          join: async () => { await perform('session-join', () => session!.join([], {})); starting = false },
+          channel: async (name: string) => { if (typeof name !== 'string') hold(); await protocol!.run('channel-construction', () => session!.channel(name)); return conversation(name) },
+          publishDescriptor: (config: Parameters<RoomSession['publishDescriptor']>[0]) => {
+            const captured = captureProtocolData(config); return perform('descriptor-publication', () => session!.publishDescriptor(captured))
+          }, close,
+        })
+      } catch (error) { await close(); throw error }
+      finally { this.#sessionStarting = false }
+    }
+    return this.#track(start())
+  }
   /** Dedicated, explicitly selected relay query. Native custody guards the
    * actual constructor, raw REQ/AUTH sends and bounded incoming observations.
    * The result remains historical evidence; bootstrap independently verifies
@@ -485,6 +760,7 @@ export class OrdinaryPersistentBootstrap {
   forget(): Promise<void> {
     if (this.#closed || this.#forgetting) hold()
     this.#forgetting = true
+    for (const protocol of this.#protocols) protocol.close()
     this.#queryAbort?.abort()
     return this.#track(OrdinaryStateOwner.forgetPairMigrated(this.#input((browser, tab, custody) => {
       this.#preflight(browser, tab, custody)
@@ -526,7 +802,11 @@ export class OrdinaryPersistentBootstrap {
         } finally { members.close(); creators.close() }
       }
       this.#preflight(browser, tab, custody)
-    }, this.#forgetLive)).then(() => { this.#closed = true; this.#openedImage = undefined; this.#options.invitation.bearer.fill(0) })
+    }, this.#forgetLive)).then(async () => {
+      if (this.#protocols.size) await Promise.all([...this.#protocols].map(protocol => protocol.joinLifetime()))
+      await Promise.all([...this.#sessionCleanup])
+      this.#protocols.clear(); this.#closed = true; this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)
+    })
       .catch(error => { this.#forgetting = false; throw error }))
   }
   retryRetention(): void { this.#options.browser.retryRetention(); this.#options.tab.retryRetention() }
@@ -534,8 +814,13 @@ export class OrdinaryPersistentBootstrap {
    * must finish before close returns. Late results are refused and keys wiped. */
   /** A signer callback may revoke synchronously and then return/reject. Never
    * await close() from the provider promise close itself is joining. */
-  revoke(): void { this.#closed = true; this.#queryAbort?.abort() }
+  revoke(): void {
+    this.#closed = true; this.#queryAbort?.abort()
+    for (const protocol of this.#protocols) protocol.close()
+  }
   async close(): Promise<void> {
-    this.revoke(); await Promise.allSettled([...this.#work]); this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)
+    this.revoke(); while (this.#work.size) await Promise.allSettled([...this.#work])
+    await Promise.all([...this.#protocols].map(protocol => protocol.joinLifetime())); this.#protocols.clear()
+    this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)
   }
 }

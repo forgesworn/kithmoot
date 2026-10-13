@@ -1,8 +1,9 @@
 # Native relay carrier source
 
 `app/src/ordinary-relay-carrier.ts` wraps the actual `NostrRelayPool` with
-asynchronous, genuine browser/tab reads. It is a source component awaiting
-the native room owner and production root integration.
+asynchronous, genuine browser/tab reads. Its first-credential incoming-member
+owner is described in [native member sessions](ordinary-member-session.md).
+Production root and complete room lifecycle integration remain open.
 
 The component captures an immutable relay configuration, exact native owner
 instances, scoped generations/fences, and the complete acknowledged browser
@@ -45,6 +46,10 @@ invalidation revoke sockets synchronously, and the tab deadline has a timer
 even when the carrier is idle. Revocation then joins queue, SDK provider and
 real pool publication work. Releasing a resource unregisters its timer and
 callbacks. Registration grants no permission to sign, dial or mutate.
+The callback facade emits one cancellation close notification to settle pending
+pool connections even after revocation. That lifecycle signal dispatches no
+incoming frame, history completion or private application callback. An optional
+owned `onClose` notification lets the member factory revoke its protocol too.
 As with native reads, revoke/close callbacks must not await the owner which
 is joining their work from inside a pair callback.
 
@@ -63,9 +68,10 @@ establish a deployed route, Tor isolation, a physical device or an actual wallet
 The SDK is still an exact unpublished development overlay, not a reproducible
 registry dependency.
 
-This source does not construct a genuine owned `RoomSession`, guard its protocol
-preparation/entropy/renewal, authenticate board invitations, recover legacy board
-arrays, mount the protected startup root or cover every application carrier.
+The [member factory](ordinary-member-session.md) now owns a genuine first-credential
+`RoomSession` and its supported private preparation. Renewal, board invitation
+verification, explicit legacy recovery, protected startup and every application
+carrier remain open.
 The additional validator is a restriction, not independently verified current
 membership. Current MLS admission authority and permanent independent allocator
 continuity remain open; production MLS remains disabled.

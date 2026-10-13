@@ -83,6 +83,9 @@ interface Options {
   /** Additional current-room/proof restriction, on this exact native read.
    * It supplies no replacement for native custody or complete composition. */
   readonly validate: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => void
+  /** Synchronous notification for an embedding that owns this carrier. It
+   * must revoke private protocol work too; it grants no execution authority. */
+  readonly onClose?: () => void
 }
 
 /** A bounded asynchronous carrier for the real NostrRelayPool. Its immutable
@@ -199,6 +202,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       onclose: ((event: CloseEvent) => void) | null = null
       #socket: WebSocket | undefined
       #stopped = false
+      #notifiedClose = false
       #tail = Promise.resolve()
       get readyState(): number { return this.#stopped ? 3 : this.#socket?.readyState ?? 0 }
       constructor(url: string) {
@@ -226,7 +230,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
             } catch { owner.close() }
           }
           socket.onerror = () => this.#queue(0, () => this.onerror?.(new Event('error')))
-          socket.onclose = () => this.#queue(0, () => { this.onclose?.(new CloseEvent('close')); this.close() })
+          socket.onclose = () => this.#queue(0, () => { this.#notifyClose(new CloseEvent('close')); this.close() })
         })
       }
       #queue(bytes: number, effect: () => void): void {
@@ -253,12 +257,21 @@ export class OrdinaryRelayCarrier implements RelayTransport {
           })
         } catch { owner.close() }
       }
+      #notifyClose(event: CloseEvent): void {
+        if (this.#notifiedClose) return
+        this.#notifiedClose = true; this.onclose?.(event)
+      }
       close(): void {
         if (this.#stopped) return
         this.#stopped = true; owner.#sockets.delete(this)
         // Cancellation closes without sending a protocol CLOSE after custody
         // has ended. Queued callbacks and frames cannot escape afterwards.
         try { this.#socket?.close() } catch { /* already unavailable */ }
+        // Notify only cancellation, without dispatching an incoming frame.
+        // The pool's pending connect/AUTH promises must settle too; dropping
+        // this lifecycle signal can strand them behind the dial timeout.
+        try { this.#notifyClose(new CloseEvent('close', { code: 1000, reason: 'Native carrier closed', wasClean: true })) }
+        catch { /* cancellation still owns no further socket effects */ }
       }
     }
     return Socket as unknown as typeof WebSocket
@@ -336,6 +349,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   close(): void {
     if (this.#closed) return
     this.#closed = true
+    try { this.#options.onClose?.() } catch { /* the carrier still owns its cleanup */ }
     this.#releaseResource?.(); this.#releaseResource = undefined
     for (const socket of this.#sockets) socket.close()
     this.#sockets.clear(); this.#pool?.close()

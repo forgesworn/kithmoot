@@ -1,4 +1,6 @@
 import { getPublicKey } from 'nostr-tools/pure'
+import type { ProtocolExecution } from './protocol-execution.js'
+import { captureProtocolData } from './protocol-execution.js'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
 import { requestFreshRootEpoch } from './fresh-epoch.js'
@@ -197,6 +199,10 @@ export interface RoomSessionBaseOptions {
    * and so a host that already has a stable per-process id can use that.
    */
   sid?: string
+  /** Fresh execution at private protocol preparation, separate from relay
+   * writes. Construction and synchronous channel access require an active
+   * boundary too. The embedding supplies current native custody/proof checks. */
+  protocol?: ProtocolExecution
   /** Builds an `RTCPeerConnectionLike` for each remote device. Omit to run
    *  the session with no media - roster, access and chat still work, but
    *  `publishTracks`/`onRemoteTrack` become no-ops. */
@@ -353,6 +359,9 @@ export interface RoomSessionBaseOptions {
    * See `member-epoch.ts`.
    */
   memberEpochDesk?: boolean
+  /** Defaults to enabled. An embedding with no safe catch-up execution path
+   * can disable it: a missing epoch then terminates the joined session. */
+  epochCatchUp?: boolean
   /** Upper bound, in milliseconds, of the random wait before this device's
    *  member desk answers, so several members do not all answer at once.
    *  Default 1500; zero in tests. */
@@ -789,6 +798,7 @@ export class RoomSession {
   #refusedWhileJoining?: EpochRefusal
 
   constructor(opts: RoomSessionOptions) {
+    opts.protocol?.check('session-construction')
     if (opts.requireFreshEpoch && !opts.authority) throw new Error('fresh epoch admission needs a pinned authority')
     this.#admissionTransport = opts.transport
     if (opts.requireFreshEpoch) {
@@ -886,9 +896,13 @@ export class RoomSession {
   async #mintCredential(devicePubkey: string, ttlSeconds: number): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
     const identity = this.#opts.identity
     if (!identity) throw new Error('this device cannot sign for the participant, so it cannot issue credentials')
-    const seal = normaliseHex(devicePubkey) === this.device ? generateSealKey() : undefined
+    let seal: ReturnType<typeof generateSealKey> | undefined
     try {
-      const credential = await createDeviceCredential({
+      const prepare = () => {
+      this.#opts.protocol?.check('credential-preparation')
+      if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+      seal = normaliseHex(devicePubkey) === this.device ? generateSealKey() : undefined
+      const pending = createDeviceCredential({
         identity,
         devicePubkey,
         roomId: this.roomId,
@@ -896,7 +910,18 @@ export class RoomSession {
         ...(seal ? { seal: seal.pubkey } : {}),
         now: this.#now,
       })
-      return { credential, ...(seal ? { sealSk: seal.secretKey } : {}) }
+      void pending.catch(() => {})
+      this.#opts.protocol?.retain(pending)
+      return { pending }
+      }
+      const prepared = this.#opts.protocol ? await this.#opts.protocol.run('credential-preparation', prepare) : prepare()
+      const credential = await (this.#opts.protocol?.retain(prepared.pending) ?? prepared.pending)
+      const handoff = () => {
+        this.#opts.protocol?.check('credential-handoff')
+        if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+        return { credential, ...(seal ? { sealSk: seal.secretKey } : {}) }
+      }
+      return this.#opts.protocol ? await this.#opts.protocol.run('credential-handoff', handoff) : handoff()
     } catch (error) {
       seal?.secretKey.fill(0)
       throw error
@@ -989,6 +1014,7 @@ export class RoomSession {
   /** The seal key secrets this device holds, newest first: the order a
    *  reader tries them in. */
   #sealSks(): Uint8Array[] {
+    this.#opts.protocol?.check('seal-key-access')
     return [...this.#sealKeys.values()].reverse()
   }
 
@@ -1070,6 +1096,7 @@ export class RoomSession {
     if (this.#self) return Promise.reject(new Error('room already joined'))
     const work = this.#joinWithAdmission(tracks, claims)
     this.#joinWork = work
+    this.#opts.protocol?.retain(work)
     void work.finally(() => {
       if (this.#joinWork === work) this.#joinWork = undefined
     }).catch(() => {})
@@ -1266,7 +1293,10 @@ export class RoomSession {
       throw err
     }
 
-    this.#chat = new ChatLog({
+    const makeChat = () => {
+    this.#opts.protocol?.check('chat-construction')
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+    return new ChatLog({
       isBlocked: participant => this.#blocked(participant),
       transport: this.#opts.transport,
       roomId: this.roomId,
@@ -1285,7 +1315,10 @@ export class RoomSession {
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
       expiresAt: this.#opts.endsAt,
+      protocol: this.#opts.protocol,
     })
+    }
+    this.#chat = this.#opts.protocol ? await this.#opts.protocol.run('chat-construction', makeChat) : makeChat()
 
     // Presence is live state, so it has to be restated and it has to lapse -
     // see `PRESENCE_TTL_SECONDS`. Both timers are unreferenced where the
@@ -1432,6 +1465,7 @@ export class RoomSession {
    * open the room again as `pastEpochs`.
    */
   pastSecrets(): LeftEpoch[] {
+    this.#opts.protocol?.check('epoch-key-access')
     const current = this.#epoch.epoch
     const left: LeftEpoch[] = []
     const leftAt = (epoch: number) => this.rekeyedAt(epoch + 1) ?? this.#leftAt.get(epoch)
@@ -1526,11 +1560,13 @@ export class RoomSession {
   /** The current epoch's secret. What a keeper persists and hands to a
    *  member that asks; nothing else should want it. */
   currentEpoch(): RoomEpoch {
+    this.#opts.protocol?.check('epoch-key-access')
     return { epoch: this.#epochSecret.epoch, secret: this.#epochSecret.secret.slice() }
   }
 
   /** The id and key the roster and chat ride under now. */
   epochKeys(): EpochKeys {
+    this.#opts.protocol?.check('epoch-key-access')
     return { epoch: this.#epoch.epoch, id: this.#epoch.id, key: this.#epoch.key.slice() }
   }
 
@@ -1549,16 +1585,25 @@ export class RoomSession {
    */
   async #settleEpoch(replayed: Promise<void>): Promise<void> {
     if (this.#opts.requireFreshEpoch) {
-      this.#drainRekeys()
+      if (this.#opts.protocol) await this.#opts.protocol.run('epoch-replay', () => this.#drainRekeys()); else this.#drainRekeys()
       if (this.#refusedWhileJoining) throw new EpochRefusedError(this.#refusedWhileJoining)
       const floor = () => Math.max(this.#epoch.epoch, this.#opts.expectedEpoch ?? 0, ...this.#pendingRekeys.keys())
       try {
-        const grant = await requestFreshRootEpoch({ transport: this.#admissionTransport, roomId: this.roomId,
+        const request = () => {
+        const pending = requestFreshRootEpoch({ transport: this.#admissionTransport, roomId: this.roomId,
           authority: this.#opts.authority!, deviceSk: this.#opts.deviceSk, roomKey: this.#roomKey,
           credential: this.#self!.credential, proof: this.#opts.proof, now: this.#now, floor,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
           expiresAt: this.#opts.endsAt, sealSks: () => this.#sealSks(),
-          signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])] })
+          signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])], protocol: this.#opts.protocol })
+        this.#opts.protocol?.retain(pending); void pending.catch(() => {})
+        return { pending }
+        }
+        const requested = this.#opts.protocol ? await this.#opts.protocol.run('epoch-request-start', request) : request()
+        void requested.pending.catch(() => {})
+        const grant = await (this.#opts.protocol?.retain(requested.pending) ?? requested.pending)
+        const adopt = () => {
+        this.#opts.protocol?.check('epoch-adoption')
         if (this.#left || this.#opts.admissionSignal?.aborted || grant.epoch.epoch < floor()) throw new Error('room admission changed while awaiting authority')
         if (grant.removed.includes(this.participant)) throw new EpochRefusedError('removed')
         if (grant.epoch.epoch === this.#epoch.epoch && grant.epoch.epoch > 0 &&
@@ -1568,6 +1613,8 @@ export class RoomSession {
         if (grant.epoch.epoch > this.#epoch.epoch) this.#moveToEpoch(grant.epoch as RoomEpoch,
           { epoch: grant.epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() }, grant.passed ?? [])
         for (const n of this.#pendingRekeys.keys()) if (n <= this.#epoch.epoch) this.#pendingRekeys.delete(n)
+        }
+        if (this.#opts.protocol) await this.#opts.protocol.run('epoch-adoption', adopt); else adopt()
       } catch (error) {
         if (error instanceof EpochRefusedError && error.refused !== 'unknown') throw error
         throw new EpochUnreachableError(error)
@@ -1615,6 +1662,7 @@ export class RoomSession {
 
   /** Never throws: a relay subscription handler. */
   #ingestRekey(event: Event): void {
+    this.#opts.protocol?.check('rekey-ingress')
     if (!this.#opts.authority) return
     const epoch = peekRekeyEvent(event, { roomId: this.roomId, authority: this.#opts.authority })
     if (epoch === null) return
@@ -1646,6 +1694,7 @@ export class RoomSession {
    * what gets it back in step.
    */
   #drainRekeys(): boolean {
+    this.#opts.protocol?.check('rekey-ingress')
     if (this.#closed || this.#left) return false
     for (;;) {
       const at = this.#epoch.epoch + 1
@@ -1720,6 +1769,10 @@ export class RoomSession {
    *  `member-epoch.ts`), so it is taken on the same terms as the
    *  authority's. */
   #catchUp(): Promise<void> {
+    if (this.#opts.epochCatchUp === false) {
+      void this.leave().catch(() => {})
+      throw new Error('epoch catch-up is unavailable for this session')
+    }
     if (this.#catchingUp) return this.#catchingUp
     if (this.#epochRetryTimer !== undefined) clearTimeout(this.#epochRetryTimer)
     this.#epochRetryTimer = undefined
@@ -1948,6 +2001,7 @@ export class RoomSession {
    * never restates itself under the new key lapses on the ordinary timeout.
    */
   #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly (RoomEpoch & { leftAt?: number })[] = []): void {
+    this.#opts.protocol?.check('epoch-adoption')
     if (notice.members) this.#members = new Set(notice.members)
     const from = this.#epoch.epoch
     const left = this.#epochRoot()
@@ -2066,6 +2120,7 @@ export class RoomSession {
   }
 
   async #makeRekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean; destruct?: boolean; scheduled?: boolean }): Promise<RekeyNotice> {
+    this.#opts.protocol?.check('rekey-preparation')
     if (!this.#self) throw new Error('join the room before rekeying it')
     if (this.#closed) throw new Error('this room has been closed')
     const authority = getPublicKey(opts.authoritySk)
@@ -2290,8 +2345,12 @@ export class RoomSession {
      *  descriptor whose publisher's clock ran ahead. */
     updatedAt?: number
   }): Promise<void> {
+    if (this.#opts.protocol) config = captureProtocolData(config)
+    const prepare = () => {
+    this.#opts.protocol?.check('descriptor-preparation')
     const self = this.#self
     if (!self) throw new Error('join the room before publishing its descriptor')
+    if (this.#left || this.#closed) throw new Error('room admission cancelled')
 
     const event = encodeDescriptorEvent(
       {
@@ -2305,6 +2364,9 @@ export class RoomSession {
       },
       { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt },
     )
+    return event
+    }
+    const event = this.#opts.protocol ? await this.#opts.protocol.run('descriptor-preparation', prepare) : prepare()
     await this.#opts.transport.publish(event)
   }
 
@@ -2313,6 +2375,7 @@ export class RoomSession {
    *  out: wrong room, wrong key, bad signature, an uncredentialled publisher,
    *  a timestamp past clock skew. */
   #ingestDescriptor(event: Event): void {
+    this.#opts.protocol?.check('descriptor-ingress')
     const descriptor = decodeDescriptorEvent(event, {
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -2428,6 +2491,8 @@ export class RoomSession {
   }
 
   async #publishEntry(reply: boolean, left = false, live = this.#currentOutgoingLiveRecording(), allowed?: () => boolean): Promise<void> {
+    const prepare = () => {
+    this.#opts.protocol?.check('roster-preparation')
     const self = this.#self
     if (!self || this.#left) return
 
@@ -2472,6 +2537,11 @@ export class RoomSession {
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       expiresAt: this.#opts.endsAt,
     })
+    return { entry, event }
+    }
+    const prepared = this.#opts.protocol ? await this.#opts.protocol.run('roster-preparation', prepare) : prepare()
+    if (!prepared) return
+    const { entry, event } = prepared
     if (allowed) {
       if (!this.#opts.transport.publishGuarded) throw new Error('This connection cannot confirm a recording warning safely.')
       const publicationAllowed = () => allowed() &&
@@ -2479,7 +2549,7 @@ export class RoomSession {
       if (!publicationAllowed()) throw new Error('The recording device needs a current room credential.')
       await this.#opts.transport.publishGuarded(event, publicationAllowed)
       if (!publicationAllowed()) throw new Error('The original call changed before the warning was confirmed.')
-      this.#ingest(event)
+      if (this.#opts.protocol) await this.#opts.protocol.run('roster-acknowledgement', () => this.#ingest(event)); else this.#ingest(event)
     } else await this.#opts.transport.publish(event)
   }
 
@@ -2657,11 +2727,18 @@ export class RoomSession {
    * closed - see `call-bell.ts`. Fire and forget: it never holds up going on
    * or off a call, and a failure costs only the ring, so it is swallowed.
    */
-  #ringBell(state: CallBellState, call: CallMembership): Promise<void> {
+  async #ringBell(state: CallBellState, call: CallMembership): Promise<void> {
+    if (this.#opts.protocol) call = captureProtocolData(call)
     // A conference room that has ended rings nobody.
     if (this.#opts.callBell === false || this.#ended()) return Promise.resolve()
     try {
-      const event = encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#opts.endsAt })
+      const prepare = () => {
+        this.#opts.protocol?.check('call-bell-preparation')
+        if (this.#ended() || this.#left) return undefined
+        return encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#opts.endsAt })
+      }
+      const event = this.#opts.protocol ? await this.#opts.protocol.run('call-bell-preparation', prepare) : prepare()
+      if (!event) return
       return this.#opts.transport.publish(event).catch(() => {})
     } catch {
       return Promise.resolve()
@@ -2850,6 +2927,7 @@ export class RoomSession {
    * conversation its principal cannot see. See `deriveChannel`.
    */
   async assignments(storage: AssignmentStorage): Promise<AssignmentLog> {
+    this.#opts.protocol?.check('assignment-construction')
     if (!this.#chat || this.#left) throw new Error('Join the room before opening assignments')
     if (this.#assignmentsOpening) return this.#assignmentsOpening
     if (this.#assignments) return this.#assignments
@@ -2868,6 +2946,7 @@ export class RoomSession {
   }
 
   channel(name: string): ChatLog {
+    this.#opts.protocol?.check('channel-construction')
     if (!this.#chat) throw new Error('join the room before using a channel')
     const existing = this.#channels.get(name)
     if (existing) return existing
@@ -2891,12 +2970,14 @@ export class RoomSession {
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
       expiresAt: this.#opts.endsAt,
+      protocol: this.#opts.protocol,
     })
     this.#channels.set(name, log)
     return log
   }
 
   #ingest(event: Event): void {
+    this.#opts.protocol?.check('roster-ingress')
     const entry = decodeRosterEvent(event, {
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -3257,5 +3338,17 @@ export class RoomSession {
       this.#discardPendingCredential()
     }) ?? Promise.resolve().then(() => { this.#discardPendingCredential() })
     return Promise.all([farewell, retention]).then(() => {})
+  }
+  /** A native embedding calls this only after revocation and joined work,
+   * with owned input buffers. No permission check is needed to erase data. */
+  disposeProtocolSecrets(): void {
+    if (!this.#opts.protocol || !this.#left || this.#joinWork || this.#credentialWork || this.#retentionWork) throw new Error('join native session cleanup before erasing secrets')
+    this.#roomKey.fill(0); this.#epoch.key.fill(0); this.#epochSecret.secret.fill(0)
+    for (const key of this.#sealKeys.values()) key.fill(0)
+    this.#sealKeys.clear()
+    for (const secret of this.#secrets.values()) secret.fill(0)
+    this.#secrets.clear()
+    for (const past of this.#pastEpochs) past.root?.key.fill(0)
+    this.#pastEpochs = []; this.#discardPendingCredential()
   }
 }

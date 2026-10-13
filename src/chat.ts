@@ -1,4 +1,6 @@
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
+import type { ProtocolExecution } from './protocol-execution.js'
+import { captureProtocolData } from './protocol-execution.js'
 import { nip44 } from 'nostr-tools'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
@@ -679,6 +681,7 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
 }
 
 export interface ChatLogOptions {
+  protocol?: ProtocolExecution
   /** Local filtering at ingress and display; independent of room admission. */
   isBlocked?: (participant: string) => boolean
   transport: RelayTransport
@@ -827,6 +830,7 @@ export class ChatLog {
   readonly #laneless = new Map<string, ChatMessage>()
 
   constructor(opts: ChatLogOptions) {
+    opts.protocol?.check('chat-construction')
     this.#opts = opts
     this.#credential = opts.credential
     this.#epoch = opts.epoch
@@ -1036,10 +1040,16 @@ export class ChatLog {
     let any = false
     for (let i = 0; i < events.length; i += ARCHIVE_DECODE_CHUNK) {
       if (i > 0) await new Promise(resolve => setTimeout(resolve, 0))
+      const decode = () => {
+        if (this.#closed || !live()) return false
+        this.#opts.protocol?.check('chat-archive-ingress')
+        let changed = false
+        for (const event of events.slice(i, i + ARCHIVE_DECODE_CHUNK)) changed = this.#ingest(event, undefined, true) || changed
+        if (changed) this.#notify()
+        return changed
+      }
+      const changed = this.#opts.protocol ? await this.#opts.protocol.run('chat-archive-ingress', decode) : decode()
       if (this.#closed || !live()) return any
-      let changed = false
-      for (const event of events.slice(i, i + ARCHIVE_DECODE_CHUNK)) changed = this.#ingest(event, undefined, true) || changed
-      if (changed) this.#notify()
       any ||= changed
     }
     return any
@@ -1067,7 +1077,10 @@ export class ChatLog {
   }
 
   async send(text: string, sendOpts: SendOptions = {}): Promise<void> {
-    await this.prepareSend(text, sendOpts)()
+    if (this.#opts.protocol) sendOpts = captureProtocolData(sendOpts)
+    const prepare = () => this.prepare(text, sendOpts)
+    const prepared = this.#opts.protocol ? await this.#opts.protocol.run('chat-preparation', prepare) : prepare()
+    await prepared.publish()
   }
 
   /** Prepare one signed event. Explicit retries publish exactly the same
@@ -1081,6 +1094,9 @@ export class ChatLog {
    *  for a caller that keeps an unsent message (to show it, or to send it
    *  again after a reload). */
   prepare(text: string, sendOpts: SendOptions = {}): PreparedSend {
+    this.#opts.protocol?.check('chat-preparation')
+    if (this.#opts.protocol && typeof text !== 'string') throw new Error('chat text must be a string')
+    if (this.#opts.protocol) { sendOpts = captureProtocolData(sendOpts); this.#opts.protocol.check('chat-preparation') }
     if (this.#closed) throw new Error('this conversation has closed')
     const credential = this.#credential
     const deviceSk = this.#opts.deviceSk
@@ -1175,15 +1191,28 @@ export class ChatLog {
     })
     const epoch = this.#epoch
     return { message: msg, event, publish: async () => {
+      const start = () => {
+      this.#opts.protocol?.check('chat-publication')
       if (this.#closed || this.#epoch !== epoch) {
         throw new Error(CONVERSATION_MOVED)
       }
-      await this.#opts.transport.publish(event)
+      const pending = this.#opts.transport.publish(event)
+      this.#opts.protocol?.retain(pending)
+      void pending.catch(() => {})
+      return { pending }
+      }
+      const started = this.#opts.protocol ? await this.#opts.protocol.run('chat-publication', start) : start()
+      await started.pending
       // An acknowledgement need not be followed by a subscription echo.
       // Decode our accepted event through the same credential, policy and
       // rate checks as history, without inventing a relay/lane attribution.
+      const acknowledge = () => {
+      this.#opts.protocol?.check('chat-acknowledgement')
+      if (this.#opts.protocol && (this.#closed || this.#epoch !== epoch)) throw new Error(CONVERSATION_MOVED)
       this.#opts.archive?.keep(event, this.#archiveMeta())
       if (!this.#closed && this.#epoch === epoch && this.#ingest(event, undefined, true)) this.#notify()
+      }
+      if (this.#opts.protocol) await this.#opts.protocol.run('chat-acknowledgement', acknowledge); else acknowledge()
     } }
   }
 
@@ -1240,6 +1269,7 @@ export class ChatLog {
   /** Returns whether the log changed. `fromArchive` events are neither kept
    *  again nor announced one by one; the caller notifies once. */
   #ingest(event: Event, via?: string, fromArchive = false): boolean {
+    this.#opts.protocol?.check('chat-ingress')
     if (this.#decoded.has(event.id)) {
       // A message first read from the archive, now arriving from a relay:
       // that relay is the lane it travelled.

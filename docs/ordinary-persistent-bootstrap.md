@@ -3,9 +3,11 @@
 `OrdinaryPersistentBootstrap` now constructs a fresh incoming member's device,
 seal key and actual Fold credential, and retains them together with verified
 admission evidence in one acknowledged native browser/tab candidate. This source
-is **not mounted in the production entry flow**. It creates no relay transport,
-queries no default pool and provides no current membership, keeper, rekey or
-independent antirollback authority.
+is **not mounted in the production entry flow**. Bootstrap itself creates no
+relay transport or default pool. Its explicit [member-session factory](ordinary-member-session.md)
+now owns a genuine initial-credential session and native relay carrier. Neither
+component provides current production MLS membership, keeper, rekey or independent
+antirollback authority.
 
 ## Captured intent and custody
 
