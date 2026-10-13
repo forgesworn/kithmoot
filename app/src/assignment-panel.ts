@@ -273,7 +273,7 @@ export class AssignmentPanel {
     for (const input of form.querySelectorAll('[aria-invalid]')) input.removeAttribute('aria-invalid')
     this.#owner.replaceChildren(); this.#action.replaceChildren(); this.#inputs.replaceChildren()
     this.#peopleKey = ''; this.#drafts = new Map(); this.#pendingCreate = undefined
-    this.#status.textContent = 'Connecting assignments…'; this.#button.textContent = 'Work'
+    this.#status.textContent = 'Connecting assignments…'; this.#button.textContent = 'Boards'
     this.#button.removeAttribute('data-attention')
     this.root.getElementById('workAttention')!.hidden = true
     this.#decisionsOnly = false
@@ -330,7 +330,7 @@ export class AssignmentPanel {
     if (!snapshot) return
     const active = snapshot.assignments.filter(s => !['accepted', 'cancelled'].includes(s.status))
     const decisions = snapshot.assignments.filter(s => this.#needsYou(s))
-    this.#button.textContent = active.length ? `Work (${active.length})` : 'Work'
+    this.#button.textContent = active.length ? `Boards (${active.length})` : 'Boards'
     this.#button.toggleAttribute('data-attention', decisions.length > 0)
     this.root.getElementById('workAttention')!.hidden = decisions.length === 0 || !snapshot.ready
     this.root.getElementById('workAttentionText')!.textContent = `${decisions.length} ${decisions.length === 1 ? 'assignment needs' : 'assignments need'} your attention`

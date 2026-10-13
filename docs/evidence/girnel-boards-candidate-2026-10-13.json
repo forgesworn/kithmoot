@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-13",
+  "status": "qualification in progress; not published",
+  "kithmoot_base": "7eec830",
+  "girnel_source": "d67a8dfaa391ca57a4af9d480c75e80753766f24",
+  "embedded_package": {
+    "filename": "forgesworn-girnel-embed-1.1.0-kithmoot.3.tgz",
+    "sha256": "271faa820dbb509e3cd94008040067196b500c2dfce90e485e2d292cb6a45910",
+    "source_dirty": false,
+    "verified_assets": 85
+  },
+  "local_checks": {
+    "kithmoot_typecheck": "passed",
+    "kithmoot_units": {
+      "files": 300,
+      "tests": 4207,
+      "initial_failures": 7,
+      "failed_files_rerun": "all six files passed; 84 tests, serial, 13.33 seconds",
+      "note": "Initial failures were CPU/timer deadlines under host load; no assertions or product code weakened."
+    },
+    "host_and_context_units": "8 tests passed",
+    "desktop_security_units": "99 tests passed after validating the final single-current-release Mac feed and UTC-second timestamp.",
+    "electron_board_journey": "Passed against frozen desktop web build: durable card, first-open full-width pop-out, reload, return, secure context, no renderer Node, no worker; 31.7 seconds",
+    "encrypted_two_person_board": "passed: independent signed identities, reviewed invitation, remote edit, local draft preservation and durable reload",
+    "two_agent_review": "passed: two concurrent claimed assignments, remote human edit, exact room result acceptance and separately approved card description changes",
+    "draft_protection": "passed: refused handoff, board switching and account sign-out while unfinished; embedded logout leaves host account usable",
+    "offline_and_mobile": "passed: production CSP, controlled PWA cache, offline reopen/edit and 320px light/dark layout",
+    "caddy_candidate": "validated on deployment host; live configuration unchanged",
+    "girnel_browser_regressions": "7 tests passed",
+    "girnel_full_units": "Passed all 186 files and 2,728 tests in 412.65 seconds on M4; clean git archive of d67a8dfaa391ca57a4af9d480c75e80753766f24, fresh npm ci, Node 24.14.0 and four workers. Exact-tree type checking passed before the suite.",
+    "girnel_production_build": "passed",
+    "native_call_layout_baseline": "Both the Boards candidate and the preserved 0.1.77 checkout fail the same existing 1024x700 composer/Leave-call bounds assertion. No call/layout source is changed by Boards. This pre-existing native call limitation remains separate from the passing native Boards journey.",
+    "browser_regression_run": "12 passed and one compiled Den prerequisite skip; both initial failing cases rerun on a stable build passed (labelled navigation and call-retention/Inbox routing).",
+    "final_boards_browser": "5 journeys passed in Chromium: labelled concurrent windows, encrypted two-person editing, two agents plus human edits, drafts and offline/narrow layouts; 5.4 minutes under host load",
+    "ci_epoch_local_rerun": "All 17 session-epoch tests passed serially after a timer-sensitive CI failure.",
+    "girnel_slow_local_run": "Stopped the redundant serial run on the heavily loaded local host after exact-source M4 qualification passed. Its initial 60-second epoch timeout passed individually; no assertions weakened.",
+    "girnel_merged_tree": "Merged source tree matches the tested d67a8df embedded-source tree exactly.",
+    "electron_final_packaged_board_journey": "Passed against the corrected final Developer ID signed/notarised 0.1.78/build 63 bundle using a disposable profile (15.4 seconds). Full-width first opening and reload are asserted; no renderer Node or embedded worker.",
+    "desktop_archived_code": "All six corrected installer payloads contain ASAR 65c0fb8e413003a1af9472723f254e217f43a3c843a8b8fffdc917796f96698b. All 350 desktop web files and runtime host/preload/policy files match the frozen corrected build on all four platforms.",
+    "mac_signing": "Corrected 0.1.78/build 63: Developer ID signed, Apple notarisation b435259b-6bad-4a56-8ec1-065b7dd6683a Accepted; staple/validation and Gatekeeper passed.",
+    "update_metadata": "Prepared corrected six installers, checksums, release catalogue and Mac feed; desktop manifest verified against pinned keys after signing on M4. Android 0.6.83/code 106 manifest and signature unchanged.",
+    "apt_metadata": "Rebuilt for corrected Debian files; InRelease and Release.gpg verified on M4 using the existing archive key; not published yet.",
+    "portable_browser_fixtures": "Chromium cached reopening passed with the actual origin server stopped. Concurrent two-agent review passed after explicitly refreshing and re-reviewing the current audience when late signed presence arrives; the product guard remains unchanged.",
+    "mac_webkit_driver": "Local WebKit stalled in BrowserContext.newPage before app navigation; stopped the run and retained the trace. Linux hosted WebKit remains the automated browser gate.",
+    "passive_chat_read": "Hosted Chromium desktop revealed an existing passive ResizeObserver read before room admission had established chat. Guard resize, focus and scroll callbacks while joining. Corrected exact desktop Boards journey passed (38.3 seconds), and type checking passed.",
+    "firefox_mls_exact_rerun": "The two unchanged MLS browser cases failing hosted attempt 1 both passed against the exact unchanged fixture locally in Firefox (10.5 seconds); no MLS source or timeout was changed.",
+    "firefox_popup_return": "The Return to workspace control intentionally closes its popup. Firefox may finish the click protocol after closure. The fixture accepts only a closed-popup error, asserts the window is closed and still verifies the returned board and durable card. Exact Firefox journey passed (1.4 minutes); application and installer bytes unchanged.",
+    "corrected_hosted_desktop": "Run 38332426336: 93 desktop acceptance tests passed with 11 existing skips after the passive read admission guard. Hosted Node 22/24: all 4,207 unit tests and 99 desktop checks passed.",
+    "corrected_hosted_webkit": "Run 38332426336: both WebKit groups passed before the Firefox popup fixture correction; no runtime source changes followed."
+  },
+  "open_gates": [
+    "hosted CI",
+    "merged source",
+    "public web and desktop artifact verification"
+  ],
+  "limits": [
+    "Native Android Boards is not included.",
+    "Physical assistive technology, real browser signer extensions and external signers are not exercised by synthetic fixture signers.",
+    "Mac/Linux/Windows package publication and physical installed acceptance are separate gates."
+  ],
+  "fixtures": "Synthetic identities and agents on the offline relay; no production room posts or agent execution.",
+  "girnel_pr": "https://github.com/forgesworn/girnel/pull/7",
+  "girnel_merged_source": "9cf9b65a08126398d4804a4af55020ac70163ce3",
+  "runtime_source": "5f9510b27d33030f73c14ed8e3ccba8d613ac912"
+}

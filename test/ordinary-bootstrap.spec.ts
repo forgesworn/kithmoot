@@ -268,14 +268,24 @@ test('instance opened on absence cannot load or forget a proof another instance 
 test('existing instance pins its selected operation and cannot load or forget a canonical successor',async({page})=>{
   await start(page)
   expect(await page.evaluate(`(async()=>{
-    const result=await start();Ordinary.wipeOrdinaryPersistentBootstrapResult(result)
+    // Force the wall-clock cut which made setup now+1 equal the original
+    // retention time. A successor must use the retained predecessor's time.
+    const nativeNow=Date.now;let result
+    try{Date.now=()=> (now+1)*1000;result=await start()}finally{Date.now=nativeNow}
+    Ordinary.wipeOrdinaryPersistentBootstrapResult(result)
     await pair((b,t)=>{
       const prior=JSON.parse(b.get(proofName)),admission={secret,epoch:0,endsAt:now+3600,destruct:true,relays:['wss://signed.example/']}
-      const verified=Ordinary.makePersistentAdmissionProof({invitation,evidence,account,participant,browser:prior.binding.browser,tab:prior.binding.tab,
-        deviceCustody:prior.binding.deviceCustody,device:prior.binding.device,keep:true,now:now+1,expectedRoomSecret:secret})
+      const successorAt=prior.kept.at+1
+      const input={invitation,evidence,account,participant,browser:prior.binding.browser,tab:prior.binding.tab,
+        deviceCustody:prior.binding.deviceCustody,device:prior.binding.device,keep:true,now:successorAt,expectedRoomSecret:secret}
+      const collision=Ordinary.makePersistentAdmissionProof({...input,now:now+1})
+      try{if(collision.proof.binding.operation!==prior.binding.operation)throw Error('fixture must reproduce the original clock collision')}
+      finally{collision.admission.secret.fill(0)}
+      const verified=Ordinary.makePersistentAdmissionProof(input)
+      if(verified.proof.binding.operation===prior.binding.operation)throw Error('fixture successor must have a distinct operation')
       b.set(proofName,JSON.stringify(verified.proof));t.set(tabProofName,Ordinary.tabProofBytes(verified.proof))
       const scoped={get:n=>b.get(prefix+n),set:(n,v)=>b.set(prefix+n,v),remove:n=>b.remove(prefix+n),keys:()=>[]}
-      Ordinary.storeKeptAdmission(scoped,id,admission,now+1);verified.admission.secret.fill(0)
+      Ordinary.storeKeptAdmission(scoped,id,admission,successorAt);verified.admission.secret.fill(0)
     })
     const before=await rawBoth(),loaded=await outcome(()=>bootstrap.load()),forgotten=await outcome(()=>bootstrap.forget()),after=await rawBoth()
     const fresh=await open(),latest=await fresh.load();Ordinary.wipeOrdinaryPersistentBootstrapResult(latest)

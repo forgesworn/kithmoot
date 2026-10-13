@@ -44,7 +44,7 @@
       <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
         <button id="workspaceBrandHome" class="workspaceBrand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</button>
         <button id="workspaceSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
-        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="workspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="workspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button></div>
+        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="workspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="workspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button></div>
         <button id="workspaceNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor">New project</button>
         <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
         <label class="sr-only" for="workspaceQuery">Filter projects and rooms</label>
@@ -323,7 +323,7 @@
           </button>
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
                   title="Call: microphone, camera and screen share" aria-label="Call controls">Call</button>
-          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
+          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Boards</button>
           <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
                   aria-label="Room details">
             <span aria-hidden="true">&#8943;</span>
@@ -369,12 +369,12 @@
         <nav id="mobileWorkspaceDestinations" aria-label="Workspace" hidden>
           <button id="mobileWorkspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button>
           <button id="mobileWorkspaceProjects" type="button" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
-          <button id="mobileWorkspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button>
+          <button id="mobileWorkspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button>
         </nav>
         <nav id="mobileRoomViews" aria-label="Room views">
           <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
           <button id="mobileCall" type="button" aria-pressed="false">Call</button>
-          <button id="mobileWork" type="button" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
+          <button id="mobileWork" type="button" aria-haspopup="dialog" aria-controls="assignmentPanel">Boards</button>
         </nav>
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
         <div id="workAttention" class="workAttention" hidden>
@@ -684,7 +684,7 @@
           </div>
           <div class="roomsHeadActions">
             <button id="homeInbox" type="button" class="quiet" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button>
-            <button id="homeWork" type="button" class="quiet" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button>
+            <button id="homeWork" type="button" class="quiet" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button>
             <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects" hidden>Projects</button>
             <button id="homeNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor" hidden>New project</button>
             <button id="homeOpenLink" type="button" class="quiet" aria-controls="openLink" aria-expanded="false" hidden>Open invite link</button>
@@ -867,7 +867,7 @@
         <div class="projectFilter"><label for="switcherProject">Project</label><select id="switcherProject"><option value="*">All projects</option></select></div>
         <ul id="roomSwitcherList" class="roomList"></ul>
         <button id="switcherSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
-        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="switcherInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="switcherWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">All work</button></div>
+        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="switcherInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="switcherWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button></div>
         <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
         <button id="roomSwitcherHome" type="button" class="quiet">All rooms / Start a room</button>
       </div>
@@ -1553,7 +1553,7 @@
 
     <dialog id="workspaceWorkPanel" aria-labelledby="workspaceWorkTitle">
       <div class="sheetBar"><h2 id="workspaceWorkTitle" tabindex="-1">Inbox</h2><button id="workspaceWorkClose" type="button">Close</button></div>
-      <div class="workFilters" role="group" aria-label="Workspace activity"><button id="workspaceInboxTab" type="button" aria-pressed="true">Inbox</button><button id="workspaceWorkTab" type="button" aria-pressed="false">Work</button></div>
+      <div class="workFilters" role="group" aria-label="Workspace activity"><button id="workspaceInboxTab" type="button" aria-pressed="true">Inbox</button><button id="workspaceWorkTab" type="button" aria-pressed="false">Boards</button></div>
       <label for="workspaceWorkProject">Project</label><select id="workspaceWorkProject"><option value="*">All projects</option></select>
       <p id="workspaceWorkStatus" role="status"></p>
       <button id="workspaceWorkSignIn" type="button">Sign in with Nostr</button>
@@ -1563,9 +1563,9 @@
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">
-      <div class="sheetBar"><h2 id="assignmentTitle" tabindex="-1">Shared work</h2><button id="assignmentClose" type="button">Close</button></div>
+      <div class="sheetBar"><h2 id="assignmentTitle" tabindex="-1">Room task</h2><button id="assignmentClose" type="button">Close</button></div>
       <div class="workFilters" role="group" aria-label="Show assignments">
-        <button id="assignmentAll" type="button" aria-pressed="true">All work</button>
+        <button id="assignmentAll" type="button" aria-pressed="true">Boards</button>
         <button id="assignmentDecisions" type="button" aria-pressed="false">Needs you</button>
       </div>
       <p id="assignmentStatus" role="status" tabindex="-1">Connecting assignments…</p>

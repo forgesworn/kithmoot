@@ -12,7 +12,7 @@ process.env.E2E_RELAYS = relays.join(',')
 test('Mac desktop and browser exchange moving video, audio and chat; leaving stops only this device', async ({ browser }) => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-call-'))
   const native = await electron.launch({
-    executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+    executablePath: process.env.ELECTRON_EXECUTABLE ?? join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
     args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
     env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile },
   })
@@ -61,7 +61,11 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
           const rect = document.getElementById(id)!.getBoundingClientRect()
           return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= innerHeight && rect.right <= innerWidth
         })
-      }), { message: `Composer and Leave call must fit ${width}x${height}` }).toBe(true)
+      }), { message: `Composer and Leave call must fit ${width}x${height}` }).toBe(true).catch(async error => {
+        console.log('Native layout bounds', await mac.evaluate(() => ({width: innerWidth, height: innerHeight, elements: ['chatInput', 'leaveCall', 'callSurface', 'roomArea'].map(id => ({id, bounds: document.getElementById(id)?.getBoundingClientRect().toJSON()}))})))
+        await mac.screenshot({path: join(desktop, 'artifacts/boards-call-layout-failure.png'), fullPage: true})
+        throw error
+      })
     }
     await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1320, 852))
     await mac.screenshot({ path: join(desktop, 'artifacts/call.png') })
@@ -172,7 +176,7 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     await mac.locator('#projectsRailToggle').click()
     await expect(mac.locator('html')).toHaveAttribute('data-rail', 'collapsed')
     await expectFullWidthChat()
-    await mac.locator('#openAssignments').click()
+    await mac.locator('#openAssignments').click(); await mac.getByRole('button', {name: 'New room task', exact: true}).click()
     await expect(mac.locator('#assignmentPanel')).toBeVisible()
     await expectFullWidthChat()
     await mac.locator('#assignmentClose').click()
