@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.78",
+  "currentRelease": "0.1.79",
   "releases": [
     {
-      "version": "0.1.78",
+      "version": "0.1.79",
       "updateTo": {
-        "version": "0.1.78",
-        "pub_date": "2026-10-13T01:28:33Z",
-        "notes": "Boards replaces Work with shared encrypted Girnel boards. Keep separately labelled project, chat and board windows open while people and agents work together. Review agent results before approving card changes.",
-        "name": "0.1.78",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/KithMoot-0.1.78-mac-arm64.zip",
-        "sha256": "c131a0ce889079672cb254d862622965a8afda408213ca15392f4db1c487d3ec",
-        "size": 177639650
+        "version": "0.1.79",
+        "pub_date": "2026-10-13T11:05:42Z",
+        "notes": "Share boards with the chat, reopen labelled board windows, delete cards directly and keep colour changes. Calls use a gallery while chatting elsewhere, portrait cameras fit, and recordings capture remote voices.",
+        "name": "0.1.79",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.79/KithMoot-0.1.79-mac-arm64.zip",
+        "sha256": "15f7a3ebe56ff0dbaa35eba659e7a1f2e242c180c801b82e163920b161062ccc",
+        "size": 177644910
       }
     }
   ]

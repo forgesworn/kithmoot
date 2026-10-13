@@ -74,8 +74,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (result.status !== 0) throw new Error(`ssh failed: ${result.stderr}`)
     return result.stdout
   }
+  // Follow version-directory links: large releases may live on the bulk volume.
   // size, modification time and path of every candidate file
-  const listing = ssh(`cd ${root}/apk && find desktop -type f \\( -name '*.zip' -o -name '*.tar.gz' -o -name '*.deb' \\) -printf '%s %T@ %p\\n'; find . -maxdepth 1 -type f -name 'kithmoot-*.apk' -printf '%s %T@ %P\\n'`)
+  const listing = ssh(`cd ${root}/apk && find -L desktop -type f \\( -name '*.zip' -o -name '*.tar.gz' -o -name '*.deb' \\) -printf '%s %T@ %p\\n'; find . -maxdepth 1 -type f -name 'kithmoot-*.apk' -printf '%s %T@ %P\\n'`)
   const entries = listing.trim().split('\n').map(line => {
     const [bytes, time, path] = line.split(' ')
     return { bytes: Number(bytes), published: new Date(Number(time) * 1000).toISOString().slice(0, 10), path }

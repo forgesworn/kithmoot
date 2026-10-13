@@ -1,9 +1,10 @@
 import type { SignetSession } from 'signet-login'
 import type { DeviceStore } from './device-store.js'
-import { boardContextTitle, readBoardContext, saveBoardContext, type BoardContext } from './board-context.js'
+import { boardContextTitle, listBoardContexts, readBoardContext, saveBoardContext, type BoardContext } from './board-context.js'
 import { girnelAccess, type GirnelBoard, type GirnelWindow } from './girnel-host.js'
 import './boards-panel.css'
 import popupStyles from './boards-panel.css?inline'
+import type { RoomBoard } from '../../src/room-boards.js'
 
 interface Scope { id: string; name: string }
 function errorText(error: unknown): string {
@@ -19,6 +20,7 @@ interface BoardView {
   project?: Scope
   room?: Scope
   popup?: Window
+  share?: () => void
 }
 
 /** The frame contains the actual Girnel app, served and precached locally.
@@ -35,6 +37,9 @@ export class BoardsPanel {
   #pop: HTMLButtonElement
   #link: HTMLButtonElement
   #scope: HTMLElement
+  #saved: HTMLElement
+  #share: HTMLButtonElement
+  #navigationState = ''
   #timer: ReturnType<typeof setInterval>
   constructor(readonly root: Document, readonly options: {
     session(): SignetSession | undefined
@@ -48,6 +53,9 @@ export class BoardsPanel {
     newRoomTask(): Promise<void>
     roomInvitation(id: string): string | undefined
     discuss(context: BoardContext, card: {id: string; title: string; description?: string}): Promise<void>
+    showChat(): void
+    roomBoards(id: string): RoomBoard[]
+    shareBoard(room: Scope, board: RoomBoard): Promise<void>
   }) {
     this.dialog = root.createElement('dialog'); this.dialog.id = 'boardsPanel'; this.dialog.setAttribute('aria-labelledby', 'boardsTitle')
     const shell = this.el('div'); shell.className = 'boardsShell'
@@ -73,6 +81,7 @@ export class BoardsPanel {
     const openLink = this.button('Open this board link', () => {}); openLink.type = 'submit'; linkForm.append(linkLabel, openLink)
     linkForm.onsubmit = event => {event.preventDefault(); void this.openLink(linkInput.value).then(() => {linkInput.value = ''; linkForm.hidden = true}).catch(error => this.report(error))}
     this.#context = this.el('p', 'Boards · KithMoot'); this.#context.className = 'boardsContext'; this.#context.id = 'boardsContext'
+    this.#saved = this.el('nav'); this.#saved.id = 'boardsSaved'; this.#saved.className = 'boardsSaved'; this.#saved.setAttribute('aria-label', 'Your boards')
     this.#scope = this.el('div'); this.#scope.className = 'boardsScopes'
     this.#project = root.createElement('select'); this.#project.id = 'boardsProject'
     this.#room = root.createElement('select'); this.#room.id = 'boardsRoom'
@@ -80,11 +89,12 @@ export class BoardsPanel {
       const label = this.el('label', text); label.append(select); this.#scope.append(label)
     }
     this.#link = this.button('Use these labels', () => this.associate()); this.#link.id = 'boardsAssociate'
-    this.#scope.append(this.#link)
+    this.#share = this.button('Share with this chat', () => this.#view?.share?.()); this.#share.id = 'boardsShareRoom'; this.#share.disabled = true
+    this.#scope.append(this.#link, this.#share)
     this.#project.onchange = () => {this.fillRooms(); this.#link.disabled = !this.#view?.context}
     this.#room.onchange = () => {this.#link.disabled = !this.#view?.context}
     this.#status = this.el('p'); this.#status.id = 'boardsStatus'; this.#status.setAttribute('role', 'status')
-    shell.append(bar, linkForm, this.#context, this.#scope, this.#status); this.dialog.append(shell); root.body.append(this.dialog)
+    shell.append(bar, linkForm, this.#context, this.#saved, this.#scope, this.#status); this.dialog.append(shell); root.body.append(this.dialog)
     this.dialog.addEventListener('close', () => {if (this.#return?.isConnected) this.#return.focus({preventScroll: true})})
     this.#timer = setInterval(() => this.sync(), 1000)
     window.addEventListener('pagehide', () => {this.reset(); clearInterval(this.#timer)})
@@ -98,7 +108,7 @@ export class BoardsPanel {
   }
   private labels(view: BoardView) {
     if (!view.context && view.popup) {view.popup.document.title = 'Boards · KithMoot'; return}
-    if (!view.context) {this.#context.textContent = 'Choose or create a board. Labels organise this browser; access comes from the board invitation.'; this.#pop.disabled = this.#link.disabled = true; return}
+    if (!view.context) {this.#context.textContent = view.room ? `Create a board to share with ${view.room.name}, or choose an existing board.` : 'Choose or create a personal board, or link a chat to share it.'; this.#pop.disabled = this.#link.disabled = this.#share.disabled = true; return}
     const title = boardContextTitle(view.context)
     if (view.popup) {
       view.popup.document.title = title
@@ -106,6 +116,8 @@ export class BoardsPanel {
       view.frame.title = title
     } else {
       this.#context.textContent = title; this.#pop.disabled = this.#link.disabled = false; view.frame.title = title
+      this.#share.disabled = !view.share || !view.context.room
+      this.#share.textContent = view.context.room ? `Share with ${view.context.room.name}` : 'Share with this chat'
     }
   }
   private associate() {
@@ -115,10 +127,45 @@ export class BoardsPanel {
     view.context = {boardId: view.context.boardId, boardName: view.context.boardName,
       ...(view.context.cardId ? {cardId: view.context.cardId} : {}),
       ...(view.project ? {project: view.project} : {}), ...(view.room ? {room: view.room} : {})}
-    try {saveBoardContext(this.options.store, view.account.pubkey, view.context); this.labels(view); this.#status.textContent = 'Labels saved on this browser. Board membership is unchanged.'}
+    try {saveBoardContext(this.options.store, view.account.pubkey, view.context); this.labels(view); this.navigation(); this.#status.textContent = 'Labels saved on this browser. Board membership is unchanged.'}
     catch (error) {this.report(error)}
   }
   private report(error: unknown) {this.#status.textContent = errorText(error)}
+  private navigation() {
+    const account = this.options.session()?.pubkey, room = this.options.currentRoom()
+    const contexts = account ? listBoardContexts(this.options.store, account) : []
+    const shared = room && account ? this.options.roomBoards(room.id) : []
+    for (const board of shared) {
+      const index = contexts.findIndex(context => context.boardId === board.boardId && context.room?.id === room!.id)
+      const context: BoardContext = {boardId: board.boardId, boardName: board.name, room}
+      if (index >= 0) contexts[index] = {...contexts[index], ...context}; else contexts.push(context)
+    }
+    const state = JSON.stringify([account, room?.id, contexts, [...this.#popups].filter(view => !view.popup?.closed).map(view => view.context?.boardId)])
+    if (state === this.#navigationState) return
+    this.#navigationState = state
+    const button = (context: BoardContext, full: boolean) => {
+      const popped = [...this.#popups].some(view => view.account.pubkey === account && view.context?.boardId === context.boardId && !view.popup?.closed)
+      const open = this.button(`${full ? [context.project?.name, context.room?.name, context.boardName].filter(Boolean).join(' · ') : context.boardName}${popped ? ' · Open in window' : ''}`, () => {void this.reopen(open, context).catch(error => this.report(error))})
+      open.dataset.boardId = context.boardId; open.title = boardContextTitle(context)
+      return open
+    }
+    this.#saved.replaceChildren(...contexts.map(context => button(context, true)))
+    this.#saved.hidden = !contexts.length
+    const linked = this.root.getElementById('roomBoards')
+    if (linked) {
+      const boards = contexts.filter(context => context.room?.id === room?.id && !!room)
+      linked.replaceChildren(...boards.map(context => button(context, false))); linked.hidden = !boards.length
+    }
+  }
+  private async reopen(from: HTMLElement, context: BoardContext) {
+    const account = this.options.session()
+    const popped = [...this.#popups].find(view => view.account === account && view.context?.boardId === context.boardId && !view.popup?.closed)
+    if (popped?.popup) {popped.popup.focus(); this.dialog.close(); this.options.showChat(); return}
+    await (this.#view?.frame.contentWindow as GirnelWindow | undefined)?.girnelEmbed?.prepareMove()
+    if (this.options.session() !== account) return
+    const shared = context.room && this.options.roomBoards(context.room.id).find(board => board.boardId === context.boardId)
+    this.open(from, context, shared?.invitation)
+  }
   private async openLink(value: string) {
     const account = this.options.session()
     if (!account) throw new Error('Sign in with Nostr before opening a shared board.')
@@ -135,23 +182,26 @@ export class BoardsPanel {
     this.#view = this.mount(this.dialog.querySelector('.boardsShell')!, account, undefined, this.scope(this.#project), this.scope(this.#room), undefined, hash)
     this.#status.textContent = 'Opening the board link. Review the board invitation before joining.'
   }
-  open(from: HTMLElement, context?: BoardContext) {
+  open(from: HTMLElement, context?: BoardContext, invitation?: string) {
     this.#return = from
     const session = this.options.session()
     if (!session) {this.#status.textContent = 'Sign in with your Nostr account to use shared boards.'; this.#pop.disabled = this.#link.disabled = true}
     else {
-      const project = context?.project ?? this.options.currentProject(), room = context?.room ?? this.options.currentRoom()
+      const current = context ?? this.#view?.context
+      const project = current?.project ?? this.options.currentProject(), room = current?.room ?? this.options.currentRoom()
       this.#project.replaceChildren(new Option('No project', ''), ...this.options.projects().map(project => new Option(project.name, project.id)))
       this.#project.value = project?.id ?? ''; this.fillRooms(room?.id)
-      if (!this.#view || this.#view.account !== session) {
+      if (!this.#view || this.#view.account !== session || invitation) {
         this.closeView(this.#view)
-        this.#view = this.mount(this.dialog.querySelector('.boardsShell')!, session, context, project, room)
+        this.#view = this.mount(this.dialog.querySelector('.boardsShell')!, session, context, project, room, undefined, invitation ? new URL(invitation).hash : undefined)
       } else if (context) {
+        this.#view.project = context.project; this.#view.room = context.room
         this.#view.frame.contentWindow!.location.hash = `#/b/${context.boardId}`
       }
       this.#status.textContent = ''
     }
     if (!this.dialog.open) this.dialog.showModal()
+    this.navigation()
     this.root.getElementById('boardsTitle')!.focus()
     if (!session) {
       let button = this.root.getElementById('boardsSignIn') as HTMLButtonElement | null
@@ -193,9 +243,30 @@ export class BoardsPanel {
             if (!saved && view.room) view.context.room = view.room
             try {saveBoardContext(this.options.store, account.pubkey, view.context)} catch (error) {this.report(error)}
             this.labels(view)
+            this.navigation()
           },
-          onBoards: () => {},
+          onBoards: boards => {
+            if (!current()) return
+            try {
+              for (const board of boards) {
+                const saved = readBoardContext(this.options.store, account.pubkey, board.boardId)
+                saveBoardContext(this.options.store, account.pubkey, {...saved, boardId: board.boardId, boardName: board.name})
+              }
+              this.navigation()
+            } catch (error) {this.report(error)}
+          },
           roomInvitation: () => view.context?.room ? this.options.roomInvitation(view.context.room.id) : undefined,
+          roomShare: () => {
+            const room = view.context?.room ?? view.room
+            if (!room || !current()) return
+            return {name: room.name, publish: async (board, invitation) => {
+              if (!current()) throw new Error('Your account changed before sharing the board.')
+              await this.options.shareBoard(room, {...board, invitation})
+              if (!current()) throw new Error('Reopen Boards to check the shared board.')
+              this.navigation()
+            }}
+          },
+          onRoomShareReady: share => {if (current()) {view.share = share ?? undefined; this.labels(view)}},
           discuss: (_board, card) => {if (current() && view.context) {this.dialog.close(); void this.options.discuss(view.context, card).catch(error => {this.report(error); if (!this.dialog.open) this.dialog.showModal()})}},
         }).catch(error => {if (current()) this.report(error)})
       }
@@ -221,6 +292,9 @@ export class BoardsPanel {
       this.#context.textContent = `${boardContextTitle(context)} · Open in its own window`
       this.#status.textContent = 'This board is open in its own window. You can open another board here.'
       this.#pop.disabled = this.#link.disabled = true
+      this.dialog.close()
+      this.options.showChat()
+      this.navigation()
     } catch (error) {popup.close(); this.report(error)}
   }
   private mountPopup(popup: Window, account: SignetSession, context: BoardContext): BoardView {
@@ -273,6 +347,7 @@ export class BoardsPanel {
         }
       }
     }
+    this.navigation()
   }
   reset() {this.closeView(this.#view); this.#view = undefined; for (const view of this.#popups) {this.closeView(view); view.popup?.close()}; this.dialog.close()}
   get hasPendingEdits(): boolean {
