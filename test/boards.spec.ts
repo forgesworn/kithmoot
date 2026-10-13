@@ -229,18 +229,26 @@ test('two agents handle separate cards while a second person edits the shared bo
       await expect(dialog.getByRole('heading', {name: 'Room audience', exact: true})).toBeVisible()
       await Promise.all(workers.map((_, i) => advertise(i)))
       const audience = dialog.getByRole('heading', {name: 'Room audience', exact: true}).locator('..')
-      await expect(audience.getByText(/^Design agent .*installation/)).toBeVisible()
-      await expect(audience.getByText(/^Release agent .*installation/)).toBeVisible()
-      await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
+      // Signed presence can arrive after admission. Refresh the actual review
+      // surface until both installations are in its current audience.
+      await expect.poll(async () => {
+        await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
+        return [await audience.getByText(/^Design agent .*installation/).isVisible(), await audience.getByText(/^Release agent .*installation/).isVisible()]
+      }).toEqual([true, true])
       return dialog
     }
     for (const [i, title] of ['Design task', 'Release task'].entries()) {
       const dialog = await connect(title)
-      await dialog.getByRole('combobox', {name: /^Agent installation/}).selectOption(`${workers[i]!.participant}/${workers[i]!.device}`)
-      await expect(dialog.getByRole('combobox', {name: /^Agent action/}).locator('option[value="card-review"]')).toHaveCount(1)
-      await dialog.getByRole('combobox', {name: /^Agent action/}).selectOption('card-review')
-      await dialog.getByLabel('Acceptance criteria shared with the room', {exact: true}).fill('Return a description proposal for review')
-      await dialog.getByRole('button', {name: 'Review disclosure', exact: true}).click()
+      await expect.poll(async () => {
+        await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
+        await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
+        await dialog.getByRole('combobox', {name: /^Agent installation/}).selectOption(`${workers[i]!.participant}/${workers[i]!.device}`)
+        await expect(dialog.getByRole('combobox', {name: /^Agent action/}).locator('option[value="card-review"]')).toHaveCount(1)
+        await dialog.getByRole('combobox', {name: /^Agent action/}).selectOption('card-review')
+        await dialog.getByLabel('Acceptance criteria shared with the room', {exact: true}).fill('Return a description proposal for review')
+        await dialog.getByRole('button', {name: 'Review disclosure', exact: true}).click()
+        return dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).isEnabled()
+      }).toBe(true)
       await dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).click()
       await expect(dialog.getByText('Room status: offered. Attempt 1.', {exact: true})).toBeVisible()
       await dialog.getByRole('button', {name: 'Disconnect and close', exact: true}).click()

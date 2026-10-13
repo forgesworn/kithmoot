@@ -5,24 +5,12 @@
       "version": "0.1.78",
       "updateTo": {
         "version": "0.1.78",
-        "pub_date": "2026-10-13T00:28:45.491Z",
+        "pub_date": "2026-10-13T00:28:45Z",
         "notes": "Boards replaces Work with shared encrypted Girnel boards. Keep separately labelled project, chat and board windows open while people and agents work together. Review agent results before approving card changes.",
         "name": "0.1.78",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/KithMoot-0.1.78-mac-arm64.zip",
         "sha256": "ac7bb1714529068f0232a780a5e2a1feb611805ec799ca0c144fd108ee5975de",
         "size": 177639966
-      }
-    },
-    {
-      "version": "0.1.77",
-      "updateTo": {
-        "version": "0.1.77",
-        "pub_date": "2026-10-12T00:11:49Z",
-        "notes": "Recording stops using expired credentials or admission permissions immediately. Participant recording, independent warnings and the persistent call gallery remain available. Save recordings locally without Wildbloom, or explicitly choose a private node for encrypted Upload and a separate Send.",
-        "name": "0.1.77",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.77/KithMoot-0.1.77-mac-arm64.zip",
-        "sha256": "01d00ec6c7ef6df0443bfe49a73c61abeeffb6770378889e1682e872ce51c037",
-        "size": 176786911
       }
     }
   ]
