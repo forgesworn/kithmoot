@@ -30,6 +30,7 @@ add('access', wrap + `kithmoot\\.(?:invitation-owner|admission-kept)\\.v1\\.${H}
 add('access', wrap + `kithmoot\\.admission\\.v1\\.${H}`, ['tab'])
 add('invitationProofs', `kithmoot\\.account\\.${H}\\.kithmoot\\.invitation-proof\\.v1\\.${H}\\.${H}`)
 add('invitationProofs', `kithmoot\\.account\\.${H}\\.kithmoot\\.admission-proof\\.v1\\.${H}`, ['tab'])
+add('invitationProofs', `kithmoot\\.account\\.${H}\\.kithmoot\\.(?:invitation-creator|invitation-publication)\\.v1\\.${H}`)
 add('epoch', wrap + `kithmoot\\.room-epoch\\.v[12]\\.${H}`)
 add('bookmarks', `kithmoot\\.bookmarks\\.${H}\\.${H}`)
 add('quiet', wrap + `kithmoot\\.quiet\\.v1\\.${H}`)

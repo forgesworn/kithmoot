@@ -42,6 +42,7 @@ import { verifyEventUncached } from '../../src/verify.js'
 import type { Event } from 'nostr-tools/pure'
 import { classifyOrdinaryPhysicalName, validateOrdinaryPhysicalSnapshot } from './ordinary-physical-snapshot.js'
 import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceContinuity, FIXED_INVITATION_RELAYS } from './persistent-admission-proof.js'
+import { inspectPersistentCreatorProofs, creatorIsSelected, CREATOR_PROOF_PREFIX, CREATOR_INTENT_PREFIX } from './persistent-creator-proof.js'
 import type { DeviceStore } from './device-store.js'
 import { ordinaryPairCustodyFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 
@@ -66,6 +67,8 @@ interface CapturedStartup {
   readonly browser: Map<string, string>
   readonly tab: Map<string, string>
   readonly href: string
+  readonly creators: Map<string, string>
+  readonly creatorLinks: readonly string[]
 }
 interface Composition {
   readonly kinds: ReadonlyMap<string, 'browser' | 'tab'>
@@ -103,14 +106,19 @@ export function captureOrdinaryStartupContext(browserRecords: ReadonlyMap<string
       else { validateOrdinaryNavigationRecord(name, raw); navigation++ }
     }
     const context = Object.freeze({ links: url.hash === '' ? 0 : 1, browserAccess, bookmarks, tabAccess, navigation }) as OrdinaryStartupContext
-    capturedStartup.set(context, { browser: browserEvidence, tab: tabEvidence, href })
+    const creators = new Map([...browser].filter(([name]) => name.includes(CREATOR_PROOF_PREFIX) || name.includes(CREATOR_INTENT_PREFIX)))
+    const creatorStore: DeviceStore = { get: n => browser.get(n) ?? null, keys: () => [...browser.keys()], set: hold, remove: hold }
+    const checked = inspectPersistentCreatorProofs(creatorStore)
+    try { capturedStartup.set(context, { browser: browserEvidence, tab: tabEvidence, href, creators,
+      creatorLinks: Object.freeze([...checked.proofs.values()].map(value => value.proof.link)) }) }
+    finally { checked.close() }
     return context
   } catch { return hold() }
 }
 /** Abandon a captured startup without exposing retained bytes. */
 export function releaseOrdinaryStartupContext(context: OrdinaryStartupContext): void {
   const captured = capturedStartup.get(context)
-  captured?.browser.clear(); captured?.tab.clear()
+  captured?.browser.clear(); captured?.tab.clear(); captured?.creators.clear()
   capturedStartup.delete(context)
 }
 function sameEvidence(records: ReadonlyMap<string, string>, captured: ReadonlyMap<string, string>, kind: 'browser' | 'tab'): void {
@@ -158,6 +166,9 @@ function consumeAccessComposition(browserRecords: ReadonlyMap<string, string>, t
     validateOrdinaryPhysicalSnapshot(browser, { kind: 'browser' })
     validateOrdinaryPhysicalSnapshot(tab, { kind: 'tab' })
     sameEvidence(browser, captured.browser, 'browser'); sameEvidence(tab, captured.tab, 'tab')
+    const creators = new Map([...browser].filter(([name]) => name.includes(CREATOR_PROOF_PREFIX) || name.includes(CREATOR_INTENT_PREFIX)))
+    if (creators.size !== captured.creators.size || [...creators].some(([name, raw]) => captured.creators.get(name) !== raw)) hold()
+    candidates.push(...captured.creatorLinks)
     if (new URL(captured.href).hash !== '') candidates.push(captured.href)
     for (const [kind, partition] of [['browser', captured.browser], ['tab', captured.tab]] as const) {
       for (const [name, raw] of partition) {
@@ -197,7 +208,7 @@ function consumeAccessComposition(browserRecords: ReadonlyMap<string, string>, t
     }
     return result
   } catch { return hold() }
-  finally { captured.browser.clear(); captured.tab.clear(); records.clear(); kinds.clear(); migration.clear(); candidates.length = 0 }
+  finally { captured.browser.clear(); captured.tab.clear(); captured.creators.clear(); records.clear(); kinds.clear(); migration.clear(); candidates.length = 0 }
 }
 interface CapturedNavigation {
   readonly kind: 'browser' | 'tab'
@@ -646,6 +657,7 @@ export interface OrdinarySnapshotCounts {
   readonly pendingRecords: number
   readonly historicalRoomRelayRecords: number
   readonly historicalFixedInvitationProofs?: number
+  readonly historicalCreatorInvitationProofs?: number
 }
 /** Whole captured image custody preflight with actual room/identity/epoch and
  * inner-message bindings. No raw keys, links, records or live authority escape.
@@ -663,6 +675,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
   const partitions = { browser: new Map<OrdinaryPhysicalFamily, Map<string, string>>(), tab: new Map<OrdinaryPhysicalFamily, Map<string, string>>() }
   const families: Partial<Record<OrdinaryPhysicalFamily, number>> = {}
   let proofCustody: ReturnType<typeof inspectPersistentAdmissionProofs> | undefined
+  let creatorCustody: ReturnType<typeof inspectPersistentCreatorProofs> | undefined
   const namespace = (roomId: string, account?: string) => (account ?? 'legacy') + ':' + roomId
   try {
     object(migrated, ['browser', 'tab'])
@@ -701,6 +714,17 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     })
     if (part('browser', 'invitationProofs').size && !migrated.browser || part('tab', 'invitationProofs').size && !migrated.tab) hold()
     proofCustody = inspectPersistentAdmissionProofs(readonlyStore(image.browser), readonlyStore(image.tab))
+    creatorCustody = inspectPersistentCreatorProofs(readonlyStore(image.browser))
+    for (const verified of creatorCustody.proofs.values()) {
+      const bound = verified.proof.binding, retained = roots.get(bound.roomId), derived = deriveRoom(verified.admission.secret)
+      try {
+        if (!image.custody || bound.browser.generation !== image.custody.browser.generation ||
+            bound.browser.fence !== (image.custody.browser.fences.get(bound.browser.name) ?? 0) || !retained ||
+            retained.id !== derived.roomId || retained.key.some((value, i) => value !== derived.roomKey[i]) ||
+            !inviters.get(bound.roomId)?.has(verified.proof.capability.inviter) ||
+            !access.access.invitations.some(value => value.kind === 'owner' && value.invitationId === bound.invitationId && value.roomId === bound.roomId && value.persistent)) hold()
+      } finally { derived.roomKey.fill(0) }
+    }
     const proven = new Set([...proofCustody.proofs.values(), ...proofCustody.selected.values()])
     for (const verified of proven) {
       const bound = verified.proof.binding, retained = roots.get(bound.roomId)
@@ -726,9 +750,12 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
           // A bare historical flag still holds. Only retained, independently
           // verified contributor events bind this exact writer list. This is
           // historical custody, never current routing or membership authority.
-          if (![...proofCustody.proofs.values()].some(value => value.proof.binding.roomId === roomId &&
+          const member = [...proofCustody.proofs.values()].some(value => value.proof.binding.roomId === roomId &&
               value.proof.selection.relays !== null && value.proof.selection.contributors.relays.length > 0 &&
-              JSON.stringify(value.proof.selection.relays) === JSON.stringify(row.c))) hold()
+              JSON.stringify(value.proof.selection.relays) === JSON.stringify(row.c))
+          const creator = [...creatorCustody.proofs.values()].some(value => value.proof.binding.roomId === roomId &&
+            creatorIsSelected(readonlyStore(image.browser), value.proof) && JSON.stringify(value.admission.relays) === JSON.stringify(row.c))
+          if (!member && !creator) hold()
           historicalFixedInvitationProofs++
         }
       } else if (name.startsWith('kithmoot.room-relays.v1.')) {
@@ -946,10 +973,12 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     return Object.freeze({ browserRecords: image.browser.size, tabRecords: image.tab.size, families: Object.freeze(families), rooms: roots.size,
       identities: identity.rooms.length, epochs: epochs.rooms.length, invitations: access.access.invitations.length, bookmarks: access.bookmarks.length,
       quietRooms: quiet.rooms.length, pendingQueues: pending.queues, pendingRecords: pending.records, historicalRoomRelayRecords,
-      ...(historicalFixedInvitationProofs ? { historicalFixedInvitationProofs } : {}) })
+      ...(historicalFixedInvitationProofs ? { historicalFixedInvitationProofs } : {}),
+      ...(creatorCustody.proofs.size ? { historicalCreatorInvitationProofs: creatorCustody.proofs.size } : {}) })
   } catch { return hold() }
   finally {
     proofCustody?.close()
+    creatorCustody?.close()
     for (const root of roots.values()) root.key.fill(0)
     for (const key of allocated) key.fill(0)
     roots.clear(); devices.clear(); traffic.clear()
