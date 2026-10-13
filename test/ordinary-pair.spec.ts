@@ -51,6 +51,51 @@ test.beforeEach(async ({ context, page }) => {
   await page.goto(ORIGIN); await page.evaluate(`(${setup})()`)
 })
 
+test('paired read authenticates one coherent final readonly transaction without encrypting or allowing escaped views', async ({ page }) => {
+  expect(await page.evaluate(`(async()=>{
+    await pair();const transactions=[],get=IDBObjectStore.prototype.get,encrypt=crypto.subtle.encrypt.bind(crypto.subtle);let escaped
+    IDBObjectStore.prototype.get=function(...args){if(this.transaction.mode==='readonly')transactions.push(this.transaction);return get.apply(this,args)}
+    crypto.subtle.encrypt=async()=>{throw Error('read encrypted')}
+    const value=await Ordinary.OrdinaryStateOwner.readPairMigrated({browser:{owner:browserOwner,scope:browserScope},
+      tab:{owner:tabOwner,scope:tabScope},live:guard,work:(b,t,bNames,tNames)=>{escaped=b;return [b.get('proof'),t.get('admission'),bNames,tNames]}})
+    crypto.subtle.encrypt=encrypt;IDBObjectStore.prototype.get=get
+    return [value,transactions.length,transactions.at(-1)===transactions.at(-2),await outcome(()=>escaped.get('proof'))]
+  })()`)).toEqual([['operation-1','operation-1',['legacy.fixture'],['legacy.fixture']],4,true,'OrdinaryStateHold'])
+})
+
+for (const operation of ['set','remove','thenable'] as const) {
+  test(`paired read refuses ${operation} and preserves both frames`, async ({ page }) => {
+    expect(await page.evaluate(`(async operation=>{
+      const before=await rawBoth(),result=await outcome(()=>Ordinary.OrdinaryStateOwner.readPairMigrated({
+        browser:{owner:browserOwner,scope:browserScope},tab:{owner:tabOwner,scope:tabScope},live:guard,
+        work:(b,t)=>operation==='set'?b.set('changed','bad'):operation==='remove'?t.remove('old'):Promise.resolve('escaped')}))
+      const after=await rawBoth();return [result,after.every((r,i)=>Ordinary.sameOrdinaryFrame(r.frame,before[i].frame))]
+    })('${operation}')`)).toEqual(['OrdinaryStateHold',true])
+  })
+}
+
+test('paired forget increments both fences atomically even without records and blocks captured read/write scopes', async ({ page }) => {
+  expect(await page.evaluate(`(async()=>{
+    await Ordinary.OrdinaryStateOwner.forgetPairMigrated({browser:{owner:browserOwner,scope:browserScope},
+      tab:{owner:tabOwner,scope:tabScope},live:guard,work:(b,t)=>{b.remove('absent');t.remove('absent')}})
+    const images=await Promise.all((await rawBoth()).map(r=>Ordinary.openOrdinaryFrame(r.frame,r.key)))
+    const read=await outcome(()=>Ordinary.OrdinaryStateOwner.readPairMigrated({browser:{owner:browserOwner,scope:browserScope},
+      tab:{owner:tabOwner,scope:tabScope},live:guard,work:()=> 'bad'})),write=await outcome(()=>pair())
+    return [images.map(i=>i.fences.get('room')),read,write]
+  })()`)).toEqual([[1,1],'OrdinaryStateHold','OrdinaryStateHold'])
+})
+
+test('an aborted paired forget changes neither image nor deletion fence', async ({ page }) => {
+  expect(await page.evaluate(`(async()=>{
+    const before=await rawBoth(),put=IDBObjectStore.prototype.put;let count=0
+    IDBObjectStore.prototype.put=function(...args){const r=put.apply(this,args);if(++count===2)this.transaction.abort();return r}
+    const result=await outcome(()=>Ordinary.OrdinaryStateOwner.forgetPairMigrated({browser:{owner:browserOwner,scope:browserScope},
+      tab:{owner:tabOwner,scope:tabScope},live:guard,work:(b,t)=>{b.remove('old');t.remove('old')}}))
+    IDBObjectStore.prototype.put=put;const after=await rawBoth()
+    return [result,after.every((r,i)=>Ordinary.sameOrdinaryFrame(r.frame,before[i].frame)),await pair()]
+  })()`)).toEqual(['OrdinaryStateHold',true,'ack'])
+})
+
 test('both final images use one native transaction and survive restart without replacement keys or ciphertext', async ({ page }) => {
   expect(await page.evaluate(`(async()=>{
     const native=IDBObjectStore.prototype.put;window.transactions=[];window.rows=[]

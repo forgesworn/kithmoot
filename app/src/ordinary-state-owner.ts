@@ -18,7 +18,24 @@ export interface OrdinaryPairMutation<T> {
   readonly tab: { readonly owner: OrdinaryStateOwner; readonly scope: OrdinaryScope }
   readonly live: () => boolean
   readonly work: (browser: DeviceStore, tab: DeviceStore,
-    browserMigratedNames: readonly string[], tabMigratedNames: readonly string[]) => T
+    browserMigratedNames: readonly string[], tabMigratedNames: readonly string[], custody: OrdinaryPairCustody) => T
+}
+declare const pairCustodyBrand: unique symbol
+export interface OrdinaryPairCustody { readonly [pairCustodyBrand]: true }
+interface PairHeader { purpose: OrdinaryPurpose; expiresAt: number; generation: string; fences: ReadonlyMap<string, number> }
+const pairCustody = new WeakMap<object, { browser: OrdinaryImage; tab: OrdinaryImage; browserStore: DeviceStore; tabStore: DeviceStore }>()
+/** Only a live native pair callback can supply this opaque provenance. Exact
+ * record matching prevents substituting a different image under its headers. */
+export function ordinaryPairCustodyFor(token: OrdinaryPairCustody, browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>):
+  { browser: PairHeader; tab: PairHeader } {
+  const captured = pairCustody.get(token)
+  if (!captured) hold()
+  const header = (image: OrdinaryImage, store: DeviceStore, records: ReadonlyMap<string, string>): PairHeader => {
+    const names = store.keys()
+    if (records.size !== names.length || names.some(name => records.get(name) !== store.get(name))) hold()
+    return { purpose: image.purpose, expiresAt: image.expiresAt, generation: image.generation, fences: new Map(image.fences) }
+  }
+  return { browser: header(captured.browser, captured.browserStore, browser), tab: header(captured.tab, captured.tabStore, tab) }
 }
 interface Row { key: CryptoKey; frame?: OrdinaryFrame; pending?: OrdinaryFrame }
 class DefiniteAbort extends Error {}
@@ -326,11 +343,79 @@ export class OrdinaryStateOwner {
   compareAndMutateMigrated(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore) => boolean): Promise<boolean> {
     return this.#mutation(scope, live, work, undefined, true, true)
   }
+  /** Coherent authenticated browser/tab read. Final semantic bindings must be
+   * checked inside the synchronous callback before any result can escape. */
+  static readPairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
+    const browser = input.browser.owner, tab = input.tab.owner
+    const browserScope = { ...input.browser.scope }, tabScope = { ...input.tab.scope }
+    const live = input.live, work = input.work
+    const check = () => {
+      if (browser === tab || browser.purpose !== 'browser' || browser.expiresAt !== 0 || !TAB_PURPOSE.test(tab.purpose) ||
+          !Number.isSafeInteger(tab.expiresAt) || tab.expiresAt <= 0 ||
+          browser.#generation === undefined || tab.#generation === undefined) hold()
+      browser.#check(live); tab.#check(live)
+      for (const scope of [browserScope, tabScope]) if (typeof scope.name !== 'string' || !scope.name.length ||
+        scope.name.length > 512 || !Number.isSafeInteger(scope.fence) || scope.fence < 0) hold()
+    }
+    const guarded = () => { try { check(); return true } catch { return false } }
+    const operation = Promise.resolve().then(async () => {
+      check()
+      if (browser.#retry || tab.#retry || !navigator.locks) hold()
+      return navigator.locks.request(WRITE_LOCK, async () => {
+        check()
+        let first: OrdinaryImage | undefined, second: OrdinaryImage | undefined
+        try {
+          const priorBrowser = await browser.#snapshot(guarded)
+          clearImage(priorBrowser.image); check()
+          const priorTab = await tab.#snapshot(guarded)
+          clearImage(priorTab.image); check()
+          const db = await browser.#database(guarded); check()
+          const tx = db.transaction(OWNER_STORE, 'readonly'), ended = settled(tx)
+          void ended.catch(() => {})
+          let saved: (Row | undefined)[]
+          try {
+            const store = tx.objectStore(OWNER_STORE)
+            const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+            await ended; check(); saved = raw.map(row)
+          } catch (error) { try { tx.abort() } catch {}; await ended.catch(() => {}); throw error }
+          if (!saved[0]?.frame || !saved[1]?.frame || saved[0].pending || saved[1].pending) hold()
+          first = await openOrdinaryFrame(saved[0].frame, saved[0].key); check()
+          second = await openOrdinaryFrame(saved[1].frame, saved[1].key); check()
+          if (first.purpose !== browser.purpose || first.expiresAt !== browser.expiresAt || first.generation !== browser.#generation ||
+              second.purpose !== tab.purpose || second.expiresAt !== tab.expiresAt || second.generation !== tab.#generation ||
+              first.migration?.phase !== 'complete' || second.migration?.phase !== 'complete') hold()
+          browser.#scope(first, browserScope); tab.#scope(second, tabScope)
+          const browserView = view(new Map(first.records), false), tabView = view(new Map(second.records), false)
+          const custody = Object.freeze({}) as OrdinaryPairCustody
+          pairCustody.set(custody, { browser: first, tab: second, browserStore: browserView.store, tabStore: tabView.store })
+          try {
+            const result = work(browserView.store, tabView.store,
+              Object.freeze([...first.migration.names]), Object.freeze([...second.migration.names]), custody)
+            if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
+              void Promise.resolve(result).catch(() => {}); hold()
+            }
+            check()
+            return result
+          } finally { pairCustody.delete(custody); browserView.close(); tabView.close() }
+        } finally { clearImage(first); clearImage(second) }
+      })
+    })
+    browser.#track(operation); tab.#track(operation)
+    return operation
+  }
   /** One origin-local native commit for completed browser and tab images.
    * The caller must retain matching semantic identities in both final records
    * and validate that binding on startup before effects. This primitive does
    * not supply membership authority or independent rollback resistance. */
   static mutatePairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
+    return this.#mutatePairMigrated(input, false)
+  }
+  /** Deletion and both invitation fences share one native commit. Old captured
+   * queries cannot recreate forgotten custody, even when no record existed. */
+  static forgetPairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
+    return this.#mutatePairMigrated(input, true)
+  }
+  static #mutatePairMigrated<T>(input: OrdinaryPairMutation<T>, fencing: boolean): Promise<T> {
     const browser = input.browser.owner, tab = input.tab.owner
     const browserScope = { ...input.browser.scope }, tabScope = { ...input.tab.scope }
     const live = input.live, work = input.work
@@ -370,10 +455,12 @@ export class OrdinaryStateOwner {
           browserImage = copyImage(browserSnapshot.image!)
           tabImage = copyImage(tabSnapshot.image!)
           const browserView = view(new Map(browserImage.records), true), tabView = view(new Map(tabImage.records), true)
+          const custody = Object.freeze({}) as OrdinaryPairCustody
+          pairCustody.set(custody, { browser: browserImage, tab: tabImage, browserStore: browserView.store, tabStore: tabView.store })
           let result: T
           try {
             result = work(browserView.store, tabView.store,
-              Object.freeze([...browserImage.migration!.names]), Object.freeze([...tabImage.migration!.names]))
+              Object.freeze([...browserImage.migration!.names]), Object.freeze([...tabImage.migration!.names]), custody)
             if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
               void Promise.resolve(result).catch(() => {}); hold()
             }
@@ -382,8 +469,12 @@ export class OrdinaryStateOwner {
             ;(tabImage.records as Map<string, string>).clear()
             browserImage.records = new Map(browserView.store.keys().map(name => [name, browserView.store.get(name)!]))
             tabImage.records = new Map(tabView.store.keys().map(name => [name, tabView.store.get(name)!]))
-          } finally { browserView.close(); tabView.close() }
+          } finally { pairCustody.delete(custody); browserView.close(); tabView.close() }
           browserImage.revision++; tabImage.revision++
+          if (fencing) {
+            ;(browserImage.fences as Map<string, number>).set(browserScope.name, browserScope.fence + 1)
+            ;(tabImage.fences as Map<string, number>).set(tabScope.name, tabScope.fence + 1)
+          }
           // The second image can refuse capacity before the first nonce exists.
           ordinaryImageByteLength(browserImage); ordinaryImageByteLength(tabImage)
           const browserFrame = await sealOrdinaryImage(browserImage, browserSnapshot.row.key); current()

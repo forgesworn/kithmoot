@@ -41,6 +41,9 @@ import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event } from 'nostr-tools/pure'
 import { classifyOrdinaryPhysicalName, validateOrdinaryPhysicalSnapshot } from './ordinary-physical-snapshot.js'
+import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceContinuity, FIXED_INVITATION_RELAYS } from './persistent-admission-proof.js'
+import type { DeviceStore } from './device-store.js'
+import { ordinaryPairCustodyFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const CACHE = 'kithmoot.admission.v1.'
@@ -599,6 +602,7 @@ interface CapturedImage {
   readonly tab: Map<string, string>
   readonly startup: OrdinaryStartupContext
   readonly origin: string
+  readonly custody?: ReturnType<typeof ordinaryPairCustodyFor>
 }
 const capturedImages = new WeakMap<object, CapturedImage>()
 function privateImage(records: ReadonlyMap<string, string>, kind: 'browser' | 'tab'): Map<string, string> {
@@ -607,7 +611,7 @@ function privateImage(records: ReadonlyMap<string, string>, kind: 'browser' | 't
 /** Capture one complete reserved image for each owner and the original native
  * location before startup effects. Caller mutations cannot change these copies.
  * The entry barrier and current authority are still separate runtime work. */
-export function captureOrdinarySnapshotContext(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>): OrdinarySnapshotContext {
+export function captureOrdinarySnapshotContext(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>, token?: OrdinaryPairCustody): OrdinarySnapshotContext {
   try {
     const browser = new Map(browserRecords), tab = new Map(tabRecords)
     validateOrdinaryPhysicalSnapshot(browser, { kind: 'browser' })
@@ -616,7 +620,8 @@ export function captureOrdinarySnapshotContext(browserRecords: ReadonlyMap<strin
     const startup = captureOrdinaryStartupContext(keptBrowser, keptTab)
     const origin = new URL(capturedStartup.get(startup)!.href).origin
     const context = Object.freeze({ browserRecords: keptBrowser.size, tabRecords: keptTab.size }) as OrdinarySnapshotContext
-    capturedImages.set(context, { browser: keptBrowser, tab: keptTab, startup, origin })
+    const custody = token ? ordinaryPairCustodyFor(token, browser, tab) : undefined
+    capturedImages.set(context, { browser: keptBrowser, tab: keptTab, startup, origin, custody })
     return context
   } catch { return hold() }
 }
@@ -640,6 +645,7 @@ export interface OrdinarySnapshotCounts {
   readonly pendingQueues: number
   readonly pendingRecords: number
   readonly historicalRoomRelayRecords: number
+  readonly historicalFixedInvitationProofs?: number
 }
 /** Whole captured image custody preflight with actual room/identity/epoch and
  * inner-message bindings. No raw keys, links, records or live authority escape.
@@ -656,6 +662,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
   const inviters: RoomInviters = new Map()
   const partitions = { browser: new Map<OrdinaryPhysicalFamily, Map<string, string>>(), tab: new Map<OrdinaryPhysicalFamily, Map<string, string>>() }
   const families: Partial<Record<OrdinaryPhysicalFamily, number>> = {}
+  let proofCustody: ReturnType<typeof inspectPersistentAdmissionProofs> | undefined
   const namespace = (roomId: string, account?: string) => (account ?? 'legacy') + ':' + roomId
   try {
     object(migrated, ['browser', 'tab'])
@@ -689,15 +696,41 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     const identity = validateOrdinaryIdentitySnapshot(part('browser', 'identity'), migrated.browser)
     const epochs = validateOrdinaryEpochSnapshot(part('browser', 'epoch'), migrated.browser)
     const access = consumeAccessComposition(image.browser, image.tab, migrated, image.startup, roots, inviters)
+    const readonlyStore = (records: ReadonlyMap<string, string>): DeviceStore => ({
+      get: name => records.get(name) ?? null, keys: () => [...records.keys()], set: hold, remove: hold,
+    })
+    if (part('browser', 'invitationProofs').size && !migrated.browser || part('tab', 'invitationProofs').size && !migrated.tab) hold()
+    proofCustody = inspectPersistentAdmissionProofs(readonlyStore(image.browser), readonlyStore(image.tab))
+    const proven = new Set([...proofCustody.proofs.values(), ...proofCustody.selected.values()])
+    for (const verified of proven) {
+      const bound = verified.proof.binding, retained = roots.get(bound.roomId)
+      const derived = deriveRoom(verified.admission.secret)
+      try {
+        if (!image.custody || bound.browser.generation !== image.custody.browser.generation ||
+            bound.browser.fence !== (image.custody.browser.fences.get(bound.browser.name) ?? 0)) hold()
+        if ([...proofCustody.selected.values()].includes(verified) &&
+            (bound.tab.generation !== image.custody.tab.generation || bound.tab.purpose !== image.custody.tab.purpose ||
+              bound.tab.expiresAt !== image.custody.tab.expiresAt || bound.tab.fence !== (image.custody.tab.fences.get(bound.tab.name) ?? 0))) hold()
+        if (!retained || derived.roomId !== retained.id || retained.key.some((v, i) => v !== derived.roomKey[i]) ||
+            !inviters.get(bound.roomId)?.has(verified.proof.capability.inviter) ||
+            !access.access.invitations.some(value => value.invitationId === bound.invitationId && value.roomId === bound.roomId && value.persistent)) hold()
+        if ([...proofCustody.selected.values()].includes(verified)) validatePersistentAdmissionDeviceContinuity(readonlyStore(image.browser), bound)
+      } finally { derived.roomKey.fill(0) }
+    }
     let historicalRoomRelayRecords = 0
+    let historicalFixedInvitationProofs = 0
     for (const [name, raw] of part('browser', 'routing')) {
-      if (name === 'kithmoot.room-relays-fixed.v1') {
-        // The actual writer persists only {c,signed}; it discards the signed
-        // invitation event that supplied c. Matching unsigned hints, holding
-        // an inviter key or verifying a later relay addition cannot recover
-        // that proof. Preserve bytes and hold until restoration supplies it.
-        const fixed = parsed(raw) as Record<string, { signed: boolean }>
-        if (Object.values(fixed).some(row => row.signed)) hold()
+      if (name === FIXED_INVITATION_RELAYS) {
+        const fixed = parsed(raw) as Record<string, { c: string[]; signed: boolean }>
+        for (const [roomId, row] of Object.entries(fixed)) if (row.signed) {
+          // A bare historical flag still holds. Only retained, independently
+          // verified contributor events bind this exact writer list. This is
+          // historical custody, never current routing or membership authority.
+          if (![...proofCustody.proofs.values()].some(value => value.proof.binding.roomId === roomId &&
+              value.proof.selection.relays !== null && value.proof.selection.contributors.relays.length > 0 &&
+              JSON.stringify(value.proof.selection.relays) === JSON.stringify(row.c))) hold()
+          historicalFixedInvitationProofs++
+        }
       } else if (name.startsWith('kithmoot.room-relays.v1.')) {
         const roomId = name.slice('kithmoot.room-relays.v1.'.length)
         const record = parsed(raw) as { relays: string[]; version: number; sig: string }
@@ -912,9 +945,11 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     for (const overlap of quietOverlaps) if (!provenQuiet.has(namespace(overlap.roomId, overlap.account) + ':' + JSON.stringify(overlap.event))) hold()
     return Object.freeze({ browserRecords: image.browser.size, tabRecords: image.tab.size, families: Object.freeze(families), rooms: roots.size,
       identities: identity.rooms.length, epochs: epochs.rooms.length, invitations: access.access.invitations.length, bookmarks: access.bookmarks.length,
-      quietRooms: quiet.rooms.length, pendingQueues: pending.queues, pendingRecords: pending.records, historicalRoomRelayRecords })
+      quietRooms: quiet.rooms.length, pendingQueues: pending.queues, pendingRecords: pending.records, historicalRoomRelayRecords,
+      ...(historicalFixedInvitationProofs ? { historicalFixedInvitationProofs } : {}) })
   } catch { return hold() }
   finally {
+    proofCustody?.close()
     for (const root of roots.values()) root.key.fill(0)
     for (const key of allocated) key.fill(0)
     roots.clear(); devices.clear(); traffic.clear()

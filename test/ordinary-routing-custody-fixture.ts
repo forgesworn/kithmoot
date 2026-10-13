@@ -4,7 +4,8 @@ import { getPublicKey } from 'nostr-tools/pure'
 import { roomInvitation, deriveInvitationId } from '../src/invitation.js'
 import { encodeRoomLink } from '../src/link.js'
 import { canonicalRoomRelays, signRoomRelays } from '../src/room-relays.js'
-import { memoryDeviceStore, storeKeptAdmission } from '../app/src/device-store.js'
+import { memoryDeviceStore, storeKeptAdmission, browserDeviceStore } from '../app/src/device-store.js'
+import { storeTabAdmission } from '../app/src/admission-store.js'
 import { storeInvitationOwner, INVITATION_OWNER_PREFIX } from '../app/src/invitation-store.js'
 import { rememberRoom } from '../app/src/rooms-store.js'
 import { accountRoomStore } from '../app/src/room-bookmarks.js'
@@ -33,6 +34,7 @@ export async function routingCustodyFixture(mode: typeof ROUTING_CUSTODY_MODES[n
   if (mode === 'member-kept') retainMember()
   else if (mode === 'member-tab') {
     const cache = capturedMainWriter('cacheAdmission', ['ADMISSION_CACHE_PREFIX'], { bytesToHex, deriveInvitationId,
+      storeTabAdmission, browserDeviceStore,
       sessionStorage: { setItem: (name: string, raw: string) => f.tab.set(name, raw) } })
     cache.write(invitation, { secret, persistent: true, epoch: 0 })
   } else if (mode !== 'metadata-only') storeInvitationOwner(store, invitation, secret, inviter, SNAPSHOT_NOW)

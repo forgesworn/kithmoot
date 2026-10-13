@@ -97,6 +97,7 @@ import {
 import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, loadKeptRoomEpoch, loadWatchedEpoch, pastRootsOf, storeKeptRoomEpoch } from './room-epoch-store.js'
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
+import { storeTabAdmission } from './admission-store.js'
 import { destructDue, endLapsedConferences, forgetRoom, knownRoom, knownRooms, markDestruct, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { showDestructEffect } from './destruct-effect.js'
 import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countdown, countdownClock, fuseRemaining, countdownStage, dismissTombstone, finalBannerText, headsUpText, stageAnnouncement, tombstoneText, tombstones, type CountdownStage } from './self-destruct.js'
@@ -1856,16 +1857,7 @@ function admissionEpochHint(admission: SavedRoomAdmission): number | undefined {
 
 function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
   try {
-    const value: StoredAdmission = {
-      roomSecret: bytesToHex(admission.secret),
-      ...('delegate' in admission
-        ? { delegateSk: bytesToHex(admission.delegate.delegateSk), delegation: admission.delegate.chain }
-        : { persistent: true as const }),
-      ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
-      ...('endsAt' in admission && admission.endsAt !== undefined ? { ends: admission.endsAt } : {}),
-      ...('destruct' in admission && admission.destruct ? { destruct: true as const } : {}),
-    }
-    sessionStorage.setItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation), JSON.stringify(value))
+    storeTabAdmission(browserDeviceStore(sessionStorage), invitation, admission)
   } catch {
     // A reload will simply repeat the one-tap admission exchange.
   }
