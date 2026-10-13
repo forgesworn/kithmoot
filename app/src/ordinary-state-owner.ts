@@ -13,6 +13,13 @@ export interface OrdinaryScope {
   readonly generation: string
   readonly fence: number
 }
+export interface OrdinaryPairMutation<T> {
+  readonly browser: { readonly owner: OrdinaryStateOwner; readonly scope: OrdinaryScope }
+  readonly tab: { readonly owner: OrdinaryStateOwner; readonly scope: OrdinaryScope }
+  readonly live: () => boolean
+  readonly work: (browser: DeviceStore, tab: DeviceStore,
+    browserMigratedNames: readonly string[], tabMigratedNames: readonly string[]) => T
+}
 interface Row { key: CryptoKey; frame?: OrdinaryFrame; pending?: OrdinaryFrame }
 class DefiniteAbort extends Error {}
 interface Snapshot { db: IDBDatabase; row?: Row; image?: OrdinaryImage }
@@ -44,6 +51,15 @@ function sameRow(a?: Row, b?: Row): boolean {
 function copyImage(image: OrdinaryImage): OrdinaryImage {
   return { ...image, records: new Map(image.records), fences: new Map(image.fences),
     ...(image.migration ? { migration: { ...image.migration, sources: new Map(image.migration.sources), names: [...image.migration.names] } } : {}) }
+}
+function clearImage(image?: OrdinaryImage): void {
+  if (!image) return
+  ;(image.records as Map<string, string>).clear()
+  ;(image.fences as Map<string, number>).clear()
+  if (image.migration) {
+    ;(image.migration.sources as Map<string, string>).clear()
+    ;(image.migration.names as string[]).length = 0
+  }
 }
 /** A private synchronous helper view; escaping it cannot write after the call. */
 function view(records: Map<string, string>, writable: boolean): { store: DeviceStore; close(): void } {
@@ -143,8 +159,10 @@ export class OrdinaryStateOwner {
     if (reconciling) return { db, row: saved }
     if (!saved.frame || saved.frame.purpose !== this.purpose || saved.frame.expiresAt !== this.expiresAt) hold()
     const image = await openOrdinaryFrame(saved.frame, saved.key)
-    this.#custodyCheck(live, reconciling)
-    if (!reconciling && this.#generation !== undefined && this.#generation !== image.generation) hold()
+    try {
+      this.#custodyCheck(live, reconciling)
+      if (!reconciling && this.#generation !== undefined && this.#generation !== image.generation) hold()
+    } catch (error) { clearImage(image); throw error }
     return { db, row: saved, image }
   }
   #scope(image: OrdinaryImage, scope: OrdinaryScope): void {
@@ -308,6 +326,172 @@ export class OrdinaryStateOwner {
   compareAndMutateMigrated(scope: OrdinaryScope, live: () => boolean, work: (store: DeviceStore) => boolean): Promise<boolean> {
     return this.#mutation(scope, live, work, undefined, true, true)
   }
+  /** One origin-local native commit for completed browser and tab images.
+   * The caller must retain matching semantic identities in both final records
+   * and validate that binding on startup before effects. This primitive does
+   * not supply membership authority or independent rollback resistance. */
+  static mutatePairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
+    const browser = input.browser.owner, tab = input.tab.owner
+    const browserScope = { ...input.browser.scope }, tabScope = { ...input.tab.scope }
+    const live = input.live, work = input.work
+    const check = () => {
+      if (browser === tab || browser.purpose !== 'browser' || browser.expiresAt !== 0 ||
+          !TAB_PURPOSE.test(tab.purpose) || !Number.isSafeInteger(tab.expiresAt) || tab.expiresAt <= 0 ||
+          browser.#generation === undefined || tab.#generation === undefined) hold()
+      browser.#check(live); tab.#check(live)
+      for (const scope of [browserScope, tabScope]) if (typeof scope.name !== 'string' ||
+        !scope.name.length || scope.name.length > 512 || !Number.isSafeInteger(scope.fence) || scope.fence < 0) hold()
+    }
+    // Defer even the first lock request until the identical promise is joined
+    // by both lifetimes. Neither owner can close past unresolved custody.
+    const operation = Promise.resolve().then(async () => {
+      check()
+      if (browser.#retry || tab.#retry || !navigator.locks) hold()
+      return navigator.locks.request(WRITE_LOCK, async () => {
+        check()
+        let browserSnapshot: Snapshot | undefined, tabSnapshot: Snapshot | undefined
+        let browserImage: OrdinaryImage | undefined, tabImage: OrdinaryImage | undefined
+        const current = () => {
+          check()
+          if (!browserSnapshot?.image || !tabSnapshot?.image) hold()
+          browser.#scope(browserSnapshot.image, browserScope); tab.#scope(tabSnapshot.image, tabScope)
+          if (browserSnapshot.image.generation !== browser.#generation || tabSnapshot.image.generation !== tab.#generation ||
+              browserSnapshot.image.migration?.phase !== 'complete' || tabSnapshot.image.migration?.phase !== 'complete') hold()
+        }
+        const guarded = () => {
+          try { check(); return true } catch { return false }
+        }
+        try {
+          // Prior single-owner intents must finish before the callback or any
+          // new frame. Both lifetime guards also cover that recovery work.
+          browserSnapshot = await browser.#snapshot(guarded); check()
+          tabSnapshot = await tab.#snapshot(guarded); current()
+          if (!browserSnapshot.row || !tabSnapshot.row) hold()
+          browserImage = copyImage(browserSnapshot.image!)
+          tabImage = copyImage(tabSnapshot.image!)
+          const browserView = view(new Map(browserImage.records), true), tabView = view(new Map(tabImage.records), true)
+          let result: T
+          try {
+            result = work(browserView.store, tabView.store,
+              Object.freeze([...browserImage.migration!.names]), Object.freeze([...tabImage.migration!.names]))
+            if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
+              void Promise.resolve(result).catch(() => {}); hold()
+            }
+            current()
+            ;(browserImage.records as Map<string, string>).clear()
+            ;(tabImage.records as Map<string, string>).clear()
+            browserImage.records = new Map(browserView.store.keys().map(name => [name, browserView.store.get(name)!]))
+            tabImage.records = new Map(tabView.store.keys().map(name => [name, tabView.store.get(name)!]))
+          } finally { browserView.close(); tabView.close() }
+          browserImage.revision++; tabImage.revision++
+          // The second image can refuse capacity before the first nonce exists.
+          ordinaryImageByteLength(browserImage); ordinaryImageByteLength(tabImage)
+          const browserFrame = await sealOrdinaryImage(browserImage, browserSnapshot.row.key); current()
+          const tabFrame = await sealOrdinaryImage(tabImage, tabSnapshot.row.key); current()
+          await OrdinaryStateOwner.#installPair(browser, tab, browserSnapshot, tabSnapshot,
+            { key: browserSnapshot.row.key, frame: browserFrame }, { key: tabSnapshot.row.key, frame: tabFrame }, current)
+          current()
+          return result!
+        } finally {
+          clearImage(browserImage); clearImage(tabImage)
+          clearImage(browserSnapshot?.image); clearImage(tabSnapshot?.image)
+        }
+      })
+    })
+    browser.#track(operation); tab.#track(operation)
+    return operation
+  }
+  static async #installPair(browser: OrdinaryStateOwner, tab: OrdinaryStateOwner,
+    browserPrevious: Snapshot, tabPrevious: Snapshot, browserCandidate: Row, tabCandidate: Row,
+    check: () => void): Promise<void> {
+    check()
+    const tx = browserPrevious.db.transaction(OWNER_STORE, 'readwrite'), ended = settled(tx)
+    void ended.catch(() => {})
+    let writesAttempted = false, authentication: Promise<void> | undefined
+    try {
+      const store = tx.objectStore(OWNER_STORE)
+      const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+      const saved = raw.map(row)
+      check()
+      if (!saved[0]?.frame || !saved[1]?.frame || !sameRow(saved[0], browserPrevious.row) ||
+          !sameRow(saved[1], tabPrevious.row) || saved[0].pending || saved[1].pending) hold()
+      let authenticated = false, refused = false
+      // CryptoKey clones have no comparable public identity. Authenticate
+      // the freshly read keys while THIS native writer transaction owns both
+      // rows. Lightweight requests keep it alive across WebCrypto; the puts
+      // run in a later active request callback, never a crypto task.
+      const keepAlive = () => {
+        const r = store.getKey(browser.purpose)
+        r.onerror = () => { refused = true; try { tx.abort() } catch {} }
+        r.onsuccess = () => {
+          try {
+            check()
+            if (refused) { tx.abort(); return }
+            if (!authenticated) { keepAlive(); return }
+            writesAttempted = true
+            store.put(browserCandidate, browser.purpose)
+            store.put(tabCandidate, tab.purpose)
+          } catch { refused = true; try { tx.abort() } catch {} }
+        }
+      }
+      keepAlive()
+      authentication = (async () => {
+        let first: OrdinaryImage | undefined, second: OrdinaryImage | undefined
+        try {
+          first = await openOrdinaryFrame(saved[0]!.frame!, saved[0]!.key); check()
+          second = await openOrdinaryFrame(saved[1]!.frame!, saved[1]!.key); check()
+          if (first.purpose !== browser.purpose || first.expiresAt !== browser.expiresAt ||
+              second.purpose !== tab.purpose || second.expiresAt !== tab.expiresAt) hold()
+          authenticated = true
+        } catch { refused = true }
+        finally { clearImage(first); clearImage(second) }
+      })()
+      await ended
+    } catch {
+      try { tx.abort() } catch {}
+      await ended.catch(() => {})
+      await authentication
+      // Before the first put, even an ambiguous terminal receipt cannot mean
+      // that this read-only candidate transaction wrote either new frame.
+      // Preserve the refused source rows rather than silently repairing them.
+      if (!writesAttempted) throw new OrdinaryStateHold()
+      // Always classify BOTH rows from ONE readonly transaction, using the
+      // exact candidates. A mixed or unauthenticated result cannot release
+      // the lock, rerun the callback, or allocate replacement ciphertext.
+      for (;;) {
+        browser.#db?.close(); browser.#db = undefined
+        tab.#db?.close(); tab.#db = undefined
+        try {
+          const db = await browser.#database(() => true, true)
+          const read = db.transaction(OWNER_STORE, 'readonly'), finished = settled(read)
+          void finished.catch(() => {})
+          let saved: (Row | undefined)[]
+          try {
+            const store = read.objectStore(OWNER_STORE)
+            const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+            await finished
+            saved = raw.map(row)
+          } catch (error) { try { read.abort() } catch {}; await finished.catch(() => {}); throw error }
+          if (!saved[0]?.frame || !saved[1]?.frame || saved[0].pending || saved[1].pending) hold()
+          let first: OrdinaryImage | undefined, second: OrdinaryImage | undefined
+          try {
+            first = await openOrdinaryFrame(saved[0].frame, saved[0].key)
+            second = await openOrdinaryFrame(saved[1].frame, saved[1].key)
+            if (first.purpose !== browser.purpose || first.expiresAt !== browser.expiresAt ||
+                second.purpose !== tab.purpose || second.expiresAt !== tab.expiresAt) hold()
+            if (sameRow(saved[0], browserCandidate) && sameRow(saved[1], tabCandidate)) break
+            if (sameRow(saved[0], browserPrevious.row) && sameRow(saved[1], tabPrevious.row)) throw new DefiniteAbort()
+          } finally { clearImage(first); clearImage(second) }
+        } catch (error) {
+          if (error instanceof DefiniteAbort) throw new OrdinaryStateHold()
+        }
+        await new Promise<void>(resolve => { browser.#retry = resolve; tab.#retry = resolve })
+        browser.#retry = undefined; tab.#retry = undefined
+      }
+    }
+    await authentication
+    check()
+  }
   /** The fence is committed with deletion; a captured pre-forget scope can
    * never repopulate this room. Capacity is checked by the canonical codec. */
   forget(scope: OrdinaryScope, live: () => boolean, selected: (name: string, value: string) => boolean): Promise<void> {
@@ -365,11 +549,14 @@ export class OrdinaryStateOwner {
   }
   async #verifyRow(saved: Row): Promise<void> {
     if (!saved.frame && !saved.pending) hold()
-    const current = saved.frame ? await openOrdinaryFrame(saved.frame, saved.key) : undefined
-    const intended = saved.pending ? await openOrdinaryFrame(saved.pending, saved.key) : undefined
-    for (const image of [current, intended]) if (image && (image.purpose !== this.purpose || image.expiresAt !== this.expiresAt)) hold()
-    if (intended && (current ? intended.generation !== current.generation || intended.keyId !== current.keyId ||
-        intended.revision !== current.revision + 1 : intended.revision !== 0)) hold()
+    let current: OrdinaryImage | undefined, intended: OrdinaryImage | undefined
+    try {
+      current = saved.frame ? await openOrdinaryFrame(saved.frame, saved.key) : undefined
+      intended = saved.pending ? await openOrdinaryFrame(saved.pending, saved.key) : undefined
+      for (const image of [current, intended]) if (image && (image.purpose !== this.purpose || image.expiresAt !== this.expiresAt)) hold()
+      if (intended && (current ? intended.generation !== current.generation || intended.keyId !== current.keyId ||
+          intended.revision !== current.revision + 1 : intended.revision !== 0)) hold()
+    } finally { clearImage(current); clearImage(intended) }
   }
   async #commit(previous: Snapshot, candidate: Row, live: () => boolean): Promise<void> {
     if (!candidate.frame || candidate.pending || previous.row?.pending) hold()
