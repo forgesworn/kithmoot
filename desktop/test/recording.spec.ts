@@ -13,14 +13,16 @@ const desktop = fileURLToPath(new URL('../', import.meta.url))
 const relays = ['wss://recording-relay.invalid']
 process.env.E2E_RELAYS = relays.join(',')
 
-test('native desktop exports gallery video and audio with signed notices and a local copy', async ({ browser }, info) => {
+for (const simultaneous of [false, true]) test(`native desktop exports gallery video and remote audio${simultaneous ? ' after simultaneous call starts' : ''} with signed notices and a local copy`, async ({ browser }, info) => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-recording-'))
   const executable = process.env.DESKTOP_EXECUTABLE
   const native = await electron.launch({
     executablePath: executable ?? join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-    args: [...(executable ? [] : [desktop]), `--user-data-dir=${profile}`, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+    args: [...(executable ? [] : [desktop]), `--user-data-dir=${profile}`, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--mute-audio'],
   })
   const context = await browser.newContext({ permissions: ['camera', 'microphone', 'local-network-access'] })
+  let holding = false
+  const held: Array<() => void> = []
   try {
     const version = await native.evaluate(({ app }) => app.getVersion())
     expect(version).toBe(JSON.parse(await readFile(join(desktop, 'package.json'), 'utf8')).version)
@@ -30,7 +32,7 @@ test('native desktop exports gallery video and audio with signed notices and a l
         const pending: Array<string | Buffer> = []
         socket.onMessage(message => { if (backend.readyState === WebSocket.OPEN) backend.send(message); else pending.push(message) })
         backend.on('open', () => { for (const message of pending.splice(0)) backend.send(message) })
-        backend.on('message', message => socket.send(message.toString()))
+        backend.on('message', message => {const frame = JSON.parse(message.toString()); if (holding && frame[0] === 'EVENT' && frame[2]?.kind === 20461) held.push(() => socket.send(message.toString())); else socket.send(message.toString())})
         backend.on('error', () => socket.close())
         backend.on('close', () => socket.close())
         socket.onClose(() => backend.close())
@@ -49,15 +51,23 @@ test('native desktop exports gallery video and audio with signed notices and a l
       await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
     }
     const url = await createRoom(mac, HOME, relays)
-    await joinWithMedia(mac, url, 'Desktop recorder')
-    await open(peer, url, 'Browser participant'); await peer.locator('#join').click()
-    await expect(peer.locator('#callToggle')).toHaveText('Join call')
-    await turnOnMedia(peer)
+    if (simultaneous) {
+      await open(mac, url, 'Desktop recorder'); await mac.locator('#join').click()
+      await open(peer, url, 'Browser participant'); await peer.locator('#join').click()
+      holding = true; await Promise.all([turnOnMedia(mac), turnOnMedia(peer)]); holding = false; held.splice(0).forEach(send => send())
+    } else {
+      await joinWithMedia(mac, url, 'Desktop recorder')
+      await open(peer, url, 'Browser participant'); await peer.locator('#join').click()
+      await expect(peer.locator('#callToggle')).toHaveText('Join call')
+      await turnOnMedia(peer)
+    }
     await expect.poll(async () => (await mac.evaluate(remotePictures)).length).toBeGreaterThan(0)
     await openCall(mac)
     await expect(mac.locator('#callExtras')).not.toHaveAttribute('open', '')
     await expect(mac.locator('#recordToggle')).toBeInViewport()
     await expect(mac.locator('#recordToggle .callWord')).toBeVisible()
+    await mac.locator('#toggleMic').click()
+    await expect(mac.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'false')
     await info.attach('native-record-control.png', { body: await mac.screenshot(), contentType: 'image/png' })
     await mac.locator('#recordToggle').click()
     await mac.locator('input[name="recording-layout"][value="gallery"]').check()

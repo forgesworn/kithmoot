@@ -13,3 +13,9 @@ export function callToDeclare(visible: string | undefined, wanted: boolean, fres
   if (visible) return visible
   return wanted ? fresh() : undefined
 }
+
+/** Two simultaneous starts are one room call once presence catches up. Never
+ * move someone who is off the call or silently join a recorded call. */
+export function callToConverge(current: string | undefined, preferred: {id: string; since: number} | undefined, recording: boolean): {id: string; since: number} | undefined {
+  return current && preferred && preferred.id !== current && !recording ? {id: preferred.id, since: preferred.since} : undefined
+}

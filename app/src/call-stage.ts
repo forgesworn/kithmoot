@@ -60,6 +60,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   let speaker = new ActiveSpeaker()
   let stripOrder = new StripOrder()
   let view: CallView = prefs.view
+  let dockedView = false, beforeDock: CallView | undefined
   let knownShares = new Set<string>()
   let pinned: string | undefined
   let last: LayoutResult | undefined
@@ -160,8 +161,14 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     // This device's own share never takes the stage by itself: the sharer
     // is looking at what they share, and a stage-sized copy of their own
     // window, captured, is a picture of itself inside itself.
+    const docked = document.documentElement.hasAttribute('data-call-docked')
+    if (docked !== dockedView) {
+      if (docked) {beforeDock = view; view = 'gallery'}
+      else {view = beforeDock ?? prefs.view; beforeDock = undefined}
+      dockedView = docked
+    }
     const shareIds = new Set(shares.map(share => share.id))
-    if (shares.some(share => !share.owner.self && !knownShares.has(share.id))) view = 'share'
+    if (!docked && shares.some(share => !share.owner.self && !knownShares.has(share.id))) view = 'share'
     if (shareIds.size === 0 && view === 'share') view = prefs.view
     knownShares = shareIds
 
@@ -176,7 +183,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     if (wait !== Infinity) recheck = setTimeout(schedule, wait + 20)
 
     const self = shown.find(person => person.self)
-    const mode = effectiveMode({ view, people: shown.map(person => person.id), self: self?.id, shares })
+    const mode = effectiveMode({ view, people: shown.map(person => person.id), self: self?.id, shares, compact: docked })
     let gallery: { people: string[]; shares: string[] } | undefined
     if (mode === 'gallery') {
       pages.update([...shown.map(person => `p:${person.id}`), ...shares.map(share => `s:${share.id}`)], document.documentElement.hasAttribute('data-call-docked') && pages.count ? pages.size : galleryPageSize(width, height))
@@ -214,7 +221,10 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       setAttr(box, 'data-initials', initialsOf(person.name))
       setAttr(box, 'data-camera', person.cameras.length > 0 ? 'on' : 'off')
       ensurePin(person, out)
-      for (const video of person.cameras) pageVideo(video, !rect)
+      for (const video of person.cameras) {
+        setAttr(video, 'data-camera-orientation', video.videoWidth > 0 && video.videoHeight > video.videoWidth ? 'portrait' : null)
+        pageVideo(video, !rect)
+      }
     }
 
     // Each share's element, onto its place: positioned from its owner's
@@ -561,6 +571,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       scope = next
       pages.clear(); knownShares.clear(); pinned = undefined
       speaker = new ActiveSpeaker(); stripOrder = new StripOrder(); view = prefs.view
+      dockedView = false; beforeDock = undefined
     },
     refresh: apply,
     dispose() {

@@ -176,6 +176,9 @@
   background: transparent;
   margin: 0;
 }
+/* A phone held upright stays whole inside its tile. Cropping it to a wide
+   webcam box hides the top and bottom and makes the portrait feed look wide. */
+#room[data-layout] > .participant > .media > video[data-camera-orientation='portrait']:not(.screenPreview) { object-fit: contain; }
 /* Two of a person's devices with their cameras on: two angles, each half
    of the tile, side by side in a wide tile and one above the other in a tall
    one. It was a small picture in the corner of the first, which put a phone

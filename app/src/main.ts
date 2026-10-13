@@ -35,7 +35,7 @@ import { mentionPattern, mentionedNames, segmentMentions } from './mention-rende
 import { buildMentionCandidates, resolveDraftMentions } from './mention-candidates.js'
 import { playZenChime, startCallRing, stopCallRing, unlockZenChime } from './zen-chime.js'
 import { IncomingCallTracker } from './incoming-call.js'
-import { callToDeclare } from './call-declare.js'
+import { callToConverge, callToDeclare } from './call-declare.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
 import { dockSummary, switchIntent } from './call-dock.js'
@@ -316,6 +316,7 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
 import { BoardsPanel } from './boards-panel.js'
+import { RoomBoards } from './room-boards.js'
 import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
 import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -6237,8 +6238,23 @@ function render(views: ParticipantView[], me: string): void {
 
 /** The call's half of `render`: this device's roles, remote sound, tiles and
  *  call controls, for whichever session carries the call. */
+const convergingCalls = new WeakSet<RoomSession>()
 function renderCallMedia(views: ParticipantView[], me: string): void {
   const owner = mediaSession()
+  const preferred = owner?.calls()[0]
+  const convergence = callToConverge(owner?.call?.id, preferred,
+    !!activeRecording || currentRecordingView(owner).state !== 'off')
+  if (owner && convergence && !convergingCalls.has(owner)) {
+    // Media already belongs to the room. Agree on its deterministic call id
+    // before signed recordings bind their inputs to one of two raced starts.
+    // A recorded call requires the normal explicit admission instead.
+    convergingCalls.add(owner)
+    const project = callProjectContexts.get(owner)?.project
+    callProjectContexts.set(owner, {call: convergence.id, project})
+    logCall('call-declared', undefined, `converged simultaneous starts on ${convergence.id.slice(0, 8)}`)
+    void owner.setCall(convergence).catch(error => {if (mediaSession() === owner) setStatus(describeError(error))})
+      .finally(() => {convergingCalls.delete(owner)})
+  }
   callStage.setScope(`${owner?.roomId ?? ''}:${owner?.call?.id ?? owner?.calls()[0]?.id ?? ''}`)
   const mine = views.find((v) => v.participant === me)
 
@@ -12337,6 +12353,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     control.onChange((messages) => { if (session === s) ingestControl(messages) })
     ingestControl(control.messages())
     followSharedRoomName(s)
+    attachRoomBoards(s)
     scheduleRoomNameCarry(s, 30_000, 30_000)
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
     scheduleReseed(s, pool, !!quietTransport, sessionAuthority)
@@ -12513,6 +12530,17 @@ $('chatLog').addEventListener('scroll', () => {
 const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
 let workspaceWork: WorkspaceWorkPanel | undefined
 let boardsPanel: BoardsPanel | undefined
+const roomBoards = new WeakMap<RoomSession, RoomBoards>()
+function attachRoomBoards(s: RoomSession): void {
+  const account = nostrSession
+  if (!account?.signer.nip44 || s.participant !== account.pubkey || roomBoards.has(s)) return
+  const boards = new RoomBoards(s, {account: account.pubkey, store: isQuietPolicy(roomPolicy) ? memoryDeviceStore() : deviceStore,
+    crypt: signerSelfCrypt({pubkey: account.pubkey, nip44: account.signer.nip44}),
+    current: () => nostrSession === account && (session === s || dockedCall?.session === s),
+    changed: () => boardsPanel?.sync(), report: error => setStatus(describeError(error))})
+  roomBoards.set(s, boards)
+  void boards.open().catch(error => setStatus(describeError(error)))
+}
 let roomsTimer: ReturnType<typeof setInterval> | undefined
 /** Whether the list is what is on screen. Nothing below draws, or keeps a
  *  relay open, when it is not. */
@@ -13646,6 +13674,9 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   if (session && room.roomId === currentRoomId()) {
     if (project !== undefined) { roomProjectContext = project; renderCurrentRoomLogo(); renderRoomLogoControls() }
     ;($('roomSwitcher') as HTMLDialogElement).close()
+    chatScroll.latest()
+    markConversationRead()
+    renderConversationNav()
     return
   }
   if (switchingBlocked()) { openRoomSwitcher(); renderRoomSwitcher(); return }
@@ -13766,6 +13797,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
+  if (old && !keepCall) {roomBoards.get(old)?.close(); roomBoards.delete(old)}
   const recordingStop = activeRecording?.session === old && old !== dockedCall?.session
     ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
   if (!keepCall) {
@@ -14925,9 +14957,21 @@ boardsPanel = new BoardsPanel(document, {
   currentRoom: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); return room ? {id: room.roomId, name: knownRoomLabel(room)} : undefined},
   currentProject: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); const choice = room && projectChoices([room]).find(p => !roomProjectContext || p.key === roomProjectContext); return choice ? {id: choice.key, name: choice.name} : undefined},
   signIn: () => {void signInWithNostr().catch(error => setStatus(describeError(error)))},
+  showChat: () => {if (session) {showMobileRoomView('chat'); const drawer = document.getElementById('chatDrawerToggle'); if (drawer?.getAttribute('aria-expanded') === 'false') drawer.click()}},
   roomTasks: from => workspaceWork?.open('work', from),
   newRoomTask: async () => {if (!session) throw new Error('Join a chat before offering a room task.'); await assignmentPanel.openAssignment()},
   roomInvitation: id => workspaceActivityRooms().find(room => room.roomId === id)?.link,
+  roomBoards: id => {
+    const s = session?.roomId === id ? session : dockedCall?.session.roomId === id ? dockedCall.session : undefined
+    return s ? roomBoards.get(s)?.boards ?? [] : []
+  },
+  shareBoard: async (room, board) => {
+    const s = session?.roomId === room.id ? session : dockedCall?.session.roomId === room.id ? dockedCall.session : undefined
+    if (!s || nostrSession?.pubkey !== s.participant) throw new Error(`Open ${room.name} and join the chat before sharing this board.`)
+    const boards = roomBoards.get(s)
+    if (!boards) throw new Error('Sign in with an encrypting Nostr signer before sharing the board.')
+    await boards.share(board)
+  },
   discuss: async (context, card) => {
     const account = nostrSession?.pubkey, room = workspaceActivityRooms().find(room => room.roomId === context.room?.id)
     if (!account || !room) throw new Error('Use this board’s labels to choose an admitted chat before discussing a card.')

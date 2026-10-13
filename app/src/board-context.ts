@@ -42,3 +42,13 @@ export function readBoardContext(store: DeviceStore, account: string, boardId: s
       ...(value.room ? {room: {id: value.room.id, name: sanitiseDisplayName(value.room.name) ?? 'Chat'}} : {})}
   } catch {return}
 }
+
+/** Enumerate this account's navigation labels without retaining invitations. */
+export function listBoardContexts(store: DeviceStore, account: string): BoardContext[] {
+  if (!/^[0-9a-f]{64}$/.test(account)) return []
+  const prefix = `${PREFIX}${account}.`
+  return store.keys().filter(key => key.startsWith(prefix))
+    .map(key => readBoardContext(store, account, key.slice(prefix.length)))
+    .filter((value): value is BoardContext => !!value)
+    .sort((a, b) => a.boardName.localeCompare(b.boardName, 'en-GB') || a.boardId.localeCompare(b.boardId))
+}

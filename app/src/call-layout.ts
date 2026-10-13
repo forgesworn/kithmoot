@@ -190,10 +190,10 @@ export interface LayoutResult {
 
 /** The effective view: Share needs a share, and a call of two is a
  *  FaceTime-style call whatever was picked, unless a share is on the stage. */
-export function effectiveMode(input: Pick<LayoutInput, 'view' | 'people' | 'self' | 'shares'>): LayoutMode {
+export function effectiveMode(input: Pick<LayoutInput, 'view' | 'people' | 'self' | 'shares' | 'compact'>): LayoutMode {
   const view = input.view === 'share' && input.shares.length === 0 ? 'gallery' : input.view
   if (view === 'share') return 'share'
-  if (input.shares.length === 0 && input.people.length === 2 && input.self !== undefined && input.people.includes(input.self)) return 'solo'
+  if (!input.compact && input.shares.length === 0 && input.people.length === 2 && input.self !== undefined && input.people.includes(input.self)) return 'solo'
   return view
 }
 

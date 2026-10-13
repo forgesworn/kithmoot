@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
 import { PANE_COLLAPSE_MS } from '../app/src/call-stance.js'
 import { collectAppDiagnostics } from './app-diagnostics.js'
-import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm } from './browser.js'
+import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm, turnOnMedia } from './browser.js'
 
 // Three encoded-media clients and two live popouts produced over 5,000 trace
 // screencast frames (about 200 MB) during this journey on the hosted runner.
@@ -18,6 +18,61 @@ async function chooseView(page: Page, name: 'Gallery' | 'Speaker'): Promise<void
   await page.locator('#callView').getByRole('button', { name, exact: true }).click()
   if (await extras.evaluate((node: HTMLDetailsElement) => node.open)) await extras.locator(':scope > summary').click()
 }
+
+test('portrait cameras stay whole and another chat defaults to a gallery with working share pop-outs', async ({browser, baseURL}, info) => {
+  test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic media needs Chromium')
+  const contexts = await Promise.all([0, 1].map(() => newDeviceContext(browser, baseURL!, {viewport: {width: 1440, height: 900}})))
+  const secret = generateRoomSecret(), side = {roomId: deriveRoom(secret).roomId, name: 'Side chat', link: encodeRoomLink(baseURL!, {secret, name: 'Side chat', relays: testRelaysFor(baseURL!) ?? [], iceUrls: []}), openedAt: 1, readAt: 0}
+  await contexts[0]!.addInitScript(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), side)
+  try {
+    const viewer = await contexts[0]!.newPage(), phone = await contexts[1]!.newPage()
+    await phone.addInitScript(() => {
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        const stream = constraints?.audio ? await original({audio: constraints.audio}) : new MediaStream()
+        if (constraints?.video) {
+          const canvas = document.createElement('canvas'); canvas.width = 480; canvas.height = 720
+          const ctx = canvas.getContext('2d')!
+          const paint = () => {ctx.fillStyle = '#26765b'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = '#fce189'; ctx.fillRect(0, 0, canvas.width, 80); ctx.fillStyle = '#cc5b56'; ctx.fillRect(0, canvas.height - 80, canvas.width, 80)}
+          paint(); const timer = setInterval(paint, 80), track = canvas.captureStream(12).getVideoTracks()[0]!, stop = track.stop.bind(track)
+          track.stop = () => {clearInterval(timer); stop()}; stream.addTrack(track)
+          Object.assign(window, {portraitCamera: canvas})
+        }
+        return stream
+      }
+    })
+    const url = await createRoom(viewer, baseURL!)
+    await joinWithMedia(viewer, url, 'Ada')
+    await open(phone, url, 'Pixel'); await phone.locator('#join').click()
+    await expect(phone.locator('#callToggle')).toHaveText('Join call'); await turnOnMedia(phone)
+    const camera = viewer.locator('#room .participant[data-name="Pixel"] video:not(.screenPreview)')
+    await expect.poll(() => camera.evaluate((v: HTMLVideoElement) => v.videoHeight > v.videoWidth && v.videoWidth > 0)).toBe(true)
+    await expect(camera).toHaveAttribute('data-camera-orientation', 'portrait')
+    await expect.poll(() => camera.evaluate(v => getComputedStyle(v).objectFit)).toBe('contain')
+    await viewer.screenshot({path: info.outputPath('portrait-camera.png')})
+    await viewer.keyboard.press('Control+k'); await viewer.locator('#roomSwitcherList').getByRole('button', {name: 'Switch to Side chat', exact: true}).click()
+    await expect(viewer.locator('#room')).toHaveAttribute('data-layout', 'gallery')
+    await expect(viewer.locator('#room .participant[data-floating]')).toHaveCount(0)
+    await expect(viewer.locator('#room .participant[data-name="Ada"]')).toBeVisible()
+    await expect(viewer.locator('#room .participant[data-name="Pixel"]')).toBeVisible()
+    const energy = (await viewer.evaluate(inbound)).audioEnergy
+    await expect.poll(() => viewer.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(energy)
+    await phone.locator('#toggleScreen').click()
+    await expect(viewer.locator('#room')).toHaveAttribute('data-layout', 'gallery')
+    await viewer.getByRole('button', {name: 'Expand screen share from Pixel', exact: true}).click()
+    const opening = viewer.waitForEvent('popup'); await viewer.locator('dialog.shareViewer').getByRole('button', {name: 'Pop out', exact: true}).click(); const popup = await opening
+    await expect.poll(() => popup.locator('.shareStage > video').evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(0)
+    await expect(popup).toHaveTitle(/Pixel/)
+    await viewer.locator('#chatInput').fill('Chat while the call and its share continue'); await viewer.locator('#chatInput').press('Enter')
+    await expect(viewer.locator('#chatLog')).toContainText('Chat while the call and its share continue')
+    await expect(viewer.locator('#roomTitle')).toHaveText('Side chat')
+    await viewer.screenshot({path: info.outputPath('docked-gallery-and-chat.png')})
+    await phone.evaluate(() => {const canvas = (window as unknown as {portraitCamera: HTMLCanvasElement}).portraitCamera; canvas.width = 720; canvas.height = 480})
+    await expect.poll(() => camera.evaluate((v: HTMLVideoElement) => v.videoWidth > v.videoHeight)).toBe(true)
+    await expect(camera).not.toHaveAttribute('data-camera-orientation', 'portrait')
+    await popup.close()
+  } finally {await Promise.all(contexts.map(context => context.close()))}
+})
 
 for (const phone of [false, true]) {
   test(`the persistent gallery owns its call across rooms, home and collapsed views (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }, info) => {
