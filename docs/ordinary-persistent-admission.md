@@ -115,3 +115,10 @@ pool construction, recheck authority immediately before every relay write,
 and retry uncertain delivery with the exact retained event bytes. Historical
 proofs cannot validate a rotated current invitation, and a relay ack is only
 a local delivery receipt for the destinations that acknowledged it.
+
+
+The prepared-device adapter remains V1 browser custody. It refuses matching V2
+records rather than interpreting their device placement or deleting an unknown
+counterpart. The separate [explicit member device custody](ordinary-member-device-custody.md)
+checkpoint defines V2 tab primary grammar and paired validation. First-member
+bootstrap and the tab device/epoch lifecycle remain unmounted work.

@@ -4,7 +4,7 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 import { createDeviceCredential } from '../../src/credential.js'
 import { localIdentity } from '../../src/identity.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
-import { validateOrdinaryIdentitySnapshot as validate } from './ordinary-identity-snapshot.js'
+import { validateOrdinaryIdentitySnapshot as validate, validateOrdinaryIdentityPairSnapshot as pair } from './ordinary-identity-snapshot.js'
 import { DEVICE_PREFIX, CREDENTIAL_PREFIX, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX } from './device-store.js'
 
 const key = (n: number) => { const value=new Uint8Array(32);value[31]=n;return value }
@@ -109,5 +109,60 @@ describe('whole ordinary identity snapshot validation',()=>{
     records.set(prefix+DEVICE_PREFIX+ROOM,JSON.stringify({sk:bytesToHex(device),at:100}))
     records.set(prefix+'kithmoot.device-owner.'+ROOM,JSON.stringify({account:participant,roomId:ROOM}))
     expect(()=>validate(records,true)).toThrow(OrdinaryStateHold)
+  })
+})
+
+async function scopedPrimary(room: string, actor=account, deviceKey=device, sealKey=seal) {
+  const pub=getPublicKey(actor),prefix='kithmoot.account.'+pub+'.'
+  const event=await createDeviceCredential({identity:localIdentity(actor),devicePubkey:getPublicKey(deviceKey),roomId:room,
+    expiresAt:200,now:()=>100,seal:getPublicKey(sealKey)})
+  return new Map([
+    [prefix+DEVICE_PREFIX+room,JSON.stringify({sk:bytesToHex(deviceKey),at:100})],
+    [prefix+'kithmoot.device-owner.'+room,JSON.stringify({account:pub,roomId:room})],
+    [prefix+OWN_CREDENTIAL_PREFIX+room,JSON.stringify(event)],
+    [prefix+OWN_SEAL_PREFIX+room,JSON.stringify([bytesToHex(sealKey)])],
+  ])
+}
+describe('paired ordinary primary identity topology',()=>{
+  it('retains one scoped tab primary and a browser participant without changing any bytes',async()=>{
+    const browser=new Map([['kithmoot.participant',bytesToHex(account)]]),tab=await scopedPrimary(ROOM)
+    const before=[...tab]
+    const result=pair(browser,tab,{browser:true,tab:true})
+    expect(result).toEqual({participant,secondary:false,rooms:[{roomId:ROOM,account:participant,scoped:true,owner:'tab'}]})
+    expect([...tab]).toEqual(before);expect(Object.isFrozen(result.rooms[0])).toBe(true)
+  })
+  it('validates distinct room/account devices together, including two accounts in one room',async()=>{
+    const browser=await scopedPrimary(ROOM),tab=await scopedPrimary(ROOM,other,key(5),key(6))
+    expect(pair(browser,tab,{browser:true,tab:true}).rooms.map(r=>r.owner).sort()).toEqual(['browser','tab'])
+  })
+  it.each(['physical-name','split-group','reverse-split','device-reuse','seal-reuse','legacy-alias','issuer'] as const)('holds cross-owner %s',async fault=>{
+    const browser=await scopedPrimary(ROOM),tab=await scopedPrimary(OTHER_ROOM,other,key(5),key(6))
+    if(fault==='physical-name'){const [name,raw]=[...browser][0]!;tab.set(name,raw)}
+    if(fault==='split-group'){const [name,raw]=[...browser][0]!;browser.delete(name);tab.set(name,raw)}
+    if(fault==='reverse-split'){const [name,raw]=[...tab][0]!;tab.delete(name);browser.set(name,raw)}
+    if(fault==='device-reuse'){tab.clear();for(const row of await scopedPrimary(OTHER_ROOM,other,device,key(6)))tab.set(...row)}
+    if(fault==='seal-reuse'){tab.clear();for(const row of await scopedPrimary(OTHER_ROOM,other,key(5),seal))tab.set(...row)}
+    if(fault==='legacy-alias'){browser.clear();for(const row of await snapshot())browser.set(...row);tab.clear();for(const row of await scopedPrimary(ROOM,other,key(5),key(6)))tab.set(...row)}
+    if(fault==='issuer'){
+      const name='kithmoot.account.'+getPublicKey(other)+'.'+OWN_CREDENTIAL_PREFIX+OTHER_ROOM
+      const forged=await createDeviceCredential({identity:localIdentity(account),devicePubkey:getPublicKey(key(5)),roomId:OTHER_ROOM,expiresAt:200,now:()=>100,seal:getPublicKey(key(6))})
+      tab.set(name,JSON.stringify(forged))
+    }
+    const before=[[...browser],[...tab]]
+    expect(()=>pair(browser,tab,{browser:true,tab:true})).toThrow(OrdinaryStateHold)
+    expect([[...browser],[...tab]]).toEqual(before)
+  })
+  it.each(['participant','secondary','legacy-device','epoch'] as const)('holds forbidden tab %s',async fault=>{
+    const tab=await scopedPrimary(ROOM),prefix='kithmoot.account.'+participant+'.'
+    if(fault==='participant')tab.set('kithmoot.participant',bytesToHex(account))
+    if(fault==='secondary')tab.set(prefix+CREDENTIAL_PREFIX+ROOM,tab.get(prefix+OWN_CREDENTIAL_PREFIX+ROOM)!)
+    if(fault==='legacy-device')tab.set(DEVICE_PREFIX+ROOM,tab.get(prefix+DEVICE_PREFIX+ROOM)!)
+    if(fault==='epoch')tab.set(prefix+'kithmoot.room-epoch.v1.'+ROOM,'{}')
+    expect(()=>pair(new Map(),tab,{browser:true,tab:true})).toThrow(OrdinaryStateHold)
+  })
+  it.each(['browser','tab'] as const)('requires completed %s scoped migration',async owner=>{
+    const records=await scopedPrimary(ROOM)
+    expect(()=>pair(owner==='browser'?records:new Map(),owner==='tab'?records:new Map(),
+      {browser:owner!=='browser',tab:owner!=='tab'})).toThrow(OrdinaryStateHold)
   })
 })

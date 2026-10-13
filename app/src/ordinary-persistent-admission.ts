@@ -16,7 +16,7 @@ import { parseRoomLink } from '../../src/link.js'
 import { ROOM_PREFIX } from './rooms-store.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { accountPrefix, makePersistentAdmissionProof, readPersistentAdmissionProof, inspectPersistentAdmissionProofs,
-  persistentAdmissionDevice, persistentProofName, persistentTabProofName, tabProofBytes, PERSISTENT_PROOF_PREFIX,
+  persistentAdmissionDevice, persistentProofName, persistentTabProofName, tabProofBytes, PERSISTENT_PROOF_PREFIX, PERSISTENT_PROOF_V2_PREFIX, PERSISTENT_TAB_PROOF_V2_PREFIX,
   FIXED_INVITATION_RELAYS, MAX_PERSISTENT_PROOFS_PER_INVITATION, type VerifiedPersistentProof } from './persistent-admission-proof.js'
 
 interface Selection { account: string | null; participant: string; invitationId: string; roomId: string; keep: boolean }
@@ -134,7 +134,16 @@ export class OrdinaryPersistentAdmission {
     if (!Number.isSafeInteger(until) || until <= now) hold()
     return until
   }
+  #rejectV2(browser: DeviceStore, tab: DeviceStore): void {
+    const prefix = accountPrefix(this.#options.participant)
+    // This adapter owns v1 browser-device proofs only. Explicit bootstrap-v2
+    // lifecycle must handle its own records; neither recovery nor forget may
+    // silently leave a v2 counterpart orphaned or relabel its device owner.
+    if (browser.keys().some(name => name.startsWith(prefix + PERSISTENT_PROOF_V2_PREFIX + this.#id + '.')) ||
+        tab.get(prefix + PERSISTENT_TAB_PROOF_V2_PREFIX + this.#id) !== null) hold()
+  }
   #sources(browser: DeviceStore, tab: DeviceStore): Sources {
+    this.#rejectV2(browser, tab)
     const browserRecords = new Map(browser.keys().map(name => [name, browser.get(name)!])), tabRecords = new Map(tab.keys().map(name => [name, tab.get(name)!]))
     try {
       const context = captureOrdinaryStartupContext(browserRecords, tabRecords)
@@ -273,6 +282,7 @@ export class OrdinaryPersistentAdmission {
    * images are not claimed erased here. Reopening requires an explicit choice. */
   forget(): Promise<void> {
     return this.#track(OrdinaryStateOwner.forgetPairMigrated(this.#input((browser, tab) => {
+      this.#rejectV2(browser, tab)
       const prefix = accountPrefix(this.#options.participant), ownProofs = prefix + PERSISTENT_PROOF_PREFIX + this.#id + '.'
       for (const name of browser.keys()) if (name.startsWith(ownProofs)) browser.remove(name)
       browser.remove(prefix + KEPT_ADMISSION_PREFIX + this.#id); browser.remove(KEPT_ADMISSION_PREFIX + this.#id)

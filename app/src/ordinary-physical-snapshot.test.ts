@@ -7,6 +7,9 @@ const h = 'a'.repeat(64), j = 'b'.repeat(64), a = `kithmoot.account.${h}.`, uuid
 const cases: [string, 'browser' | 'tab', string][] = [
   ['kithmoot.participant', 'browser', 'identity'], [`kithmoot.device.${h}`, 'browser', 'identity'], [`${a}kithmoot.credential.${j}`, 'browser', 'identity'], [`${a}kithmoot.device-owner.${j}`, 'browser', 'identity'],
   [`kithmoot.own-credential.${h}`, 'browser', 'identity'], [`kithmoot.own-seal.${h}`, 'browser', 'identity'],
+  ...['device','device-owner','own-credential','own-seal'].map(f => [`${a}kithmoot.${f}.${j}`, 'tab', 'identity'] as [string, 'tab', string]),
+  [`${a}kithmoot.invitation-proof.v2.${h}.${j}`, 'browser', 'invitationProofs'],
+  [`${a}kithmoot.admission-proof.v2.${h}`, 'tab', 'invitationProofs'],
   [`kithmoot.room.${h}`, 'browser', 'access'], [`${a}kithmoot.room.${h}`, 'browser', 'access'], [`kithmoot.invitation-owner.v1.${h}`, 'browser', 'access'], [`${a}kithmoot.admission-kept.v1.${h}`, 'browser', 'access'], [`kithmoot.admission.v1.${h}`, 'tab', 'access'],
   [`kithmoot.room-epoch.v1.${h}`, 'browser', 'epoch'], [`${a}kithmoot.room-epoch.v2.${j}`, 'browser', 'epoch'], [`kithmoot.bookmarks.${h}.${j}`, 'browser', 'bookmarks'],
   [`kithmoot.quiet.v1.${h}`, 'browser', 'quiet'], [`${a}kithmoot.quiet.v1.${j}`, 'browser', 'quiet'], [`kithmoot.cadence-lease.v1.${h}.${j}.${'c'.repeat(32)}.1`, 'browser', 'cadence'],
@@ -40,7 +43,7 @@ describe('complete reserved physical namespace routing', () => {
   })
   it('holds wrong owners and unsupported wrappers for each single-owner route', () => {
     for (const [name, kind] of cases) {
-      if (![`${a}kithmoot.pending.${j}`, 'kithmoot.callProfile'].includes(name)) expect(() => route(name, kind === 'tab' ? 'browser' : 'tab')).toThrow(OrdinaryStateHold)
+      if (![`${a}kithmoot.pending.${j}`, 'kithmoot.callProfile'].includes(name) && !new RegExp('^kithmoot\\.account\\.[0-9a-f]{64}\\.kithmoot\\.(?:device|device-owner|own-credential|own-seal)\\.[0-9a-f]{64}$').test(name)) expect(() => route(name, kind === 'tab' ? 'browser' : 'tab')).toThrow(OrdinaryStateHold)
     }
     for (const name of ['signet:login.clientSk', 'kithmoot.textSize', 'kithmoot.notification-scopes.v1.["visitor","default",""]', 'kithmoot.bookmarks.' + h + '.' + j]) expect(() => route(a + name, 'browser')).toThrow(OrdinaryStateHold)
   })

@@ -13,3 +13,8 @@ export { storeKeptRoomEpoch } from '../app/src/room-epoch-store.js'
 export { deriveEpoch } from '../src/epoch.js'
 export { sha256 } from '@noble/hashes/sha2'
 export { bookmarkFixture } from './ordinary-bookmark-fixture.js'
+
+export { requestPersistentRoomAdmissionEvidence } from '@forgesworn/fold-kit/persistent-invitation-evidence'
+export { validateOrdinaryIdentityPairSnapshot } from '../app/src/ordinary-identity-snapshot.js'
+export { OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX } from '../app/src/device-store.js'
+export { finalizeEvent } from 'nostr-tools/pure'

@@ -1,4 +1,4 @@
-import { validateOrdinaryIdentitySnapshot, validateOrdinaryEmbeddedDeviceCredential } from './ordinary-identity-snapshot.js'
+import { validateOrdinaryIdentityPairSnapshot, validateOrdinaryEmbeddedDeviceCredential } from './ordinary-identity-snapshot.js'
 import { validateOrdinaryEpochSnapshot } from './ordinary-epoch-snapshot.js'
 import { validateOrdinaryPendingSnapshot } from './ordinary-pending-snapshot.js'
 import { validateOrdinaryQuietSnapshot, type OrdinaryQuietScope } from './ordinary-quiet-snapshot.js'
@@ -41,7 +41,7 @@ import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event } from 'nostr-tools/pure'
 import { classifyOrdinaryPhysicalName, validateOrdinaryPhysicalSnapshot } from './ordinary-physical-snapshot.js'
-import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceContinuity, FIXED_INVITATION_RELAYS } from './persistent-admission-proof.js'
+import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceContinuityInPair, FIXED_INVITATION_RELAYS } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected, CREATOR_PROOF_PREFIX, CREATOR_INTENT_PREFIX } from './persistent-creator-proof.js'
 import type { DeviceStore } from './device-store.js'
 import { ordinaryPairCustodyFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
@@ -706,7 +706,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
       validateOrdinarySignetSnapshot(part(kind, 'signet'), { kind, origin: image.origin, appName: 'KithMoot' })
     }
     if ((families.cadence ?? 0) !== 0) hold()
-    const identity = validateOrdinaryIdentitySnapshot(part('browser', 'identity'), migrated.browser)
+    const identity = validateOrdinaryIdentityPairSnapshot(part('browser', 'identity'), part('tab', 'identity'), migrated)
     const epochs = validateOrdinaryEpochSnapshot(part('browser', 'epoch'), migrated.browser)
     const access = consumeAccessComposition(image.browser, image.tab, migrated, image.startup, roots, inviters)
     const readonlyStore = (records: ReadonlyMap<string, string>): DeviceStore => ({
@@ -735,10 +735,16 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
         if ([...proofCustody.selected.values()].includes(verified) &&
             (bound.tab.generation !== image.custody.tab.generation || bound.tab.purpose !== image.custody.tab.purpose ||
               bound.tab.expiresAt !== image.custody.tab.expiresAt || bound.tab.fence !== (image.custody.tab.fences.get(bound.tab.name) ?? 0))) hold()
+        if (bound.deviceCustody) {
+          const owner = image.custody[bound.deviceCustody.owner], scope = bound.deviceCustody.scope
+          if (scope.generation !== owner.generation || scope.fence !== (owner.fences.get(scope.name) ?? 0)) hold()
+          if (bound.deviceCustody.owner === 'tab' && (bound.deviceCustody.scope.purpose !== owner.purpose ||
+              bound.deviceCustody.scope.expiresAt !== owner.expiresAt)) hold()
+        }
         if (!retained || derived.roomId !== retained.id || retained.key.some((v, i) => v !== derived.roomKey[i]) ||
             !inviters.get(bound.roomId)?.has(verified.proof.capability.inviter) ||
             !access.access.invitations.some(value => value.invitationId === bound.invitationId && value.roomId === bound.roomId && value.persistent)) hold()
-        if ([...proofCustody.selected.values()].includes(verified)) validatePersistentAdmissionDeviceContinuity(readonlyStore(image.browser), bound)
+        if ([...proofCustody.selected.values()].includes(verified)) validatePersistentAdmissionDeviceContinuityInPair(readonlyStore(image.browser), readonlyStore(image.tab), bound)
       } finally { derived.roomKey.fill(0) }
     }
     let historicalRoomRelayRecords = 0
@@ -770,7 +776,10 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     for (const binding of identity.rooms) {
       if (!roots.has(binding.roomId)) hold()
       const prefix = binding.scoped ? 'kithmoot.account.' + binding.account + '.' : ''
-      const raw = part('browser', 'identity').get(prefix + DEVICE_PREFIX + binding.roomId)
+      const raw = part(binding.owner, 'identity').get(prefix + DEVICE_PREFIX + binding.roomId)
+      if (binding.owner === 'tab' && ![...proofCustody.selected.values()].some(value =>
+          value.proof.binding.deviceCustody?.owner === 'tab' && value.proof.binding.participant === binding.account &&
+          value.proof.binding.roomId === binding.roomId)) hold()
       if (!raw) hold()
       const device = scalar((parsed(raw) as Record<string, unknown>).sk)
       const value = { account: binding.account, roomId: binding.roomId, device }
@@ -786,7 +795,8 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     }
     for (const binding of epochs.rooms) {
       const room = roots.get(binding.roomId)
-      if (!room || !devices.has(namespace(binding.roomId, binding.account))) hold()
+      if (!room || !devices.has(namespace(binding.roomId, binding.account)) ||
+          identity.rooms.some(value => value.owner === 'tab' && value.roomId === binding.roomId && value.account === binding.account)) hold()
       const scope = namespace(binding.roomId, binding.account), prefix = binding.account ? 'kithmoot.account.' + binding.account + '.' : ''
       const v1 = part('browser', 'epoch').get(prefix + 'kithmoot.room-epoch.v1.' + binding.roomId)
       const v2 = part('browser', 'epoch').get(prefix + 'kithmoot.room-epoch.v2.' + binding.roomId)

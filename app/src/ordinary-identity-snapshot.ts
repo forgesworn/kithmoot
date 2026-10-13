@@ -4,6 +4,7 @@ import { verifyDeviceCredential } from '../../src/credential.js'
 import { credentialSeal } from '../../src/seal.js'
 import type { DeviceCredential } from '../../src/types.js'
 import { DEVICE_PREFIX, CREDENTIAL_PREFIX, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX, MAX_OWN_SEAL_KEYS } from './device-store.js'
+import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 
 const HEX = /^[0-9a-f]{64}$/
@@ -143,4 +144,37 @@ export function validateOrdinaryIdentitySnapshot(records: ReadonlyMap<string, st
   }
   rooms.sort((a,b) => a.roomId.localeCompare(b.roomId) || a.account.localeCompare(b.account))
   return Object.freeze({ ...(participant ? { participant } : {}), secondary, rooms: Object.freeze(rooms) })
+}
+
+export interface OrdinaryIdentityPairSnapshot extends Omit<OrdinaryIdentitySnapshot, 'rooms'> {
+  readonly rooms: readonly { readonly roomId: string; readonly account: string; readonly scoped: boolean; readonly owner: 'browser' | 'tab' }[]
+}
+/** Validate one topology across both physical owners. Tab primary identities
+ * cannot split a room/account group with browser records, alias legacy names,
+ * share room devices/seals, or carry a participant/secondary credential. The
+ * full composer separately requires exact private proof and native headers. */
+export function validateOrdinaryIdentityPairSnapshot(browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>,
+  migrated: { readonly browser: boolean; readonly tab: boolean }): OrdinaryIdentityPairSnapshot {
+  const records = new Map<string, string>(), owners = new Map<string, 'browser' | 'tab'>()
+  try {
+    for (const [kind, source] of [['browser', browser], ['tab', tab]] as const) {
+      for (const [name, raw] of source) {
+        if (classifyOrdinaryPhysicalName(name, kind)?.family !== 'identity') continue
+        if (records.has(name) || name.startsWith('kithmoot.account.') && !migrated[kind]) hold()
+        const match = /^(?:kithmoot\.account\.([0-9a-f]{64})\.)?kithmoot\.(?:device|device-owner|credential|own-credential|own-seal)\.([0-9a-f]{64})$/.exec(name)
+        if (match) {
+          const group = (match[1] ?? 'legacy') + ':' + match[2]
+          const prior = owners.get(group)
+          if (prior !== undefined && prior !== kind) hold()
+          owners.set(group, kind)
+        }
+        records.set(name, raw)
+      }
+    }
+    const snapshot = validateOrdinaryIdentitySnapshot(records, true)
+    const rooms = snapshot.rooms.map(room => Object.freeze({ ...room,
+      owner: owners.get((room.scoped ? room.account : 'legacy') + ':' + room.roomId)! }))
+    return Object.freeze({ ...(snapshot.participant ? { participant: snapshot.participant } : {}),
+      secondary: snapshot.secondary, rooms: Object.freeze(rooms) })
+  } finally { records.clear(); owners.clear() }
 }
