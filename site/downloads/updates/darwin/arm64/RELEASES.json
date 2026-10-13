@@ -1,6 +1,18 @@
 {
-  "currentRelease": "0.1.77",
+  "currentRelease": "0.1.78",
   "releases": [
+    {
+      "version": "0.1.78",
+      "updateTo": {
+        "version": "0.1.78",
+        "pub_date": "2026-10-13T00:28:45.491Z",
+        "notes": "Boards replaces Work with shared encrypted Girnel boards. Keep separately labelled project, chat and board windows open while people and agents work together. Review agent results before approving card changes.",
+        "name": "0.1.78",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/KithMoot-0.1.78-mac-arm64.zip",
+        "sha256": "ac7bb1714529068f0232a780a5e2a1feb611805ec799ca0c144fd108ee5975de",
+        "size": 177639966
+      }
+    },
     {
       "version": "0.1.77",
       "updateTo": {

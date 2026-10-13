@@ -20,24 +20,30 @@
     },
     "host_and_context_units": "8 tests passed",
     "desktop_security_units": "99 tests passed",
-    "electron_board_journey": "passed in unpackaged Electron: durable card, pop-out, reload, return, secure context, no renderer Node, no worker",
+    "electron_board_journey": "Passed against frozen desktop web build: durable card, first-open full-width pop-out, reload, return, secure context, no renderer Node, no worker; 31.7 seconds",
     "encrypted_two_person_board": "passed: independent signed identities, reviewed invitation, remote edit, local draft preservation and durable reload",
     "two_agent_review": "passed: two concurrent claimed assignments, remote human edit, exact room result acceptance and separately approved card description changes",
     "draft_protection": "passed: refused handoff, board switching and account sign-out while unfinished; embedded logout leaves host account usable",
     "offline_and_mobile": "passed: production CSP, controlled PWA cache, offline reopen/edit and 320px light/dark layout",
     "caddy_candidate": "validated on deployment host; live configuration unchanged",
     "girnel_browser_regressions": "7 tests passed",
-    "girnel_full_units": "running; first CPU timeout passed individually in 8.13 seconds",
+    "girnel_full_units": "Passed all 186 files and 2,728 tests in 412.65 seconds on M4; clean git archive of d67a8dfaa391ca57a4af9d480c75e80753766f24, fresh npm ci, Node 24.14.0 and four workers. Exact-tree type checking passed before the suite.",
     "girnel_production_build": "passed",
     "native_call_layout_baseline": "Both the Boards candidate and the preserved 0.1.77 checkout fail the same existing 1024x700 composer/Leave-call bounds assertion. No call/layout source is changed by Boards. This pre-existing native call limitation remains separate from the passing native Boards journey.",
-    "browser_regression_run": "12 passed, one compiled Den prerequisite skip, two failures: navigation test used a hidden home control (corrected); the call-retention case requested a removed JS asset during another local build (rerun against a stable build)."
+    "browser_regression_run": "12 passed and one compiled Den prerequisite skip; both initial failing cases rerun on a stable build passed (labelled navigation and call-retention/Inbox routing).",
+    "final_boards_browser": "5 journeys passed in Chromium: labelled concurrent windows, encrypted two-person editing, two agents plus human edits, drafts and offline/narrow layouts; 5.4 minutes under host load",
+    "ci_epoch_local_rerun": "All 17 session-epoch tests passed serially after a timer-sensitive CI failure.",
+    "girnel_slow_local_run": "Stopped the redundant serial run on the heavily loaded local host after exact-source M4 qualification passed. Its initial 60-second epoch timeout passed individually; no assertions weakened.",
+    "girnel_merged_tree": "Merged source tree matches the tested d67a8df embedded-source tree exactly.",
+    "electron_final_packaged_board_journey": "Passed against the final Developer ID signed/notarised 0.1.78/build 63 bundle using a disposable profile. Full-width first opening and reload are asserted; no renderer Node or embedded worker.",
+    "desktop_archived_code": "All six installer payloads contain ASAR d4290bb331814dd8af8265691c07a6f8b87f19c7125dd379efdb54375e6b4b21. All 350 desktop web files and runtime host/preload/policy files match the frozen tested build on all four platforms.",
+    "mac_signing": "Final 0.1.78/build 63: Developer ID signed, Apple notarisation aadb0ff9-e45f-4e38-8f80-d3be6d59231e Accepted; staple/validation and Gatekeeper passed.",
+    "update_metadata": "Prepared six installers, checksums, release catalogue and Mac feed; desktop manifest verified against pinned keys after signing on M4. Android 0.6.83/code 106 manifest and signature unchanged.",
+    "apt_metadata": "Built and verified InRelease and Release.gpg on M4 using the existing archive key; not published yet."
   },
   "open_gates": [
-    "final browser navigation regression run",
-    "remaining Girnel full unit qualification",
     "hosted CI",
     "merged source",
-    "signed/notarised desktop artifact acceptance",
     "public web and desktop artifact verification"
   ],
   "limits": [
@@ -45,5 +51,7 @@
     "Physical assistive technology, real browser signer extensions and external signers are not exercised by synthetic fixture signers.",
     "Mac/Linux/Windows package publication and physical installed acceptance are separate gates."
   ],
-  "fixtures": "Synthetic identities and agents on the offline relay; no production room posts or agent execution."
+  "fixtures": "Synthetic identities and agents on the offline relay; no production room posts or agent execution.",
+  "girnel_pr": "https://github.com/forgesworn/girnel/pull/7",
+  "girnel_merged_source": "9cf9b65a08126398d4804a4af55020ac70163ce3"
 }

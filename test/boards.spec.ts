@@ -24,7 +24,8 @@ async function offlineRelease() {
     } catch {res.writeHead(404).end()}
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  return {base: `http://127.0.0.1:${(server.address() as {port: number}).port}/j/`, close: async () => {server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()))}}
+  let closed = false
+  return {base: `http://127.0.0.1:${(server.address() as {port: number}).port}/j/`, close: async () => {if (closed) return; closed = true; server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()))}}
 }
 async function device(browser: Browser, base: string, offline = false): Promise<{context: BrowserContext; page: Page; pubkey: string}> {
   const context = await browser.newContext({ignoreHTTPSErrors: true, serviceWorkers: offline ? 'allow' : 'block'})
@@ -227,8 +228,9 @@ test('two agents handle separate cards while a second person edits the shared bo
       await dialog.getByRole('button', {name: 'Connect to the chosen room', exact: true}).click()
       await expect(dialog.getByRole('heading', {name: 'Room audience', exact: true})).toBeVisible()
       await Promise.all(workers.map((_, i) => advertise(i)))
-      await expect(dialog.getByText(/^Design agent .*installation/)).toBeVisible()
-      await expect(dialog.getByText(/^Release agent .*installation/)).toBeVisible()
+      const audience = dialog.getByRole('heading', {name: 'Room audience', exact: true}).locator('..')
+      await expect(audience.getByText(/^Design agent .*installation/)).toBeVisible()
+      await expect(audience.getByText(/^Release agent .*installation/)).toBeVisible()
       await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
       return dialog
     }
@@ -316,10 +318,12 @@ test('Boards fits a narrow screen and reopens its durable board offline from cac
       expect(await page.locator('#boardsPanel').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
       await page.screenshot({path: info.outputPath(`boards-320-${scheme}.png`), fullPage: true})
     }
-    await context.setOffline(true); await page.reload()
+    // Stop the actual origin: all browsers must reopen from their cache.
+    // WebKit's emulated-offline reload can fail inside its automation driver.
+    await release.close(); await page.reload()
     frame = await openBoards(page)
     await frame.getByRole('link', {name: 'Offline board', exact: true}).click()
     await expect(frame.getByRole('link', {name: 'Saved before disconnecting', exact: true})).toBeVisible()
     await addCard(frame, 'Saved while offline')
-  } finally {await context.setOffline(false); await context.close(); await release.close()}
+  } finally {await context.close(); await release.close()}
 })
