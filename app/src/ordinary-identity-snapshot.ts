@@ -45,6 +45,11 @@ function credential(raw: string, roomId: string): DeviceCredential {
   if (!verifyDeviceCredential(event, { roomId, now: expiration - 1 }).ok) hold()
   return event
 }
+/** Strict historical credential shape/signature shared by the private image
+ * binder. This check releases no credential or current session authority. */
+export function validateOrdinaryEmbeddedDeviceCredential(value: unknown, roomId: string): void {
+  credential(JSON.stringify(value), roomId)
+}
 interface Group {
   roomId: string
   account?: string

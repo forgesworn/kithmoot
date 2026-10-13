@@ -14,12 +14,13 @@ checks as the adapter. Stored proof integrity is checked at its signed time;
 this is not a fresh login or room membership. Signet 0.18.0 publication and the
 production pin remain separate requirements.
 
-Pending preflight captures both physical owners before invoking any supplied
-binding callback. Only exact account-scoped room names are accepted; legacy
+Pending preflight structurally validates every queue and both physical owners
+before invoking any supplied binding callback. Only exact account-scoped room names are accepted; legacy
 unscoped names, nesting and unsupported suffixes hold. The parser verifies each
 outer signature from fresh JSON, exact carrier fields, artwork, queue bounds
 and duplicate IDs across the durable/transient pair. The binding callback is
-mandatory and must return exactly true for each independently cloned record.
+mandatory, receives the actual browser/tab owner and must return exactly true
+for each independently cloned record.
 It must be a pure same-image inner-message/account/room/channel/participant
 check supplied by the complete composition. Signature integrity alone does not
 supply that check. Empty writer cuts retain no sends. Counts never attach a

@@ -8,6 +8,7 @@ const engines = [
   { name: 'firefox', profile: devices['Desktop Firefox'] },
   { name: 'webkit', profile: devices['Desktop Safari'] },
 ]
+specs.push('ordinary-snapshot.spec.ts')
 const stems = specs.map(spec => spec.replace(/\.spec\.ts$/, ''))
 if (new Set(stems).size !== specs.length) throw new Error('Duplicate ordinary spec')
 const projects = engines.flatMap(engine => specs.map((spec, index) => ({

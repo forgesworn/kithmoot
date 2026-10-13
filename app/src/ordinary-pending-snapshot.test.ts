@@ -53,6 +53,23 @@ describe('pre-owner pending partition', () => {
     expect(validate(a, new Map(), { accepts: (acct, room, value) => { called++; a.delete(other); value.id = 'changed'; return acct === account && [roomId, 'b'.repeat(64)].includes(room) } })).toEqual({ queues: 2, records: 2, durableRecords: 2, transientRecords: 0 })
     expect(called).toBe(2)
   })
+  it.each(['late-owner', 'late-queue', 'duplicate', 'capacity'])('finishes %s structural checks before callbacks', fault => {
+    const a = image([row()]), b = new Map<string, string>(), accepts = vi.fn(() => true)
+    if (fault === 'late-owner') b.set(name(), '{')
+    if (fault === 'late-queue') a.set(name(account, 'b'.repeat(64)), '{')
+    if (fault === 'duplicate') b.set(name(), JSON.stringify([row()]))
+    if (fault === 'capacity') b.set(name(), JSON.stringify(Array.from({ length: MAX_KEPT }, (_, i) => row(String(i)))))
+    expect(() => validate(a, b, { accepts })).toThrow(OrdinaryStateHold)
+    expect(accepts).not.toHaveBeenCalled()
+  })
+  it('supplies the actual physical owner to every binding callback', () => {
+    const accepts = vi.fn(() => true)
+    validate(image([row()]), image([row('two')]), { accepts })
+    expect(accepts.mock.calls.map(call => (call as unknown[])[3])).toEqual(['browser', 'tab'])
+    const pairAccepts = vi.fn(() => true)
+    pair({ durable: JSON.stringify([row()]), transient: JSON.stringify([row('two')]) }, pairAccepts)
+    expect(pairAccepts.mock.calls.map(call => (call as unknown[])[1])).toEqual(['browser', 'tab'])
+  })
   for (const fault of ['legacy', 'root', 'wrapped', 'version', 'scope', 'signature', 'cache', 'event-extra', 'row-extra', 'state', 'editable', 'files', 'artwork', 'duplicate', 'cross-owner-duplicate', 'capacity', 'oversize', 'binding-false', 'binding-undefined', 'binding-throw']) it(`holds ${fault} and preserves source bytes`, () => {
     const v = row(); let a = image([v]), b = new Map<string, string>(), opts = options
     if (fault === 'legacy') a = new Map([['kithmoot.pending.' + roomId, JSON.stringify([v])]])

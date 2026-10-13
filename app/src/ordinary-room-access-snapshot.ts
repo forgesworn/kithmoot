@@ -1,3 +1,29 @@
+import { validateOrdinaryIdentitySnapshot, validateOrdinaryEmbeddedDeviceCredential } from './ordinary-identity-snapshot.js'
+import { validateOrdinaryEpochSnapshot } from './ordinary-epoch-snapshot.js'
+import { validateOrdinaryPendingSnapshot } from './ordinary-pending-snapshot.js'
+import { validateOrdinaryQuietSnapshot, type OrdinaryQuietScope } from './ordinary-quiet-snapshot.js'
+import { validateOrdinarySignetSnapshot } from './ordinary-signet-snapshot.js'
+import { validateOrdinaryContactSnapshot } from './ordinary-contact-snapshot.js'
+import { validateOrdinaryGrantedContactSnapshot } from './ordinary-granted-contact-snapshot.js'
+import { validateOrdinaryMetadataSnapshot } from './ordinary-metadata-snapshot.js'
+import { validateOrdinaryChannelCheckSnapshot } from './ordinary-channel-check-snapshot.js'
+import { validateOrdinaryJournalSnapshot } from './ordinary-journal-snapshot.js'
+import { validateOrdinaryPrivateFamilySnapshot } from './ordinary-private-family-snapshot.js'
+import { validateOrdinaryMediaSnapshot } from './ordinary-media-snapshot.js'
+import { validateOrdinaryRoutingSnapshot } from './ordinary-routing-snapshot.js'
+import { validateOrdinaryUiSnapshot } from './ordinary-ui-snapshot.js'
+import { validateOrdinaryEntryLayoutSnapshot } from './ordinary-entry-layout-snapshot.js'
+import { deriveEpoch } from '../../src/epoch.js'
+import { decodeChatEvent, type ChatMessage } from '../../src/chat.js'
+import { reactionText } from '../../src/reactions.js'
+import { ASSIGNMENT_CHANNEL, assignmentPayload } from '../../src/assignments.js'
+import { CONTROL_CHANNEL, decodeControl } from '../../src/control.js'
+import { roomLogoFromMessage } from '../../src/room-logo.js'
+import { nip44 } from 'nostr-tools'
+import { deriveChannel } from '@forgesworn/fold-kit'
+import type { RoomPolicy } from '../../src/types.js'
+import type { KeptPendingSend } from './pending-sends.js'
+import type { OrdinaryPhysicalFamily } from './ordinary-physical-snapshot.js'
 import { validateOrdinaryNavigationRecord, type OrdinaryNavigationContext } from './ordinary-navigation-snapshot.js'
 import { base64, base64urlnopad } from '@scure/base'
 import { hexToBytes } from '@noble/hashes/utils'
@@ -9,7 +35,7 @@ import { sanitiseDisplayName } from '../../src/display-name.js'
 import { MAX_EPOCH } from '../../src/epoch.js'
 import { ROOM_PREFIX } from './rooms-store.js'
 import { INVITATION_OWNER_PREFIX } from './invitation-store.js'
-import { KEPT_ADMISSION_PREFIX } from './device-store.js'
+import { KEPT_ADMISSION_PREFIX, DEVICE_PREFIX } from './device-store.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event } from 'nostr-tools/pure'
@@ -97,6 +123,25 @@ function accessOptions(options: OrdinaryRoomAccessOptions): void {
  * original privately retained bearer. Every failure also consumes the token. */
 export function validateOrdinaryRoomAccessAndBookmarksSnapshot(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>,
   migrated: { browser: boolean; tab: boolean }, context: OrdinaryStartupContext): OrdinaryBookmarkSnapshot {
+  return consumeAccessComposition(browserRecords, tabRecords, migrated, context)
+}
+interface RoomRoot { readonly id: string; readonly key: Uint8Array; readonly policy: RoomPolicy; endsAt?: number }
+type RoomRoots = Map<string, RoomRoot>
+function retainRoot(roots: RoomRoots | undefined, raw: string | Uint8Array, expected: string, policy: RoomPolicy): void {
+  if (!roots) return
+  const secret = typeof raw === 'string' ? hexToBytes(raw) : new Uint8Array(raw)
+  let key: Uint8Array | undefined
+  try {
+    const root = deriveRoom(secret); key = root.roomKey
+    if (root.roomId !== expected) hold()
+    const prior = roots.get(expected)
+    if (prior) {
+      if (bookmarkCanonical(prior.policy) !== bookmarkCanonical(policy) || prior.key.some((v, i) => v !== key![i])) hold()
+    } else { roots.set(expected, { id: expected, key, policy }); key = undefined }
+  } finally { secret.fill(0); key?.fill(0) }
+}
+function consumeAccessComposition(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>,
+  migrated: { browser: boolean; tab: boolean }, context: OrdinaryStartupContext, roots?: RoomRoots): OrdinaryBookmarkSnapshot {
   const captured = capturedStartup.get(context)
   capturedStartup.delete(context)
   if (!captured) hold()
@@ -122,7 +167,30 @@ export function validateOrdinaryRoomAccessAndBookmarksSnapshot(browserRecords: R
         records.set(name, raw); kinds.set(name, kind); migration.set(name, migrated[kind])
       }
     }
-    return validateBookmarks(records, false, { kind: 'browser' }, { kinds, migrated: migration, candidates })
+    const result = validateBookmarks(records, false, { kind: 'browser' }, { kinds, migrated: migration, candidates }, roots)
+    if (roots) {
+      // These exact rows have completed their strict family validation. End
+      // claims bind only to already proven traffic roots; absence is not a
+      // claim that an older visit knew the room had no end.
+      const end = (roomId: string, endsAt: unknown) => {
+        if (endsAt === undefined) return
+        const root = roots.get(roomId)
+        if (!root) return
+        if (root.endsAt !== undefined && root.endsAt !== endsAt) hold()
+        root.endsAt = endsAt as number
+      }
+      for (const [physical, raw] of records) {
+        const logical = physical.replace(/^kithmoot\.account\.[0-9a-f]{64}\./, '')
+        const value = parsed(raw) as Record<string, unknown>
+        if (logical.startsWith(ROOM_PREFIX)) end(logical.slice(ROOM_PREFIX.length), value.endsAt)
+        else if ([INVITATION_OWNER_PREFIX, KEPT_ADMISSION_PREFIX, CACHE].some(p => logical.startsWith(p))) end(room(value.roomSecret), value.ends)
+        else if (logical.startsWith('kithmoot.bookmarks.')) {
+          const saved = value as { record?: { roomId: string; room?: { endsAt?: number } }; pending?: { value: { roomId: string; room?: { endsAt?: number } } } }
+          for (const retained of [saved.record, saved.pending?.value]) if (retained?.room) end(retained.roomId, retained.room.endsAt)
+        }
+      }
+    }
+    return result
   } catch { return hold() }
   finally { captured.browser.clear(); captured.tab.clear(); records.clear(); kinds.clear(); migration.clear(); candidates.length = 0 }
 }
@@ -264,7 +332,7 @@ export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,s
   return validateAccess(new Map(records), migrated, options, [])
 }
 function validateAccess(records: ReadonlyMap<string,string>, migrated: boolean,
-  options: OrdinaryRoomAccessOptions, retainedRooms: readonly { roomId: string; value: RoomLink }[], composition?: Composition): OrdinaryRoomAccessSnapshot {
+  options: OrdinaryRoomAccessOptions, retainedRooms: readonly { roomId: string; value: RoomLink }[], composition?: Composition, roots?: RoomRoots): OrdinaryRoomAccessSnapshot {
   const kind = options.kind
   if (kind !== 'browser' && kind !== 'tab') hold()
   const navigation = options.navigation === undefined ? undefined : navigationFor(records, kind, options.navigation)
@@ -281,6 +349,7 @@ function validateAccess(records: ReadonlyMap<string,string>, migrated: boolean,
       const roomId = roomHex(value.secret)
       if (expected && roomId !== expected) hold()
       claimPolicy(roomId, policy)
+      retainRoot(roots, value.secret, roomId, value.policy ?? { tier: 'open' })
       return
     }
     if (!value.invitation) hold()
@@ -338,7 +407,7 @@ function validateAccess(records: ReadonlyMap<string,string>, migrated: boolean,
     // All access and bookmark rows have passed structural parsing. Resolve
     // their retained links together once, including cross-owner signer claims.
     for (const value of [...retainedRooms, ...roomLinks]) bind(value.value, value.roomId)
-    if (composition && access.some(value => !bindings.has(value.id))) {
+    if (composition && (roots !== undefined || access.some(value => !bindings.has(value.id)))) {
       for (const raw of composition.candidates) if (roomCandidate(raw)) bind(link(raw, allocated))
     }
     if (navigation && access.some(value => !bindings.has(value.id))) {
@@ -378,6 +447,7 @@ function validateAccess(records: ReadonlyMap<string,string>, migrated: boolean,
         if (verifyInvitationDelegation(pinned.invitation,chain as InvitationDelegation[],at-1) !== pub) hold()
         claimSigner(pub,'delegate:'+roomId)
       }
+      retainRoot(roots, value.raw.roomSecret as string, roomId, JSON.parse(pinned.policy) as RoomPolicy)
       invitations.push(Object.freeze({ invitationId:value.id,roomId,kind:value.kind,persistent:value.raw.persistent===true }))
     }
     rooms.sort((a,b)=>a.roomId.localeCompare(b.roomId)||(a.account??'').localeCompare(b.account??''))
@@ -422,7 +492,7 @@ export function validateOrdinaryRoomBookmarkSnapshot(records:ReadonlyMap<string,
   accessOptions(options)
   return validateBookmarks(new Map(records), migrated, options)
 }
-function validateBookmarks(records: ReadonlyMap<string,string>, migrated: boolean, options: OrdinaryRoomAccessOptions, composition?: Composition): OrdinaryBookmarkSnapshot {
+function validateBookmarks(records: ReadonlyMap<string,string>, migrated: boolean, options: OrdinaryRoomAccessOptions, composition?: Composition, roots?: RoomRoots): OrdinaryBookmarkSnapshot {
   const allocated: RoomLink[] = [], links:{roomId:string;value:RoomLink}[]=[],bookmarks:{account:string;roomId:string;record:boolean;pending:boolean;removed:boolean}[]=[]
   const addresses=new Map<string,string>(),ids=new Map<string,string>(),events=new Map<string,{scope:string;d:string;value:string}>()
   const claimId=(id:string,scope:string)=>{
@@ -446,7 +516,7 @@ function validateBookmarks(records: ReadonlyMap<string,string>, migrated: boolea
       if(!Object.hasOwn(raw,'room'))bookmarkHold()
       bookmarkObject(raw.admission,['secret']);bookmarkHex(raw.admission.secret)
       const secret=hexToBytes(raw.admission.secret);let key:Uint8Array|undefined
-      try{const derived=deriveRoom(secret);key=derived.roomKey;if(derived.roomId!==roomId)bookmarkHold()}finally{secret.fill(0);key?.fill(0)}
+      try{const derived=deriveRoom(secret);key=derived.roomKey;if(derived.roomId!==roomId)bookmarkHold();retainRoot(roots,secret,roomId,links.at(-1)!.value.policy??{tier:'open'})}finally{secret.fill(0);key?.fill(0)}
     }
     return raw
   }
@@ -501,8 +571,325 @@ function validateBookmarks(records: ReadonlyMap<string,string>, migrated: boolea
       const current=Object.hasOwn(saved,'pending')?(saved.pending as Record<string,unknown>).value:recordValue
       bookmarks.push(Object.freeze({account,roomId,record:Object.hasOwn(saved,'record'),pending:Object.hasOwn(saved,'pending'),removed:!Object.hasOwn(current as object,'room')}))
     }
-    const access=validateAccess(records,migrated,options,links,composition)
+    const access=validateAccess(records,migrated,options,links,composition,roots)
     bookmarks.sort((a,b)=>a.account.localeCompare(b.account)||a.roomId.localeCompare(b.roomId))
     return Object.freeze({access,bookmarks:Object.freeze(bookmarks)})
   }finally{wipeLinks(allocated);links.length=0;addresses.clear();ids.clear();events.clear()}
+}
+
+declare const snapshotBrand: unique symbol
+export interface OrdinarySnapshotContext {
+  readonly [snapshotBrand]: true
+  readonly browserRecords: number
+  readonly tabRecords: number
+}
+interface CapturedImage {
+  readonly browser: Map<string, string>
+  readonly tab: Map<string, string>
+  readonly startup: OrdinaryStartupContext
+  readonly origin: string
+}
+const capturedImages = new WeakMap<object, CapturedImage>()
+function privateImage(records: ReadonlyMap<string, string>, kind: 'browser' | 'tab'): Map<string, string> {
+  return new Map([...records].filter(([name]) => classifyOrdinaryPhysicalName(name, kind) !== undefined))
+}
+/** Capture one complete reserved image for each owner and the original native
+ * location before startup effects. Caller mutations cannot change these copies.
+ * The entry barrier and current authority are still separate runtime work. */
+export function captureOrdinarySnapshotContext(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>): OrdinarySnapshotContext {
+  try {
+    const browser = new Map(browserRecords), tab = new Map(tabRecords)
+    validateOrdinaryPhysicalSnapshot(browser, { kind: 'browser' })
+    validateOrdinaryPhysicalSnapshot(tab, { kind: 'tab' })
+    const keptBrowser = privateImage(browser, 'browser'), keptTab = privateImage(tab, 'tab')
+    const startup = captureOrdinaryStartupContext(keptBrowser, keptTab)
+    const origin = new URL(capturedStartup.get(startup)!.href).origin
+    const context = Object.freeze({ browserRecords: keptBrowser.size, tabRecords: keptTab.size }) as OrdinarySnapshotContext
+    capturedImages.set(context, { browser: keptBrowser, tab: keptTab, startup, origin })
+    return context
+  } catch { return hold() }
+}
+export function releaseOrdinarySnapshotContext(context: OrdinarySnapshotContext): void {
+  const image = capturedImages.get(context)
+  capturedImages.delete(context)
+  if (image) { releaseOrdinaryStartupContext(image.startup); image.browser.clear(); image.tab.clear() }
+}
+interface DeviceBinding { readonly account: string; readonly roomId: string; readonly device: string }
+interface TrafficRoot { readonly epoch: number; readonly id: string; readonly key: Uint8Array }
+export interface OrdinarySnapshotCounts {
+  readonly browserRecords: number
+  readonly tabRecords: number
+  readonly families: Readonly<Partial<Record<OrdinaryPhysicalFamily, number>>>
+  readonly rooms: number
+  readonly identities: number
+  readonly epochs: number
+  readonly invitations: number
+  readonly bookmarks: number
+  readonly quietRooms: number
+  readonly pendingQueues: number
+  readonly pendingRecords: number
+}
+/** Whole captured image custody preflight with actual room/identity/epoch and
+ * inner-message bindings. No raw keys, links, records or live authority escape.
+ * Opaque family carriers still need signer-backed/current restoration proof.
+ * Cadence requires separate authenticated node/grant evidence, unavailable in
+ * this raw image. Such records HOLD; no synthetic predicate supplies it. */
+export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>,
+  migrated: { browser: boolean; tab: boolean }, context: OrdinarySnapshotContext): OrdinarySnapshotCounts {
+  const image = capturedImages.get(context)
+  capturedImages.delete(context)
+  if (!image) hold()
+  const roots: RoomRoots = new Map(), allocated: Uint8Array[] = [], devices = new Map<string, DeviceBinding>(), traffic = new Map<string, Map<number, TrafficRoot>>()
+  const assignmentQueues = new Map<string, Set<string>>()
+  const partitions = { browser: new Map<OrdinaryPhysicalFamily, Map<string, string>>(), tab: new Map<OrdinaryPhysicalFamily, Map<string, string>>() }
+  const families: Partial<Record<OrdinaryPhysicalFamily, number>> = {}
+  const namespace = (roomId: string, account?: string) => (account ?? 'legacy') + ':' + roomId
+  try {
+    object(migrated, ['browser', 'tab'])
+    if (typeof migrated.browser !== 'boolean' || typeof migrated.tab !== 'boolean') hold()
+    for (const [kind, input] of [['browser', browserRecords], ['tab', tabRecords]] as const) {
+      const current = new Map(input)
+      validateOrdinaryPhysicalSnapshot(current, { kind })
+      const selected = privateImage(current, kind), captured = image[kind]
+      if (selected.size !== captured.size || [...selected].some(([n, v]) => captured.get(n) !== v)) hold()
+      for (const [name, raw] of captured) {
+        const route = classifyOrdinaryPhysicalName(name, kind)!
+        let part = partitions[kind].get(route.family)
+        if (!part) { part = new Map(); partitions[kind].set(route.family, part) }
+        part.set(name, raw); families[route.family] = (families[route.family] ?? 0) + 1
+      }
+    }
+    const part = (kind: 'browser' | 'tab', family: OrdinaryPhysicalFamily) => partitions[kind].get(family) ?? new Map<string, string>()
+    // Independent family structure is checked before inner-message bindings.
+    const simple = [
+      ['contacts', validateOrdinaryContactSnapshot], ['grantedContacts', validateOrdinaryGrantedContactSnapshot],
+      ['metadata', validateOrdinaryMetadataSnapshot], ['channelChecks', validateOrdinaryChannelCheckSnapshot],
+      ['journals', validateOrdinaryJournalSnapshot], ['private', validateOrdinaryPrivateFamilySnapshot],
+      ['media', validateOrdinaryMediaSnapshot], ['routing', validateOrdinaryRoutingSnapshot],
+      ['ui', validateOrdinaryUiSnapshot], ['entryLayout', validateOrdinaryEntryLayoutSnapshot],
+    ] as const
+    for (const kind of ['browser', 'tab'] as const) {
+      for (const [family, validate] of simple) validate(part(kind, family), migrated[kind], { kind })
+      validateOrdinarySignetSnapshot(part(kind, 'signet'), { kind, origin: image.origin, appName: 'KithMoot' })
+    }
+    if ((families.cadence ?? 0) !== 0) hold()
+    const identity = validateOrdinaryIdentitySnapshot(part('browser', 'identity'), migrated.browser)
+    const epochs = validateOrdinaryEpochSnapshot(part('browser', 'epoch'), migrated.browser)
+    const access = consumeAccessComposition(image.browser, image.tab, migrated, image.startup, roots)
+    for (const binding of identity.rooms) {
+      if (!roots.has(binding.roomId)) hold()
+      const prefix = binding.scoped ? 'kithmoot.account.' + binding.account + '.' : ''
+      const raw = part('browser', 'identity').get(prefix + DEVICE_PREFIX + binding.roomId)
+      if (!raw) hold()
+      const device = scalar((parsed(raw) as Record<string, unknown>).sk)
+      const value = { account: binding.account, roomId: binding.roomId, device }
+      devices.set(namespace(binding.roomId, binding.account), value)
+      if (!binding.scoped) devices.set(namespace(binding.roomId), value)
+    }
+    const addTraffic = (scope: string, root: TrafficRoot) => {
+      const prior = traffic.get(scope) ?? new Map<number, TrafficRoot>()
+      const known = prior.get(root.epoch)
+      if (known && (known.id !== root.id || known.key.some((v, i) => v !== root.key[i]))) hold()
+      if (!known) prior.set(root.epoch, root)
+      traffic.set(scope, prior)
+    }
+    for (const binding of epochs.rooms) {
+      const room = roots.get(binding.roomId)
+      if (!room || !devices.has(namespace(binding.roomId, binding.account))) hold()
+      const scope = namespace(binding.roomId, binding.account), prefix = binding.account ? 'kithmoot.account.' + binding.account + '.' : ''
+      const v1 = part('browser', 'epoch').get(prefix + 'kithmoot.room-epoch.v1.' + binding.roomId)
+      const v2 = part('browser', 'epoch').get(prefix + 'kithmoot.room-epoch.v2.' + binding.roomId)
+      if (v1) {
+        const value = parsed(v1) as { epoch: number; id: string; key: string }, key = hexToBytes(value.key)
+        allocated.push(key); addTraffic(scope, { epoch: value.epoch, id: value.id, key })
+      }
+      if (v2) {
+        const value = parsed(v2) as { epoch: number; secret: string; past: { epoch: number; secret: string }[] }
+        for (const retained of [value, ...value.past]) {
+          const secret = hexToBytes(retained.secret)
+          try {
+            const derived = deriveEpoch({ epoch: retained.epoch, secret });
+            allocated.push(derived.key); addTraffic(scope, derived)
+          } finally { secret.fill(0) }
+        }
+      }
+    }
+    const rootsFor = (roomId: string, account: string): readonly TrafficRoot[] => {
+      const device = devices.get(namespace(roomId, account)), room = roots.get(roomId)
+      if (!device || !room) hold()
+      const scoped = traffic.get(namespace(roomId, account)), legacy = traffic.get(namespace(roomId))
+      // Legacy epochs belong only to the credential-bound legacy device owner.
+      const chosen = scoped ?? (devices.get(namespace(roomId))?.account === account ? legacy : undefined)
+      const unique: TrafficRoot[] = []
+      for (const root of [{ epoch: 0, id: roomId, key: room.key }, ...chosen?.values() ?? []]) {
+        if (!unique.some(prior => prior.epoch === root.epoch && prior.id === root.id && prior.key.every((v, i) => v === root.key[i]))) unique.push(root)
+      }
+      return unique
+    }
+    const decode = (event: Event, roomId: string, account: string, channel: string | undefined, candidates: readonly TrafficRoot[]): ChatMessage | null => {
+      const room = roots.get(roomId), device = devices.get(namespace(roomId, account))
+      if (!room || !device) return null
+      let result: ChatMessage | null = null
+      for (const candidate of candidates) {
+        const derived = deriveChannel(candidate.id, candidate.key, channel)
+        try {
+          if (event.tags.find(t => t[0] === 'd')?.[1] !== derived.id) continue
+          // The chat reader deliberately repairs malformed optional fields.
+          // Custody must preserve what was written, so inspect the authenticated
+          // plaintext too and refuse any repair, hidden field or duplicate key.
+          const tags = [['d', derived.id]]
+          if (room.endsAt !== undefined) tags.push(['expiration', String(room.endsAt)])
+          if (bookmarkCanonical(event.tags) !== bookmarkCanonical(tags)) hold()
+          const plaintext = nip44.v2.decrypt(event.content, derived.key), raw = JSON.parse(plaintext)
+          if (JSON.stringify(raw) !== plaintext) hold()
+          object(raw, ['id', 'participant', 'device', 'credential', 'text', 'sentAt'],
+            ['assignment', 'proof', 'name', 'reaction', 'sentAtMs', 'kind', 'speaker', 'attachments', 'artwork', 'roomLogo', 'owner', 'ownerClaim', 'reply', 'thread', 'replaces', 'retracts', 'mentions', 'invite'])
+          if (typeof raw.id !== 'string' || !/^[0-9a-f]{32}$/.test(raw.id)) hold()
+          validateOrdinaryEmbeddedDeviceCredential(raw.credential, roomId)
+          const message = decodeChatEvent(event, { roomId, roomKey: room.key, epoch: candidate, policy: room.policy, channel, now: event.created_at })
+          if (!message || bookmarkCanonical(raw) !== bookmarkCanonical(message) || message.participant !== account || message.device !== device.device || message.device !== event.pubkey || message.sentAt !== event.created_at) continue
+          if (result) hold()
+          result = message
+        } finally { if (derived.key !== candidate.key) derived.key.fill(0) }
+      }
+      return result
+    }
+    const assignmentInner = (value: unknown, roomId: string) => {
+      object(value, ['id', 'pubkey', 'kind', 'created_at', 'tags', 'content', 'sig'])
+      if (!integer(value.created_at) || typeof value.id !== 'string' || !HEX.test(value.id) || typeof value.pubkey !== 'string' || !HEX.test(value.pubkey) ||
+          typeof value.sig !== 'string' || !/^[0-9a-f]{128}$/.test(value.sig) || typeof value.content !== 'string' ||
+          JSON.stringify(JSON.parse(value.content)) !== value.content) hold()
+      const payload = assignmentPayload(value as unknown as Event, roomId)
+      if (!payload) hold()
+      return payload
+    }
+    const assignmentMessage = (message: ChatMessage, roomId: string): boolean => {
+      if (!message.assignment) return false
+      const payload = assignmentInner(message.assignment, roomId)
+      return payload.device === message.device && message.text === 'Assignment ' + payload.operation.op
+    }
+    for (const [name, raw] of part('browser', 'journals')) {
+      const match = /^kithmoot\.assignments\.v1\.([0-9a-f]{64})\.([0-9a-f]{64})$/.exec(name)
+      if (!match) continue
+      const account = match[1]!, roomId = match[2]!, room = roots.get(roomId)
+      if (!room) hold()
+      // AssignmentLog always encrypts its journal with the stable room key,
+      // even when an outgoing outer envelope uses a later protocol epoch.
+      const journal = parsed(raw) as { events: string[]; outbox: string[] }
+      const open = (cipher: string): unknown => {
+        const text = nip44.v2.decrypt(cipher, room.key), value: unknown = JSON.parse(text)
+        if (JSON.stringify(value) !== text) hold()
+        return value
+      }
+      const events = new Set<string>(), requests = new Set<string>(), outerIds = new Set<string>(), outers = new Set<string>()
+      for (const cipher of journal.events) {
+        const inner = open(cipher); assignmentInner(inner, roomId)
+        const id = (inner as Event).id
+        if (events.has(id)) hold()
+        events.add(id)
+      }
+      for (const cipher of journal.outbox) {
+        const pending = open(cipher); object(pending, ['inner', 'outer'])
+        const payload = assignmentInner(pending.inner, roomId)
+        object(pending.outer, ['id', 'pubkey', 'kind', 'created_at', 'tags', 'content', 'sig'])
+        const outer = pending.outer as unknown as Event
+        if (!integer(outer.created_at) || typeof outer.id !== 'string' || !HEX.test(outer.id) || typeof outer.pubkey !== 'string' || !HEX.test(outer.pubkey) || typeof outer.sig !== 'string' ||
+            !/^[0-9a-f]{128}$/.test(outer.sig) || typeof outer.content !== 'string' || !Array.isArray(outer.tags) ||
+            outer.tags.some(t => !Array.isArray(t) || t.length !== 2 || t.some(v => typeof v !== 'string'))) hold()
+        const message = decode(outer, roomId, account, ASSIGNMENT_CHANNEL, rootsFor(roomId, account))
+        if (!message || !assignmentMessage(message, roomId) || JSON.stringify(message.assignment) !== JSON.stringify(pending.inner) ||
+            requests.has(payload.request) || outerIds.has(outer.id)) hold()
+        requests.add(payload.request); outerIds.add(outer.id); outers.add(JSON.stringify(outer))
+      }
+      // History may already include the pending inner after a relay echo;
+      // reject duplicates within each writer Map, not legitimate cross-list cuts.
+      assignmentQueues.set(namespace(roomId, account), outers)
+    }
+    const knownChannels = new Map<string, Set<string>>()
+    // Quiet reload writes a display row with no attachment/artwork labels.
+    // Permit that historical writer form only with byte-identical browser
+    // quiet custody, validated below against its explicit protocol epoch.
+    const quietOverlaps: { account: string; roomId: string; event: Event }[] = []
+    const pending = validateOrdinaryPendingSnapshot(part('browser', 'pending'), part('tab', 'pending'), {
+      accepts: (account, roomId, row: KeptPendingSend, owner) => {
+        const channel = row.channel === 'Chat' ? undefined : row.channel
+        const message = decode(row.event, roomId, account, channel, rootsFor(roomId, account))
+        if (!message || message.id !== row.id || message.text !== row.text) return false
+        const statement = !!(message.reaction || message.retracts || message.invite)
+        // These are the actual PWA pending producers. Agent-only transcript,
+        // assignment and room-logo envelopes do not have a pending writer.
+        if (message.kind || message.assignment || message.roomLogo !== undefined) return false
+        if (owner === 'browser' && (channel !== undefined || roots.get(roomId)!.policy.quiet || statement)) return false
+        if (owner === 'tab' && channel === undefined && roots.get(roomId)!.policy.quiet !== true && !statement) return false
+        if (row.editable && (statement || message.replaces || message.reply || message.thread || message.attachments?.length)) return false
+        if (message.reaction && message.text !== reactionText(message.reaction) || message.retracts && message.text !== 'Retracted a message' ||
+            message.invite && !['Invited you to a room.', 'Started a private conversation'].includes(message.text)) return false
+        const labelsMatch = bookmarkCanonical(message.artwork ?? []) === bookmarkCanonical(row.artwork ?? []) &&
+          bookmarkCanonical((message.attachments ?? []).map(a => a.name ?? 'Encrypted file')) === bookmarkCanonical(row.files)
+        if (!labelsMatch) {
+          if (owner !== 'tab' || channel !== undefined || roots.get(roomId)!.policy.quiet !== true || row.files.length || row.artwork !== undefined || row.editable !== undefined) return false
+          quietOverlaps.push({ account, roomId, event: row.event })
+        }
+        const scope = namespace(roomId, account), names = knownChannels.get(scope) ?? new Set<string>()
+        if (channel !== undefined) names.add(channel)
+        knownChannels.set(scope, names)
+        return true
+      },
+    })
+    const quietRoot = (scope: OrdinaryQuietScope): { room: RoomRoot; root: TrafficRoot; device?: DeviceBinding } => {
+      const room = roots.get(scope.roomId), name = namespace(scope.roomId, scope.account), retained = traffic.get(name), device = devices.get(name)
+      if (!room || room.policy.quiet !== true || !room.policy.members?.length || !device) hold()
+      if (scope.epoch === undefined && [...epochs.rooms].some(v => v.roomId === scope.roomId)) hold()
+      const n = scope.epoch ?? 0, root = n === 0 ? { epoch: 0, id: room.id, key: room.key } : retained?.get(n)
+      if (!root) hold()
+      return { room, root, device }
+    }
+    const provenQuiet = new Set<string>()
+    const quiet = validateOrdinaryQuietSnapshot(part('browser', 'quiet'), migrated.browser, {
+      kind: 'browser',
+      acceptsCounters: (participant, scope) => {
+        const { room, device } = quietRoot(scope)
+        return participant === device!.account && room.policy.members!.includes(participant)
+      },
+      acceptsQueued: (event, scope) => {
+        const { room, root, device } = quietRoot(scope)
+        if (!device || !room.policy.members!.includes(device.account)) return false
+        const channels = new Set<string | undefined>([undefined, ASSIGNMENT_CHANNEL, CONTROL_CHANNEL, ...knownChannels.get(namespace(scope.roomId, device.account)) ?? []])
+        let matches = 0
+        for (const channel of channels) {
+          const message = decode(event, scope.roomId, device.account, channel, [root])
+          if (!message) continue
+          if (channel === ASSIGNMENT_CHANNEL) {
+            if (!assignmentMessage(message, scope.roomId) ||
+                !assignmentQueues.get(namespace(scope.roomId, device.account))?.has(JSON.stringify(event))) continue
+          }
+          if (channel === CONTROL_CHANNEL) {
+            const control = decodeControl(message.text)
+            if (!control) continue
+            const raw = JSON.parse(message.text)
+            if (JSON.stringify(raw) !== message.text || bookmarkCanonical(raw) !== bookmarkCanonical(control) ||
+                control.op === 'logo' && !roomLogoFromMessage(message)) continue
+          }
+          matches++
+        }
+        if (matches !== 1) return false
+        provenQuiet.add(namespace(scope.roomId, device.account) + ':' + JSON.stringify(event))
+        return true
+      },
+    })
+    for (const scope of quiet.rooms) quietRoot(scope) // Empty used dictionaries still need exact room/epoch evidence.
+    for (const overlap of quietOverlaps) if (!provenQuiet.has(namespace(overlap.roomId, overlap.account) + ':' + JSON.stringify(overlap.event))) hold()
+    return Object.freeze({ browserRecords: image.browser.size, tabRecords: image.tab.size, families: Object.freeze(families), rooms: roots.size,
+      identities: identity.rooms.length, epochs: epochs.rooms.length, invitations: access.access.invitations.length, bookmarks: access.bookmarks.length,
+      quietRooms: quiet.rooms.length, pendingQueues: pending.queues, pendingRecords: pending.records })
+  } catch { return hold() }
+  finally {
+    for (const root of roots.values()) root.key.fill(0)
+    for (const key of allocated) key.fill(0)
+    roots.clear(); devices.clear(); traffic.clear()
+    for (const outers of assignmentQueues.values()) outers.clear()
+    assignmentQueues.clear()
+    for (const owner of Object.values(partitions)) { for (const part of owner.values()) part.clear(); owner.clear() }
+    releaseOrdinaryStartupContext(image.startup); image.browser.clear(); image.tab.clear()
+  }
 }

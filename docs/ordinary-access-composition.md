@@ -54,13 +54,13 @@ before restoration effects. No clock, entropy, CryptoKey allocation, encryption,
 IndexedDB opening, Storage mutation or network request belongs to this component.
 Derived/parser-owned secret buffers are wiped when validation exits.
 
-The full composer must own one complete browser and tab capture and derive this
-private access evidence from that capture, or compare all protected partitions
-under one generation. Independently recapturing identity, epoch, quiet or pending
-families would not establish a same-image boundary. Real pending-message
-bindings, quiet channel provenance, cadence node/grant evidence, production
-client/capacity fences, protected startup and coordinated forgetting remain open.
-This source work does not close DG08 or any release/physical acceptance gate.
+The [complete captured-image consumer](ordinary-snapshot-custody.md) now derives
+this private access evidence from the same browser/tab capture as identity,
+epochs and queued messages. It compares all reserved partitions and binds the
+described inner messages without public keys/links handoffs. Cadence node/grant
+evidence, other cross-family authority, production client/capacity fences,
+protected startup and coordinated forgetting remain open. This source work
+does not close DG08 or any release/physical acceptance gate.
 
 Unit tests use real access, grant and bookmark writers. Native component tests
 prepare those writers and actual signed contact-card encoding before a synthetic

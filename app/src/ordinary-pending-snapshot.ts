@@ -6,7 +6,8 @@ import { MAX_KEPT, type KeptPendingSend } from './pending-sends.js'
 const HEX = /^[0-9a-f]{64}$/
 function hold(): never { throw new OrdinaryStateHold() }
 export interface OrdinaryPendingPair { durable: string | null; transient: string | null }
-function records(raw: string | null, accepts: (record: KeptPendingSend) => boolean): KeptPendingSend[] {
+export type OrdinaryPendingOwner = 'browser' | 'tab'
+function records(raw: string | null): KeptPendingSend[] {
   if (raw !== null && typeof raw !== 'string') hold()
   if (raw === null) return []
   if (raw.length > ORDINARY_VALUE_UNITS) hold()
@@ -29,23 +30,28 @@ function records(raw: string | null, accepts: (record: KeptPendingSend) => boole
         event.tags.some((tag: unknown) => !Array.isArray(tag) || tag.some(value => typeof value !== 'string'))) hold()
     try { if (!verifyEvent(event)) hold() } catch { hold() }
     if (row.artwork !== undefined && (!Array.isArray(row.artwork) || row.artwork.length > MAX_CHAT_ARTWORK || row.artwork.some((art: unknown) => !normaliseArtwork(art)))) hold()
-    // JSON decoding removes verifier cache symbols and escaped object aliases.
-    if (accepts(structuredClone(row)) !== true) hold()
   }
   return values
+}
+function parsedPair(pair: OrdinaryPendingPair): { browser: KeptPendingSend[]; tab: KeptPendingSend[] } {
+  const browser = records(pair.durable), tab = records(pair.transient), all = [...browser, ...tab]
+  if (all.length > MAX_KEPT || new Set(all.map(record => record.id)).size !== all.length) hold()
+  return { browser, tab }
 }
 /** Shared strict signed-record parser and two-owner queue constraints. The
  * binding callback is mandatory; signed outer integrity alone is insufficient.
  * Binding exceptions propagate to the adapter's existing revocation path;
  * raw snapshot validation below normalises them to HOLD. Returns counts only
  * and never releases a send or permits replay. */
-export function validateOrdinaryPendingPair(pair: OrdinaryPendingPair, accepts: (record: KeptPendingSend) => boolean):
+export function validateOrdinaryPendingPair(pair: OrdinaryPendingPair, accepts: (record: KeptPendingSend, owner: OrdinaryPendingOwner) => boolean):
   Readonly<{ durableRecords: number; transientRecords: number }> {
   if (typeof accepts !== 'function') hold()
-  const durable = pair.durable, transient = pair.transient
-  const a = records(durable, accepts), b = records(transient, accepts), all = [...a, ...b]
-  if (all.length > MAX_KEPT || new Set(all.map(record => record.id)).size !== all.length) hold()
-  return Object.freeze({ durableRecords: a.length, transientRecords: b.length })
+  const rows = parsedPair(pair)
+  for (const owner of ['browser', 'tab'] as const) for (const row of rows[owner]) {
+    // JSON decoding and cloning remove verifier caches and caller aliases.
+    if (accepts(structuredClone(row), owner) !== true) hold()
+  }
+  return Object.freeze({ durableRecords: rows.browser.length, transientRecords: rows.tab.length })
 }
 /** Complete pending partition from both captured physical owners. Every row
  * has an explicit account and room, and each queue is checked as one pair.
@@ -53,7 +59,7 @@ export function validateOrdinaryPendingPair(pair: OrdinaryPendingPair, accepts: 
  * The caller must bind inner messages to the same validated complete image;
  * this function cannot supply that authority on its own. */
 export function validateOrdinaryPendingSnapshot(browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>,
-  options: { accepts(account: string, roomId: string, record: KeptPendingSend): boolean }):
+  options: { accepts(account: string, roomId: string, record: KeptPendingSend, owner: OrdinaryPendingOwner): boolean }):
   Readonly<{ queues: number; records: number; durableRecords: number; transientRecords: number }> {
   try {
     const accepts = options.accepts
@@ -69,9 +75,13 @@ export function validateOrdinaryPendingSnapshot(browser: ReadonlyMap<string, str
       pair[part] = raw; pairs.set(name, pair)
     }
     const counts = { queues: pairs.size, records: 0, durableRecords: 0, transientRecords: 0 }
-    for (const pair of pairs.values()) {
-      const c = validateOrdinaryPendingPair(pair, row => accepts(pair.account, pair.roomId, row))
-      counts.durableRecords += c.durableRecords; counts.transientRecords += c.transientRecords
+    // Validate every queue and both owners before any evidence callback.
+    const parsed = [...pairs.values()].map(pair => ({ ...pair, rows: parsedPair(pair) }))
+    for (const pair of parsed) {
+      for (const owner of ['browser', 'tab'] as const) for (const row of pair.rows[owner]) {
+        if (accepts(pair.account, pair.roomId, structuredClone(row), owner) !== true) hold()
+      }
+      counts.durableRecords += pair.rows.browser.length; counts.transientRecords += pair.rows.tab.length
     }
     counts.records = counts.durableRecords + counts.transientRecords
     return Object.freeze(counts)
