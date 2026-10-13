@@ -13,12 +13,12 @@ tiles and the expanded viewer. A new share resets zoom/pan; rotated decoded
 frame dimensions determine the surface proportions. It retains recording and
 Save source `56925350` from 0.6.84. No immutable 0.6.84 APK is replaced.
 
-Source `f98f8cfa89806fffb2c491ae61bff0bd27639d05` produces the reviewed
+Source `faacbb4d0a9aa8ba8afa1f811e3db3bb0462c5ec` produces the reviewed
 production APK, SHA-256
-`b342236d0410c54a57f7bc1097cf2fce51ea26c0afe9fa3ab1caa085bf05b061`.
+`2ddcca3a06480eff02c2e0bb08f7bc236a2c6852208c5908e52b6bcb3090741b`.
 The [signed-build receipt](evidence/android-0.6.85-signed-build-2026-10-13.json)
 records embedded source, certificate, lineage and independent publication checks.
-A synthetic 3840-by-1080 live-video emulator check preserves all four desktop
+All 29 capture cases pass on the disposable M4 emulator; summary, individual result counts and refusal checks were independently verified because that host lacks rg. The live compositor now keeps the first picture at zero and renders the latest due picture after queued audio, preserving every audio sample and the existing queue/permission bounds. A synthetic 3840-by-1080 live-video emulator check preserves all four desktop
 edges in both views and after a zoomed same-track replacement. Existing drawing,
 zoom and platform picture-in-picture checks pass. Physical Pixel and real-call
 screen-share acceptance remain unverified. Exact-source hosted checks, merge
