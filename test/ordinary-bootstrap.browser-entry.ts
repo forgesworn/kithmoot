@@ -7,3 +7,5 @@ export { OrdinarySignetState, ORDINARY_SIGNET_KEYS } from '../app/src/ordinary-s
 export { login } from 'signet-login'
 export { Nip07Signer, BunkerSignerImpl, DeferredBunkerSigner } from '../node_modules/signet-login/dist/signers.js'
 export { signOrdinaryVisitorAuthentication, signOrdinaryVisitorCredential } from '../app/src/ordinary-participant-signing.js'
+export * from '../app/src/ordinary-relay-carrier.js'
+export { NostrRelayPool } from '../src/relay-pool.js'

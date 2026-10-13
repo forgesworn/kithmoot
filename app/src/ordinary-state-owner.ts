@@ -148,6 +148,7 @@ export class OrdinaryStateOwner {
   #generation?: string
   #closed = false
   #work = new Set<Promise<unknown>>()
+  #resources = new Set<{ stop(): void }>()
   #retry?: () => void
   /** An unknown native result keeps both the exact candidate and Web Lock. */
   get holdingRetention(): boolean { return this.#retry !== undefined }
@@ -174,6 +175,47 @@ export class OrdinaryStateOwner {
         browser.purpose !== 'browser' || !TAB_PURPOSE.test(tab.purpose) || !(operation instanceof Promise)) hold()
     browser.#track(operation); tab.#track(operation)
     return operation
+  }
+  /** Retain an already-authorised resource on both exact native lifetimes.
+   * Only a current read can register it. Closing either owner, database
+   * invalidation or the tab deadline revokes synchronously, then joins cleanup.
+   * Registration supplies no permission to sign, dial, read or mutate. */
+  static retainPairResource(custody: OrdinaryPairCustody,
+    binding: Pick<OrdinaryPairMutation<unknown>, 'browser' | 'tab' | 'live'>,
+    callbacks: { readonly revoke: () => void; readonly join: () => Promise<void> }): () => void {
+    if (pairCustody.get(custody)?.kind !== 'read') hold()
+    const captured = { browser: { owner: binding.browser.owner, scope: { ...binding.browser.scope } },
+      tab: { owner: binding.tab.owner, scope: { ...binding.tab.scope } }, live: binding.live }
+    OrdinaryStateOwner.validatePairBinding(custody, captured)
+    const browser = captured.browser.owner, tab = captured.tab.owner, revoke = callbacks.revoke, join = callbacks.join
+    if (typeof revoke !== 'function' || typeof join !== 'function') hold()
+    let active = true, timer: ReturnType<typeof setTimeout>
+    const release = () => {
+      if (!active) return false
+      active = false; clearTimeout(timer); browser.#resources.delete(resource); tab.#resources.delete(resource)
+      return true
+    }
+    const resource = { stop: () => {
+      if (!release()) return
+      try { revoke() } catch { /* join still owns cleanup */ }
+      const cleanup = Promise.resolve().then(join)
+      browser.#track(cleanup); tab.#track(cleanup); void cleanup.catch(() => {})
+    } }
+    const expire = () => {
+      if (!active) return
+      if (Date.now() >= tab.expiresAt) resource.stop()
+      else timer = setTimeout(expire, Math.min(2_147_483_647, Math.max(1, tab.expiresAt - Date.now())))
+    }
+    // Callback getters above may revoke an owner. Recheck before retaining.
+    OrdinaryStateOwner.validatePairBinding(custody, captured)
+    browser.#resources.add(resource); tab.#resources.add(resource)
+    timer = setTimeout(expire, Math.min(2_147_483_647, Math.max(1, tab.expiresAt - Date.now())))
+    return () => { release() }
+  }
+  #revoke(): void {
+    this.#closed = true
+    for (const resource of [...this.#resources]) resource.stop()
+    this.#resources.clear()
   }
   /** Reuse a genuine current pair read for another native component's scopes.
    * Exact owner instances and their live lifetimes are required; matching rows
@@ -231,7 +273,7 @@ export class OrdinaryStateOwner {
     })
     this.#custodyCheck(live, reconciling)
     this.#db = db
-    db.onversionchange = () => { db.close(); this.#closed = true; this.#db = undefined }
+    db.onversionchange = () => { this.#revoke(); db.close(); this.#db = undefined }
     return db
   }
   async #snapshot(live: () => boolean, reconciling = false): Promise<Snapshot> {
@@ -784,8 +826,8 @@ export class OrdinaryStateOwner {
   }
   /** Stops local effects immediately, joins actual native work, then closes. */
   async close(): Promise<void> {
-    this.#closed = true
-    await Promise.allSettled([...this.#work])
+    this.#revoke()
+    while (this.#work.size) await Promise.allSettled([...this.#work])
     this.#db?.close(); this.#db = undefined
   }
 }
