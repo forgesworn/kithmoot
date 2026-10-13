@@ -103,3 +103,15 @@ strings cannot be erased. Current membership/rekey evidence, independent
 continuity storage, complete protected ordinary startup/effect adapters,
 creator and first-join flows, browser/Android MLS, physical acceptance,
 publication and production installation remain open gates.
+
+The source branch now pins Fold-kit commit
+`ff3a30e2c3e438c9f0804ee4f78915a76fa96a88` (reviewed PR #20).
+Its optional `revalidatePersistentInvitationSource` validates one actual
+creator event or exact canonical reload string against a mandatory room-root
+pin, without manufacturing completed-query evidence. It does not retain
+publication intent or open a pool. The creator adapter must still commit and
+acknowledge the actual event, owner/fixed metadata and pending intent before
+pool construction, recheck authority immediately before every relay write,
+and retry uncertain delivery with the exact retained event bytes. Historical
+proofs cannot validate a rotated current invitation, and a relay ack is only
+a local delivery receipt for the destinations that acknowledged it.
