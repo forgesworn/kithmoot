@@ -23,8 +23,8 @@ export type SnapshotFixtureMode = 'ordinary' | 'named' | 'past-zero' | 'past-two
 /** Test-only complete raw images. Every base row uses the actual writer;
  * mutation helpers prepare adversarial signed ciphertext before the probe.
  * No external key/predicate is handed to the production image consumer. */
-export async function snapshotFixture(mode: SnapshotFixtureMode = 'ordinary') {
-  const secret = new Uint8Array(32).fill(5), participantKey = new Uint8Array(32), deviceKey = new Uint8Array(32)
+export async function snapshotFixture(mode: SnapshotFixtureMode = 'ordinary', options: { rootSeed?: number } = {}) {
+  const secret = new Uint8Array(32).fill(options.rootSeed ?? 5), participantKey = new Uint8Array(32), deviceKey = new Uint8Array(32)
   participantKey[31] = 4; deviceKey[31] = 15
   const participant = getPublicKey(participantKey), device = getPublicKey(deviceKey), { roomId, roomKey } = deriveRoom(secret)
   const quietMode = mode.startsWith('quiet'), policy = { tier: 'open' as const, ...(quietMode ? { quiet: true as const, members: [participant] } : {}) }

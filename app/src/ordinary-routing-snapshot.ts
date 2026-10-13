@@ -20,9 +20,10 @@ function json(raw: string): unknown {
 }
 
 /** Offline count-only custody; saved URLs, marks, signed flags and signature
- * carriers are not routing or authentication authority. The same-image
- * composite must bind room control signatures to authenticated authority, and
- * runtime consumers must re-establish current permission before any dial. */
+ * carriers are not routing or authentication authority. The complete-image
+ * consumer verifies added-relay signatures against exact retained inviters
+ * and holds fixed signed flags without their lost invitation proof. Runtime
+ * consumers must re-establish current permission before any dial. */
 export function validateOrdinaryRoutingSnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
   options: { kind: 'browser' | 'tab' }): Readonly<{ savedLists: number; savedScopes: number; relayChoices: number;
     fixedLists: number; fixedRooms: number; fixedChoices: number; markLists: number; marks: number; roomRecords: number }> {

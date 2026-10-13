@@ -68,6 +68,21 @@ valid before queueing or after queue removal; history can already contain the
 pending inner after a relay echo. None of this proves current assignment
 permission or allows execution/republication.
 
+Saved added-relay records must verify against exactly one inviter retained for
+their physical room by the same-image invitation/access resolution. The
+inviter set stays private. Distinct old invitations can survive rotation;
+their signatures prove historical custody only and never select the current
+startup inviter or grant permission to dial. A same-invitation conflict still
+holds. The result exposes only `historicalRoomRelayRecords`, with no keys or
+endpoints. Versions are signed ordering fields, not freshness evidence.
+
+Fixed relay rows marked `signed:true` hold: their actual writer discarded the
+signed group-invitation event while retaining only `{c,signed}`. Matching link
+hints, possessing an inviter key or verifying a later added-relay record
+cannot reconstruct that proof. Unsigned fixed lists remain inert hints. A
+separately reviewed restoration must retain and revalidate the exact signed
+invitation and query outcome before cleanup or routing activation.
+
 This module is not mounted in production startup. Its family dispatch proves
 captured custody structure and the described message bindings; it does not
 prove all cross-family authority. Opaque carrier authentication, signer-backed

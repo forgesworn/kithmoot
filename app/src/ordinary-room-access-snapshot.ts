@@ -19,6 +19,7 @@ import { reactionText } from '../../src/reactions.js'
 import { ASSIGNMENT_CHANNEL, assignmentPayload } from '../../src/assignments.js'
 import { CONTROL_CHANNEL, decodeControl } from '../../src/control.js'
 import { roomLogoFromMessage } from '../../src/room-logo.js'
+import { verifyRoomRelays } from '../../src/room-relays.js'
 import { nip44 } from 'nostr-tools'
 import { deriveChannel } from '@forgesworn/fold-kit'
 import type { RoomPolicy } from '../../src/types.js'
@@ -127,6 +128,7 @@ export function validateOrdinaryRoomAccessAndBookmarksSnapshot(browserRecords: R
 }
 interface RoomRoot { readonly id: string; readonly key: Uint8Array; readonly policy: RoomPolicy; endsAt?: number }
 type RoomRoots = Map<string, RoomRoot>
+type RoomInviters = Map<string, Set<string>>
 function retainRoot(roots: RoomRoots | undefined, raw: string | Uint8Array, expected: string, policy: RoomPolicy): void {
   if (!roots) return
   const secret = typeof raw === 'string' ? hexToBytes(raw) : new Uint8Array(raw)
@@ -141,7 +143,7 @@ function retainRoot(roots: RoomRoots | undefined, raw: string | Uint8Array, expe
   } finally { secret.fill(0); key?.fill(0) }
 }
 function consumeAccessComposition(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>,
-  migrated: { browser: boolean; tab: boolean }, context: OrdinaryStartupContext, roots?: RoomRoots): OrdinaryBookmarkSnapshot {
+  migrated: { browser: boolean; tab: boolean }, context: OrdinaryStartupContext, roots?: RoomRoots, inviters?: RoomInviters): OrdinaryBookmarkSnapshot {
   const captured = capturedStartup.get(context)
   capturedStartup.delete(context)
   if (!captured) hold()
@@ -167,7 +169,7 @@ function consumeAccessComposition(browserRecords: ReadonlyMap<string, string>, t
         records.set(name, raw); kinds.set(name, kind); migration.set(name, migrated[kind])
       }
     }
-    const result = validateBookmarks(records, false, { kind: 'browser' }, { kinds, migrated: migration, candidates }, roots)
+    const result = validateBookmarks(records, false, { kind: 'browser' }, { kinds, migrated: migration, candidates }, roots, inviters)
     if (roots) {
       // These exact rows have completed their strict family validation. End
       // claims bind only to already proven traffic roots; absence is not a
@@ -332,7 +334,7 @@ export function validateOrdinaryRoomAccessSnapshot(records: ReadonlyMap<string,s
   return validateAccess(new Map(records), migrated, options, [])
 }
 function validateAccess(records: ReadonlyMap<string,string>, migrated: boolean,
-  options: OrdinaryRoomAccessOptions, retainedRooms: readonly { roomId: string; value: RoomLink }[], composition?: Composition, roots?: RoomRoots): OrdinaryRoomAccessSnapshot {
+  options: OrdinaryRoomAccessOptions, retainedRooms: readonly { roomId: string; value: RoomLink }[], composition?: Composition, roots?: RoomRoots, inviters?: RoomInviters): OrdinaryRoomAccessSnapshot {
   const kind = options.kind
   if (kind !== 'browser' && kind !== 'tab') hold()
   const navigation = options.navigation === undefined ? undefined : navigationFor(records, kind, options.navigation)
@@ -450,6 +452,15 @@ function validateAccess(records: ReadonlyMap<string,string>, migrated: boolean,
       retainRoot(roots, value.raw.roomSecret as string, roomId, JSON.parse(pinned.policy) as RoomPolicy)
       invitations.push(Object.freeze({ invitationId:value.id,roomId,kind:value.kind,persistent:value.raw.persistent===true }))
     }
+    if (inviters) for (const binding of bindings.values()) {
+      if (!binding.roomId) continue
+      // Rotation can leave distinct old invitations for this same room.
+      // These candidates authenticate historical custody, never select the
+      // current inviter or permit routing. Conflicts within one invitation
+      // have already held during resolution above.
+      const known = inviters.get(binding.roomId) ?? new Set<string>()
+      known.add(binding.invitation.inviter); inviters.set(binding.roomId, known)
+    }
     rooms.sort((a,b)=>a.roomId.localeCompare(b.roomId)||(a.account??'').localeCompare(b.account??''))
     invitations.sort((a,b)=>a.invitationId.localeCompare(b.invitationId)||a.kind.localeCompare(b.kind))
     return Object.freeze({ rooms:Object.freeze(rooms),invitations:Object.freeze(invitations) })
@@ -492,7 +503,7 @@ export function validateOrdinaryRoomBookmarkSnapshot(records:ReadonlyMap<string,
   accessOptions(options)
   return validateBookmarks(new Map(records), migrated, options)
 }
-function validateBookmarks(records: ReadonlyMap<string,string>, migrated: boolean, options: OrdinaryRoomAccessOptions, composition?: Composition, roots?: RoomRoots): OrdinaryBookmarkSnapshot {
+function validateBookmarks(records: ReadonlyMap<string,string>, migrated: boolean, options: OrdinaryRoomAccessOptions, composition?: Composition, roots?: RoomRoots, inviters?: RoomInviters): OrdinaryBookmarkSnapshot {
   const allocated: RoomLink[] = [], links:{roomId:string;value:RoomLink}[]=[],bookmarks:{account:string;roomId:string;record:boolean;pending:boolean;removed:boolean}[]=[]
   const addresses=new Map<string,string>(),ids=new Map<string,string>(),events=new Map<string,{scope:string;d:string;value:string}>()
   const claimId=(id:string,scope:string)=>{
@@ -571,7 +582,7 @@ function validateBookmarks(records: ReadonlyMap<string,string>, migrated: boolea
       const current=Object.hasOwn(saved,'pending')?(saved.pending as Record<string,unknown>).value:recordValue
       bookmarks.push(Object.freeze({account,roomId,record:Object.hasOwn(saved,'record'),pending:Object.hasOwn(saved,'pending'),removed:!Object.hasOwn(current as object,'room')}))
     }
-    const access=validateAccess(records,migrated,options,links,composition,roots)
+    const access=validateAccess(records,migrated,options,links,composition,roots,inviters)
     bookmarks.sort((a,b)=>a.account.localeCompare(b.account)||a.roomId.localeCompare(b.roomId))
     return Object.freeze({access,bookmarks:Object.freeze(bookmarks)})
   }finally{wipeLinks(allocated);links.length=0;addresses.clear();ids.clear();events.clear()}
@@ -628,6 +639,7 @@ export interface OrdinarySnapshotCounts {
   readonly quietRooms: number
   readonly pendingQueues: number
   readonly pendingRecords: number
+  readonly historicalRoomRelayRecords: number
 }
 /** Whole captured image custody preflight with actual room/identity/epoch and
  * inner-message bindings. No raw keys, links, records or live authority escape.
@@ -641,6 +653,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
   if (!image) hold()
   const roots: RoomRoots = new Map(), allocated: Uint8Array[] = [], devices = new Map<string, DeviceBinding>(), traffic = new Map<string, Map<number, TrafficRoot>>()
   const assignmentQueues = new Map<string, Set<string>>()
+  const inviters: RoomInviters = new Map()
   const partitions = { browser: new Map<OrdinaryPhysicalFamily, Map<string, string>>(), tab: new Map<OrdinaryPhysicalFamily, Map<string, string>>() }
   const families: Partial<Record<OrdinaryPhysicalFamily, number>> = {}
   const namespace = (roomId: string, account?: string) => (account ?? 'legacy') + ':' + roomId
@@ -675,7 +688,25 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     if ((families.cadence ?? 0) !== 0) hold()
     const identity = validateOrdinaryIdentitySnapshot(part('browser', 'identity'), migrated.browser)
     const epochs = validateOrdinaryEpochSnapshot(part('browser', 'epoch'), migrated.browser)
-    const access = consumeAccessComposition(image.browser, image.tab, migrated, image.startup, roots)
+    const access = consumeAccessComposition(image.browser, image.tab, migrated, image.startup, roots, inviters)
+    let historicalRoomRelayRecords = 0
+    for (const [name, raw] of part('browser', 'routing')) {
+      if (name === 'kithmoot.room-relays-fixed.v1') {
+        // The actual writer persists only {c,signed}; it discards the signed
+        // invitation event that supplied c. Matching unsigned hints, holding
+        // an inviter key or verifying a later relay addition cannot recover
+        // that proof. Preserve bytes and hold until restoration supplies it.
+        const fixed = parsed(raw) as Record<string, { signed: boolean }>
+        if (Object.values(fixed).some(row => row.signed)) hold()
+      } else if (name.startsWith('kithmoot.room-relays.v1.')) {
+        const roomId = name.slice('kithmoot.room-relays.v1.'.length)
+        const record = parsed(raw) as { relays: string[]; version: number; sig: string }
+        let matches = 0
+        for (const authority of inviters.get(roomId) ?? []) if (verifyRoomRelays({ roomId, ...record, authority })) matches++
+        if (matches !== 1) hold()
+        historicalRoomRelayRecords++
+      }
+    }
     for (const binding of identity.rooms) {
       if (!roots.has(binding.roomId)) hold()
       const prefix = binding.scoped ? 'kithmoot.account.' + binding.account + '.' : ''
@@ -881,7 +912,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     for (const overlap of quietOverlaps) if (!provenQuiet.has(namespace(overlap.roomId, overlap.account) + ':' + JSON.stringify(overlap.event))) hold()
     return Object.freeze({ browserRecords: image.browser.size, tabRecords: image.tab.size, families: Object.freeze(families), rooms: roots.size,
       identities: identity.rooms.length, epochs: epochs.rooms.length, invitations: access.access.invitations.length, bookmarks: access.bookmarks.length,
-      quietRooms: quiet.rooms.length, pendingQueues: pending.queues, pendingRecords: pending.records })
+      quietRooms: quiet.rooms.length, pendingQueues: pending.queues, pendingRecords: pending.records, historicalRoomRelayRecords })
   } catch { return hold() }
   finally {
     for (const root of roots.values()) root.key.fill(0)
@@ -889,6 +920,8 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     roots.clear(); devices.clear(); traffic.clear()
     for (const outers of assignmentQueues.values()) outers.clear()
     assignmentQueues.clear()
+    for (const candidates of inviters.values()) candidates.clear()
+    inviters.clear()
     for (const owner of Object.values(partitions)) { for (const part of owner.values()) part.clear(); owner.clear() }
     releaseOrdinaryStartupContext(image.startup); image.browser.clear(); image.tab.clear()
   }
