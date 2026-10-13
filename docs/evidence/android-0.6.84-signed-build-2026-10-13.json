@@ -1,0 +1,30 @@
+{
+  "source": "56925350b5b9dc0c7b7e6491d6caf42b6e0e0fcf",
+  "version": "0.6.84",
+  "version_code": 107,
+  "unsigned_sha256": "a8292a84f3a834eae7ab4fd5f04cdfe428057ba9e516a798440bac78db152843",
+  "embedded_source_verified": true,
+  "embedded_source_entry": "META-INF/version-control-info.textproto",
+  "published": false,
+  "physical_recording_qualified": false,
+  "hosted_result": "pending",
+  "previous_physical_source": "c3d00b1f85d699beb82f654542cb9c2fcb606aff",
+  "zip_entries_changed_from_previous_physical_source": [
+    "META-INF/version-control-info.textproto"
+  ],
+  "all_other_apk_payload_entries_identical": true,
+  "signed_sha256": "2f8b3d85bd38b9432f41775f1b00943dfdad472dc08a4eb763dfe195b4ecf5d6",
+  "production_signer_verified": true,
+  "source_lineage_verified": true,
+  "debuggable": false,
+  "independent_zip_payload_equality": true,
+  "independent_embedded_source_verified": true,
+  "independent_publication_verifier_passed": true,
+  "all_lineage_capabilities_verified": true,
+  "website_and_github_published": false,
+  "zapstore_published": false,
+  "physical_short_save_source": "c3d00b1f85d699beb82f654542cb9c2fcb606aff",
+  "physical_long_export_verified": false,
+  "physical_interruption_verified": false,
+  "final_source_hosted_run": 38379975239
+}
