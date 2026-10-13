@@ -1,12 +1,15 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
-import { getPublicKey } from 'nostr-tools/pure'
+import { getPublicKey, type Event } from 'nostr-tools/pure'
+import { authenticatedWebSocket, AUTH_TIMEOUT_MS, type RelayAuthentication, type AuthenticationGrant } from '../../src/relay-auth.js'
+import { verifyEventUncached } from '../../src/verify.js'
+import type { ParticipantIdentity, UnsignedEvent } from '../../src/identity.js'
 import { roomInvitation, deriveInvitationId, type RoomInvitation } from '../../src/invitation.js'
 import { encodePersistentInvitation } from '../../src/persistent-invitation.js'
 import { deriveRoom } from '../../src/room.js'
 import { parseRoomLink } from '../../src/link.js'
 import type { NetworkProfile } from '../../src/anonymous.js'
 import { OrdinaryStateOwner, type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
-import { OrdinaryStateHold } from './ordinary-state-codec.js'
+import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
 import { storeInvitationOwner, INVITATION_OWNER_PREFIX } from './invitation-store.js'
 import { rememberRoom, setKeepRoom, ROOM_PREFIX } from './rooms-store.js'
 import { RelayConnections } from './relay-settings.js'
@@ -34,6 +37,35 @@ export interface RetainedCreatorPublication {
   readonly proof: PersistentCreatorProof
   readonly intent: CreatorPublicationIntent
 }
+/** The caller supplies actual current lane/consent authority. A generation
+ * string is a fence binding, not independent proof of a Tor carrier or member. */
+export interface CreatorDeliveryCarrier {
+  readonly generation: string
+  readonly profile: NetworkProfile
+  readonly websocketImplementation: typeof WebSocket
+  readonly authentication?: readonly RelayAuthentication[]
+}
+export interface CreatorDeliveryOptions extends CreatorDeliveryCarrier {
+  current(): CreatorDeliveryCarrier | undefined
+  readonly timeoutMs?: number
+  readonly authenticationTimeoutMs?: number
+  readonly maxQueuedFrames?: number
+  readonly maxQueuedBytes?: number
+  readonly signal?: AbortSignal
+}
+export const CREATOR_DELIVERY_QUEUE_FRAMES = 32
+export const CREATOR_DELIVERY_QUEUE_BYTES = 512 * 1024
+interface DeliveryGrant { url:string; identity:ParticipantIdentity; pubkey:string; sign:ParticipantIdentity['signEvent'] }
+interface DeliveryRun {
+  readonly options:CreatorDeliveryOptions; readonly grants:ReadonlyMap<string,DeliveryGrant>; readonly deadline:number
+  readonly maxFrames:number; readonly maxBytes:number; readonly authenticationTimeoutMs:number
+  readonly cancelled:Promise<void>
+  readonly sockets:Set<WebSocket>; readonly rejectors:Set<()=>void>; readonly work:Set<Promise<unknown>>
+  retained?:RetainedCreatorPublication; active:boolean; failed:boolean; queuedFrames:number; queuedBytes:number
+  stop(failed?:boolean):void
+}
+const abortedGetter=Object.getOwnPropertyDescriptor(AbortSignal.prototype,'aborted')!.get!
+function deliveryAborted(signal?:AbortSignal):boolean{return signal===undefined?false:abortedGetter.call(signal) as boolean}
 function hold(): never { throw new OrdinaryStateHold() }
 const copy = <T>(input: T): T => JSON.parse(JSON.stringify(input)) as T
 function mapped(store: DeviceStore, participant: string): DeviceStore {
@@ -43,9 +75,9 @@ function mapped(store: DeviceStore, participant: string): DeviceStore {
 }
 interface Sources { readonly browser: readonly (readonly [string,string])[]; readonly tab: readonly (readonly [string,string])[] }
 /** Creator custody producer. Preparing signs exactly once and awaits atomic
- * owner/room/fixed/proof/pending-intent retention. It performs no relay effect;
- * a separately guarded carrier must authenticate the retained operation at
- * every dial and frame enqueue, under current authority supplied by the app. */
+ * owner/room/fixed/proof/pending-intent retention. Its private publisher checks
+ * actual native custody at each dial and synchronous frame enqueue, under
+ * current lane/consent authority supplied by the app. Production is unmounted. */
 export class OrdinaryInvitationCreator {
   readonly #options: Options
   readonly #browserScope: OrdinaryScope
@@ -54,6 +86,10 @@ export class OrdinaryInvitationCreator {
   readonly #work = new Set<Promise<unknown>>()
   #closed = false
   #preparing?: Promise<RetainedCreatorPublication>
+  #publishing?: Promise<RetainedCreatorPublication>
+  #startingDelivery=false
+  #delivery?:DeliveryRun
+  readonly #acceptedReceipts=new WeakMap<object,{run:DeliveryRun;url:string}>()
   private constructor(options: Options, browserScope: OrdinaryScope, tabScope: OrdinaryScope) {
     this.#options=options;this.#browserScope=browserScope;this.#tabScope=tabScope;this.#id=deriveInvitationId(options.invitation)
   }
@@ -222,6 +258,181 @@ export class OrdinaryInvitationCreator {
       })))
     }finally{verified.admission.secret.fill(0)}
   }
+  /** Publish only a durably retained event. No implicit preparation, default
+   * relay, re-signing, first-ACK completion or automatic connection recovery. */
+  publish(input:CreatorDeliveryOptions):Promise<RetainedCreatorPublication>{
+    if(this.#closed||this.#startingDelivery||this.#publishing)return Promise.reject(new OrdinaryStateHold())
+    // Latch before any caller getter or current-authority callback can re-enter.
+    this.#startingDelivery=true
+    let run:DeliveryRun
+    try{
+      if(!this.#live())hold()
+      const options:CreatorDeliveryOptions={...input,authentication:(input.authentication??[]).map(g=>({...g}))}
+      const timeout=options.timeoutMs??20_000,authTimeout=options.authenticationTimeoutMs??AUTH_TIMEOUT_MS,
+        maxFrames=options.maxQueuedFrames??CREATOR_DELIVERY_QUEUE_FRAMES,maxBytes=options.maxQueuedBytes??CREATOR_DELIVERY_QUEUE_BYTES
+      if(!/^[0-9a-f]{64}$/.test(options.generation)||options.profile!==this.#options.profile||typeof options.websocketImplementation!=='function'||
+        typeof options.current!=='function'||!Number.isSafeInteger(timeout)||timeout<100||timeout>120_000||
+        !Number.isSafeInteger(authTimeout)||authTimeout<100||authTimeout>120_000||!Number.isSafeInteger(maxFrames)||maxFrames<1||
+        maxFrames>CREATOR_DELIVERY_QUEUE_FRAMES||!Number.isSafeInteger(maxBytes)||maxBytes<1||maxBytes>CREATOR_DELIVERY_QUEUE_BYTES||
+        options.profile==='tor'&&options.authentication!.length)hold()
+      if(deliveryAborted(options.signal))hold()
+      const grants=new Map<string,DeliveryGrant>()
+      for(const value of options.authentication!){const url=creatorDestinations([value.url],options.profile)[0]!
+        if(!this.#options.destinations.includes(url)||grants.has(url)||!value.identity||!/^[0-9a-f]{64}$/.test(value.identity.pubkey)||
+          typeof value.identity.signEvent!=='function')hold()
+        grants.set(url,{url,identity:value.identity,pubkey:value.identity.pubkey,sign:value.identity.signEvent})}
+      let cancel:()=>void=()=>{}
+      const cancelled=new Promise<void>(resolve=>{cancel=resolve})
+      run={options,grants,cancelled,deadline:Date.now()+timeout,maxFrames,maxBytes,authenticationTimeoutMs:authTimeout,
+        sockets:new Set(),rejectors:new Set(),work:new Set(),active:true,failed:false,queuedFrames:0,queuedBytes:0,
+        stop:(failed=true)=>{if(failed)run.failed=true;run.active=false;cancel()
+          for(const reject of [...run.rejectors])reject()
+          for(const socket of run.sockets)try{socket.close()}catch{} }}
+      if(!this.#deliveryCurrent(run))hold()
+    }catch{this.#startingDelivery=false;return Promise.reject(new OrdinaryStateHold())}
+    this.#delivery=run
+    const work=this.#track(this.#publish(run));this.#publishing=work;this.#startingDelivery=false
+    void work.finally(()=>{if(this.#delivery===run)this.#delivery=undefined;if(this.#publishing===work)this.#publishing=undefined}).catch(()=>{})
+    return work
+  }
+  #deliveryCurrent(run:DeliveryRun,receipt?:object):boolean{
+    try{
+      if(receipt!==undefined&&this.#acceptedReceipts.get(receipt)?.run!==run)return false
+      const selected=run.options.current()
+      if((receipt===undefined&&(!run.active||run.failed||Date.now()>=run.deadline))||!this.#live()||deliveryAborted(run.options.signal)||
+        this.#options.endsAt!==undefined&&this.#options.endsAt<=Math.floor(Date.now()/1000)||!selected||
+        selected.generation!==run.options.generation||selected.profile!==run.options.profile||
+        selected.websocketImplementation!==run.options.websocketImplementation)return false
+      const entries=selected.authentication??[]
+      if(entries.length!==run.grants.size)return false
+      const seen=new Set<string>()
+      for(const value of entries){const url=creatorDestinations([value.url],selected.profile)[0]!,grant=run.grants.get(url)
+        if(seen.has(url)||!grant||value.identity!==grant.identity||value.identity.pubkey!==grant.pubkey||value.identity.signEvent!==grant.sign)return false
+        seen.add(url)}
+      return true
+    }catch{return false}
+  }
+  #deliveryTrack<T>(run:DeliveryRun,work:Promise<T>):Promise<T>{run.work.add(work)
+    void work.finally(()=>run.work.delete(work)).catch(()=>{});return work}
+  #deliveryGuard(run:DeliveryRun,b:DeviceStore,t:DeviceStore,custody:OrdinaryPairCustody,receipt?:object):RetainedCreatorPublication{
+    if(!this.#deliveryCurrent(run,receipt))hold()
+    this.#sources(b,t,custody);const retained=this.#retained(b)
+    if(!retained||run.retained&&JSON.stringify(retained.proof)!==JSON.stringify(run.retained.proof))hold()
+    if(!this.#deliveryCurrent(run,receipt))hold()
+    return retained
+  }
+  #deliveryRead<T>(run:DeliveryRun,work:(retained:RetainedCreatorPublication)=>T):Promise<T>{
+    const input=this.#input((b,t,custody)=>work(this.#deliveryGuard(run,b,t,custody)))
+    return this.#deliveryTrack(run,this.#track(OrdinaryStateOwner.readPairMigrated({...input,live:()=>this.#deliveryCurrent(run)})))
+  }
+  async #acknowledge(receipt:object):Promise<void>{
+    const accepted=this.#acceptedReceipts.get(receipt);if(!accepted)hold()
+    const {run,url}=accepted
+    const input=this.#input((b,t,custody)=>{const retained=this.#deliveryGuard(run,b,t,custody,receipt)
+      if(!retained.proof.destinations.includes(url))hold()
+      b.set(creatorIntentName(retained.proof.binding),JSON.stringify(creatorIntent(retained.proof,[...retained.intent.acknowledged,url])))
+      this.#sources(b,t,custody)})
+    try{await this.#deliveryTrack(run,this.#track(OrdinaryStateOwner.mutatePairMigrated({...input,live:()=>this.#deliveryCurrent(run,receipt)})))}
+    finally{this.#acceptedReceipts.delete(receipt)}
+  }
+  async #publish(run:DeliveryRun):Promise<RetainedCreatorPublication>{
+    const timeout=setTimeout(()=>run.stop(),Math.max(0,run.deadline-Date.now())),abort=()=>run.stop()
+    try{
+      if(run.options.signal)EventTarget.prototype.addEventListener.call(run.options.signal,'abort',abort,{once:true})
+      run.retained=await this.#deliveryRead(run,retained=>retained)
+      const jobs=run.retained.proof.destinations.filter(url=>!run.retained!.intent.acknowledged.includes(url)).map(url=>this.#publishRelay(run,url))
+      const results=await Promise.allSettled(jobs)
+      if(results.some(result=>result.status==='rejected')||run.failed)hold()
+      const retained=await this.#deliveryRead(run,retained=>retained)
+      if(retained.intent.state!=='acknowledged')hold()
+      return retained
+    }catch{run.stop();return hold()}
+    finally{
+      clearTimeout(timeout);if(run.options.signal)EventTarget.prototype.removeEventListener.call(run.options.signal,'abort',abort);run.stop(false)
+      // Join every native guard, queued send and receipt write. No later task
+      // may recreate a socket or emit a frame after the publication settles.
+      while(run.work.size)await Promise.allSettled([...run.work])
+      run.sockets.clear();run.rejectors.clear();run.retained=undefined
+    }
+  }
+  async #publishRelay(run:DeliveryRun,url:string):Promise<void>{
+    const owner=this,grant=run.grants.get(url),Base=run.options.websocketImplementation
+    const frame='["EVENT",'+run.retained!.proof.event+']'
+    let expectedAuth:string|undefined,eventQueued=false,eventSent=false,authQueued=false,authSent=false,acknowledging=false,finished=false
+    let socket:WebSocket|undefined,native:WebSocket|undefined,tail=Promise.resolve()
+    let resolve:()=>void=()=>{},reject:()=>void=()=>{}
+    const receipt=new Promise<void>((yes,no)=>{resolve=yes;reject=()=>{if(!finished){finished=true;no(new OrdinaryStateHold())}}})
+    void receipt.catch(()=>{});run.rejectors.add(reject)
+    const current=()=>owner.#deliveryCurrent(run)&&!finished
+    const failed=()=>{run.stop();reject()}
+    // Native WebSocket.send is synchronous and returns void. This bounded
+    // wrapper owns immutable strings; its async guard is joined separately.
+    class QueuedSocket extends Base {
+      constructor(destination:string){if(destination!==url||!current())hold();super(destination);native=this}
+      override send(data:string|ArrayBufferLike|Blob|ArrayBufferView):void{
+        try{
+          if(!current()||typeof data!=='string')hold()
+          const isEvent=data===frame,isAuth=data===expectedAuth&&expectedAuth!==undefined
+          if(isEvent?eventQueued:isAuth?authQueued:true)hold()
+          const bytes=ordinaryUtf8Length(data,CREATOR_DELIVERY_QUEUE_BYTES)
+          if(run.queuedFrames+1>run.maxFrames||run.queuedBytes+bytes>run.maxBytes)hold()
+          if(isEvent)eventQueued=true;else authQueued=true
+          const owned=data;run.queuedFrames++;run.queuedBytes+=bytes
+          const work=tail.then(()=>owner.#deliveryRead(run,()=>{
+            if(!current()||this.readyState!==1)hold()
+            if(isEvent?(eventSent||grant&&!authSent):(authSent||owned!==expectedAuth))hold()
+            // Both connection and send linearise while the origin-wide native
+            // custody lock is held. Accepted browser bytes cannot be retracted.
+            super.send(owned)
+            if(isEvent)eventSent=true;else{authSent=true;expectedAuth=undefined}
+          })).then(()=>{},()=>{failed()}).finally(()=>{run.queuedFrames--;run.queuedBytes-=bytes})
+          tail=work;void owner.#deliveryTrack(run,work)
+        }catch{failed();throw new OrdinaryStateHold()}
+      }
+    }
+    let authGrant:AuthenticationGrant|undefined
+    if(grant)authGrant={pubkey:grant.pubkey,sign:(template:UnsignedEvent)=>owner.#deliveryTrack(run,(async()=>{
+      const expected=JSON.stringify(template),statement:UnsignedEvent=JSON.parse(expected)
+      if(statement.kind!==22242||statement.content!==''||!Number.isSafeInteger(statement.created_at)||statement.tags.length!==2||
+        statement.tags[0]?.length!==2||statement.tags[0]?.[0]!=='relay'||statement.tags[0]?.[1]!==url||
+        statement.tags[1]?.length!==2||statement.tags[1]?.[0]!=='challenge'||!statement.tags[1]?.[1]||statement.tags[1][1].length>1024)hold()
+      let signing:Promise<Event>|undefined
+      await owner.#deliveryRead(run,()=>{if(!current())hold();signing=grant.sign.call(grant.identity,JSON.parse(expected))})
+      const signed=await Promise.race([signing!,run.cancelled.then(()=>hold())]),event:Event={...statement,id:signed.id,pubkey:signed.pubkey,sig:signed.sig}
+      if(!current()||signed.pubkey!==grant.pubkey||signed.kind!==statement.kind||signed.created_at!==statement.created_at||
+        signed.content!==statement.content||JSON.stringify(signed.tags)!==JSON.stringify(statement.tags)||!verifyEventUncached(event))hold()
+      await owner.#deliveryRead(run,()=>{if(!current()||expectedAuth!==undefined||authQueued)hold();expectedAuth=JSON.stringify(['AUTH',event])})
+      return signed
+    })())}
+    const Auth=authenticatedWebSocket(QueuedSocket as typeof WebSocket,()=>authGrant,()=>current(),failed,run.authenticationTimeoutMs)
+    try{
+      await owner.#deliveryRead(run,()=>{
+        if(!current())hold()
+        socket=new Auth(url);run.sockets.add(socket)
+        socket.onopen=()=>{try{socket!.send(frame)}catch{failed()}}
+        socket.onerror=failed
+        socket.onclose=()=>{if(!finished)failed()}
+        socket.onmessage=message=>{
+          try{
+            if(!current()||typeof message.data!=='string'||message.data.length>264_192)hold()
+            const response:unknown=JSON.parse(message.data)
+            if(!Array.isArray(response))hold()
+            if(response[0]==='AUTH'&&!grant)hold()
+            if(response[0]!=='OK'||response[1]!==run.retained!.proof.eventId)return
+            if(response.length!==4||response[2]!==true||typeof response[3]!=='string'||!eventSent)hold()
+            if(acknowledging)return;acknowledging=true
+            // This unforgeable accepted obligation alone may finish native
+            // retention after network shutdown. New late OKs cannot create it.
+            const accepted=Object.freeze({});owner.#acceptedReceipts.set(accepted,{run,url})
+            const work=owner.#acknowledge(accepted).then(()=>{if(!current())hold();finished=true;run.rejectors.delete(reject);resolve()},failed)
+            void owner.#deliveryTrack(run,work.catch(failed))
+          }catch{failed()}
+        }
+      })
+      await receipt
+    }catch{failed();await receipt.catch(()=>{});throw new OrdinaryStateHold()}
+    finally{run.rejectors.delete(reject);try{socket?.close()}catch{};try{native?.close()}catch{};if(socket)run.sockets.delete(socket);await tail}
+  }
   /** Forget fences this invitation; newer selected room custody is preserved. */
   async forget():Promise<void>{
     await this.#track(OrdinaryStateOwner.forgetPairMigrated(this.#input((b,t,custody)=>{
@@ -249,7 +460,7 @@ export class OrdinaryInvitationCreator {
     await this.close()
   }
   async close():Promise<void>{
-    this.#closed=true
+    this.#closed=true;this.#delivery?.stop()
     await Promise.allSettled([...this.#work])
     this.#options.invitation.bearer.fill(0);this.#options.expectedRoomSecret.fill(0);this.#options.inviterSk.fill(0)
   }

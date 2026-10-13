@@ -1,8 +1,9 @@
 # Ordinary invitation creator custody
 
 This is source preparation for the protected client. The production PWA does
-not call `OrdinaryInvitationCreator`. It performs no relay dial, publication,
-NIP-42 authentication or current membership decision. Historical source proof,
+not call `OrdinaryInvitationCreator`. `prepare` performs no relay effect; the
+explicit guarded `publish` source is described in [creator delivery](ordinary-creator-delivery.md).
+It does not supply current membership authority. Historical source proof,
 local native custody and relay acknowledgement are separate evidence.
 
 `prepare(now)` uses the actual Fold-kit persistent-invitation encoder once,
@@ -75,8 +76,8 @@ owned-buffer cleanup and both 64-entry limits. Acknowledged intent fixtures in
 these custody tests model already received receipts; they are not relay wire
 acceptance or proof that delivery occurred.
 
-Guarded relay dial/enqueue, all-destination delivery, NIP-42 refusal and timeout
-handling, old/new client fencing, actual app startup integration, independent
+The guarded publisher now has its own native and offline browser-wire source
+acceptance. Old/new client fencing, actual app startup integration, independent
 rollback protection and current admission/rekey authority remain delivery
 requirements. This source checkpoint does not close those gates or physical
 browser/Android MLS and release acceptance.
