@@ -500,6 +500,10 @@ test('Boards fits a narrow screen and reopens its durable board offline from cac
     // Stop the actual origin: all browsers must reopen from their cache.
     // WebKit's emulated-offline reload can fail inside its automation driver.
     await release.close(); await page.reload()
+    // The saved account reconnects after the shell paints. Its sign-in flow
+    // closes open panels; wait for the authenticated sync status before the
+    // offline board action, just as this case does for the initial sign-in.
+    await expect(page.locator('#homeSyncStatus')).toBeVisible()
     frame = await openBoards(page)
     await frame.getByRole('link', {name: 'Offline board', exact: true}).click()
     await expect(frame.getByRole('link', {name: 'Saved before disconnecting', exact: true})).toBeVisible()

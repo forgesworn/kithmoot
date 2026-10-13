@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-13T11:29:27.156080+00:00",
+  "coreSource": "2effcaff2932aa3a5f4556379b961a3dfb795564",
+  "coreWorkflow": 38385077304,
+  "coreInitialFailure": "MLS candidate device gate registration timeout; 616 other cases passed",
+  "coreRetryFailure": "Different MLS dismissed keeper prompt returned witness-pending; 616 other cases passed",
+  "localExactCases": "Both pass without source, fixture or timeout changes (5.7 seconds and 3.0 seconds)",
+  "nativeSource": "f98f8cfa89806fffb2c491ae61bff0bd27639d05",
+  "nativeWorkflow": 38385868961,
+  "nativeInitialCaptureFailure": "BrowserCallInteropTest.nativeVideoRecordingExportsBothSidesOfTheBrowserCall: EGL swapBuffers worker stall reached the existing bounded audio queue; 27 other capture cases passed",
+  "recordingCodeUnchangedFromReviewed084Source": true,
+  "publication": false,
+  "logs": {
+    "kithmoot-feedback-ci-firefox1.log": "da9370828d085b4f86d91709a0d1bf7cfb87081d5af1761a4b6e78fdde364d0c",
+    "kithmoot-feedback-ci-firefox1-retry.log": "9e8051682ad322349db67a182d24c5edb5cd4caa022c819a5c57501951299605",
+    "kithmoot-feedback-mls-registration-recheck.log": "8874f2aa1c2c7b458d59fb8c20fb5c1e7fd5371f8b68067b1c2aa44f0f023c2f",
+    "kithmoot-feedback-mls-dismissed-recheck.log": "9cbead063c117b71ce835c9d4d474206b0a7b6d0e2b8b441b37cbd1d022a5224",
+    "kithmoot-feedback-ci-android-capture.log": "87c5be28e97a24e7de6fa56eb7b95ee3afd753f4455d09cfee422fffcd714c2e",
+    "kithmoot-feedback-release-webkit1.log": "41edc6867935f33cfa7beb282586b4c8e25ca83f760648b4c1bc38fc91dc422a",
+    "kithmoot-feedback-offline-account-check.log": "71dc0fbf0c47157cdc36651551bfa5c88e8b753475448714f515767e49d226c2"
+  },
+  "releaseWorkflow": 38388437249,
+  "releaseInitialResult": "11 of 12 jobs passed, including all Firefox MLS cases; WebKit offline board action preceded the restored account sync status",
+  "offlineFixtureCorrection": "Await visible homeSyncStatus for the restored authenticated account before opening Boards after the stopped-origin reload; preserve all durability, viewport and offline edit assertions",
+  "offlineFixtureLocalResult": "Production build Chromium case passed in 2.8 seconds; no app/desktop build was changed"
+}
