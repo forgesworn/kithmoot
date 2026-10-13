@@ -78,6 +78,7 @@ async function openBoards(page: Page): Promise<Frame> {
 async function createBoard(frame: Frame, name: string) {
   await expect(frame.locator('#app')).not.toContainText('Opening board…')
   const reminder = frame.getByRole('button', {name: 'Not yet, remind me', exact: true})
+  await expect(reminder.or(frame.getByRole('link', {name: /^Create (a )?board$/})).first()).toBeVisible()
   if (await reminder.isVisible()) await reminder.click()
   await frame.getByRole('link', {name: /^Create (a )?board$/}).click()
   await frame.getByRole('textbox', {name: 'Board name', exact: true}).fill(name)
@@ -120,8 +121,10 @@ test('boards created in a chat are discovered on another device and edited toget
     await enter(bo, 'Bo')
     await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
     let guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
-    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true}); if (await reminder.isVisible()) await reminder.click()
-    await guest.getByRole('button', {name: 'Join board', exact: true}).click()
+    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true})
+    await expect(reminder.or(guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/})).first()).toBeVisible()
+    if (await reminder.isVisible()) await reminder.click()
+    await guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/}).click()
     await expect(guest.getByRole('link', {name: 'Shared from the start', exact: true})).toBeVisible({timeout: 60000})
     await addCard(guest, 'Bo edits the room board')
     await expect(owner.getByRole('link', {name: 'Bo edits the room board', exact: true})).toBeVisible({timeout: 60000})
@@ -134,11 +137,11 @@ test('boards created in a chat are discovered on another device and edited toget
     if (await bo.page.locator('#join').isVisible()) {await bo.page.locator('#displayName').fill('Bo'); await bo.page.locator('#join').click()}
     await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
     guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
-    const join = guest.getByRole('button', {name: 'Join board', exact: true}); if (await join.isVisible()) await join.click()
+    const join = guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/}); if (await join.isVisible()) await join.click()
     await expect(guest.getByRole('link', {name: 'Bo edits the room board', exact: true})).toBeVisible({timeout: 60000})
     await openBoards(outsider.page)
     await expect(outsider.page.locator('#boardsSaved')).not.toContainText('Room delivery')
-  } finally {await keeper.leave(); await Promise.all([ada.context.close(), bo.context.close(), outsider.context.close()])}
+  } finally {await keeper.leave(); await ada.context.close(); await bo.context.close(); await outsider.context.close()}
 })
 
 test('card colour saves when the colour label is clicked and survives reopening', async ({browser, baseURL}) => {
@@ -198,10 +201,12 @@ test('an existing private board keeps its cards and is shared only after the exp
     await expect(bo.page.locator('#chatLog')).toContainText('Shared board: Existing notes')
     await bo.page.locator('#roomBoards').getByRole('button', {name: 'Existing notes', exact: true}).click()
     const guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
-    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true}); if (await reminder.isVisible()) await reminder.click()
-    await guest.getByRole('button', {name: 'Join board', exact: true}).click()
+    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true})
+    await expect(reminder.or(guest.getByRole('button', {name: /^Join (?:board|Existing notes)$/})).first()).toBeVisible()
+    if (await reminder.isVisible()) await reminder.click()
+    await guest.getByRole('button', {name: /^Join (?:board|Existing notes)$/}).click()
     await expect(guest.getByRole('link', {name: 'Keep my existing card', exact: true})).toBeVisible({timeout: 60000})
-  } finally {await keeper.leave(); await Promise.all([ada.context.close(), bo.context.close()])}
+  } finally {await keeper.leave(); await ada.context.close(); await bo.context.close()}
 })
 
 test('a room keeps its board discoverable after popping out, closing the window and reloading', async ({browser, baseURL}, info) => {

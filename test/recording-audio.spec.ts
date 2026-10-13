@@ -6,10 +6,10 @@ import {testRelaysFor} from './relays.js'
 
 // Exercise Chromium's actual audio activation policy. The normal media suite
 // disables that policy, which can hide a recorder started after relay awaits.
+test.skip(({browserName}) => browserName !== 'chromium', 'Synthetic microphones require Chromium')
 test.use({launchOptions: {args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output']}})
 
 for (const [layout, simultaneous] of [['audio', false], ['gallery', false], ['gallery', true]] as const) test(`saved ${layout} recording contains the remote voice with the recorder microphone muted${simultaneous ? ' after simultaneous call starts' : ''}`,  async ({browser, baseURL}, info) => {
-  test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic microphones require Chromium')
   const contexts = await Promise.all([0, 1].map(() => newDeviceContext(browser, baseURL!, {viewport: {width: 1440, height: 900}})))
   let holding = false
   const held: Array<() => void> = []

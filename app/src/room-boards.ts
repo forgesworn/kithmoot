@@ -95,17 +95,15 @@ export class RoomBoards {
   async share(board: RoomBoard) {
     if (!this.current()) throw new Error('Join the linked chat before sharing this board.')
     if (this.#boards.size >= 50 && !this.#boards.has(board.boardId)) throw new Error('This chat already has 50 shared boards.')
-    const changed = JSON.stringify(this.#boards.get(board.boardId)) !== JSON.stringify(board)
     await this.session.channel(ROOM_BOARDS_CHANNEL).send(encodeRoomBoard(board))
     if (!this.current()) throw new Error('The chat changed before the board was shared. Reopen it and try again.')
     // Older clients, including native Android, can open the same board from
     // the conversation even before they have a dedicated Boards destination.
-    if (changed) {
-      // Native clients handle /j links as KithMoot room invitations. Keep the
-      // board capability intact while opening the actual Girnel board app.
-      const link = new URL('https://girnel.app/app/'); link.hash = new URL(board.invitation).hash
-      await this.session.chat.send(`Shared board: ${board.name}\n${link.href}`)
-    }
+    // Announce every explicit share, including a retry after the catalogue
+    // succeeded but chat refused its message. Native clients handle /j links
+    // as room invitations, so open the actual board app with the same grant.
+    const link = new URL('https://girnel.app/app/'); link.hash = new URL(board.invitation).hash
+    await this.session.chat.send(`Shared board: ${board.name}\n${link.href}`)
     if (!this.current()) throw new Error('Reopen the chat to check the shared board.')
     this.#boards.set(board.boardId, board); this.save(); this.options.changed()
   }

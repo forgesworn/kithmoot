@@ -11,17 +11,28 @@ function fixture(store = memoryDeviceStore()) {
   let messages: ChatMessage[] = [], receive: (() => void) | undefined, admitted = true
   const sent: string[] = []
   const send = vi.fn(async (text: string) => {sent.push(text)})
-  const s = {roomId: 'room-a', participant: 'a'.repeat(64), chat: {send: vi.fn(async () => {})}, channel: (name: string) => {
+  const chatSend = vi.fn(async (_text: string) => {})
+  const s = {roomId: 'room-a', participant: 'a'.repeat(64), chat: {send: chatSend}, channel: (name: string) => {
     expect(name).toBe(ROOM_BOARDS_CHANNEL)
     return {send, messages: () => messages, onChange: (callback: () => void) => {receive = callback; return () => {receive = undefined}}}
   }} as unknown as RoomSession
   const catalog = new RoomBoards(s, {account: s.participant, store,
     crypt: localSelfCrypt(new Uint8Array(32).fill(1)), current: () => admitted, changed: vi.fn(), report: vi.fn()})
-  return {catalog, sent, send, store, revoke: () => {admitted = false}, receive: (text: string, peer = 'b'.repeat(64)) => {
+  return {catalog, sent, send, chatSend, store, revoke: () => {admitted = false}, receive: (text: string, peer = 'b'.repeat(64)) => {
     messages.push({id: String(messages.length), text, participant: peer, sentAt: Date.now() / 1000} as ChatMessage); receive?.()
   }}
 }
 describe('room board discovery', () => {
+  it('retries the visible chat link after catalogue publication succeeded but the announcement failed', async () => {
+    const f = fixture(); await f.catalog.open()
+    f.chatSend.mockRejectedValueOnce(new Error('chat refused'))
+    await expect(f.catalog.share(board)).rejects.toThrow('chat refused')
+    f.receive(encodeRoomBoard(board))
+    await f.catalog.share(board)
+    expect(f.chatSend).toHaveBeenCalledTimes(2)
+    expect(f.chatSend).toHaveBeenLastCalledWith(`Shared board: Room delivery\nhttps://girnel.app/app/#${'a'.repeat(100)}`)
+    f.catalog.close()
+  })
   it('retains an encrypted catalogue past chat retention and carries it to a late member', async () => {
     const first = fixture(); await first.catalog.open(); await first.catalog.share(board)
     await vi.waitFor(() => expect(first.store.keys()).toHaveLength(1))

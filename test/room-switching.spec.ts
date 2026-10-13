@@ -357,7 +357,13 @@ test('a pending acknowledgement holds switching and releases the open picker whe
     await expect(switchButton).toBeDisabled()
     acknowledge!()
     await expect(switchButton).toBeEnabled()
-    await switchButton.click()
+    await switchButton.hover()
+    const target = await switchButton.boundingBox(); expect(target).toBeTruthy()
+    await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2)
+    await page.mouse.down()
+    // Repaint through the real search handler while the pointer is held.
+    await page.locator('#roomSearch').evaluate(el => el.dispatchEvent(new Event('input', {bubbles: true})))
+    await page.mouse.up()
     await expect(page.locator('#roomTitle')).toHaveText('Project room')
     await expect(page.locator('#chatLog')).not.toContainText('Wait for this acknowledgement')
   } finally { await context.close() }

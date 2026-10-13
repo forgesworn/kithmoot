@@ -13541,6 +13541,13 @@ const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
 let roomSwitcherReturn: HTMLElement | undefined
 let previousRoom: KnownRoom | undefined
 let switchDestination: KnownRoom | undefined
+let roomSwitcherPress = false, roomSwitcherPaintPending = false
+$('roomSwitcherList').addEventListener('pointerdown', () => {roomSwitcherPress = true}, {capture: true})
+const releaseRoomSwitcherPress = () => {setTimeout(() => {
+  roomSwitcherPress = false
+  if (roomSwitcherPaintPending) {roomSwitcherPaintPending = false; renderRoomSwitcher()}
+}, 0)}
+for (const event of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(event, releaseRoomSwitcherPress, {capture: true})
 
 function openRoomSwitcher(event?: Event): void {
   const dialog = $('roomSwitcher') as HTMLDialogElement
@@ -13553,6 +13560,9 @@ function openRoomSwitcher(event?: Event): void {
 }
 
 function renderRoomSwitcher(): void {
+  // An acknowledgement or roster repaint must not replace a pressed room
+  // button before its native click. The switch itself rechecks permission.
+  if (roomSwitcherPress) {roomSwitcherPaintPending = true; return}
   const current = currentRoomId()
   const rooms = navigationRooms()
   const query = ($('roomSearch') as HTMLInputElement).value.trim().toLocaleLowerCase()

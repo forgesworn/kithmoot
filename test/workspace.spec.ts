@@ -499,7 +499,12 @@ test(`switching rooms opens the latest messages through delayed history and hono
     hold = true
     await switchTo('Reading room')
     await expect.poll(() => held.length).toBeGreaterThan(0)
+    // A delayed relay request does not establish that archive restoration has
+    // painted yet. Choose a reading position only after the room entry settled.
+    await expect(log.locator('.msg')).toHaveCount(13)
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
     await log.evaluate(el => {el.scrollTop = 100})
+    await expect.poll(() => log.evaluate(el => el.scrollTop)).toBeGreaterThan(48)
     await first.chat.send('A later arrival while reading old messages.')
     release()
     await expect(log.locator('.msg')).toHaveCount(14)
