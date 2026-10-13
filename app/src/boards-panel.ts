@@ -3,6 +3,7 @@ import type { DeviceStore } from './device-store.js'
 import { boardContextTitle, readBoardContext, saveBoardContext, type BoardContext } from './board-context.js'
 import { girnelAccess, type GirnelBoard, type GirnelWindow } from './girnel-host.js'
 import './boards-panel.css'
+import popupStyles from './boards-panel.css?inline'
 
 interface Scope { id: string; name: string }
 function errorText(error: unknown): string {
@@ -207,11 +208,11 @@ export class BoardsPanel {
   async popOut() {
     const view = this.#view, context = view?.context
     if (!view || !context || this.options.session() !== view.account) return
+    const existing = [...this.#popups].find(other => other.account === view.account && other.context?.boardId === context.boardId && !other.abort.signal.aborted && !other.popup?.closed)
+    if (existing?.popup) {existing.popup.focus(); return}
     // Open synchronously under the click gesture before any save/lock awaits.
-    const popup = window.open('', `kithmoot-board-${view.account.pubkey}-${context.boardId}`, 'popup,width=1180,height=800')
+    const popup = window.open('', '_blank', 'popup,width=1180,height=800')
     if (!popup) {this.#status.textContent = 'Your browser blocked the board window. Allow pop-ups for KithMoot, then try again.'; return}
-    const existing = [...this.#popups].find(other => other.popup === popup && !other.abort.signal.aborted)
-    if (existing) {popup.focus(); return}
     try {
       await (view.frame.contentWindow as GirnelWindow).girnelEmbed?.prepareMove()
       if (this.options.session() !== view.account || view.abort.signal.aborted) throw new Error('Your account changed before the board could move.')
@@ -223,15 +224,15 @@ export class BoardsPanel {
     } catch (error) {popup.close(); this.report(error)}
   }
   private mountPopup(popup: Window, account: SignetSession, context: BoardContext): BoardView {
-    const doc = popup.document; doc.title = boardContextTitle(context)
-    doc.documentElement.lang = 'en-GB'; doc.body.replaceChildren(); doc.body.className = 'boardsPopup'
-    // The home-page width rule also matches this document without a room.
-    // A board window owns the full width, including at desktop sizes.
-    doc.body.style.maxWidth = 'none'
+    const doc = popup.document
+    doc.title = boardContextTitle(context); doc.documentElement.lang = 'en-GB'
+    doc.body.replaceChildren(); doc.body.className = 'boardsPopup'
     const meta = doc.createElement('meta'); meta.name = 'referrer'; meta.content = 'no-referrer'; doc.head.append(meta)
-    // Clone only the host's stylesheet links; no code or inline event handlers.
-    for (const sheet of this.root.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) doc.head.append(sheet.cloneNode(true))
-    for (const style of this.root.querySelectorAll('style')) doc.head.append(style.cloneNode(true))
+    // A blank window does not reliably load the parent's stylesheet links.
+    // Give it the small board stylesheet directly, with the host's colours.
+    const style = doc.createElement('style'); style.textContent = popupStyles; doc.head.append(style)
+    const colours = getComputedStyle(this.root.body)
+    for (const name of ['--bg', '--text', '--border']) doc.body.style.setProperty(name, colours.getPropertyValue(name))
     const bar = doc.createElement('header'); bar.className = 'boardsBar'
     const heading = doc.createElement('h1'); heading.className = 'boardsContext'; heading.textContent = boardContextTitle(context); heading.style.fontSize = '1rem'
     const back = doc.createElement('button'); back.type = 'button'; back.textContent = 'Return to workspace'

@@ -42,8 +42,10 @@ test('the Electron sandbox hosts durable Boards and keeps labelled popouts throu
     const child = page.waitForEvent('popup'); await page.locator('#boardsPopOut').click(); const popup = await child
     await expect(popup).toHaveTitle('KithMoot · Native board')
     await expect(popup.frameLocator('iframe').getByRole('link', {name: 'Stored in the desktop profile', exact: true})).toBeVisible()
+    await expect.poll(() => popup.locator('iframe').evaluate(frame => Math.abs(frame.getBoundingClientRect().width - innerWidth) < 2)).toBe(true)
     await popup.reload()
     await expect(popup.frameLocator('iframe').getByRole('link', {name: 'Stored in the desktop profile', exact: true})).toBeVisible()
+    await expect.poll(() => popup.locator('iframe').evaluate(frame => Math.abs(frame.getBoundingClientRect().width - innerWidth) < 2)).toBe(true)
     const boardState = await popup.frameLocator('iframe').locator('#app').evaluate(async () => ({secure: isSecureContext, node: typeof (window as typeof window & {require?: unknown}).require, workers: (await navigator.serviceWorker.getRegistrations()).length}))
     expect(boardState).toEqual({secure: true, node: 'undefined', workers: 0})
     await popup.getByRole('button', {name: 'Return to workspace', exact: true}).click()

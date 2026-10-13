@@ -113,7 +113,7 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     await expect(first.locator('.boardsContext')).toHaveText('KithMoot · Design project · Design chat · Design board')
     let one = (await (await first.locator('iframe').elementHandle())!.contentFrame())!
     await expect(one.getByRole('heading', {name: 'Design board', exact: true})).toBeVisible()
-    expect(await first.locator('iframe').evaluate(frame => Math.abs(frame.getBoundingClientRect().width - innerWidth) < 2)).toBe(true)
+    await expect.poll(() => first.locator('iframe').evaluate(frame => Math.abs(frame.getBoundingClientRect().width - innerWidth) < 2), {message: 'The popped-out board must fill its window after the host styles load'}).toBe(true).catch(async error => {console.log('Board window bounds', await first.evaluate(() => JSON.stringify({viewport: innerWidth, body: document.body.getBoundingClientRect().toJSON(), frame: document.querySelector('iframe')?.getBoundingClientRect().toJSON(), maxWidth: getComputedStyle(document.body).maxWidth, width: getComputedStyle(document.body).width, padding: getComputedStyle(document.body).padding}))); throw error})
     await page.getByRole('button', {name: 'Choose another board', exact: true}).click()
     frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Release board'); await addCard(frame, 'Check release evidence')
