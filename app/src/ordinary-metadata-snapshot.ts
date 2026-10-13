@@ -6,7 +6,9 @@ const HEX = /^[0-9a-f]{64}$/
 const PIN_KEY = 'kithmoot.pinned-rooms.v1'
 const NOTIFICATION_PREFIX = 'kithmoot.notification-scopes.v1.'
 const PROJECT_PREFIX = 'kithmoot.project.v1.'
-const families = ['kithmoot.volume', 'kithmoot.pinned-rooms', 'kithmoot.notification-scopes', 'kithmoot.project']
+const BOARD_PREFIX = 'kithmoot.board-context.v1.'
+const BOARD_ID = /^[A-Za-z0-9_-]{1,160}$/
+const families = ['kithmoot.volume', 'kithmoot.pinned-rooms', 'kithmoot.notification-scopes', 'kithmoot.project', 'kithmoot.board-context']
 function hold(): never { throw new OrdinaryStateHold() }
 const account = (value: unknown): boolean => value === 'visitor' || typeof value === 'string' && HEX.test(value)
 function json(raw: string): unknown {
@@ -18,13 +20,35 @@ function json(raw: string): unknown {
   if (JSON.stringify(parsed) !== raw) hold()
   return parsed
 }
+function object(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+function boardScope(value: unknown): { id: string; name: string } {
+  if (!object(value) || Object.keys(value).join(',') !== 'id,name' || typeof value.id !== 'string' ||
+      !value.id || value.id.length > 200 || typeof value.name !== 'string' || !value.name || sanitiseDisplayName(value.name) !== value.name) hold()
+  return { id: value.id, name: value.name }
+}
+function boardContext(name: string, raw: string): void {
+  if (!name.startsWith(BOARD_PREFIX)) hold()
+  const parts = name.slice(BOARD_PREFIX.length).split('.')
+  if (parts.length !== 2 || !HEX.test(parts[0]!) || !BOARD_ID.test(parts[1]!)) hold()
+  const row = json(raw)
+  if (!object(row) || row.boardId !== parts[1] || typeof row.boardName !== 'string' ||
+      !row.boardName || sanitiseDisplayName(row.boardName) !== row.boardName) hold()
+  // Match the actual saveBoardContext writer, including field order. Never
+  // use its permissive reader to drop capabilities, extras or damaged labels.
+  const canonical = { boardId: row.boardId, boardName: row.boardName,
+    ...(Object.hasOwn(row, 'project') ? { project: boardScope(row.project) } : {}),
+    ...(Object.hasOwn(row, 'room') ? { room: boardScope(row.room) } : {}) }
+  if (JSON.stringify(canonical) !== raw) hold()
+}
 
 /** Strict custody of private UI metadata. No room membership, notification
  * permission, signer account or current project authority is returned. */
 export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
-  options: { kind: 'browser' | 'tab' }): Readonly<{ volumes: number; pinLists: number; notificationScopes: number; projects: number }> {
+  options: { kind: 'browser' | 'tab' }): Readonly<{ volumes: number; pinLists: number; notificationScopes: number; projects: number; boardContexts: number }> {
   if (!['browser', 'tab'].includes(options.kind)) hold()
-  const counts = { volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0 }
+  const counts = { volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, boardContexts: 0 }
   for (const [name, raw] of records) {
     if (name.startsWith('kithmoot.account.') && families.some(family => name.includes('.' + family))) hold()
     const family = families.find(value => name === value || name.startsWith(value + '.'))
@@ -51,6 +75,9 @@ export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, st
       // their exact opaque strings; they are not grants or membership proofs.
       if (scope[1] === 'room' && !HEX.test(scope[2])) hold()
       counts.notificationScopes++
+    } else if (family === 'kithmoot.board-context') {
+      boardContext(name, raw)
+      counts.boardContexts++
     } else {
       if (!name.startsWith(PROJECT_PREFIX)) hold()
       const parts = name.slice(PROJECT_PREFIX.length).split('.')

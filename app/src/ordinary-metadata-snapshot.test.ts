@@ -9,7 +9,7 @@ describe('private UI metadata custody', () => {
     const result = validate(records, false, { kind: 'browser' })
     expect([...records]).toEqual(before); expect(Object.isFrozen(result)).toBe(true)
     expect(result).toEqual({ volumes: ['all', 'volume'].includes(mode) ? 2 : 0, pinLists: ['all', 'pins'].includes(mode) ? 1 : 0,
-      notificationScopes: ['all', 'notifications'].includes(mode) ? 4 : 0, projects: ['all', 'projects'].includes(mode) ? 2 : 0 })
+      notificationScopes: ['all', 'notifications'].includes(mode) ? 4 : 0, projects: ['all', 'projects'].includes(mode) ? 2 : 0, boardContexts: 0 })
     expect(validate(records, true, { kind: 'browser' })).toEqual(result)
   })
   it.each(METADATA_FAULTS)('holds %s intact before or after completed custody', fault => {
@@ -26,6 +26,6 @@ describe('private UI metadata custody', () => {
     expect(validate(new Map([['kithmoot.pinned-rooms.v1', '[]']]), false, { kind: 'browser' }).pinLists).toBe(1)
   })
   it('keeps other families for the mandatory complete composite to classify', () => {
-    expect(validate(new Map([['kithmoot.channel-checks.v1.private', 'not metadata']]), false, { kind: 'browser' })).toEqual({ volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0 })
+    expect(validate(new Map([['kithmoot.channel-checks.v1.private', 'not metadata']]), false, { kind: 'browser' })).toEqual({ volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, boardContexts: 0 })
   })
 })

@@ -74,6 +74,7 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | `kithmoot.call.voicePreset`, `.call.effectMode`, `.call.blurStrength`, `.callProfile` | `call-prefs.ts`, `call-profile.ts`: media preferences and selected call diagnostic profile | Protected unless separately reviewed; profile can affect runtime media/routing |
 | `kithmoot.agents-hear`, `.notify`, `.notify-text`, `.send-delay`, `.profiles.enabled` | `main.ts`, `notify.ts`, `relay-settings.ts`: consent, disclosure and send behaviour | Protected settings; durable commit before dependent changes |
 | `kithmoot:emoji:recents`, `kithmoot:emoji:skinTone` | `chat-art-picker.ts`, `emoji-picker.ts`: usage history and identity-associated selection | Protected metadata; colon namespaces must be included |
+| `kithmoot.board-context.v1.H.B` | `board-context.ts`: board name and optional personal project/room labels; `B` is 1–160 ASCII letters, digits, `_` or `-` | Browser-only protected metadata; exact writer JSON, account and board scope, no card ID, invitation, secret or capability; labels confer no access |
 | Other recognised finite visual keys below | Individual UI writers | Exempt only after explicit exact-key/value review; no prefix exemption |
 | Unknown/new `kithmoot` / Signet login names | Future, malformed or unclassified state | Select and hold until explicitly classified; never silently leave outside migration |
 
@@ -82,6 +83,14 @@ snapshot validates the production physical account/room grammar and preserves
 project selector strings as inert metadata. It returns counts only. Unsupported
 wrappers, relocation into tab custody, invalid or noncanonical rows hold intact;
 completed custody does not waive those checks.
+
+Board context is also private metadata. Its validator matches the actual
+`saveBoardContext` output, including field order, sanitised nonempty names and
+optional `{id,name}` scopes. Scope IDs are opaque nonempty strings of at most
+200 UTF-16 units, as accepted by that writer; they are not membership or grant
+proofs. The permissive reader is not used during custody validation. Unknown
+versions, wrappers, visitor accounts, tab placement, extra fields and repaired
+JSON/labels hold intact. See [board-context custody](ordinary-board-context.md).
 
 ## Protected appearance values, not yet production-wired
 
