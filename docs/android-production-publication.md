@@ -6,6 +6,24 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.85 screen fitting — 13 October 2026
+
+Version **0.6.85**, code **108**, fits large desktop shares in both Android call
+tiles and the expanded viewer. A new share resets zoom/pan; rotated decoded
+frame dimensions determine the surface proportions. It retains recording and
+Save source `56925350` from 0.6.84. No immutable 0.6.84 APK is replaced.
+
+Source `f98f8cfa89806fffb2c491ae61bff0bd27639d05` produces the reviewed
+production APK, SHA-256
+`b342236d0410c54a57f7bc1097cf2fce51ea26c0afe9fa3ab1caa085bf05b061`.
+The [signed-build receipt](evidence/android-0.6.85-signed-build-2026-10-13.json)
+records embedded source, certificate, lineage and independent publication checks.
+A synthetic 3840-by-1080 live-video emulator check preserves all four desktop
+edges in both views and after a zoomed same-track replacement. Existing drawing,
+zoom and platform picture-in-picture checks pass. Physical Pixel and real-call
+screen-share acceptance remain unverified. Exact-source hosted checks, merge
+and public readbacks are required before this APK is published.
+
 ## Android 0.6.84 — 13 October 2026
 
 Version **0.6.84**, code **107**, adds audio/video recording with local Save,

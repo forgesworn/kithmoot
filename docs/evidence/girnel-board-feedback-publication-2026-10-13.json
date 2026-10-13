@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-13T11:01:51.951178+00:00",
+  "source": "339268a9270476bbfce3d91967709b1cca6a850b",
+  "version": "1.1.0",
+  "cloudflareVersion": "296bf0d4-43a0-4a47-9906-b97eac031509",
+  "priorCloudflareVersion": "09a64cf9-5fd5-4f39-b3a7-7c07f2f9aaf6",
+  "releaseManifestSha256": "d738521e27b0a35d136dbf66a60fc59110a984a0f5f86af2a7ac9682abc044f8",
+  "publicAssetsVerified": 114,
+  "publicManifestAndSecurityHeadersVerified": true,
+  "unitChecks": "2728 tests, 186 files; bounded two workers",
+  "browserChecks": "5 of 6 initial card editing checks passed; desktop colour reload was still opening at the assertion; unchanged exact test passes alone in 1.1 minutes",
+  "browserLogSha256": "0ddb8cf3c0afba96ac23398ddf2e70c671a1b5714bc3493016b86bb534d513dc",
+  "colourRetryLogSha256": "1463948b3dc231999b36386b6f60307b35cea8cea161111523fe680a4d634079",
+  "physicalAcceptance": false
+}

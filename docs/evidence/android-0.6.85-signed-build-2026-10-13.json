@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-13T10:59:19.673749+00:00",
+  "source": "f98f8cfa89806fffb2c491ae61bff0bd27639d05",
+  "preservedRecordingSource": "56925350b5b9dc0c7b7e6491d6caf42b6e0e0fcf",
+  "version": "0.6.85",
+  "versionCode": 108,
+  "signedSha256": "b342236d0410c54a57f7bc1097cf2fce51ea26c0afe9fa3ab1caa085bf05b061",
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "embeddedSourceVerified": true,
+  "independentPublicationVerifierPassed": true,
+  "syntheticPixelFourEdgeTestPassed": true,
+  "physicalScreenShareAcceptance": false,
+  "published": false
+}
