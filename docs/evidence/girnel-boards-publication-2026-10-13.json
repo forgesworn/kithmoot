@@ -1,0 +1,2181 @@
+{
+  "date": "2026-10-13T02:29:00.307Z",
+  "status": "published and verified",
+  "boards": "Girnel durable encrypted shared boards replace Work; independently labelled project/chat board windows; simultaneous people and reviewed agent assignments",
+  "production_source": "9e6966e2ad3fc93355dcc2cbb76286babc12a40d",
+  "tested_head": "d35561daf95e1e8a30d943eed3890863a7bde5f5",
+  "kithmoot_pr": "https://github.com/forgesworn/kithmoot/pull/409",
+  "girnel_pr": "https://github.com/forgesworn/girnel/pull/7",
+  "girnel_source": "d67a8dfaa391ca57a4af9d480c75e80753766f24",
+  "girnel_merge": "9cf9b65a08126398d4804a4af55020ac70163ce3",
+  "hosted_ci": {
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/38334363257",
+    "attempt": 1,
+    "checks": [
+      {
+        "name": "test (22)",
+        "result": "success"
+      },
+      {
+        "name": "test (24)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium call-relays)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (firefox 2 of 2)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium desktop)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (firefox 1 of 2)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium media)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium rooms)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium calls)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (chromium rest)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (webkit 2 of 2)",
+        "result": "success"
+      },
+      {
+        "name": "acceptance (webkit 1 of 2)",
+        "result": "success"
+      }
+    ],
+    "firefox_popup_fixture": "The expected self-closing Return to workspace click accepts only the closed-popup protocol error, asserts closure and preserves main-board/card return assertions; exact Firefox journey passed locally.",
+    "desktop_read_guard": "Passive resize, focus and scroll callbacks wait during room admission; desktop board journey and final signed native Mac journey passed after correction.",
+    "initial_firefox_failure": "Two unchanged MLS storage cases failed in previous run 38329046800; both exact-source Firefox cases passed locally (10.5s); MLS source, fixtures and timeouts remained unchanged."
+  },
+  "website_deployment": {
+    "release": "/var/www/kithmoot/releases/20261013T022454Z",
+    "date": "2026-10-13T02:25:43.489Z",
+    "pwaFiles": [
+      {
+        "path": "apple-touch-icon.png",
+        "bytes": 12743,
+        "sha256": "854457c441ae1e076104fe88b4cad56418f463603c1b3eac5014c0173d294065"
+      },
+      {
+        "path": "assets/600-cult-cutout-Cjh-z3Go.png",
+        "bytes": 1215502,
+        "sha256": "2c81cec4e52c0c41f106c5b152cf2959aeafb36b04b0bb72438d51ce3f2471b6"
+      },
+      {
+        "path": "assets/600-facepalm-DycPQhkX.png",
+        "bytes": 1206998,
+        "sha256": "c2df9fb6853194daa1e269714c09e84e6838c440794ea102651add9c9f122e90"
+      },
+      {
+        "path": "assets/600-laser-hmDDVMsG.png",
+        "bytes": 1250452,
+        "sha256": "08ee3e5f94d1e5fcf3ef578b36d42e91f9c3ba3b795c63cf8bebf17850c9696c"
+      },
+      {
+        "path": "assets/600-moon-BlsDhgFn.png",
+        "bytes": 1287258,
+        "sha256": "d613ed0a1c7942bb5356c3cf4f79435d017c942174de37277cfee753904b2316"
+      },
+      {
+        "path": "assets/forwarder-media.worker-8mRjDGYD.js",
+        "bytes": 12388,
+        "sha256": "ffa1227ac85875531ece850485b49875e9b380ffc4190f753b19df3b23a4637c"
+      },
+      {
+        "path": "assets/index-BvQFE_R-.js",
+        "bytes": 1919474,
+        "sha256": "dc6f3812cd56319ecbcaa40fc4a8ba5f99d5fecfa7c7bb691898e4b04c5b5174"
+      },
+      {
+        "path": "assets/index-jx5r87dx.css",
+        "bytes": 150531,
+        "sha256": "3664d643a2ba88423795e0430b6f6c82e5145296fcd1479d8303d76641c24eac"
+      },
+      {
+        "path": "assets/mls-room-link-forget-DAjqIb7L.js",
+        "bytes": 498,
+        "sha256": "a5b07ee12518ca249a8684242f56052994fca2174c7d0619a4421ecfbaae5cd2"
+      },
+      {
+        "path": "assets/vision_bundle-BqWW3oem.js",
+        "bytes": 134941,
+        "sha256": "69e37d9e754b6458ef7cb97ddd6ebd7c4a66979484e53c9ba85ebb7818d9e443"
+      },
+      {
+        "path": "assets/workbox-window.prod.es5-Bd17z0YL.js",
+        "bytes": 5653,
+        "sha256": "17bcc17d60dc78f927834b880c39649b03af46fd1f5cdbb8c42c5ae2b515dce9"
+      },
+      {
+        "path": "backgrounds/ember.svg",
+        "bytes": 646,
+        "sha256": "f9fdb9652315615e19f427ffada8f75a73fa0b74a2256760009a63fc2df262ad"
+      },
+      {
+        "path": "backgrounds/fen.svg",
+        "bytes": 645,
+        "sha256": "794b801caf1e2e960106b1e8b605f87384357b6aaaa8e0f84db439abce246e9f"
+      },
+      {
+        "path": "backgrounds/fish/anthias.webp",
+        "bytes": 9246,
+        "sha256": "34bad8499338239cf0e7eae6e784f2296e79aed55f8efb22b91e301b54f15d20"
+      },
+      {
+        "path": "backgrounds/fish/butterfly.webp",
+        "bytes": 9780,
+        "sha256": "8869c05dc7b6fa7d9f841d911480a40d3d1ef2e627270a04991987007c31ac44"
+      },
+      {
+        "path": "backgrounds/fish/clownfish.webp",
+        "bytes": 8220,
+        "sha256": "4e7755cae8c1f6ed202012e49f92a277d7454693ad5621470627ca3b36da49e5"
+      },
+      {
+        "path": "backgrounds/fish/damsel.webp",
+        "bytes": 8682,
+        "sha256": "c234b060328a9b27c10737da21dd5215db7defa087e3789f9fb5a885930f66d8"
+      },
+      {
+        "path": "backgrounds/fish/regal.webp",
+        "bytes": 8026,
+        "sha256": "b7b1bb8c063e9504ae8d23b4f1f6196c638a5d708000c678a2c0dca4e90578ac"
+      },
+      {
+        "path": "backgrounds/fish/tang.webp",
+        "bytes": 7432,
+        "sha256": "f215ca3f4aafbef391a4c2bf4180b2859ee2b3a56d85af5cbd708554edb74f3f"
+      },
+      {
+        "path": "backgrounds/sea-coral.webp",
+        "bytes": 171348,
+        "sha256": "7ecf534fa939e0734892bdce250e5310d6d5614bc0ad4fda5fa6c5826ed355ff"
+      },
+      {
+        "path": "backgrounds/sea-deep.webp",
+        "bytes": 45664,
+        "sha256": "4842195964cdac5e6f35c2a85f93ebbf92b533abe99be12238d339d19a524bfc"
+      },
+      {
+        "path": "backgrounds/sea-lagoon.webp",
+        "bytes": 87628,
+        "sha256": "8492c717fe63fe3bbe8d3465a1097268db7578902c77e78e61777735bf10d0c8"
+      },
+      {
+        "path": "backgrounds/sea-sand.webp",
+        "bytes": 127840,
+        "sha256": "dd9590adcab5a63a8eb1ac1df4ea10b8e7c764a1d9beb3ca404a7c21cd90335b"
+      },
+      {
+        "path": "backgrounds/slate.svg",
+        "bytes": 597,
+        "sha256": "6058b860bf5e38def18364bff3855977d9deffb3b41700535a9f309c007677d1"
+      },
+      {
+        "path": "chat-art/angry.gif",
+        "bytes": 210310,
+        "sha256": "bd53ad9314598158057d073a8404685388f0939ee6490899956c272a3f49ccf2"
+      },
+      {
+        "path": "chat-art/angry.png",
+        "bytes": 205830,
+        "sha256": "c1e0b2bb6f2f8dafbbfed1ff6905d53fc394a372f4e53509324214459eafa32f"
+      },
+      {
+        "path": "chat-art/catalogue.json",
+        "bytes": 12251,
+        "sha256": "e325b9e2c457ca9d46ecd84692dc1d64952c4c5f9737572c36ab79eb2b638ca4"
+      },
+      {
+        "path": "chat-art/celebrate.gif",
+        "bytes": 166280,
+        "sha256": "c358c8bbe184fd188280af476fa87a7febf50d584fca2f87225ba9242772c8ef"
+      },
+      {
+        "path": "chat-art/celebrate.png",
+        "bytes": 211548,
+        "sha256": "1af5ce78732f3a0c9e0b9e1e33002432579f6349f398d2b4575bc15516792e68"
+      },
+      {
+        "path": "chat-art/coffee-animation.png",
+        "bytes": 226310,
+        "sha256": "3a8c5667927a3c47e9267285cb5a3d584c61918cef8df5328a7989987e1fe473"
+      },
+      {
+        "path": "chat-art/coffee.gif",
+        "bytes": 5924981,
+        "sha256": "1ec70ce57a315e6dd13e8d451543eb529786a792f218121c9bfd67db718a61f1"
+      },
+      {
+        "path": "chat-art/coffee.png",
+        "bytes": 202751,
+        "sha256": "fa77ef4cf74855a53992310c045ac7a983909a82b07a674c761e3b6d13390989"
+      },
+      {
+        "path": "chat-art/cool.gif",
+        "bytes": 194469,
+        "sha256": "f3512c3ff7456080036cd301a36d424616c68b96c280ad25bd56dbaa497940ce"
+      },
+      {
+        "path": "chat-art/cool.png",
+        "bytes": 192505,
+        "sha256": "4a8d92d2b279e6d3d0a6abfee85b6748b7f9c019a4a25d17963fb8a02094cfe6"
+      },
+      {
+        "path": "chat-art/cry.gif",
+        "bytes": 208522,
+        "sha256": "eb3afeb346e1f0a76b924e979af6df072bc909e85c14e26d90c60d1619ec86dc"
+      },
+      {
+        "path": "chat-art/cry.png",
+        "bytes": 206705,
+        "sha256": "f851975bcb2fd0abdd53f8204be98561b09265b13e0507feb0f02c9881e3da31"
+      },
+      {
+        "path": "chat-art/donkey-bitcoin.gif",
+        "bytes": 3313210,
+        "sha256": "9299201cd31b10a520a18cd408c4a3f6cbe4858c5819ba5a8951884eb0796626"
+      },
+      {
+        "path": "chat-art/donkey-bitcoin.png",
+        "bytes": 179945,
+        "sha256": "5e5ace7fd49d260dca46a54f5374a84f95530c462d48c205d15c603c862ce09c"
+      },
+      {
+        "path": "chat-art/donkey-facepalm.gif",
+        "bytes": 3216659,
+        "sha256": "93940fd71884d3abe93ffe9fac1ad767c2a622cf9437b9ff43d2a8e1173cb774"
+      },
+      {
+        "path": "chat-art/donkey-facepalm.png",
+        "bytes": 169227,
+        "sha256": "d1682b22135db49d0c6ab70d37950230376aa833ac36046d89110b8287891add"
+      },
+      {
+        "path": "chat-art/donkey-laugh.gif",
+        "bytes": 3431941,
+        "sha256": "0f4d7aed5da34d581e8ec3f1c0df9ef78e53eed049f9d49f96c90c836b3c920a"
+      },
+      {
+        "path": "chat-art/donkey-laugh.png",
+        "bytes": 181230,
+        "sha256": "26d4e0fe11522c3341a7f8514c43af3935868a85d72f5f66d37b0d2f308b0cec"
+      },
+      {
+        "path": "chat-art/exhausted.gif",
+        "bytes": 170187,
+        "sha256": "49c7cb92bc0754b162a1c6770ebbd0ca4e1b6ff8768b1cfb84d276ec75606d91"
+      },
+      {
+        "path": "chat-art/exhausted.png",
+        "bytes": 200755,
+        "sha256": "49193696fbd2a378371f48c649b70f2e4f4646eb836d87842323f4e9a94172f0"
+      },
+      {
+        "path": "chat-art/eyeroll.gif",
+        "bytes": 198432,
+        "sha256": "6ab0cd20422f7433856d1f6f9f972e8be5de14b3c4c73125e6de03596a6cfdf2"
+      },
+      {
+        "path": "chat-art/eyeroll.png",
+        "bytes": 189826,
+        "sha256": "0fd217057d381e08357bb020c8063b52bf0e8dac7167cd3c52dc6ae578530931"
+      },
+      {
+        "path": "chat-art/facepalm.gif",
+        "bytes": 202473,
+        "sha256": "fd5c2d97327e67725132e8c851e8f33240a5da19b113566874b96c2e14d891e0"
+      },
+      {
+        "path": "chat-art/facepalm.png",
+        "bytes": 186838,
+        "sha256": "d7de0056e35eff759d81f1625e84a5138cd1ef6633ff6d78b61a973c0fd18a84"
+      },
+      {
+        "path": "chat-art/handshake.gif",
+        "bytes": 180119,
+        "sha256": "142e3f6b0974ec93b00e16886440bf0d94f0e46bb3e63f591435e1f6dbfd5520"
+      },
+      {
+        "path": "chat-art/handshake.png",
+        "bytes": 195638,
+        "sha256": "5e34b849c9d790fc48e8933bec22921c2dda67007d478315bf4d57748087d87c"
+      },
+      {
+        "path": "chat-art/laugh.gif",
+        "bytes": 181899,
+        "sha256": "d8ee8376b45718e509d4d4b6a8d5b4edeb2e1f0f533945cf2fe56933937898e2"
+      },
+      {
+        "path": "chat-art/laugh.png",
+        "bytes": 202302,
+        "sha256": "a925cfc6ca719a278ac535313e41d77d11724f06a0647c3281343a640427bb18"
+      },
+      {
+        "path": "chat-art/love.gif",
+        "bytes": 189725,
+        "sha256": "4e15e5741d85b072ae713b9deea081184d72728e92f7b331f9ee8d973900b447"
+      },
+      {
+        "path": "chat-art/love.png",
+        "bytes": 197197,
+        "sha256": "82c69f1b7f5d2fc29802f5a9781622a8a260087200ad913a525fbfe1402f1541"
+      },
+      {
+        "path": "chat-art/melting.gif",
+        "bytes": 192286,
+        "sha256": "5b5e472059cc1a5043f3460509ba01f29d76b53a73ccd78746a4df792f76e9bf"
+      },
+      {
+        "path": "chat-art/melting.png",
+        "bytes": 192504,
+        "sha256": "e83309850cf3499de2191b3b1f12fc7d062ceb4b5327637c3ec8ea2faf93791e"
+      },
+      {
+        "path": "chat-art/micdrop.gif",
+        "bytes": 200200,
+        "sha256": "66d55bd87d9c36811eca89095370926be03ef39ef190314b4bbf49e49c6d5d6f"
+      },
+      {
+        "path": "chat-art/micdrop.png",
+        "bytes": 202293,
+        "sha256": "a0255288079b2205435f462d277875842ba8f2a8e0d197616818c839142c546d"
+      },
+      {
+        "path": "chat-art/mindblown.gif",
+        "bytes": 199425,
+        "sha256": "18f4f5b0ed2c084a5a2cda6fbdc54c7cadee4396081ec79adc4a212158c2031e"
+      },
+      {
+        "path": "chat-art/mindblown.png",
+        "bytes": 218758,
+        "sha256": "09e445ff4fd58fb02c77d1e89c774fc07fd46eecc50cdd1aa16d268eb1e0fdc3"
+      },
+      {
+        "path": "chat-art/moon.gif",
+        "bytes": 196509,
+        "sha256": "bf70e0d1f9c49fb25c9a2b8a3481d8003a92b4922d15927a5b637aae45ac6996"
+      },
+      {
+        "path": "chat-art/moon.png",
+        "bytes": 221611,
+        "sha256": "456f171f213383a98f5768291e746fc51c52d8cc70cf75958b77c9be1effcca6"
+      },
+      {
+        "path": "chat-art/plotting.gif",
+        "bytes": 210422,
+        "sha256": "bd968524b5060c6b06d8124b80b5676fe156e9225bb16b129238672bdb6d09a8"
+      },
+      {
+        "path": "chat-art/plotting.png",
+        "bytes": 196182,
+        "sha256": "e96b173bf188fe8ad6c435fbe24c98156319ab2d825631da9f4e6569f546d512"
+      },
+      {
+        "path": "chat-art/popcorn.gif",
+        "bytes": 211360,
+        "sha256": "a512ce1e7b5657ec1610824dbf1298e17044bb969093f48c9532a929f8694176"
+      },
+      {
+        "path": "chat-art/popcorn.png",
+        "bytes": 198115,
+        "sha256": "39a5acc4e8bafbbdce2862033b3bdc3c33f65be48c2806fa2c2587e302ead4c2"
+      },
+      {
+        "path": "chat-art/shrug.gif",
+        "bytes": 201407,
+        "sha256": "e008836fdfa26899eea87cb26ebdb57dfb7b58d01bf593aab4b8fe0e73dd9d72"
+      },
+      {
+        "path": "chat-art/shrug.png",
+        "bytes": 188096,
+        "sha256": "ecbde6b7b59fa7ef9b3da3b8d9d8670667ee2b9baaf5e06477638b774abf4124"
+      },
+      {
+        "path": "chat-art/sideeye.gif",
+        "bytes": 187605,
+        "sha256": "42e7cc4171e78c791f29b41d4bd69a38a4c69931ffffd7126e0fee4e6d66a7c0"
+      },
+      {
+        "path": "chat-art/sideeye.png",
+        "bytes": 185589,
+        "sha256": "4bc95bcd8ce4eeb8fe50338277f747bae48fda16529b803f19227074bfc9f69b"
+      },
+      {
+        "path": "chat-art/slowclap.gif",
+        "bytes": 192025,
+        "sha256": "fe15950709c0db4fc79ce996ca92d5fc1bd3f3f0fc07b72ef8c2c69011d27297"
+      },
+      {
+        "path": "chat-art/slowclap.png",
+        "bytes": 197716,
+        "sha256": "5e88bf8504de1deacb421a2e5b7a0d439635d84e0bcdd517842bccf3a0723c6c"
+      },
+      {
+        "path": "chat-art/thumbsdown.gif",
+        "bytes": 196826,
+        "sha256": "718382669792860db182e6c23d452138c9b123e4266e3496e287bc770afb4350"
+      },
+      {
+        "path": "chat-art/thumbsdown.png",
+        "bytes": 189380,
+        "sha256": "b28be8d27599f7971dcd12a193504f6ff8220830daa49ab3dc0768e506d33916"
+      },
+      {
+        "path": "chat-art/thumbsup.gif",
+        "bytes": 208364,
+        "sha256": "74aded41c27e6e1544ed653e1c497544bc1e9060ba43d81b19f01f851e6dfef9"
+      },
+      {
+        "path": "chat-art/thumbsup.png",
+        "bytes": 205917,
+        "sha256": "0bdef53915a911f151a53217d88359301f6405f3d2d01389b203e8cd678460ff"
+      },
+      {
+        "path": "chat-art/waiting.gif",
+        "bytes": 215675,
+        "sha256": "36f8bdc7cff94a2c994fb603575bc0b3af8f041dc3c2071aaa175c4329484c70"
+      },
+      {
+        "path": "chat-art/waiting.png",
+        "bytes": 199975,
+        "sha256": "2cecbd5ad2294092c9cc89785528b2310025f239e102662409a272130201a610"
+      },
+      {
+        "path": "chat-art/wtf.gif",
+        "bytes": 205238,
+        "sha256": "52c718b06d1c70475e62b4781bf6e2a3ff647062704888cae83525c5c16a3254"
+      },
+      {
+        "path": "chat-art/wtf.png",
+        "bytes": 205065,
+        "sha256": "152e053ca93f4992525cf6fe6a73c3a3576b86ba06d7c16f6e9608eb2301ebef"
+      },
+      {
+        "path": "emoji/LICENSE",
+        "bytes": 1085,
+        "sha256": "4b16d5b187e3d04c36d1a8c96280f8dd7e6eac2e254dad497112a351b441084a"
+      },
+      {
+        "path": "emoji/angry.png",
+        "bytes": 43367,
+        "sha256": "aff7bb7bed346325037b9e926a09ca670e6bc5dd119da9a57e480f85e41fa34e"
+      },
+      {
+        "path": "emoji/apple.png",
+        "bytes": 44500,
+        "sha256": "82c7be8d7d79d2a723b7b5b7e8e608f0b52970140244c9c8b8777a940cb650b6"
+      },
+      {
+        "path": "emoji/avocado.png",
+        "bytes": 48851,
+        "sha256": "24b022a4795a3b6b6364e62e32181301060e27a4784f956e38f16504dc729acf"
+      },
+      {
+        "path": "emoji/banana.png",
+        "bytes": 45418,
+        "sha256": "3c65eb33e25150d7f3bd0aa9b2b5c73fc74e4a8225c6f1a3c53230a8c0476fd4"
+      },
+      {
+        "path": "emoji/bandage.png",
+        "bytes": 48859,
+        "sha256": "0e1bc354fc60aa07ccb0a618213bc6317f500f06d3d2a31856ee3aec673b7ed1"
+      },
+      {
+        "path": "emoji/bear.png",
+        "bytes": 47604,
+        "sha256": "e21834268e4b17d42eb894f382cb1d1cea514ebcd5349f0e0f0d354c3055fac0"
+      },
+      {
+        "path": "emoji/bee.png",
+        "bytes": 49712,
+        "sha256": "75321fa9dc95517e798eff114964b1fd5dd84eefdec3a3390feba96cbf1302f5"
+      },
+      {
+        "path": "emoji/beer.png",
+        "bytes": 46580,
+        "sha256": "9a18623def2f60355b7c86d08c0dce1711a1f19f94b401464b0670683caa2973"
+      },
+      {
+        "path": "emoji/bitcoin.png",
+        "bytes": 47254,
+        "sha256": "a7fdc723d02b40d799c3674462bdfbfcc13ab76851fd5e7a203b60fe99be66df"
+      },
+      {
+        "path": "emoji/blush.png",
+        "bytes": 45667,
+        "sha256": "60b605a01777a65859373e88dea93a91d6bec7a99437214489c9e6a3dcba078c"
+      },
+      {
+        "path": "emoji/broken-heart.png",
+        "bytes": 40663,
+        "sha256": "f94eee5e9ff803d9318d60f814615de5e93df17ba395a91cce960763e2f7b509"
+      },
+      {
+        "path": "emoji/burger.png",
+        "bytes": 54613,
+        "sha256": "e01e55fb20bf1261fa200b23f16a0655899f9264dd6f886bd7525ccde812b791"
+      },
+      {
+        "path": "emoji/butterfly.png",
+        "bytes": 52346,
+        "sha256": "8dc18060dc248a3ac4fe9123c83c0dc97978d19914808215ea94bf2939a6d324"
+      },
+      {
+        "path": "emoji/cake.png",
+        "bytes": 52266,
+        "sha256": "f02a0037c80dbd71e03f52a1f3e4810ad4b3c6173c7ec74166d1056ad80c9d89"
+      },
+      {
+        "path": "emoji/camera.png",
+        "bytes": 45533,
+        "sha256": "c106e20615194dcf4ab1cb33a6712abe6e0fae5a047ba2afb4964bc4026c7e7a"
+      },
+      {
+        "path": "emoji/cat.png",
+        "bytes": 46321,
+        "sha256": "1ae858206d43c84f2126ca07368681b6fcb1e7c16442c0d68fc868cf38105a1e"
+      },
+      {
+        "path": "emoji/celebrate.png",
+        "bytes": 57366,
+        "sha256": "754a08b1bf1e629e7b022fa4df7922a1dec365762a3ec461f349a30a4a93dceb"
+      },
+      {
+        "path": "emoji/cheers.png",
+        "bytes": 49655,
+        "sha256": "93058a33ab3fe13822701b925b4055c4bcb1489480f0382e77bf9b627f66a1e0"
+      },
+      {
+        "path": "emoji/chicken.png",
+        "bytes": 46597,
+        "sha256": "915854befe284ceefcc80a8dd854a44e217f193ab910f71490434c6345896621"
+      },
+      {
+        "path": "emoji/clap-tone1.png",
+        "bytes": 49954,
+        "sha256": "f2ee6a66b64082607d08114c9101c9d8e859a789705e76427fabb7647021a063"
+      },
+      {
+        "path": "emoji/clap-tone2.png",
+        "bytes": 48837,
+        "sha256": "f3b0d0aa283e00107b5c30729306095de780e9530b0fdcf3f95cc9cc0e908fdc"
+      },
+      {
+        "path": "emoji/clap-tone3.png",
+        "bytes": 47942,
+        "sha256": "e6309c43b4aa00daf42e9a8104920ad08fc1771f1c60ee06d9110e45731de087"
+      },
+      {
+        "path": "emoji/clap-tone4.png",
+        "bytes": 47850,
+        "sha256": "d967fbc47b556375d34bc15748252e92eff105789fe31b621f107e6438e6f775"
+      },
+      {
+        "path": "emoji/clap-tone5.png",
+        "bytes": 50306,
+        "sha256": "c9ab31d9e39116c461048ea3dea2f1a40321a103416e93355fcaf1aca91feafa"
+      },
+      {
+        "path": "emoji/clap.png",
+        "bytes": 49781,
+        "sha256": "6c83b2c2b32eb9f963000ddbaaa6199eda39f9dca94c2abc5481e7500040788a"
+      },
+      {
+        "path": "emoji/coffee.png",
+        "bytes": 47218,
+        "sha256": "3e43d1ea64a6b5efb97f05503cacca8693e1674a15fcd8e367ed70ed0c5d4739"
+      },
+      {
+        "path": "emoji/cold-face.png",
+        "bytes": 51908,
+        "sha256": "cf1845c2a6d35c097a0e4d388185b83c91010dd40f64e264b8d2833d2b1d9a5b"
+      },
+      {
+        "path": "emoji/cookie.png",
+        "bytes": 58379,
+        "sha256": "51aaf8a0d204f58747028e99892910b462b2be561611212d97ed4b317b806199"
+      },
+      {
+        "path": "emoji/cool.png",
+        "bytes": 46913,
+        "sha256": "6192b53be0f1197ea6bfdefe4e7751470d76189ec494835572c799526fe01376"
+      },
+      {
+        "path": "emoji/cow.png",
+        "bytes": 44390,
+        "sha256": "4a748098260a67f19a6f734acefed02ce37ba7036aadca13a99b10796d04a1f6"
+      },
+      {
+        "path": "emoji/crying.png",
+        "bytes": 46656,
+        "sha256": "a5a86f036dbf585d2526ec9dfe98b8b796dd192f00376fdc717e8a6673d5ba48"
+      },
+      {
+        "path": "emoji/crypto-donkey.png",
+        "bytes": 42835,
+        "sha256": "01d6743d4f962057d0e9d4e545c6d11eb54c824fd1570ec47c381c10f80f4df2"
+      },
+      {
+        "path": "emoji/delicious.png",
+        "bytes": 47787,
+        "sha256": "ee5cbbe055b2129b9126efd4f22b4a2a021785b32c7bdefe17c694e5a9151b6f"
+      },
+      {
+        "path": "emoji/dog.png",
+        "bytes": 40546,
+        "sha256": "f1590eb4e415906a3e25bb659c3ffd952d5eb07c3174eeccbe2a131d7d0af8e2"
+      },
+      {
+        "path": "emoji/doughnut.png",
+        "bytes": 57921,
+        "sha256": "cb211d2ddaf39a7dd44fc0f8173d9173003fcec562f4d340fa6464d17d808aeb"
+      },
+      {
+        "path": "emoji/duck.png",
+        "bytes": 46299,
+        "sha256": "4fb0cb60569a0eade31730d01d491d3f4d96b094f525bf08b49af22117e6f83e"
+      },
+      {
+        "path": "emoji/eye-roll.png",
+        "bytes": 47214,
+        "sha256": "d9ee13906f6754215a9978a2f174372641477e8dfd9ea8ec3256ee7086b7452a"
+      },
+      {
+        "path": "emoji/fever.png",
+        "bytes": 51370,
+        "sha256": "00557f178548d97953fc2688d9aafba0325b71c2b4ba3a458c5d9f3eff9cc4be"
+      },
+      {
+        "path": "emoji/fire.png",
+        "bytes": 39600,
+        "sha256": "f45d80d0a61a557f673b088052ea33a2af44af18a3c53109be9ed4037182b587"
+      },
+      {
+        "path": "emoji/football.png",
+        "bytes": 52287,
+        "sha256": "f783e0fe12c34b89c9edaccc0d1ca30496498b2a95a952202d56810a7b04e24a"
+      },
+      {
+        "path": "emoji/fox.png",
+        "bytes": 47293,
+        "sha256": "5af9a7da47e739c5755361b0a510ebd7b7fb702b33ec4b6edc920af5ce99e67f"
+      },
+      {
+        "path": "emoji/fries.png",
+        "bytes": 46029,
+        "sha256": "967fb7dff96c5b859aed07c458186c8deca9aa622f97ce10e74a80ed58affbd9"
+      },
+      {
+        "path": "emoji/frog.png",
+        "bytes": 44267,
+        "sha256": "66df2afe453abe6d1e2bac5929d2f09c51da167c8b5fc82db1fcedeb9add0e62"
+      },
+      {
+        "path": "emoji/fs-forgesworn.png",
+        "bytes": 22419,
+        "sha256": "158894a18d41387d8f879930bcf72b51c1297848b5b6359be3fa973e2f232bb7"
+      },
+      {
+        "path": "emoji/fs-kindred.png",
+        "bytes": 6307,
+        "sha256": "b27e9c9673b1a13bded828304309505785317f9ace8904456b2e19a6ca4feece"
+      },
+      {
+        "path": "emoji/fs-kithmoot.png",
+        "bytes": 19438,
+        "sha256": "e9a5ab9ad870577b0b02ea3f204094d688cc00e712452f0659ee7e9ad6d71d58"
+      },
+      {
+        "path": "emoji/fs-mysignet.png",
+        "bytes": 16954,
+        "sha256": "4ffb9b90c4276d4e1b6a1f9b320eb6f23be161757b0480c9bee2c805dc668036"
+      },
+      {
+        "path": "emoji/fs-vitark-den.png",
+        "bytes": 12924,
+        "sha256": "8da0f7e306d4311bdd814fd85564df09957665a41c3ccd19387991d9d01b404b"
+      },
+      {
+        "path": "emoji/fs-vitark-record.png",
+        "bytes": 16227,
+        "sha256": "9e51b03a8270b5fc1b7f7c3bc0615e4bec046feaaa281a0a9eb6cc08dc455e45"
+      },
+      {
+        "path": "emoji/fs-vitark-still.png",
+        "bytes": 14407,
+        "sha256": "e00e2a3c1b6e9be5be722faa5f0df63fafc2b451ed4c8ccc111e330a864308eb"
+      },
+      {
+        "path": "emoji/fs-vitark-train.png",
+        "bytes": 14655,
+        "sha256": "ead5f5156879dfdd72e36d66f8d2c1d2e229ad64cf727213f1059e5c806ab79c"
+      },
+      {
+        "path": "emoji/fs-vitark.png",
+        "bytes": 12279,
+        "sha256": "be6eaccf2538a28b43ad7c2342ae795540d8a96701e985355cd9affc653cd4ae"
+      },
+      {
+        "path": "emoji/furious.png",
+        "bytes": 46208,
+        "sha256": "24eca3b8dfc6e5997f9a27ba9b0b4d1ed2dc48694d085c35cf3ba56016c2bb4b"
+      },
+      {
+        "path": "emoji/gamepad.png",
+        "bytes": 35324,
+        "sha256": "6cfc678f957bc36475e792737655936a20fe2962bc8be2d28bb26908dc7a527d"
+      },
+      {
+        "path": "emoji/gift.png",
+        "bytes": 48278,
+        "sha256": "56c8a80d47279a1e4e48d60f287871fb23761680a7b96c2b1c18b59d96dd7648"
+      },
+      {
+        "path": "emoji/grimace.png",
+        "bytes": 45958,
+        "sha256": "a0c5b3f38c59a6e9a6ed4a393fc905ab371e5dd057318883668c6372b52d87d0"
+      },
+      {
+        "path": "emoji/grin.png",
+        "bytes": 45441,
+        "sha256": "e549c9f0b0bf5037c4391b26c2c02563382e7cd2f4dcc6798a34b4489aa40bd7"
+      },
+      {
+        "path": "emoji/grinning.png",
+        "bytes": 47088,
+        "sha256": "751ec851c31415c6dfe352fedd353525a68c6407a12436d019c2a42273fb8cf2"
+      },
+      {
+        "path": "emoji/hamster.png",
+        "bytes": 50496,
+        "sha256": "2d05cb33b1ecef63a96ae72437238457606e295b7316264536c8691aa3c38a93"
+      },
+      {
+        "path": "emoji/happy.png",
+        "bytes": 45269,
+        "sha256": "1eac8b060493a9f76addfbc1c7b9d899a9b735356cb464512395fb0ae49d63bf"
+      },
+      {
+        "path": "emoji/heart-eyes.png",
+        "bytes": 47900,
+        "sha256": "b05edc44134a5331c1322fcaf5c3f6d1fdf8dd7540869f73a870e763223dea61"
+      },
+      {
+        "path": "emoji/heart.png",
+        "bytes": 36825,
+        "sha256": "6742254e566fe3877d5383af9fcc313fd7617b9565de1e99b85197388642fa65"
+      },
+      {
+        "path": "emoji/hot-face.png",
+        "bytes": 50174,
+        "sha256": "1e2e54cad83d8b9572a9e5871da17f37d31366f94528b4df84ad793e27feb64a"
+      },
+      {
+        "path": "emoji/huff.png",
+        "bytes": 51411,
+        "sha256": "983030b77b6e43b97aacdfe3e40383f4641c0ff1c3c5daceeb72fae93a7b711f"
+      },
+      {
+        "path": "emoji/ice-cream.png",
+        "bytes": 32466,
+        "sha256": "4fb5ba30d18f619b0873d2f1da927b185e5988eee255e43f57353f118a7a8410"
+      },
+      {
+        "path": "emoji/idea.png",
+        "bytes": 34021,
+        "sha256": "6e8949781e113606e3b584c810b24a645a477df97907f88a65cdb493c8a57cac"
+      },
+      {
+        "path": "emoji/innocent.png",
+        "bytes": 49897,
+        "sha256": "25133b24217aa04e1dd194239a9303956bd35cd5efe96517fbe0437f5a812f47"
+      },
+      {
+        "path": "emoji/jumping-spider.png",
+        "bytes": 56876,
+        "sha256": "80af0c42d692f3b32ec289bf41100d88fa1fb0dc63e3c1acf21f4f2f83aa7271"
+      },
+      {
+        "path": "emoji/key.png",
+        "bytes": 45510,
+        "sha256": "54855c5e65d5b3231269ab016f12d677b21f678bc53b90e0e30099ef53a03e89"
+      },
+      {
+        "path": "emoji/kiss.png",
+        "bytes": 45330,
+        "sha256": "e1145c8d8164016f3be6ac8aadb79dbf84bffaa00b0e9b6299c2546b6adcead1"
+      },
+      {
+        "path": "emoji/koala.png",
+        "bytes": 39887,
+        "sha256": "934dd631f16dfc8071c4771aef6ded84fb862490172f5b9ca7a4ef224085c90e"
+      },
+      {
+        "path": "emoji/laptop.png",
+        "bytes": 34038,
+        "sha256": "35ec9ac0a02b385854f8f91445da86a844f83541c4c4c161bb65f738629cbecb"
+      },
+      {
+        "path": "emoji/lemon.png",
+        "bytes": 43999,
+        "sha256": "d5ae3fa41f3b21bdb8c856e976e9d2a91a9f8c81a0140fc78c6fe65325814275"
+      },
+      {
+        "path": "emoji/lion.png",
+        "bytes": 51770,
+        "sha256": "49c8d0ecd8f3641ec55d21f9c2ef1d4225995d3e62d7aac25de3b2279779ec76"
+      },
+      {
+        "path": "emoji/lock.png",
+        "bytes": 37192,
+        "sha256": "590334435ff1f6465d9269c059cebf165924c8bd98b6127a458cb7c5cbd94f87"
+      },
+      {
+        "path": "emoji/love.png",
+        "bytes": 47583,
+        "sha256": "58f739672b00e366a28e4456e87c974589cab7acd46aff82eab2567186da331b"
+      },
+      {
+        "path": "emoji/manifest.json",
+        "bytes": 64773,
+        "sha256": "277a36fa541212c4b06793e5837eb3967a3307834f0a25f0fd476b64e0584ecd"
+      },
+      {
+        "path": "emoji/mask.png",
+        "bytes": 48388,
+        "sha256": "c24798454d415536a9dae1cf08ab1f12257258c6ca392a72ac75919c795c45df"
+      },
+      {
+        "path": "emoji/mind-blown.png",
+        "bytes": 53432,
+        "sha256": "269118b9340577582110bfd9fcfc7568c3afdd6e67f3fa9a7c2b2bda8cb5d6ff"
+      },
+      {
+        "path": "emoji/money-face.png",
+        "bytes": 50420,
+        "sha256": "b6f8d1123434f208cd01e788a1733427230ce0c8e27a4044f86d0eaa0e3e0b1e"
+      },
+      {
+        "path": "emoji/monkey.png",
+        "bytes": 41888,
+        "sha256": "fdda6b09bc42de4432e4d50efed7599d4e6f2c60dc69897411dbf264a974d35b"
+      },
+      {
+        "path": "emoji/moon.png",
+        "bytes": 41631,
+        "sha256": "15082d37e80379f41c1d3fdacdf2a57b5229af13ccd8e5655dd2a27cfc873b94"
+      },
+      {
+        "path": "emoji/mouse.png",
+        "bytes": 45231,
+        "sha256": "b07cdf816ca06502ca5c0f2b6dbd87b741df948259fc6a2f43a67d1e4c1404cc"
+      },
+      {
+        "path": "emoji/nauseated.png",
+        "bytes": 48147,
+        "sha256": "cfc8666f5c42b23bde044c528f1cdc1c2db679bdb4f2c3a70ac96f04fae02360"
+      },
+      {
+        "path": "emoji/neutral.png",
+        "bytes": 42601,
+        "sha256": "e1ee63b931878529913ba57c8dbda8374eea02fd57f53018674643e707ae247e"
+      },
+      {
+        "path": "emoji/no.png",
+        "bytes": 45524,
+        "sha256": "222b7dff8721f5bbb76bd0c6fc8611cad5e5be9734148e46e4c957cf59369bd7"
+      },
+      {
+        "path": "emoji/octopus.png",
+        "bytes": 49663,
+        "sha256": "f0a7f0a41c465899c6919cfd74b17f4ed632e73cf84e29bdb7eefcd0af4cf83c"
+      },
+      {
+        "path": "emoji/owl.png",
+        "bytes": 53569,
+        "sha256": "c883c43699827e9748608ebf93ff08a2414903f892fdf1f92c495e02eeebff89"
+      },
+      {
+        "path": "emoji/panda.png",
+        "bytes": 49959,
+        "sha256": "d7694b6fddb4bb9425165585814f4265c0a3fefe599affdb77ac042d1c02ee36"
+      },
+      {
+        "path": "emoji/party-face.png",
+        "bytes": 54918,
+        "sha256": "4761673de91d05cfb3bf37a5e481de4a3039dd33fcdf3c27f2320cfaf65d95f9"
+      },
+      {
+        "path": "emoji/peace-tone1.png",
+        "bytes": 35296,
+        "sha256": "e69451198c0881f28173a3c02423bcfa3186f791a1f9d9dd73b753aac356b42a"
+      },
+      {
+        "path": "emoji/peace-tone2.png",
+        "bytes": 35172,
+        "sha256": "5b03cd838af6255e922a153a8e4a55e897199913aa98041a8a3a5ee4018befed"
+      },
+      {
+        "path": "emoji/peace-tone3.png",
+        "bytes": 34779,
+        "sha256": "6b62ac6d94dd9704c9439a0e039b5ed6f1e56c7453daef69fb2facd7db726440"
+      },
+      {
+        "path": "emoji/peace-tone4.png",
+        "bytes": 33766,
+        "sha256": "3a3e8a2fba18f869228775b5377aa11843aca50bf883014786a9b9e8dc418f3f"
+      },
+      {
+        "path": "emoji/peace-tone5.png",
+        "bytes": 33411,
+        "sha256": "33c1b4d165116fe9d86eec92de7bca7f6dc961d2f6eedda1ed8df3431117d8d0"
+      },
+      {
+        "path": "emoji/peace.png",
+        "bytes": 34468,
+        "sha256": "ea89e66244fdb88b0625d71ef19ac030fbc8994ec11f849bdbf451810361a3c2"
+      },
+      {
+        "path": "emoji/penguin.png",
+        "bytes": 43700,
+        "sha256": "c0febd6fddb0567a1e88c2a3ba6a4849151e9a955c321cd48c9f3d4feab6a61a"
+      },
+      {
+        "path": "emoji/pensive.png",
+        "bytes": 46040,
+        "sha256": "5b2830611d68d90ce1018a256b212e3a70d7e73cdaf890407d2c98109a943cad"
+      },
+      {
+        "path": "emoji/phew.png",
+        "bytes": 48715,
+        "sha256": "5cf4faeae316fd406ea7df4887156f5a1a182900fb87557803bc586adf796ea8"
+      },
+      {
+        "path": "emoji/phone.png",
+        "bytes": 32374,
+        "sha256": "044c04e575dabf9a806aeacde2e4caec87aaf04259ce0e43ccd144baacc0f7b7"
+      },
+      {
+        "path": "emoji/pig.png",
+        "bytes": 43601,
+        "sha256": "87a289db9c005efbc57bdc688509dbb0d0b676da3f97bda50db8ad3ab695fad9"
+      },
+      {
+        "path": "emoji/pizza.png",
+        "bytes": 54169,
+        "sha256": "8a34ac96c8094f0d901fe6181d13e44ccc3b7ac15aa053165368e026abc5c6e0"
+      },
+      {
+        "path": "emoji/pleading.png",
+        "bytes": 50456,
+        "sha256": "e7d3835879c1c5c6586ed3890ff57b1cbc1bedef3c97f14b80a0ee72989765f6"
+      },
+      {
+        "path": "emoji/poop.png",
+        "bytes": 48814,
+        "sha256": "c22b1e120a76b468f86a320f8cd6a3112c18fd5de9926463bc64bfedc93503ba"
+      },
+      {
+        "path": "emoji/popcorn.png",
+        "bytes": 46098,
+        "sha256": "168ef0959b68d8214f5523d4359122811155d85045967d88992fb714d1a38584"
+      },
+      {
+        "path": "emoji/rabbit.png",
+        "bytes": 50550,
+        "sha256": "4502e5adc4ce130e8354d4fead6b8722b5d863411815bd128f4dc95cce5d5803"
+      },
+      {
+        "path": "emoji/rainbow.png",
+        "bytes": 37905,
+        "sha256": "da45cf62776c1056127d0e88be4b5ed083b1bd46819d6e1c229cf4f16be114fe"
+      },
+      {
+        "path": "emoji/raised-eyebrow.png",
+        "bytes": 45516,
+        "sha256": "7677a732b4dbf703f2d96c371bf693fd0bbe205c4454941b6074ccb5feb8b4c3"
+      },
+      {
+        "path": "emoji/rocket.png",
+        "bytes": 51847,
+        "sha256": "d5a3bdd2d099f7042472e89529f7010832e5d669fced1381eb873284fd410cf0"
+      },
+      {
+        "path": "emoji/rolling-laughter.png",
+        "bytes": 49740,
+        "sha256": "1a077b8b131e1838225575dcfd9f08f56d81898d0f99248ccc08e4b72bb32a3b"
+      },
+      {
+        "path": "emoji/rose.png",
+        "bytes": 48726,
+        "sha256": "48b07a60318ab04e87ced34ab6f02b0036c9766832f4bb018f92da489d43995c"
+      },
+      {
+        "path": "emoji/sacred-stone.png",
+        "bytes": 58506,
+        "sha256": "69ee04c0f038199fe51751a742422778deee710f7fd7f0cff49770adf7eaf683"
+      },
+      {
+        "path": "emoji/sad.png",
+        "bytes": 46058,
+        "sha256": "abc32251d4b132584badf650cbbcc5b163d67d676997a12411c8a051ae7495f8"
+      },
+      {
+        "path": "emoji/shocked.png",
+        "bytes": 51407,
+        "sha256": "c0db83d133f6b724ede7d365243a95038f0e4b5b8332f88faedbfb4b8b3f9b91"
+      },
+      {
+        "path": "emoji/sleepy.png",
+        "bytes": 42086,
+        "sha256": "dbaae182b340337b52cf2777248bbb0a66bd32b8fef06499f9167ec276b650e8"
+      },
+      {
+        "path": "emoji/slight-smile.png",
+        "bytes": 44154,
+        "sha256": "7794211d81cc8441ee58356974f0643990f301ceac36eed418fcc66880b2936e"
+      },
+      {
+        "path": "emoji/smirk.png",
+        "bytes": 46058,
+        "sha256": "468252170c26722d75ef1cc7535b2cf1e1089ec8c679cd4724c339440a700d6c"
+      },
+      {
+        "path": "emoji/star-eyes.png",
+        "bytes": 51681,
+        "sha256": "3d2c61e7b58fd3e9be2d0a5ba5c9e2415a2f60e571236874f07354700dc86de8"
+      },
+      {
+        "path": "emoji/star.png",
+        "bytes": 41870,
+        "sha256": "e6c0634211a82ba041bf6a54cba0f9a2895f1ea4076e0e4184adfaaa8b8163d6"
+      },
+      {
+        "path": "emoji/strawberry.png",
+        "bytes": 51345,
+        "sha256": "69e2983e9c739e39636d6269ecf96794926fefb2987f67022c1568708a9ec399"
+      },
+      {
+        "path": "emoji/sun.png",
+        "bytes": 44759,
+        "sha256": "ad42ffe497507329e93d9689173d23d23d0e6be41a3159db60f297b218c03ee7"
+      },
+      {
+        "path": "emoji/sunflower.png",
+        "bytes": 50402,
+        "sha256": "ed403b3dad341dda5908931524f16ca44bf9abb1c530462d31a9ab63006ca825"
+      },
+      {
+        "path": "emoji/surprised.png",
+        "bytes": 44257,
+        "sha256": "5f8423cb61142b39bad5758ed75e3a12240463b2f991957d15a7045ef4c25ff5"
+      },
+      {
+        "path": "emoji/taco.png",
+        "bytes": 50276,
+        "sha256": "a83388e60388b47e420c1a314c58d1c281c4182d8d9ff37dd5c9e40d4a95385e"
+      },
+      {
+        "path": "emoji/tears-of-joy.png",
+        "bytes": 47391,
+        "sha256": "900da535d4031f01806222174aecc9d6828c15c436f194d63f3e15a20d5eb127"
+      },
+      {
+        "path": "emoji/thanks-tone1.png",
+        "bytes": 42906,
+        "sha256": "2b9f0ad6f58665622af22fa084a5dd420dd9895d13220aada5822fdc028a8356"
+      },
+      {
+        "path": "emoji/thanks-tone2.png",
+        "bytes": 43209,
+        "sha256": "7ab06b99a5355acbf0af34e9aa3e7b917b54a1820bf2be5792e386ade3e80341"
+      },
+      {
+        "path": "emoji/thanks-tone3.png",
+        "bytes": 42806,
+        "sha256": "63748151dbf714e72d302cce376ddb7fa18ad847500e9b3bca404c0060634951"
+      },
+      {
+        "path": "emoji/thanks-tone4.png",
+        "bytes": 41784,
+        "sha256": "b15de73b96bfe159e9c34b69632db3f794f13053bf4bb6fbc9ff7943cf8bf406"
+      },
+      {
+        "path": "emoji/thanks-tone5.png",
+        "bytes": 40861,
+        "sha256": "db639215ca64f90798a2bbf6233394567c2faa1502dde2bce66b63c0239e51e2"
+      },
+      {
+        "path": "emoji/thanks.png",
+        "bytes": 41853,
+        "sha256": "ccef9be94d00a4a61e2d6d4c7b714d4d103f71eff562a1cbb9c4d843d1a94fe0"
+      },
+      {
+        "path": "emoji/thinking.png",
+        "bytes": 44567,
+        "sha256": "8f054a1434cf609e218e4f07458a01b39f030d4275b732f631edf7ea6cb0cd69"
+      },
+      {
+        "path": "emoji/thumbs-down-tone1.png",
+        "bytes": 41274,
+        "sha256": "7cd7b620ef4fde7e25a5eb66fe1017190ec8d6c249e54af13b896b472b988c5f"
+      },
+      {
+        "path": "emoji/thumbs-down-tone2.png",
+        "bytes": 41952,
+        "sha256": "95381fee8f7670501e78588123908372b8a9da783cded44b1137271b78e666cd"
+      },
+      {
+        "path": "emoji/thumbs-down-tone3.png",
+        "bytes": 41360,
+        "sha256": "1acb8472ad30d179b8f06149ac3017cd046089ced36b7372a6cacbe0aa2a8340"
+      },
+      {
+        "path": "emoji/thumbs-down-tone4.png",
+        "bytes": 40036,
+        "sha256": "e0ed15f9aa6816d26127e385e4110cb58e387e0634e237fd84bac0152bfde9dc"
+      },
+      {
+        "path": "emoji/thumbs-down-tone5.png",
+        "bytes": 39604,
+        "sha256": "f631f10c6081ddd211619768f08309a6f13493749967000a40cf2f1b505874a2"
+      },
+      {
+        "path": "emoji/thumbs-down.png",
+        "bytes": 40197,
+        "sha256": "447aa859859cc6789764f1706dd860bf596cbd6fe1cb90226967ecd4dc888982"
+      },
+      {
+        "path": "emoji/thumbs-up-tone1.png",
+        "bytes": 37495,
+        "sha256": "3ccd896840acd414994ffa21e9031bcd283a79f888da5f97d68c3fa704ea27ac"
+      },
+      {
+        "path": "emoji/thumbs-up-tone2.png",
+        "bytes": 37193,
+        "sha256": "377e9781e56a8346883b18ded47e119bb33100221c550748d998759c6b986dbf"
+      },
+      {
+        "path": "emoji/thumbs-up-tone3.png",
+        "bytes": 36959,
+        "sha256": "0bb52220c183a6be9b672dba25a2b256fbcd9e04bfe36e3022f10159df1117bf"
+      },
+      {
+        "path": "emoji/thumbs-up-tone4.png",
+        "bytes": 36016,
+        "sha256": "b9b240603f52cf2c124b4275844df3b112480d54e37761b897d0936b52be94a7"
+      },
+      {
+        "path": "emoji/thumbs-up-tone5.png",
+        "bytes": 35404,
+        "sha256": "543f5c1af8250248b2e1f5beae86f11957718813810fa37fc8c95afe2f124c99"
+      },
+      {
+        "path": "emoji/thumbs-up.png",
+        "bytes": 39103,
+        "sha256": "63892ef0b398132c3e234ac306711f423d0755ee0bb324796c80773d84c23fe3"
+      },
+      {
+        "path": "emoji/tiger.png",
+        "bytes": 53742,
+        "sha256": "19ca795fe93f178415abc3bb33c92027a769b50a1d85b2f2b6055921790cff44"
+      },
+      {
+        "path": "emoji/tongue.png",
+        "bytes": 45792,
+        "sha256": "78d766e29351ebdd5bbb38ee8bf246d6b7284ac5c8ecc267fcdff391050a7c66"
+      },
+      {
+        "path": "emoji/trophy.png",
+        "bytes": 50274,
+        "sha256": "b3d2f8e2effad8fd62f00e3dd649d306e98da08dcb727ec4f3264199bf98dff0"
+      },
+      {
+        "path": "emoji/turtle.png",
+        "bytes": 42303,
+        "sha256": "6fbf82faefb2ccba772286e4c481efb289f31123798758b623a27d4f20cd8a83"
+      },
+      {
+        "path": "emoji/unimpressed.png",
+        "bytes": 40137,
+        "sha256": "cb6550aba667f1982f433bb67c4c8caa7c9716f18f62a4183e99cdbcae9eaea7"
+      },
+      {
+        "path": "emoji/upside-down.png",
+        "bytes": 44687,
+        "sha256": "29ee3e9e1e966bb42bb5f72d7c28507d75ad2d27af7d846159b8f6972a459b57"
+      },
+      {
+        "path": "emoji/vomit.png",
+        "bytes": 51381,
+        "sha256": "d9e23399d427731da578f82cd8d69dfdbb67e3635289f5d4bf52ff26fe3c5a46"
+      },
+      {
+        "path": "emoji/watermelon.png",
+        "bytes": 43272,
+        "sha256": "a4d3874a56df86729fd1cd72d38e2e27092af4e0a538950b0ce83985df592b4b"
+      },
+      {
+        "path": "emoji/wave-tone1.png",
+        "bytes": 52367,
+        "sha256": "30b3f3ce69cd7fa4f2ed3885f82125e0519b1aad6a87c648e5efb915e3d159b0"
+      },
+      {
+        "path": "emoji/wave-tone2.png",
+        "bytes": 52991,
+        "sha256": "212941d242577d1ca961ae8d04a49c653fed76d4e895c7aadc763bf3f85ff7ad"
+      },
+      {
+        "path": "emoji/wave-tone3.png",
+        "bytes": 53287,
+        "sha256": "10b74d158acb00ff65e5512973cbd7c9c2dba7e452df248417ecafadcd6bac14"
+      },
+      {
+        "path": "emoji/wave-tone4.png",
+        "bytes": 52091,
+        "sha256": "6815d76a9924c6844a71b86516426aa4baa39cc3d2338680248ea6c48df980a7"
+      },
+      {
+        "path": "emoji/wave-tone5.png",
+        "bytes": 51758,
+        "sha256": "7cf3cf63394abdf92a14f571f08f9240465a3bbf275ce91c5183b9f976c762a9"
+      },
+      {
+        "path": "emoji/wave.png",
+        "bytes": 51320,
+        "sha256": "40c45efc24677761eb6250efc2a2cabc129c3a67c1331870604b560cfc1010c1"
+      },
+      {
+        "path": "emoji/whale.png",
+        "bytes": 47917,
+        "sha256": "d735d90790575d52750c08ab17a5b611434f1987aa4d8023870d868f150a01c1"
+      },
+      {
+        "path": "emoji/wink-tongue.png",
+        "bytes": 48629,
+        "sha256": "3437386ce7b90b35cbebc195a8128961a7127487d37ac7b7c30bb05bcade6be6"
+      },
+      {
+        "path": "emoji/wink.png",
+        "bytes": 43982,
+        "sha256": "373e09b7d28933925aa58afebc72bca90b8bac3d982028e93705117b4c247aaf"
+      },
+      {
+        "path": "emoji/yes.png",
+        "bytes": 36618,
+        "sha256": "44637150f455e768ff999842e3a9f13e2ee05d437b643708149fc66ddff3735f"
+      },
+      {
+        "path": "emoji/zany.png",
+        "bytes": 52696,
+        "sha256": "fe467a37bccd4d522bbb6ebebacf5936a4f5f66a5a39f166bf375af1c99c5283"
+      },
+      {
+        "path": "emoji/zip-mouth.png",
+        "bytes": 48195,
+        "sha256": "8ff3ec60a73af2c785845dadc1b7953a39110637227f2bec2d2ec3d480d67789"
+      },
+      {
+        "path": "favicon-32.png",
+        "bytes": 1299,
+        "sha256": "bb505f43217287ae1b95c45fee65a2de3fba186529005fa4fe0a66c16087da59"
+      },
+      {
+        "path": "favicon.svg",
+        "bytes": 1105,
+        "sha256": "ee37ca15ecd376ce585b5d2c6a44e92b2d84747881d3c3e9c405b41fb9baa088"
+      },
+      {
+        "path": "girnel/assets/action-t7rEs6bJ.js",
+        "bytes": 6409,
+        "sha256": "fcf6314a9010aa2474a6524c6c54a1cf7e6391f3b5a1685af7510d1995639ea1"
+      },
+      {
+        "path": "girnel/assets/aes-94t6JQFh.js",
+        "bytes": 11120,
+        "sha256": "fa5bab4130bd22d3f01db2906559d99ea53eee38342f3a2d350595a6bf1fde5a"
+      },
+      {
+        "path": "girnel/assets/agent-card-dialog-CvkspilI.js",
+        "bytes": 521399,
+        "sha256": "024cfec5825a10be821d3f0535883db32d563c628eeb171c9218020ade2ea524"
+      },
+      {
+        "path": "girnel/assets/approval-codec-BppM44co.js",
+        "bytes": 3889,
+        "sha256": "1b89ade98e8063f30ecb69c0a333c225fa8324ad0d22cf8d0def68ef6be7d8ff"
+      },
+      {
+        "path": "girnel/assets/approval-pxWIaZyj.js",
+        "bytes": 7342,
+        "sha256": "cc3024b4e1d6cdc7051c2496b0095182edc100b2fe4a3a7efb0a827cfb3da0bc"
+      },
+      {
+        "path": "girnel/assets/approval-request-BVNV-btE.js",
+        "bytes": 6962,
+        "sha256": "0b04aa6577d28110f642cc9319d6e1aeca01175ea183f79e1716b2486a745e1b"
+      },
+      {
+        "path": "girnel/assets/approval-rows-CHA7XDhY.js",
+        "bytes": 20069,
+        "sha256": "9a104518737720c567d036132c47c1c3c909f277351fde883fc016cd07ef70a7"
+      },
+      {
+        "path": "girnel/assets/attachment-copy-BZgKeiy_.js",
+        "bytes": 5320,
+        "sha256": "aff62508cda7f849f7f58cbd63d32fa538222dec56c0fc86dadbe58fecfab824"
+      },
+      {
+        "path": "girnel/assets/attachment-upload-DP6TgMI4.js",
+        "bytes": 17984,
+        "sha256": "708776a6f098d2160d3683570e1e92f12ca7b418be15260bc4b23ab873a4e6dd"
+      },
+      {
+        "path": "girnel/assets/attachments-DOhlSNin.js",
+        "bytes": 11505,
+        "sha256": "fe3f12a416168c21ce6429cf439af48193cee3df394ef19f5331d8867f9bf9ac"
+      },
+      {
+        "path": "girnel/assets/attachments-view-H4r3m5yW.js",
+        "bytes": 2859,
+        "sha256": "3f77b8b2c593baacdf48ed4f40ad7fe4d3ca836bcfe02d9ea19a3907eb1ef4d7"
+      },
+      {
+        "path": "girnel/assets/base-Bj8vl5rR.js",
+        "bytes": 2614,
+        "sha256": "6eb839ccd2a5f1b4ca9b2a82a4ebe3de5b3abc4e012c85e4a4c2bc1ebbc6ba64"
+      },
+      {
+        "path": "girnel/assets/base64-ZJTwKflG.js",
+        "bytes": 19318,
+        "sha256": "a08a40b38c3584689d2814c4ac75cd79576abc5492b60fb9111eefe1e0fdd3f3"
+      },
+      {
+        "path": "girnel/assets/blossom-CLG-z76s.js",
+        "bytes": 43535,
+        "sha256": "ee5084654387f9fdd4b1d17b68bde442d41ec93697701edde211c8e4d4fe875d"
+      },
+      {
+        "path": "girnel/assets/blossom-auth-encoding-CpzAKZJG.js",
+        "bytes": 923,
+        "sha256": "cbe4a978fbdfd5c6b3b0eafbd6766d5b3828ef499ceb5310a1ac4325fa60e254"
+      },
+      {
+        "path": "girnel/assets/board-ended-Cbk1YpEE.js",
+        "bytes": 2139,
+        "sha256": "daa738418bfaacd960a1ae2101c439848137a86d0e4ca9615c0301e7eba3c79d"
+      },
+      {
+        "path": "girnel/assets/board-export-DvS15HOW.js",
+        "bytes": 4634,
+        "sha256": "7f695e5fc869336c2f2faa2aef7f3d1048c4e4cce861aa74fb711d361ecc3840"
+      },
+      {
+        "path": "girnel/assets/board-list-ClBkFDcO.js",
+        "bytes": 5198,
+        "sha256": "348c1b8bf2f2e215116ffb299a5c48d4a730e1ebb0ed7ca78054ec7ae6307fca"
+      },
+      {
+        "path": "girnel/assets/board-record-CE_0AM56.js",
+        "bytes": 4914,
+        "sha256": "11020d154b9c1ba7d00e65143173714c68b217afa06d7ca730e6d3cfecafb6f5"
+      },
+      {
+        "path": "girnel/assets/close-board-k6ojpMrn.js",
+        "bytes": 23267,
+        "sha256": "8d809a40cef3d08f01e75959a6f4ab5312184ee344f687719d74b6a97fd2b4d2"
+      },
+      {
+        "path": "girnel/assets/codec-CqVBV9C5.js",
+        "bytes": 20997,
+        "sha256": "b02634977fa4e66196bff210b09625309ba6436244b54fd9efe064b0aa8c09ac"
+      },
+      {
+        "path": "girnel/assets/device-actions-mzLC-UER.js",
+        "bytes": 10004,
+        "sha256": "b36814aa65923059b9f9852b311d7c12642c930e384bb151e2433a9fccccb8c5"
+      },
+      {
+        "path": "girnel/assets/device-revocation-DJpO30y8.js",
+        "bytes": 2111,
+        "sha256": "227810c4a29719e40300f761242dc12d73b34ada4bb97fd5b24b65d06cc83c91"
+      },
+      {
+        "path": "girnel/assets/dist-F1nIQsTK.js",
+        "bytes": 95298,
+        "sha256": "bf25724668c7c9bcf88fb639a3bf94bc2f909597b74514162cc678caae7a4c78"
+      },
+      {
+        "path": "girnel/assets/edit-sender-BmfaFoAm.js",
+        "bytes": 23926,
+        "sha256": "ebd51795cca46a6b9466df0d90f270541532d03862115b277462a780bbf66d76"
+      },
+      {
+        "path": "girnel/assets/ephemeral-channel-CquB7V-8.js",
+        "bytes": 1887,
+        "sha256": "9608a74e880df834eade46c0506b40cb3898a7bfd8970a1f955e2b1b08b098cf"
+      },
+      {
+        "path": "girnel/assets/epoch-record-install-BohPxNyT.js",
+        "bytes": 4207,
+        "sha256": "354bb6728626ec80f181ee4735de0e783b116a1b521780dd0f3459462e46f6b8"
+      },
+      {
+        "path": "girnel/assets/file-bundle-DSWEFv5A.js",
+        "bytes": 3105,
+        "sha256": "8242f7dfa51f88817da8fc4f7ad6e5c3e71034cd8e0e3633022b1089e9cae13b"
+      },
+      {
+        "path": "girnel/assets/file-names-x5MndIBU.js",
+        "bytes": 4669,
+        "sha256": "9ef9573a65b0507ad5f779e3a36f270a5e6b27c7a0e8a2e560c576621aa52fe0"
+      },
+      {
+        "path": "girnel/assets/forgemoji-fs-mysignet-cf81e1bc11c5.svg",
+        "bytes": 965,
+        "sha256": "cf81e1bc11c530c0f77a5b1bea6e213e4a73847d027e19ccab818228f4977ba1"
+      },
+      {
+        "path": "girnel/assets/forgemoji-key-008b7e91ac70.svg",
+        "bytes": 97057,
+        "sha256": "008b7e91ac70444bcb1e16ed7cf21dec61d4680f5cdd66493726784cebed06b4"
+      },
+      {
+        "path": "girnel/assets/forgemoji-laptop-425dd2ec7a02.svg",
+        "bytes": 9443,
+        "sha256": "425dd2ec7a02b0f9ff8454853c00475fe7ea3043a19859ddb40116a58b5a0422"
+      },
+      {
+        "path": "girnel/assets/forgemoji-lock-9e790b91f9a1.svg",
+        "bytes": 3605,
+        "sha256": "9e790b91f9a137501de25576f9a336433b3b6c76e19aad12bbfa530d99ff6f6d"
+      },
+      {
+        "path": "girnel/assets/forgemoji-phone-307c0fb85a04.svg",
+        "bytes": 6537,
+        "sha256": "307c0fb85a048529a336164eeab3ad992d7b82d984de9cfd6b02c3a278391d30"
+      },
+      {
+        "path": "girnel/assets/hkdf-DYskSWcT.js",
+        "bytes": 47016,
+        "sha256": "c7bae69d7cf341265127f0443cbe081a5c323fe99cecf5a601529de9975d9691"
+      },
+      {
+        "path": "girnel/assets/hkdf-OtmB2RA0.js",
+        "bytes": 685,
+        "sha256": "ca0810769f0a1cc696f14210ed8503828e3587cd096181ae1fe468ba818527f3"
+      },
+      {
+        "path": "girnel/assets/hmac-BlVfYrUu.js",
+        "bytes": 1330,
+        "sha256": "96fa302151c89baf9efb2aaf030187ca26cabfb9788ebd3eada3361fec939280"
+      },
+      {
+        "path": "girnel/assets/import-board-Sd2D-As8.js",
+        "bytes": 3052,
+        "sha256": "058d180d5793e52e19a8a8af91595083db740777bdf1f1a5f68e221dffca7fdf"
+      },
+      {
+        "path": "girnel/assets/import-dialog-DHiJFjFx.js",
+        "bytes": 9983,
+        "sha256": "0a126f1c88aec29a17d12712c728ee4db62fa407b74cc69bee52f23916863520"
+      },
+      {
+        "path": "girnel/assets/import-request-C8w3EVzK.js",
+        "bytes": 1961,
+        "sha256": "3bbd0f9e5a5f61269942c41c7689108f0b89ef20425a227002363b359f08d480"
+      },
+      {
+        "path": "girnel/assets/index-CE2BFTH7.js",
+        "bytes": 275470,
+        "sha256": "415a81c478cbcf8f2ed6b1ffff3a45bea431c8bceae80716e0787264c05161a1"
+      },
+      {
+        "path": "girnel/assets/index-hmDAYfEp.css",
+        "bytes": 38381,
+        "sha256": "8088ccbc0347a7379e0550eb065378a2bb5f8f7c4d82431f5e7e4b848fde8b96"
+      },
+      {
+        "path": "girnel/assets/invitation-metadata-8q69qlet.js",
+        "bytes": 1377,
+        "sha256": "873c58b4932fb0ddf86136edb939ea33754170915b5f8b0cecd9d4018042c8e4"
+      },
+      {
+        "path": "girnel/assets/join-board-43IXBWD6.js",
+        "bytes": 32624,
+        "sha256": "6e77ec1376d641c6d8ba13e3fa25312a8e3dcf6f6fd0f8d782b4f5ac7a5b6840"
+      },
+      {
+        "path": "girnel/assets/join-rows-CpJ_M7WY.js",
+        "bytes": 487,
+        "sha256": "1459c34d1d58ca6a531ab523026b4c544c5579932ac68f210db446f17cda8b9f"
+      },
+      {
+        "path": "girnel/assets/keeper-change-C68KjK_u.js",
+        "bytes": 12549,
+        "sha256": "7ae850e4f95505eb5cc8b15a322bceeb4c0f283fd5ff2eb63a231381f9690dde"
+      },
+      {
+        "path": "girnel/assets/keeper-publication-state-Cocw5Z0C.js",
+        "bytes": 2410,
+        "sha256": "b291ec3fe53869f154672cccc1175dcc0bc42aea8a642da7c150b37252a410b2"
+      },
+      {
+        "path": "girnel/assets/keeper-rekey-intent-2U4UhG4Z.js",
+        "bytes": 35296,
+        "sha256": "e99690d4e394371188ab39c84b4071248433e40ac3f4a66846ec389bdc2c51de"
+      },
+      {
+        "path": "girnel/assets/keys-aQuAr036.js",
+        "bytes": 3491,
+        "sha256": "bfdc599327dc079d67e56fb31577714cd43c948e1090f15932ba0284e4ce1062"
+      },
+      {
+        "path": "girnel/assets/local-files-CL1uXalh.js",
+        "bytes": 7874,
+        "sha256": "880476520c34cf7739c065da869419fd176e6505021e567b415cd1876cb3f6fd"
+      },
+      {
+        "path": "girnel/assets/local-identity-CtKmO1JP.js",
+        "bytes": 1294,
+        "sha256": "70e3cf6a7ff85da42bb08c61e9a6288e5c51f73f5fd8336080d12bfa44b8c27d"
+      },
+      {
+        "path": "girnel/assets/nip19-CxAMIwz7.js",
+        "bytes": 1886,
+        "sha256": "1d7c430c5850eed77ecb860bd2556cae3b967c8c5d8678bcff3d4339a9a7ee19"
+      },
+      {
+        "path": "girnel/assets/nip44-BnvzmoZW.js",
+        "bytes": 2640,
+        "sha256": "360e9d47cf3bc02683a0a69e557cfc02006cf3eafded1779f0ea3d66c0782f0c"
+      },
+      {
+        "path": "girnel/assets/owned-board-DaKmbgJ7.js",
+        "bytes": 11501,
+        "sha256": "444dd0bca44d70b70b53b2825d48a8163d3526abdf3dd6b21ba1fa834fad60e5"
+      },
+      {
+        "path": "girnel/assets/pending-imports-4iSh-paK.js",
+        "bytes": 1850,
+        "sha256": "932c2219216ac1eaa05787b6ac3844d3741a6aecea2ec74ceffd8f81e3c294b5"
+      },
+      {
+        "path": "girnel/assets/pending-invitation-DRwYVG17.js",
+        "bytes": 9762,
+        "sha256": "85da51ced2050f99e1a1d2d6e7386430ce79b589bbde911da9fb78db3ff1f50d"
+      },
+      {
+        "path": "girnel/assets/people-ux4lJohy.js",
+        "bytes": 24655,
+        "sha256": "6e0efb976a938ce811608be4edbe9a548773f3f569ae7d567566cae6f2e08049"
+      },
+      {
+        "path": "girnel/assets/person-credential-RY9941gZ.js",
+        "bytes": 2431,
+        "sha256": "77c357105bacec21011dd4a4bc3bf227e05e42e1158b5084eb1e33643c6b1a6f"
+      },
+      {
+        "path": "girnel/assets/preload-helper-Dh07BXdK.js",
+        "bytes": 1227,
+        "sha256": "d4237ec85fb116d86090c04f6f6f4fb3aef72c8fdac563368d905e41dbb53f6f"
+      },
+      {
+        "path": "girnel/assets/publish-BrDh7Mvc.js",
+        "bytes": 6340,
+        "sha256": "f862bcc0e0c4637ccb8d665a5f9cef50f1368e5e7ae0830bed2f55bad8349669"
+      },
+      {
+        "path": "girnel/assets/pure-HQYn0O6g.js",
+        "bytes": 35721,
+        "sha256": "966c9cb78cd60c471a44075e3c53ea4ec640314e83541bad1200174bb7850d33"
+      },
+      {
+        "path": "girnel/assets/record-reader-Bt4roHmn.js",
+        "bytes": 2623,
+        "sha256": "104c1aebcfc02666379c9bfacad65e519e78ae607cd87c6519da65c29e0307f6"
+      },
+      {
+        "path": "girnel/assets/recovery-8ShZJC3N.js",
+        "bytes": 658,
+        "sha256": "9217f17c5dfd509172089c2512fca329439763a0e63d4aafbf3b677e5b46e8a0"
+      },
+      {
+        "path": "girnel/assets/recovery-BscOAGAm.js",
+        "bytes": 28544,
+        "sha256": "d3834890c546e5785fab22ad81aaf6a9642df2c415431b597c5e24a29502f6b7"
+      },
+      {
+        "path": "girnel/assets/recovery-access-B3_l9uCJ.js",
+        "bytes": 3215,
+        "sha256": "cd819616d9e5299bdc1e8f7565486900cf890e115668bc90c1345be542431759"
+      },
+      {
+        "path": "girnel/assets/restore-board-CN8AintR.js",
+        "bytes": 14907,
+        "sha256": "87fc8b64c7b7c2de593ccde399801d8ccf1f8d0752a25927045db349e784d805"
+      },
+      {
+        "path": "girnel/assets/schema-CU6DNkUt.js",
+        "bytes": 3323,
+        "sha256": "cf51f9778e4182a5569f5af6a8528ec2044a849f7f9eae8fa6c45d14f9c51a9e"
+      },
+      {
+        "path": "girnel/assets/sender-update-catchup-929Dq5EZ.js",
+        "bytes": 6984,
+        "sha256": "9e57ae9446d8034bc937bdca039bc974ffa230ee4c088d4cce92f1c23a8d01d2"
+      },
+      {
+        "path": "girnel/assets/session-QjbmLYY6.js",
+        "bytes": 498628,
+        "sha256": "8530b0ed4fdb8301fc7a5068290c268258c71145a66b6666340a2808efd962b1"
+      },
+      {
+        "path": "girnel/assets/sha2-Ck4_Iu_t.js",
+        "bytes": 6226,
+        "sha256": "4653012abd504949805cb255ad0d22013c172e3412b5c698902f6ee3061c73ec"
+      },
+      {
+        "path": "girnel/assets/sha256-CyKv8leP.js",
+        "bytes": 57,
+        "sha256": "c6c3f6a39ed00ff25e9cfe28105263a0c25d0789a45d15ac1e1c7de90dbb39ee"
+      },
+      {
+        "path": "girnel/assets/sign-out-BM03yZ5a.js",
+        "bytes": 2800,
+        "sha256": "755258b426c02a5ef0593416ccd373798bbe6fe761844a994862820d94309044"
+      },
+      {
+        "path": "girnel/assets/signer-capability-CFcnkF_u.js",
+        "bytes": 622,
+        "sha256": "345726317708374538da6ccc66c3071c99b6e9b433afd24cce112d4d96aa14e4"
+      },
+      {
+        "path": "girnel/assets/signet-login-BUpMPjsL.js",
+        "bytes": 261377,
+        "sha256": "eaf048a1bf98976036c2a75edac4be623f6b9b94e41d6f97e3263894c9c8e094"
+      },
+      {
+        "path": "girnel/assets/snapshot-read-offthread-CHsegDAF.js",
+        "bytes": 5370,
+        "sha256": "fc13091cf97b2bf5735ad1cf3337bc81001abd3e02a81ecb04701a4aecc259d7"
+      },
+      {
+        "path": "girnel/assets/snapshot-read.worker-ZPzD7j1W.js",
+        "bytes": 229780,
+        "sha256": "2e5d0a6ae45953b1259ca1b8d54a73cbce95c28a52fd3ee9cdce374be6d9c26c"
+      },
+      {
+        "path": "girnel/assets/snapshot-reader-Gstzz8-G.js",
+        "bytes": 5324,
+        "sha256": "45b23486708344f12d89fc3887128b5ca44b3d3f35ddfee54ab7368a1b985e27"
+      },
+      {
+        "path": "girnel/assets/snapshot-wire-DxkeBwnR.js",
+        "bytes": 13405,
+        "sha256": "4235363b2d920efe06ae650a89c50bd24ee7a877033ef8933e875d445d90e3e9"
+      },
+      {
+        "path": "girnel/assets/stash-blossom-BDXJ3LPy.js",
+        "bytes": 14349,
+        "sha256": "864491db475484b980b2108ab0e40435008040779e6331da0aeebb0912ac8b5d"
+      },
+      {
+        "path": "girnel/assets/state-vector-Db5Uz2c4.js",
+        "bytes": 80259,
+        "sha256": "5f4db07c7500307dfdbeb5cfeda008f03a4a060488d97c4d2e4e42e39a4f893c"
+      },
+      {
+        "path": "girnel/assets/store-DNb9gMyJ.js",
+        "bytes": 59375,
+        "sha256": "c1248702793aab915abb51c081bb45639c0a882e4b3bf0905a7029b6caba87c6"
+      },
+      {
+        "path": "girnel/assets/stored-query-DUJ_hksd.js",
+        "bytes": 4799,
+        "sha256": "7af14dc3e80357ec16cd50071dbd308105e9f98e29afbeeb62a8e4fcddc5f4f4"
+      },
+      {
+        "path": "girnel/assets/theme-bootstrap-6b2703192a96.js",
+        "bytes": 553,
+        "sha256": "6b2703192a96611f4a8839d71ce9de914e78ca225792bfe16edc735319c35306"
+      },
+      {
+        "path": "girnel/assets/verify-DiulWwQ2.js",
+        "bytes": 31650,
+        "sha256": "5e46f3d7eb92046867c32290656582d860d37e62d486ace06b8b66ca1806e5d1"
+      },
+      {
+        "path": "girnel/embedded/index.html",
+        "bytes": 3467,
+        "sha256": "17013ea44245c7331f82ce37c6ee671b50bdcaf271140d2871d6605575a8f499"
+      },
+      {
+        "path": "index.html",
+        "bytes": 111583,
+        "sha256": "fd87b21c441865bd88622b707c9f123f32db7ae23f111f483565005162adb8dd"
+      },
+      {
+        "path": "link-web/link_web.d.ts",
+        "bytes": 7040,
+        "sha256": "b859db7cc0a99b8edf318ece658d1d519ea6806a0cfc89d7217ee7809bdbb9ec"
+      },
+      {
+        "path": "link-web/link_web.js",
+        "bytes": 33061,
+        "sha256": "5b46301a4635063db5ad35f7bcb27f23834c8d73f1cb3cf5740bf8888b5081e5"
+      },
+      {
+        "path": "link-web/link_web_bg.wasm",
+        "bytes": 3184344,
+        "sha256": "2093f60f5c5ba137d7e6bde7a0a672084ce51f0596d54c8affa0343cf867201e"
+      },
+      {
+        "path": "link-web/manifest.json",
+        "bytes": 489,
+        "sha256": "c2f0a237586cc473713a8e1f0562012b592f68e382007c5f2b60b4471e604ebd"
+      },
+      {
+        "path": "manifest.webmanifest",
+        "bytes": 433,
+        "sha256": "ee59592fae43776c378d5cd6d321463fb98b5ac54896a3521e0f9069ff6e0f61"
+      },
+      {
+        "path": "maskable-icon-512x512.png",
+        "bytes": 60649,
+        "sha256": "7cf3326d7f90d7661efdd4a4cf9df6fb442039e70a934bbe75f138df0d225f51"
+      },
+      {
+        "path": "mediapipe/vision_wasm_internal.js",
+        "bytes": 322044,
+        "sha256": "e7fd9858e8e8f221d9b96eddc11f8e077f263e0b7bbd79d3cbe882b134274f8c"
+      },
+      {
+        "path": "mediapipe/vision_wasm_internal.wasm",
+        "bytes": 11153617,
+        "sha256": "6a5c64584c2ab61c763b6e204afbdbc7ce1caf7f5216187322bca8df94f646bc"
+      },
+      {
+        "path": "mediapipe/vision_wasm_nosimd_internal.js",
+        "bytes": 321847,
+        "sha256": "438d1fe8ff7f4d946025bc211c291543c037d8a3785ed4eee60f1f521b236296"
+      },
+      {
+        "path": "mediapipe/vision_wasm_nosimd_internal.wasm",
+        "bytes": 10481398,
+        "sha256": "8a3092d34c79d3f57e6ba8592105e8a90f6b07c27891ffecd14cca428bfd3e31"
+      },
+      {
+        "path": "models/selfie_segmenter.tflite",
+        "bytes": 249537,
+        "sha256": "191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b"
+      },
+      {
+        "path": "notify-sw.js",
+        "bytes": 2206,
+        "sha256": "5b5f9471620ed4d807d6ff701d5bebaa587e8248347e4f75180298d25de45d06"
+      },
+      {
+        "path": "pwa-192x192.png",
+        "bytes": 14021,
+        "sha256": "8106ce1387c4812aa18e6738f1ccec434e234263feafc4128d64a20254190d6d"
+      },
+      {
+        "path": "pwa-512x512.png",
+        "bytes": 60649,
+        "sha256": "7cf3326d7f90d7661efdd4a4cf9df6fb442039e70a934bbe75f138df0d225f51"
+      },
+      {
+        "path": "sw.js",
+        "bytes": 25054,
+        "sha256": "cb3157ea6ae9a9608d5dd03b64c45683d81db53b2672ece764fa0ea116651349"
+      },
+      {
+        "path": "vmls-wasm/manifest.json",
+        "bytes": 482,
+        "sha256": "8d2251e9ff145718cf018d609e5a4853ec3fadcd5cea23f9f907bbe2225a5882"
+      },
+      {
+        "path": "vmls-wasm/vmls_wasm.d.ts",
+        "bytes": 25656,
+        "sha256": "bc599ed4ba430fb1eca9b133b3e65aa97f10e9f0cab7e61d7c17b203b58a8ec5"
+      },
+      {
+        "path": "vmls-wasm/vmls_wasm.js",
+        "bytes": 61213,
+        "sha256": "e841d7e5d224c2be4fcfc4428e7248246f3d02f2503fdcc18480657f886ad13e"
+      },
+      {
+        "path": "vmls-wasm/vmls_wasm_bg.wasm",
+        "bytes": 2074763,
+        "sha256": "4512a67b288644b7e7b9977eadb7effc31b77882f76a8e46b29f2d794202718d"
+      },
+      {
+        "path": "voice-worklet.js",
+        "bytes": 4887,
+        "sha256": "27db35c2dbdca12611cad6248f766ecc7ac5683fabc6b6f69b444c8026fc4c77"
+      },
+      {
+        "path": "workbox-2fbc6a65.js",
+        "bytes": 15026,
+        "sha256": "39c2e6ae44c3f29666f6a328b6523bf13a053a1d95c74af8ddea82b1045b0b6e"
+      }
+    ],
+    "metadata": [
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/release.json",
+        "finalUrl": "https://kithmoot.forgesworn.dev/downloads/release.json",
+        "bytes": 1298,
+        "sha256": "a0bb15bbe0d20690781fed6364e7354b14519670b657b0bb4ed9681e6a5b1ff8"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/release.json.sig",
+        "finalUrl": "https://kithmoot.forgesworn.dev/downloads/release.json.sig",
+        "bytes": 89,
+        "sha256": "12004011b3f601f7437cafef0b174f252435240fd26b3bd761b3d14c42ffb26b"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/SHA256SUMS.txt",
+        "finalUrl": "https://kithmoot.forgesworn.dev/downloads/SHA256SUMS.txt",
+        "bytes": 10890,
+        "sha256": "aa8c38456d3b33835c0cad2700b13355662003713d25f5594382c3f2eafeab9e"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/versions.json",
+        "finalUrl": "https://kithmoot.forgesworn.dev/downloads/versions.json",
+        "bytes": 166520,
+        "sha256": "5698f24f9c6c257bebefe13156223ad298b1057d44197f55ad39241b53fd8ea7"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/updates/darwin/arm64/RELEASES.json",
+        "finalUrl": "https://kithmoot.forgesworn.dev/downloads/updates/darwin/arm64/RELEASES.json",
+        "bytes": 662,
+        "sha256": "f18b732e8d40c1f9858635807c28477e5faeb8ae31cd11fe5e07c9e4b62aedb2"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/downloads/index.html",
+        "finalUrl": "https://kithmoot.app/downloads/index.html",
+        "bytes": 54638,
+        "sha256": "caa0cbcbd93ce3c02dc39e77611aaa8bf8150e7c7ff404f20d9d2d57a88b449c"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/android-release.json",
+        "finalUrl": "https://kithmoot.forgesworn.dev/android-release.json",
+        "bytes": 804,
+        "sha256": "45ccf0339c54bd25d0c01e637a65ac065a06e2d62bac49c7831b5af5c925d060"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/android-release.json.sig",
+        "finalUrl": "https://kithmoot.forgesworn.dev/android-release.json.sig",
+        "bytes": 89,
+        "sha256": "1e59724c6d0c2980acced10bee4fcadd6335fd7886ce26ddf0d28b2513afd2c2"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/",
+        "finalUrl": "https://kithmoot.app/",
+        "bytes": 21172,
+        "sha256": "d20f6753b04c6a99542ce750bdbb950722e81fefb5d8fc60509765adf82c8bac"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json",
+        "finalUrl": "https://kithmoot.app/downloads/release.json",
+        "bytes": 1298,
+        "sha256": "a0bb15bbe0d20690781fed6364e7354b14519670b657b0bb4ed9681e6a5b1ff8"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/release.json.sig",
+        "finalUrl": "https://kithmoot.app/downloads/release.json.sig",
+        "bytes": 89,
+        "sha256": "12004011b3f601f7437cafef0b174f252435240fd26b3bd761b3d14c42ffb26b"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/SHA256SUMS.txt",
+        "finalUrl": "https://kithmoot.app/downloads/SHA256SUMS.txt",
+        "bytes": 10890,
+        "sha256": "aa8c38456d3b33835c0cad2700b13355662003713d25f5594382c3f2eafeab9e"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/versions.json",
+        "finalUrl": "https://kithmoot.app/downloads/versions.json",
+        "bytes": 166520,
+        "sha256": "5698f24f9c6c257bebefe13156223ad298b1057d44197f55ad39241b53fd8ea7"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/updates/darwin/arm64/RELEASES.json",
+        "finalUrl": "https://kithmoot.app/downloads/updates/darwin/arm64/RELEASES.json",
+        "bytes": 662,
+        "sha256": "f18b732e8d40c1f9858635807c28477e5faeb8ae31cd11fe5e07c9e4b62aedb2"
+      },
+      {
+        "url": "https://kithmoot.app/downloads/index.html",
+        "finalUrl": "https://kithmoot.app/downloads/index.html",
+        "bytes": 54638,
+        "sha256": "caa0cbcbd93ce3c02dc39e77611aaa8bf8150e7c7ff404f20d9d2d57a88b449c"
+      },
+      {
+        "url": "https://kithmoot.app/android-release.json",
+        "finalUrl": "https://kithmoot.app/android-release.json",
+        "bytes": 804,
+        "sha256": "45ccf0339c54bd25d0c01e637a65ac065a06e2d62bac49c7831b5af5c925d060"
+      },
+      {
+        "url": "https://kithmoot.app/android-release.json.sig",
+        "finalUrl": "https://kithmoot.app/android-release.json.sig",
+        "bytes": 89,
+        "sha256": "1e59724c6d0c2980acced10bee4fcadd6335fd7886ce26ddf0d28b2513afd2c2"
+      },
+      {
+        "url": "https://kithmoot.app/",
+        "finalUrl": "https://kithmoot.app/",
+        "bytes": 21172,
+        "sha256": "d20f6753b04c6a99542ce750bdbb950722e81fefb5d8fc60509765adf82c8bac"
+      }
+    ],
+    "installers": [
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/KithMoot-0.1.78-mac-arm64.zip",
+        "bytes": 177639650,
+        "sha256": "c131a0ce889079672cb254d862622965a8afda408213ca15392f4db1c487d3ec"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/KithMoot-0.1.78-linux-arm64.tar.gz",
+        "bytes": 171985869,
+        "sha256": "68012a2c4f5da4d0f9bf989beeab22b446c80a47b5ab73a0ddf4c61d6ccc3dfd"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/KithMoot-0.1.78-linux-x64.tar.gz",
+        "bytes": 170867722,
+        "sha256": "0a9571bce3bfab8102da5ab1af4ab626e752864da81f457189551f000138831d"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/KithMoot-0.1.78-windows-x64.zip",
+        "bytes": 206238479,
+        "sha256": "0f08eadf677da3f54039f46e8a20693d0dea54e76558a8dd484987cd1e720e8f"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/kithmoot_0.1.78_amd64.deb",
+        "bytes": 134069324,
+        "sha256": "3e2d90bf517eb80c7fa8b06de14c97a1dd58669359dd994b89ad14d36a952033"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.78/kithmoot_0.1.78_arm64.deb",
+        "bytes": 129135796,
+        "sha256": "8a12ff02eb2bf8c542969a4b6d7e35ec611ddd5dea30cbb810a62ec9fea3e8d7"
+      }
+    ],
+    "headers": [
+      {
+        "path": "/j/",
+        "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "permissionsPolicy": "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+      },
+      {
+        "path": "/j/girnel/embedded/index.html",
+        "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+        "permissionsPolicy": "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+      }
+    ]
+  },
+  "catalogue_inventory_verification": {
+    "new_desktop_release_exactly_matches_inventory": true,
+    "historical_files_verified": 446,
+    "historical_publication_dates_and_order_preserved": true,
+    "existing_native_android_catalogue_gap": {
+      "os": "android",
+      "arch": "any",
+      "kind": "production",
+      "filename": "kithmoot-0.6.83-production.apk",
+      "url": "/apk/kithmoot-0.6.83-production.apk",
+      "bytes": 79747742,
+      "sha256": "74f006412ece18a4fbfe11c5b05ac799d174bbafb3e69a34619306046c0b37ef"
+    }
+  },
+  "live_browser": {
+    "date": "2026-10-13T02:26:01.125Z",
+    "url": "https://kithmoot.forgesworn.dev/j/",
+    "journey": "Synthetic local board creation and durable card, labelled full-width pop-out, reload and return under public deployment headers",
+    "signer": "synthetic NIP-07 fixture",
+    "productionPosts": 0,
+    "agentsStarted": 0,
+    "pageErrors": []
+  },
+  "desktop": {
+    "version": "0.1.78",
+    "build": 63,
+    "candidate": "desktop-0.1.78-candidate-2026-10-13.json",
+    "package_source": "5f9510b27d33030f73c14ed8e3ccba8d613ac912",
+    "frozen_runtime_matches_final_source": true,
+    "asar_sha256": "65c0fb8e413003a1af9472723f254e217f43a3c843a8b8fffdc917796f96698b",
+    "mac_notarisation": {
+      "id": "b435259b-6bad-4a56-8ec1-065b7dd6683a",
+      "result": "Accepted; stapled, Gatekeeper accepted"
+    },
+    "actual_packaged_mac_boards_journey": "Passed using disposable profile against final signed bundle",
+    "github_release": {
+      "assets": [
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot/releases/assets/635516085",
+          "contentType": "application/x-gtar",
+          "createdAt": "2026-10-13T01:30:20Z",
+          "digest": "sha256:68012a2c4f5da4d0f9bf989beeab22b446c80a47b5ab73a0ddf4c61d6ccc3dfd",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt8ks4l4TS1",
+          "label": "",
+          "name": "KithMoot-0.1.78-linux-arm64.tar.gz",
+          "size": 171985869,
+          "state": "uploaded",
+          "updatedAt": "2026-10-13T01:37:23Z",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.78/KithMoot-0.1.78-linux-arm64.tar.gz"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot/releases/assets/635516084",
+          "contentType": "application/x-gtar",
+          "createdAt": "2026-10-13T01:30:20Z",
+          "digest": "sha256:0a9571bce3bfab8102da5ab1af4ab626e752864da81f457189551f000138831d",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt8ks4l4TS0",
+          "label": "",
+          "name": "KithMoot-0.1.78-linux-x64.tar.gz",
+          "size": 170867722,
+          "state": "uploaded",
+          "updatedAt": "2026-10-13T01:36:52Z",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.78/KithMoot-0.1.78-linux-x64.tar.gz"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot/releases/assets/635516086",
+          "contentType": "application/zip",
+          "createdAt": "2026-10-13T01:30:20Z",
+          "digest": "sha256:c131a0ce889079672cb254d862622965a8afda408213ca15392f4db1c487d3ec",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt8ks4l4TS2",
+          "label": "",
+          "name": "KithMoot-0.1.78-mac-arm64.zip",
+          "size": 177639650,
+          "state": "uploaded",
+          "updatedAt": "2026-10-13T01:37:23Z",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.78/KithMoot-0.1.78-mac-arm64.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot/releases/assets/635516087",
+          "contentType": "application/zip",
+          "createdAt": "2026-10-13T01:30:20Z",
+          "digest": "sha256:0f08eadf677da3f54039f46e8a20693d0dea54e76558a8dd484987cd1e720e8f",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt8ks4l4TS3",
+          "label": "",
+          "name": "KithMoot-0.1.78-windows-x64.zip",
+          "size": 206238479,
+          "state": "uploaded",
+          "updatedAt": "2026-10-13T01:40:12Z",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.78/KithMoot-0.1.78-windows-x64.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot/releases/assets/635516088",
+          "contentType": "application/x-debian-package",
+          "createdAt": "2026-10-13T01:30:20Z",
+          "digest": "sha256:3e2d90bf517eb80c7fa8b06de14c97a1dd58669359dd994b89ad14d36a952033",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt8ks4l4TS4",
+          "label": "",
+          "name": "kithmoot_0.1.78_amd64.deb",
+          "size": 134069324,
+          "state": "uploaded",
+          "updatedAt": "2026-10-13T01:33:27Z",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.78/kithmoot_0.1.78_amd64.deb"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot/releases/assets/635532775",
+          "contentType": "application/x-debian-package",
+          "createdAt": "2026-10-13T01:37:54Z",
+          "digest": "sha256:8a12ff02eb2bf8c542969a4b6d7e35ec611ddd5dea30cbb810a62ec9fea3e8d7",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt8ks4l4XXn",
+          "label": "",
+          "name": "kithmoot_0.1.78_arm64.deb",
+          "size": 129135796,
+          "state": "uploaded",
+          "updatedAt": "2026-10-13T01:41:20Z",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.78/kithmoot_0.1.78_arm64.deb"
+        }
+      ],
+      "isDraft": false,
+      "publishedAt": "2026-10-13T02:23:39Z",
+      "targetCommitish": "9e6966e2ad3fc93355dcc2cbb76286babc12a40d",
+      "url": "https://github.com/forgesworn/kithmoot/releases/tag/v0.1.78"
+    },
+    "apt": {
+      "date": "2026-10-13T02:25:51.115Z",
+      "metadata": {
+        "kithmoot.sources": {
+          "bytes": 1869,
+          "sha256": "b3805fc9a233f9d9a85fe1b251711b2b693dcb4c3899e90c9124dc169276abdf",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/apt/kithmoot.sources"
+        },
+        "Packages": {
+          "bytes": 2057,
+          "sha256": "eb63a0520d7b08a819e585432f2ff502ff49f6479962cbac8b9fd522f6ce27b6",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/apt/Packages"
+        },
+        "Packages.gz": {
+          "bytes": 777,
+          "sha256": "7994d75ec84cf6a967c7eeafc666c95bc556e2705521bedcbc965b98f0156a5b",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/apt/Packages.gz"
+        },
+        "Release": {
+          "bytes": 635,
+          "sha256": "a463755dc78e1861dc7b35928601c4da616a33d4d1882c640bec36e932b63da8",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/apt/Release"
+        },
+        "Release.gpg": {
+          "bytes": 870,
+          "sha256": "8b9df7ff0094d10f30c37c80e2844535d414e56b53ea9c5bf9e44da33a1bdc8a",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/apt/Release.gpg"
+        },
+        "InRelease": {
+          "bytes": 1554,
+          "sha256": "11806f6d10c218e9fb83601fc3a3baaaec9ac591d9aebc8752851d0cf9167514",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/apt/InRelease"
+        }
+      },
+      "package_hashes_match_signed_manifest": true,
+      "prior_deb_assets_preserved": true,
+      "prior_deb_count": 30,
+      "public_signatures_verified_against_preexisting_key": true,
+      "fingerprint": "D6D7B42A690985CC3DDCC676F546951EDCB5E0DC",
+      "existing_key_custody": "M4; no private keys transferred"
+    }
+  },
+  "android": {
+    "version": "0.6.83",
+    "code": 106,
+    "manifest_and_signature_unchanged": true,
+    "apk_replaced": false
+  },
+  "limits": [
+    "Native Android Boards is not included.",
+    "Windows is an unsigned portable preview.",
+    "Physical Windows/Linux and external signer or assistive-technology acceptance are separate.",
+    "The existing 1024x700 native Mac call composer/Leave bounds failure reproduces in the preserved 0.1.77 baseline; Boards changes no call/layout source."
+  ],
+  "production_room_posts": 0,
+  "production_agents_started": 0
+}
