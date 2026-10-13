@@ -6,6 +6,32 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.84 — 13 October 2026
+
+Version **0.6.84**, code **107**, adds audio/video recording with local Save,
+visible Save failures and retained export after picker cancellation. Local
+recording and Save need no node. Encrypted Upload to a selected private node
+and Send are separate actions. Original-node cancellation and its explicit
+retry preserve the original authority and prevent resubmission after withdrawal.
+
+The immutable production APK comes from Android source
+`56925350b5b9dc0c7b7e6491d6caf42b6e0e0fcf`, SHA-256
+`2f8b3d85bd38b9432f41775f1b00943dfdad472dc08a4eb763dfe195b4ecf5d6`.
+The [signed-build receipt](evidence/android-0.6.84-signed-build-2026-10-13.json)
+records certificate, V3-only scheme, full reviewed lineage and independent
+unsigned/signed ZIP payload equality. Every payload entry matches the
+physical-tested candidate except the embedded source metadata.
+
+On the Pixel, short AAC audio and H.264/AAC video saved to Downloads and
+completely decoded; audio picker cancellation retained the recording for a
+successful retry. Physical long export, interruption, additional document
+providers and independent Android playback remain unverified. Native keeper
+quiet mode is unsupported. Those acceptance limits are separate from publishing
+this exact artifact; the owner explicitly requested shipment.
+
+Final-source workflow `38379975239` is required before merging the Android PR.
+Website/GitHub/Zapstore publication and live readback are recorded separately.
+
 ## Android 0.6.83 preparation — 12 October 2026
 
 The production candidate is version **0.6.83**, code **106**, from source
