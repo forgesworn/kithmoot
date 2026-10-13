@@ -1,8 +1,9 @@
-import { readBoardContext, saveBoardContext, type BoardContext } from './board-context.js'
+import { readBoardContext, saveBoardContext, listBoardContexts, type BoardContext } from './board-context.js'
 import type { DeviceStore } from './device-store.js'
 
 /** One account and one view lifetime. Labels never supply membership. */
 export interface BoardContextCustody {
+  list(): Promise<BoardContext[]>
   read(boardId: string): Promise<BoardContext | undefined>
   save(context: BoardContext, current?: () => boolean): Promise<void>
   revoke(): void
@@ -21,6 +22,7 @@ export function legacyBoardContextCustody(store: DeviceStore, account: string, c
     return pending
   }
   return {
+    list: () => run(() => listBoardContexts(store,account)),
     read: boardId => run(() => readBoardContext(store, account, boardId)),
     save: (context, selection = () => true) => {
       // Capture the actual writer result before yielding, so later caller

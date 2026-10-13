@@ -11,6 +11,8 @@ export interface GirnelHost {
   onBoard(board: GirnelBoard | null): void
   onBoards(boards: Array<{ boardId: string; name: string; ended: boolean }>): void
   roomInvitation?(): string | undefined
+  roomShare?(): {name: string; publish(board: {boardId: string; name: string}, invitation: string): Promise<void>} | undefined
+  onRoomShareReady?(share: (() => void) | null): void
   discuss?(boardId: string, card: { id: string; title: string; description?: string }): void
 }
 export type GirnelWindow = Window & { girnelEmbed?: { start(host: GirnelHost): Promise<void>; prepareMove(): Promise<void>; hasPendingEdits(): boolean } }

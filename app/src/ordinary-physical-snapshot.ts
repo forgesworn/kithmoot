@@ -4,7 +4,7 @@ const H = '[0-9a-f]{64}', A = `(?:visitor|${H})`, wrap = `(?:kithmoot\\.account\
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const signals = ['kithmoot-mls-vault-v1.revision', 'kithmoot.mls-coordinated-vault.revision', 'kithmoot-rendezvous-vault-v1:revision']
 const marker = 'kithmoot.ordinary-tab.v1'
-export const ORDINARY_PHYSICAL_FAMILIES = Object.freeze(['signet', 'initialLogin', 'identity', 'access', 'invitationProofs', 'epoch', 'bookmarks', 'quiet', 'cadence', 'pending',
+export const ORDINARY_PHYSICAL_FAMILIES = Object.freeze(['signet', 'roomBoards', 'initialLogin', 'identity', 'access', 'invitationProofs', 'epoch', 'bookmarks', 'quiet', 'cadence', 'pending',
   'contacts', 'grantedContacts', 'metadata', 'channelChecks', 'journals', 'private', 'media', 'routing', 'ui', 'navigation', 'entryLayout',
   'appearance', 'callCoordination', 'signal', 'tabMarker'] as const)
 export type OrdinaryPhysicalFamily = typeof ORDINARY_PHYSICAL_FAMILIES[number]
@@ -45,6 +45,7 @@ add('grantedContacts', `kithmoot\\.contacts\\.v2\\.${H}\\.(?:pairing|signet-cont
 add('metadata', `kithmoot\\.volume\\.v1\\.${H}|kithmoot\\.pinned-rooms\\.v1|kithmoot\\.project\\.v1\\.${A}\\.${H}`)
 add('metadata', `kithmoot\\.board-context\\.v1\\.${H}\\.[A-Za-z0-9_-]{1,160}`)
 add('channelChecks', `kithmoot\\.channel-checks\\.v1\\.${H}\\.${H}`)
+add('roomBoards', `kithmoot\\.room-boards\\.v1\\.${H}\\.${H}`)
 add('journals', `kithmoot\\.(?:shared-projects|context)\\.v1\\.${H}|kithmoot\\.assignments\\.v1\\.${H}\\.${H}`)
 add('private', `kithmoot\\.(?:box-discovery|history-recovery)\\.v1\\.${H}\\.${H}|kithmoot\\.(?:uploads|room-logo)\\.v1\\.${H}|kithmoot\\.(?:blob-deletes|file-storage)\\.v1|kithmoot\\.blossom-server`)
 names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId'])

@@ -16,6 +16,7 @@ export class ChatScroll {
   #ids = new Set<string>()
   #places = new Map<string, ReadingPlace>()
   #boundary: string | undefined
+  #enterLatest = false
   readonly #log: HTMLElement
   readonly #button: HTMLButtonElement
 
@@ -76,7 +77,7 @@ export class ChatScroll {
   }
 
   /** Resume only after the joined room is visible and can be measured. */
-  resume(scope: string): void { this.#scope = scope; this.#paused = false }
+  resume(scope: string): void { this.#scope = scope; this.#paused = false; this.#enterLatest = true }
 
   get restoring(): boolean { return this.#paused || this.#pending !== undefined }
 
@@ -120,12 +121,16 @@ export class ChatScroll {
     channel = JSON.stringify([this.#scope, channel])
     const log = this.#log
     const changed = this.#channel !== channel
+    const entering = this.#enterLatest
+    this.#enterLatest = false
     const selectedId = changed ? undefined : log.querySelector<HTMLElement>('.searchTarget')?.dataset.messageId
     const active = log.ownerDocument.activeElement as HTMLElement | null
     const focusedMessage = !changed && active && log.contains(active) ? active.closest<HTMLElement>('[data-message-id]') : null
     const focusedId = focusedMessage?.dataset.messageId
     const focusKey = active?.dataset.focusKey
-    let saved = changed ? this.#places.get(channel) : this.#pending ?? this.#readingPlace()
+    // Entering a room starts at its latest messages. Switching conversations
+    // within that room still preserves an intentional reading position.
+    let saved = entering ? undefined : changed ? this.#places.get(channel) : this.#pending ?? this.#readingPlace()
     // An open receipt is being read even when its message was at the bottom.
     if (keepReading && saved) saved = { ...saved, follow: false }
     if (changed) {
@@ -166,7 +171,7 @@ export class ChatScroll {
         // scroll it into place. Keep the latest button visible (it affects
         // the log's height) until the reader's position fits above the bottom.
         this.#pending = !this.#atBottom() && Math.abs(replacement.getBoundingClientRect().top - log.getBoundingClientRect().top - saved.offset) < 1 ? undefined : saved
-      } else if (changed && firstUnread) {
+      } else if (changed && firstUnread && !entering) {
         const target = divider ?? firstUnread
         log.scrollTop += target.getBoundingClientRect().top - log.getBoundingClientRect().top
         this.#button.hidden = this.#atBottom()

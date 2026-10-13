@@ -75,6 +75,7 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | `kithmoot.call.voicePreset`, `.call.effectMode`, `.call.blurStrength`, `.callProfile` | `call-prefs.ts`, `call-profile.ts`: media preferences and selected call diagnostic profile | Protected unless separately reviewed; profile can affect runtime media/routing |
 | `kithmoot.agents-hear`, `.notify`, `.notify-text`, `.send-delay`, `.profiles.enabled` | `main.ts`, `notify.ts`, `relay-settings.ts`: consent, disclosure and send behaviour | Protected settings; durable commit before dependent changes |
 | `kithmoot:emoji:recents`, `kithmoot:emoji:skinTone` | `chat-art-picker.ts`, `emoji-picker.ts`: usage history and identity-associated selection | Protected metadata; colon namespaces must be included |
+| `kithmoot.room-boards.v1.H.H` | `room-boards.ts`: account-self-encrypted board catalogue chunks containing shared invitations | Browser-only protected opaque custody; canonical outer schema and visible NIP-44 framing; recipient, room, MAC and grants require guarded live restore before use |
 | `kithmoot.board-context.v1.H.B` | `board-context.ts`: board name and optional personal project/room labels; `B` is 1–160 ASCII letters, digits, `_` or `-` | Browser-only protected metadata; exact writer JSON, account and board scope, no card ID, invitation, secret or capability; labels confer no access |
 | Other recognised finite visual keys below | Individual UI writers | Exempt only after explicit exact-key/value review; no prefix exemption |
 | Unknown/new `kithmoot` / Signet login names | Future, malformed or unclassified state | Select and hold until explicitly classified; never silently leave outside migration |
@@ -254,3 +255,12 @@ Native NIP-07 session restore is implemented as an unmounted controller in
 account discovery, exact SDK/native bytes remain retained on refusal, and only
 the native foreground wrapper escapes. See [the restore contract](ordinary-extension-restore.md).
 Other carriers and full production startup remain open.
+
+Current-main board navigation, catalogue callbacks and sharing now retain their
+awaited board-context custody path. Account-specific enumeration joins both
+native owner lifetimes and returns only personal labels. Share callbacks capture
+the selected board before waiting and refuse a changed board/account. The room-
+board encrypted catalogue family is routed and structurally checked offline;
+its current-room decrypt/save/publication adapter and full native root mount
+remain required. The declared Girnel embed.5 archive is installed byte-exact as
+a target-only overlay; the full registry install remains unreproducible.

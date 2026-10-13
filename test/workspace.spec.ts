@@ -416,7 +416,7 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
 })
 
 for (const unavailableStorage of [false, true]) {
-test(`switching rooms restores independent reading places after delayed history and honours Jump to latest${unavailableStorage ? ' when archive storage fails' : ''}`, async ({ browser, baseURL }) => {
+test(`switching rooms opens the latest messages through delayed history and honours Jump to latest${unavailableStorage ? ' when archive storage fails' : ''}`, async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
   if (unavailableStorage) await context.addInitScript(() => {
     const put = IDBObjectStore.prototype.put
@@ -427,7 +427,7 @@ test(`switching rooms restores independent reading places after delayed history 
       return put.call(this, value, key)
     }
   })
-  // Reading-position restore, not the agent feature: an agent's unaddressed
+  // Room-entry scroll behaviour, not the agent feature: an agent's unaddressed
   // message no longer counts as unread - see `classifyMessage` in
   // `src/messages.ts`.
   const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', ...agentRelaysFor(baseURL!), agent: false })
@@ -488,23 +488,30 @@ test(`switching rooms restores independent reading places after delayed history 
     await expect.poll(() => held.length).toBeGreaterThan(0)
     // The room's saved history is on screen before the relays answer.
     await expect(log.locator('.msg')).toHaveCount(12)
-    await expect(page.locator('#newMessages')).toBeVisible()
+    await expect(page.locator('#newMessages')).toBeHidden()
     release()
     await expect(log.locator('.msg')).toHaveCount(13)
-    await expect.poll(async () => (await place()).id).toBe(firstPlace.id)
-    await expect.poll(async () => Math.abs((await place()).offset - firstPlace.offset)).toBeLessThan(1)
-    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveText('1')
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
     await switchTo('Planning room')
     await expect(log.locator('.msg')).toHaveCount(12)
-    await expect.poll(async () => (await place()).id).toBe(secondPlace.id)
-    await expect.poll(async () => Math.abs((await place()).offset - secondPlace.offset)).toBeLessThan(1)
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
     hold = true
     await switchTo('Reading room')
     await expect.poll(() => held.length).toBeGreaterThan(0)
+    // A delayed relay request does not establish that archive restoration has
+    // painted yet. Choose a reading position only after the room entry settled.
+    await expect(log.locator('.msg')).toHaveCount(13)
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
+    await log.evaluate(el => {el.scrollTop = 100})
+    await expect.poll(() => log.evaluate(el => el.scrollTop)).toBeGreaterThan(48)
+    await first.chat.send('A later arrival while reading old messages.')
+    release()
+    await expect(log.locator('.msg')).toHaveCount(14)
     await expect(page.locator('#newMessages')).toBeVisible()
     await page.locator('#newMessages').click()
     release()
-    await expect(log.locator('.msg')).toHaveCount(13)
+    await expect(log.locator('.msg')).toHaveCount(14)
     await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
     await page.setViewportSize({ width: 390, height: 600 })
     await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)

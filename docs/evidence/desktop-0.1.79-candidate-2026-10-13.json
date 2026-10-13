@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-13T11:05:24.821Z",
+  "source": "2effcaff2932aa3a5f4556379b961a3dfb795564",
+  "version": "0.1.79",
+  "build": "64",
+  "platforms": [
+    {
+      "platform": "darwin-arm64",
+      "webFilesVerified": 350,
+      "asarSha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "platform": "win32-x64",
+      "webFilesVerified": 350,
+      "asarSha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "platform": "linux-x64",
+      "webFilesVerified": 350,
+      "asarSha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "platform": "linux-arm64",
+      "webFilesVerified": 350,
+      "asarSha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    }
+  ],
+  "files": [
+    {
+      "filename": "KithMoot-0.1.79-mac-arm64.zip",
+      "version": "0.1.79",
+      "bytes": 177644910,
+      "sha256": "15f7a3ebe56ff0dbaa35eba659e7a1f2e242c180c801b82e163920b161062ccc"
+    },
+    {
+      "filename": "KithMoot-0.1.79-linux-arm64.tar.gz",
+      "version": "0.1.79",
+      "bytes": 171981939,
+      "sha256": "d333dc05bc73b4eb06ba1303353fffd46f577a847cbf58eb786ea9e6330295eb"
+    },
+    {
+      "filename": "KithMoot-0.1.79-linux-x64.tar.gz",
+      "version": "0.1.79",
+      "bytes": 170861442,
+      "sha256": "61d88b40e7d527e798f6ebab12c4be1fb5c0a215da98e11675eb2b16699b948b"
+    },
+    {
+      "filename": "KithMoot-0.1.79-windows-x64.zip",
+      "version": "0.1.79",
+      "bytes": 206243556,
+      "sha256": "94eb4798692d849f9e2586ebb5aa72ab99287b176d7bbf0189020271d47100e8"
+    },
+    {
+      "filename": "kithmoot_0.1.79_amd64.deb",
+      "version": "0.1.79",
+      "bytes": 134076976,
+      "sha256": "066d19b7909eb00357e5da874288cf815a0e669fae69308e4b557cd1c52b2aa9"
+    },
+    {
+      "filename": "kithmoot_0.1.79_arm64.deb",
+      "version": "0.1.79",
+      "bytes": 129131808,
+      "sha256": "123a7a1384be992e240309d8bf0004043201d2d6d1aedcb9fc3a8c8b3ffc1eb8"
+    }
+  ],
+  "archivedAsars": [
+    {
+      "filename": "KithMoot-0.1.79-mac-arm64.zip",
+      "platform": "darwin-arm64",
+      "sha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "filename": "KithMoot-0.1.79-linux-arm64.tar.gz",
+      "platform": "linux-arm64",
+      "sha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "filename": "KithMoot-0.1.79-linux-x64.tar.gz",
+      "platform": "linux-x64",
+      "sha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "filename": "KithMoot-0.1.79-windows-x64.zip",
+      "platform": "win32-x64",
+      "sha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "filename": "kithmoot_0.1.79_amd64.deb",
+      "platform": "linux-x64",
+      "sha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    },
+    {
+      "filename": "kithmoot_0.1.79_arm64.deb",
+      "platform": "linux-arm64",
+      "sha256": "de2f6b8fa64fe3e91cc38386b96c15a3944a570a5eb867e3ca0e44e3619f8797"
+    }
+  ]
+}

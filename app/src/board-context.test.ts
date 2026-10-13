@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { memoryDeviceStore } from './device-store.js'
-import { boardContextTitle, readBoardContext, saveBoardContext } from './board-context.js'
+import { boardContextTitle, listBoardContexts, readBoardContext, saveBoardContext } from './board-context.js'
 
 describe('board window context', () => {
   it('retains distinct stable project/chat bindings and readable window labels', () => {
@@ -18,5 +18,14 @@ describe('board window context', () => {
     const raw = store.get(store.keys()[0]!)!
     expect(raw).not.toContain('private'); expect(raw).not.toContain('bearer')
     expect(() => saveBoardContext(store, account, {boardId: '../room', boardName: 'bad'})).toThrow()
+  })
+  it('lists only the current account’s saved boards and skips corrupt entries', () => {
+    const store = memoryDeviceStore(), account = 'a'.repeat(64)
+    saveBoardContext(store, account, {boardId: 'two', boardName: 'Zulu', room: {id: 'room', name: 'Chat'}})
+    saveBoardContext(store, account, {boardId: 'one', boardName: 'Alpha'})
+    saveBoardContext(store, 'b'.repeat(64), {boardId: 'private', boardName: 'Other account'})
+    store.set(`kithmoot.board-context.v1.${account}.bad`, '{broken')
+    expect(listBoardContexts(store, account).map(board => board.boardName)).toEqual(['Alpha', 'Zulu'])
+    expect(listBoardContexts(store, 'invalid')).toEqual([])
   })
 })

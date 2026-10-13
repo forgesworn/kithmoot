@@ -143,6 +143,14 @@ describe('layoutCall', () => {
     expect(layoutCall({ ...room, view: 'gallery', people: ['a', 'b'], self: 'me', shares: [] }).mode).toBe('gallery')
   })
 
+  test('a compact call while chatting elsewhere uses equal gallery tiles instead of a picture-in-picture overlay', () => {
+    const out = layoutCall({width: 900, height: 180, view: 'gallery', people: ['me', 'you'], self: 'me', shares: [], compact: true})
+    expect(out.mode).toBe('gallery')
+    expect(out.floating).toBeUndefined()
+    expect(out.people.get('me')!.width).toBe(out.people.get('you')!.width)
+    expect(overlaps(out.people.get('me')!, out.people.get('you')!)).toBe(false)
+  })
+
   test('speaker: the featured person is big and everybody else is one size in a strip', () => {
     const out = layoutCall({ ...room, width: 1400, view: 'speaker', people: ids(6), self: 'p0', shares: [], featured: 'p3' })
     expect(out.mode).toBe('speaker')

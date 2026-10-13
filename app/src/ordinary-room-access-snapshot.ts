@@ -8,6 +8,7 @@ import { validateOrdinaryContactSnapshot } from './ordinary-contact-snapshot.js'
 import { validateOrdinaryGrantedContactSnapshot } from './ordinary-granted-contact-snapshot.js'
 import { validateOrdinaryMetadataSnapshot } from './ordinary-metadata-snapshot.js'
 import { validateOrdinaryChannelCheckSnapshot } from './ordinary-channel-check-snapshot.js'
+import { validateOrdinaryRoomBoardSnapshot } from './ordinary-room-board-snapshot.js'
 import { validateOrdinaryJournalSnapshot } from './ordinary-journal-snapshot.js'
 import { validateOrdinaryPrivateFamilySnapshot } from './ordinary-private-family-snapshot.js'
 import { validateOrdinaryMediaSnapshot } from './ordinary-media-snapshot.js'
@@ -698,7 +699,7 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
     const simple = [
       ['contacts', validateOrdinaryContactSnapshot], ['grantedContacts', validateOrdinaryGrantedContactSnapshot],
       ['metadata', validateOrdinaryMetadataSnapshot], ['channelChecks', validateOrdinaryChannelCheckSnapshot],
-      ['journals', validateOrdinaryJournalSnapshot], ['private', validateOrdinaryPrivateFamilySnapshot],
+      ['roomBoards', validateOrdinaryRoomBoardSnapshot], ['journals', validateOrdinaryJournalSnapshot], ['private', validateOrdinaryPrivateFamilySnapshot],
       ['media', validateOrdinaryMediaSnapshot], ['routing', validateOrdinaryRoutingSnapshot],
       ['ui', validateOrdinaryUiSnapshot], ['entryLayout', validateOrdinaryEntryLayoutSnapshot],
     ] as const

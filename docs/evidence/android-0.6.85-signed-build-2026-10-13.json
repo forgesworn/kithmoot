@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-13T10:59:19.673749+00:00",
+  "source": "faacbb4d0a9aa8ba8afa1f811e3db3bb0462c5ec",
+  "preservedRecordingSource": "56925350b5b9dc0c7b7e6491d6caf42b6e0e0fcf",
+  "version": "0.6.85",
+  "versionCode": 108,
+  "signedSha256": "2ddcca3a06480eff02c2e0bb08f7bc236a2c6852208c5908e52b6bcb3090741b",
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "embeddedSourceVerified": true,
+  "independentPublicationVerifierPassed": true,
+  "syntheticPixelFourEdgeTestPassed": true,
+  "physicalScreenShareAcceptance": false,
+  "published": false,
+  "videoCatchUpCorrection": "Latest live picture is not backdated; every audio sample, permission check and queue bound remains",
+  "codecCasesPassed": 5,
+  "nativeBrowserAudioAndGalleryCasesPassed": 2,
+  "fullCaptureReadback": {
+    "cases": 29,
+    "allIndividualResultsPassed": true,
+    "noSkippedOrFailedResults": true,
+    "driverToolLimit": "M4 lacks rg; the completed instrumentation result was independently checked using the exact summary, count and refusal rules",
+    "instrumentationSha256": "96712d993de60eb17e6c6f16a9db21a3f3d67e9ac2994d65502087fc871647f6"
+  }
+}

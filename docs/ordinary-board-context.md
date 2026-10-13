@@ -75,3 +75,31 @@ that work. Separate full-app board journeys use the actual vendored Girnel
 package through current main's explicit legacy provider. Neither fixture is
 evidence of a production protected startup mount or authenticated native
 signer effect boundaries.
+
+## Current board-sharing integration
+
+The context custody interface includes awaited account-specific enumeration.
+Native enumeration validates the complete authentic paired image and returns
+only the captured account’s personal labels; other accounts and invitations do
+not escape. Both native owners join the operation before its first continuation.
+The panel owns separate navigation custody, joins it on reset, and suppresses
+late account/room results. Girnel’s catalogue callback captures input before
+waiting and reads the native row before each write. Sharing captures the board
+and linked room, uses fresh context reads before/after the publisher, and
+refuses a changed selection. Those reads do not replace the required native
+room-board publisher or guard its internal network frames.
+
+The new `kithmoot.room-boards.v1.ACCOUNT.ROOM` family contains encrypted grants,
+not navigation labels. Offline preflight checks the exact browser route,
+canonical `{chunks}` carrier and visible NIP-44 framing without decryption.
+Framing does not authenticate the account, room, plaintext, MAC or invitation.
+A later current-room adapter must authenticate and bind each decrypted board
+before use, guard encryption/publication, and retain the exact source on refusal.
+Full startup mounting, registry/consumer release and physical acceptance remain
+open.
+
+A room-share destination may be obtained before board creation. Its board
+generation is captured when publication actually starts and advances only on
+board-ID changes; same-board metadata refreshes remain valid. The room publisher
+canonicalises and detaches the same board before channel/chat publication and
+encrypted retention, and catalogue getters return detached rows.

@@ -1,0 +1,47 @@
+{
+  "verifiedAt": "2026-10-13T10:58:55.744569+00:00",
+  "source": "2effcaff2932aa3a5f4556379b961a3dfb795564",
+  "version": "0.1.79",
+  "macBuild": 64,
+  "notarisation": {
+    "message": "Processing complete",
+    "id": "7fe83361-2dbc-4a4a-bb79-265232adf3f7",
+    "status": "Accepted"
+  },
+  "signedBundleBoards": "passed: durable card, labelled popout, reload, return and sandbox",
+  "remoteOnlyRecordingExports": [
+    {
+      "version": "0.1.79",
+      "packaged": true,
+      "syntheticInputs": true,
+      "exported": {
+        "bytes": 200096,
+        "name": "call-recording-2026-10-13-1155.webm",
+        "duration": 4.56,
+        "videoDuration": 4.542,
+        "width": 1280,
+        "height": 720,
+        "energy": 0.21365639548693563
+      }
+    },
+    {
+      "version": "0.1.79",
+      "packaged": true,
+      "syntheticInputs": true,
+      "exported": {
+        "bytes": 148767,
+        "name": "call-recording-2026-10-13-1155.webm",
+        "duration": 4.56,
+        "videoDuration": 4.537,
+        "width": 1280,
+        "height": 720,
+        "energy": 0.21341978762822505
+      }
+    }
+  ],
+  "syntheticInputs": true,
+  "physicalPixelAcceptance": false,
+  "productionRoomPosts": 0,
+  "productionAgentsStarted": 0,
+  "logSha256": "8f978a4047a58a383727c49e153b673dfcaf4074ae4cf096d0a77da22575cec0"
+}

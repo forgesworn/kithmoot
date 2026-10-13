@@ -2,6 +2,7 @@ import {test, expect, type Browser, type BrowserContext, type Frame, type Page} 
 import {generateSecretKey, getPublicKey, finalizeEvent} from 'nostr-tools/pure'
 import {encrypt, decrypt, getConversationKey} from 'nostr-tools/nip44'
 import {RoomAgent} from '../src/agent.js'
+import {decodeRoomBoard, ROOM_BOARDS_CHANNEL} from '../src/room-boards.js'
 import {agentRelaysFor, TEST_RELAY_HTTP} from './relays.js'
 import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
@@ -77,17 +78,182 @@ async function openBoards(page: Page): Promise<Frame> {
 async function createBoard(frame: Frame, name: string) {
   await expect(frame.locator('#app')).not.toContainText('Opening board…')
   const reminder = frame.getByRole('button', {name: 'Not yet, remind me', exact: true})
+  await expect(reminder.or(frame.getByRole('link', {name: /^Create (a )?board$/})).first()).toBeVisible()
   if (await reminder.isVisible()) await reminder.click()
   await frame.getByRole('link', {name: /^Create (a )?board$/}).click()
   await frame.getByRole('textbox', {name: 'Board name', exact: true}).fill(name)
+  const inRoom = await frame.getByText(/^This board will be shared with /).count()
   await frame.getByRole('button', {name: 'Create board', exact: true}).click()
   await expect(frame.getByRole('heading', {name, exact: true})).toBeVisible()
+  if (inRoom) {
+    const share = frame.getByRole('dialog', {name: new RegExp(`^Share ${name} with `)})
+    await expect(share).toBeVisible()
+    const server = share.getByLabel('Add a file server', {exact: true})
+    if (await server.isVisible()) {await server.fill('https://board-files.test/'); await share.getByRole('button', {name: 'Add file server', exact: true}).click()}
+    await expect(share.getByText(/^Shared with .+ People in the chat/)).toBeVisible({timeout: 60000})
+    await share.getByRole('button', {name: 'Close', exact: true}).click()
+  }
 }
 async function addCard(frame: Frame, text: string) {
   const composer = frame.getByRole('textbox', {name: 'Add a card to To do', exact: true})
   await composer.fill(text); await composer.press('Enter')
   await expect(frame.getByRole('link', {name: text, exact: true})).toBeVisible()
 }
+
+test('boards created in a chat are discovered on another device and edited together without copying an invitation', async ({browser, baseURL}) => {
+  const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!), outsider = await device(browser, baseURL!)
+  const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Shared board room', agent: false, ...agentRelaysFor(baseURL!)})
+  const enter = async (who: typeof ada, name: string) => {
+    await who.page.evaluate(({pubkey, room}) => localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room)), {pubkey: who.pubkey, room: {roomId: keeper.roomId, name: 'Shared board room', link: keeper.url, openedAt: 1, readAt: 0}})
+    await who.page.reload()
+    await who.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).click()
+    if (await who.page.locator('#join').isVisible()) {await who.page.locator('#displayName').fill(name); await who.page.locator('#join').click()}
+    await expect(who.page.locator('#chatInput')).toBeEditable()
+  }
+  try {
+    // Keep the second person offline until the board has been created/shared.
+    await enter(ada, 'Ada')
+    await ada.page.locator('#openAssignments').click()
+    const owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await createBoard(owner, 'Room delivery')
+    await addCard(owner, 'Shared from the start')
+    await expect.poll(() => keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')).toBe(true)
+    await enter(bo, 'Bo')
+    await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
+    let guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true})
+    await expect(reminder.or(guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/})).first()).toBeVisible()
+    if (await reminder.isVisible()) await reminder.click()
+    await guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/}).click()
+    await expect(guest.getByRole('link', {name: 'Shared from the start', exact: true})).toBeVisible({timeout: 60000})
+    await addCard(guest, 'Bo edits the room board')
+    await expect(owner.getByRole('link', {name: 'Bo edits the room board', exact: true})).toBeVisible({timeout: 60000})
+    const catalogue = await bo.page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith('kithmoot.room-boards.v1.')).map(([, value]) => value))
+    expect(catalogue.length).toBeGreaterThan(0)
+    expect(catalogue.join('')).not.toContain('Room delivery')
+    expect(catalogue.join('')).not.toContain('invitation')
+    await bo.page.locator('#boardsClose').click(); await bo.page.reload()
+    if (await bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).isVisible()) await bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).click()
+    if (await bo.page.locator('#join').isVisible()) {await bo.page.locator('#displayName').fill('Bo'); await bo.page.locator('#join').click()}
+    await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
+    guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    const join = guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/}); if (await join.isVisible()) await join.click()
+    await expect(guest.getByRole('link', {name: 'Bo edits the room board', exact: true})).toBeVisible({timeout: 60000})
+    await openBoards(outsider.page)
+    await expect(outsider.page.locator('#boardsSaved')).not.toContainText('Room delivery')
+  } finally {await keeper.leave(); await ada.context.close(); await bo.context.close(); await outsider.context.close()}
+})
+
+test('card colour saves when the colour label is clicked and survives reopening', async ({browser, baseURL}) => {
+  const {context, page} = await device(browser, baseURL!)
+  try {
+    let frame = await openBoards(page)
+    await createBoard(frame, 'Colour regression')
+    await addCard(frame, 'Purple card')
+    await frame.getByRole('link', {name: 'Purple card', exact: true}).click()
+    // Click the label as a person would, rather than setting checked state.
+    await frame.locator('fieldset').filter({has: frame.getByText('Note colour', {exact: true})}).getByText('Purple', {exact: true}).click()
+    await expect(frame.locator('.detail-note')).toHaveAttribute('data-paper', 'purple')
+    await expect(frame.getByRole('radio', {name: 'Purple', exact: true}).first()).toBeChecked()
+    await frame.getByRole('radio', {name: 'Blue', exact: true}).first().check()
+    await expect(frame.locator('.detail-note')).toHaveAttribute('data-paper', 'blue')
+    await frame.getByRole('textbox', {name: 'Title', exact: true}).fill('Purple card renamed')
+    const purple = frame.locator('fieldset').filter({has: frame.getByText('Note colour', {exact: true})}).getByText('Purple', {exact: true})
+    await purple.scrollIntoViewIfNeeded()
+    // The title's blur saves while the pointer is still activating the label.
+    await purple.click({delay: 200})
+    await expect(frame.locator('.detail-note')).toHaveAttribute('data-paper', 'purple')
+    await page.reload()
+    frame = await openBoards(page)
+    await frame.getByRole('link', {name: /^Colour regression/}).click()
+    await frame.getByRole('link', {name: 'Purple card renamed', exact: true}).click()
+    await expect(frame.locator('.detail-note')).toHaveAttribute('data-paper', 'purple')
+  } finally {await context.close()}
+})
+
+test('an existing private board keeps its cards and is shared only after the explicit room sharing action', async ({browser, baseURL}) => {
+  const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!)
+  const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Existing board room', agent: false, ...agentRelaysFor(baseURL!)})
+  const enter = async (who: typeof ada, name: string) => {
+    await who.page.evaluate(({pubkey, room}) => localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room)), {pubkey: who.pubkey, room: {roomId: keeper.roomId, name: 'Existing board room', link: keeper.url, openedAt: 1, readAt: 0}})
+    await who.page.reload()
+    await who.page.locator('#roomList').getByRole('button', {name: 'Open Existing board room', exact: true}).click()
+    if (await who.page.locator('#join').isVisible()) {await who.page.locator('#displayName').fill(name); await who.page.locator('#join').click()}
+    await expect(who.page.locator('#chatInput')).toBeEditable()
+  }
+  try {
+    let owner = await openBoards(ada.page)
+    await createBoard(owner, 'Existing notes'); await addCard(owner, 'Keep my existing card')
+    await ada.page.locator('#boardsClose').click()
+    await enter(ada, 'Ada')
+    await ada.page.locator('#openAssignments').click()
+    owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await owner.getByRole('link', {name: /^Existing notes/}).click()
+    await ada.page.locator('#boardsRoom').selectOption({label: 'Existing board room'}); await ada.page.locator('#boardsAssociate').click()
+    expect(keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')).toBe(false)
+    await ada.page.locator('#boardsShareRoom').click()
+    const share = owner.getByRole('dialog', {name: 'Share Existing notes with Existing board room', exact: true})
+    await share.getByLabel('Add a file server', {exact: true}).fill('https://board-files.test/')
+    await share.getByRole('button', {name: 'Add file server', exact: true}).click()
+    await expect(share.getByText(/^Shared with Existing board room\. People in the chat/)).toBeVisible({timeout: 60000})
+    await share.getByRole('button', {name: 'Close', exact: true}).click()
+    await enter(bo, 'Bo')
+    await expect(bo.page.locator('#chatLog')).toContainText('Shared board: Existing notes')
+    await bo.page.locator('#roomBoards').getByRole('button', {name: 'Existing notes', exact: true}).click()
+    const guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true})
+    await expect(reminder.or(guest.getByRole('button', {name: /^Join (?:board|Existing notes)$/})).first()).toBeVisible()
+    if (await reminder.isVisible()) await reminder.click()
+    await guest.getByRole('button', {name: /^Join (?:board|Existing notes)$/}).click()
+    await expect(guest.getByRole('link', {name: 'Keep my existing card', exact: true})).toBeVisible({timeout: 60000})
+  } finally {await keeper.leave(); await ada.context.close(); await bo.context.close()}
+})
+
+test('a room keeps its board discoverable after popping out, closing the window and reloading', async ({browser, baseURL}, info) => {
+  const {context, page, pubkey} = await device(browser, baseURL!)
+  const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Board workshop', agent: false, ...agentRelaysFor(baseURL!)})
+  try {
+    await page.evaluate(({pubkey, room}) => localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room)), {pubkey, room: {roomId: keeper.roomId, name: 'Board workshop', link: keeper.url, openedAt: 1, readAt: 0}})
+    await page.reload()
+    await page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true}).click()
+    if (await page.locator('#join').isVisible()) {await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()}
+    await expect(page.locator('#chatInput')).toBeEditable()
+    await page.locator('#chatInput').fill('Keep my room draft')
+    await page.locator('#openAssignments').click()
+    let frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await createBoard(frame, 'Workshop board'); await addCard(frame, 'Still here after closing')
+    await expect(page.locator('#boardsContext')).toContainText('Board workshop')
+    const opening = page.waitForEvent('popup'); await page.locator('#boardsPopOut').click(); const popup = await opening
+    await expect(page.locator('#boardsPanel')).toBeHidden()
+    await expect(page.locator('#chatInput')).toBeVisible()
+    await expect(page.locator('#chatInput')).toBeEditable()
+    await expect(page.locator('#chatInput')).toHaveValue('Keep my room draft')
+    await expect(page.locator('#roomBoards').getByRole('button', {name: 'Workshop board · Open in window', exact: true})).toBeVisible()
+    await popup.close()
+    await page.locator('#roomBoards').getByRole('button', {name: 'Workshop board', exact: true}).click()
+    frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await expect(frame.getByRole('link', {name: 'Still here after closing', exact: true})).toBeVisible()
+    await frame.getByRole('link', {name: 'Open me to add a checklist', exact: true}).click()
+    await frame.getByRole('button', {name: 'Delete card', exact: true}).click()
+    const confirmation = frame.getByRole('dialog', {name: 'Delete Open me to add a checklist?', exact: true})
+    await confirmation.press('Escape')
+    await expect(frame.locator('.detail-note')).toBeVisible()
+    await frame.getByRole('button', {name: 'Delete card', exact: true}).click()
+    await confirmation.press('y')
+    await expect(frame.getByRole('link', {name: 'Open me to add a checklist', exact: true})).toHaveCount(0)
+    await page.locator('#boardsClose').click()
+    await page.reload()
+    if (await page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true}).isVisible()) await page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true}).click()
+    const join = page.locator('#join')
+    if (await join.isVisible()) {await page.locator('#displayName').fill('Ada'); await join.click()}
+    await expect(page.locator('#roomBoards').getByRole('button', {name: 'Workshop board', exact: true})).toBeVisible()
+    await page.locator('#roomBoards').getByRole('button', {name: 'Workshop board', exact: true}).click()
+    frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await expect(frame.getByRole('link', {name: 'Still here after closing', exact: true})).toBeVisible()
+    await expect(frame.getByRole('link', {name: 'Open me to add a checklist', exact: true})).toHaveCount(0)
+    await page.screenshot({path: info.outputPath('room-board-reopened.png')})
+  } finally {await keeper.leave(); await context.close()}
+})
 
 test('Boards replaces Work, edits durable cards and opens several independently labelled windows', async ({browser, baseURL}, info) => {
   const {context, page, pubkey} = await device(browser, baseURL!)
@@ -115,14 +281,15 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     let one = (await (await first.locator('iframe').elementHandle())!.contentFrame())!
     await expect(one.getByRole('heading', {name: 'Design board', exact: true})).toBeVisible()
     await expect.poll(() => first.locator('iframe').evaluate(frame => Math.abs(frame.getBoundingClientRect().width - innerWidth) < 2), {message: 'The popped-out board must fill its window after the host styles load'}).toBe(true).catch(async error => {console.log('Board window bounds', await first.evaluate(() => JSON.stringify({viewport: innerWidth, body: document.body.getBoundingClientRect().toJSON(), frame: document.querySelector('iframe')?.getBoundingClientRect().toJSON(), maxWidth: getComputedStyle(document.body).maxWidth, width: getComputedStyle(document.body).width, padding: getComputedStyle(document.body).padding}))); throw error})
-    await page.getByRole('button', {name: 'Choose another board', exact: true}).click()
+    await expect(page.locator('#boardsPanel')).toBeHidden()
+    await page.locator('#homeWork').click()
     frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Release board'); await addCard(frame, 'Check release evidence')
     await page.locator('#boardsProject').selectOption({label: 'Release project'}); await page.locator('#boardsRoom').selectOption({label: 'Release chat'}); await page.locator('#boardsAssociate').click()
     const secondPopup = page.waitForEvent('popup'); await page.locator('#boardsPopOut').click(); const second = await secondPopup
     await expect(second).toHaveTitle('KithMoot · Release project · Release chat · Release board')
     await expect(first).toHaveTitle('KithMoot · Design project · Design chat · Design board')
-    await page.locator('#boardsClose').click()
+    await expect(page.locator('#boardsPanel')).toBeHidden()
     await page.locator('#homeSharedProjects').click()
     await page.locator('.sharedProjectCard').filter({has: page.getByRole('heading', {name: 'Release project', exact: true})}).getByRole('button', {name: 'Release chat', exact: true}).click()
     if (await page.locator('#displayName').isVisible()) {await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()}
@@ -379,6 +546,10 @@ test('Boards fits a narrow screen and reopens its durable board offline from cac
     // Stop the actual origin: all browsers must reopen from their cache.
     // WebKit's emulated-offline reload can fail inside its automation driver.
     await release.close(); await page.reload()
+    // The saved account reconnects after the shell paints. Its sign-in flow
+    // closes open panels; wait for the authenticated sync status before the
+    // offline board action, just as this case does for the initial sign-in.
+    await expect(page.locator('#homeSyncStatus')).toBeVisible()
     frame = await openBoards(page)
     await frame.getByRole('link', {name: 'Offline board', exact: true}).click()
     await expect(frame.getByRole('link', {name: 'Saved before disconnecting', exact: true})).toBeVisible()

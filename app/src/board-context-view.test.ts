@@ -12,7 +12,7 @@ it('refuses reentrant revocation inside the current callback before legacy acces
 })
 const gate = <T>() => {let release!: (value:T) => void; const promise = new Promise<T>(r=>{release=r}); return {promise,release}}
 function custody(): BoardContextCustody {
-  return {read:vi.fn(async()=>undefined),save:vi.fn(async()=>{}),revoke:vi.fn(),close:vi.fn(async()=>{})}
+  return {list:vi.fn(async()=>[]),read:vi.fn(async()=>undefined),save:vi.fn(async()=>{}),revoke:vi.fn(),close:vi.fn(async()=>{})}
 }
 it('serialises writes and joins work during close, while refusing late results', async () => {
   const storage = custody(), blocked = gate<void>(), started = gate<void>()

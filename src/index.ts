@@ -588,3 +588,4 @@ export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
 export { normaliseArtwork, normaliseOutgoingArtwork, artworkFallbackText, MAX_CHAT_ARTWORK, MAX_ARTWORK_LABEL_LENGTH } from './artwork.js'
 export type { ChatArtwork } from './artwork.js'
+export { ROOM_BOARDS_CHANNEL, encodeRoomBoard, decodeRoomBoard, type RoomBoard, type RoomBoardMessage } from './room-boards.js'

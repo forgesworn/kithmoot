@@ -39,7 +39,7 @@ function base64Length(value: unknown): number {
 /** Only the visible v2 length profile is checked. The encrypted length prefix,
  * MAC, plaintext, recipient and room remain unauthenticated here. nostr-tools
  * 2.25 writes both the two-byte and extended six-byte prefix profiles. */
-function nip44Length(value: unknown): number {
+export function validateOrdinaryNip44Framing(value: unknown): number {
   const length = base64Length(value)
   if (typeof value !== 'string' || length < 99 || BASE64.indexOf(value[0]!) * 4 + (BASE64.indexOf(value[1]!) >> 4) !== 2) hold()
   const short = length - 65 - 2, extended = length - 65 - 6
@@ -79,7 +79,7 @@ function cache(value: unknown, account: string): void {
   const body = canonical(value.content)
   writerObject(body, ['v', 'recipient', 'ciphertext'])
   if (body.v !== 1 || body.recipient !== account) hold()
-  nip44Length(body.ciphertext)
+  validateOrdinaryNip44Framing(body.ciphertext)
   if (!verifyEventUncached(value as unknown as Event)) hold()
 }
 
@@ -102,14 +102,14 @@ export function validateOrdinaryJournalSnapshot(records: ReadonlyMap<string, str
       const value = canonical(raw), project = PROJECT.exec(name), assignment = ASSIGNMENT.exec(name), context = CONTEXT.exec(name)
       if (project) {
         writerObject(value, ['v', 'identity', 'key', 'body'])
-        if (value.v !== 1 || value.identity !== project[1] || nip44Length(value.key) !== 131) hold()
+        if (value.v !== 1 || value.identity !== project[1] || validateOrdinaryNip44Framing(value.key) !== 131) hold()
         envelope(value.body, false); counts.projects++
       } else if (assignment) {
         writerObject(value, ['v', 'events', 'outbox'])
         if (value.v !== 1 || !Array.isArray(value.events) || !Array.isArray(value.outbox) ||
             value.events.length > 20000 || value.outbox.length > 100 || value.events.length + value.outbox.length === 0) hold()
-        for (const item of value.events) nip44Length(item)
-        for (const item of value.outbox) nip44Length(item)
+        for (const item of value.events) validateOrdinaryNip44Framing(item)
+        for (const item of value.outbox) validateOrdinaryNip44Framing(item)
         counts.assignments++; counts.events += value.events.length; counts.pending += value.outbox.length
       } else if (context) {
         writerObject(value, ['v', 'identity', 'collections'])

@@ -51,12 +51,12 @@ const panelSetup = `async()=>{
    nip44:{encrypt:async()=>{throw Error('unexpected signer')},decrypt:async()=>{throw Error('unexpected signer')}},signEvent:async()=>{throw Error('unexpected signer')},close:async()=>{throw Error('host close')}}};
  window.panel=new Ordinary.BoardsPanel(document,{session:()=>session,contexts:async(who,current,stop)=>Ordinary.OrdinaryBoardContextState.open({...options(),live:()=>live&&current(),stop}),
    projects:()=>[{id:'personal-project',name:'Project'}],rooms:()=>[{id:'personal-room',name:'Chat'}],currentRoom:()=>({id:'personal-room',name:'Chat'}),currentProject:()=>({id:'personal-project',name:'Project'}),
-   signIn:()=>{},roomTasks:()=>{},newRoomTask:async()=>{},roomInvitation:()=>{throw Error('unexpected room capability')},discuss:async()=>{throw Error('unexpected discussion')}});
+   signIn:()=>{},roomTasks:()=>{},newRoomTask:async()=>{},roomInvitation:()=>{throw Error('unexpected room capability')},discuss:async()=>{throw Error('unexpected discussion')},showChat:()=>{},roomBoards:()=>[],shareBoard:async()=>{throw Error('unexpected sharing')}});
  panel.open(document.getElementById('homeWork'));
  window.child=()=>document.querySelector('iframe').contentWindow;
 }`
 for (const mode of ['automatic','association'] as const) test(`${mode} panel save cannot commit after a board switch during its client fence`,async({browser})=>{
- const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host')
+ const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
  if(mode==='association'){
    await p.evaluate(`child().host.onBoard({boardId:fixture.boardId,name:JSON.parse(fixture.raw).boardName})`)
    await expect(p.locator('#boardsContext')).toContainText('Board')
@@ -74,7 +74,7 @@ for (const mode of ['automatic','association'] as const) test(`${mode} panel sav
 })
 test('actual panel awaits the native provider before adopting and saving personal labels',async({browser})=>{
  const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()')
- await p.waitForFunction('window.child()?.host')
+ await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
  await p.evaluate(`child().host.onBoard({boardId:'panel-board',name:'Native Board',cardId:'private-card'})`)
  await expect(p.locator('#boardsContext')).toHaveText('KithMoot · Project · Chat · Native Board')
  await p.locator('#boardsProject').selectOption('');await p.locator('#boardsRoom').selectOption('');await p.locator('#boardsAssociate').click()
@@ -84,7 +84,7 @@ test('actual panel awaits the native provider before adopting and saving persona
    .toEqual([{boardId:'panel-board',boardName:'Native Board'},true,[],[]]);await c.close()
 })
 test('actual panel reset joins a blocked native read and cannot revive a changed account',async({browser})=>{
- const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host')
+ const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
  expect(await p.evaluate(`(async()=>{
    const host=child().host,before=await rawBoth();let release,started;const began=new Promise(r=>{started=r});window.clientHook=()=>{started();return new Promise(r=>{release=r})};
    host.onBoard({boardId:'late-board',name:'Late'});await began;session={...session};let ended=false;const closing=panel.reset().then(()=>{ended=true});
@@ -93,7 +93,7 @@ test('actual panel reset joins a blocked native read and cannot revive a changed
  })()`)).toEqual([true,true,0,[]]);await c.close()
 })
 test('actual popup uses native context custody and closing it refuses a late label save',async({browser})=>{
- const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host')
+ const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
  await p.evaluate(`child().host.onBoard({boardId:'popup-board',name:'Popup'})`)
  await expect(p.locator('#boardsContext')).toContainText('Popup')
  const opened=p.waitForEvent('popup');await p.locator('#boardsPopOut').click();const popup=await opened
@@ -149,4 +149,51 @@ test('a changed raw tab image blocks opening before any consumer reads or writes
      return[outcome,entropy,encryptions,after.every((row,i)=>Ordinary.sameOrdinaryFrame(row.frame,before[i].frame))]}
    finally{restoreCrypto()}
  })()`)).toEqual(['OrdinaryStateHold',0,0,true]);await c.close()
+})
+test('awaited native catalogue listing excludes other accounts and preserves the frames',async({browser})=>{
+ const c=await browser.newContext(),p=await open(c)
+ expect(await p.evaluate(`(async()=>{await edit(b=>b.set(fixture.name.replace(fixture.account,'4'.repeat(64)),fixture.raw));const before=await rawBoth();countCrypto();const values=await state.list();
+  values[0].boardName='Caller mutation';const after=await rawBoth();restoreCrypto();await state.close();return[values.length,after.every((row,i)=>Ordinary.sameOrdinaryFrame(row.frame,before[i].frame)),entropy,encryptions]})()`))
+  .toEqual([1,true,0,0]);await c.close()
+})
+test('new onBoards catalogue callback captures names before native awaits and renders native saved navigation',async({browser})=>{
+ const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
+ await p.evaluate(`(()=>{let started;window.catalogueStarted=new Promise(r=>started=r);let release;const gate=new Promise(r=>release=r);window.releaseCatalogue=()=>{release();delete window.clientHook};
+  window.clientHook=()=>{started();return gate};window.chosen=[{boardId:'catalogue-one',name:'Captured one',ended:false},{boardId:'catalogue-two',name:'Captured two',ended:true}];
+  child().host.onBoards(chosen)})()`);await p.evaluate('catalogueStarted');await p.evaluate(`chosen[0].name='Late caller mutation';releaseCatalogue()`)
+ await p.waitForFunction('!panel.hasPendingEdits');await expect(p.locator('#boardsSaved')).toContainText('Captured one')
+ expect(await p.evaluate(`(async()=>{const[b]=await rows();const one=JSON.parse(b.records.get('kithmoot.board-context.v1.'+fixture.account+'.catalogue-one'));await panel.reset();return[one,Object.keys(localStorage)]})()`))
+  .toEqual([{boardId:'catalogue-one',boardName:'Captured one'},[]]);await c.close()
+})
+test('account supersession joins catalogue and navigation reads without publishing late labels',async({browser})=>{
+ const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
+ expect(await p.evaluate(`(async()=>{const before=await rawBoth();let started,release;const began=new Promise(r=>started=r),gate=new Promise(r=>release=r);window.clientHook=()=>{started();return gate};
+  child().host.onBoards([{boardId:'late-catalogue',name:'Late',ended:false}]);await began;generation++;account='4'.repeat(64);session={...session};let done=false;const closing=panel.reset().then(()=>done=true);
+  await Promise.resolve();const waited=!done;release();delete window.clientHook;await closing;const after=await rawBoth();return[waited,after.every((row,i)=>Ordinary.sameOrdinaryFrame(row.frame,before[i].frame)),document.querySelector('#boardsSaved').children.length]})()`))
+  .toEqual([true,true,0]);await c.close()
+})
+for(const fault of ['caller-mutation','board-switch'] as const)test(`${fault} across the share boundary preserves the selected board or refuses its publication`,async({browser})=>{
+ const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
+ await p.evaluate(`child().host.onBoard({boardId:'shared-selected',name:'Selected'})`);await expect(p.locator('#boardsContext')).toContainText('Selected');await p.waitForFunction('!panel.hasPendingEdits')
+ expect(await p.evaluate(`(async()=>{window.publications=[];panel.options.shareBoard=async(room,board)=>publications.push({room,board});let started,release;const began=new Promise(r=>started=r),gate=new Promise(r=>release=r);
+  window.clientHook=()=>{started();return gate};const chosen={boardId:'shared-selected',name:'Selected'},share=child().host.roomShare();const pending=share.publish(chosen,'https://girnel.test/app/#'+'a'.repeat(100)).then(()=> 'ok',e=>e.name);
+  await began;if('${fault}'==='caller-mutation')chosen.boardId='substituted';else child().host.onBoard({boardId:'different',name:'Different'});
+  release();delete window.clientHook;const result=await pending;await panel.reset();return[result,publications.map(p=>p.board.boardId)]})()`))
+  .toEqual(fault==='caller-mutation'?['ok',['shared-selected']]:['Error',[]]);await c.close()
+})
+for(const owner of ['browserOwner','tabOwner'] as const)test(`${owner} close joins account enumeration before its first native read`,async({browser})=>{
+ const c=await browser.newContext(),p=await open(c)
+ expect(await p.evaluate(`(async()=>{const before=await rawBoth();let started,release;const began=new Promise(r=>started=r),gate=new Promise(r=>release=r);window.clientHook=()=>{started();return gate};
+  const pending=state.list().then(()=> 'ok',e=>e.name);await began;let ended=false;const closing=${owner}.close().then(()=>ended=true);await Promise.resolve();await new Promise(r=>setTimeout(r,30));
+  const waited=!ended;release();delete window.clientHook;const error=await pending;await closing;await state.close();const after=await rawBoth();return[waited,error,after.every((row,i)=>Ordinary.sameOrdinaryFrame(row.frame,before[i].frame))]})()`))
+  .toEqual([true,'OrdinaryStateHold',true]);await c.close()
+})
+for(const phase of ['destination-before-create','same-board-refresh'] as const)test(`${phase} keeps a current board share while fencing actual board switches`,async({browser})=>{
+ const c=await browser.newContext(),p=await open(c);await p.evaluate('('+panelSetup+')()');await p.waitForFunction('window.child()?.host');await p.waitForFunction('!panel.hasPendingEdits')
+ expect(await p.evaluate(`(async()=>{window.publications=[];panel.options.shareBoard=async(room,board)=>publications.push(board.boardId);let destination;
+  if('${phase}'==='destination-before-create')destination=child().host.roomShare();child().host.onBoard({boardId:'created-board',name:'Created'});
+  while(panel.hasPendingEdits)await new Promise(r=>setTimeout(r,10));destination??=child().host.roomShare();let started,release;const began=new Promise(r=>started=r),gate=new Promise(r=>release=r);
+  window.clientHook=()=>{started();return gate};const pending=destination.publish({boardId:'created-board',name:'Created'},'https://girnel.test/app/#'+'a'.repeat(100)).then(()=> 'ok',e=>e.name);
+  await began;if('${phase}'==='same-board-refresh')child().host.onBoard({boardId:'created-board',name:'Refreshed'});release();delete window.clientHook;const result=await pending;await panel.reset();return[result,publications]})()`))
+  .toEqual(['ok',['created-board']]);await c.close()
 })

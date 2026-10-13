@@ -85,6 +85,7 @@ export class OrdinaryBoardContextState implements BoardContextCustody {
       catch (error) { this.#stop(); throw error }
       finally { this.#busy = false }
     })
+    OrdinaryStateOwner.joinPairLifetime(this.#options.browser,this.#options.tab,pending)
     this.#work.add(pending); void pending.finally(() => this.#work.delete(pending)).catch(() => {})
     return pending
   }
@@ -110,6 +111,20 @@ export class OrdinaryBoardContextState implements BoardContextCustody {
       } }))
       return state
     } catch (error) { if (state) state.#stop(); else { try { options.stop() } catch { /* No view may proceed. */ } }; throw error }
+  }
+  list(): Promise<BoardContext[]> {
+    return this.#run(() => async () => {
+      const values = await OrdinaryStateOwner.readPairMigrated({...this.#pair(),work:(b,t,_bn,_tn,custody) => {
+        const bm = snapshot(b), tm = snapshot(t)
+        validateOrdinarySnapshot(bm,tm,{browser:true,tab:true},captureOrdinarySnapshotContext(bm,tm,custody))
+        const prefix = `kithmoot.board-context.v1.${this.#options.account}.`
+        return [...bm].filter(([name]) => name.startsWith(prefix))
+      }})
+      this.#check()
+      for (const [name,raw] of values) this.#expected.set(name,raw)
+      return values.map(([,raw]) => JSON.parse(raw) as BoardContext)
+        .sort((a,b) => a.boardName.localeCompare(b.boardName,'en-GB') || a.boardId.localeCompare(b.boardId))
+    })
   }
   read(boardId: string): Promise<BoardContext | undefined> {
     return this.#run(() => {
