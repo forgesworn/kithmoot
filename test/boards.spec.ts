@@ -137,7 +137,11 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     one = (await (await first.locator('iframe').elementHandle())!.contentFrame())!
     await expect(one.getByRole('link', {name: 'Design continues independently', exact: true})).toBeVisible()
     await first.screenshot({path: info.outputPath('design-board-popout.png'), fullPage: true})
-    await first.getByRole('button', {name: 'Return to workspace', exact: true}).click()
+    // Firefox can report the intentional popup close before the click settles.
+    await first.getByRole('button', {name: 'Return to workspace', exact: true}).click().catch((error: Error) => {
+      if (!first.isClosed() || !/has been closed/.test(error.message)) throw error
+    })
+    await expect.poll(() => first.isClosed()).toBe(true)
     await expect(page.locator('#boardsContext')).toContainText('Design board')
     frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await expect(frame.getByRole('link', {name: 'Design continues independently', exact: true})).toBeVisible()

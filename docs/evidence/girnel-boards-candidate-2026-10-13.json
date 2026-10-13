@@ -43,7 +43,10 @@
     "portable_browser_fixtures": "Chromium cached reopening passed with the actual origin server stopped. Concurrent two-agent review passed after explicitly refreshing and re-reviewing the current audience when late signed presence arrives; the product guard remains unchanged.",
     "mac_webkit_driver": "Local WebKit stalled in BrowserContext.newPage before app navigation; stopped the run and retained the trace. Linux hosted WebKit remains the automated browser gate.",
     "passive_chat_read": "Hosted Chromium desktop revealed an existing passive ResizeObserver read before room admission had established chat. Guard resize, focus and scroll callbacks while joining. Corrected exact desktop Boards journey passed (38.3 seconds), and type checking passed.",
-    "firefox_mls_exact_rerun": "The two unchanged MLS browser cases failing hosted attempt 1 both passed against the exact unchanged fixture locally in Firefox (10.5 seconds); no MLS source or timeout was changed."
+    "firefox_mls_exact_rerun": "The two unchanged MLS browser cases failing hosted attempt 1 both passed against the exact unchanged fixture locally in Firefox (10.5 seconds); no MLS source or timeout was changed.",
+    "firefox_popup_return": "The Return to workspace control intentionally closes its popup. Firefox may finish the click protocol after closure. The fixture accepts only a closed-popup error, asserts the window is closed and still verifies the returned board and durable card. Exact Firefox journey passed (1.4 minutes); application and installer bytes unchanged.",
+    "corrected_hosted_desktop": "Run 38332426336: 93 desktop acceptance tests passed with 11 existing skips after the passive read admission guard. Hosted Node 22/24: all 4,207 unit tests and 99 desktop checks passed.",
+    "corrected_hosted_webkit": "Run 38332426336: both WebKit groups passed before the Firefox popup fixture correction; no runtime source changes followed."
   },
   "open_gates": [
     "hosted CI",
