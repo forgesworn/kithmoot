@@ -133,7 +133,10 @@ for (const simultaneous of [false, true]) test(`native desktop exports gallery v
     await expect(mac.locator('#recordingReady')).toBeHidden()
     await peer.locator('#leaveCall').click(); await mac.locator('#leaveCall').click()
   } finally {
-    await native.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})
+    // This is an isolated fixture profile. Mac window closure can leave the
+    // application alive; exit it after the export/leave assertions rather than
+    // making fixture cleanup depend on the interactive quit handshake.
+    await native.evaluate(({ app }) => app.exit(0)).catch(() => {})
     await native.close().catch(() => {}); await context.close()
     await rm(profile, { recursive: true, force: true })
   }
