@@ -72,11 +72,28 @@ the additional restriction. It never accepts an external SDK effect boundary
 or grants permission to replace the foreground checks. The first consumer is
 the unmounted [native room-board storage prerequisite](ordinary-room-board-storage.md).
 
+`borrowSignEvent` applies the same additional synchronous restriction to
+signing. It returns a frozen callable with no raw signer, capabilities or SDK
+support marker. Templates are captured before callbacks, and an external
+per-call boundary is refused before any provider attempt. Consent and native
+room/carrier restrictions are checked inside each actual SDK attempt, after
+its result, and at the final detached event handoff. Signing and crypto share
+the foreground's single-operation latch and joined owner lifetimes.
+This is a source prerequisite for native consumers: production relay
+authentication, credential signing and `RoomSession` do not yet select it.
+Its trusted consumer callbacks cannot establish current membership or MLS
+admission authority.
+
 Native tests use real IndexedDB, Web Locks, WebCrypto, the complete composer and
 the reviewed unpublished SDK candidate. Extensions and bunker backends are
 synthetic. They check provider starts under the native lock, unlocked waiting,
 coherent session/fence/lease checks, revocation, retry, delayed upgrade,
 template aliases, signature validation, encryption/decryption and joined close.
+The borrowed-signing cases additionally check consent and native relay-row
+changes during deferred upgrades, NIP-07 retry delays, unabortable providers
+and final handoff. Loopback NIP-42 tests use real browser WebSockets and the
+actual authentication adapter with the narrowed SDK signer; they establish
+signature handoff behaviour, not native socket constructor/frame guards.
 They do not prove production mounting, real wallet/device behaviour or carrier
 privacy. The candidate archive and installed bytes are recorded outside the
 repository; the existing dependency declaration is not a reproducible install

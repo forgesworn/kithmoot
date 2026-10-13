@@ -310,6 +310,9 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     })
   }
   signEvent(input: EventTemplate, external?: SignerEffectBoundary): Promise<NostrEvent> {
+    return this.#signEvent(input,external)
+  }
+  #signEvent(input: EventTemplate, external?: SignerEffectBoundary, consumer?: OrdinaryForegroundConsumer): Promise<NostrEvent> {
     let captured: EventTemplate
     return this.#run(() => {
       if (external !== undefined) hold()
@@ -319,7 +322,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       const event = captureOrdinaryForegroundProof(signed)
       if (event.pubkey !== this.pubkey || JSON.stringify(statement(event)) !== JSON.stringify(captured) || !verifyEventUncached(event)) hold()
       return frozenEvent(event)
-    })
+    },consumer)
   }
   #crypt(method: NonNullable<SignetSigner['nip44']>['encrypt'], receiver: NonNullable<SignetSigner['nip44']>,
     peer: string, text: string, external?: SignerEffectBoundary, consumer?: OrdinaryForegroundConsumer): Promise<string> {
@@ -333,17 +336,29 @@ export class OrdinaryForegroundSigner implements SignetSigner {
    * preflight runs in the SAME authentic read as every actual SDK attempt and
    * final handoff; an earlier asynchronous decision is never a substitute. */
   borrowNip44(input: OrdinaryForegroundConsumer): NonNullable<SignetSigner['nip44']> {
+    const consumer=this.#captureConsumer(input)
+    if(!this.#crypto.nip44||!this.#methods.nip44)hold()
+    const methods=this.#methods.nip44,receiver=this.#crypto.nip44
+    return Object.freeze({encrypt:(peer:string,text:string)=>this.#crypt(methods.encrypt,receiver,peer,text,undefined,consumer),
+      decrypt:(peer:string,text:string)=>this.#crypt(methods.decrypt,receiver,peer,text,undefined,consumer)})
+  }
+  /** Borrow signing for a trusted native room/carrier component. The caller
+   * supplies an additional synchronous restriction, not an authority proof.
+   * It is checked at every SDK provider attempt, including delayed upgrades
+   * and retries, and again before releasing the detached signed result. */
+  borrowSignEvent(input: OrdinaryForegroundConsumer): SignetSigner['signEvent'] {
+    const consumer=this.#captureConsumer(input)
+    return Object.freeze((event:EventTemplate,external?:SignerEffectBoundary)=>this.#signEvent(event,external,consumer))
+  }
+  #captureConsumer(input: OrdinaryForegroundConsumer): OrdinaryForegroundConsumer {
     if(!input||Object.getPrototypeOf(input)!==Object.prototype)hold()
     const names=Reflect.ownKeys(input)
     if(names.length!==2||names.some(name=>name!=='live'&&name!=='validate'))hold()
     const fields=['live','validate'].map(name=>Object.getOwnPropertyDescriptor(input,name))
     if(fields.some(field=>!field||!Object.hasOwn(field,'value')))hold()
     const live=fields[0]!.value as OrdinaryForegroundConsumer['live'],validate=fields[1]!.value as OrdinaryForegroundConsumer['validate']
-    if(typeof live!=='function'||typeof validate!=='function'||!this.#crypto.nip44||!this.#methods.nip44)hold()
-    const consumer=Object.freeze({live:()=>live.call(input),validate:(b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody)=>validate.call(input,b,t,c)})
-    const methods=this.#methods.nip44,receiver=this.#crypto.nip44
-    return Object.freeze({encrypt:(peer:string,text:string)=>this.#crypt(methods.encrypt,receiver,peer,text,undefined,consumer),
-      decrypt:(peer:string,text:string)=>this.#crypt(methods.decrypt,receiver,peer,text,undefined,consumer)})
+    if(typeof live!=='function'||typeof validate!=='function')hold()
+    return Object.freeze({live:()=>live.call(input),validate:(b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody)=>validate.call(input,b,t,c)})
   }
   revoke(): void { this.#closed = true }
   async close(): Promise<void> {
