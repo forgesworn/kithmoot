@@ -1411,6 +1411,26 @@ export class OrdinaryStateOwner {
     }).then(resolve,reject).finally(()=>releaseOrdinaryRenewalSigningLifetime(foregroundLifetime)).catch(()=>{})
     return pending
   }
+  /** Validation only: a copied handle, cached image or mutation projection
+   * cannot stand in for a fresh native read of this exact acknowledged S.
+   * Current role and controller authority must still be checked by the factory.
+   * No journal reader, phase exemption or writable image escapes here. */
+  static validateSettledMemberRenewalReceipt(settled:OrdinaryRenewalSettled,custody:OrdinaryPairCustody):void{
+    const receipt=renewalSettled.get(settled),enrollment=receipt&&renewalEnrollments.get(receipt.enrollment),captured=pairCustody.get(custody)
+    if(!receipt||!enrollment||captured?.kind!=='read'||!captured.rows||!captured.operationMarkers||receipt.target.header.phase!=='settled')hold()
+    const {binding}=enrollment.held
+    OrdinaryStateOwner.validatePairBinding(custody,binding)
+    const names=ordinaryOperationNames(receipt.target.purpose)
+    if(captured.rows.some((row,i)=>!row.frame||row.pending||rowDigest(row)!==receipt.target.rows[i])||
+      captured.browserOwner.#operationControlDigests.get(names.control)!==receipt.target.controlDigest)hold()
+    // The default paired reader authenticated every control in the same
+    // coherent transaction as these rows. Match that complete control set.
+    const controls=captured.browserOwner.#operationControlDigests
+    if(controls.size!==receipt.classification.controls.length||receipt.classification.controls.some(([name,digest])=>controls.get(name)!==digest))hold()
+    const markers=new Map(receipt.classification.markers)
+    for(const current of captured.operationMarkers)for(const [name,raw]of current)if(markers.get(name)!==raw)hold()
+    OrdinaryStateOwner.validatePairBinding(custody,binding)
+  }
   /** Expiry is not proof that an uncertain intent was absent. Authenticate
    * and promote its exact frame before removing expired custody. The caller
    * receives the current native owner so an unknown receipt can be retried. */
