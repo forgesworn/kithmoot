@@ -278,7 +278,7 @@ test('a remote phone camera has a filled portrait tile and follows live rotation
     })
     await expect.poll(async () => (await shape()).natural, { timeout: 90_000 }).toBeCloseTo(9 / 16, 2)
     await expect.poll(async () => (await shape()).tile).toBeCloseTo(9 / 16, 2)
-    expect(await shape()).toMatchObject({ widthGap: 0, heightGap: 0, fit: 'contain' })
+    await expect.poll(shape).toMatchObject({ widthGap: 0, heightGap: 0, fit: 'contain' })
     await mkdir(SHOTS, { recursive: true }); await shot(page, 'portrait-camera-solo')
     const stream = await camera.evaluate((video: HTMLVideoElement) => (video.srcObject as MediaStream).id)
     await source.evaluate(() => (window as unknown as { rotateTestPhone(portrait: boolean): void }).rotateTestPhone(false))
