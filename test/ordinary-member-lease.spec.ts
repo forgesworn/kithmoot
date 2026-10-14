@@ -228,14 +228,104 @@ test('definite predecessor mismatch refuses a delayed fixture before allocating 
     const out=[result,entropy,encryptions];restoreCrypto();await preflight();return out
   })()`)).toEqual(['OrdinaryStateHold',0,0])
 })
-test('schema acceptance does not enable the first-credential Session factory to use a successor', async ({ page }) => {
+test('actual factory loads an acknowledged successor and all retained seals without renewing', async ({ page }) => {
   await start(page, { visitor: true })
   expect(await page.evaluate(`(async()=>{
-    await renew();bootstrap=await open();countCrypto();let dials=0
-    class Socket{constructor(){dials++}}
-    const loaded=await outcome(()=>bootstrap.load()),session=await outcome(()=>bootstrap.openMemberSession({relays:['wss://signed.example/'],
-      profile:'direct',websocketImplementation:Socket,live:guard}));const out=[loaded,session,dials,entropy,encryptions];restoreCrypto();return out
-  })()`)).toEqual(['OrdinaryStateHold','OrdinaryStateHold',0,0,0])
+    const c=await renew();bootstrap=await open();countCrypto()
+    const loaded=await bootstrap.load(),before=await records()
+    const out=[loaded.credential.id===c.credential.id,loaded.sealKeys.length,
+      loaded.sealKeys.some(k=>Ordinary.getPublicKey(k)===Ordinary.getPublicKey(loaded.sealKey)),entropy,encryptions]
+    Ordinary.wipeOrdinaryPersistentBootstrapResult(loaded)
+    out.push(loaded.sealKeys.every(k=>k.every(v=>v===0)),loaded.sealKey.every(v=>v===0),
+      JSON.stringify(before)===JSON.stringify(await records()))
+    restoreCrypto();return out
+  })()`)).toEqual([true,2,true,0,0,true,true,true])
+})
+for (const keep of [true,false]) test('restored successor remains loadable after bootstrap expiry, keep=' + keep, async ({ page }) => {
+  await start(page, { visitor: true, keep })
+  expect(await page.evaluate(`(async()=>{
+    const c=await renew(),realNow=Date.now;Date.now=()=> (now+1801)*1000
+    let loaded
+    try{bootstrap=await open();countCrypto();loaded=await bootstrap.load()
+      return[loaded.credential.id===c.credential.id,loaded.sealKeys.length,entropy,encryptions]}
+    finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(loaded);restoreCrypto();Date.now=realNow}
+  })()`)).toEqual([true,2,0,0])
+})
+for (const keep of [true,false]) for (const visitor of [true,false]) test('owned Session construction uses the actual successor and bounded seals, keep=' + keep + ', visitor=' + visitor, async ({ page }) => {
+  await start(page, { visitor, keep })
+  expect(await page.evaluate(`(async()=>{
+    await renew();const c=await renew(),realNow=Date.now;Date.now=()=> (now+30)*1000
+    let owned,loaded,dials=0;class Socket{constructor(){dials++}}
+    const timeout=setTimeout,delays=[];window.setTimeout=(effect,delay,...args)=>{delays.push(delay);return timeout(effect,delay,...args)}
+    const before=await records(),signs=signCalls
+    try{bootstrap=await open();loaded=await bootstrap.load()
+      owned=await bootstrap.openMemberSession({relays:['wss://signed.example/'],profile:'direct',websocketImplementation:Socket,live:guard})
+      return[loaded.credential.id===c.credential.id,loaded.sealKeys.length,owned.roomId===roomId,owned.participant===participant,
+        owned.device===c.next.binding.device.pubkey,dials,signCalls===signs,JSON.stringify(before)===JSON.stringify(await records()),
+        delays.includes((Number(c.credential.tags[2][1])-now-30)*1000),!delays.includes((credentialExpiresAt-now-30)*1000)]}
+    finally{await owned?.close();Ordinary.wipeOrdinaryPersistentBootstrapResult(loaded);window.setTimeout=timeout;Date.now=realNow}
+  })()`)).toEqual([true,3,true,true,true,0,true,true,true,true])
+})
+for (const keep of [true,false]) test('owned Session can reopen a valid successor after bootstrap expiry, keep=' + keep, async ({ page }) => {
+  await start(page, { visitor: true, keep })
+  expect(await page.evaluate(`(async()=>{
+    await renew();await renew();const c=await renew(),realNow=Date.now;Date.now=()=> (now+1810)*1000
+    let owned,loaded,dials=0;class Socket{constructor(){dials++}}
+    const before=await records()
+    try{bootstrap=await open();loaded=await bootstrap.load()
+      owned=await bootstrap.openMemberSession({relays:['wss://signed.example/'],profile:'direct',websocketImplementation:Socket,live:guard})
+      return[loaded.credential.id===c.credential.id,loaded.sealKeys.length,owned.device===c.next.binding.device.pubkey,dials,
+        JSON.stringify(before)===JSON.stringify(await records())]}
+    finally{await owned?.close();Ordinary.wipeOrdinaryPersistentBootstrapResult(loaded);Date.now=realNow}
+  })()`)).toEqual([true,4,true,0,true])
+})
+test('successor loading does not require a retired bootstrap seal', async ({ page }) => {
+  await start(page, { visitor: true, keep: false })
+  expect(await page.evaluate(`(async()=>{
+    const c=await renew();await pair((_b,t)=>{const name=prefix+Ordinary.OWN_SEAL_PREFIX+roomId
+      t.set(name,JSON.stringify([JSON.parse(t.get(name)).at(-1)]))})
+    bootstrap=await open();const loaded=await bootstrap.load()
+    try{return[loaded.credential.id===c.credential.id,loaded.sealKeys.length]}finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(loaded)}
+  })()`)).toEqual([true,1])
+})
+test('an already opened factory cannot silently select a later successor', async ({ page }) => {
+  await start(page, { visitor: true })
+  expect(await page.evaluate(`(async()=>{
+    bootstrap=await open();const original=bootstrap;await renew();countCrypto()
+    try{return[await outcome(()=>original.load()),entropy,encryptions]}finally{restoreCrypto()}
+  })()`)).toEqual(['OrdinaryStateHold',0,0])
+})
+for (const fault of ['bootstrap-intent','expired-successor','expired-admission']) test('restored successor refuses ' + fault + ' without replacement entropy', async ({ page }) => {
+  await start(page, { visitor: true })
+  expect(await page.evaluate(`(async()=>{
+    const c=await renew(),realNow=Date.now,fault='${fault}',before=await records()
+    if(fault==='bootstrap-intent'){credentialExpiresAt++;current={...current,credentialExpiresAt}}
+    if(fault==='expired-successor')Date.now=()=>Number(c.credential.tags[2][1])*1000
+    if(fault==='expired-admission')Date.now=()=> (now+3600)*1000
+    countCrypto();try{return[await outcome(async()=>{const state=await open();try{return await state.load()}finally{await state.close()}}),entropy,encryptions,JSON.stringify(before)===JSON.stringify(await records())]}
+    finally{restoreCrypto();Date.now=realNow}
+  })()`)).toEqual(['OrdinaryStateHold',0,0,true])
+})
+for (const delta of [-100_000,100_000]) test('a replacement genuine Fore deadline cannot refresh lease authority, delta=' + delta, async ({ page }) => {
+  await start(page, { foregroundMs: 2500999 })
+  expect(await page.evaluate(`(async()=>{
+    await renew();await identity.close();const scope=await browserOwner.capture('@ordinary-signet',guard)
+    const changed=sourceSession.expiresAt+${delta};await browserOwner.mutateMigrated(scope,guard,b=>b.set('signet:login.expiresAt',String(changed)))
+    sourceSession={...sourceSession,expiresAt:changed};identity=await Ordinary.OrdinaryForegroundSigner.open({browser:browserOwner,tab:tabOwner,
+      session:sourceSession,currentSession:()=>sourceSession,generation:0,currentGeneration:()=>0,live:guard,checkClients:async()=>{},stop:()=>{}})
+    current={...current,identity};const before=await records();countCrypto()
+    try{return[await outcome(async()=>{const state=await open();try{return await state.load()}finally{await state.close()}}),entropy,encryptions,JSON.stringify(before)===JSON.stringify(await records())]}
+    finally{restoreCrypto()}
+  })()`)).toEqual(['OrdinaryStateHold',0,0,true])
+})
+test('explicit forget remains available after the selected successor expires', async ({ page }) => {
+  await start(page, { visitor: true })
+  expect(await page.evaluate(`(async()=>{
+    const c=await renew(),realNow=Date.now;Date.now=()=>Number(c.credential.tags[2][1])*1000
+    try{bootstrap=await open();const refused=await outcome(()=>bootstrap.load());await bootstrap.forget();const[b,t]=await images()
+      return[refused,b.records.has(proofName),t.records.has(tabProofName),[...b.records.keys(),...t.records.keys()].some(n=>n.includes(Ordinary.MEMBER_LEASE_PREFIX))]}
+    finally{Date.now=realNow}
+  })()`)).toEqual(['OrdinaryStateHold',false,false,false])
 })
 for (const keep of [true,false]) test('native forget deletes its lease and proof while preserving another actor, keep=' + keep, async ({ page }) => {
   await start(page, { visitor: true, keep })

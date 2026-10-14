@@ -25,7 +25,8 @@ import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmission
   PERSISTENT_PROOF_V2_PREFIX, PERSISTENT_TAB_PROOF_V2_PREFIX,
   type PersistentDeviceCustody, type VerifiedPersistentProof } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected } from './persistent-creator-proof.js'
-import { MEMBER_LEASE_PREFIX } from './ordinary-member-lease.js'
+import { MEMBER_LEASE_PREFIX, ordinaryMemberLeaseName, ordinaryMemberLeaseCredential, readOrdinaryMemberLease,
+  ordinaryMemberAuthorityUntil } from './ordinary-member-lease.js'
 import { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
 import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions } from './ordinary-invitation-query.js'
 import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
@@ -95,6 +96,9 @@ export interface OrdinaryPersistentBootstrapResult {
   readonly admission: PersistentRoomAdmission
   readonly deviceKey: Uint8Array
   readonly sealKey: Uint8Array
+  /** Present for an authenticated successor. Includes the current seal and
+   * the bounded history still needed by retained device proofs. */
+  readonly sealKeys?: readonly Uint8Array[]
   readonly credential: DeviceCredential
 }
 interface OrdinaryMemberProtocolExecution extends ProtocolExecution {
@@ -125,6 +129,7 @@ export interface OrdinaryOwnedMemberSession extends OrdinaryMemberConversation {
 }
 export function wipeOrdinaryPersistentBootstrapResult(result: OrdinaryPersistentBootstrapResult | undefined): void {
   result?.admission.secret.fill(0); result?.deviceKey.fill(0); result?.sealKey.fill(0)
+  for (const key of result?.sealKeys ?? []) key.fill(0)
 }
 /** First-member construction over actual completed Fold query evidence. No
  * transport is created here. The caller must query on an authorised carrier;
@@ -146,6 +151,8 @@ export class OrdinaryPersistentBootstrap {
   #starting = false
   #forgetting = false
   #effectUntil: number | undefined
+  #credentialExpiresAt: number
+  #credentialTtlSeconds = 0
   #candidateOperation: string | undefined
   #ownedOperation: string | undefined
   #openedImage: OpenedImage | undefined
@@ -153,6 +160,7 @@ export class OrdinaryPersistentBootstrap {
   #queryAbort: AbortController | undefined
   private constructor(options: Options, participant: string, sign: ParticipantIdentity['signEvent'], browser: OrdinaryScope, tab: OrdinaryScope) {
     this.#options = options; this.#participant = participant; this.#sign = sign
+    this.#credentialExpiresAt = options.credentialExpiresAt
     this.#browserScope = browser; this.#tabScope = tab; this.#id = deriveInvitationId(options.invitation)
   }
   static async open(input: Options): Promise<OrdinaryPersistentBootstrap> {
@@ -182,7 +190,20 @@ export class OrdinaryPersistentBootstrap {
       state = new OrdinaryPersistentBootstrap({ ...options, live }, participant, sign, browser, tab)
       await state.#read((b, t, custody) => {
         state!.#preflight(b, t, custody)
-        state!.#ownedOperation = state!.#selected(b, t, custody)?.operation
+        const selected = state!.#selected(b, t, custody)
+        state!.#ownedOperation = selected?.operation
+        if (selected) {
+          const checked = inspectPersistentAdmissionProofs(b, t)
+          try {
+            const verified = checked.selected.get(accountPrefix(participant) + PERSISTENT_TAB_PROOF_V2_PREFIX + id)!
+            // Capturing storage selection is also needed for explicit forget
+            // after credential expiry. It grants no effect lease; load/open
+            // separately require current authority and current usability.
+            const material = state!.#selectedCredential(b, t, custody, verified, false)
+            state!.#credentialExpiresAt = material.expiresAt
+            state!.#credentialTtlSeconds = material.ttlSeconds
+          } finally { checked.close() }
+        }
         state!.#openedImage = state!.#image(b, t, custody)
       })
       return state
@@ -247,7 +268,7 @@ export class OrdinaryPersistentBootstrap {
     if (JSON.stringify(this.#sources(browser, tab, custody, roomId)) !== JSON.stringify(expected)) hold()
   }
   #lifetime(admission: PersistentRoomAdmission): void {
-    const now = Math.floor(Date.now() / 1000), expires = this.#options.credentialExpiresAt
+    const now = Math.floor(Date.now() / 1000), expires = this.#credentialExpiresAt
     if (!this.#live() || expires <= now || expires > Math.floor(this.#options.tab.expiresAt / 1000) ||
         admission.endsAt !== undefined && (admission.endsAt <= now || expires > admission.endsAt)) hold()
   }
@@ -355,14 +376,45 @@ export class OrdinaryPersistentBootstrap {
     const metadata = JSON.parse(raw) as { link: string; keep?: boolean; endedAt?: number }
     if (metadata.link !== this.#options.link || metadata.keep !== this.#options.keep || metadata.endedAt !== undefined) hold()
   }
-  #credential(raw: string, roomId: string, devicePubkey: string, sealPubkey: string, now?: number): DeviceCredential {
+  #credential(raw: string, roomId: string, devicePubkey: string, sealPubkey: string, now?: number,
+    expiresAt = this.#options.credentialExpiresAt): DeviceCredential {
     ordinaryUtf8Length(raw, CREDENTIAL_BYTES)
     const event = JSON.parse(raw) as DeviceCredential
     validateOrdinaryEmbeddedDeviceCredential(event, roomId)
-    const tags = [['d', roomId], ['device', devicePubkey], ['expiration', String(this.#options.credentialExpiresAt)], ['seal', sealPubkey]]
+    const tags = [['d', roomId], ['device', devicePubkey], ['expiration', String(expiresAt)], ['seal', sealPubkey]]
     if (event.pubkey !== this.#participant || event.content !== '' || JSON.stringify(event.tags) !== JSON.stringify(tags) ||
         now !== undefined && event.created_at !== now) hold()
     return event
+  }
+  /** Select only the actual acknowledged proof/lease. The bootstrap request
+   * remains immutable; it is not the expiry of a subsequently selected lease. */
+  #selectedCredential(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, verified: VerifiedPersistentProof, checkForeground = true):
+    { credential: DeviceCredential; sealStrings: readonly string[]; expiresAt: number; ttlSeconds: number; successor: boolean } {
+    const proof = verified.proof, prefix = accountPrefix(this.#participant), device = this.#options.keep ? browser : tab
+    const raw = device.get(prefix + OWN_CREDENTIAL_PREFIX + proof.binding.roomId)
+    const sealsRaw = device.get(prefix + OWN_SEAL_PREFIX + proof.binding.roomId)
+    if (raw === null || sealsRaw === null) hold()
+    const sealStrings = JSON.parse(sealsRaw) as string[], event = JSON.parse(raw) as DeviceCredential
+    const leaseRaw = tab.get(ordinaryMemberLeaseName(proof.binding))
+    let expiresAt = this.#options.credentialExpiresAt, issuedAt = event.created_at
+    if (leaseRaw !== null) {
+      const lease = readOrdinaryMemberLease(leaseRaw, JSON.stringify(proof))
+      const current = ordinaryMemberLeaseCredential(proof, lease.header.credential)
+      if (JSON.stringify(current) !== raw || lease.header.expiresAt !== Number(event.tags[2]?.[1])) hold()
+      const a = lease.header.authority
+      const foreground = this.#options.account === null ? null : checkForeground ? OrdinaryForegroundSigner.nativeDeadline(
+        this.#options.identity as OrdinaryForegroundSigner, browser, tab, custody, this.#participant) : a.foregroundExpiresAt
+      if (a.tabExpiresAt !== this.#options.tab.expiresAt || a.admissionEndsAt !== (verified.admission.endsAt ?? null) ||
+          a.foregroundExpiresAt !== foreground || a.membershipEndsAt !== null || lease.header.expiresAt > ordinaryMemberAuthorityUntil(a)) hold()
+      const original = JSON.parse(lease.bootstrapProof) as VerifiedPersistentProof['proof']
+      if (original.binding.operation !== lease.header.bootstrap) hold()
+      const bootstrapCredential = ordinaryMemberLeaseCredential(original, original.binding.device.credentialIds[0]!)
+      if (Number(bootstrapCredential.tags[2]?.[1]) !== this.#options.credentialExpiresAt) hold()
+      issuedAt = bootstrapCredential.created_at; expiresAt = lease.header.expiresAt
+    } else if (sealStrings.length !== 1) hold()
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= issuedAt || !proof.binding.device.credentialIds.includes(event.id)) hold()
+    this.#credential(raw, proof.binding.roomId, proof.binding.device.pubkey, event.tags[3]?.[1] ?? '', undefined, expiresAt)
+    return { credential: event, sealStrings, expiresAt, ttlSeconds: this.#options.credentialExpiresAt - issuedAt, successor: leaseRaw !== null }
   }
   async #load(operation = this.#ownedOperation): Promise<OrdinaryPersistentBootstrapResult | undefined> {
     let result: OrdinaryPersistentBootstrapResult | undefined
@@ -374,24 +426,30 @@ export class OrdinaryPersistentBootstrap {
         if (operation === undefined || selected.operation !== operation) hold()
         const checked = inspectPersistentAdmissionProofs(browser, tab)
         let key: Uint8Array | undefined, seal: Uint8Array | undefined, root: Uint8Array | undefined
+        const sealKeys: Uint8Array[] = []
         try {
           const verified = checked.selected.get(accountPrefix(this.#participant) + PERSISTENT_TAB_PROOF_V2_PREFIX + this.#id)!
           this.#bound(verified, browser, tab, custody); this.#lifetime(verified.admission)
           const device = this.#options.keep ? browser : tab, prefix = accountPrefix(this.#participant)
           key = hexToBytes((JSON.parse(device.get(prefix + DEVICE_PREFIX + selected.roomId)!) as { sk: string }).sk)
-          const raw = device.get(prefix + OWN_CREDENTIAL_PREFIX + selected.roomId), seals = JSON.parse(device.get(prefix + OWN_SEAL_PREFIX + selected.roomId)!) as string[]
-          if (raw === null || seals.length !== 1) hold()
-          seal = hexToBytes(seals[0]!)
-          const credential = this.#credential(raw, selected.roomId, getPublicKey(key), getPublicKey(seal))
+          const retained = this.#selectedCredential(browser, tab, custody, verified)
+          if (retained.expiresAt !== this.#credentialExpiresAt || retained.ttlSeconds !== this.#credentialTtlSeconds && this.#credentialTtlSeconds !== 0) hold()
+          for (const encoded of retained.sealStrings) sealKeys.push(hexToBytes(encoded))
+          const currentSeal = sealKeys.find(value => getPublicKey(value) === retained.credential.tags[3]?.[1])
+          if (!currentSeal) hold()
+          seal = currentSeal.slice()
+          const credential = this.#credential(JSON.stringify(retained.credential), selected.roomId, getPublicKey(key), getPublicKey(seal), undefined, retained.expiresAt)
           if (!verified.proof.binding.device.credentialIds.includes(credential.id)) hold()
           root = new Uint8Array(verified.admission.secret)
           result = { admission: { ...verified.admission, secret: root, ...(verified.admission.relays ? { relays: [...verified.admission.relays] } : {}) },
-            deviceKey: key, sealKey: seal, credential: structuredClone(credential) }
+            deviceKey: key, sealKey: seal, credential: structuredClone(credential), ...(retained.successor ? { sealKeys } : {}) }
+          this.#credentialTtlSeconds = retained.ttlSeconds
+          if (!retained.successor) for (const value of sealKeys) value.fill(0)
           return result
-        } catch (error) { key?.fill(0); seal?.fill(0); root?.fill(0); throw error }
+        } catch (error) { key?.fill(0); seal?.fill(0); root?.fill(0); for (const value of sealKeys) value.fill(0); throw error }
         finally { checked.close() }
       })
-      if (!this.#live() || answer && (this.#options.credentialExpiresAt <= Math.floor(Date.now() / 1000) ||
+      if (!this.#live() || answer && (this.#credentialExpiresAt <= Math.floor(Date.now() / 1000) ||
           answer.admission.endsAt !== undefined && answer.admission.endsAt <= Math.floor(Date.now() / 1000))) hold()
       return answer
     } catch (error) { wipeOrdinaryPersistentBootstrapResult(result); throw error }
@@ -399,7 +457,7 @@ export class OrdinaryPersistentBootstrap {
   load(): Promise<OrdinaryPersistentBootstrapResult | undefined> { return this.#track(this.#load()) }
   /** Execution for an actual member session over this exact retained proof.
    * The root supplies synchronous revocation of its owned session/carrier.
-   * This first-credential lease does not implement renewal or creator custody. */
+   * This selected member lease does not implement renewal or creator custody. */
   async #borrowProtocolExecution(revoke: () => void, sessionLive: () => boolean): Promise<OrdinaryMemberProtocolExecution> {
     if (typeof revoke !== 'function' || Object.getPrototypeOf(revoke) === Object.getPrototypeOf(async () => {})) hold()
     const owner = this, work = new Set<Promise<unknown>>()
@@ -408,7 +466,7 @@ export class OrdinaryPersistentBootstrap {
     const live = () => {
       if (closed || !owner.#live()) return false
       const selected = sessionLive()
-      return selected === true && !closed && owner.#live() && Math.floor(Date.now() / 1000) < owner.#options.credentialExpiresAt
+      return selected === true && !closed && owner.#live() && Math.floor(Date.now() / 1000) < owner.#credentialExpiresAt
     }
     const retain = <T>(pending: Promise<T>): Promise<T> => {
       if (!(pending instanceof Promise)) hold()
@@ -487,7 +545,7 @@ export class OrdinaryPersistentBootstrap {
       })
       const expire = () => {
         if (closed) return
-        const remaining = owner.#options.credentialExpiresAt * 1000 - Date.now()
+        const remaining = owner.#credentialExpiresAt * 1000 - Date.now()
         if (remaining <= 0) {
           protocol.close()
           OrdinaryStateOwner.joinPairLifetime(owner.#options.browser, owner.#options.tab, protocol.joinLifetime())
@@ -501,7 +559,7 @@ export class OrdinaryPersistentBootstrap {
   }
   /** Create the genuine library session from acknowledged member material.
    * The executor, buffers, raw session and exact carrier stay private. This
-   * initial member lease does not yet activate renewal, media or creator roles. */
+   * selected member lease does not yet activate renewal, media or creator roles. */
   openMemberSession(input: OrdinaryMemberSessionOptions): Promise<OrdinaryOwnedMemberSession> {
     if (this.#sessionStarting || this.#protocols.size || this.#closed || this.#forgetting) hold()
     this.#sessionStarting = true
@@ -587,7 +645,7 @@ export class OrdinaryPersistentBootstrap {
         // #load verifies the exact retained credential, device and own seal
         // in native custody. Refuse a lease RoomSession would try to renew
         // before the relay carrier can construct its first socket.
-        if (this.#options.credentialExpiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
+        if (this.#credentialExpiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
         if (material.admission.relays !== undefined) {
           const destinations = (entries: MemberCarrierOptions['relays']) => JSON.stringify(normaliseRelayConfig(entries, profile)
             .map(({ url, read, write }) => [url, read, write]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))))
@@ -602,7 +660,7 @@ export class OrdinaryPersistentBootstrap {
             protocol!.validate(b, t, c)
             // Recheck on the actual pool/socket construction read, including
             // waits in carrier.open. Later work uses the original lease end.
-            if (starting && this.#options.credentialExpiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
+            if (starting && this.#credentialExpiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
           }, onClose: () => protocol!.close() })
         const identity: ParticipantIdentity = { pubkey: this.#participant,
           // Renewal needs its own capacity/CAS/credential retention owner.
@@ -610,12 +668,12 @@ export class OrdinaryPersistentBootstrap {
           signEvent: () => Promise.reject(new OrdinaryStateHold()),
         }
         session = await protocol.run('session-construction', () => new RoomSession({ transport: carrier!, protocol: protocol!,
-          secret: material!.admission.secret, deviceSk: material!.deviceKey, identity, resume: material!.credential, sealKeys: [material!.sealKey],
+          secret: material!.admission.secret, deviceSk: material!.deviceKey, identity, resume: material!.credential, sealKeys: material!.sealKeys ?? [material!.sealKey],
           retainCredential: () => Promise.reject(new OrdinaryStateHold()), authority: this.#options.invitation.inviter,
           memberEpochDesk: false, epochCatchUp: false,
           onClosed: () => protocol!.close(), onRemoved: () => protocol!.close(), onEpochConflict: () => protocol!.close(),
           requireFreshEpoch: true, expectedEpoch: 0, endsAt: material!.admission.endsAt, policy, name, epochRequestTimeoutMs: timeout,
-          timing: { credentialTtlSeconds: this.#options.credentialExpiresAt - material!.credential.created_at },
+          timing: { credentialTtlSeconds: this.#credentialTtlSeconds },
         }))
         const perform = <T>(operation: string, effect: () => Promise<T>): Promise<T> => protocol!.task!(operation, async execution => {
           const started = await execution.run(operation, () => {

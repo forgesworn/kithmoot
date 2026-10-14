@@ -8,8 +8,14 @@ The first-credential session checkpoint is not completion of this lifecycle.
 The current source implements strict lease parsing, native input preparation,
 whole-image composition and actor-scoped removal. It does not implement the
 renewal producer, pre-entropy reservation, signing/ACK coordination or Session
-handoff described below. The first-credential factory still refuses renewed
-material. Offline custody remains readable after sign-out or account replacement;
+handoff described below. The owned factory can load an acknowledged successor
+from its exact selected V2 proof and verified lease, including bounded retained
+seal keys. It preserves the bootstrap request and original renewal interval,
+uses the selected credential's expiry for Session construction and its native
+timer, and repeats the genuine Fore deadline before releasing account material.
+It does not silently advance an already opened factory to a later selection.
+Expired material remains available for explicit native forget; capturing that
+selection grants no effect lease. Offline custody remains readable after sign-out or account replacement;
 only a new genuine Fore check at preparation/open can authorise account effects.
 
 The timer/root groundwork now starts and retains an exact lifecycle promise
@@ -44,8 +50,10 @@ or permission to adopt. This fact can survive subsequent liveness loss; its
 consumer still needs a new coherent authenticated read of both exact candidate
 frames, the same owners and scopes, and current lifetimes before a synchronous
 callback. A refused or completed consumption permanently spends that receipt.
-Receipts are memory-only. Durable successor selection/restart and actual Session
-adoption remain producer responsibilities and are not mounted by this primitive.
+Receipts are memory-only. The selected successor can now be reopened from
+authenticated native rows without a receipt or new credential entropy. Durable
+unknown-commit startup classification and actual Session adoption still remain
+producer responsibilities and are not mounted by this primitive.
 
 ## Selected successor
 
@@ -216,9 +224,9 @@ candidate producer and atomic acknowledged Session adoption remain
 unimplemented. Browser suspension tests use actual native owners with a local
 graph controller; they supply no production successor or MLS authority.
 General catch-up timers are outside this
-bounded factory, which still sets `epochCatchUp:false`. The first-credential
-factory refuses minting a replacement before entropy; refusal leaves the old
-credential usable only until its original fixed expiry.
+bounded factory, which still sets `epochCatchUp:false`. The owned member
+factory refuses minting a replacement before entropy; refusal leaves the
+selected credential usable only until its fixed expiry.
 
 Exercise actual native owners and the real session for renewal, restart, both
 keep choices, concurrent tabs, exact-byte ABA, delayed predecessor completion,
