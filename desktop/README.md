@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.79 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.80 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -248,3 +248,16 @@ fresh matching account proofs; other guests await a member decision. Record call
 remains visible beside microphone and camera for the room creator after joining.
 The signed build and pending publication gates are recorded in
 [release evidence](../docs/evidence/conversation-admission-release-2026-10-10.json).
+
+## Version 0.1.80: Signet contacts and board/call layout
+
+Find an authorised Signet contact and choose Message to create or reopen a
+private conversation with chat, calls and collaboration. Encrypted invitations
+can be opened on a later visit without a shared room or the sender online.
+Contact access remains a separate confirmed Signet grant; incoming invitations
+require deliberate Open. This is invitation transport into KithMoot rooms, not
+ordinary NIP-17 chat interoperability. Real Signet and physical-device acceptance
+remain separate from automated journeys and publication.
+
+The call gallery stays below board shortcuts, including when creating a board
+during a call and at enlarged text sizes.
