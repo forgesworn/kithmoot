@@ -6,6 +6,31 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.86 Signet contacts — 14 October 2026
+
+Version **0.6.86**, code **109**, starts or reopens private conversations from an
+authorised Signet contact without a shared room. Encrypted invitations support
+a recipient's later visit while the creator is offline. Open remains deliberate;
+existing room chat, calls, collaboration and joined-room background listeners
+are reused. First-contact invitations are read while the account is open.
+
+The production APK is built from Android source
+`eacd069814f230f7afc15bb8cad2b7dcd9b931fb`, SHA-256
+`0f1f39334412b2228348951791b199f2c8549bff9523fd0a37cd5395fdf84984`.
+The [candidate receipt](evidence/signet-contacts-release-candidate-2026-10-14.json)
+records the retained production certificate/lineage, independent APK signature
+verification and desktop archive identities. The clean source worktree is
+recorded before and after the standard signed build; AGP could not embed VCS
+metadata from that isolated worktree. Source CI, merging and public readbacks
+are separate release gates.
+
+Automated browser and installed native journeys cover contact creation,
+offline invitation discovery, reply and repeat opening. Independent invitation
+fixtures establish browser/native envelope compatibility. Real Signet owner
+approval, physical signer acceptance and a full installed browser-to-native
+room journey remain unverified; this release does not claim ordinary NIP-17
+chat interoperability.
+
 ## Android 0.6.85 screen fitting — 13 October 2026
 
 Version **0.6.85**, code **108**, fits large desktop shares in both Android call

@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.79",
+  "currentRelease": "0.1.80",
   "releases": [
     {
-      "version": "0.1.79",
+      "version": "0.1.80",
       "updateTo": {
-        "version": "0.1.79",
-        "pub_date": "2026-10-13T11:05:42Z",
-        "notes": "Share boards with the chat, reopen labelled board windows, delete cards directly and keep colour changes. Calls use a gallery while chatting elsewhere, portrait cameras fit, and recordings capture remote voices.",
-        "name": "0.1.79",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.79/KithMoot-0.1.79-mac-arm64.zip",
-        "sha256": "15f7a3ebe56ff0dbaa35eba659e7a1f2e242c180c801b82e163920b161062ccc",
-        "size": 177644910
+        "version": "0.1.80",
+        "pub_date": "2026-10-14T14:48:23Z",
+        "notes": "Find a Signet contact and start a private conversation without a shared room. Reopen it for chat, calls and collaboration. The call gallery stays below board shortcuts.",
+        "name": "0.1.80",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.80/KithMoot-0.1.80-mac-arm64.zip",
+        "sha256": "7ad6bd9436f9099e12a00b01df5d5be80bef0036540c226a00f68fad8dd2f0e7",
+        "size": 177650381
       }
     }
   ]

@@ -69,8 +69,8 @@ resource limits, not relay retention guarantees or a durable message archive.
 - Authenticate sender binding and exact membership; preserve failed writes,
   storage refusal, grant withdrawal, account cancellation and forgetting.
 
-The matching native Android directory and account invitation inbox are under
-review in [Android PR #261](https://github.com/forgesworn/kithmoot-android/pull/261),
+The matching native Android directory and account invitation inbox are prepared for Android 0.6.86 in
+[Android PR #261](https://github.com/forgesworn/kithmoot-android/pull/261),
 using the pinned shared Kotlin Signet contacts SDK. Initial invitations are
 read while the native account is open; joined-room background call/message
 listeners continue to serve the private rooms. This change does not add a

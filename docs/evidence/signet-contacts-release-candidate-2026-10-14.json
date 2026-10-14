@@ -1,0 +1,88 @@
+{
+  "date": "2026-10-14",
+  "webBuildSource": "42c2f7eb434a9b8f5716eabb5efadd3b37b39626",
+  "androidSource": "eacd069814f230f7afc15bb8cad2b7dcd9b931fb",
+  "desktopVersion": "0.1.80",
+  "macBuild": 65,
+  "notarisation": {
+    "id": "0cba89b1-a248-452f-9aa7-bec694800f48",
+    "message": "Processing complete",
+    "status": "Accepted"
+  },
+  "desktopFiles": [
+    {
+      "filename": "KithMoot-0.1.80-mac-arm64.zip",
+      "version": "0.1.80",
+      "bytes": 177650381,
+      "sha256": "7ad6bd9436f9099e12a00b01df5d5be80bef0036540c226a00f68fad8dd2f0e7"
+    },
+    {
+      "filename": "KithMoot-0.1.80-linux-arm64.tar.gz",
+      "version": "0.1.80",
+      "bytes": 171940028,
+      "sha256": "4184282ff230ad0b40e936f9174426ccf2affe91a5fea7cd8d18bf8e70b46886"
+    },
+    {
+      "filename": "KithMoot-0.1.80-linux-x64.tar.gz",
+      "version": "0.1.80",
+      "bytes": 170819056,
+      "sha256": "674d0cf7458a75e10557918c18bdeaa31d268fd3b6effe9a1ce17de45e01f6a1"
+    },
+    {
+      "filename": "KithMoot-0.1.80-windows-x64.zip",
+      "version": "0.1.80",
+      "bytes": 206249838,
+      "sha256": "a9260d0732b9a49b6faee62182947f46ffc6190708a5a8c9ca950d6e618564fe"
+    },
+    {
+      "filename": "kithmoot_0.1.80_amd64.deb",
+      "version": "0.1.80",
+      "bytes": 134084552,
+      "sha256": "c170c5aa14e518b122256cb3e8efa0369fe7635ee8940ab07b89580797f08fa5"
+    },
+    {
+      "filename": "kithmoot_0.1.80_arm64.deb",
+      "version": "0.1.80",
+      "bytes": 129161944,
+      "sha256": "0b8190964294233a9e8c52a6514079ac10540f2c5db962550b1674cff4f900a3"
+    }
+  ],
+  "allFourBundledWebPayloadsMatch": true,
+  "bundledWebFiles": 350,
+  "packagedMacSmokePassed": true,
+  "android": {
+    "schemaVersion": 1,
+    "channel": "production",
+    "applicationId": "dev.forgesworn.kithmoot",
+    "versionName": "0.6.86",
+    "versionCode": 109,
+    "minSdk": 33,
+    "targetSdk": 35,
+    "apkBytes": 80026348,
+    "apkSha256": "0f1f39334412b2228348951791b199f2c8549bff9523fd0a37cd5395fdf84984",
+    "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "signatureSchemes": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "lineage": {
+      "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+      "previousCapabilities": {
+        "installedData": true,
+        "sharedUid": false,
+        "permission": true,
+        "rollback": false,
+        "auth": false
+      }
+    },
+    "downloadFilename": "kithmoot-0.6.86-production.apk"
+  },
+  "androidIndependentSignatureVerifierPassed": true,
+  "androidBuildSourceClean": true,
+  "androidEmbeddedVcsMetadata": "AGP reported NO_VALID_GIT_FOUND for the isolated worktree; source is recorded from clean git HEAD before and after the standard reviewed build",
+  "nativeInstalledContactJourneyPassed": true,
+  "physicalSignetAcceptance": false,
+  "fullInstalledBrowserNativeRoomJourney": false,
+  "publication": "prepared; public readbacks recorded separately"
+}
