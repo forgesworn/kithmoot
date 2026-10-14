@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fresh sign-in clears a failed reconnect warning.** Approving a new My Signet QR for the same account now replaces the old "Your signer did not answer" message with "Signed in."
+
 - **Screen-share popouts belong to their call.** Multiple share windows keep the original room, project and sharer while you read another conversation. Each can show, hide and resize that sharer's live camera. Drawing still reaches the original call; leaving or stopping a share clears its video rather than retaining a frozen picture. Closing a viewer leaves the call and other viewers running. This covers the web and desktop viewer; the persistent gallery and native Android equivalent remain separate work.
 
 - **Donkey GIFs, for desktop 0.1.66 and Android 0.6.75.** Three original orange Donkey performances—laughing, facepalm and Bitcoin—join the Blender coffee animation. The built-in collection now has 27 stickers and four animated GIFs. They send as encrypted references to bundled artwork, without image uploads or file-storage consent; personal files keep their encrypted upload flow.

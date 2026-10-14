@@ -116,3 +116,48 @@ test('coming back online reconnects a stored bunker without being asked', async 
     bunker.close()
   }
 })
+
+test('fresh sign-in clears the old signer timeout after reconnect fails', async ({ browser, baseURL }) => {
+  test.setTimeout(120_000)
+  const user = generateSecretKey()
+  const bunker = await fakeBunker(user)
+  const context = await device(browser, baseURL!, user, bunker.pubkey)
+  try {
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await expect(page.locator('#accountReconnect')).toBeVisible({ timeout: 45_000 })
+
+    // The same account can approve afresh while its saved endpoint is offline.
+    // Keep the synthetic signing key in Node, as a real provider would.
+    await context.exposeFunction('freshSignerPubkey', () => getPublicKey(user))
+    await context.exposeFunction('freshSignerSign', (event: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(event, user))
+    await context.exposeFunction('freshSignerEncrypt', (peer: string, plaintext: string) => encrypt(plaintext, getConversationKey(user, peer)))
+    await context.exposeFunction('freshSignerDecrypt', (peer: string, ciphertext: string) => decrypt(ciphertext, getConversationKey(user, peer)))
+    await page.evaluate(() => {
+      const provider = window as typeof window & {
+        freshSignerPubkey(): Promise<string>
+        freshSignerSign(event: unknown): Promise<unknown>
+        freshSignerEncrypt(peer: string, plaintext: string): Promise<string>
+        freshSignerDecrypt(peer: string, ciphertext: string): Promise<string>
+      }
+      Object.defineProperty(window, 'nostr', { configurable: true, value: {
+        getPublicKey: () => provider.freshSignerPubkey(),
+        signEvent: (event: unknown) => provider.freshSignerSign(event),
+        nip44: {
+          encrypt: (peer: string, plaintext: string) => provider.freshSignerEncrypt(peer, plaintext),
+          decrypt: (peer: string, ciphertext: string) => provider.freshSignerDecrypt(peer, ciphertext),
+        },
+      } })
+    })
+    await page.locator('#accountReconnectButton').click()
+    await expect(page.locator('#signet-login-dialog')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('#status')).toContainText('Your signer did not answer')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(page.locator('#accountReconnect')).toBeHidden({ timeout: 15_000 })
+    await expect(page.locator('#signet-login-dialog')).toBeHidden()
+    await expect(page.locator('#status')).toHaveText('Signed in.')
+  } finally {
+    await context.close()
+    bunker.close()
+  }
+})
