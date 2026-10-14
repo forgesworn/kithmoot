@@ -96,3 +96,22 @@ writer authentication boundary.
 Fixture journal enrollment remains distinct from the unimplemented producer,
 and these tests do not establish page/browser-process restart or production
 startup acceptance.
+
+
+Durable renewal preflight now computes a separate domain-separated commitment
+of the complete acknowledged P images: owner roles, purpose/keyId/generation,
+revision/expiry, code-unit-sorted records and fences, and migration metadata.
+Original frame digests bind the encrypted enrollment transaction; this semantic
+commitment permits verification of a strictly inverted E projection without
+reproducing old ciphertext nonces. The future bounded request must persist this
+commitment and the exact prior marker/fence presence and values. Persistence and
+inversion during actual startup remain unimplemented.
+
+The existing renewal controller now compares this complete commitment around
+provider waits, including fields outside the selected room/record projection.
+Its owner capacity check reserves fixed E=P+1, C=P+2 and S=P+3 images, marker
+replacement/addition, future settled commitment, scoped fence slots and revision
+digit growth before seal allocation/signing. These are sizing placeholders only:
+no E/C/S journal phase is written by this preflight. Journal-phase/body/result
+reservation, the actual fixed enrollment/provider continuation, C/S settlement,
+factory obligation binding and process-startup reconstruction remain required.

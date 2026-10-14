@@ -144,15 +144,15 @@ for (const fault of ['throw-first', 'throw-second', 'abort-second']) {
   })
 }
 
-for (const keep of [true, false]) {
-  test(`full native record image refuses renewal before seal entropy or signing, keep=${keep}`, async ({ page }) => {
+for (const keep of [true, false]) for(const slots of [0,1]) {
+  test(`native image with ${slots} free slots refuses staged renewal before seal entropy or signing, keep=${keep}`, async ({ page }) => {
     await page.evaluate(`(${setup})(${JSON.stringify({ visitor: false, keep, noRelays: true })})`)
     await page.evaluate('window.deferMemberCreation=true')
     await page.evaluate(`(${controls})()`)
     // Allow for the browser round trip while its installed clock is still running.
     await page.clock.pauseAt(new Date(await page.evaluate('Date.now()+1000')))
     await page.evaluate(`(async()=>{const s=await scopes(),owner=${keep ? 'browserOwner' : 'tabOwner'},scope=${keep ? 's.b' : 's.t'};
-      await owner.mutateMigrated(scope,guard,store=>{const needed=16384-store.keys().length;
+      await owner.mutateMigrated(scope,guard,store=>{const needed=16384-${slots}-store.keys().length;
         for(let i=0;i<needed;i++)store.set('capacity-fixture-'+String(i).padStart(5,'0'),'x')});
       await bootstrap.close();bootstrap=await open();member=await bootstrap.openMemberSession(sessionOptions);await member.join();window.before=await rawBoth();window.beforeEntropy=randomness.length})()`)
     await page.clock.fastForward(901_000)
@@ -287,5 +287,29 @@ for (const keep of [true, false]) for (const safe of [true, false]) {
         .toEqual([2, 0, true])
     }
     await page.evaluate('member.close()')
+  })
+}
+
+
+for(const changed of ['migration-names','unrelated-fence']){
+  test(`complete predecessor digest refuses ${changed} change during actual provider wait`,async({page})=>{
+    await start(page)
+    await page.evaluate(`gateSigner()`);await page.clock.fastForward(901000);await page.waitForFunction('signing')
+    await page.evaluate(`(async()=>{
+      const [b,t]=await rawBoth(),image=await Ordinary.openOrdinaryFrame(b.frame,b.key);
+      if('${changed}'==='migration-names')image.migration.names.push('retained-inert-source');else image.fences.set('unrelated-retained-fence',0);
+      const changed={key:b.key,frame:await Ordinary.sealOrdinaryImage(image,b.key)};
+      const db=await new Promise(resolve=>{const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,1);r.onsuccess=()=>resolve(r.result)}),tx=db.transaction('owners','readwrite');
+      tx.objectStore('owners').put(changed,'browser');await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)});db.close();
+      window.exactChanged=changed;window.originalTab=t;window.writesAfterChange=0;const put=IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put=function(...args){writesAfterChange++;return put.apply(this,args)};window.restoreDigestCut=()=>IDBObjectStore.prototype.put=put;
+    })()`)
+    await page.evaluate('releaseSigner();undefined')
+    await page.evaluate('member.close()')
+    expect(await page.evaluate(`(async()=>{const [b,t]=await rawBoth();return [signCalls,writesAfterChange,
+      Ordinary.sameOrdinaryFrame(b.frame,exactChanged.frame),Ordinary.sameOrdinaryFrame(t.frame,originalTab.frame),
+      frames.filter(row=>row[0][0]==='EVENT'&&row[0][1].kind===20460).length]})()`))
+      .toEqual([2,0,true,true,0])
+    await page.evaluate('restoreDigestCut()')
   })
 }

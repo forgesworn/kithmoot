@@ -359,20 +359,22 @@ test('expired settled malformed family data holds before cleanup entropy', async
 test('cleanup historical validation token cannot be borrowed as a live read or retained resource', async ({ page }) => {
   await page.evaluate(`enroll('settled')`); await page.clock.fastForward(43_200_100)
   expect(await page.evaluate(`(async()=>{
-    const set=WeakMap.prototype.set;let observations=0,readHeld=true,resourceHeld=true,bindingHeld=true,sizingHeld=true;
+    const set=WeakMap.prototype.set;let observations=0,readHeld=true,resourceHeld=true,bindingHeld=true,sizingHeld=true,semanticHeld=true,stagedHeld=true;
     WeakMap.prototype.set=function(token,value){const result=set.call(this,token,value);
       if(value?.kind==='historical-cleanup'){
         observations++;const bm=new Map(value.browserStore.keys().map(n=>[n,value.browserStore.get(n)])),tm=new Map(value.tabStore.keys().map(n=>[n,value.tabStore.get(n)]));
         const clock=Date.now;Date.now=()=>value.tab.expiresAt-1;
         try{Ordinary.OrdinaryStateOwner.validatePairBinding(token,{browser:{owner:value.browserOwner,scope:value.browserScope},tab:{owner:value.tabOwner,scope:value.tabScope},live:()=>{throw Error('must not evaluate')}});bindingHeld=false}catch(e){bindingHeld=bindingHeld&&e.name==='OrdinaryStateHold'}
         try{Ordinary.ordinaryPairProjectedByteLengths(token,bm,tm,{browser:bm,tab:tm});sizingHeld=false}catch(e){sizingHeld=sizingHeld&&e.name==='OrdinaryStateHold'}
+        try{Ordinary.ordinaryPairPredecessorSemanticDigestFor(token,bm,tm);semanticHeld=false}catch(e){semanticHeld=semanticHeld&&e.name==='OrdinaryStateHold'}
+        try{Ordinary.ordinaryPairRenewalByteLengths(token,bm,tm,{browser:bm,tab:tm});stagedHeld=false}catch(e){stagedHeld=stagedHeld&&e.name==='OrdinaryStateHold'}
         Date.now=clock;
         try{Ordinary.ordinaryPairReadCustodyFor(token,bm,tm);readHeld=false}catch(e){readHeld=readHeld&&e.name==='OrdinaryStateHold'}
         try{Ordinary.OrdinaryStateOwner.retainPairResource(token,{browser:{owner:value.browserOwner,scope:value.browserScope},tab:{owner:value.tabOwner,scope:value.tabScope},live:()=>true},{revoke:()=>{},join:async()=>{}});resourceHeld=false}catch(e){resourceHeld=resourceHeld&&e.name==='OrdinaryStateHold'}
       }return result};
     const status=await outcome(()=>Ordinary.OrdinaryStateOwner.expireTabs(guard,()=>{}));WeakMap.prototype.set=set;
-    return [status,observations,readHeld,resourceHeld,bindingHeld,sizingHeld];
-  })()`)).toEqual(['ok',2,true,true,true,true])
+    return [status,observations,readHeld,resourceHeld,bindingHeld,sizingHeld,semanticHeld,stagedHeld];
+  })()`)).toEqual(['ok',2,true,true,true,true,true,true])
 })
 
 test('historical snapshot capture rejects an acknowledged live read token', async ({page})=>{

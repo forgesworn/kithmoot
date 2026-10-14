@@ -1,7 +1,30 @@
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { OrdinaryStateHold, ordinaryUtf8Length, validateOrdinaryFrame, validateOrdinaryKey,
-  type OrdinaryFrame, type OrdinaryPurpose } from './ordinary-state-codec.js'
+  encodeOrdinaryImage, type OrdinaryImage, type OrdinaryFrame, type OrdinaryPurpose } from './ordinary-state-codec.js'
+
+/** Complete canonical predecessor semantics, for a strictly invertible P→E
+ * transition. Frame digests bind the original encrypted transaction; this
+ * separate domain binds the image restored from authenticated E after restart.
+ * Owner labels and byte lengths prevent swapping or concatenation ambiguity.
+ * No ciphertext nonce or key material is reproduced or exported. */
+export function ordinaryOperationSemanticDigest(browser: OrdinaryImage, tab: OrdinaryImage): string {
+  if (browser.purpose !== 'browser' || browser.expiresAt !== 0 || !/^tab:[0-9a-f]{64}$/.test(tab.purpose) || tab.expiresAt <= 0) hold()
+  const digest = sha256.create()
+  const domain = new TextEncoder().encode('kithmoot.ordinary-operation.predecessor-semantic.v1\0')
+  try {
+    digest.update(domain)
+    for (const [role, image] of [[0, browser], [1, tab]] as const) {
+      const bytes = encodeOrdinaryImage(image), prefix = new Uint8Array(5)
+      try {
+        prefix[0] = role; new DataView(prefix.buffer).setUint32(1, bytes.length)
+        digest.update(prefix); digest.update(bytes)
+      } finally { prefix.fill(0); bytes.fill(0) }
+    }
+    return bytesToHex(digest.digest())
+  } catch { return hold() }
+  finally { domain.fill(0); digest.destroy() }
+}
 
 /** Local custody only. A journal is neither current signer/membership authority
  * nor independent rollback protection. Only the native controller may advance it. */

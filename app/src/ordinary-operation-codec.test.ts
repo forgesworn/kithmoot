@@ -1,8 +1,8 @@
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex } from '@noble/hashes/utils'
 import { describe, expect, it, vi } from 'vitest'
-import { OrdinaryStateHold, type OrdinaryFrame } from './ordinary-state-codec.js'
-import { decodeOrdinaryOperationJournal, encodeOrdinaryOperationJournal, ordinaryFrameDigest, ordinaryOperationMarker,
+import { OrdinaryStateHold, type OrdinaryImage, type OrdinaryFrame } from './ordinary-state-codec.js'
+import { decodeOrdinaryOperationJournal, encodeOrdinaryOperationJournal, ordinaryFrameDigest, ordinaryOperationSemanticDigest, ordinaryOperationMarker,
   ordinaryOperationNames, ordinaryOperationControlDigest, ordinaryOperationCommitment, decodeOrdinaryOperationClassification, openOrdinaryOperationClassification, openOrdinaryOperationControl, sealOrdinaryOperationControl, validateOrdinaryOperationMarker,
   type OrdinaryOperationBinding, type OrdinaryOperationJournal } from './ordinary-operation-codec.js'
 const tab = ('tab:' + '3'.repeat(64)) as `tab:${string}`
@@ -159,4 +159,52 @@ it('binds encrypted control equality without decoding or mutating its payload', 
     expect(ordinaryOperationControlDigest(changed)).not.toBe(digest)
   }
   expect(ordinaryOperationControlDigest({ ...control,browser:control.tab,tab:control.browser })).not.toBe(digest)
+})
+
+
+const semanticPair = (): [OrdinaryImage,OrdinaryImage] => [{purpose:'browser',keyId:'1'.repeat(64),generation:'2'.repeat(64),revision:7,expiresAt:0,
+  records:new Map([['z','value😀'],['a','public\0private']]),migration:{phase:'complete',sources:new Map(),names:['retained source']},
+  fences:new Map([['room:fixture',7],['missing-is-not-zero',0]])},
+  {purpose:tab,keyId:'4'.repeat(64),generation:'5'.repeat(64),revision:3,expiresAt:expiry,
+    records:new Map([['kithmoot.way-back','{"link":"#fixture"}']]),migration:{phase:'complete',sources:new Map(),names:[]},fences:new Map()}]
+describe('complete predecessor semantic commitment',()=>{
+  it('matches an independently generated Python hashlib/JSON vector',()=>{
+    expect(ordinaryOperationSemanticDigest(...semanticPair())).toBe('10bdd6b3701181efcbac26ad8d29c05a700c6531f165a89e25b3f067c9c2d5c1')
+    const [b,t]=semanticPair(),first=ordinaryOperationSemanticDigest(b,t)
+    b.records=new Map([...b.records].reverse());b.fences=new Map([...b.fences].reverse())
+    expect(ordinaryOperationSemanticDigest(b,t)).toBe(first)
+  })
+  it.each(['record','unrelated-record','fence','missing-fence','migration-names','migration-sources','migration-presence','key-id','generation','revision','expiry','tab-purpose'])(
+    'commits complete %s semantics beyond selected room refs',field=>{
+      const [b,t]=semanticPair(),before=ordinaryOperationSemanticDigest(b,t)
+      if(field==='record')(b.records as Map<string,string>).set('a','changed')
+      if(field==='unrelated-record')(t.records as Map<string,string>).set('unrelated-private-value','retained')
+      if(field==='fence')(b.fences as Map<string,number>).set('room:fixture',6)
+      if(field==='missing-fence')(b.fences as Map<string,number>).delete('missing-is-not-zero')
+      if(field==='migration-names')b.migration={...b.migration!,names:[...b.migration!.names,'another retained source']}
+      if(field==='migration-sources')b.migration={phase:'sealed',sources:new Map([['retained source','exact source']]),names:['retained source']}
+      if(field==='migration-presence')delete t.migration
+      if(field==='key-id')b.keyId='6'.repeat(64)
+      if(field==='generation')t.generation='7'.repeat(64)
+      if(field==='revision')t.revision++
+      if(field==='expiry')t.expiresAt++
+      if(field==='tab-purpose')t.purpose=('tab:'+'8'.repeat(64)) as `tab:${string}`
+      expect(ordinaryOperationSemanticDigest(b,t)).not.toBe(before)
+    })
+  it('requires labelled owner roles and wipes every encoded plaintext buffer',()=>{
+    const [b,t]=semanticPair(),encode=TextEncoder.prototype.encode,buffers:Uint8Array[]=[]
+    const spy=vi.spyOn(TextEncoder.prototype,'encode').mockImplementation(function(this:TextEncoder,text){const bytes=encode.call(this,text);buffers.push(bytes);return bytes})
+    try { ordinaryOperationSemanticDigest(b,t);expect(buffers.length).toBeGreaterThanOrEqual(3);expect(buffers.every(b=>b.every(v=>v===0))).toBe(true) }
+    finally { spy.mockRestore() }
+    expect(()=>ordinaryOperationSemanticDigest(t,b)).toThrow(OrdinaryStateHold)
+    t.revision=Number.MAX_SAFE_INTEGER+1;expect(()=>ordinaryOperationSemanticDigest(b,t)).toThrow(OrdinaryStateHold)
+  })
+  it('distinguishes E from P and verifies only the exact inverse marker/fence/revision delta',()=>{
+    const [b,t]=semanticPair(),before=ordinaryOperationSemanticDigest(b,t),marker=ordinaryOperationNames(tab).marker
+    for(const image of [b,t]){image.revision++;(image.records as Map<string,string>).set(marker,ordinaryOperationMarker({id:'9'.repeat(64),tab,sequence:1,commitment:null}));(image.fences as Map<string,number>).set('previously-absent',0)}
+    expect(ordinaryOperationSemanticDigest(b,t)).not.toBe(before)
+    for(const image of [b,t]){image.revision--; (image.records as Map<string,string>).delete(marker);(image.fences as Map<string,number>).delete('previously-absent')}
+    expect(ordinaryOperationSemanticDigest(b,t)).toBe(before)
+    ;(t.fences as Map<string,number>).set('previously-absent',0);expect(ordinaryOperationSemanticDigest(b,t)).not.toBe(before)
+  })
 })

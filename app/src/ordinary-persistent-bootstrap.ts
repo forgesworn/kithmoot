@@ -14,7 +14,7 @@ import { registerNativeSessionBinding, type NativeSessionView, type NativeSessio
 import type { PersistentRoomAdmission } from '../../src/persistent-invitation.js'
 import { RelayConnections } from './relay-settings.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
-import { OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths,
+import { OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths, ordinaryPairPredecessorSemanticDigestFor, ordinaryPairRenewalByteLengths,
   type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 import { captureOrdinarySnapshotContext, captureOrdinaryProjectedSnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
@@ -95,6 +95,7 @@ interface Sources extends OpenedImage {
   readonly tabRevision: number
 }
 interface RenewalSource extends OpenedImage {
+  readonly semanticDigest: string
   readonly proof: VerifiedPersistentProof['proof']
   readonly proofRaw: string
   readonly b: Map<string, string>
@@ -470,7 +471,7 @@ export class OrdinaryPersistentBootstrap {
       owner.set(accountPrefix(this.#participant) + OWN_SEAL_PREFIX + proof.binding.roomId, JSON.stringify(seals))
       try { validateOrdinarySnapshot(probeB, probeT, { browser: true, tab: true }, captureOrdinaryProjectedSnapshotContext(b, t, custody, probeB, probeT)) }
       finally { probeB.clear(); probeT.clear() }
-      const result: RenewalSource = { ...this.#image(browser, tab, custody, true), proof, proofRaw: JSON.stringify(proof), b, t, seals,
+      const result: RenewalSource = { ...this.#image(browser, tab, custody, true), semanticDigest: ordinaryPairPredecessorSemanticDigestFor(custody,b,t), proof, proofRaw: JSON.stringify(proof), b, t, seals,
         issuedAt, expiresAt, authority, previous, source, epochId: snapshot.epochId }
       this.#reserveRenewal(custody, result)
       return result
@@ -503,7 +504,7 @@ export class OrdinaryPersistentBootstrap {
       if (this.#options.keep) b.set(persistentProofName(proof.binding), raw)
       t.set(persistentTabProofName(proof.binding), tabProofBytes(proof))
       const name = ordinaryMemberLeaseName(proof.binding); t.set(name, lease); if (this.#options.keep) b.set(name, lease)
-      ordinaryPairProjectedByteLengths(custody, source.b, source.t, { browser: b, tab: t }, true)
+      ordinaryPairRenewalByteLengths(custody, source.b, source.t, { browser: b, tab: t })
     } finally { b.clear(); t.clear() }
   }
   async #load(operation = this.#ownedOperation): Promise<OrdinaryPersistentBootstrapResult | undefined> {
@@ -811,7 +812,10 @@ export class OrdinaryPersistentBootstrap {
           let operation: string | undefined, successor: OpenedImage | undefined
           const oldImage = await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => this.#image(b,t,c,true)))
           const sameSource = (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
-            if (JSON.stringify(this.#image(b,t,c,true)) !== JSON.stringify(oldImage)) hold()
+            const bm=map(b),tm=map(t)
+            try { if (JSON.stringify(this.#image(b,t,c,true)) !== JSON.stringify(oldImage) || source &&
+                ordinaryPairPredecessorSemanticDigestFor(c,bm,tm) !== source.semanticDigest) hold() }
+            finally { bm.clear(); tm.clear() }
           }
           const checkPredecessor = (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
             sameSource(b, t, c)

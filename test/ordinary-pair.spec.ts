@@ -454,3 +454,31 @@ for (const which of ['browser','tab'] as const) {
     await page.evaluate('restore()');expect(await page.evaluate('values()')).toEqual([null,null])
   })
 }
+
+test('native predecessor digest matches full authenticated images and fixed E C S sizes include revision growth',async({page})=>{
+  expect(await page.evaluate(`(async()=>{
+    const [br,tr]=await rawBoth(),bi=await Ordinary.openOrdinaryFrame(br.frame,br.key),ti=await Ordinary.openOrdinaryFrame(tr.frame,tr.key);
+    bi.revision=7;ti.revision=7;const bf=await Ordinary.sealOrdinaryImage(bi,br.key),tf=await Ordinary.sealOrdinaryImage(ti,tr.key);
+    await editBoth((rows,s)=>{s.put({...rows[0],frame:bf},'browser');s.put({...rows[1],frame:tf},tabPurpose)});
+    const expected=Ordinary.ordinaryOperationSemanticDigest(bi,ti),before=await rawBoth();let randoms=0,writes=0;
+    const random=crypto.getRandomValues.bind(crypto),put=IDBObjectStore.prototype.put;
+    crypto.getRandomValues=(...args)=>{randoms++;return random(...args)};IDBObjectStore.prototype.put=function(...args){writes++;return put.apply(this,args)};
+    const answer=await Ordinary.OrdinaryStateOwner.readPairMigrated({browser:{owner:browserOwner,scope:browserScope},tab:{owner:tabOwner,scope:tabScope},live:guard,
+      work:(b,t,_bn,_tn,c)=>{
+        const bm=new Map(b.keys().map(n=>[n,b.get(n)])),tm=new Map(t.keys().map(n=>[n,t.get(n)]));
+        const digest=Ordinary.ordinaryPairPredecessorSemanticDigestFor(c,bm,tm),sizes=Ordinary.ordinaryPairRenewalByteLengths(c,bm,tm,{browser:bm,tab:tm});
+        return [digest===expected,sizes.enrolled.every((n,i)=>n===sizes.candidate[i]),sizes.settled.every((n,i)=>n===sizes.candidate[i]+65),Object.isFrozen(sizes)&&Object.isFrozen(sizes.settled)];
+      }});
+    const after=await rawBoth();crypto.getRandomValues=random;IDBObjectStore.prototype.put=put;
+    return [...answer,randoms,writes,after.every((r,i)=>Ordinary.sameOrdinaryFrame(r.frame,before[i].frame))];
+  })()`)).toEqual([true,true,true,true,0,0,true])
+})
+test('renewal digest and staged sizing reject mutation tokens without evaluating projected getters',async({page})=>{
+  expect(await page.evaluate(`(async()=>pair((b,t,_bn,_tn,c)=>{
+    const bm=new Map(b.keys().map(n=>[n,b.get(n)])),tm=new Map(t.keys().map(n=>[n,t.get(n)]));let digestHeld=false,sizingHeld=false,getters=0;
+    const proposed={get browser(){getters++;return bm},get tab(){getters++;return tm}};
+    try{Ordinary.ordinaryPairPredecessorSemanticDigestFor(c,bm,tm)}catch(e){digestHeld=e.name==='OrdinaryStateHold'};
+    try{Ordinary.ordinaryPairRenewalByteLengths(c,bm,tm,proposed)}catch(e){sizingHeld=e.name==='OrdinaryStateHold'};
+    return [digestHeld,sizingHeld,getters];
+  }))()`)).toEqual([true,true,0])
+})

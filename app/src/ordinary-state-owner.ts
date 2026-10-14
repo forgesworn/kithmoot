@@ -1,6 +1,6 @@
 import type { DeviceStore } from './device-store.js'
 import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification,
-  ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, validateOrdinaryOperationMarker } from './ordinary-operation-codec.js'
+  ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker } from './ordinary-operation-codec.js'
 import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
@@ -85,6 +85,45 @@ export function ordinaryPairReadCustodyFor(token:OrdinaryPairCustody,browser:Rea
   OrdinaryStateOwner.validatePairBinding(token,{browser:{owner:captured.browserOwner,scope:captured.browserScope},
     tab:{owner:captured.tabOwner,scope:captured.tabScope},live:()=>true})
   return ordinaryPairCustodyFor(token,browser,tab)
+}
+/** Exact native P-image digest only. Raw records or a writable/historical
+ * token cannot stand in for the acknowledged predecessor. It includes all
+ * records, fences and migration fields, not just the selected room partition. */
+export function ordinaryPairPredecessorSemanticDigestFor(token: OrdinaryPairCustody, browser: ReadonlyMap<string,string>,
+  tab: ReadonlyMap<string,string>): string {
+  ordinaryPairReadCustodyFor(token, browser, tab)
+  const captured = pairCustody.get(token)!
+  return ordinaryOperationSemanticDigest(captured.browser, captured.tab)
+}
+/** Fixed E/C/S capacity reservation only, under exact current read custody.
+ * Marker placeholders are sizing data: no record, journal phase or writer
+ * capability is minted. Full revision growth and a future settled commitment
+ * are checked before seal/provider entropy. */
+export function ordinaryPairRenewalByteLengths(token: OrdinaryPairCustody, browser: ReadonlyMap<string,string>, tab: ReadonlyMap<string,string>,
+  proposed: { readonly browser: ReadonlyMap<string,string>; readonly tab: ReadonlyMap<string,string> }):
+  Readonly<{ enrolled: readonly [number,number]; candidate: readonly [number,number]; settled: readonly [number,number] }> {
+  ordinaryPairReadCustodyFor(token, browser, tab)
+  // Retain the existing strict native-Map/data-descriptor input checks first.
+  ordinaryPairProjectedByteLengths(token, browser, tab, proposed, true)
+  const captured = pairCustody.get(token)!, purpose = captured.tab.purpose
+  const candidateBrowser = new Map(Map.prototype.entries.call(Object.getOwnPropertyDescriptor(proposed,'browser')!.value)),
+    candidateTab = new Map(Map.prototype.entries.call(Object.getOwnPropertyDescriptor(proposed,'tab')!.value))
+  const name = ordinaryOperationNames(purpose).marker, id = '0'.repeat(64), sequence = Number.MAX_SAFE_INTEGER
+  const size = (delta: 1|2|3): readonly [number,number] => {
+    const result: number[] = []
+    for (const [image, scope, input] of [[captured.browser,captured.browserScope,delta===1?captured.browser.records:candidateBrowser],
+      [captured.tab,captured.tabScope,delta===1?captured.tab.records:candidateTab]] as const) {
+      const records = new Map(input), fences = new Map(image.fences)
+      try {
+        records.set(name,ordinaryOperationMarker({id,tab:purpose as `tab:${string}`,sequence,commitment:delta===3?id:null}))
+        if (!fences.has(scope.name)) fences.set(scope.name,scope.fence)
+        result.push(ordinaryImageByteLength({...image,revision:image.revision+delta,records,fences}))
+      } finally { records.clear(); fences.clear() }
+    }
+    return Object.freeze(result) as unknown as readonly [number,number]
+  }
+  try { return Object.freeze({enrolled:size(1),candidate:size(2),settled:size(3)}) }
+  finally { candidateBrowser.clear(); candidateTab.clear() }
 }
 /** Capacity-only projection from a live authenticated pair callback. Exact
  * current bytes must still match the opaque token. The projected records do
