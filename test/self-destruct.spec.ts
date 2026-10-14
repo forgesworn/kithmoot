@@ -539,12 +539,13 @@ test('Leave and tidy up deletes the files this device shared, and tries again at
     const pending = await page.evaluate(() => localStorage.getItem('kithmoot.blob-deletes.v1'))
     expect(pending).toBeTruthy()
     expect(pending).not.toContain(roomId)
-    await page.locator('#tidyUpDone').click()
-
-    // The next launch, with the server back: both deleted.
-    await context.unrouteAll()
+    // Done already reloads the app. Bring the server back before that one
+    // launch; a second navigation can cancel its successful retry response.
+    await context.unrouteAll({ behavior: 'wait' })
     await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
-    await page.goto(baseURL!)
+    const relaunched = page.waitForEvent('load')
+    await page.locator('#tidyUpDone').click()
+    await relaunched
     await expectOwnUploadsDeleted(blobs)
     await expect.poll(() => page.evaluate(() => localStorage.getItem('kithmoot.blob-deletes.v1'))).toBeNull()
   } finally {
