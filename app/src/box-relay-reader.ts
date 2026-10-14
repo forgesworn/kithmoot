@@ -1,7 +1,7 @@
 import type { Event } from 'nostr-tools/pure'
 import { matchFilters, type Filter } from 'nostr-tools/filter'
 import { normaliseRelayConfig, type RelayConfig, type RelayTransport } from '../../src/relay-pool.js'
-import { relayDials } from '../../src/relay-dial-gate.js'
+import { relayDials, type RelayDialLease } from '../../src/relay-dial-gate.js'
 
 type Request = { filters: Filter[]; receive: (event: Event) => void; ready?: () => void; eosed: Set<string>; timer?: ReturnType<typeof setTimeout> }
 /** Bounded, read-only discovery subscriptions. Unlike SimplePool's completion
@@ -10,6 +10,7 @@ type Request = { filters: Filter[]; receive: (event: Event) => void; ready?: () 
 export class BoxRelayReader implements RelayTransport {
   #urls: string[]
   #sockets = new Map<string, WebSocket>()
+  #dialReceipts = new Map<string, RelayDialLease>()
   #requests = new Map<string, Request>()
   #serial = 0
   #generation = 0
@@ -48,17 +49,26 @@ export class BoxRelayReader implements RelayTransport {
   #connect(): void {
     const generation = this.#generation
     try {
+      // Every reader is required. Reserve all dials before opening any
+      // socket, so another pool's active lease cannot be bypassed here.
+      for (const url of this.#urls) {
+        const receipt = relayDials.reserve(url)
+        if (!receipt) { this.#failed(); return }
+        this.#dialReceipts.set(url, receipt)
+      }
       for (const url of this.#urls) {
         const ws = this.socket(url); this.#sockets.set(url, ws)
         const active = () => !this.#closed && generation === this.#generation
-        const timer = setTimeout(() => { if (active()) { relayDials.failed(url); this.#failed() } }, 15_000)
+        const fail = () => { if (active()) { relayDials.failedDial(url, this.#takeDial(url)); this.#failed() } }
+        const timer = setTimeout(fail, 15_000)
         this.#connectTimers.push(timer)
         ws.onopen = () => {
           if (!active()) return
           clearTimeout(timer)
+          const receipt = this.#takeDial(url); if (receipt) relayDials.release(receipt)
           for (const [id, request] of this.#requests) this.#send(ws, id, request)
         }
-        ws.onclose = ws.onerror = () => { if (active()) { relayDials.failed(url); this.#failed() } }
+        ws.onclose = ws.onerror = fail
         ws.onmessage = message => {
           if (!active()) return
           if (Date.now() - this.#window >= 10_000) { this.#window = Date.now(); this.#frames = 0 }
@@ -86,8 +96,13 @@ export class BoxRelayReader implements RelayTransport {
       }
     } catch { this.#failed() }
   }
+  #takeDial(url: string): RelayDialLease | undefined {
+    const receipt = this.#dialReceipts.get(url); this.#dialReceipts.delete(url); return receipt
+  }
   #reset(): void {
     this.#generation++
+    const receipts = [...this.#dialReceipts.values()]; this.#dialReceipts.clear()
+    for (const receipt of receipts) relayDials.release(receipt)
     for (const timer of this.#connectTimers) clearTimeout(timer)
     this.#connectTimers = []
     for (const request of this.#requests.values()) { clearTimeout(request.timer); request.timer = undefined; request.eosed.clear() }

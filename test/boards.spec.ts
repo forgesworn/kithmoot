@@ -451,7 +451,7 @@ test('two agents handle separate cards while a second person edits the shared bo
     }
     for (const [i, title] of ['Design task', 'Release task'].entries()) {
       const dialog = await connect(title)
-      await expect.poll(async () => {
+      const reviewDisclosure = async () => {
         await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
         await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
         await dialog.getByRole('combobox', {name: /^Agent installation/}).selectOption(`${workers[i]!.participant}/${workers[i]!.device}`)
@@ -460,9 +460,37 @@ test('two agents handle separate cards while a second person edits the shared bo
         await dialog.getByLabel('Acceptance criteria shared with the room', {exact: true}).fill('Return a description proposal for review')
         await dialog.getByRole('button', {name: 'Review disclosure', exact: true}).click()
         return dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).isEnabled()
-      }).toBe(true)
+      }
+      await expect.poll(reviewDisclosure).toBe(true)
+      const exactDisclosure = await dialog.getByLabel('Exact disclosure preview', {exact: true}).textContent()
       await dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).click()
-      await expect(dialog.getByText('Room status: offered. Attempt 1.', {exact: true})).toBeVisible()
+      const offered = dialog.getByText('Room status: offered. Attempt 1.', {exact: true})
+      const saved = dialog.getByRole('button', {name: 'Review saved disclosure again', exact: true})
+      // A presence change can hold either before retaining an offer or before
+      // publishing its saved request. Refresh the actual custody surface and
+      // review the unchanged operation; a retained offer keeps its identity.
+      for (let review = 0; review < 3; review++) {
+        await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
+        if (await offered.isVisible()) break
+        await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
+        await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
+        await expect.poll(async () => await offered.isVisible() || await saved.isVisible() ||
+          await dialog.getByText('No card disclosure has been saved for this room and installation.', {exact: true}).isVisible()).toBe(true)
+        if (await offered.isVisible()) break
+        if (await saved.isVisible()) {
+          try { await saved.click({timeout:2_000}) }
+          catch (error) { if (await offered.isVisible()) break; throw error }
+          await expect(dialog.getByRole('heading', {name: 'Audience for this saved disclosure', exact: true})).toBeVisible()
+          await expect(dialog.getByLabel('Exact saved disclosure preview', {exact: true})).toHaveText(exactDisclosure!)
+          await dialog.getByRole('button', {name: 'Send this reviewed saved disclosure', exact: true}).click()
+        } else {
+          await expect(dialog.getByText('No card disclosure has been saved for this room and installation.', {exact: true})).toBeVisible()
+          await expect.poll(reviewDisclosure).toBe(true)
+          await expect(dialog.getByLabel('Exact disclosure preview', {exact: true})).toHaveText(exactDisclosure!)
+          await dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).click()
+        }
+      }
+      await expect(offered).toBeVisible()
       await dialog.getByRole('button', {name: 'Disconnect and close', exact: true}).click()
       await expect(dialog).toHaveCount(0)
     }
@@ -480,7 +508,25 @@ test('two agents handle separate cards while a second person edits the shared bo
       await expect(dialog.getByText('Room status: review. Attempt 1.', {exact: true})).toBeVisible()
       await expect(owner.getByRole('textbox', {name: 'Description', exact: true})).toHaveValue('')
       await dialog.getByRole('button', {name: 'Accept this result in the room', exact: true}).click()
-      await expect(dialog.getByText('Room status: accepted. Attempt 1.', {exact: true})).toBeVisible()
+      const accepted = dialog.getByText('Room status: accepted. Attempt 1.', {exact: true})
+      // Presence can change while the exact decision enters durable custody.
+      // Follow the actual held-action UI: review the same saved operation and
+      // current audience explicitly, rather than create another accept or
+      // bypass Girnel's audience/head guard. Repeated instability still fails.
+      const saved = dialog.getByRole('button', {name: 'Review saved accept', exact: true})
+      for (let review = 0; review < 3; review++) {
+        await expect.poll(async () => await accepted.isVisible() || await saved.isVisible()).toBe(true)
+        if (await accepted.isVisible()) break
+        // The original send may become accepted after the visibility check,
+        // removing this button. Only that exact accepted state ends the wait.
+        try { await saved.click({timeout:2_000}) }
+        catch (error) { if (await accepted.isVisible()) break; throw error }
+        await expect(dialog.getByRole('heading', {name: 'Audience for this saved room decision', exact: true})).toBeVisible()
+        const result = logs[i]!.snapshot().assignments.find(task => task.id === tasks[i]!.id)!.result!
+        await expect(dialog.getByLabel('Exact saved room decision preview', {exact: true})).toHaveText(JSON.stringify({op: 'accept', result: result.id}, null, 2))
+        await dialog.getByRole('button', {name: 'Send reviewed saved accept', exact: true}).click()
+      }
+      await expect(accepted).toBeVisible()
       await expect(owner.getByRole('textbox', {name: 'Description', exact: true})).toHaveValue('')
       await dialog.getByRole('button', {name: 'Review changes to this card', exact: true}).click()
       await dialog.getByLabel('Approve description', {exact: true}).check()

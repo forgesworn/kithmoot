@@ -21,27 +21,31 @@
  *   before its end.
  *
  * A delete goes only to a URL on a server this app uploads to (the one
- * this device is set to use, or one its own record names) whose last path
+ * this device explicitly consented to use, or an exact verified announcement
+ * names) whose last path
  * segment is the hash: the checks an upload's descriptor is held to.
  *
  * A server that cannot be reached, or still serves a file afterwards, does
- * not hold the wipe up. The delete is signed again with a week's life and
+ * not hold the wipe up once a week's exact-target permission is durably
  * kept under a key that names no room, and this device tries it again at
  * each launch until it works or the week is over. Nothing else is kept:
  * not the device key, which goes with the room. After the week the
  * server's own expiry is the backstop (the KithMoot server drops a blob 90
  * days after it was last fetched).
  */
-import { finalizeEvent, type Event } from 'nostr-tools/pure'
+import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import {
   blobDeleteUrl,
   buildDeleteAuthorisation,
   deleteBlob,
   isDeleteAuthorisation,
+  isDeleteAuthorisationTarget,
   FILE_EVENT_KIND,
   type BlobDeleteOutcome,
 } from '../../src/attachment.js'
+import { verifyEventUncached } from '../../src/verify.js'
 import type { DeviceStore } from './device-store.js'
+import { ordinaryUtf8Length } from './ordinary-state-codec.js'
 
 export const UPLOADS_PREFIX = 'kithmoot.uploads.v1.'
 /** Deletes still to send, for rooms already wiped. Names no room. */
@@ -74,7 +78,7 @@ function readUploads(store: DeviceStore, roomId: string): UploadedBlob[] {
 export function recordUpload(store: DeviceStore, roomId: string, blob: UploadedBlob): void {
   const sha256 = blob.sha256.toLowerCase()
   if (!HASH.test(sha256)) return
-  const kept = readUploads(store, roomId).filter(b => b.sha256 !== sha256)
+  const kept = readUploads(store, roomId).filter(b => b.sha256 !== sha256 || b.url !== blob.url)
   try {
     store.set(UPLOADS_PREFIX + roomId, JSON.stringify([...kept, { url: blob.url, sha256 }].slice(-MAX_UPLOADS)))
   } catch { /* Storage full or unavailable: the announcement is the fallback. */ }
@@ -94,10 +98,15 @@ export function forgetRoomUploads(store: DeviceStore, roomId: string): void {
 export function uploadsFromEvents(events: readonly Event[], devicePub: string): UploadedBlob[] {
   const out: UploadedBlob[] = []
   for (const event of events) {
-    if (event.kind !== FILE_EVENT_KIND || event.pubkey !== devicePub) continue
-    const url = event.tags.find(t => t[0] === 'url')?.[1]
-    const sha256 = event.tags.find(t => t[0] === 'x')?.[1]?.toLowerCase()
-    if (url && sha256 && HASH.test(sha256)) out.push({ url, sha256 })
+    try {
+      // Capture once and verify without nostr-tools' mutable verification cache.
+      const owned: Event = JSON.parse(JSON.stringify(event))
+      if (owned.kind !== FILE_EVENT_KIND || owned.pubkey !== devicePub || !verifyEventUncached(owned)) continue
+      const urls = owned.tags.filter(t => t[0] === 'url'), hashes = owned.tags.filter(t => t[0] === 'x')
+      if (urls.length !== 1 || hashes.length !== 1 || urls[0]!.length !== 2 || hashes[0]!.length !== 2) continue
+      const url = urls[0]![1]!, sha256 = hashes[0]![1]!
+      if (HASH.test(sha256) && blobDeleteUrl(url, sha256, [new URL(url).origin])) out.push({ url, sha256 })
+    } catch { /* An unsupported announcement is not upload provenance. */ }
   }
   return out
 }
@@ -115,28 +124,52 @@ interface PendingDelete {
   until: number
 }
 
-function readPending(store: DeviceStore): PendingDelete[] {
+/** Validate the whole physical journal before effects. Unsupported rows are
+ * retained intact for recovery, never filtered into a successful retry. This
+ * is historical signed target correlation, not fresh upload/room authority. */
+export function readPendingBlobDeleteJournal(raw: string | null): PendingDelete[] {
+  if (raw === null) return []
   try {
-    const parsed = JSON.parse(store.get(PENDING_BLOB_DELETES_KEY) ?? '[]') as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((p): p is PendingDelete => !!p && typeof p === 'object'
-      && typeof (p as PendingDelete).url === 'string' && typeof (p as PendingDelete).sha256 === 'string'
-      && typeof (p as PendingDelete).until === 'number' && !!(p as PendingDelete).auth && typeof (p as PendingDelete).auth === 'object')
-  } catch {
-    return []
-  }
+    ordinaryUtf8Length(raw)
+    const parsed: unknown = JSON.parse(raw)
+    if (JSON.stringify(parsed) !== raw || !Array.isArray(parsed) || !parsed.length || parsed.length > MAX_PENDING) throw Error()
+    const urls = new Set<string>()
+    for (const p of parsed) {
+      if (!p || typeof p !== 'object' || Array.isArray(p) || typeof p.url !== 'string' || typeof p.sha256 !== 'string' ||
+          Object.keys(p).length !== 4 || ['url', 'sha256', 'auth', 'until'].some(key => !Object.hasOwn(p, key)) ||
+          !Number.isSafeInteger(p.until) || p.until < 0 || !isDeleteAuthorisationTarget(p.auth, p.sha256, p.url)) throw Error()
+      if (urls.has(p.url)) throw Error()
+      urls.add(p.url)
+      const expiration = Number(p.auth.tags.find((t: string[]) => t[0] === 'expiration')[1])
+      // The writer copies the signed expiry, including the t=0 clamp.
+      if (expiration !== p.auth.created_at + BLOB_DELETE_RETRY_SECONDS + 1 || p.until !== expiration) throw Error()
+    }
+    return parsed as PendingDelete[]
+  } catch { throw new Error('Saved file deletions could not be verified; the journal was retained.') }
 }
 
 function writePending(store: DeviceStore, pending: PendingDelete[]): void {
-  try {
-    if (pending.length) store.set(PENDING_BLOB_DELETES_KEY, JSON.stringify(pending.slice(-MAX_PENDING)))
-    else store.remove(PENDING_BLOB_DELETES_KEY)
-  } catch { /* Storage unavailable: the server's own expiry is the backstop. */ }
+  if (pending.length > MAX_PENDING) throw new Error('File deletion retry journal is full; existing entries were retained.')
+  const raw = pending.length ? JSON.stringify(pending) : null
+  if (raw !== null) {
+    ordinaryUtf8Length(raw)
+    // Apply the same complete parser to the actual bytes about to be stored.
+    readPendingBlobDeleteJournal(raw)
+    store.set(PENDING_BLOB_DELETES_KEY, raw)
+  } else store.remove(PENDING_BLOB_DELETES_KEY)
+  if (store.get(PENDING_BLOB_DELETES_KEY) !== raw) throw new Error('File deletion retry journal could not be saved and verified.')
 }
 
-/** How many deletes are waiting to be tried again. */
+function validClock(now: () => number): number {
+  const n = now()
+  if (!Number.isSafeInteger(n) || n < 0) throw new Error('File deletion retry needs a valid clock.')
+  return n
+}
+
+/** A damaged or legacy journal is a hold, never a zero-pending status. */
 export function pendingBlobDeletes(store: DeviceStore, now: number): number {
-  return readPending(store).filter(p => p.until > now).length
+  validClock(() => now)
+  return readPendingBlobDeleteJournal(store.get(PENDING_BLOB_DELETES_KEY)).filter(p => p.until > now).length
 }
 
 function hostOf(url: string): string {
@@ -182,9 +215,10 @@ export interface FileDeletionReport {
 
 export interface DeleteUploadsOptions extends Sender {
   blobs: readonly UploadedBlob[]
-  /** Servers this app uploads to: the one it is set to use now, and those
-   *  its own record names. */
+  /** Current explicitly consented upload origins. Unsigned records cannot add origins. */
   origins: readonly string[]
+  /** Historical own-device announcements, verified here before exact-target use. */
+  signedUploads?: readonly Event[]
   /** The room's device key, which signed the uploads. */
   sk: Uint8Array
   now: () => number
@@ -195,36 +229,51 @@ export interface DeleteUploadsOptions extends Sender {
 /** Ask for every file in `blobs` to be deleted, keeping those that were
  *  not for another try. Never throws for a server's answer. */
 export async function deleteUploads(opts: DeleteUploadsOptions): Promise<FileDeletionReport> {
-  const bySha = new Map<string, UploadedBlob>()
-  for (const blob of opts.blobs) if (!bySha.has(blob.sha256.toLowerCase())) bySha.set(blob.sha256.toLowerCase(), blob)
-  const report: FileDeletionReport = { found: bySha.size, deleted: 0, refused: 0, pending: 0, details: [] }
-  const targets: { url: string; sha256: string }[] = []
-  for (const [sha256, blob] of bySha) {
-    const url = blobDeleteUrl(blob.url, sha256, opts.origins)
-    if (url) targets.push({ url, sha256 })
+  const existing = readPendingBlobDeleteJournal(opts.store.get(PENDING_BLOB_DELETES_KEY))
+  const now = validClock(opts.now)
+  const provenance = new Set(uploadsFromEvents(opts.signedUploads ?? [], getPublicKey(opts.sk)).map(b => JSON.stringify([b.url, b.sha256])))
+  const distinct = new Map<string, UploadedBlob>()
+  for (const blob of opts.blobs) distinct.set(JSON.stringify([blob.url, blob.sha256]), blob)
+  const report: FileDeletionReport = { found: distinct.size, deleted: 0, refused: 0, pending: 0, details: [] }
+  const targets = new Map<string, UploadedBlob>()
+  for (const blob of distinct.values()) {
+    let url = blobDeleteUrl(blob.url, blob.sha256, opts.origins)
+    if (!url && provenance.has(JSON.stringify([blob.url, blob.sha256]))) {
+      url = blobDeleteUrl(blob.url, blob.sha256, [new URL(blob.url).origin])
+    }
+    if (url) targets.set(url, { url, sha256: blob.sha256.toLowerCase() })
     else report.refused++
   }
+  report.found = targets.size + report.refused
+  if (!targets.size) return report
+  if (existing.filter(p => !targets.has(p.url)).length + targets.size > MAX_PENDING) {
+    throw new Error('File deletion retry journal is full; existing entries were retained.')
+  }
+  const retry: PendingDelete[] = [...targets.values()].map(target => {
+    const auth = finalizeEvent(buildDeleteAuthorisation(target.sha256, new URL(target.url).origin, now, BLOB_DELETE_RETRY_SECONDS + 1, target.url), opts.sk)
+    const prior = existing.find(p => p.url === target.url)
+    if (prior && prior.auth.pubkey !== auth.pubkey) throw new Error('File deletion target has a different retained uploader; existing permission was retained.')
+    return { ...target, auth, until: Number(auth.tags.find(t => t[0] === 'expiration')![1]) }
+  })
+  // All permissions, including the worst-case byte/count capacity, must be
+  // saved and read back before the first request. No lost keys after quota failure.
+  writePending(opts.store, [...existing.filter(p => !targets.has(p.url)), ...retry])
   const unreachable = new Set<string>()
   const left = new Map<string, { count: number; detail: string }>()
-  const retry: PendingDelete[] = []
-  await inParallel(targets, async target => {
-    const origin = new URL(target.url).origin
-    const auth = finalizeEvent(buildDeleteAuthorisation(target.sha256, origin, opts.now()), opts.sk)
-    const outcome = await send(target.url, auth, unreachable, opts)
-    if (outcome.status === 'deleted') { report.deleted++; return }
-    const now = opts.now()
-    const until = now + BLOB_DELETE_RETRY_SECONDS
-    // A week's authorisation for this one blob, so the device key can go
-    // with the room and the delete can still be sent.
-    retry.push({ url: target.url, sha256: target.sha256, until, auth: finalizeEvent(buildDeleteAuthorisation(target.sha256, origin, now, BLOB_DELETE_RETRY_SECONDS + 1), opts.sk) })
+  const done = new Set<string>()
+  await inParallel(retry, async target => {
+    const outcome = target.until > validClock(opts.now)
+      ? await send(target.url, target.auth, unreachable, opts)
+      : { status: 'failed' as const, detail: 'File deletion permission expired before sending.' }
+    if (outcome.status === 'deleted') { report.deleted++; done.add(JSON.stringify(target)); return }
     const host = hostOf(target.url)
     left.set(host, { count: (left.get(host)?.count ?? 0) + 1, detail: outcome.detail })
   })
-  if (retry.length) {
-    const queued = new Set(retry.map(r => r.url))
-    writePending(opts.store, [...readPending(opts.store).filter(p => !queued.has(p.url)), ...retry])
+  if (done.size) {
+    const after = readPendingBlobDeleteJournal(opts.store.get(PENDING_BLOB_DELETES_KEY)).filter(p => !done.has(JSON.stringify(p)))
+    writePending(opts.store, after)
   }
-  report.pending = retry.length
+  report.pending = retry.length - report.deleted
   for (const [host, { count, detail }] of [...left].sort(([a], [b]) => a < b ? -1 : 1)) {
     report.details.push(`${count} on ${host}: ${detail}`)
   }
@@ -242,15 +291,18 @@ let retrying: Promise<number> | undefined
 export function retryPendingBlobDeletes(store: DeviceStore, now: () => number, opts: Sender = {}): Promise<number> {
   if (retrying) return retrying
   retrying = (async () => {
-    const usable = (p: PendingDelete) => p.until > now() && isDeleteAuthorisation(p.auth, p.sha256, now())
-    const due = readPending(store).filter(usable)
+    const clock = () => validClock(now)
+    clock()
+    const due = readPendingBlobDeleteJournal(store.get(PENDING_BLOB_DELETES_KEY)).filter(p => p.until > clock() && isDeleteAuthorisation(p.auth, p.sha256, clock()))
     const done = new Set<string>()
     const unreachable = new Set<string>()
     await inParallel(due, async p => {
-      if ((await send(p.url, p.auth, unreachable, opts)).status === 'deleted') done.add(p.url)
+      if (p.until <= clock() || !isDeleteAuthorisation(p.auth, p.sha256, clock())) return
+      if ((await send(p.url, p.auth, unreachable, opts)).status === 'deleted') done.add(JSON.stringify(p))
     })
     // Read again: a tidy-up may have added to the list meanwhile.
-    const after = readPending(store).filter(p => !done.has(p.url) && usable(p))
+    const after = readPendingBlobDeleteJournal(store.get(PENDING_BLOB_DELETES_KEY))
+      .filter(p => !done.has(JSON.stringify(p)) && p.until > clock() && isDeleteAuthorisation(p.auth, p.sha256, clock()))
     writePending(store, after)
     return after.length
   })().finally(() => { retrying = undefined })

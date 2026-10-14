@@ -1,11 +1,12 @@
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
-import type { NostrRelayPool, RelayConfig, RelayHealth, RelayTransport } from '../../src/relay-pool.js'
+import type { NostrRelayPool, RelayConfig, RelayHealth, RelayTransport, RelayPoolClient } from '../../src/relay-pool.js'
 import type { BrowserRoomBarrier } from './browser-room-barrier.js'
 import type { BrowserRoomConsents, RoomConsent } from './browser-room-consent.js'
 
-/** The public surface used by app callers, without the pool's private fields. */
-export type ManagedRelayPool = Pick<NostrRelayPool, keyof NostrRelayPool>
+/** App route controls. Native ownership suspension belongs to the private
+ * session factory; this route adapter supplies no equivalent authority. */
+export type ManagedRelayPool = RelayPoolClient
 type Read = { filters: Filter[]; receive: (e: Event, via?: string) => void; eose?: () => void; stop?: () => void }
 type Options = {
   room: string

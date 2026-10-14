@@ -19,8 +19,13 @@
  * as it would for its own backoff, until that dial fails, opens, or is
  * answered.
  */
+declare const dialLease: unique symbol
+export interface RelayDialLease { readonly [dialLease]: true }
+interface DialState { failures: number; after: number; lease: number; owner?: RelayDialLease }
+
 export class RelayDialGate {
-  readonly #relays = new Map<string, { failures: number; after: number; lease: number }>()
+  readonly #relays = new Map<string, DialState>()
+  readonly #leases = new WeakMap<RelayDialLease, { url: string; state?: DialState }>()
   readonly #now: () => number
 
   constructor(now: () => number = () => Date.now()) { this.#now = now }
@@ -29,11 +34,27 @@ export class RelayDialGate {
    *  this takes the one dial on offer, until it fails, is answered, or its
    *  lease runs out. */
   take(url: string): boolean {
+    return this.reserve(url) !== undefined
+  }
+
+  /** A local reservation receipt, never relay or protocol authority. */
+  reserve(url: string): RelayDialLease | undefined {
     const relay = this.#relays.get(url)
-    if (!relay) return true
     const now = this.#now()
-    if (now < relay.after || now < relay.lease) return false
-    relay.lease = now + DIAL_LEASE_MS
+    if (relay && (now < relay.after || now < relay.lease)) return
+    const receipt = Object.freeze({}) as RelayDialLease
+    if (relay) { relay.lease = now + DIAL_LEASE_MS; relay.owner = receipt }
+    this.#leases.set(receipt, { url, state: relay })
+    return receipt
+  }
+
+  /** Consume only this exact still-current reservation. Expired/replaced,
+   * healthy-URL and forged receipts cannot release a later pool's lease. */
+  release(receipt: RelayDialLease): boolean {
+    const held = this.#leases.get(receipt)
+    this.#leases.delete(receipt)
+    if (!held?.state || this.#relays.get(held.url) !== held.state || held.state.owner !== receipt) return false
+    held.state.lease = 0; delete held.state.owner
     return true
   }
 
@@ -54,9 +75,20 @@ export class RelayDialGate {
    *  silence is one failure: several pools whose sockets died together would
    *  otherwise double the backoff once each. */
   failed(url: string): void {
+    this.#failure(url, false)
+  }
+
+  /** A dial failure may record backoff, but only its own receipt may free an
+   * in-progress reservation. Connected-socket failures own no dial receipt. */
+  failedDial(url: string, receipt?: RelayDialLease): void {
+    if (receipt && this.#leases.get(receipt)?.url === url) this.release(receipt)
+    this.#failure(url, true)
+  }
+
+  #failure(url: string, preserveLease: boolean): void {
     const now = this.#now()
     const relay = this.#relays.get(url) ?? { failures: 0, after: 0, lease: 0 }
-    relay.lease = 0
+    if (!preserveLease) { relay.lease = 0; delete relay.owner }
     if (now >= relay.after) {
       relay.failures++
       relay.after = now + Math.min(DIAL_BACKOFF_MS * 2 ** (relay.failures - 1), DIAL_BACKOFF_MAX_MS)
@@ -69,7 +101,7 @@ export class RelayDialGate {
    *  then drops it or says nothing is still failing. */
   connected(url: string): void {
     const relay = this.#relays.get(url)
-    if (relay) relay.lease = 0
+    if (relay) { relay.lease = 0; delete relay.owner }
   }
 
   /** `url` said something on its own account: an `OK` either way, or an

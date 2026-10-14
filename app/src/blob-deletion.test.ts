@@ -82,13 +82,13 @@ describe('deleting a room’s uploads', () => {
       ],
       origins: [SERVER], sk, now: () => NOW, store, fetch: server.fetch as never,
     })
-    expect(report).toEqual({ found: 3, deleted: 2, refused: 1, pending: 0, details: [] })
+    expect(report).toEqual({ found: 4, deleted: 2, refused: 2, pending: 0, details: [] })
     expect(held.size).toBe(0)
     const deletes = server.requests.filter(r => r.method === 'DELETE')
     expect(deletes.map(r => r.url).sort()).toEqual([`${SERVER}/blossom/${A}`, `${SERVER}/blossom/${B}`])
     for (const d of deletes) {
       expect(d.auth!.pubkey).toBe(getPublicKey(sk))
-      expect(Number(d.auth!.tags.find(t => t[0] === 'expiration')![1]) - d.auth!.created_at).toBeLessThanOrEqual(60)
+      expect(Number(d.auth!.tags.find(t => t[0] === 'expiration')![1]) - d.auth!.created_at).toBe(BLOB_DELETE_RETRY_SECONDS + 1)
     }
     expect(server.requests.some(r => r.url.includes('elsewhere'))).toBe(false)
     expect(store.get(PENDING_BLOB_DELETES_KEY)).toBeNull()

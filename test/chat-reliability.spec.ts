@@ -1,5 +1,7 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
+import { decodeChatEvent } from '../src/chat.js'
+import type { Event as NostrEvent } from 'nostr-tools/pure'
 import { goToConversation, openRoomDetails } from './browser.js'
 
 function testRelay(baseURL: string): string {
@@ -283,4 +285,148 @@ test('public profiles start enabled and an opt-out survives a new visit', async 
     await page.locator('#lookupProfiles').check()
     await expect.poll(() => queries.length).toBeGreaterThan(count)
   } finally { await context.close() }
+})
+
+test('a failed outbox write keeps the actual composer draft and sends nothing', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!), relay = testRelay(baseURL!), secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret), sent: string[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sent.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage(); await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    await page.evaluate(room => {
+      const original = Storage.prototype.setItem
+      Storage.prototype.setItem = function(key, value) {
+        if (key === `kithmoot.pending.${room}`) throw new DOMException('Outbox quota test', 'QuotaExceededError')
+        return original.call(this, key, value)
+      }
+    }, roomId)
+    await page.locator('#chatInput').fill('Keep this draft if storage fails')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#status')).toContainText('Outbox quota test')
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this draft if storage fails')
+    await expect(page.locator('#outbox')).toBeHidden()
+    await expect(page.locator('#chatLog')).not.toContainText('Keep this draft if storage fails')
+    expect(sent).toEqual([])
+  } finally { await context.close() }
+})
+
+test('repeated submits while the actual composer retains a message sign and publish one copy', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!), relay = testRelay(baseURL!), secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret), sent: string[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sent.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage(); await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    await page.locator('#chatInput').fill('One submission, please')
+    await page.locator('#chatForm').evaluate(form => {
+      for (let i = 0; i < 4; i++) form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    await expect(page.locator('#chatLog .msg', { hasText: 'One submission, please' })).toHaveCount(1)
+    await expect(page.locator('#chatInput')).toHaveValue('')
+    await expect(page.locator('#outbox')).toBeHidden()
+    expect(sent).toHaveLength(1)
+  } finally { await context.close() }
+})
+
+test('changed and reverted drafts during retention neither duplicate the old send nor clear new work', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!), relay = testRelay(baseURL!), secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret), sent: string[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sent.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage(); await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    await page.evaluate(room => {
+      const original = Storage.prototype.setItem
+      let injected = false
+      Storage.prototype.setItem = function(key, value) {
+        original.call(this, key, value)
+        if (key !== `kithmoot.pending.${room}` || injected) return
+        injected = true
+        const input = document.querySelector<HTMLTextAreaElement>('#chatInput')!, form = document.querySelector('#chatForm')!
+        input.value = 'The changed submission'; input.dispatchEvent(new Event('input', { bubbles: true }))
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        input.value = 'The original submission'; input.dispatchEvent(new Event('input', { bubbles: true }))
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        input.value = 'Keep this new work'; input.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+    }, roomId)
+    await page.locator('#chatInput').fill('The original submission')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog .msg', { hasText: 'The original submission' })).toHaveCount(1)
+    await expect(page.locator('#chatLog .msg', { hasText: 'The changed submission' })).toHaveCount(1)
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this new work')
+    await expect(page.locator('#outbox')).toBeHidden()
+    expect(sent).toHaveLength(2)
+  } finally { await context.close() }
+})
+
+test('choosing another person with the same shown name during retention preserves the new recipient draft', async ({ browser, baseURL }) => {
+  const relay = testRelay(baseURL!), secret = generateRoomSecret(), url = encodeJoinUrl(baseURL!, secret, [relay])
+  const { roomId, roomKey } = deriveRoom(secret), contexts: BrowserContext[] = [], sent: NostrEvent[] = []
+  try {
+    for (let i = 0; i < 2; i++) {
+      const context = await contextFor(browser, baseURL!); contexts.push(context)
+      await join(await context.newPage(), url, 'Robin')
+    }
+    const context = await contextFor(browser, baseURL!); contexts.push(context)
+    await context.routeWebSocket(relay, ws => {
+      const upstream = ws.connectToServer()
+      ws.onMessage(raw => {
+        const frame = JSON.parse(String(raw))
+        if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sent.push(frame[1])
+        upstream.send(raw)
+      })
+      upstream.onMessage(raw => ws.send(raw))
+    })
+    const page = await context.newPage(); await join(page, url, 'Ada')
+    await page.locator('#chatInput').fill('@Ro')
+    await expect(page.locator('#mentions [role=option]')).toHaveCount(2)
+    await page.locator('#mentions [role=option]').first().dispatchEvent('pointerdown')
+    await expect(page.locator('#chatInput')).toHaveValue('@Robin ')
+    await page.evaluate(room => {
+      const original = Storage.prototype.setItem
+      let injected = false
+      Storage.prototype.setItem = function(key, value) {
+        original.call(this, key, value)
+        if (key !== `kithmoot.pending.${room}` || injected) return
+        injected = true
+        const input = document.querySelector<HTMLTextAreaElement>('#chatInput')!
+        input.value = '@Ro'; input.setSelectionRange(3, 3)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        document.querySelectorAll('#mentions [role=option]')[1]!.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }))
+      }
+    }, roomId)
+    await page.locator('#chatForm').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await expect(page.locator('#chatLog .msg', { hasText: '@Robin' })).toHaveCount(1)
+    await expect(page.locator('#chatInput')).toHaveValue('@Robin ')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog .msg', { hasText: '@Robin' })).toHaveCount(2)
+    await expect(page.locator('#chatInput')).toHaveValue('')
+    const messages = sent.map(event => decodeChatEvent(event, { roomId, roomKey, now: Math.floor(Date.now() / 1000) }))
+    expect(messages).toHaveLength(2)
+    expect(messages[0]?.mentions).toHaveLength(1); expect(messages[1]?.mentions).toHaveLength(1)
+    expect(messages[0]?.mentions).not.toEqual(messages[1]?.mentions)
+  } finally { await Promise.all(contexts.map(context => context.close())) }
 })

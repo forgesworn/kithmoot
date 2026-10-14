@@ -86,12 +86,12 @@ export class Outbox {
       // back there, otherwise simply not sent.
       actions.append(this.#button('Undo', 'undo', () => {
         if (this.edit && item.editable && this.canEdit(item)) return this.edit(item)
-        this.queue.take(item.id)
+        return this.queue.take(item.id).then(() => {})
       }), this.#button('Send now', 'send-now', () => this.queue.retry(item.id)))
       row.append(actions)
       return row
     }
-    if (!item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && item.publish) {
+    if (!item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && item.ready) {
       actions.append(this.#button('Retry', 'retry', () => this.queue.retry(item.id)))
     }
     // Edit and Delete only where nothing has left this device, so neither
@@ -102,7 +102,7 @@ export class Outbox {
     if (!item.acknowledged && item.state !== 'sending') {
       const clean = neverLeft(item)
       actions.append(this.#button(clean ? 'Delete' : 'Remove from list', 'remove', async () => {
-        if (await confirmAction({ ...this.#removal(item), confirmLabel: clean ? 'Delete message' : 'Remove from list', danger: true, isCurrent: () => row.isConnected })) this.queue.dismiss(item.id)
+        if (await confirmAction({ ...this.#removal(item), confirmLabel: clean ? 'Delete message' : 'Remove from list', danger: true, isCurrent: () => row.isConnected })) await this.queue.dismiss(item.id)
       }))
     }
     if (actions.childElementCount) row.append(actions)
@@ -111,6 +111,7 @@ export class Outbox {
 
   #status(item: PendingSend): string {
     if (item.acknowledged) return 'Sent'
+    if (item.held) return 'Message held: could not save its state. Retry when storage is available.'
     const where = item.channel === 'Chat' ? '' : ` in ${item.channel}`
     switch (item.state) {
       case 'holding': {
@@ -142,7 +143,13 @@ export class Outbox {
     button.type = 'button'
     button.textContent = label
     button.dataset.action = action
-    button.addEventListener('click', () => { void run() })
+    button.addEventListener('click', () => {
+      button.disabled = true
+      void Promise.resolve().then(run).catch(() => {
+        const status = button.closest('[data-pending-id]')?.querySelector('.pendingStatus')
+        if (status) status.textContent = 'Could not save this change. Your message is still held. Try again.'
+      }).finally(() => { button.disabled = false })
+    })
     return button
   }
 }

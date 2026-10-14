@@ -1,6 +1,7 @@
 import { getPublicKey } from 'nostr-tools/pure'
 import { encodeEpochRequest, decodeEpochGrant, EpochRefusedError, type EncodeEpochRequestOptions, type EpochGrant } from './epoch.js'
 import type { RelayTransport } from './relay-pool.js'
+import { protocolTask, type ProtocolExecution } from './protocol-execution.js'
 
 type Grant = Exclude<EpochGrant, { refused: string }>
 export interface FreshEpochOptions extends Omit<EncodeEpochRequestOptions, 'now'> {
@@ -10,10 +11,12 @@ export interface FreshEpochOptions extends Omit<EncodeEpochRequestOptions, 'now'
   timeoutMs: number
   signals?: readonly AbortSignal[]
   sealSks?: () => readonly Uint8Array[]
+  protocol?: ProtocolExecution
 }
 
 /** Initial admission only: no member source, replay-complete shortcut or route fallback. */
 export function requestFreshRootEpoch(opts: FreshEpochOptions): Promise<Grant> {
+  opts.protocol?.check('epoch-request-start')
   if (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs <= 0 || opts.timeoutMs > 90_000) return Promise.reject(new Error('invalid fresh epoch deadline'))
   if (opts.signals?.some(s => s.aborted)) return Promise.reject(new Error('epoch admission cancelled'))
   let wall = opts.now()
@@ -22,11 +25,13 @@ export function requestFreshRootEpoch(opts: FreshEpochOptions): Promise<Grant> {
   return new Promise((resolve, reject) => {
     let settled = false, publishing = false, unknown = false, checked = 0
     let unsubscribe = () => {}
+    let stopSuspension = () => {}
     const timers: ReturnType<typeof setTimeout>[] = []
     const finish = (error?: unknown, grant?: Grant): void => {
       if (settled) return
       settled = true
       for (const timer of timers) clearTimeout(timer)
+      stopSuspension()
       for (const signal of opts.signals ?? []) signal.removeEventListener('abort', cancel)
       try { unsubscribe() } catch { /* Late callbacks are fenced by settled. */ }
       if (grant) resolve(grant)
@@ -47,15 +52,36 @@ export function requestFreshRootEpoch(opts: FreshEpochOptions): Promise<Grant> {
     const offer = (): void => {
       if (!live() || publishing) return
       publishing = true
-      try {
+      const prepare = () => {
+        opts.protocol?.check('epoch-request-preparation')
+        if (opts.protocol && !live()) return undefined
         // The root desk answers each ID once. A fresh sealed request recovers
         // a lost grant without changing that desk's replay policy.
         request = encodeEpochRequest({ ...opts, now: wall })
-        void opts.transport.publish(JSON.parse(JSON.stringify(request))).catch(() => {}).finally(() => { publishing = false })
+        return JSON.parse(JSON.stringify(request)) as NonNullable<typeof request>
       }
-      catch { publishing = false }
+      if (opts.protocol) {
+        opts.protocol.retain(protocolTask(opts.protocol, 'epoch-request', async execution => {
+          const start = () => {
+            const event = prepare()
+            if (!event || !live()) return undefined
+            const pending = opts.transport.publish(event)
+            execution?.retain(pending)
+            return { pending }
+          }
+          const started = execution ? await execution.run('epoch-request-preparation', start) : start()
+          await started?.pending.catch(() => {})
+        }).catch(error => finish(error)).finally(() => { publishing = false }))
+      } else try {
+        const event = prepare()
+        if (event) void opts.transport.publish(event).catch(() => {}).finally(() => { publishing = false })
+        else publishing = false
+      } catch { publishing = false }
     }
     try {
+      // A fresh admission wait is cancelled at the latch: general grants
+      // arriving afterwards cannot become an old publication ACK exception.
+      stopSuspension = opts.protocol?.onSuspend?.(suspended => { if (suspended) cancel() }) ?? (() => {})
       for (const signal of opts.signals ?? []) signal.addEventListener('abort', cancel, { once: true })
       if (opts.signals?.some(s => s.aborted)) { cancel(); return }
       unsubscribe = opts.transport.subscribe([{ kinds: [20469], authors: [opts.authority], '#d': [opts.roomId], '#p': [device] }], event => {
@@ -65,6 +91,7 @@ export function requestFreshRootEpoch(opts: FreshEpochOptions): Promise<Grant> {
             !event.tags.every(t => Array.isArray(t) && t.length <= 4 && t.every(v => typeof v === 'string' && v.length <= 256))) return
         checked++
         try {
+          opts.protocol?.check('epoch-grant-ingress')
           if (JSON.stringify(event).length > 263_168) return
           const grant = decodeEpochGrant(event, { roomId: opts.roomId, authority: opts.authority, deviceSk: opts.deviceSk,
             request: request.id, now: wall, sealSks: opts.sealSks?.() })

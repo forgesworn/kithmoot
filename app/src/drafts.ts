@@ -25,6 +25,12 @@ export interface ConversationDraft {
   pickedMentions?: Map<string, string>
 }
 
+/** Include recipient bindings even when two people have the same shown name. */
+export function draftSubmissionSnapshot(text: string, draft: ConversationDraft): string {
+  const mentions = [...(draft.pickedMentions ?? [])].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+  return JSON.stringify([text, draft.attachments, draft.artwork, draft.editing, draft.replyTo, mentions])
+}
+
 export function draftHasWork(draft: ConversationDraft): boolean {
   return Boolean(draft.text || draft.event || draft.key || draft.attachments.length || draft.artwork.length || draft.pendingFiles?.length || draft.job)
 }
