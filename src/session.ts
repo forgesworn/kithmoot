@@ -2,6 +2,8 @@ import { getPublicKey } from 'nostr-tools/pure'
 import type { ProtocolExecution } from './protocol-execution.js'
 import { captureProtocolData, protocolTask } from './protocol-execution.js'
 import { ProtocolTimers } from './protocol-timers.js'
+import { consumeNativeSessionBinding, nativeChatView, type NativeSessionBinding, type NativeSessionCandidate,
+  type NativeSessionPlan, type NativeSessionView } from './session-native-binding.js'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
 import { requestFreshRootEpoch } from './fresh-epoch.js'
@@ -656,7 +658,7 @@ export class RoomSession {
    * this device taken once stops reading the room once the credential it
    * caught has lapsed and the room has rekeyed. See `seal.ts`.
    */
-  readonly #sealKeys = new Map<string, Uint8Array>()
+  #sealKeys = new Map<string, Uint8Array>()
   #pendingCredential?: { credential: DeviceCredential; sealSk?: Uint8Array }
   #credentialWork?: Promise<DeviceCredential>
   #retentionWork?: Promise<void>
@@ -668,11 +670,11 @@ export class RoomSession {
    * still-live credential, and must not move what rekeys and grants are
    * sealed to back onto the seal key they copied.
    */
-  readonly #newestCredentials = new Map<string, DeviceCredential>()
+  #newestCredentials = new Map<string, DeviceCredential>()
   /** When each device in `#newestCredentials` was last seen, in unix
    *  seconds: the newest stamp on a roster entry heard from it, never later
    *  than now. What a scheduled rekey's window is measured by. */
-  readonly #deviceSeen = new Map<string, number>()
+  #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
   /**
@@ -798,8 +800,16 @@ export class RoomSession {
   /** Set while joining when a rekey said this participant is out, or the
    *  room is closed, so `join()` can say so rather than carry on. */
   #refusedWhileJoining?: EpochRefusal
+  readonly #nativeBinding: Readonly<NativeSessionBinding> | undefined
+  #nativeRevoked = false
+  #nativeDiscard?: () => void
 
   constructor(opts: RoomSessionOptions) {
+    const native = consumeNativeSessionBinding(opts)
+    this.#nativeBinding = native
+    let allocatedRoomKey: Uint8Array | undefined, allocatedEpochKey: Uint8Array | undefined
+    try {
+    if (native && new.target !== RoomSession) throw new Error('native Session cannot be subclassed')
     opts.protocol?.check('session-construction')
     if (opts.requireFreshEpoch && !opts.authority) throw new Error('fresh epoch admission needs a pinned authority')
     this.#admissionTransport = opts.transport
@@ -818,12 +828,14 @@ export class RoomSession {
       } }
     }
     const { roomId, roomKey } = deriveRoom(opts.secret)
+    allocatedRoomKey = roomKey
     this.roomId = roomId
     this.#roomKey = roomKey
     this.#opts = opts
     for (const sk of opts.identity ? opts.sealKeys ?? [] : []) this.#keepSealKey(sk)
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
+    allocatedEpochKey = this.#epoch.key
     if (this.#epochSecret.epoch > 0) this.#keepSecret(this.#epochSecret)
     if (opts.forwarderMediaPipeline && !opts.forwarderMediaPipeline.rekey(this.#epoch.key.slice())) {
       throw new Error('forwarder media pipeline could not install the room epoch key')
@@ -856,6 +868,7 @@ export class RoomSession {
       // construction. See `hex.ts`'s `normaliseHex`.
       this.participant = normaliseHex(opts.identity.pubkey)
       if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
+      if (native) native.attach(this.#nativeView())
       return
     }
 
@@ -868,6 +881,127 @@ export class RoomSession {
     this.participant = verdict.participant
     this.#credential = opts.credential
     if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
+    if (native) throw new Error('native Session requires retained participant custody')
+    } catch (error) {
+      if (native) {
+        this.#nativeRevoked = true; this.#nativeDiscard?.(); this.#protocolTimers?.close()
+        for (const key of this.#sealKeys.values()) key.fill(0)
+        this.#sealKeys.clear(); allocatedRoomKey?.fill(0); allocatedEpochKey?.fill(0)
+        native.revoke()
+      }
+      throw error
+    }
+  }
+
+  /** Only the exact one-shot native construction cell receives these closures.
+   * The returned plans are opaque and have no public Session entry point. */
+  #nativeView(): NativeSessionView {
+    type Self = { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>>; call?: CallMembership }
+    type Prepared = {
+      readonly candidate: NativeSessionCandidate
+      readonly credential: DeviceCredential
+      readonly self: Self
+      readonly oldSelf: Self
+      readonly epoch: EpochKeys
+      readonly opts: RoomSessionOptions
+      readonly nextOpts: RoomSessionOptions
+      readonly chats: readonly [ChatLog, ReturnType<typeof nativeChatView>][]
+      readonly channels: readonly [string, ChatLog][]
+      readonly oldSeals: readonly [string, Uint8Array][]
+      readonly seals: Map<string, Uint8Array>
+      readonly newest: Map<string, DeviceCredential>
+      readonly seen: Map<string, number>
+      readonly oldNewest: readonly [string, DeviceCredential][]
+      readonly oldSeen: readonly [string, number][]
+      used: boolean
+    }
+    const plans = new WeakMap<object, Prepared>()
+    let pending: Prepared | undefined
+    const checkLive = () => {
+      if (this.#nativeRevoked || this.#left || this.#closed || this.#ended() || this.#admissionAbort.signal.aborted ||
+          !this.#self || !this.#chat || this.#credentialWork || this.#retentionWork || this.#pendingCredential) throw new Error('native Session is unavailable')
+      this.#opts.protocol!.check('credential-lifecycle-transition')
+    }
+    const wipe = (data: Prepared) => { for (const key of data.seals.values()) key.fill(0); data.seals.clear() }
+    this.#nativeDiscard = () => { if (pending) { pending.used = true; wipe(pending); pending = undefined } }
+    const dataFor = (plan: NativeSessionPlan) => {
+      const data = plans.get(plan)
+      if (!data || data.used || pending !== data) throw new Error('native Session plan is spent or foreign')
+      return data
+    }
+    const check = (data: Prepared, native = true) => {
+      if (native) checkLive()
+      else if (this.#nativeRevoked || this.#left || this.#closed || this.#admissionAbort.signal.aborted) throw new Error('native Session revoked')
+      if (this.#self !== data.oldSelf || this.#epoch !== data.epoch || this.#opts !== data.opts ||
+          this.#self.credential.id !== data.candidate.predecessor || this.#channels.size !== data.channels.length ||
+          data.channels.some(([name, log]) => this.#channels.get(name) !== log) || this.#sealKeys.size !== data.oldSeals.length ||
+          data.oldSeals.some(([name, key]) => this.#sealKeys.get(name) !== key) || this.#newestCredentials.size !== data.oldNewest.length ||
+          data.oldNewest.some(([name, value]) => this.#newestCredentials.get(name) !== value) || this.#deviceSeen.size !== data.oldSeen.length ||
+          data.oldSeen.some(([name, value]) => this.#deviceSeen.get(name) !== value)) throw new Error('native Session changed after preparation')
+      for (const [log, view] of data.chats) { if (log !== this.#chat && !data.channels.some(([, value]) => value === log)) throw new Error('native conversation changed'); view.check(data.candidate.predecessor) }
+    }
+    return Object.freeze({
+      snapshot: () => {
+        checkLive()
+        return Object.freeze({ credential: structuredClone(this.#self!.credential), epoch: this.#epochSecret.epoch,
+          epochId: this.#epoch.id, seals: Object.freeze([...this.#sealKeys.keys()]) })
+      },
+      prepare: (candidate: NativeSessionCandidate): NativeSessionPlan => {
+        checkLive(); candidate.checkPreparation()
+        if (pending || !/^[0-9a-f]{64}$/.test(candidate.operation) || !candidate.root ||
+            candidate.predecessor !== this.#self!.credential.id || candidate.sealKeys.length < 1 || candidate.sealKeys.length > MAX_SEAL_KEYS) throw new Error('invalid native Session candidate')
+        const credential = structuredClone(candidate.credential), verdict = verifyDeviceCredential(credential, { roomId: this.roomId, now: this.#now() })
+        if (!verdict.ok || verdict.device !== this.device || verdict.participant !== this.participant || credential.id === candidate.predecessor ||
+            credentialExpiresAt(credential) <= credentialExpiresAt(this.#self!.credential) || credential.created_at <= this.#self!.credential.created_at) throw new Error('invalid native successor credential')
+        Object.freeze(credential.tags.map(tag => Object.freeze(tag))); Object.freeze(credential.tags); Object.freeze(credential)
+        const seals = new Map<string, Uint8Array>()
+        try {
+          for (const key of candidate.sealKeys) {
+            const copy = Uint8Array.prototype.slice.call(key), name = getPublicKey(copy)
+            if (seals.has(name)) { copy.fill(0); throw new Error('duplicate native seal') }
+            seals.set(name, copy)
+          }
+          if (!seals.has(credentialSeal(credential)!)) throw new Error('missing native current seal')
+          const channels = [...this.#channels], logs = [this.#chat!, ...channels.map(([, log]) => log)]
+          const chats = logs.map(log => [log, nativeChatView(log)] as [ChatLog, ReturnType<typeof nativeChatView>])
+          for (const [, view] of chats) view.check(candidate.predecessor)
+          const newest = new Map(this.#newestCredentials), seen = new Map(this.#deviceSeen)
+          newest.delete(this.device); newest.set(this.device, credential)
+          if (newest.size > MAX_NEWEST_CREDENTIALS) { const first = newest.keys().next().value!; newest.delete(first); seen.delete(first) }
+          const data: Prepared = { candidate: Object.freeze({ ...candidate }), credential, self: { ...this.#self!, credential },
+            oldSelf: this.#self!, epoch: this.#epoch, opts: this.#opts,
+            nextOpts: { ...this.#opts, resume: credential, sealKeys: [...seals.values()] } as RoomSessionOptions,
+            channels, chats, oldSeals: [...this.#sealKeys], seals, newest, seen,
+            oldNewest: [...this.#newestCredentials], oldSeen: [...this.#deviceSeen], used: false }
+          const plan = Object.freeze({}) as NativeSessionPlan
+          plans.set(plan, data); pending = data; return plan
+        } catch (error) { for (const key of seals.values()) key.fill(0); seals.clear(); throw error }
+      },
+      check: (plan: NativeSessionPlan) => { const data = dataFor(plan); data.candidate.checkPreparation(); check(data) },
+      apply: (plan: NativeSessionPlan) => {
+        const data = dataFor(plan); data.candidate.checkApplication(); check(data, false)
+        data.used = true; pending = undefined
+        try {
+          // Every validation precedes the first assignment. No callback,
+          // entropy, prototype setter or await occurs across these writes.
+          this.#sealKeys = data.seals
+          this.#self = data.self
+          this.#opts = data.nextOpts
+          for (const [, view] of data.chats) view.apply(data.credential)
+          this.#newestCredentials = data.newest
+          this.#deviceSeen = data.seen
+          for (const [, key] of data.oldSeals) key.fill(0)
+          plans.delete(plan)
+        } catch (error) { wipe(data); this.#nativeRevoked = true; throw error }
+      },
+      discard: (plan: NativeSessionPlan) => { const data = plans.get(plan); if (data && !data.used) { data.used = true; wipe(data); if (pending === data) pending = undefined }; plans.delete(plan) },
+      restate: async (scope: ProtocolExecution) => {
+        checkLive(); scope.check('credential-restatement'); this.#announceCredential(this.#self!.credential)
+        await this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, scope)
+        this.#scheduleRenewal(this.#renewalDelayMs(this.#self!.credential))
+      },
+      revoke: () => { this.#nativeRevoked = true; this.#nativeDiscard?.() },
+    })
   }
 
   /**
@@ -2241,6 +2375,7 @@ export class RoomSession {
   }
 
   #scheduleRenewal(afterMs: number): void {
+    if (this.#nativeBinding) { if (!this.#nativeRevoked) this.#nativeBinding.schedule(afterMs); return }
     if (this.#protocolTimers) {
       this.#protocolTimers.schedule('renewal', afterMs, execution => this.#renewCredential(execution))
       return
@@ -3334,6 +3469,7 @@ export class RoomSession {
    * Everything else here is immediate.
    */
   leave(): Promise<void> {
+    if (this.#nativeBinding) { this.#nativeRevoked = true; this.#nativeDiscard?.(); this.#nativeBinding.revoke() }
     this.#admissionAbort.abort()
     this.#protocolTimers?.close()
     // The last thing this device says is an entry claiming nothing,

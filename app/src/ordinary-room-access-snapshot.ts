@@ -46,7 +46,7 @@ import { classifyOrdinaryPhysicalName, validateOrdinaryPhysicalSnapshot } from '
 import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceContinuityInPair, FIXED_INVITATION_RELAYS } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected, CREATOR_PROOF_PREFIX, CREATOR_INTENT_PREFIX } from './persistent-creator-proof.js'
 import type { DeviceStore } from './device-store.js'
-import { ordinaryPairCustodyFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
+import { ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 import { inspectOrdinaryMemberLeases } from './ordinary-member-lease.js'
 
 const HEX = /^[0-9a-f]{64}$/
@@ -643,6 +643,16 @@ export function releaseOrdinarySnapshotContext(context: OrdinarySnapshotContext)
   const image = capturedImages.get(context)
   capturedImages.delete(context)
   if (image) { releaseOrdinaryStartupContext(image.startup); image.browser.clear(); image.tab.clear() }
+}
+/** Validation-only projection under genuine acknowledged source headers.
+ * This creates no read token, signing authority or native commit fact. */
+export function captureOrdinaryProjectedSnapshotContext(sourceBrowser: ReadonlyMap<string, string>, sourceTab: ReadonlyMap<string, string>,
+  token: OrdinaryPairCustody, browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>): OrdinarySnapshotContext {
+  const custody = ordinaryPairReadCustodyFor(token, sourceBrowser, sourceTab)
+  const context = captureOrdinarySnapshotContext(browser, tab)
+  const image = capturedImages.get(context)!
+  capturedImages.set(context, { ...image, custody })
+  return context
 }
 interface DeviceBinding { readonly account: string; readonly roomId: string; readonly device: string }
 interface TrafficRoot { readonly epoch: number; readonly id: string; readonly key: Uint8Array }

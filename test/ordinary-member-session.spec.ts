@@ -6,39 +6,14 @@ import { WebSocketServer } from 'ws'
 import type { Event } from 'nostr-tools/pure'
 import { encodeEpochGrant } from '../src/epoch.js'
 import { setup } from './ordinary-bootstrap.setup.js'
+import { controls } from './ordinary-member-session.setup.js'
 const ORIGIN = 'https://ordinary-member-session.kithmoot.test'
 let bundle = ''
 test.beforeAll(async () => { bundle = (await build({ entryPoints: [fileURLToPath(new URL('./ordinary-bootstrap.browser-entry.ts', import.meta.url))],
   bundle: true, format: 'iife', globalName: 'Ordinary', platform: 'browser', write: false, target: 'es2022' })).outputFiles[0]!.text })
 test.beforeEach(async ({ context, page }) => { await context.route(ORIGIN + '/**', route => route.fulfill({ contentType: 'text/html',
   body: `<script>${bundle.replace(/<\/script/gi, '<\\/script')}</script>` })); await page.goto(ORIGIN) })
-const controls = `async()=>{
- const material=await bootstrap.bootstrap(evidence);window.ownCredential=material.credential;Ordinary.wipeOrdinaryPersistentBootstrapResult(material);
- window.nativeHeld=0;window.dials=[];window.frames=[];window.sockets=[];window.randomness=[];window.grants=true;
- const request=navigator.locks.request.bind(navigator.locks);navigator.locks.request=(name,...args)=>{const callback=args.pop();return request(name,...args,async lock=>{
-  if(name===Ordinary.ORDINARY_DATABASE+':write')nativeHeld++;try{return await callback(lock)}finally{if(name===Ordinary.ORDINARY_DATABASE+':write')nativeHeld--}})};
- const random=crypto.getRandomValues.bind(crypto);crypto.getRandomValues=(...args)=>{randomness.push(nativeHeld>0);return random(...args)};
- class Socket {
-  readyState=0;onopen=null;onmessage=null;onclose=null;onerror=null;requests=new Map();
-  constructor(url){this.url=url;sockets.push(this);dials.push(nativeHeld>0);queueMicrotask(()=>{if(this.readyState===3)return;this.readyState=1;this.onopen?.({type:'open'});
-    if(window.challenge)this.message(['AUTH','member-auth'])})}
-  message(frame){if(this.readyState!==3)this.onmessage?.({data:JSON.stringify(frame)})}
-  send(raw){frames.push([JSON.parse(raw),nativeHeld>0]);const frame=JSON.parse(raw);if(frame[0]==='REQ')this.requests.set(frame[1],frame.slice(2));
-   queueMicrotask(()=>{if(frame[0]==='REQ')this.message(['EOSE',frame[1]]);
-    if(frame[0]==='AUTH')this.message(['OK',frame[1].id,true,'accepted']);
-    if(frame[0]==='EVENT'){this.message(['OK',frame[1].id,true,'accepted']);
-     if(frame[1].kind===20468&&grants){const grant=Ordinary.encodeEpochGrant({roomId,authoritySk:inviterSk,device:frame[1].pubkey,request:frame[1].id,
-      epoch:{epoch:0,secret},credential:ownCredential,removed:[],now:Math.floor(Date.now()/1000)});
-      for(const socket of sockets)for(const[id,filters]of socket.requests)if(filters.some(f=>f.kinds?.includes(grant.kind)))socket.message(['EVENT',id,grant])}
-     else for(const socket of sockets)for(const[id,filters]of socket.requests)if(filters.some(f=>f.kinds?.includes(frame[1].kind)))socket.message(['EVENT',id,frame[1]])}})
-  }
-  close(){if(this.readyState===3)return;this.readyState=3;this.onclose?.({type:'close'})}
- }
- window.sessionSelected=true;
- window.sessionOptions={relays:window.memberRelayList??['wss://first.example/','wss://second.example/'],profile:'direct',websocketImplementation:Socket,live:()=>guard()&&sessionSelected,epochRequestTimeoutMs:1000};
- if(!window.deferMemberCreation)window.member=await bootstrap.openMemberSession(sessionOptions);
- window.join=()=>{window.joinState='pending';window.joining=member.join().then(()=>joinState='ok',error=>joinState=error.name);return joining};
-}`
+
 async function start(page: Page, visitor = true) { await page.evaluate(`(${setup})(${JSON.stringify({ visitor, noRelays: true })})`); await page.evaluate(`(${controls})()`) }
 test('genuine member RoomSession completes a fresh sealed root round trip and guarded chat', async ({ page }) => {
   await start(page); await page.evaluate('join()'); expect(await page.evaluate('joinState')).toBe('ok')
@@ -201,14 +176,25 @@ for (const lifetime of ['member', 'bootstrap', 'forget', 'browser', 'tab']) test
     .toEqual(['ok', 'OrdinaryStateHold', true, true])
   await page.evaluate('member.close()')
 })
-test('the first-credential lease refuses renewal without issuing or retaining a replacement', async ({ page }) => {
-  await page.clock.install(); await start(page, false); await page.evaluate('join()')
+for (const visitor of [true,false]) test('actual native timer renews the retained credential and live chat views, visitor=' + visitor, async ({ page }) => {
+  await page.clock.install(); await start(page, visitor); await page.evaluate('join()')
+  await page.evaluate('(async()=>{window.renewedChannel=await member.channel("renewed");window.oldPrepared=await member.prepare("old generation")})()')
   await page.clock.fastForward(901_000)
-  expect(await page.evaluate(`(async()=>{const current=await bootstrap.load();try{return[signCalls,current.credential.id===ownCredential.id]}
-    finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(current)}})()`)).toEqual([1, true])
-  await page.evaluate('member.send("old credential remains usable after refused renewal")')
-  expect(await page.evaluate('(async()=>[(await member.messages()).some(m=>m.text==="old credential remains usable after refused renewal"),sockets.some(socket=>socket.readyState===1)])()'))
-    .toEqual([true, true])
+  await expect.poll(()=>page.evaluate(async()=>{
+    try{const w=window as any,current=await w.bootstrap.load();const changed=current.sealKeys?.length===2&&current.credential.id!==w.ownCredential.id;
+      w.Ordinary.wipeOrdinaryPersistentBootstrapResult(current);return changed}catch{return false}
+  })).toBe(true)
+
+  expect(await page.evaluate(`(async()=>{const current=await bootstrap.load();try{return[signCalls,current.credential.id!==ownCredential.id,
+    current.sealKeys.length,Number(current.credential.tags[2][1])>credentialExpiresAt,member.device===Ordinary.getPublicKey(current.deviceKey)]}
+    finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(current)}})()`)).toEqual([visitor?0:2,true,2,true,true])
+  await page.evaluate('member.send("new credential main chat")')
+  await page.evaluate('renewedChannel.send("new credential channel")')
+  expect(await page.evaluate(`(async()=>{const before=randomness.length,count=frames.length;
+    const error=await oldPrepared.publish().then(()=>'',e=>e.message);
+    return[error.includes('changed its credential'),randomness.length===before,frames.length===count]})()`)).toEqual([true,true,true])
+  expect(await page.evaluate('(async()=>[(await member.messages()).some(m=>m.text==="new credential main chat"),(await renewedChannel.messages()).some(m=>m.text==="new credential channel"),frames.every(row=>row[1])])()'))
+    .toEqual([true,true,true])
   await page.evaluate('member.close()')
 })
 for (const change of ['catch-up', 'closed', 'removed', 'readable']) test(`actual signed ${change} rekey respects the bounded native session lifecycle`, async ({ page }) => {

@@ -84,6 +84,10 @@ interface PublicationReceipt {
   readonly sent: Set<{ socket: object; raw: WebSocket; pending: boolean }>
   scope?: ProtocolExecution
 }
+declare const successorBrand: unique symbol
+export interface OrdinaryCarrierSuccessor { readonly [successorBrand]: true }
+const successors = new WeakMap<object, { owner: OrdinaryRelayCarrier; root: ProtocolExecution; previous: string; next: string;
+  generation: number; token?: OrdinaryPairCustody }>()
 
 interface Options {
   /** Ownership only. The actual carrier keeps its native custody predicate. */
@@ -110,6 +114,45 @@ interface Options {
  * configuration and acknowledged full source image are held for its lifetime.
  * This is a carrier custody boundary, not current room/MLS membership. */
 export class OrdinaryRelayCarrier implements RelayTransport {
+  /** Native-factory preparation only. The route-facing transport exposes none
+   * of these controls. No authority is supplied by the projected image. */
+  static prepareSuccessor(owner: OrdinaryRelayCarrier, root: ProtocolExecution,
+    image: { browser: readonly (readonly [string,string])[]; tab: readonly (readonly [string,string])[]; browserRevision: number; tabRevision: number }): OrdinaryCarrierSuccessor {
+    owner.#options.work!.checkTransition(root)
+    if (owner.#closed || !owner.#paused || owner.#queuedFrames || owner.#publications.size || owner.#image === undefined) hold()
+    const plan = Object.freeze({}) as OrdinaryCarrierSuccessor
+    successors.set(plan, { owner, root, previous: owner.#image,
+      next: JSON.stringify([image.browser, image.tab, image.browserRevision, image.tabRevision]), generation: owner.#generation })
+    return plan
+  }
+  static checkSuccessor(owner: OrdinaryRelayCarrier, plan: OrdinaryCarrierSuccessor, browser: DeviceStore, tab: DeviceStore, token: OrdinaryPairCustody): void {
+    const data = successors.get(plan)
+    if (!data || data.owner !== owner || owner.#closed || !owner.#paused || owner.#image !== data.previous || owner.#generation !== data.generation ||
+        owner.#queuedFrames || owner.#publications.size) hold()
+    owner.#options.work!.checkTransition(data.root)
+    OrdinaryStateOwner.validatePairBinding(token, { browser: { owner: owner.#options.browser, scope: owner.#browserScope },
+      tab: { owner: owner.#options.tab, scope: owner.#tabScope }, live: owner.#live })
+    const b = records(browser), t = records(tab)
+    try {
+      const headers = ordinaryPairReadCustodyFor(token, b, t)
+      validateOrdinarySnapshot(b, t, { browser: true, tab: true }, captureOrdinarySnapshotContext(b, t, token))
+      if (JSON.stringify([[...b], [...t], headers.browser.revision, headers.tab.revision]) !== data.next) hold()
+      data.token = token
+    } finally { b.clear(); t.clear() }
+  }
+  /** Pure assignments after the complete successor check, in the same native
+   * callback. No selector or application callback runs during the guard swap. */
+  static applySuccessor(owner: OrdinaryRelayCarrier, plan: OrdinaryCarrierSuccessor, token: OrdinaryPairCustody): void {
+    const data = successors.get(plan)
+    if (!data || data.owner !== owner || data.token !== token || owner.#closed || !owner.#paused ||
+        owner.#image !== data.previous || owner.#generation !== data.generation) hold()
+    successors.delete(plan); owner.#image = data.next
+  }
+  /** Resource restart is separately owned by a new generation and takes a
+   * fresh native read after all successor views have been adopted. */
+  static async resumeSuccessor(owner: OrdinaryRelayCarrier, scope: ProtocolExecution): Promise<void> {
+    await owner.#read(() => {}, scope)
+  }
   readonly #options: Options
   readonly #browserScope: OrdinaryScope
   readonly #tabScope: OrdinaryScope

@@ -5,10 +5,13 @@ Renewal preserves the signed admission evidence and its end, relay and scope
 rules. It supplies no current MLS authority or independent rollback protection.
 The first-credential session checkpoint is not completion of this lifecycle.
 
-The current source implements strict lease parsing, native input preparation,
-whole-image composition and actor-scoped removal. It does not implement the
-renewal producer, pre-entropy reservation, signing/ACK coordination or Session
-handoff described below. The owned factory can load an acknowledged successor
+The current unpublished source implements strict lease parsing, native input
+preparation, whole-image composition, actor-scoped removal and the actual private
+renewal producer. Its exact native timer owns source/capacity/pruning checks,
+signing, paired acknowledgement reconciliation and synchronous Session handoff.
+Source acceptance requires exact-source independent review, full frozen automated
+gates and a current package audit. Those receipts cover an unpublished checkpoint;
+this path remains unmounted in production. The owned factory can load an acknowledged successor
 from its exact selected V2 proof and verified lease, including bounded retained
 seal keys. It preserves the bootstrap request and original renewal interval,
 uses the selected credential's expiry for Session construction and its native
@@ -27,13 +30,31 @@ not signing, commit, successor or membership authority. Browser fixtures exercis
 the unchanged-predecessor boundary with actual native read owners. No production
 timer currently selects this path.
 
-Session adoption remains unimplemented. The native producer must privately bind
-construction and synchronously verify the authenticated successor, replace its
-guards and apply all prepared Session views in one paired callback after the
-exact acknowledgement. A public structural lifecycle option or separate later
-Session adoption cannot satisfy that boundary. Shutdown must synchronously revoke
-first and externally join the exact root; callbacks inside it revoke and return
-instead of awaiting their own lifetime.
+The producer privately binds one exact, unshared constructor-options object via
+a consumed module-local cell. It exposes no public structural lifecycle option
+or raw Session adoption API. Opaque prepared plans bind the current credential,
+epoch, channel views and owned buffers. After the exact acknowledgement, a fresh
+paired read validates the full signed successor, sole quiescent root and every
+prepared view before replacing factory/protocol/carrier guards and all Session
+credential views synchronously. A further authenticated read precedes graph
+resume; a new generation owns carrier restart and roster restatement. Definite
+abort similarly restarts the carrier from a fresh unchanged-predecessor read.
+Both prewrite and abort-resume repeat genuine account foreground authority.
+The writer's operation-live predicate ends with the private Fore-current/deadline
+restriction after its own final postcheck; selector re-entry cannot revoke Fore
+and still reach the puts. Adoption repeats store-bound Fore authority after all
+selector-bearing checks and material allocation, directly before the first swap.
+Shutdown synchronously revokes first and externally joins the exact root;
+callbacks inside it revoke and return instead of awaiting their own lifetime.
+
+The package exports fence supports `kithmoot` and `kithmoot/package.json`.
+Package-name deep imports are deliberately excluded, including the registrar;
+documented root imports and installed binary/relative server paths remain
+supported. This changes prior unrestricted deep-import resolution. Local consumer
+inventory and extracted-tarball Node 22/24 root, declaration, binary and server
+checks cover known usage, not an exhaustive external/CDN user census. Relative
+or absolute filesystem imports and trusted package-internal code can still load
+private files: the fence governs supported API resolution, not secrecy.
 
 The native paired producer path now checks acknowledged predecessor records
 again immediately before the two puts, in the active writer transaction after
@@ -52,8 +73,9 @@ frames, the same owners and scopes, and current lifetimes before a synchronous
 callback. A refused or completed consumption permanently spends that receipt.
 Receipts are memory-only. The selected successor can now be reopened from
 authenticated native rows without a receipt or new credential entropy. Durable
-unknown-commit startup classification and actual Session adoption still remain
-producer responsibilities and are not mounted by this primitive.
+unknown-commit startup classification remains separate work. The actual producer
+uses this receipt for live adoption; neither primitive nor producer is mounted
+in production.
 
 ## Selected successor
 
@@ -219,14 +241,15 @@ fresh bindings clear it and use fresh wire subscription IDs. The route-facing
 pool type omits suspension controls; that type is not a
 runtime capability boundary.
 
-These pool, graph and timer changes do **not** activate native renewal. The
-candidate producer and atomic acknowledged Session adoption remain
-unimplemented. Browser suspension tests use actual native owners with a local
-graph controller; they supply no production successor or MLS authority.
-General catch-up timers are outside this
-bounded factory, which still sets `epochCatchUp:false`. The owned member
-factory refuses minting a replacement before entropy; refusal leaves the
-selected credential usable only until its fixed expiry.
+The owned source factory now selects this renewal lifecycle. Earlier isolated
+suspension fixtures remain primitive evidence; the new producer tests drive the
+actual timer, account/visitor signing, paired writes, live chat and cold reopen.
+Dedicated test bundles inject errors at adoption boundaries; production source
+contains no failure hook or callback between assignments. General catch-up
+timers remain outside this bounded factory, which sets `epochCatchUp:false`.
+No source test establishes production successor or MLS authority. Durable
+unknown/mixed startup classification, full startup/carrier/policy inventory,
+release, deployment and physical acceptance remain open.
 
 Exercise actual native owners and the real session for renewal, restart, both
 keep choices, concurrent tabs, exact-byte ABA, delayed predecessor completion,

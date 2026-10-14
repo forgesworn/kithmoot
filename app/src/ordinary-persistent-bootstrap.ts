@@ -8,12 +8,15 @@ import { deriveInvitationId, roomInvitation, type RoomInvitation } from '../../s
 import { parseRoomLink, type RoomLink } from '../../src/link.js'
 import { deriveRoom } from '../../src/room.js'
 import { generateSealKey } from '../../src/seal.js'
+import { credentialSeal } from '../../src/seal.js'
+import { ProtocolTimers } from '../../src/protocol-timers.js'
+import { registerNativeSessionBinding, type NativeSessionView, type NativeSessionPlan, type NativeSessionSnapshot } from '../../src/session-native-binding.js'
 import type { PersistentRoomAdmission } from '../../src/persistent-invitation.js'
 import { RelayConnections } from './relay-settings.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
 import { OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths,
   type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
-import { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
+import { captureOrdinarySnapshotContext, captureOrdinaryProjectedSnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
 import { validateOrdinaryEmbeddedDeviceCredential } from './ordinary-identity-snapshot.js'
 import { DEVICE_PREFIX, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX, KEPT_ADMISSION_PREFIX,
@@ -26,18 +29,20 @@ import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmission
   type PersistentDeviceCustody, type VerifiedPersistentProof } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected } from './persistent-creator-proof.js'
 import { MEMBER_LEASE_PREFIX, ordinaryMemberLeaseName, ordinaryMemberLeaseCredential, readOrdinaryMemberLease,
-  ordinaryMemberAuthorityUntil } from './ordinary-member-lease.js'
+  ordinaryMemberAuthorityUntil, ordinaryMemberLeaseSource, makeOrdinaryMemberLeaseHeader, type OrdinaryMemberLeaseHeader,
+  type OrdinaryMemberAuthority } from './ordinary-member-lease.js'
+import { makeOrdinaryMemberLease } from './ordinary-member-lease-preparation.js'
 import { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
 import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions } from './ordinary-invitation-query.js'
 import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
 import { signOrdinaryVisitorCredential } from './ordinary-participant-signing.js'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
-import { RoomSession, RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
+import { RoomSession, RESUME_MIN_REMAINING_SECONDS, type RoomSessionOptions } from '../../src/session.js'
 import { MAX_POOL_RELAYS, normaliseRelayConfig } from '../../src/relay-pool.js'
 import type { SendOptions, ChatMessage } from '../../src/chat.js'
 import { captureProtocolData } from '../../src/protocol-execution.js'
-import { OrdinaryRelayCarrier } from './ordinary-relay-carrier.js'
+import { OrdinaryRelayCarrier, type OrdinaryCarrierSuccessor } from './ordinary-relay-carrier.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const DEVICE_OWNER = 'kithmoot.device-owner.'
@@ -89,6 +94,19 @@ interface Sources extends OpenedImage {
   readonly browserRevision: number
   readonly tabRevision: number
 }
+interface RenewalSource extends OpenedImage {
+  readonly proof: VerifiedPersistentProof['proof']
+  readonly proofRaw: string
+  readonly b: Map<string, string>
+  readonly t: Map<string, string>
+  readonly seals: readonly string[]
+  readonly issuedAt: number
+  readonly expiresAt: number
+  readonly authority: OrdinaryMemberAuthority
+  readonly previous: OrdinaryMemberLeaseHeader
+  readonly source: ReturnType<typeof ordinaryMemberLeaseSource>
+  readonly epochId: string
+}
 /** Owned copies, released only after acknowledged custody and a fresh native
  * read. The consumer wipes all three buffers when its session ends. These
  * credentials prove custody/participant signing, not current MLS membership. */
@@ -105,6 +123,9 @@ interface OrdinaryMemberProtocolExecution extends ProtocolExecution {
   readonly work: OrdinaryProtocolWork
   /** Extra consumer on a genuine carrier's exact current read. */
   validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void
+  enterLifecycle<T>(root: ProtocolExecution, browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody,
+    effect: () => T, successor?: OpenedImage): T
+  adoptImage(image: OpenedImage): void
   close(): void
   joinLifetime(): Promise<void>
 }
@@ -416,6 +437,75 @@ export class OrdinaryPersistentBootstrap {
     this.#credential(raw, proof.binding.roomId, proof.binding.device.pubkey, event.tags[3]?.[1] ?? '', undefined, expiresAt)
     return { credential: event, sealStrings, expiresAt, ttlSeconds: this.#options.credentialExpiresAt - issuedAt, successor: leaseRaw !== null }
   }
+  #renewalSource(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, snapshot: NativeSessionSnapshot): RenewalSource {
+    this.#preflight(browser, tab, custody)
+    const checked = inspectPersistentAdmissionProofs(browser, tab), b = map(browser), t = map(tab)
+    try {
+      const verified = checked.selected.get(accountPrefix(this.#participant) + PERSISTENT_TAB_PROOF_V2_PREFIX + this.#id)
+      if (!verified) hold()
+      this.#bound(verified, browser, tab, custody); this.#lifetime(verified.admission)
+      const retained = this.#selectedCredential(browser, tab, custody, verified), proof = verified.proof
+      if (proof.binding.operation !== this.#ownedOperation || proof.binding.device.credentialIds.length !== 1 ||
+          retained.credential.id !== snapshot.credential.id || JSON.stringify(retained.credential) !== JSON.stringify(snapshot.credential) ||
+          snapshot.epoch !== proof.binding.device.epoch || snapshot.epochId !== proof.binding.device.epochs.find(v => v.epoch === snapshot.epoch)?.id) hold()
+      const foregroundExpiresAt = this.#options.account === null ? null : OrdinaryForegroundSigner.nativeDeadline(
+        this.#options.identity as OrdinaryForegroundSigner, browser, tab, custody, this.#participant)
+      const authority: OrdinaryMemberAuthority = { tabExpiresAt: this.#options.tab.expiresAt, admissionEndsAt: verified.admission.endsAt ?? null,
+        foregroundExpiresAt, membershipEndsAt: null }
+      const source = ordinaryMemberLeaseSource(browser, tab, custody), priorRaw = tab.get(ordinaryMemberLeaseName(proof.binding))
+      const previous = priorRaw === null ? makeOrdinaryMemberLeaseHeader({ sequence: 0, bootstrap: proof.binding.operation, predecessor: null,
+        proof: proof.binding.operation, credential: retained.credential.id, seal: credentialSeal(retained.credential)!, issuedAt: retained.credential.created_at,
+        expiresAt: retained.expiresAt, authority, source }) : readOrdinaryMemberLease(priorRaw, JSON.stringify(proof)).header
+      const issuedAt = Math.floor(Date.now() / 1000), expiresAt = Math.min(issuedAt + retained.ttlSeconds, ordinaryMemberAuthorityUntil(authority))
+      if (JSON.stringify(previous.authority) !== JSON.stringify(authority) || !Number.isSafeInteger(previous.sequence + 1) ||
+          issuedAt <= retained.credential.created_at || expiresAt <= retained.expiresAt ||
+          expiresAt - issuedAt < RESUME_MIN_REMAINING_SECONDS) hold()
+      const seals = retained.sealStrings.length < 128 ? [...retained.sealStrings] : retained.sealStrings.slice(-127)
+      const pubkeys = seals.map(encoded => { const key = hexToBytes(encoded); try { return getPublicKey(key) } finally { key.fill(0) } })
+      if (JSON.stringify(snapshot.seals) !== JSON.stringify(retained.sealStrings.map(encoded => {
+        const key = hexToBytes(encoded); try { return getPublicKey(key) } finally { key.fill(0) }
+      })) || !pubkeys.includes(credentialSeal(retained.credential)!)) hold()
+      // Prove pruning against every retained proof before allocating a seal.
+      const probeB = new Map(b), probeT = new Map(t), owner = this.#options.keep ? probeB : probeT
+      owner.set(accountPrefix(this.#participant) + OWN_SEAL_PREFIX + proof.binding.roomId, JSON.stringify(seals))
+      try { validateOrdinarySnapshot(probeB, probeT, { browser: true, tab: true }, captureOrdinaryProjectedSnapshotContext(b, t, custody, probeB, probeT)) }
+      finally { probeB.clear(); probeT.clear() }
+      const result: RenewalSource = { ...this.#image(browser, tab, custody, true), proof, proofRaw: JSON.stringify(proof), b, t, seals,
+        issuedAt, expiresAt, authority, previous, source, epochId: snapshot.epochId }
+      this.#reserveRenewal(custody, result)
+      return result
+    } catch (error) { b.clear(); t.clear(); throw error } finally { checked.close() }
+  }
+  #renewalProjection(source: RenewalSource, credential: DeviceCredential, sealString: string):
+    { b: Map<string, string>; t: Map<string, string>; owner: Map<string, string> } {
+    const b = new Map(source.b), t = new Map(source.t), owner = this.#options.keep ? b : t, prefix = accountPrefix(this.#participant)
+    owner.set(prefix + OWN_CREDENTIAL_PREFIX + source.proof.binding.roomId, JSON.stringify(credential))
+    owner.set(prefix + OWN_SEAL_PREFIX + source.proof.binding.roomId, JSON.stringify([...source.seals, sealString]))
+    return { b, t, owner }
+  }
+  #reserveRenewal(custody: OrdinaryPairCustody, source: RenewalSource): void {
+    // Fixed-width hex values reserve the exact event/proof dimensions. These
+    // deliberately unsigned placeholders never pass signing or persistence.
+    const zero = '0'.repeat(64), credential = { kind: 20460, created_at: source.issuedAt, tags: [['d',source.proof.binding.roomId],
+      ['device',source.proof.binding.device.pubkey],['expiration',String(source.expiresAt)],['seal',zero]], content: '', pubkey: this.#participant, id: zero, sig: zero + zero }
+    const { b, t } = this.#renewalProjection(source, credential, zero)
+    try {
+      const proof = { ...source.proof, binding: { ...source.proof.binding, device: { ...source.proof.binding.device,
+        credentialIds: [zero], seals: [zero], credentials: [JSON.stringify(credential)], recordsHash: zero }, operation: zero } }
+      const priorRaw = source.t.get(ordinaryMemberLeaseName(source.proof.binding))
+      const lease = JSON.stringify({ version: 1, domain: 'kithmoot/member-lease/v1', header: { sequence: source.previous.sequence + 1,
+        bootstrap: source.previous.bootstrap, predecessor: source.previous.operation, proof: zero, credential: zero, seal: zero,
+        issuedAt: source.issuedAt, expiresAt: source.expiresAt, authority: source.authority, source: source.source, operation: zero },
+        bootstrapProof: priorRaw ? JSON.parse(priorRaw).bootstrapProof : source.proofRaw,
+        predecessorProof: source.proofRaw, predecessorHeader: source.previous })
+      const raw = JSON.stringify(proof)
+      ordinaryUtf8Length(raw, MAX_PERSISTENT_PROOF_BYTES)
+      if (this.#options.keep) b.set(persistentProofName(proof.binding), raw)
+      t.set(persistentTabProofName(proof.binding), tabProofBytes(proof))
+      const name = ordinaryMemberLeaseName(proof.binding); t.set(name, lease); if (this.#options.keep) b.set(name, lease)
+      ordinaryPairProjectedByteLengths(custody, source.b, source.t, { browser: b, tab: t }, true)
+    } finally { b.clear(); t.clear() }
+  }
   async #load(operation = this.#ownedOperation): Promise<OrdinaryPersistentBootstrapResult | undefined> {
     let result: OrdinaryPersistentBootstrapResult | undefined
     try {
@@ -462,11 +552,15 @@ export class OrdinaryPersistentBootstrap {
     if (typeof revoke !== 'function' || Object.getPrototypeOf(revoke) === Object.getPrototypeOf(async () => {})) hold()
     const owner = this, work = new Set<Promise<unknown>>()
     let closed = false, expected: OpenedImage | undefined, leaseTimer: ReturnType<typeof setTimeout> | undefined
+    let transition: OpenedImage | undefined
     let active: { b: DeviceStore; t: DeviceStore; c: OrdinaryPairCustody } | undefined, release: (() => void) | undefined
     const live = () => {
       if (closed || !owner.#live()) return false
       const selected = sessionLive()
-      return selected === true && !closed && owner.#live() && Math.floor(Date.now() / 1000) < owner.#credentialExpiresAt
+      if (selected !== true || closed || !owner.#live() || Math.floor(Date.now() / 1000) >= owner.#credentialExpiresAt) return false
+      const foreground = owner.#options.account === null || OrdinaryForegroundSigner.nativeCurrent(
+        owner.#options.identity as OrdinaryForegroundSigner, owner.#participant)
+      return foreground && !closed && !owner.#closed && !owner.#forgetting
     }
     const retain = <T>(pending: Promise<T>): Promise<T> => {
       if (!(pending instanceof Promise)) hold()
@@ -495,7 +589,7 @@ export class OrdinaryPersistentBootstrap {
         // Every intermediate check still proves the live opaque token,
         // exact bytes/revisions, scopes and current selector/lifetimes.
         OrdinaryStateOwner.validatePairBinding(active.c, binding)
-        if (JSON.stringify(owner.#image(active.b, active.t, active.c, true)) !== JSON.stringify(expected)) hold()
+        if (JSON.stringify(owner.#image(active.b, active.t, active.c, true)) !== JSON.stringify(transition ?? expected)) hold()
         OrdinaryStateOwner.validatePairBinding(active.c, binding)
       },
       retain,
@@ -522,15 +616,29 @@ export class OrdinaryPersistentBootstrap {
       },
     }
     const graph = new OrdinaryProtocolWork(native, () => protocol.close(), operation => {
-      // A read-only first credential may keep running, but never mint its
-      // replacement before the atomic producer/capacity/handoff exists.
-      if (operation === 'credential-preparation') throw new Error('Native credential renewal is not yet enabled.')
+      // Direct Session preparation cannot bypass the private native producer's
+      // reservation, signing, acknowledgement and synchronous adoption path.
+      if (operation === 'credential-preparation') throw new Error('Native credential preparation belongs to the owned renewal controller.')
     })
     const protocol: OrdinaryMemberProtocolExecution = {
       ...graph.execution, work: graph, validate,
+      enterLifecycle: (root, b, t, c, effect, successor) => {
+        if (successor) {
+          OrdinaryStateOwner.validatePairBinding(c, binding)
+          owner.#preflight(b, t, c)
+          if (JSON.stringify(owner.#image(b, t, c, true)) !== JSON.stringify(successor)) hold()
+          active = { b, t, c }; transition = successor
+        } else validate(b, t, c)
+        try { return graph.enter(root, 'credential-lifecycle-transition', effect) }
+        finally { transition = undefined; active = undefined }
+      },
+      adoptImage: image => {
+        if (!transition || !active || JSON.stringify(image) !== JSON.stringify(transition)) hold()
+        expected = image
+      },
       close: () => {
         if (closed) return
-        closed = true; active = undefined; expected = undefined; clearTimeout(leaseTimer); release?.(); release = undefined
+        closed = true; active = undefined; expected = undefined; transition = undefined; clearTimeout(leaseTimer); release?.(); release = undefined
         try { graph.close() } catch { /* all native resources still revoke */ }
         try { revoke() } catch { /* retained work still belongs to both owners */ }
       },
@@ -565,8 +673,10 @@ export class OrdinaryPersistentBootstrap {
     this.#sessionStarting = true
     let carrier: OrdinaryRelayCarrier | undefined, session: RoomSession | undefined, material: OrdinaryPersistentBootstrapResult | undefined
     let protocol: OrdinaryMemberProtocolExecution | undefined, closed = false, closing: Promise<void> | undefined
+    let renewalTimers: ProtocolTimers | undefined, nativeView: NativeSessionView | undefined
     const stop = () => {
       closed = true
+      renewalTimers?.close(); nativeView?.revoke()
       try { carrier?.close() } catch { /* other owned components still stop */ }
       try {
         if (session && protocol) {
@@ -667,14 +777,223 @@ export class OrdinaryPersistentBootstrap {
           // The initial session cannot mint a replacement without that ACK.
           signEvent: () => Promise.reject(new OrdinaryStateHold()),
         }
-        session = await protocol.run('session-construction', () => new RoomSession({ transport: carrier!, protocol: protocol!,
+        const schedule = (delay: number) => {
+          if (closed || !protocol || !renewalTimers) return
+          renewalTimers.scheduleRoot('member-renewal', delay, begin => protocol!.work.startRoot(async root => {
+            if (!begin(root)) return
+            await renew(root)
+          }))
+        }
+        const resumeGeneration = (restate: boolean) => {
+          // Resource wake-up belongs to the fresh generation, after the
+          // transition's authenticated read. It must also happen on abort:
+          // a paused carrier cannot publish merely because its graph resumed.
+          queueMicrotask(() => {
+            if (closed) return
+            void protocol!.task!('credential-generation-resume', async scope => {
+              await OrdinaryRelayCarrier.resumeSuccessor(carrier!, scope)
+              if (restate) {
+                const started = await scope.run('credential-restatement-start', () => {
+                  const pending = nativeView!.restate(scope)
+                  scope.retain(pending)
+                  return { pending }
+                })
+                await started.pending
+              } else schedule(5000)
+            }).catch(() => { protocol!.close() })
+          })
+        }
+        const renew = async (root: ProtocolExecution): Promise<void> => {
+          let source: RenewalSource | undefined, seal: ReturnType<typeof generateSealKey> | undefined, signed: Promise<DeviceCredential> | undefined
+          let plan: NativeSessionPlan | undefined, carrierPlan: OrdinaryCarrierSuccessor | undefined
+          let candidateB: Map<string,string> | undefined, candidateT: Map<string,string> | undefined, nextSeals: Uint8Array[] = []
+          let commitStarted = false, committed = false, adopted = false, application = false
+          let operation: string | undefined, successor: OpenedImage | undefined
+          const oldImage = await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => this.#image(b,t,c,true)))
+          const sameSource = (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
+            if (JSON.stringify(this.#image(b,t,c,true)) !== JSON.stringify(oldImage)) hold()
+          }
+          const checkPredecessor = (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
+            sameSource(b, t, c)
+            protocol!.work.checkTransition(root)
+            if (this.#options.account !== null) {
+              const deadline = OrdinaryForegroundSigner.nativeDeadline(
+                this.#options.identity as OrdinaryForegroundSigner, b, t, c, this.#participant)
+              if (source && deadline !== source.authority.foregroundExpiresAt) hold()
+            }
+          }
+          const memberLive = () => {
+            if (closed || !this.#live() || live() !== true || closed || !this.#live()) return false
+            // The paired writer calls this again AFTER beforeWrite and all
+            // of its selector-bearing postchecks, immediately before puts.
+            const foreground = this.#options.account === null || OrdinaryForegroundSigner.nativeCurrent(
+              this.#options.identity as OrdinaryForegroundSigner, this.#participant, source?.authority.foregroundExpiresAt)
+            return foreground && !closed && !this.#closed && !this.#forgetting
+          }
+          const checkPhase = () => { if (closed || !source || !operation) hold(); protocol!.work.checkTransition(root) }
+          try {
+            await protocol!.work.suspend(root)
+            source = await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => {
+              protocol!.work.checkTransition(root)
+              return this.#renewalSource(b,t,c,nativeView!.snapshot())
+            }))
+            const selected = source
+            // All source, capacity and pruning checks have completed. Start
+            // the actual signer in a fresh acknowledged predecessor read.
+            const signing = await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => {
+              sameSource(b,t,c); protocol!.work.checkTransition(root)
+              const current = this.#renewalSource(b,t,c,nativeView!.snapshot())
+              try { if (current.issuedAt < selected.issuedAt || current.expiresAt < selected.expiresAt) hold() }
+              finally { current.b.clear(); current.t.clear() }
+              seal = generateSealKey()
+              const identity: ParticipantIdentity = { pubkey: this.#participant, signEvent: this.#options.account === null
+                ? event => Promise.resolve(signOrdinaryVisitorCredential(b,t,c,{account:null,participant:this.#participant,
+                    roomId:selected.proof.binding.roomId,devicePubkey:selected.proof.binding.device.pubkey,seal:seal!.pubkey,
+                    expiresAt:selected.expiresAt,createdAt:selected.issuedAt},event))
+                : OrdinaryForegroundSigner.borrowNativeSignEvent(this.#options.identity as OrdinaryForegroundSigner, {
+                    live: () => !closed && this.#live(), validate: (rb,rt,rc) => {
+                      sameSource(rb,rt,rc)
+                      protocol!.enterLifecycle(root,rb,rt,rc,() => { if (nativeView!.snapshot().credential.id !== selected.previous.credential) hold() })
+                    },
+                  }) }
+              signed = createDeviceCredential({ identity, roomId:selected.proof.binding.roomId,devicePubkey:selected.proof.binding.device.pubkey,
+                seal:seal.pubkey,expiresAt:selected.expiresAt,now:()=>selected.issuedAt })
+              root.retain(signed); void signed.catch(() => {}); return { pending:signed }
+            }))
+            const credential = await signing.pending
+            await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => {
+              sameSource(b,t,c); protocol!.work.checkTransition(root)
+              const checked = this.#renewalSource(b,t,c,nativeView!.snapshot())
+              try {
+                // Never restamp the already signed template after a delay.
+                if (checked.expiresAt < selected.expiresAt || credential.created_at !== selected.issuedAt ||
+                    selected.expiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
+                this.#credential(JSON.stringify(credential),selected.proof.binding.roomId,selected.proof.binding.device.pubkey,
+                  seal!.pubkey,selected.issuedAt,selected.expiresAt)
+                const projected = this.#renewalProjection(selected,credential,bytesToHex(seal!.secretKey))
+                candidateB = projected.b; candidateT = projected.t
+                const verified = makePersistentAdmissionProof({invitation:this.#options.invitation,evidence:selected.proof.evidence,
+                  account:this.#options.account,participant:this.#participant,browser:selected.proof.binding.browser,tab:selected.proof.binding.tab,
+                  deviceCustody:selected.proof.binding.deviceCustody,
+                  device:persistentAdmissionDeviceInPair(view(candidateB),view(candidateT),selected.proof.binding.roomId,this.#participant,
+                    this.#options.account,this.#options.keep?'browser':'tab'),keep:this.#options.keep,now:selected.proof.kept.at,
+                  expectedRoomSecret:material!.admission.secret})
+                try {
+                  operation = verified.proof.binding.operation
+                  const raw = JSON.stringify(verified.proof), lease = makeOrdinaryMemberLease(b,t,c,{predecessorProof:selected.proofRaw,currentProof:raw,
+                    ...(this.#options.account===null?{}:{identity:this.#options.identity as OrdinaryForegroundSigner})})
+                  if(this.#options.keep)candidateB.set(persistentProofName(verified.proof.binding),raw)
+                  candidateT.set(persistentTabProofName(verified.proof.binding),tabProofBytes(verified.proof))
+                  const name=ordinaryMemberLeaseName(verified.proof.binding);candidateT.set(name,lease);if(this.#options.keep)candidateB.set(name,lease)
+                  validateOrdinarySnapshot(candidateB,candidateT,{browser:true,tab:true},captureOrdinaryProjectedSnapshotContext(selected.b,selected.t,c,candidateB,candidateT))
+                  ordinaryPairProjectedByteLengths(c,selected.b,selected.t,{browser:candidateB,tab:candidateT},true)
+                  const sorted=(records:Map<string,string>)=>[...records].sort(([a],[b])=>a<b?-1:a>b?1:0)
+                  successor={browser:sorted(candidateB),tab:sorted(candidateT),browserRevision:selected.browserRevision+1,tabRevision:selected.tabRevision+1}
+                  nextSeals=[...selected.seals,bytesToHex(seal!.secretKey)].map(hexToBytes)
+                  plan=nativeView!.prepare({credential,sealKeys:nextSeals,predecessor:selected.previous.credential,operation,root,
+                    checkPreparation:checkPhase,checkApplication:()=>{if(!application||closed||!committed)hold()}})
+                  carrierPlan=OrdinaryRelayCarrier.prepareSuccessor(carrier!,root,successor)
+                } finally { verified.admission.secret.fill(0) }
+              } finally { checked.b.clear();checked.t.clear() }
+            }))
+            commitStarted=true
+            const answer=await OrdinaryStateOwner.commitPairMigrated({...this.#input((b,t,c)=>{
+              // Writable projections cannot supply the read custody needed by
+              // signing or the lifecycle barrier. Only compare then compose.
+              const bm=map(b),tm=map(t),headers=ordinaryPairCustodyFor(c,bm,tm)
+              try{if(JSON.stringify([...bm].sort())!==JSON.stringify([...selected.b].sort())||JSON.stringify([...tm].sort())!==JSON.stringify([...selected.t].sort())||
+                headers.browser.revision!==selected.browserRevision||headers.tab.revision!==selected.tabRevision)hold()
+                for(const[n,v]of candidateB!)if(b.get(n)!==v)b.set(n,v)
+                for(const[n,v]of candidateT!)if(t.get(n)!==v)t.set(n,v)
+                validateOrdinarySnapshot(candidateB!,candidateT!,{browser:true,tab:true},captureOrdinarySnapshotContext(candidateB!,candidateT!,c))
+              }finally{bm.clear();tm.clear()}
+            }, memberLive),beforeWrite:(b,t,_bn,_tn,c)=>{
+              const readonly=(store:Pick<DeviceStore,'get'|'keys'>):DeviceStore=>({get:store.get,keys:store.keys,set:hold,remove:hold})
+              const rb=readonly(b),rt=readonly(t)
+              protocol!.enterLifecycle(root,rb,rt,c,()=>{
+                checkPredecessor(rb,rt,c)
+                if (selected.expiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
+                nativeView!.check(plan!)
+              })
+            }})
+            if(answer.status==='definite-abort'){
+              await this.#read((b,t,c)=>protocol!.enterLifecycle(root,b,t,c,()=>{checkPredecessor(b,t,c)}))
+              nativeView!.discard(plan!);plan=undefined
+              if (!memberLive()) hold()
+              protocol!.work.resume(root);resumeGeneration(false);return
+            }
+            committed=true
+            await OrdinaryStateOwner.consumePairCommit({...this.#input((b,t,c)=>{
+              if(JSON.stringify(this.#image(b,t,c,true))!==JSON.stringify(successor))hold()
+              this.#preflight(b,t,c)
+              const checked=inspectPersistentAdmissionProofs(b,t)
+              try{const verified=checked.selected.get(accountPrefix(this.#participant)+PERSISTENT_TAB_PROOF_V2_PREFIX+this.#id)!
+                this.#bound(verified,b,t,c)
+                const current=this.#selectedCredential(b,t,c,verified)
+                if(verified.proof.binding.operation!==operation||current.credential.id!==credential.id||current.expiresAt!==selected.expiresAt)hold()
+              }finally{checked.close()}
+              protocol!.enterLifecycle(root,b,t,c,()=>{
+                protocol!.work.checkTransition(root);nativeView!.check(plan!);OrdinaryRelayCarrier.checkSuccessor(carrier!,carrierPlan!,b,t,c)
+                // Preallocate the complete root material before the first
+                // assignment, retaining its shared admission/device buffers.
+                const nextMaterial:OrdinaryPersistentBootstrapResult={admission:material!.admission,deviceKey:material!.deviceKey,
+                  credential:structuredClone(credential),sealKey:seal!.secretKey.slice(),sealKeys:nextSeals.map(k=>k.slice())}
+                const oldMaterial=material!
+                try{
+                  // All selector-bearing graph, Session and carrier checks
+                  // precede this final store-bound authority check. Nothing
+                  // callable intervenes before the first successor assignment.
+                  if (this.#options.account !== null && OrdinaryForegroundSigner.nativeDeadline(
+                    this.#options.identity as OrdinaryForegroundSigner,b,t,c,this.#participant) !== selected.authority.foregroundExpiresAt) hold()
+                  application=true
+                  this.#ownedOperation=operation;this.#openedImage=successor;this.#credentialExpiresAt=selected.expiresAt
+                  this.#effectUntil=Math.min(selected.expiresAt,ordinaryMemberAuthorityUntil(selected.authority))
+                  protocol!.adoptImage(successor!);OrdinaryRelayCarrier.applySuccessor(carrier!,carrierPlan!,c)
+                  nativeView!.apply(plan!);material=nextMaterial;adopted=true
+                  oldMaterial.sealKey.fill(0);for(const key of oldMaterial.sealKeys??[])key.fill(0)
+                }catch(error){nextMaterial.sealKey.fill(0);for(const key of nextMaterial.sealKeys??[])key.fill(0);throw error}
+                finally{application=false}
+                protocol!.work.checkTransition(root)
+              },successor)
+            }, memberLive),receipt:answer.receipt})
+            await this.#read((b,t,c)=>protocol!.enterLifecycle(root,b,t,c,()=>{
+              protocol!.work.checkTransition(root)
+              if(nativeView!.snapshot().credential.id!==credential.id)hold()
+            }))
+            if (!memberLive()) hold()
+            protocol!.work.resume(root)
+            // A new generation owns restatement; it cannot sit below the
+            // transitioned root or run before the fresh adopted-state check.
+            resumeGeneration(true)
+          }catch(error){
+            if(!commitStarted&&!closed){
+              try{await this.#read((b,t,c)=>protocol!.enterLifecycle(root,b,t,c,()=>{checkPredecessor(b,t,c)}))
+                if (!memberLive()) hold()
+                protocol!.work.resume(root);resumeGeneration(false);return}catch{/* terminal refusal below */}
+            }
+            // After attempted commit no generic rejection proves absence.
+            // Revoke synchronously; external close joins this actual root.
+            protocol!.close()
+          }finally{
+            if(signed)await Promise.allSettled([signed])
+            if(plan&&!adopted)nativeView?.discard(plan)
+            seal?.secretKey.fill(0);for(const key of nextSeals)key.fill(0)
+            source?.b.clear();source?.t.clear();candidateB?.clear();candidateT?.clear()
+          }
+        }
+        renewalTimers=new ProtocolTimers(protocol)
+        session = await protocol.run('session-construction', () => {
+          const options:RoomSessionOptions={ transport: carrier!, protocol: protocol!,
           secret: material!.admission.secret, deviceSk: material!.deviceKey, identity, resume: material!.credential, sealKeys: material!.sealKeys ?? [material!.sealKey],
           retainCredential: () => Promise.reject(new OrdinaryStateHold()), authority: this.#options.invitation.inviter,
           memberEpochDesk: false, epochCatchUp: false,
           onClosed: () => protocol!.close(), onRemoved: () => protocol!.close(), onEpochConflict: () => protocol!.close(),
           requireFreshEpoch: true, expectedEpoch: 0, endsAt: material!.admission.endsAt, policy, name, epochRequestTimeoutMs: timeout,
           timing: { credentialTtlSeconds: this.#credentialTtlSeconds },
-        }))
+          }
+          const cancel=registerNativeSessionBinding(options,{attach:view=>{nativeView=view},schedule,revoke:()=>{renewalTimers?.close();nativeView?.revoke()}})
+          try{return new RoomSession(options)}finally{cancel()}
+        })
         const perform = <T>(operation: string, effect: () => Promise<T>): Promise<T> => protocol!.task!(operation, async execution => {
           const started = await execution.run(operation, () => {
             if (closed) hold()

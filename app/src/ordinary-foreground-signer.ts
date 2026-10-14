@@ -129,6 +129,15 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   static isNativeSigner(input:unknown):input is OrdinaryForegroundSigner {
     return typeof input==='object'&&input!==null&&#options in input
   }
+  /** Additional synchronous liveness restriction at a native owner's final
+   * postcheck. It supplies no read custody or signing authority by itself.
+   * Private latches are repeated after every selector in #live has returned. */
+  static nativeCurrent(signer: OrdinaryForegroundSigner, participant: string, deadline?: number | null): boolean {
+    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#participant !== participant ||
+        deadline !== undefined && signer.#sessionExpiresAt !== deadline) return false
+    return signer.#live() && !signer.#closed && !signer.#held &&
+      (deadline === undefined || signer.#sessionExpiresAt === deadline)
+  }
   /** Read the exact immutable SDK deadline during another native component's
    * acknowledged pair read. A public session property alone is not provenance. */
   static nativeDeadline(signer: OrdinaryForegroundSigner, browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string): number | null {

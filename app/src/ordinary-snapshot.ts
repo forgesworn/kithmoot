@@ -1,5 +1,6 @@
 // Full-image capture, dispatch and private key binding share the access closure.
 export {
+  captureOrdinaryProjectedSnapshotContext,
   captureOrdinarySnapshotContext,
   releaseOrdinarySnapshotContext,
   validateOrdinarySnapshot,

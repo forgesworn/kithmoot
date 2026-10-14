@@ -1,4 +1,4 @@
-# Native first-credential member session source
+# Native member session source
 
 `OrdinaryPersistentBootstrap.openMemberSession` constructs the genuine library
 `RoomSession` from this bootstrap's acknowledged incoming-member proof. The
@@ -45,9 +45,16 @@ The retained credential, device and own seal are independently checked by the
 guarded loader. It must have at least the library's exported ten-minute resume
 minimum before opening the carrier. The threshold is repeated inside actual
 carrier reads until initial join completes, including delayed pool/socket
-construction. This first-credential lease refuses renewal before generating a
-new seal or credential. Its expiry closes idle resources. Atomic replacement
-capacity, paired credential/seal retention and renewal are still required work.
+construction. The private native timer now renews through the dedicated producer
+described in [ordinary-member-renewal.md](ordinary-member-renewal.md). It reserves
+both complete images and bounded seal retention before entropy, signs one exact
+template, reconciles both native frames, and adopts the acknowledged successor
+in one synchronous paired callback. A successor must retain the same ten-minute
+reopening minimum before signing and immediately before writing. The immutable
+admission, foreground and tab authority ceilings never advance. Idle resources
+close at the selected expiry if renewal cannot succeed. This implementation
+remains unpublished and unmounted. Exact-source acceptance is recorded separately
+in checkpoint review and automated-test receipts.
 
 ## Routing and authentication
 
@@ -82,7 +89,7 @@ owned buffers and releasing the child slot. An unabortable provider can delay
 close but cannot authorise a late frame. Close must never be awaited from a
 provider promise that close itself is joining.
 
-A prepared send from a previous epoch is a recoverable application refusal.
+A prepared send from a previous epoch or credential is a recoverable application refusal.
 The executor repeats custody before releasing that refusal and preserves the
 current session. Every validation, native read or owner failure still revokes it;
 the caller must prepare a new message under the new key rather than replay old
@@ -95,7 +102,7 @@ wallet behaviour, deployed relay/Tor isolation, physical device acceptance or
 production entry behaviour.
 
 Production root/startup and every carrier, creator-member sessions, restrictive
-and quiet policies, renewal/capacity/retention, media/assignments/member epoch
+and quiet policies, durable unknown-commit startup classification, media/assignments/member epoch
 desks and the complete protocol inventory remain open. So do board invitation
 verification and explicit legacy recovery, current MLS admission authority,
 independently permanent allocation continuity, required SDK consumers/registry

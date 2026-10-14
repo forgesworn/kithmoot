@@ -1,5 +1,6 @@
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import type { ProtocolExecution } from './protocol-execution.js'
+import { registerNativeChatView } from './session-native-binding.js'
 import { captureProtocolData, protocolTask } from './protocol-execution.js'
 import { nip44 } from 'nostr-tools'
 import { randomBytes } from '@noble/hashes/utils'
@@ -839,6 +840,12 @@ export class ChatLog {
     this.#enterEpoch()
     for (const past of [...opts.pastEpochs ?? []].sort((a, b) => a.leftAt - b.leftAt)) this.#keepPast(past)
     this.#unsub = this.#listen()
+    registerNativeChatView(this, {
+      check: id => {
+        if (this.#closed || !this.#credential || this.#credential.id !== id) throw new Error('native conversation changed')
+      },
+      apply: credential => { this.#credential = credential },
+    })
   }
 
   /** The `d` tag this log reads and writes under now: public on the wire,
