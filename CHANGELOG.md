@@ -1,5 +1,12 @@
 # Changelog
 
+## Desktop 0.1.82 — 14 October 2026
+
+- Show relay activity and let you move relays up or down, keeping the chosen order after reopening.
+- Explain when Signet approved an identity without connecting a signer, and show explicit sign-in errors.
+- Preserve the fix clearing an old reconnect error after successful sign-in.
+- The reported persistent Signet waiting issue and Android black video flashes remain unresolved.
+
 ## Unreleased
 
 - **Fresh sign-in clears a failed reconnect warning.** Approving a new My Signet QR for the same account now replaces the old "Your signer did not answer" message with "Signed in."
