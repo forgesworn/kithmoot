@@ -223,15 +223,15 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     }
   }
 
-  const notices = ['roomFuse', 'recordingBanner', 'recordingReady', 'meetingNotice']
+  const roomHeaders = ['roomBoards', 'roomFuse', 'recordingBanner', 'recordingReady', 'meetingNotice']
     .map(id => document.getElementById(id)).filter((el): el is HTMLElement => !!el)
 
-  /** Keep the media stage below the room's visible notices too. A finished
-   * recording must not put Save/Add/Discard underneath the gallery header. */
+  /** Keep the media stage below visible board shortcuts and room notices.
+   * These can appear or resize after a call has already started. */
   function measure(): void {
     if (!bar) return
     const bottom = Math.max(bar.getBoundingClientRect().bottom,
-      ...notices.filter(el => el.getClientRects().length > 0).map(el => el.getBoundingClientRect().bottom))
+      ...roomHeaders.filter(el => el.getClientRects().length > 0).map(el => el.getBoundingClientRect().bottom))
     const top = Math.max(0, Math.round(bottom - workspace.getBoundingClientRect().top))
     const value = `${top}px`
     if (workspace.style.getPropertyValue('--call-first-top') !== value) workspace.style.setProperty('--call-first-top', value)
@@ -505,7 +505,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   window.addEventListener('resize', evaluate)
   if (bar) {
     const observer = new ResizeObserver(() => { if (active) measure() })
-    for (const element of [bar, ...notices]) observer.observe(element)
+    for (const element of [bar, ...roomHeaders]) observer.observe(element)
   }
   chat.setAttribute('aria-expanded', String(chatOpen))
   renderBadge()

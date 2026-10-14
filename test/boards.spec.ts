@@ -8,6 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
+import {turnOnMedia} from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -142,6 +143,46 @@ test('boards created in a chat are discovered on another device and edited toget
     await openBoards(outsider.page)
     await expect(outsider.page.locator('#boardsSaved')).not.toContainText('Room delivery')
   } finally {await keeper.leave(); await ada.context.close(); await bo.context.close(); await outsider.context.close()}
+})
+
+test('call attribution stays below board shortcuts created during a desktop call', async ({browser, baseURL}, info) => {
+  test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic media needs Chromium')
+  const ada = await device(browser, baseURL!)
+  const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Private: Test contact', agent: false, ...agentRelaysFor(baseURL!)})
+  try {
+    await ada.page.setViewportSize({width: 1440, height: 900})
+    await ada.page.evaluate(({pubkey, room}) => localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room)),
+      {pubkey: ada.pubkey, room: {roomId: keeper.roomId, name: 'Private: Test contact', link: keeper.url, openedAt: 1, readAt: 0}})
+    await ada.page.reload()
+    await ada.page.locator('#roomList').getByRole('button', {name: 'Open Private: Test contact', exact: true}).click()
+    if (await ada.page.locator('#join').isVisible()) {await ada.page.locator('#displayName').fill('Ada'); await ada.page.locator('#join').click()}
+    await expect(ada.page.locator('#chatInput')).toBeEditable()
+    await turnOnMedia(ada.page)
+    await expect(ada.page.locator('html')).toHaveAttribute('data-call-first', '')
+    await ada.page.locator('#openAssignments').click()
+    const frame = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await createBoard(frame, 'Private Board')
+    await ada.page.locator('#boardsClose').click()
+    const board = ada.page.locator('#roomBoards').getByRole('button', {name: 'Private Board', exact: true})
+    await expect(board).toBeVisible()
+    await expect(ada.page.locator('#callSurfaceOrigin')).toHaveText('Call in Private: Test contact')
+    for (const size of [{width: 1440, height: 900}, {width: 1024, height: 768}]) {
+      await ada.page.setViewportSize(size)
+      for (const fontSize of ['', '200%']) {
+        await ada.page.evaluate(fontSize => {document.documentElement.style.fontSize = fontSize}, fontSize)
+        await expect.poll(() => ada.page.evaluate(() => {
+          const boards = document.getElementById('roomBoards')!.getBoundingClientRect()
+          const header = document.getElementById('callSurfaceHeader')!.getBoundingClientRect()
+          return header.top >= boards.bottom - 1
+        }), {message: 'Call attribution must not overlap the board shortcuts'}).toBe(true)
+      }
+    }
+    await ada.page.evaluate(() => {document.documentElement.style.fontSize = ''})
+    await ada.page.screenshot({path: info.outputPath('call-and-private-board.png')})
+    await board.click()
+    await expect(ada.page.locator('#boardsPanel')).toBeVisible()
+    await expect(ada.page.frameLocator('#boardsPanel iframe').getByRole('heading', {name: 'Private Board', exact: true})).toBeVisible()
+  } finally {await keeper.leave(); await ada.context.close()}
 })
 
 test('card colour saves when the colour label is clicked and survives reopening', async ({browser, baseURL}) => {
