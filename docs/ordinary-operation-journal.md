@@ -41,8 +41,15 @@ completion. Only after freshly authenticating S may the private controller
 synchronously adopt S and resume. It must never resume between C and S.
 
 Known settled expiry must atomically remove the tab, its control and its browser
-marker. The current generic expiry path holds whenever controls exist; it cannot
-silently erase this history. There is no public journal write exemption or raw
+marker. The private settled-expiry writer now authenticates the complete store,
+validates exact effective browser/tab images offline, and queues one browser
+marker removal plus tab/control deletions in a single native transaction.
+It preserves all other effective pending records, fences and migration metadata.
+Capacity is checked before the single fresh browser nonce. Every attempted write
+is reconciled against whole-store exact prior/target classifications; prior is
+HOLD, mixed/unavailable state retains the original candidate until a read-only
+retry establishes exact facts. Closing the retained owner joins this uncertainty.
+Active, unknown or malformed history still holds before cleanup entropy. There is no public journal write exemption or raw
 Session adoption facade.
 
 The current native fixtures exercise custody classification, phase refusal,
@@ -67,3 +74,25 @@ body and current generation. It has no registration/mint API and returns no
 execution or journal capability. This check proves graph ownership only; the
 fixed producer must separately establish native custody and current authority.
 Owner-to-bootstrap imports and generic writer exemptions remain excluded.
+
+Historical cleanup uses only retained navigation, bookmarks, room links and
+creator evidence; the current page URL cannot rescue orphaned access or poison
+independently bound custody. Origin-bearing Signet and initial-login records
+must agree on one canonical retained origin, then pass their existing strict
+shape/signature checks. This proves historical internal consistency only, never
+current-origin authority. No-origin images use a sentinel only for otherwise
+empty origin-bound checks. Historical tokens are structurally excluded from
+live binding, projected sizing, reads, resources and commit receipts. The fixed
+composer module loads before the lock/transactions, avoiding a static owner
+import cycle; no public writer exemption, callback registration or token mint
+interface is introduced.
+
+The native fixture cuts cover all eight old/new combinations of the three target
+records, changes to another control before writing and before reconciliation,
+lost completion/offline readback, joined close, and cancellation during each
+writer authentication. Version-change handler cuts invoke the handler directly;
+separate actual version-2 upgrade-event cuts also exercise every cleanup
+writer authentication boundary.
+Fixture journal enrollment remains distinct from the unimplemented producer,
+and these tests do not establish page/browser-process restart or production
+startup acceptance.

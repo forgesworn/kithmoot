@@ -2,7 +2,7 @@ import { validateOrdinaryIdentityPairSnapshot, validateOrdinaryEmbeddedDeviceCre
 import { validateOrdinaryEpochSnapshot } from './ordinary-epoch-snapshot.js'
 import { validateOrdinaryPendingSnapshot } from './ordinary-pending-snapshot.js'
 import { validateOrdinaryQuietSnapshot, type OrdinaryQuietScope } from './ordinary-quiet-snapshot.js'
-import { validateOrdinarySignetSnapshot } from './ordinary-signet-snapshot.js'
+import { ORDINARY_SIGNET_KEYS, validateOrdinarySignetSnapshot } from './ordinary-signet-snapshot.js'
 import { validateOrdinaryInitialLoginSnapshot } from './ordinary-initial-login-snapshot.js'
 import { validateOrdinaryContactSnapshot } from './ordinary-contact-snapshot.js'
 import { validateOrdinaryGrantedContactSnapshot } from './ordinary-granted-contact-snapshot.js'
@@ -46,7 +46,7 @@ import { classifyOrdinaryPhysicalName, validateOrdinaryPhysicalSnapshot } from '
 import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceContinuityInPair, FIXED_INVITATION_RELAYS } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected, CREATOR_PROOF_PREFIX, CREATOR_INTENT_PREFIX } from './persistent-creator-proof.js'
 import type { DeviceStore } from './device-store.js'
-import { ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairOperationMarkersFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
+import { ordinaryPairCustodyFor, ordinaryPairHistoricalCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairOperationMarkersFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 import { inspectOrdinaryMemberLeases } from './ordinary-member-lease.js'
 
 const HEX = /^[0-9a-f]{64}$/
@@ -69,7 +69,7 @@ export interface OrdinaryRoomAccessOptions {
 interface CapturedStartup {
   readonly browser: Map<string, string>
   readonly tab: Map<string, string>
-  readonly href: string
+  readonly href?: string
   readonly creators: Map<string, string>
   readonly creatorLinks: readonly string[]
 }
@@ -91,13 +91,15 @@ function evidencePartition(records: ReadonlyMap<string, string>, kind: 'browser'
  * images under the startup barrier, before history mutation/owner allocation.
  * No caller-supplied URL or account authority is accepted. */
 export function captureOrdinaryStartupContext(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>): OrdinaryStartupContext {
+  try { return captureStartup(browserRecords, tabRecords, globalThis.location.href) } catch { return hold() }
+}
+function captureStartup(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>, href?: string): OrdinaryStartupContext {
   try {
     const browser = new Map(browserRecords), tab = new Map(tabRecords)
     validateOrdinaryPhysicalSnapshot(browser, { kind: 'browser' })
     validateOrdinaryPhysicalSnapshot(tab, { kind: 'tab' })
-    const href = globalThis.location.href
-    ordinaryUtf8Length(href)
-    const url = new URL(href)
+    if (href !== undefined) ordinaryUtf8Length(href)
+    const url = href === undefined ? undefined : new URL(href)
     const browserEvidence = evidencePartition(browser, 'browser'), tabEvidence = evidencePartition(tab, 'tab')
     let browserAccess = 0, bookmarks = 0, tabAccess = 0, navigation = 0
     for (const name of browserEvidence.keys()) {
@@ -108,7 +110,7 @@ export function captureOrdinaryStartupContext(browserRecords: ReadonlyMap<string
       if (classifyOrdinaryPhysicalName(name, 'tab')!.family === 'access') tabAccess++
       else { validateOrdinaryNavigationRecord(name, raw); navigation++ }
     }
-    const context = Object.freeze({ links: url.hash === '' ? 0 : 1, browserAccess, bookmarks, tabAccess, navigation }) as OrdinaryStartupContext
+    const context = Object.freeze({ links: url === undefined || url.hash === '' ? 0 : 1, browserAccess, bookmarks, tabAccess, navigation }) as OrdinaryStartupContext
     const creators = new Map([...browser].filter(([name]) => name.includes(CREATOR_PROOF_PREFIX) || name.includes(CREATOR_INTENT_PREFIX)))
     const creatorStore: DeviceStore = { get: n => browser.get(n) ?? null, keys: () => [...browser.keys()], set: hold, remove: hold }
     const checked = inspectPersistentCreatorProofs(creatorStore)
@@ -172,7 +174,7 @@ function consumeAccessComposition(browserRecords: ReadonlyMap<string, string>, t
     const creators = new Map([...browser].filter(([name]) => name.includes(CREATOR_PROOF_PREFIX) || name.includes(CREATOR_INTENT_PREFIX)))
     if (creators.size !== captured.creators.size || [...creators].some(([name, raw]) => captured.creators.get(name) !== raw)) hold()
     candidates.push(...captured.creatorLinks)
-    if (new URL(captured.href).hash !== '') candidates.push(captured.href)
+    if (captured.href !== undefined && new URL(captured.href).hash !== '') candidates.push(captured.href)
     for (const [kind, partition] of [['browser', captured.browser], ['tab', captured.tab]] as const) {
       for (const [name, raw] of partition) {
         if (classifyOrdinaryPhysicalName(name, kind)!.family === 'navigation') {
@@ -633,13 +635,55 @@ export function captureOrdinarySnapshotContext(browserRecords: ReadonlyMap<strin
     validateOrdinaryPhysicalSnapshot(tab, { kind: 'tab' })
     const keptBrowser = privateImage(browser, 'browser'), keptTab = privateImage(tab, 'tab')
     const startup = captureOrdinaryStartupContext(keptBrowser, keptTab)
-    const origin = new URL(capturedStartup.get(startup)!.href).origin
+    const origin = new URL(capturedStartup.get(startup)!.href!).origin
     const context = Object.freeze({ browserRecords: keptBrowser.size, tabRecords: keptTab.size }) as OrdinarySnapshotContext
     const custody = token ? ordinaryPairCustodyFor(token, browser, tab) : undefined
     const operationMarkers = token ? ordinaryPairOperationMarkersFor(token, browser, tab) : undefined
     capturedImages.set(context, { browser: keptBrowser, tab: keptTab, startup, origin, custody, operationMarkers })
     return context
   } catch { return hold() }
+}
+/** Offline historical custody only. No page URL, active account or caller
+ * supplied location participates. The retained origin proves historical internal consistency only, never
+ * current-origin authority. Origin-bound records must agree on their
+ * retained origin and then pass the ordinary strict signature/shape checks. */
+export function captureOrdinaryHistoricalSnapshotContext(browserRecords: ReadonlyMap<string, string>, tabRecords: ReadonlyMap<string, string>,
+  token: OrdinaryPairCustody): OrdinarySnapshotContext {
+  let startup: OrdinaryStartupContext | undefined
+  try {
+    const browser = new Map(browserRecords), tab = new Map(tabRecords)
+    const custody = ordinaryPairHistoricalCustodyFor(token, browser, tab)
+    const operationMarkers = ordinaryPairOperationMarkersFor(token, browser, tab)
+    validateOrdinaryPhysicalSnapshot(browser, { kind: 'browser' })
+    validateOrdinaryPhysicalSnapshot(tab, { kind: 'tab' })
+    const origins = new Set<string>()
+    const retainOrigin = (value: unknown) => {
+      if (typeof value !== 'string' || value === 'null' || new URL(value).origin !== value) hold()
+      origins.add(value)
+    }
+    const proof = browser.get(ORDINARY_SIGNET_KEYS.authEvent)
+    if (proof !== undefined) {
+      const tags: unknown = JSON.parse(proof).tags
+      if (!Array.isArray(tags)) hold()
+      const origin = tags.filter(tag => Array.isArray(tag) && tag[0] === 'origin')
+      if (origin.length !== 1 || origin[0].length !== 2) hold()
+      retainOrigin(origin[0][1])
+    }
+    for (const raw of [browser.get(ORDINARY_SIGNET_KEYS.pendingRedirect), browser.get(ORDINARY_SIGNET_KEYS.pendingRelayAuth),
+      tab.get('kithmoot.initial-login.v1')]) if (raw !== undefined) retainOrigin(JSON.parse(raw).origin)
+    if (origins.size > 1) hold()
+    // This sentinel is used only when no origin-bearing record exists. The
+    // strict validators still reject incomplete Signet sessions and carriers.
+    const origin = origins.values().next().value ?? 'https://ordinary-no-origin.invalid'
+    const keptBrowser = privateImage(browser, 'browser'), keptTab = privateImage(tab, 'tab')
+    startup = captureStartup(keptBrowser, keptTab)
+    const context = Object.freeze({ browserRecords: keptBrowser.size, tabRecords: keptTab.size }) as OrdinarySnapshotContext
+    capturedImages.set(context, { browser: keptBrowser, tab: keptTab, startup, origin, custody, operationMarkers })
+    return context
+  } catch {
+    if (startup) releaseOrdinaryStartupContext(startup)
+    return hold()
+  }
 }
 export function releaseOrdinarySnapshotContext(context: OrdinarySnapshotContext): void {
   const image = capturedImages.get(context)
