@@ -128,8 +128,9 @@ settled result follows a fresh whole-origin classification and grants no activit
 ## Remaining recovery work
 
 The startup inspector does not advance an active phase. Fixed startup recovery
-producers are still needed to resume an unstarted prepared intent where current
-authority permits and use a retained exact result and candidate without re-signing.
+of an unstarted prepared intent still needs a separately validated current
+authority and signing boundary. The retained-result producer described below
+completes only historical custody and does not reopen a controller.
 A recorded provider start with no durable result remains unknown and must never
 invoke the provider again. Recovery must authenticate the whole current store
 and current role independently of any diagnostic disposition.
@@ -138,3 +139,37 @@ Actual entry mounting, all-consumer source inventory, old-client fences,
 registry dependency reproducibility, current independent MLS authority,
 rollback-protected allocation history and physical/mixed-client acceptance
 remain open. None is established by a local source commit or a browser test.
+
+## Fixed retained-result startup custody
+
+`OrdinaryStateOwner.recoverRetainedRenewalAtStartup` handles only an authenticated
+`provider-returned` or `candidate-prepared` journal. It reopens the existing
+database under the origin lock, authenticates the complete E cohort and store,
+restores exact P on owned copies, validates its complete historical composition,
+and freshly verifies the retained canonical result against the pinned Fold
+statement. No recorded provider start without a durable result is retried.
+
+The shared pure constructor reproduces the exact proof, lease and C images from
+P, the canonical request/result and retained seal. It derives lineage authority
+and source from authenticated historical data, without a current foreground
+lookup, clock, signing effect or fabricated ordinary read-custody token. The
+complete C projection and phase budgets are checked before cryptography.
+
+The two C frames use only their persisted nonces. Reopening the encrypted frames
+confirms the complete projected plaintext. A prepared journal must reproduce its
+recorded frame digests and revisions exactly. A returned journal first persists
+`candidate-prepared` with those digests before any C row write. Each distinct
+control body gets two fresh AEAD nonces after fresh native phase authentication;
+frame nonces and earlier control nonces are never substituted for them.
+
+Each attempted control or C write retains one immutable encrypted cohort and
+the actual outer promise. Complete exact prior/target reconciliation decides
+the outcome. Mixed or unavailable facts hold the lock until explicit repair;
+confirmed prior can retry identical bytes only while the startup owner is live.
+Close joins cryptography and unknown custody, and can recognise an already
+committed target without granting activity or allocating the next phase.
+
+Committed C can then use the separate C-to-S settlement entry. Both entries
+return frozen status data only. Current authority, controller construction,
+Session/carrier adoption, production startup mounting, abrupt power loss and
+physical acceptance remain separate requirements.
