@@ -10,11 +10,10 @@
 //
 // Three promises it keeps, and the tests hold it to:
 //
-//  - Every person's tile in a view is the same box as every other person's
-//    tile in that view. Camera on, camera off, speaking or not.
-//  - The answer depends on the space and the list of who is there, never on
-//    what a picture turned out to be once it decoded. A late frame cannot
-//    move anybody.
+//  - Gallery slots stay equal. Upright cameras fit a portrait tile inside
+//    their slot, without changing anybody else's position.
+//  - Camera orientation can change its owner's tile. A share decoding late
+//    cannot move the surrounding slots.
 //  - The screen share, when there is one, gets the stage; people keep a
 //    strip beside it at one size.
 
@@ -148,6 +147,9 @@ export interface LayoutInput {
   view: CallView
   /** Everybody to draw a tile for, in the room's order. */
   people: readonly string[]
+  /** Decoded upright camera shapes. Absent for landscape, unknown or mixed
+   *  camera orientations belonging to the same person. */
+  portraitCameras?: ReadonlyMap<string, number>
   /** This device's own person, when they are among `people`. */
   self?: string
   shares: readonly ShareInput[]
@@ -209,6 +211,11 @@ export function layoutCall(input: LayoutInput): LayoutResult {
   const people = new Map<string, Rect>()
   const shares = new Map<string, Rect>()
   const result: LayoutResult = { mode, people, shares, contentHeight: input.height, contentWidth: input.width }
+  const cameraRect = (id: string, slot: Rect, fallbackAspect?: number): Rect => {
+    const aspect = input.portraitCameras?.get(id)
+    if (aspect !== undefined && Number.isFinite(aspect) && aspect > 0 && aspect < 1) return fitRect(slot, aspect)
+    return fallbackAspect ? fitRect(slot, fallbackAspect) : slot
+  }
 
   if (mode === 'solo') {
     const other = input.people.find(id => id !== input.self)!
@@ -216,11 +223,11 @@ export function layoutCall(input: LayoutInput): LayoutResult {
     // a letterbox would waste, so the stage takes the room's own shape up
     // to that, and down to an upright phone's - see `SOLO_MIN_ASPECT`.
     const roomAspect = area.height > 0 ? area.width / area.height : TILE_ASPECT
-    const main = fitRect(area, Math.min(TILE_ASPECT, Math.max(SOLO_MIN_ASPECT, roomAspect)))
+    const main = cameraRect(other, area, Math.min(TILE_ASPECT, Math.max(SOLO_MIN_ASPECT, roomAspect)))
     people.set(other, main)
-    const width = Math.max(STRIP_MIN_WIDTH, Math.min(280, Math.round(main.width * 0.22)))
+    const width = Math.max(0, Math.min(main.width - 32, Math.max(STRIP_MIN_WIDTH, Math.min(280, Math.round(main.width * 0.22)))))
     const height = Math.round(width / TILE_ASPECT)
-    people.set(input.self!, cornerRect(main, input.selfCorner ?? 'bottom-right', width, height, 16))
+    people.set(input.self!, cameraRect(input.self!, cornerRect(main, input.selfCorner ?? 'bottom-right', width, height, 16)))
     result.floating = input.self
     result.featured = other
     return result
@@ -231,7 +238,7 @@ export function layoutCall(input: LayoutInput): LayoutResult {
     const sharesOnPage = input.gallery?.shares ?? input.shares.map(share => share.id)
     const items = [...peopleOnPage.map(id => ({ id, share: false })), ...sharesOnPage.map(id => ({ id, share: true }))]
     const rects = gridRects(area, items.length, { minWidth: input.compact ? 0 : MIN_TILE_WIDTH })
-    for (const [i, item] of items.entries()) (item.share ? shares : people).set(item.id, rects[i])
+    for (const [i, item] of items.entries()) (item.share ? shares : people).set(item.id, item.share ? rects[i] : cameraRect(item.id, rects[i]))
     result.contentHeight = Math.max(input.height, bottomOf(rects) + gap)
     return result
   }
@@ -252,7 +259,7 @@ export function layoutCall(input: LayoutInput): LayoutResult {
   const strip = split.strip
   if (mode === 'speaker') {
     result.featured = onStage[0]
-    if (onStage[0] !== undefined) people.set(onStage[0], fitRect(stage, TILE_ASPECT))
+    if (onStage[0] !== undefined) people.set(onStage[0], cameraRect(onStage[0], stage, TILE_ASPECT))
   } else {
     const aspect = input.shares.length === 1 ? undefined : input.shares[0]?.aspect
     // One share: the whole stage, whatever its shape. More: equal slots.
@@ -260,7 +267,7 @@ export function layoutCall(input: LayoutInput): LayoutResult {
     for (const [i, share] of input.shares.entries()) shares.set(share.id, slots[i])
   }
   const shareIds = new Set(input.shares.map(share => share.id))
-  for (const [i, id] of inStrip.entries()) (shareIds.has(id) ? shares : people).set(id, strip[i])
+  for (const [i, id] of inStrip.entries()) (shareIds.has(id) ? shares : people).set(id, shareIds.has(id) ? strip[i] : cameraRect(id, strip[i]))
   result.contentHeight = Math.max(input.height, bottomOf([split.stage, ...strip]) + gap)
   result.contentWidth = Math.max(input.width, strip.reduce((right, r) => Math.max(right, r.x + r.width), 0) + gap)
   return result

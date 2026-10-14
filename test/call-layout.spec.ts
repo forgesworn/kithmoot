@@ -231,6 +231,72 @@ for (const phone of [false, true]) {
   })
 }
 
+test('a remote phone camera has a filled portrait tile and follows live rotation', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved')
+  const contexts: BrowserContext[] = []
+  const viewer = await newDeviceContext(browser, baseURL!, { reducedMotion: 'reduce' })
+  const phone = await newDeviceContext(browser, baseURL!, { reducedMotion: 'reduce' })
+  contexts.push(viewer, phone)
+  await phone.addInitScript(() => {
+    localStorage.setItem('kithmoot.call.effectMode', 'off')
+    const native = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      if (!constraints?.video) return native(constraints)
+      const canvas = document.createElement('canvas')
+      const draw = () => {
+        const context = canvas.getContext('2d')!
+        context.fillStyle = '#21583d'; context.fillRect(0, 0, canvas.width, canvas.height)
+        context.fillStyle = '#ffc85c'; context.fillRect(0, 0, canvas.width, 35)
+        context.fillStyle = '#65dfba'; context.fillRect(0, canvas.height - 35, canvas.width, 35)
+        context.fillStyle = '#fff'; context.font = '24px sans-serif'; context.fillText('Synthetic phone', 20, canvas.height / 2)
+      }
+      Object.assign(window, { rotateTestPhone: (portrait: boolean) => {
+        canvas.width = portrait ? 360 : 640; canvas.height = portrait ? 640 : 360; draw()
+      } })
+      ;(window as unknown as { rotateTestPhone(portrait: boolean): void }).rotateTestPhone(true)
+      const timer = setInterval(draw, 80), stream = canvas.captureStream(12)
+      const track = stream.getVideoTracks()[0]!, stop = track.stop.bind(track)
+      track.stop = () => { clearInterval(timer); stop() }
+      if (constraints.audio) for (const audio of (await native({ audio: constraints.audio })).getAudioTracks()) stream.addTrack(audio)
+      return stream
+    }
+  })
+  try {
+    const page = await viewer.newPage(), source = await phone.newPage()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const url = await createRoom(page, baseURL!)
+    await joinWithMedia(page, url, 'Viewer')
+    await source.setViewportSize({ width: 1440, height: 900 })
+    await open(source, url, 'Phone'); await source.locator('#join').click()
+    await expect(source.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
+    await source.locator('#callToggle').click(); await source.locator('#toggleCamera').click()
+    const tile = page.locator('#room > .participant[data-name="Phone"]')
+    const camera = tile.locator('.media > video:not(.screenPreview)')
+    const shape = () => camera.evaluate((video: HTMLVideoElement) => {
+      const tile = video.closest('.participant')!.getBoundingClientRect(), picture = video.getBoundingClientRect()
+      return { natural: video.videoWidth / video.videoHeight, tile: tile.width / tile.height, widthGap: Math.abs(tile.width - picture.width), heightGap: Math.abs(tile.height - picture.height), fit: getComputedStyle(video).objectFit }
+    })
+    await expect.poll(async () => (await shape()).natural, { timeout: 90_000 }).toBeCloseTo(9 / 16, 2)
+    await expect.poll(async () => (await shape()).tile).toBeCloseTo(9 / 16, 2)
+    expect(await shape()).toMatchObject({ widthGap: 0, heightGap: 0, fit: 'contain' })
+    await mkdir(SHOTS, { recursive: true }); await shot(page, 'portrait-camera-solo')
+    const stream = await camera.evaluate((video: HTMLVideoElement) => (video.srcObject as MediaStream).id)
+    await source.evaluate(() => (window as unknown as { rotateTestPhone(portrait: boolean): void }).rotateTestPhone(false))
+    await expect.poll(async () => (await shape()).natural).toBeGreaterThan(1)
+    await expect.poll(async () => (await shape()).tile).toBeGreaterThan(1)
+    expect(await camera.evaluate((video: HTMLVideoElement) => (video.srcObject as MediaStream).id)).toBe(stream)
+    await source.evaluate(() => (window as unknown as { rotateTestPhone(portrait: boolean): void }).rotateTestPhone(true))
+    await expect.poll(async () => (await shape()).tile).toBeCloseTo(9 / 16, 2)
+    await addStandIns(page, [['Friend', false]])
+    await expect(page.locator('#room')).toHaveAttribute('data-layout', 'gallery')
+    await expect.poll(async () => (await shape()).tile).toBeCloseTo(9 / 16, 2)
+    await tile.getByRole('button', { name: 'Pin Phone', exact: true }).click()
+    await expect(page.locator('#room')).toHaveAttribute('data-layout', 'speaker')
+    await expect.poll(async () => (await shape()).tile).toBeCloseTo(9 / 16, 2)
+    await shot(page, 'portrait-camera-speaker')
+  } finally { for (const context of contexts) await context.close() }
+})
+
 test('every face is one box, from a call of two to a call of eight', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved')
   test.setTimeout(300_000)

@@ -18,11 +18,9 @@ import { GalleryPages, galleryPageSize } from './gallery-pages.js'
  * absolutely inside `#room`, and a shared screen, which lives in its owner's
  * tile, is positioned from there onto the stage.
  *
- * It runs on the room's size and on who is in it, never on a picture
- * decoding: that is the promise that stops a late frame moving everybody.
- * The one thing a decoded picture changes is the size of a share's own
- * element inside its fixed place on the stage, so that it carries no bands;
- * the picture itself is drawn in the same place either way.
+ * Gallery slots depend on the room and who is in it. Decoded camera
+ * orientation changes only its owner's tile inside its slot; a portrait
+ * phone gets a tall tile instead of bands inside a landscape box.
  *
  * Phones keep their own tile layout (`#roomArea[data-mobile-view]` in
  * style.css), with smaller gallery pages and the same audio ownership.
@@ -194,6 +192,12 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       height,
       view,
       people: shown.map(person => person.id),
+      // Multiple cameras keep their existing split presentation.
+      portraitCameras: new Map(shown.flatMap(person => {
+        const camera = person.cameras.length === 1 ? person.cameras[0] : undefined
+        if (!camera || camera.videoWidth <= 0 || camera.videoHeight <= camera.videoWidth) return []
+        return [[person.id, camera.videoWidth / camera.videoHeight] as const]
+      })),
       self: self?.id,
       shares,
       gallery,

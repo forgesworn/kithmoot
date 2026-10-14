@@ -79,6 +79,41 @@ describe('gridRects', () => {
 
 describe('layoutCall', () => {
   const room = { width: 1000, height: 700 }
+  test('a portrait camera gets a tall filled tile in a one-to-one call and follows rotation', () => {
+    const input = { ...room, view: 'gallery' as const, people: ['me', 'phone'], self: 'me', shares: [] }
+    const portrait = layoutCall({ ...input, portraitCameras: new Map([['phone', 9 / 16]]) })
+    const phone = portrait.people.get('phone')!
+    expect(Math.abs(phone.height - (room.height - 2 * TILE_GAP))).toBeLessThanOrEqual(1)
+    expect(Math.abs(phone.width / phone.height - 9 / 16)).toBeLessThan(0.003)
+    const self = portrait.people.get('me')!
+    expect(self.x).toBeGreaterThan(phone.x)
+    expect(self.x + self.width).toBeLessThan(phone.x + phone.width)
+    const landscape = layoutCall(input).people.get('phone')!
+    expect(landscape.width).toBeGreaterThan(landscape.height)
+  })
+
+  test('portrait tiles fit their gallery and strip slots without moving anybody else', () => {
+    for (const view of ['gallery', 'speaker', 'share'] as const) {
+      const input = { ...room, view, people: ['me', 'phone', 'friend'], self: 'me', featured: 'friend', shares: [{ id: 'screen' }] }
+      const before = layoutCall(input)
+      const after = layoutCall({ ...input, portraitCameras: new Map([['phone', 3 / 4]]) })
+      const slot = before.people.get('phone')!, phone = after.people.get('phone')!
+      expect(Math.abs(phone.width / phone.height - 3 / 4)).toBeLessThan(0.01)
+      expect(phone.x).toBeGreaterThanOrEqual(slot.x)
+      expect(phone.y).toBeGreaterThanOrEqual(slot.y)
+      expect(phone.x + phone.width).toBeLessThanOrEqual(slot.x + slot.width)
+      expect(phone.y + phone.height).toBeLessThanOrEqual(slot.y + slot.height)
+      expect(after.people.get('friend')).toEqual(before.people.get('friend'))
+      expect(after.shares).toEqual(before.shares)
+    }
+  })
+
+  test('the featured portrait camera uses the full speaker-stage height', () => {
+    const out = layoutCall({ ...room, view: 'speaker', people: ['phone', 'friend', 'me'], self: 'me', featured: 'phone', shares: [], portraitCameras: new Map([['phone', 9 / 16]]) })
+    const phone = out.people.get('phone')!
+    expect(phone.height).toBeGreaterThan(400)
+    expect(Math.abs(phone.width / phone.height - 9 / 16)).toBeLessThan(0.003)
+  })
   test('a manual page keeps gallery mode and draws only its people and shares', () => {
     const out = layoutCall({ ...room, view: 'gallery', people: ids(24), self: 'p0', shares: [{ id: 'screen-a' }, { id: 'screen-b' }], gallery: { people: ['p11', 'p10'], shares: ['screen-b', 'screen-a'] } })
     expect(out.mode).toBe('gallery')
