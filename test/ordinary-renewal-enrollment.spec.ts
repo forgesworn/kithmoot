@@ -17,6 +17,12 @@ test.beforeAll(async()=>{
             try { observer.enrollmentOutcome=await OrdinaryStateOwner.enrollMemberRenewal(obligation!) }
             catch(error){observer.enrollmentError=(error as Error).name}
             observer.enrollmentDone=true
+            if(observer.performSigning&&observer.enrollmentOutcome?.status==='enrolled'){
+              observer.beforeSigning?.()
+              try{observer.signingReturned=await OrdinaryStateOwner.signMemberRenewal(observer.enrollmentOutcome.enrollment)}
+              catch(error){observer.signingError=(error as Error).stack}
+              observer.signingDone=true
+            }
             await new Promise<void>(resolve=>observer.releaseEnrollment=resolve)
             protocol!.close(); return
 `+marker)}
@@ -27,7 +33,7 @@ test.beforeEach(async({context,page})=>{
   await page.goto(ORIGIN);await page.clock.install();await page.evaluate('window.memberEpochTimeoutMs=10000')
 })
 async function start(page:Page,visitor=false,keep=true,defer=false){
-  await page.evaluate(`(${setup})(${JSON.stringify({visitor,keep,noRelays:true})})`)
+  await page.evaluate(`(${setup.replaceAll('checkClients:async()=>{}','checkClients:async()=>{window.clientCheckCount=(window.clientCheckCount??0)+1;await window.clientHook?.()}')})(${JSON.stringify({visitor,keep,noRelays:true})})`)
   if(defer)await page.evaluate('window.deferMemberCreation=true');await page.evaluate(`(${controls})()`);if(!defer)await page.evaluate('join()')
   await page.evaluate(`(async()=>{window.prior=await rawBoth();window.beforeSigns=signCalls;window.puts=0;window.randoms=0;
     const put=IDBObjectStore.prototype.put,random=crypto.getRandomValues.bind(crypto);
@@ -264,4 +270,212 @@ for(const lifetime of ['browser','tab','root','forget','expiry','versionchange']
   await finish(page);await page.evaluate('window.closing')
   if(lifetime==='forget'){expect(await page.evaluate('closeState')).toBe('OrdinaryStateHold');await page.evaluate('joinClose');expect(await page.evaluate('joinState')).toBe('done')}
   else if(lifetime!=='expiry'&&lifetime!=='versionchange')expect(await page.evaluate('closeState')).toBe('done')
+})
+
+
+for(const visitor of [false,true])for(const keep of [false,true])test(`fixed signing persists started before one provider and canonical result, visitor=${visitor}, keep=${keep}`,async({page})=>{
+  await start(page,visitor,keep)
+  await page.evaluate(`(()=>{window.performSigning=true;window.providerPhase=null;const original=window.nostr?.signEvent;
+    if(original){nostr.signEvent=async event=>{if(event.kind===20460){const rows=new Map(await readAll());const br=rows.get('browser'),tr=rows.get(tabPurpose),b=await Ordinary.openOrdinaryFrame(br.frame,br.key),t=await Ordinary.openOrdinaryFrame(tr.frame,tr.key),header=i=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt});const j=await Ordinary.openOrdinaryOperationControl(rows.get(Ordinary.ordinaryOperationNames(tabPurpose).control),{browser:{binding:header(b),key:br.key},tab:{binding:header(t),key:tr.key}});window.providerPhase=j.phase;window.providerKeyPersisted=j.secrets.length===1&&j.nonces!==null;j.secrets.forEach(k=>k.fill(0));window.providerObserved=true}return original(event)}}
+  })()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.signingDone===true')
+  expect(await page.evaluate('window.signingError')).toBeUndefined()
+  expect(await page.evaluate(`(async()=>{const rows=new Map(await readAll()),br=rows.get('browser'),tr=rows.get(tabPurpose),b=await Ordinary.openOrdinaryFrame(br.frame,br.key),t=await Ordinary.openOrdinaryFrame(tr.frame,tr.key),header=i=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt});
+    const j=await Ordinary.openOrdinaryOperationControl(rows.get(Ordinary.ordinaryOperationNames(tabPurpose).control),{browser:{binding:header(b),key:br.key},tab:{binding:header(t),key:tr.key}});
+    const pB=await Ordinary.openOrdinaryFrame(prior[0].frame,prior[0].key),pT=await Ordinary.openOrdinaryFrame(prior[1].frame,prior[1].key),result=JSON.parse(j.result);
+    const held=await outcome(()=>bootstrap.load()),duplicate=await outcome(()=>Ordinary.OrdinaryStateOwner.signMemberRenewal(enrollmentOutcome.enrollment));
+    const answer=[j.phase,j.secrets.length,j.nonces.every(n=>n.length===24),b.revision===pB.revision+1,t.revision===pT.revision+1,result.kind,result.pubkey===participant,
+      result.created_at===Ordinary.readOrdinaryRenewalRequest(j.request).intent.issuedAt,held,duplicate,signCalls-beforeSigns,puts,randoms];j.secrets.forEach(k=>k.fill(0));return answer;})()`))
+    .toEqual(['candidate-prepared',1,true,true,true,20460,true,true,'OrdinaryStateHold','OrdinaryStateHold',visitor?0:1,6,15])
+  if(!visitor)expect(await page.evaluate('[providerPhase,providerKeyPersisted]')).toEqual(['provider-started',true])
+  await finish(page)
+})
+
+
+for(const sync of [false,true])test(`fixed signing permanently blocks transient provider retry, synchronous=${sync}`,async({page})=>{
+  await start(page)
+  await page.evaluate(`window.performSigning=true;window.signHook=()=>{${sync?"throw Error('Extension context invalidated')":"return Promise.reject(Error('Extension context invalidated'))"}}`)
+  await page.clock.fastForward(901000);await page.waitForFunction('signCalls===beforeSigns+1')
+  await page.clock.fastForward(300);await page.waitForFunction('window.signingDone===true')
+  expect(await page.evaluate(`(async()=>{const rows=new Map(await readAll()),br=rows.get('browser'),tr=rows.get(tabPurpose),b=await Ordinary.openOrdinaryFrame(br.frame,br.key),t=await Ordinary.openOrdinaryFrame(tr.frame,tr.key),h=i=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt});
+    const j=await Ordinary.openOrdinaryOperationControl(rows.get(Ordinary.ordinaryOperationNames(tabPurpose).control),{browser:{binding:h(b),key:br.key},tab:{binding:h(t),key:tr.key}}),answer=[!!window.signingError,signCalls-beforeSigns,j.phase,j.result,puts,randoms];j.secrets.forEach(k=>k.fill(0));return answer})()`))
+    .toEqual([true,1,'provider-started',null,4,12])
+  await page.clock.fastForward(1000);expect(await page.evaluate('signCalls-beforeSigns')).toBe(1);await finish(page)
+})
+for(const field of ['restamp','room','device','expiry','seal','signature','extra','cache-false'])test(`fixed signing refuses provider ${field} substitution before result persistence`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.signHook=async event=>{
+    if('${field}'==='restamp')event.created_at++
+    if('${field}'==='room')event.tags[0][1]='1'.repeat(64)
+    if('${field}'==='device')event.tags[1][1]=participant
+    if('${field}'==='expiry')event.tags[2][1]=String(Number(event.tags[2][1])+1)
+    if('${field}'==='seal')event.tags[3][1]=participant
+    const result=await signer.call(identity,event)
+    if('${field}'==='signature')result.sig='0'.repeat(128)
+    if('${field}'==='extra')result.extra=true
+    if('${field}'==='cache-false')for(const symbol of Object.getOwnPropertySymbols(result))result[symbol]=false
+    return result
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.signingDone===true')
+  expect(await page.evaluate('[!!window.signingError,signCalls-beforeSigns,puts,randoms]')).toEqual([true,1,4,13]);await finish(page)
+})
+
+
+interface SigningState {phase:string;result:string|null;target:readonly [string,string]|null;nonces:readonly [string,string]|null;secretCount:number;signCalls:number;puts:number;randoms:number;error:boolean;done:boolean}
+async function signingState(page:Page):Promise<SigningState>{return page.evaluate<SigningState>(`(async()=>{
+  const rows=new Map(await readAll()),br=rows.get('browser'),tr=rows.get(tabPurpose),b=await Ordinary.openOrdinaryFrame(br.frame,br.key),t=await Ordinary.openOrdinaryFrame(tr.frame,tr.key),h=i=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt});
+  const j=await Ordinary.openOrdinaryOperationControl(rows.get(Ordinary.ordinaryOperationNames(tabPurpose).control),{browser:{binding:h(b),key:br.key},tab:{binding:h(t),key:tr.key}});
+  try{return {phase:j.phase,result:j.result,target:j.target,nonces:j.nonces,secretCount:j.secrets.length,signCalls:signCalls-beforeSigns,puts,randoms,error:!!window.signingError,done:window.signingDone===true}}
+  finally{j.secrets.forEach(k=>k.fill(0))}
+})()`)}
+for(const phase of ['started','returned'])for(const fault of ['before','after','corrupt','unavailable'])test(`fixed signing retains exact ${phase} candidate through ${fault} custody and retries without resigning`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.beforeSigning=()=>{
+    const put=IDBObjectStore.prototype.put,open=IDBFactory.prototype.open;let calls=0;
+    IDBObjectStore.prototype.put=function(value,key){if(++calls===${phase==='started'?1:2}){
+      window.phaseCandidate=structuredClone(value);window.phaseKey=key;
+      if('${fault}'==='before')throw Error('phase before queue');
+      if('${fault}'==='corrupt'){const bad=structuredClone(value);new Uint8Array(bad.browser.ciphertext)[0]^=1;return put.call(this,bad,key)}
+      const r=put.call(this,value,key);
+      if('${fault}'==='after')throw Error('phase after queue');
+      IDBFactory.prototype.open=()=>{throw Error('phase read unavailable')};return r;
+    }return put.call(this,value,key)};
+    window.restorePhase=()=>{IDBObjectStore.prototype.put=put;IDBFactory.prototype.open=open};
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('browserOwner.holdingRetention&&tabOwner.holdingRetention')
+  expect(await page.evaluate('[window.signingDone===true,signCalls-beforeSigns,randoms]')).toEqual([false,phase==='started'?0:1,phase==='started'?12:13])
+  expect(await page.evaluate(`(async()=>{const entropy=randoms,writes=puts,signs=signCalls;return [await outcome(()=>bootstrap.load()),writes===puts,entropy===randoms,signs===signCalls]})()`)).toEqual(['OrdinaryStateHold',true,true,true])
+  await page.evaluate(`(async()=>{restorePhase();const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,1),db=await new Promise(resolve=>r.onsuccess=()=>resolve(r.result)),tx=db.transaction('owners','readwrite');
+    tx.objectStore('owners').put(phaseCandidate,phaseKey);await new Promise(resolve=>tx.oncomplete=resolve);db.close();bootstrap.retryRetention()})()`)
+  await page.waitForFunction('window.signingDone===true');expect(await page.evaluate('window.signingError')).toBeUndefined()
+  const state=await signingState(page);expect([state.phase,state.signCalls,state.randoms,state.secretCount]).toEqual(['candidate-prepared',1,15,1])
+  if(phase==='returned')expect(await page.evaluate(`(async()=>{const rows=new Map(await readAll()),br=rows.get('browser'),tr=rows.get(tabPurpose),b=await Ordinary.openOrdinaryFrame(br.frame,br.key),t=await Ordinary.openOrdinaryFrame(tr.frame,tr.key),h=i=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt}),keys={browser:{binding:h(b),key:br.key},tab:{binding:h(t),key:tr.key}};
+    const old=await Ordinary.openOrdinaryOperationControl(phaseCandidate,keys),now=await Ordinary.openOrdinaryOperationControl(rows.get(phaseKey),keys);
+    try{return old.phase==='provider-returned'&&old.target===null&&now.phase==='candidate-prepared'&&old.result===now.result&&JSON.stringify(old.nonces)===JSON.stringify(now.nonces)}finally{old.secrets.forEach(k=>k.fill(0));now.secrets.forEach(k=>k.fill(0))}})()`)).toBe(true)
+  await finish(page)
+})
+for(const lifetime of ['fore','browser','tab','root'])test(`fixed signing ${lifetime} close joins the actual provider and retains its exact result without C`,async({page})=>{
+  await start(page)
+  await page.evaluate('window.performSigning=true;gateSigner()');await page.clock.fastForward(901000);await page.waitForFunction('window.signing===true')
+  expect((await signingState(page)).phase).toBe('provider-started')
+  await page.evaluate(`window.closeState='pending';window.closing=${lifetime==='fore'?'identity':lifetime==='root'?'bootstrap':lifetime+'Owner'}.close().then(()=>closeState='done');undefined`)
+  expect(await page.evaluate('[closeState,window.signingDone===true]')).toEqual(['pending',false])
+  await page.evaluate('releaseSigner();undefined');await page.waitForFunction('window.signingDone===true')
+  const state=await signingState(page);expect([state.phase,state.result,state.signCalls,state.puts,state.randoms,state.error]).toEqual(['provider-returned',expect.any(String),1,5,13,true])
+  expect(state.target).toBeNull()
+  if(lifetime!=='fore')expect(await page.evaluate('closeState')).toBe('pending')
+  await finish(page);await page.evaluate('closing');expect(await page.evaluate('closeState')).toBe('done')
+})
+for(const lifetime of ['fore','browser','tab','root'])test(`fixed signing ${lifetime} revocation before started produces no extra entropy or provider`,async({page})=>{
+  await start(page)
+  await page.evaluate(`window.performSigning=true;window.beforeSigning=()=>{window.closing=${lifetime==='fore'?'identity':lifetime==='root'?'bootstrap':lifetime+'Owner'}.close()}`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.signingDone===true')
+  const state=await signingState(page);expect([state.phase,state.result,state.signCalls,state.puts,state.randoms,state.error]).toEqual(['prepared',null,0,3,5,true])
+  await finish(page);await page.evaluate('closing')
+})
+
+
+for(const cut of [1,2,3,4])test(`fixed signing preserves client fence at check ${cut}`,async({page})=>{
+  await start(page)
+  await page.evaluate(`window.performSigning=true;window.beforeSigning=()=>{window.clientCheckCount=0;window.clientHook=()=>{if(clientCheckCount===${cut})throw Error('current client fence refuses')}}`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.signingDone===true')
+  const state=await signingState(page),before=cut===1
+  expect([state.phase,state.result,state.signCalls,state.puts,state.randoms,state.error]).toEqual([before?'prepared':cut===4?'provider-returned':'provider-started',cut===4?expect.any(String):null,cut===4?1:0,before?3:cut===4?5:4,before?5:cut===4?13:12,true])
+  await finish(page)
+})
+for(const lifetime of ['fore','browser','tab','expiry','versionchange'])for(const stage of ['started','returned'])test(`fixed signing ${lifetime} revocation during ${stage} control crypto stops the next phase`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.beforeSigning=()=>{
+    const encrypt=crypto.subtle.encrypt.bind(crypto.subtle),transaction=IDBDatabase.prototype.transaction;let calls=0;
+    window.nativeDatabases=new Set();IDBDatabase.prototype.transaction=function(...args){if(this.name===Ordinary.ORDINARY_DATABASE)nativeDatabases.add(this);return transaction.apply(this,args)};
+    crypto.subtle.encrypt=async(...args)=>{const result=await encrypt(...args),aad=new TextDecoder().decode(args[0].additionalData);
+      if(aad.includes('kithmoot.ordinary-operation.v1')&&++calls===${stage==='started'?1:3}){window.phaseCryptoWaiting=true;await new Promise(resolve=>window.releasePhaseCrypto=resolve)}return result};
+    window.restorePhaseCrypto=()=>{crypto.subtle.encrypt=encrypt;IDBDatabase.prototype.transaction=transaction};
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.phaseCryptoWaiting===true')
+  if(lifetime==='expiry')await page.clock.fastForward(await page.evaluate('tabOwner.expiresAt-Date.now()+1'))
+  else await page.evaluate(`(()=>{
+    if('${lifetime}'==='fore')window.closing=identity.close()
+    else if('${lifetime}'==='versionchange'){
+      const dbs=[...nativeDatabases].filter(db=>db.onversionchange!==null);if(!dbs.length)throw Error('missing live database');window.versionChanged=new Promise(resolve=>{for(const db of dbs)db.addEventListener('versionchange',resolve,{once:true})});
+      window.upgrade=new Promise(resolve=>{const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,2);r.onupgradeneeded=()=>r.transaction.abort();r.onerror=()=>resolve();r.onsuccess=()=>{r.result.close();throw Error('upgrade must abort')}})
+    }else window.closing=('${lifetime}'==='browser'?browserOwner:tabOwner).close()
+  })()`)
+  if(lifetime==='versionchange')await page.evaluate('versionChanged')
+  await page.evaluate('releasePhaseCrypto();undefined');await page.waitForFunction('window.signingDone===true')
+  const state=await signingState(page),before=stage==='started'
+  expect([state.phase,state.result,state.signCalls,state.puts,state.error]).toEqual([before?'prepared':'provider-returned',before?null:expect.any(String),before?0:1,before?3:5,true])
+  await page.evaluate('restorePhaseCrypto()');await finish(page);await page.evaluate('window.closing');if(lifetime==='versionchange')await page.evaluate('upgrade')
+})
+for(const closing of ['fore','browser','tab','root','forget'])for(const stage of ['started','returned'])test(`fixed signing ${closing} waits for unknown ${stage} custody facts before draining`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.beforeSigning=()=>{const put=IDBObjectStore.prototype.put;let calls=0;
+    IDBObjectStore.prototype.put=function(value,key){if(++calls===${stage==='started'?1:2}){window.phaseCandidate=structuredClone(value);window.phaseKey=key;const bad=structuredClone(value);new Uint8Array(bad.tab.ciphertext)[0]^=1;return put.call(this,bad,key)}return put.call(this,value,key)};
+    window.restorePhase=()=>IDBObjectStore.prototype.put=put;
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('browserOwner.holdingRetention&&tabOwner.holdingRetention')
+  await page.evaluate(`window.closeState='pending';window.closing=${closing==='forget'?'bootstrap.forget()':(closing==='fore'?'identity':closing==='root'?'bootstrap':closing+'Owner')+'.close()'}.then(()=>closeState='done',e=>closeState=e.name);undefined`)
+  expect(await page.evaluate('[closeState,window.signingDone===true]')).toEqual([closing==='forget'?'OrdinaryStateHold':'pending',false])
+  await page.evaluate(`(async()=>{restorePhase();const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,1),db=await new Promise(resolve=>r.onsuccess=()=>resolve(r.result)),tx=db.transaction('owners','readwrite');tx.objectStore('owners').put(phaseCandidate,phaseKey);await new Promise(resolve=>tx.oncomplete=resolve);db.close();bootstrap.retryRetention()})()`)
+  await page.waitForFunction('window.signingDone===true');const state=await signingState(page)
+  expect([state.phase,state.signCalls,state.error]).toEqual([stage==='started'?'provider-started':'provider-returned',stage==='started'?0:1,true])
+  await finish(page);await page.evaluate('closing');expect(await page.evaluate('closeState')).toBe(closing==='forget'?'OrdinaryStateHold':'done')
+})
+
+
+for(const closing of ['fore','browser','tab','root'])for(const copy of [1,2])test(`fixed signing retains result through copy ${copy} crypto failure and ${closing} close`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.beforeSigning=()=>{
+    const encrypt=crypto.subtle.encrypt.bind(crypto.subtle);let calls=0,failed=false,original;
+    crypto.subtle.encrypt=async(...args)=>{
+      const aad=new TextDecoder().decode(args[0].additionalData),operation=aad.includes('kithmoot.ordinary-operation.v1');
+      if(operation&&++calls===${2+copy}){failed=true;original=[Uint8Array.from(args[0].iv),Uint8Array.from(args[2])];throw Error('result custody crypto interrupted')}
+      if(failed&&operation){const same=(a,b)=>a.length===b.length&&a.every((v,i)=>v===b[i]);
+        window.sameResultPlaintext=same(original[1],new Uint8Array(args[2]));
+        if(++window.retryResultCopies===${copy})window.sameResultNonce=same(original[0],new Uint8Array(args[0].iv));
+      }
+      return encrypt(...args)
+    };window.retryResultCopies=0;window.restoreResultCrypto=()=>{crypto.subtle.encrypt=encrypt;original?.forEach(bytes=>bytes.fill(0))};
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('browserOwner.holdingRetention&&tabOwner.holdingRetention')
+  expect(await page.evaluate('[signCalls-beforeSigns,randoms,window.signingDone===true]')).toEqual([1,13,false])
+  await page.evaluate(`window.closeState='pending';window.closing=${closing==='fore'?'identity':closing==='root'?'bootstrap':closing+'Owner'}.close().then(()=>closeState='done');undefined`)
+  expect(await page.evaluate('closeState')).toBe('pending')
+  await page.evaluate('bootstrap.retryRetention()');await page.waitForFunction('window.signingDone===true')
+  const state=await signingState(page)
+  expect([state.phase,state.target,state.result,state.signCalls,state.puts,state.randoms,state.error]).toEqual(['provider-returned',null,expect.any(String),1,5,13,true])
+  expect(await page.evaluate('[sameResultPlaintext,sameResultNonce]')).toEqual([true,true])
+  await page.evaluate('restoreResultCrypto()');await finish(page);await page.evaluate('closing');expect(await page.evaluate('closeState')).toBe('done')
+})
+for(const visitor of [false,true])test(`fixed signing retains result before any candidate image encryption, visitor=${visitor}`,async({page})=>{
+  await start(page,visitor)
+  await page.evaluate(`(()=>{window.performSigning=true;window.beforeSigning=()=>{
+    const encrypt=crypto.subtle.encrypt.bind(crypto.subtle);let held=false;
+    crypto.subtle.encrypt=async(...args)=>{if(!held&&new TextDecoder().decode(args[0].additionalData).includes('kithmoot.ordinary-state')){
+      held=true;window.candidateCryptoWaiting=true;await new Promise(resolve=>window.releaseCandidateCrypto=resolve)}return encrypt(...args)};
+    window.restoreCandidateCrypto=()=>crypto.subtle.encrypt=encrypt;
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.candidateCryptoWaiting===true')
+  const before=await signingState(page)
+  expect([before.phase,before.target,before.result,before.puts,before.randoms,before.done]).toEqual(['provider-returned',null,expect.any(String),5,13,false])
+  await page.evaluate('window.closing=bootstrap.close();releaseCandidateCrypto();undefined');await page.waitForFunction('window.signingDone===true')
+  const after=await signingState(page)
+  expect([after.phase,after.target,after.result,after.puts,after.randoms,after.error]).toEqual(['provider-returned',null,before.result,5,13,true])
+  await page.evaluate('restoreCandidateCrypto()');await finish(page);await page.evaluate('closing')
+})
+test('fixed signing captures an immutable result before the provider object changes during custody crypto',async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.signHook=async event=>{window.providerObject=await signer.call(identity,event);window.originalProviderJSON=JSON.stringify(providerObject);return providerObject};
+    window.beforeSigning=()=>{const encrypt=crypto.subtle.encrypt.bind(crypto.subtle);let calls=0;
+      crypto.subtle.encrypt=async(...args)=>{if(new TextDecoder().decode(args[0].additionalData).includes('kithmoot.ordinary-operation.v1')&&++calls===3){
+        window.returnedCryptoWaiting=true;await new Promise(resolve=>window.releaseReturnedCrypto=resolve)}return encrypt(...args)};
+      window.restoreReturnedCrypto=()=>crypto.subtle.encrypt=encrypt;
+    }
+  })()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.returnedCryptoWaiting===true')
+  await page.evaluate(`providerObject.sig='0'.repeat(128);providerObject.tags[0][1]='1'.repeat(64);releaseReturnedCrypto();undefined`)
+  await page.waitForFunction('window.signingDone===true');const state=await signingState(page)
+  expect([state.phase,state.target,state.result,state.signCalls,state.puts,state.randoms,state.error]).toEqual(['provider-returned',null,expect.any(String),1,5,13,true])
+  expect(JSON.parse(state.result!)).toEqual(JSON.parse(await page.evaluate<string>('originalProviderJSON')))
+  await page.evaluate('restoreReturnedCrypto()');await finish(page)
 })

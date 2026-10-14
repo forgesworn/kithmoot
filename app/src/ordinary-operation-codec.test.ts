@@ -19,13 +19,24 @@ const owners = async () => ({
   tab: { binding: binding(tab), key: await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']) },
 })
 describe('native operation journal custody format', () => {
+  it('retains a returned result independently of C and refuses the earlier combined preview shape', () => {
+    const returned: OrdinaryOperationJournal = { ...journal(), phase: 'provider-returned',
+      result: 'exact signed bytes', resultDigest: digest('exact signed bytes'),
+      secrets: [new Uint8Array(32).fill(7)], nonces: ['8'.repeat(24), '9'.repeat(24)] }
+    const header = decodeOrdinaryOperationClassification(encodeOrdinaryOperationJournal(returned))
+    expect([header.resultDigest, header.target, header.targetRevisions]).toEqual([digest('exact signed bytes'), null, null])
+    expect(() => encodeOrdinaryOperationJournal({ ...returned, target: ['c'.repeat(64), 'd'.repeat(64)], targetRevisions: [9, 5] })).toThrow(OrdinaryStateHold)
+    expect(() => encodeOrdinaryOperationJournal({ ...returned, phase: 'candidate-prepared' })).toThrow(OrdinaryStateHold)
+    const candidate: OrdinaryOperationJournal = { ...returned, phase: 'candidate-prepared', target: ['c'.repeat(64), 'd'.repeat(64)], targetRevisions: [9, 5] }
+    expect(decodeOrdinaryOperationJournal(encodeOrdinaryOperationJournal(candidate))).toEqual(candidate)
+  })
   it('round-trips canonical phases and keeps identical names in distinct physical scopes', () => {
     const input = journal(), encoded = encodeOrdinaryOperationJournal(input)
     expect(decodeOrdinaryOperationJournal(encoded)).toEqual(input)
-    for (const phase of ['provider-started', 'provider-returned', 'candidate-committed', 'settled'] as const) {
-      const value: OrdinaryOperationJournal = { ...input, phase, secrets: phase === 'provider-started' || phase === 'provider-returned' ? [new Uint8Array(32).fill(7)] : [], nonces: phase === 'provider-started' || phase === 'provider-returned' ? ['8'.repeat(24), '9'.repeat(24)] : null }
-      const returned = phase === 'provider-returned' || phase === 'candidate-committed'
-      const next = returned ? { ...value, result: 'exact signed bytes', resultDigest: digest('exact signed bytes'), target: ['c'.repeat(64), 'd'.repeat(64)] as const, targetRevisions: [9, 5] as const }
+    for (const phase of ['provider-started', 'provider-returned', 'candidate-prepared', 'candidate-committed', 'settled'] as const) {
+      const value: OrdinaryOperationJournal = { ...input, phase, secrets: phase === 'provider-started' || phase === 'provider-returned' || phase === 'candidate-prepared' ? [new Uint8Array(32).fill(7)] : [], nonces: phase === 'provider-started' || phase === 'provider-returned' || phase === 'candidate-prepared' ? ['8'.repeat(24), '9'.repeat(24)] : null }
+      const returned = phase === 'provider-returned' || phase === 'candidate-prepared' || phase === 'candidate-committed', candidate = phase === 'candidate-prepared' || phase === 'candidate-committed'
+      const next = returned ? { ...value, result: 'exact signed bytes', resultDigest: digest('exact signed bytes'), target: candidate ? ['c'.repeat(64), 'd'.repeat(64)] as const : null, targetRevisions: candidate ? [9, 5] as const : null }
         : phase === 'settled' ? { ...value, target: ['c'.repeat(64), 'd'.repeat(64)] as const, targetRevisions: [9, 5] as const, resultDigest: digest('exact signed bytes'), request: '', result: null, secrets: [], nonces: null } : value
       expect(decodeOrdinaryOperationJournal(encodeOrdinaryOperationJournal(next))).toEqual(next)
     }

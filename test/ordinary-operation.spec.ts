@@ -32,17 +32,17 @@ test.beforeEach(async ({ context, page }) => {
       const marker=Ordinary.ordinaryOperationMarker({id,tab:purpose,sequence,commitment:null});bi.records.set(names.marker,marker);ti.records.set(names.marker,marker);
       bi.revision++;ti.revision++;
       const bf=await Ordinary.sealOrdinaryImage(bi,br.key),tf=await Ordinary.sealOrdinaryImage(ti,tr.key);
-      const after=phase==='provider-returned'||phase==='candidate-committed',settled=phase==='settled';
+      const after=phase==='provider-returned'||phase==='candidate-prepared'||phase==='candidate-committed',settled=phase==='settled',candidate=phase==='candidate-prepared'||phase==='candidate-committed';
       const digest=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),v=>v.toString(16).padStart(2,'0')).join('');
-      let cf=null,ct=null;if(after||settled){bi.revision++;ti.revision++;cf=await Ordinary.sealOrdinaryImage(bi,br.key);ct=await Ordinary.sealOrdinaryImage(ti,tr.key)};
+      let cf=null,ct=null;if(candidate||settled){bi.revision++;ti.revision++;cf=await Ordinary.sealOrdinaryImage(bi,br.key);ct=await Ordinary.sealOrdinaryImage(ti,tr.key)};
       window.journal={version:1,id,tab:purpose,sequence,phase,
         source:[Ordinary.ordinaryFrameDigest(br.frame),Ordinary.ordinaryFrameDigest(tr.frame)],
         sourceRevisions:[br.frame.revision,tr.frame.revision],enrolled:[Ordinary.ordinaryFrameDigest(bf),Ordinary.ordinaryFrameDigest(tf)],enrolledRevisions:[bf.revision,tf.revision],
-        target:settled||after?[Ordinary.ordinaryFrameDigest(cf),Ordinary.ordinaryFrameDigest(ct)]:null,targetRevisions:settled||after?[cf.revision,ct.revision]:null,
+        target:settled||candidate?[Ordinary.ordinaryFrameDigest(cf),Ordinary.ordinaryFrameDigest(ct)]:null,targetRevisions:settled||candidate?[cf.revision,ct.revision]:null,
         requestDigest:await digest('exact request'),resultDigest:settled||after?await digest('exact signed result'):null,
         scopes:[['browser','fixture',bi.generation,0],[purpose,'fixture',ti.generation,0]],ceilings:[expiry],
         request:settled?'':'exact request',result:after?'exact signed result':null,
-        secrets:phase==='provider-started'||phase==='provider-returned'?[new Uint8Array(32).fill(7)]:[],nonces:phase==='provider-started'||phase==='provider-returned'?['8'.repeat(24),'9'.repeat(24)]:null};
+        secrets:phase==='provider-started'||phase==='provider-returned'||phase==='candidate-prepared'?[new Uint8Array(32).fill(7)]:[],nonces:phase==='provider-started'||phase==='provider-returned'||phase==='candidate-prepared'?['8'.repeat(24),'9'.repeat(24)]:null};
       if(settled){const commitment=Ordinary.ordinaryOperationCommitment(Ordinary.decodeOrdinaryOperationClassification(Ordinary.encodeOrdinaryOperationJournal(journal)));
         const settledMarker=Ordinary.ordinaryOperationMarker({id,tab:purpose,sequence,commitment});bi.records.set(names.marker,settledMarker);ti.records.set(names.marker,settledMarker);bi.revision++;ti.revision++;}
       if(fault==='wrong-scope')journal.scopes[0][2]='a'.repeat(64);
@@ -71,7 +71,7 @@ test.beforeEach(async ({ context, page }) => {
     window.outcome=async call=>{try{await call();return 'ok'}catch(error){return error.name}};
   })()`)
 })
-for (const phase of ['prepared', 'provider-started', 'provider-returned', 'candidate-committed']) {
+for (const phase of ['prepared', 'provider-started', 'provider-returned', 'candidate-prepared', 'candidate-committed']) {
   test(`${phase} persists a barrier before ordinary callbacks or entropy`, async ({ page }) => {
     await page.evaluate(`enroll('${phase}')`)
     expect(await page.evaluate(`(async()=>{

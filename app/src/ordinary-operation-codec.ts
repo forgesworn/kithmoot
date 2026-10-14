@@ -34,7 +34,7 @@ export const ORDINARY_OPERATION_PREFIX = 'kithmoot.operation-journal.v1.'
 export const ORDINARY_OPERATION_CONTROL_PREFIX = 'journal:tab:'
 const HEX = /^[0-9a-f]{64}$/, TAB = /^tab:[0-9a-f]{64}$/
 const isTab = (v: unknown): v is `tab:${string}` => typeof v === 'string' && v.length === 68 && TAB.test(v)
-export type OrdinaryOperationPhase = 'prepared' | 'provider-started' | 'provider-returned' | 'candidate-committed' | 'settled'
+export type OrdinaryOperationPhase = 'prepared' | 'provider-started' | 'provider-returned' | 'candidate-prepared' | 'candidate-committed' | 'settled'
 export interface OrdinaryOperationJournal {
   readonly version: 1
   readonly id: string
@@ -122,7 +122,7 @@ const META = ['version', 'id', 'tab', 'sequence', 'phase', 'source', 'enrolled',
 function classification(raw: unknown): OrdinaryOperationClassification {
   const v = dataObject(raw, [...META, 'requestBytes', 'resultBytes', 'secretCount', 'hasNonces'])
   if (v.version !== 1 || !isTab(v.tab) || !integer(v.sequence) || v.sequence === 0 ||
-      !['prepared', 'provider-started', 'provider-returned', 'candidate-committed', 'settled'].includes(v.phase as string)) hold()
+      !['prepared', 'provider-started', 'provider-returned', 'candidate-prepared', 'candidate-committed', 'settled'].includes(v.phase as string)) hold()
   const scopes = dataArray(v.scopes, 32).map(rawScope => {
     const s = dataArray(rawScope, 4)
     if (s.length !== 4 || s[0] !== 'browser' && s[0] !== v.tab || typeof s[1] !== 'string' ||
@@ -143,7 +143,7 @@ function classification(raw: unknown): OrdinaryOperationClassification {
   if ((target === null) !== (targetRevisions === null) || enrolled.some((d, i) => d === source[i]) || target?.some((d, i) => d === enrolled[i] || d === source[i]) ||
       enrolledRevisions.some((r, i) => sourceRevisions[i]! >= Number.MAX_SAFE_INTEGER || r !== sourceRevisions[i]! + 1) ||
       targetRevisions?.some((r, i) => enrolledRevisions[i]! >= Number.MAX_SAFE_INTEGER || r !== enrolledRevisions[i]! + 1)) hold()
-  const returned = phase === 'provider-returned' || phase === 'candidate-committed' || phase === 'settled'
+  const returned = phase === 'provider-returned' || phase === 'candidate-prepared' || phase === 'candidate-committed' || phase === 'settled'
   const requestDigest = hash(v.requestDigest), resultDigest = v.resultDigest === null ? null : hash(v.resultDigest)
   if (returned === (resultDigest === null)) hold()
   if (phase === 'settled') {
@@ -151,12 +151,16 @@ function classification(raw: unknown): OrdinaryOperationClassification {
   } else {
     if (!v.requestBytes) hold()
     if (phase === 'prepared' && (v.secretCount || v.hasNonces)) hold()
-    if (phase === 'provider-started' || phase === 'provider-returned') {
+    if (phase === 'provider-started' || phase === 'provider-returned' || phase === 'candidate-prepared') {
       if (!v.secretCount || !v.hasNonces) hold()
     }
     if (phase === 'candidate-committed' && (v.secretCount || v.hasNonces)) hold()
-    const returned = phase === 'provider-returned' || phase === 'candidate-committed'
-    if (returned ? !v.resultBytes || target === null : v.resultBytes !== null || target !== null) hold()
+    const returned = phase === 'provider-returned' || phase === 'candidate-prepared' || phase === 'candidate-committed'
+    const candidate = phase === 'candidate-prepared' || phase === 'candidate-committed'
+    if (returned ? !v.resultBytes : v.resultBytes !== null) hold()
+    // A returned signature is durable before any C projection or encryption.
+    // The private preview format rejects the earlier combined returned/C shape.
+    if (candidate === (target === null)) hold()
   }
   return { version: 1, id: hash(v.id), tab: v.tab as `tab:${string}`, sequence: v.sequence, phase,
     source, enrolled, target, sourceRevisions, enrolledRevisions, targetRevisions, requestDigest, resultDigest, scopes, ceilings: ceilings as number[],
@@ -322,7 +326,8 @@ export function ordinaryOperationControlDigest(raw: unknown): string {
   }
 }
 export async function sealOrdinaryOperationControl(journal: OrdinaryOperationJournal,
-  owners: { browser: { binding: OrdinaryOperationBinding; key: CryptoKey }; tab: { binding: OrdinaryOperationBinding; key: CryptoKey } }): Promise<OrdinaryOperationControl> {
+  owners: { browser: { binding: OrdinaryOperationBinding; key: CryptoKey }; tab: { binding: OrdinaryOperationBinding; key: CryptoKey } },
+  cryptoProvider: Crypto = crypto): Promise<OrdinaryOperationControl> {
   const bytes = encodeOrdinaryOperationJournal(journal)
   try {
     const parsed = decodeOrdinaryOperationClassification(bytes), names = ordinaryOperationNames(parsed.tab)
@@ -330,8 +335,8 @@ export async function sealOrdinaryOperationControl(journal: OrdinaryOperationJou
     if (b.purpose !== 'browser' || t.purpose !== parsed.tab || parsed.ceilings[0] !== t.expiresAt) hold()
     const keys = [validateOrdinaryKey(owners.browser.key), validateOrdinaryKey(owners.tab.key)]
     const encrypt = async (owner: OrdinaryOperationBinding, key: CryptoKey): Promise<Cipher> => {
-      const nonce = crypto.getRandomValues(new Uint8Array(12))
-      return { nonce: nonce.buffer, ciphertext: await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce,
+      const nonce = cryptoProvider.getRandomValues(new Uint8Array(12))
+      return { nonce: nonce.buffer, ciphertext: await cryptoProvider.subtle.encrypt({ name: 'AES-GCM', iv: nonce,
         additionalData: aad(names.control, owner), tagLength: 128 }, key, bytes) }
     }
     const browser = await encrypt(b, keys[0]!), tab = await encrypt(t, keys[1]!)

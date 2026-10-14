@@ -10,7 +10,7 @@ import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { OrdinaryStateOwner, ordinaryPairReadCustodyFor, ordinaryPairPredecessorSemanticDigestFor, ordinaryPairRenewalByteLengths,
   type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
-import { verifyOrdinaryLifecycleRoot } from './ordinary-protocol-work.js'
+import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
 import { captureOrdinarySnapshotContext, captureOrdinaryProjectedSnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX, type DeviceStore } from './device-store.js'
@@ -76,7 +76,7 @@ const factories = new WeakSet<object>()
 const obligations = new WeakMap<object,Obligation>()
 /** Native facts and fixed preparation only. No entropy, provider or write. */
 function intent(binding: Factory, browser: DeviceStore, tab: DeviceStore, token: OrdinaryPairCustody,
-  desired: Readonly<{issuedAt:number;expiresAt:number;semanticDigest:string}>): OrdinaryRenewalIntent {
+  desired: Readonly<{issuedAt:number;expiresAt:number;semanticDigest:string}>, reconstructed?: OrdinaryRenewalIntent): OrdinaryRenewalIntent {
   const b=records(browser),t=records(tab),checked=inspectPersistentAdmissionProofs(browser,tab)
   try {
     const headers=ordinaryPairReadCustodyFor(token,b,t)
@@ -137,7 +137,7 @@ function intent(binding: Factory, browser: DeviceStore, tab: DeviceStore, token:
     }finally{probeB.clear();probeT.clear()}
     const semanticDigest=ordinaryPairPredecessorSemanticDigestFor(token,b,t)
     if(semanticDigest!==desired.semanticDigest)hold()
-    const predecessor=OrdinaryStateOwner.captureRenewalPredecessor(token)
+    const predecessor=reconstructed?{frames:reconstructed.sourceFrames,controlDigest:reconstructed.previousControlDigest,markers:reconstructed.previousMarkers}:OrdinaryStateOwner.captureRenewalPredecessor(token)
     const epoch=bound.device.epochs.find(value=>value.epoch===bound.device.epoch)
     if(!epoch)hold()
     return Object.freeze({account:binding.account,participant:binding.participant,invitationId:binding.invitationId,roomId:bound.roomId,keep:binding.keep,
@@ -210,4 +210,35 @@ export function validateOrdinaryRenewalPredecessor(token:OrdinaryRenewalObligati
   const value=obligations.get(token)!,current=intent(value.binding,browser,tab,custody,value.intent)
   if(JSON.stringify(current)!==JSON.stringify(value.intent))hold()
   checkOrdinaryRenewalObligation(token)
+}
+
+
+/** The fixed signing owner has retained this exact outer promise before any
+ * native await. Ownership remains distinct from the authenticated phase. */
+export function checkOrdinaryRenewalSigningObligation(token:OrdinaryRenewalObligation,pending:Promise<unknown>):void{
+  const value=obligations.get(token)
+  if(!value||value.state!=='claimed')hold()
+  verifyOrdinaryLifecyclePromise(value.root,pending)
+  if(value.intent.expiresAt-Math.floor(Date.now()/1000)<RESUME_MIN_REMAINING_SECONDS)hold()
+  if(value.binding.live()!==true||value.binding.account!==null&&!OrdinaryForegroundSigner.nativeCurrent(value.binding.identity as OrdinaryForegroundSigner,
+    value.binding.participant,value.intent.authority.foregroundExpiresAt))hold()
+  verifyOrdinaryLifecyclePromise(value.root,pending)
+}
+/** Only the fixed owner constructs this temporary read token from authenticated
+ * E and its exact bounded inverse. Original P frame/control metadata comes
+ * from the retained obligation, never a caller reconstruction or nonce replay. */
+export function validateOrdinaryRenewalReconstructedPredecessor(token:OrdinaryRenewalObligation,pending:Promise<unknown>,browser:DeviceStore,tab:DeviceStore,custody:OrdinaryPairCustody):void{
+  checkOrdinaryRenewalSigningObligation(token,pending)
+  const value=obligations.get(token)!,current=intent(value.binding,browser,tab,custody,value.intent,value.intent)
+  if(JSON.stringify(current)!==JSON.stringify(value.intent))hold()
+  checkOrdinaryRenewalSigningObligation(token,pending)
+}
+
+/** Fixed foreground identity equality only, additional to root/promise and
+ * current native source checks; no signer or template is returned. */
+export function validateOrdinaryRenewalSigningForeground(token:OrdinaryRenewalObligation,pending:Promise<unknown>,signer:OrdinaryForegroundSigner):void{
+  checkOrdinaryRenewalSigningObligation(token,pending)
+  const value=obligations.get(token)!
+  if(value.binding.account===null||value.binding.identity!==signer)hold()
+  checkOrdinaryRenewalSigningObligation(token,pending)
 }

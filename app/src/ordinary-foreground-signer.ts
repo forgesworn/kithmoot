@@ -1,3 +1,4 @@
+import { takeOrdinaryRenewalSigningLifetime,takeOrdinaryRenewalSigningAttempt,validateOrdinaryRenewalSigningLifetime,type OrdinaryRenewalSigningLifetime,type OrdinaryRenewalSigningAttempt } from './ordinary-renewal-signing-bridge.js'
 import type { EventTemplate, NostrEvent, SignetSession, SignetSigner, SignerEffectBoundary, SignerCapabilities } from 'signet-login'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { DeviceStore } from './device-store.js'
@@ -161,6 +162,37 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     if(!OrdinaryForegroundSigner.isNativeSigner(signer))hold()
     const consumer=signer.#captureConsumer(input)
     return Object.freeze((event:EventTemplate,external?:SignerEffectBoundary)=>signer.#signEvent(event,external,consumer))
+  }
+  /** Fixed owner lifetime only; its retained promise includes durable started,
+   * exact result persistence and reconciliation. Never creates another graph
+   * child or routes an active journal through the ordinary read path. */
+  static retainMemberRenewal(signer:OrdinaryForegroundSigner,lifetime:OrdinaryRenewalSigningLifetime):void{
+    if(!OrdinaryForegroundSigner.isNativeSigner(signer)||signer.#busy||signer.#closed||signer.#held)hold()
+    signer.#check();const pending=takeOrdinaryRenewalSigningLifetime(lifetime,signer);signer.#check()
+    signer.#busy=true;signer.#work.add(pending)
+    void pending.finally(()=>{signer.#work.delete(pending);signer.#busy=false}).catch(()=>{})
+  }
+  static async checkMemberRenewalClients(signer:OrdinaryForegroundSigner,lifetime:OrdinaryRenewalSigningLifetime):Promise<void>{
+    if(!OrdinaryForegroundSigner.isNativeSigner(signer)||!signer.#busy)hold()
+    const pending=validateOrdinaryRenewalSigningLifetime(lifetime,signer);if(!signer.#work.has(pending))hold()
+    await signer.#clients();validateOrdinaryRenewalSigningLifetime(lifetime,signer);if(!signer.#work.has(pending))hold()
+  }
+  /** Uses only the captured SDK implementation and the owner's fixed attempt.
+   * The private boundary permanently rejects a second actual provider start. */
+  static signMemberRenewal(signer:OrdinaryForegroundSigner,attempt:OrdinaryRenewalSigningAttempt):Promise<NostrEvent>{
+    if(!OrdinaryForegroundSigner.isNativeSigner(signer)||!signer.#busy||signer.#closed||signer.#held)hold()
+    const captured=takeOrdinaryRenewalSigningAttempt(attempt,signer)
+    if(!signer.#work.has(captured.pending))hold();signer.#check()
+    const driver=Promise.resolve().then(async()=>{
+      await signer.#clients()
+      let sdk:Promise<NostrEvent>
+      try{sdk=Promise.resolve(signer.#sign.call(signer.#raw,statement(captured.statement),captured.boundary))}catch(error){sdk=Promise.reject(error)}
+      signer.#work.add(sdk);OrdinaryStateOwner.joinPairLifetime(signer.#options.browser,signer.#options.tab,sdk)
+      void sdk.finally(()=>signer.#work.delete(sdk)).catch(()=>{})
+      const result=await sdk;await signer.#clients();signer.#check();return result
+    })
+    signer.#work.add(driver);OrdinaryStateOwner.joinPairLifetime(signer.#options.browser,signer.#options.tab,driver)
+    void driver.finally(()=>signer.#work.delete(driver)).catch(()=>{});return driver
   }
   readonly pubkey: string
   readonly method: SignetSigner['method']

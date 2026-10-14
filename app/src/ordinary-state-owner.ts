@@ -1,10 +1,12 @@
+import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
+import { registerOrdinaryRenewalSigningLifetime,registerOrdinaryRenewalSigningAttempt,releaseOrdinaryRenewalSigningLifetime,type OrdinaryRenewalSigningLifetime } from './ordinary-renewal-signing-bridge.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha2'
 import type { OrdinaryRenewalObligation } from './ordinary-renewal-obligation.js'
 import type { DeviceStore } from './device-store.js'
-import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification,
+import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification, openOrdinaryOperationControl,
   ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
-  type OrdinaryOperationJournal, type OrdinaryOperationClassification } from './ordinary-operation-codec.js'
+  type OrdinaryOperationJournal, type OrdinaryOperationClassification, type OrdinaryOperationControl } from './ordinary-operation-codec.js'
 import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
@@ -52,7 +54,11 @@ interface PreparedRenewalTarget {
   readonly controlDigest:string
   readonly header:OrdinaryOperationClassification
 }
-const renewalEnrollments=new WeakMap<object,Readonly<{obligation:OrdinaryRenewalObligation;request:string;target:PreparedRenewalTarget}>>()
+const renewalEnrollments=new WeakMap<object,Readonly<{obligation:OrdinaryRenewalObligation;request:string;target:PreparedRenewalTarget;classification:OperationClassification;held:ReturnType<typeof import('./ordinary-renewal-obligation.js').takeOrdinaryRenewalObligation>}>>()
+const consumedRenewalEnrollments=new WeakSet<object>()
+declare const renewalReturnedBrand:unique symbol
+export interface OrdinaryRenewalProviderReturned {readonly [renewalReturnedBrand]:true}
+const renewalReturned=new WeakMap<object,Readonly<{enrollment:OrdinaryRenewalEnrollment;target:PreparedRenewalTarget;classification:OperationClassification;candidate:readonly [OrdinaryFrame,OrdinaryFrame]}>>()
 const pairCommits = new WeakMap<object, {
   browser: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
   tab: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
@@ -446,7 +452,7 @@ export class OrdinaryStateOwner {
   }
   /** Immutable classification local to this coherent transaction. Fixed
    * writers never publish a partially authenticated scan into owner caches. */
-  async #classifyOperations(live: () => boolean, context: OperationTransaction, reconciling = false, prepared?:PreparedRenewalTarget): Promise<OperationClassification> {
+  async #classifyOperations(live: () => boolean, context: OperationTransaction, reconciling = false, prepared?:PreparedRenewalTarget|readonly PreparedRenewalTarget[]): Promise<OperationClassification> {
     const store = context.store, read = context.read
     let browserImage: OrdinaryImage | undefined
     const check = () => this.#custodyCheck(live, reconciling)
@@ -514,10 +520,12 @@ export class OrdinaryStateOwner {
           const control = await read(() => store.get(names.control)); check()
           const journal = await openOrdinaryOperationClassification(control, { browser: { binding: header(browser!.image), key: browser!.key },
             tab: { binding: header(opened.image), key: opened.key } }); check()
-          if(prepared?.purpose===purpose&&journal.phase==='prepared'){
+          const candidates:readonly PreparedRenewalTarget[]=prepared?('purpose' in prepared?[prepared]:prepared):[]
+          const selected=candidates.find(target=>target.purpose===purpose&&target.header.phase===journal.phase)
+          if(selected&&journal.phase!=='settled'){
             const digest=ordinaryOperationControlDigest(control)
-            if(journal.phase!=='prepared'||digest!==prepared.controlDigest||JSON.stringify(journal)!==JSON.stringify(prepared.header)||
-              ownerDigests.get('browser')!==prepared.rows[0]||ownerDigests.get(purpose)!==prepared.rows[1])hold()
+            if(digest!==selected.controlDigest||JSON.stringify(journal)!==JSON.stringify(selected.header)||
+              ownerDigests.get('browser')!==selected.rows[0]||ownerDigests.get(purpose)!==selected.rows[1])hold()
             const marker=ordinaryOperationMarker({id:journal.id,tab:journal.tab,sequence:journal.sequence,commitment:null})
             if(marker!==markers[0]![1])hold()
             controlDigests.set(names.control,digest);controlNames.delete(names.control);continue
@@ -871,9 +879,9 @@ export class OrdinaryStateOwner {
           // Reserve every phase packet and its two AEAD tags/nonces before
           // operation-id, owner-nonce, seal or provider entropy can start.
           const result='x'.repeat(4096),secret=new Uint8Array(32),targetDigests=[digest(core.sourceFrames[0]+' C'),digest(core.sourceFrames[1]+' C')] as const
-          try{for(const phase of ['prepared','provider-started','provider-returned','candidate-committed','settled'] as const){
-            const returned=phase==='provider-returned'||phase==='candidate-committed',done=phase==='settled',privateBody=phase==='provider-started'||phase==='provider-returned'
-            const packet=encodeOrdinaryOperationJournal({...skeleton,phase,target:returned||done?targetDigests:null,targetRevisions:returned||done?[b.revision+2,t.revision+2]:null,
+          try{for(const phase of ['prepared','provider-started','provider-returned','candidate-prepared','candidate-committed','settled'] as const){
+            const returned=phase==='provider-returned'||phase==='candidate-prepared'||phase==='candidate-committed',done=phase==='settled',privateBody=phase==='provider-started'||phase==='provider-returned'||phase==='candidate-prepared',candidate=phase==='candidate-prepared'||phase==='candidate-committed'||done
+            const packet=encodeOrdinaryOperationJournal({...skeleton,phase,target:candidate?targetDigests:null,targetRevisions:candidate?[b.revision+2,t.revision+2]:null,
               resultDigest:returned||done?digest(result):null,request:done?'':rawRequest,result:returned?result:null,secrets:privateBody?[secret]:[],nonces:privateBody?['0'.repeat(24),'1'.repeat(24)]:null})
             packet.fill(0)
           }}finally{secret.fill(0)}
@@ -930,7 +938,7 @@ export class OrdinaryStateOwner {
             const saved=await browser.#classifyOperations(()=>true,read,true,prepared);read.stop();await read.ended
             if(equal(saved,target)){
               const enrollment=Object.freeze({}) as OrdinaryRenewalEnrollment
-              renewalEnrollments.set(enrollment,Object.freeze({obligation,request:rawRequest,target:prepared}))
+              renewalEnrollments.set(enrollment,Object.freeze({obligation,request:rawRequest,target:prepared,classification:target,held}))
               return Object.freeze({status:'enrolled',enrollment}) as OrdinaryRenewalEnrollmentOutcome
             }
             if(equal(saved,prior))return Object.freeze({status:'definite-abort'}) as OrdinaryRenewalEnrollmentOutcome
@@ -940,6 +948,241 @@ export class OrdinaryStateOwner {
       })
     })
     browser.#track(operation);tab.#track(operation);return operation
+  }
+  /** Fixed signing producer. Its exact returned promise is retained by the
+   * genuine root and both owners before any await, covering started custody,
+   * one actual signing attempt, exact result persistence and reconciliation. */
+  static signMemberRenewal(enrollment:OrdinaryRenewalEnrollment):Promise<OrdinaryRenewalProviderReturned>{
+    const captured=renewalEnrollments.get(enrollment)
+    if(!captured||consumedRenewalEnrollments.has(enrollment))hold()
+    consumedRenewalEnrollments.add(enrollment)
+    const {held,obligation}=captured,browser=held.binding.browser.owner,tab=held.binding.tab.owner,
+      purpose=tab.purpose as `tab:${string}`,names=ordinaryOperationNames(purpose)
+    let resolve!:(value:OrdinaryRenewalProviderReturned)=>void,reject!:(reason:unknown)=>void
+    const pending=new Promise<OrdinaryRenewalProviderReturned>((yes,no)=>{resolve=yes;reject=no})
+    browser.#track(pending);tab.#track(pending)
+    let foregroundLifetime:OrdinaryRenewalSigningLifetime|undefined
+    try{
+      held.root.retain(pending)
+      if(held.binding.account!==null){
+        foregroundLifetime=registerOrdinaryRenewalSigningLifetime({obligation,pending,signer:held.binding.identity as OrdinaryForegroundSigner})
+        OrdinaryForegroundSigner.retainMemberRenewal(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+      }
+    }catch(error){releaseOrdinaryRenewalSigningLifetime(foregroundLifetime);reject(error);return pending}
+    void Promise.resolve().then(async()=>{
+      const bridge=await import('./ordinary-renewal-obligation.js'),codec=await import('./ordinary-renewal-request.js'),credential=await import('./ordinary-renewal-credential.js'),
+        sealModule=await import('../../src/seal.js'),nostr=await import('nostr-tools/pure')
+      const check=()=>{browser.#check(held.binding.live);tab.#check(held.binding.live);bridge.checkOrdinaryRenewalSigningObligation(obligation,pending)}
+      check();if(browser.#retry||tab.#retry||!navigator.locks)hold()
+      if(foregroundLifetime)await OrdinaryForegroundSigner.checkMemberRenewalClients(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+      return navigator.locks.request(WRITE_LOCK,async()=>{
+        const equal=(a:OperationClassification,b:OperationClassification)=>JSON.stringify(a)===JSON.stringify(b)
+        const binding=(i:OrdinaryImage)=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt})
+        const replaceControl=(c:OperationClassification,digest:string):OperationClassification=>Object.freeze({...c,controls:Object.freeze(c.controls.map(([n,v])=>Object.freeze([n,n===names.control?digest:v] as const)))})
+        let expected=captured.classification,active=captured.target,seal:ReturnType<typeof sealModule.generateSealKey>|undefined,
+          nonces:readonly [string,string]|undefined,context:OperationTransaction|undefined,providerNotStarted=true,providerCompleted=false,providerActive=true,custodyCompleting=false
+        const providerRuns=new Set<Promise<unknown>>()
+        const cancel={stop:()=>{if(!custodyCompleting)context?.abort()}};browser.#resources.add(cancel);tab.#resources.add(cancel)
+        /** Reconstruct only owned P copies after authenticating exact E and
+         * the exact active control. This temporary token is not a phase grant. */
+        const withP=async<T>(work:(b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody,j:OrdinaryOperationJournal,rows:readonly [Row,Row],e:readonly [OrdinaryImage,OrdinaryImage])=>T):Promise<T>=>{
+          let b:OrdinaryImage|undefined,t:OrdinaryImage|undefined,j:OrdinaryOperationJournal|undefined
+          try{
+            check();context=operationTransaction(await browser.#database(held.binding.live),'readonly')
+            const classified=await browser.#classifyOperations(held.binding.live,context,false,active);check();if(!equal(classified,expected))hold()
+            const raw=await Promise.all([context.read(()=>context!.store.get('browser')),context.read(()=>context!.store.get(purpose)),context.read(()=>context!.store.get(names.control))])
+            const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
+            b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:binding(b),key:br.key},tab:{binding:binding(t),key:tr.key}});check()
+            if(j.request!==captured.request||j.id!==captured.target.header.id||j.sequence!==captured.target.header.sequence)hold()
+            const eb=copyImage(b),et=copyImage(t)
+            try{
+              codec.restoreOrdinaryRenewalPredecessor(b,t,captured.request,{id:j.id,sequence:j.sequence})
+              const bv=view(new Map(b.records),false),tv=view(new Map(t.records),false),custody=Object.freeze({}) as OrdinaryPairCustody
+              pairCustody.set(custody,{kind:'read',browser:b,tab:t,browserOwner:browser,tabOwner:tab,browserStore:bv.store,tabStore:tv.store,
+                browserScope:held.binding.browser.scope,tabScope:held.binding.tab.scope,operationMarkers:[new Map([...b.records].filter(([n])=>n.startsWith('kithmoot.operation-journal'))),new Map([...t.records].filter(([n])=>n.startsWith('kithmoot.operation-journal')))]})
+              try{
+                bridge.validateOrdinaryRenewalReconstructedPredecessor(obligation,pending,bv.store,tv.store,custody);check()
+                let value!:T
+                await context.step(()=>{check();const result=work(bv.store,tv.store,custody,j!,[br,tr],[eb,et]);
+                  if(result&&typeof(result as unknown as PromiseLike<unknown>).then==='function'){void Promise.resolve(result).catch(()=>{});hold()}
+                  check();value=result})
+                context.stop();await context.ended;return value
+              }finally{pairCustody.delete(custody);bv.close();tv.close()}
+            }finally{clearImage(eb);clearImage(et)}
+          }finally{context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);j?.secrets.forEach(k=>k.fill(0))}
+        }
+        /** Freeze one control candidate and reconcile complete native facts.
+         * Exact prior retries the same bytes; mixed/unavailable waits explicitly.
+         * Revocation after a write never converts unknown custody into absence. */
+        const persist=async(journal:OrdinaryOperationJournal):Promise<void>=>{
+          const preparation=await withP((_b,_t,_c,_j,rows,e)=>({rows,bindings:[binding(e[0]),binding(e[1])] as const}))
+          check();const control=await sealOrdinaryOperationControl(journal,{browser:{binding:preparation.bindings[0],key:preparation.rows[0].key},tab:{binding:preparation.bindings[1],key:preparation.rows[1].key}});check()
+          const packet=encodeOrdinaryOperationJournal(journal)
+          let header:OrdinaryOperationClassification;try{header=decodeOrdinaryOperationClassification(packet)}finally{packet.fill(0)}
+          const next:PreparedRenewalTarget={...active,controlDigest:ordinaryOperationControlDigest(control),header},target=replaceControl(expected,next.controlDigest)
+          for(;;){
+            let attempted=false
+            try{
+              check();context=operationTransaction(await browser.#database(held.binding.live),'readwrite')
+              const current=await browser.#classifyOperations(held.binding.live,context,false,active);check();if(!equal(current,expected))hold()
+              await context.step(()=>{check();attempted=true;context!.store.put(control,names.control)})
+              context.stop();await context.ended.catch(()=>{})
+            }catch(error){context?.abort();await context?.ended.catch(()=>{});if(!attempted)throw error}
+            finally{context?.stop();context=undefined}
+            let retriedPrior=false
+            for(;;){
+              let read:OperationTransaction|undefined,prior=false
+              browser.#db?.close();browser.#db=undefined
+              try{
+                read=operationTransaction(await browser.#database(()=>true,true),'readonly')
+                const current=await browser.#classifyOperations(()=>true,read,true,[active,next]);read.stop();await read.ended
+                if(equal(current,target)){expected=target;active=next;return}
+                if(equal(current,expected)){prior=true}
+              }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+              if(prior&&retriedPrior){check();break}
+              await new Promise<void>(yes=>{browser.#retry=yes;tab.#retry=yes});browser.#retry=undefined;tab.#retry=undefined;retriedPrior=prior
+            }
+          }
+        }
+        try{
+          const prepared=await withP((_b,_t,_c,j)=>({...j,secrets:[],nonces:null}))
+          if(prepared.phase!=='prepared'||prepared.result!==null||prepared.target!==null)hold()
+          // E preflight already reserved every phase and candidate image before
+          // entropy. Repeat source/role checks immediately before allocation.
+          check();seal=sealModule.generateSealKey();check()
+          const nonce=()=>{const bytes=new Uint8Array(12);try{crypto.getRandomValues(bytes);return bytesToHex(bytes)}finally{bytes.fill(0)}}
+          const firstNonce=nonce();check();const secondNonce=nonce();check();nonces=Object.freeze([firstNonce,secondNonce])
+          // Result custody has its own preallocated AEAD nonces. A valid
+          // already-started fulfilment can be saved after revocation without
+          // allocating entropy, checking mutable selectors or constructing C.
+          const resultNonceBrowser=nonce();check();const resultNonceTab=nonce();check()
+          const started:OrdinaryOperationJournal={...prepared,phase:'provider-started',secrets:[seal.secretKey as Uint8Array<ArrayBuffer>],nonces}
+          await persist(started);check()
+          const statement=await credential.ordinaryRenewalStatement(captured.request,seal.secretKey);check()
+          const completionPreparation=await withP((_b,_t,_c,j,rows,e)=>{
+            if(j.phase!=='provider-started'||j.result!==null||j.target!==null)hold()
+            return Object.freeze({rows,bindings:Object.freeze([binding(e[0]),binding(e[1])]) as readonly [ReturnType<typeof binding>,ReturnType<typeof binding>],
+              started:active,expected,pending,browser,tab,scopes:started.scopes,requestDigest:started.requestDigest})
+          })
+          // This private one-use completion record is minted under current P
+          // custody and armed only at the actual provider call. It supplies
+          // permission for exactly one result-only journal candidate.
+          let completionArmed=false,completionPromise:Promise<unknown>|undefined,completionResult:string|undefined,completionConsumed=false
+          const captureCompletion=(input:import('signet-login').NostrEvent):void=>{
+            if(!completionArmed||completionResult!==undefined)hold()
+            completionResult=credential.ordinaryRenewalResultForStatement(captured.request,statement,input)
+          }
+          const finishCompletion=async():Promise<void>=>{
+            if(!completionArmed||completionConsumed||completionResult===undefined||completionPreparation.pending!==pending||
+              completionPreparation.browser!==browser||completionPreparation.tab!==tab||completionPreparation.started.header.phase!=='provider-started'||
+              completionPreparation.requestDigest!==started.requestDigest)hold()
+            completionConsumed=true;custodyCompleting=true
+            const result=completionResult,resultBytes=new TextEncoder().encode(result),resultDigest=bytesToHex(sha256(resultBytes));resultBytes.fill(0)
+            const returned:OrdinaryOperationJournal={...started,phase:'provider-returned',result,resultDigest,target:null,targetRevisions:null}
+            const nonceBytes=[resultNonceBrowser,resultNonceTab].map(value=>Uint8Array.from(value.match(/../g)!.map(v=>parseInt(v,16))))
+            let used=0
+            const fixedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{
+              if(used>=nonceBytes.length||!(value instanceof Uint8Array)||value.length!==12)hold();value.set(nonceBytes[used++]!);return value
+            }} as unknown as Crypto
+            let control:OrdinaryOperationControl|undefined
+            try{
+              while(!control){
+                used=0
+                try{control=await sealOrdinaryOperationControl(returned,{browser:{binding:completionPreparation.bindings[0],key:completionPreparation.rows[0].key},
+                  tab:{binding:completionPreparation.bindings[1],key:completionPreparation.rows[1].key}},fixedCrypto)}
+                catch{await new Promise<void>(yes=>{browser.#retry=yes;tab.#retry=yes});browser.#retry=undefined;tab.#retry=undefined}
+              }
+            }finally{nonceBytes.forEach(bytes=>bytes.fill(0))}
+            const packet=encodeOrdinaryOperationJournal(returned);let header:OrdinaryOperationClassification
+            try{header=decodeOrdinaryOperationClassification(packet)}finally{packet.fill(0)}
+            const prior=completionPreparation.started,priorFacts=completionPreparation.expected,
+              next:PreparedRenewalTarget={...prior,controlDigest:ordinaryOperationControlDigest(control),header},target=replaceControl(priorFacts,next.controlDigest)
+            // Exact native facts alone govern this custody write. Revocation
+            // cannot grant a retry, C projection, state adoption or new effect.
+            for(;;){
+              try{
+                context=operationTransaction(await browser.#database(()=>true,true),'readwrite')
+                const current=await browser.#classifyOperations(()=>true,context,true,[prior,next])
+                if(equal(current,target)){context.stop();await context.ended;expected=target;active=next;return}
+                if(!equal(current,priorFacts))hold()
+                await context.step(()=>{context!.store.put(control,names.control)})
+                context.stop();await context.ended.catch(()=>{})
+              }catch{context?.abort();await context?.ended.catch(()=>{})}finally{context?.stop();context=undefined}
+              let retriedPrior=false
+              for(;;){
+                let read:OperationTransaction|undefined,isPrior=false
+                browser.#db?.close();browser.#db=undefined
+                try{
+                  read=operationTransaction(await browser.#database(()=>true,true),'readonly')
+                  const current=await browser.#classifyOperations(()=>true,read,true,[prior,next]);read.stop();await read.ended
+                  if(equal(current,target)){expected=target;active=next;return}
+                  isPrior=equal(current,priorFacts)
+                }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+                if(isPrior&&retriedPrior)break
+                await new Promise<void>(yes=>{browser.#retry=yes;tab.#retry=yes});browser.#retry=undefined;tab.#retry=undefined;retriedPrior=isPrior
+              }
+            }
+          }
+          let signed:import('signet-login').NostrEvent
+          if(held.binding.account===null){
+            let result:import('signet-login').NostrEvent|undefined,nativeError:unknown
+            try{await withP((b)=>{
+              const raw=b.get('kithmoot.participant');if(raw===null)hold()
+              const key=Uint8Array.from(raw.match(/../g)!.map(v=>parseInt(v,16)))
+              try{if(nostr.getPublicKey(key)!==held.intent.participant)hold();providerNotStarted=false;completionArmed=true
+                result=nostr.finalizeEvent({...statement,tags:statement.tags.map(t=>[...t])},key);captureCompletion(result);providerCompleted=true;return undefined
+              }finally{key.fill(0)}
+            })}catch(error){nativeError=error}
+            if(!result||completionResult===undefined){if(nativeError)throw nativeError;hold()}
+            try{await finishCompletion()}finally{custodyCompleting=false};if(nativeError)throw nativeError;signed=result
+          }else{
+            const boundary:import('signet-login').SignerEffectBoundary=Object.freeze({start:<V>(provider:()=>Promise<V>):Promise<V>=>{
+              if(!providerActive||!providerNotStarted)return Promise.reject(new OrdinaryStateHold())
+              providerNotStarted=false
+              const run=(async()=>{
+                let operation:Promise<V>|undefined,capturedResult:Promise<V>|undefined,nativeError:unknown
+                try{
+                  await OrdinaryForegroundSigner.checkMemberRenewalClients(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime!)
+                  try{await withP(()=>{completionArmed=true
+                    try{operation=Promise.resolve(provider())}catch(error){operation=Promise.reject(error)}
+                    completionPromise=operation
+                    capturedResult=operation.then(result=>{if(completionPromise!==operation)hold();captureCompletion(result as import('signet-login').NostrEvent);return result})
+                    browser.#track(operation);tab.#track(operation);browser.#track(capturedResult);tab.#track(capturedResult);void capturedResult.catch(()=>{});void operation.catch(()=>{});return undefined
+                  })}catch(error){nativeError=error}
+                  if(!operation||!capturedResult)hold();const result=await capturedResult;providerCompleted=true
+                  try{await finishCompletion()}finally{custodyCompleting=false};if(nativeError)throw nativeError;return result
+                }finally{if(operation)await Promise.allSettled([operation])}
+              })();providerRuns.add(run);browser.#track(run);tab.#track(run);return run
+            }})
+            const attempt=registerOrdinaryRenewalSigningAttempt(foregroundLifetime!,statement,boundary)
+            try{signed=await OrdinaryForegroundSigner.signMemberRenewal(held.binding.identity as OrdinaryForegroundSigner,attempt)}finally{providerActive=false;await Promise.allSettled([...providerRuns])}
+          }
+          if(providerNotStarted||!providerCompleted)hold();check()
+          const result=credential.ordinaryRenewalResultForStatement(captured.request,statement,signed);check()
+          if(result!==completionResult||active.header.phase!=='provider-returned')hold()
+          const resultBytes=new TextEncoder().encode(result),resultDigest=bytesToHex(sha256(resultBytes));resultBytes.fill(0)
+          const providerReturned:OrdinaryOperationJournal={...started,phase:'provider-returned',result,resultDigest}
+          // Fixed C composition uses only authenticated reconstructed P, exact
+          // returned statement and the already persisted seal/C nonces.
+          const candidateModule=await import('./ordinary-renewal-candidate.js')
+          const candidate=await withP((b,t,c,_j,rows,e)=>({images:candidateModule.prepareOrdinaryRenewalCandidate(b,t,c,captured.request,result,seal!.secretKey,held.binding.identity,e),keys:[rows[0].key,rows[1].key] as const}))
+          const freeze=async(image:OrdinaryImage,key:CryptoKey,encoded:string)=>{
+            const nonceBytes=Uint8Array.from(encoded.match(/../g)!.map(v=>parseInt(v,16)));let used=false
+            const fixedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(target:A):A=>{if(used||!(target instanceof Uint8Array)||target.length!==12)hold();used=true;target.set(nonceBytes);return target}} as unknown as Crypto
+            try{return await sealOrdinaryImage(image,key,fixedCrypto)}finally{nonceBytes.fill(0);clearImage(image)}
+          }
+          let cf:OrdinaryFrame,ct:OrdinaryFrame
+          try{cf=await freeze(candidate.images[0],candidate.keys[0],nonces[0]);check();ct=await freeze(candidate.images[1],candidate.keys[1],nonces[1]);check()}
+          finally{clearImage(candidate.images[0]);clearImage(candidate.images[1])}
+          await persist({...providerReturned,phase:'candidate-prepared',target:[ordinaryFrameDigest(cf),ordinaryFrameDigest(ct)],targetRevisions:[cf.revision,ct.revision]});check()
+          const returned=Object.freeze({}) as OrdinaryRenewalProviderReturned
+          renewalReturned.set(returned,Object.freeze({enrollment,target:active,classification:expected,candidate:Object.freeze([cf,ct]) as readonly [OrdinaryFrame,OrdinaryFrame]}))
+          return returned
+        }finally{providerActive=false;await Promise.allSettled([...providerRuns]);context?.abort();await context?.ended.catch(()=>{});context?.stop();browser.#resources.delete(cancel);tab.#resources.delete(cancel);seal?.secretKey.fill(0)}
+      })
+    }).then(resolve,reject).finally(()=>releaseOrdinaryRenewalSigningLifetime(foregroundLifetime)).catch(()=>{})
+    return pending
   }
   /** Expiry is not proof that an uncertain intent was absent. Authenticate
    * and promote its exact frame before removing expired custody. The caller

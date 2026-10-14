@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ProtocolTimers } from '../../src/protocol-timers.js'
-import { OrdinaryProtocolWork, OrdinaryProtocolSuspended } from './ordinary-protocol-work.js'
+import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void, reject!: (error: unknown) => void
@@ -330,5 +330,42 @@ describe('owned protocol work graph (ownership only, not native acceptance)', ()
     await ready.promise; trigger.resolve(); await work
     await expect(root.run('old scope', () => f.effects.push('bad'))).rejects.toBeInstanceOf(OrdinaryProtocolSuspended)
     expect(f.effects).toEqual([])
+  })
+})
+
+
+describe('fixed lifecycle promise ownership, never phase authority',()=>{
+  it('recognises only the exact sole resource promise while ordinary quiescence remains refused',async()=>{
+    const f=fixture(),ready=deferred(),signing=deferred(),finish=deferred();let root!:ProtocolExecution
+    const task=f.graph.startRoot(async scope=>{root=scope;await f.graph.suspend(scope);ready.resolve();await finish.promise;f.graph.close()})
+    await ready.promise
+    expect(()=>verifyOrdinaryLifecycleRoot(root)).not.toThrow()
+    const unowned=deferred();expect(()=>verifyOrdinaryLifecyclePromise(root,unowned.promise)).toThrow(OrdinaryProtocolSuspended)
+    root.retain(signing.promise)
+    expect(()=>verifyOrdinaryLifecyclePromise(root,signing.promise)).not.toThrow()
+    expect(()=>verifyOrdinaryLifecycleRoot(root)).toThrow(OrdinaryProtocolSuspended)
+    expect(()=>verifyOrdinaryLifecyclePromise({...root},signing.promise)).toThrow(OrdinaryProtocolSuspended)
+    expect(()=>verifyOrdinaryLifecyclePromise(new Proxy(root,{}),signing.promise)).toThrow(OrdinaryProtocolSuspended)
+    expect(()=>verifyOrdinaryLifecyclePromise(root,signing.promise.then(()=>{}))).toThrow(OrdinaryProtocolSuspended)
+    expect(()=>verifyOrdinaryLifecyclePromise(root,unowned.promise)).toThrow(OrdinaryProtocolSuspended)
+    const second=deferred();root.retain(second.promise)
+    expect(()=>verifyOrdinaryLifecyclePromise(root,signing.promise)).toThrow(OrdinaryProtocolSuspended)
+    second.resolve();await tick()
+    expect(()=>verifyOrdinaryLifecyclePromise(root,signing.promise)).not.toThrow()
+    signing.resolve();await tick()
+    expect(()=>verifyOrdinaryLifecyclePromise(root,signing.promise)).toThrow(OrdinaryProtocolSuspended)
+    expect(()=>verifyOrdinaryLifecycleRoot(root)).not.toThrow()
+    finish.resolve();await expect(task).rejects.toThrow(OrdinaryProtocolSuspended)
+    expect(()=>verifyOrdinaryLifecyclePromise(root,signing.promise)).toThrow(OrdinaryProtocolSuspended)
+    expect(f.effects).toEqual([])
+  })
+  it('revoked roots retain their real promise for close without gaining provider authority',async()=>{
+    const f=fixture(),ready=deferred(),signing=deferred(),finish=deferred();let root!:ProtocolExecution
+    const task=f.graph.startRoot(async scope=>{root=scope;await f.graph.suspend(scope);root.retain(signing.promise);ready.resolve();await finish.promise})
+    await ready.promise;f.graph.close()
+    expect(()=>verifyOrdinaryLifecyclePromise(root,signing.promise)).toThrow(OrdinaryProtocolSuspended)
+    let joined=false;const join=f.graph.join().then(()=>joined=true);await tick();expect(joined).toBe(false)
+    finish.resolve();await tick();expect(joined).toBe(false)
+    signing.resolve();await expect(task).rejects.toThrow(OrdinaryProtocolSuspended);await join;expect(joined).toBe(true);expect(f.effects).toEqual([])
   })
 })

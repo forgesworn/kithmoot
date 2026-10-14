@@ -5,6 +5,7 @@ export class OrdinaryProtocolSuspended extends Error {
   constructor() { super('The owned protocol operation is suspended or has finished.'); this.name = 'OrdinaryProtocolSuspended' }
 }
 const lifecycleRoots = new WeakMap<object, () => void>()
+const lifecyclePromises = new WeakMap<object, (pending: Promise<unknown>) => void>()
 /** Lower-layer ownership check for fixed native lifecycle transitions. The
  * root must be the actual sole quiescent lifecycle root with no children.
  * This grants no native custody, signer, membership or journal authority. */
@@ -13,8 +14,16 @@ export function verifyOrdinaryLifecycleRoot(scope: ProtocolExecution): void {
   if (!verify) throw new OrdinaryProtocolSuspended()
   verify()
 }
+/** Ownership of the one retained signing promise only. This supplies no
+ * native custody, phase authority or permission to invoke a provider. */
+export function verifyOrdinaryLifecyclePromise(scope: ProtocolExecution, pending: Promise<unknown>): void {
+  const verify = lifecyclePromises.get(scope)
+  if (!verify) throw new OrdinaryProtocolSuspended()
+  verify(pending)
+}
 interface Job {
   readonly lifecycleRoot: boolean
+  readonly resourceOnly: boolean
   readonly generation: number
   readonly parent?: Job
   readonly scope: ProtocolExecution
@@ -67,7 +76,7 @@ export class OrdinaryProtocolWork {
   #check(job: Job): void {
     if (this.#phase === 'closed' || job.terminal || !job.bodyOpen || job.generation !== this.#generation) throw new OrdinaryProtocolSuspended()
   }
-  #job(parent?: Job, lifecycleRoot = false): Job {
+  #job(parent?: Job, lifecycleRoot = false, resourceOnly = false): Job {
     if (this.#notifying) throw new OrdinaryProtocolSuspended()
     if (parent) this.#check(parent)
     else if (this.#phase !== 'open') throw new OrdinaryProtocolSuspended()
@@ -87,9 +96,12 @@ export class OrdinaryProtocolWork {
       task: <T>(operation: string, work: (execution: ProtocolExecution) => Promise<T>) => this.#task(job, operation, work),
       onSuspend: (listener: (suspended: boolean) => void) => this.#listen(listener, job),
     })
-    const job: Job = { lifecycleRoot, generation: this.#generation, parent, scope, children: new Set(), listeners: new Set(), done, finish, bodyOpen: true, terminal: false, transitioned: false }
+    const job: Job = { lifecycleRoot, resourceOnly, generation: this.#generation, parent, scope, children: new Set(), listeners: new Set(), done, finish, bodyOpen: true, terminal: false, transitioned: false }
     this.#scopes.set(scope, job)
-    if (lifecycleRoot) lifecycleRoots.set(scope, () => this.checkQuiescent(scope))
+    if (lifecycleRoot) {
+      lifecycleRoots.set(scope, () => this.checkQuiescent(scope))
+      lifecyclePromises.set(scope, pending => this.#checkLifecyclePromise(scope, pending))
+    }
     this.#jobs++
     if (parent) parent.children.add(job); else this.#roots.add(job)
     return job
@@ -101,7 +113,7 @@ export class OrdinaryProtocolWork {
   #complete(job: Job): void {
     // Iterative: a bounded but deep job tree must not overflow the JS stack.
     for (let current: Job | undefined = job; current && !current.terminal && !current.bodyOpen && !current.children.size;) {
-      current.terminal = true; lifecycleRoots.delete(current.scope); this.#jobs--
+      current.terminal = true; lifecycleRoots.delete(current.scope); lifecyclePromises.delete(current.scope); this.#jobs--
       if (current.parent) current.parent.children.delete(current); else this.#roots.delete(current)
       current.finish(); current = current.parent
     }
@@ -271,7 +283,7 @@ export class OrdinaryProtocolWork {
       return pending // Never create a second root waiting on the producer.
     }
     if (!parent && this.#phase === 'closed') return this.#native.retain(pending) // cleanup ownership only
-    const job = this.#job(parent)
+    const job = this.#job(parent, false, true)
     this.#promises.set(pending, job)
     // Resource-only child. No executor for it escapes to a continuation.
     void pending.finally(() => this.#bodyDone(job)).catch(() => {})
@@ -318,6 +330,13 @@ export class OrdinaryProtocolWork {
     if (!root?.lifecycleRoot || root.parent || root !== this.#excluded || this.#phase !== 'quiescent' ||
         this.#roots.size !== 1 || root.children.size) throw new OrdinaryProtocolSuspended()
     this.#check(root)
+  }
+  #checkLifecyclePromise(scope: ProtocolExecution, pending: Promise<unknown>): void {
+    const root = this.#scopes.get(scope), child = pending instanceof Promise ? this.#promises.get(pending) : undefined
+    if (!root?.lifecycleRoot || root.parent || root !== this.#excluded || this.#phase !== 'quiescent' ||
+        this.#roots.size !== 1 || root.children.size !== 1 || !child?.resourceOnly || child.parent !== root ||
+        !root.children.has(child) || child.children.size) throw new OrdinaryProtocolSuspended()
+    this.#check(root); this.#check(child)
   }
   /** The embedding separately authenticates the successor. Its guard swap
    * and adoption still require this exact root inside the genuine callback,
