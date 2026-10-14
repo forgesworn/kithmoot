@@ -12,6 +12,7 @@ test.beforeAll(async()=>{
       const source=await readFile(input.path,'utf8'),marker='            const selected = source\n'
       if(source.split(marker).length!==2)throw Error('startup private factory fixture drift')
       return {loader:'ts',contents:source.replace(marker,`            const observer=globalThis as any
+            if(observer.skipStartupCuts>0){observer.skipStartupCuts--}else{
             const outcome=await OrdinaryStateOwner.enrollMemberRenewal(obligation!)
             if(outcome.status!=='enrolled')throw Error('startup fixture did not enroll')
             observer.actualStage='prepared'
@@ -30,7 +31,15 @@ test.beforeAll(async()=>{
             }
             await new Promise<void>(resolve=>observer.releaseStartupCut=resolve)
             protocol!.close();return
+            }
 `+marker)}
+    });builder.onLoad({filter:/ordinary-renewal-candidate\.ts$/},async input=>{
+      const source=await readFile(input.path,'utf8'),marker='        if(intent.keep)b.set(persistentProofName(verified.proof.binding),proofRaw)'
+      if(source.split(marker).length!==2)throw Error('historical lineage comparison fixture drift')
+      const candidateMarker='  return candidate\n'
+      if(source.split(candidateMarker).length!==2)throw Error('historical candidate comparison fixture drift')
+      return{loader:'ts',contents:source.replace(marker,'        ;(globalThis as any).compareHistoricalLease?.(request,proofRaw,lease,enrolled)\n'+marker)
+        .replace(candidateMarker,'  ;(globalThis as any).compareHistoricalCandidate?.(request,result,seal,enrolled,candidate)\n'+candidateMarker)}
     })}}]})).outputFiles[0]!.text
 })
 test.beforeEach(async({context,page})=>{
@@ -323,3 +332,42 @@ test('startup settlement close joins native C authentication before any entropy'
   expect(await page.evaluate('[recoveryOutcome,closeState,puts,entropy,providers]')).toEqual(['OrdinaryStateHold','done',0,0,0])
   expect(await recoveryDigests(page)).toEqual(prior)
 })
+for(const visitor of [false,true])for(const keep of [false,true])for(const priorLease of [false,true]){
+  test(`historical retained-result lease equals actual live lineage, visitor=${visitor}, keep=${keep}, priorLease=${priorLease}`,async({page})=>{
+    await page.evaluate(`window.compareHistoricalLease=(request,proofRaw,liveLease,enrolled)=>{
+      const images=enrolled.map(image=>({...image,records:new Map(image.records),fences:new Map(image.fences)})),savedNow=Date.now,random=crypto.getRandomValues.bind(crypto),
+        deadline=Ordinary.OrdinaryForegroundSigner.nativeDeadline;let entropy=0,foreground=0;
+      const raw=Ordinary.readOrdinaryRenewalRequest(request),names=Ordinary.ordinaryOperationNames(images[1].purpose),marker=Ordinary.validateOrdinaryOperationMarker(images[1].records.get(names.marker));
+      Ordinary.restoreOrdinaryRenewalPredecessor(images[0],images[1],request,{id:marker.id,sequence:marker.sequence});
+      try{crypto.getRandomValues=()=>{entropy++;throw Error('pure lineage must not allocate')};
+        Ordinary.OrdinaryForegroundSigner.nativeDeadline=()=>{foreground++;throw Error('historical lineage must not acquire Fore')};
+        const first=Ordinary.makeOrdinaryRetainedRenewalLease(images,proofRaw,request);Date.now=()=>raw.intent.authority.tabExpiresAt+43_200_000;
+        const expired=Ordinary.makeOrdinaryRetainedRenewalLease(images,proofRaw,request);
+        window.lineageComparison=[first===liveLease,expired===liveLease,entropy,foreground]
+      }finally{Date.now=savedNow;crypto.getRandomValues=random;Ordinary.OrdinaryForegroundSigner.nativeDeadline=deadline;images.forEach(image=>{image.records.clear();image.fences.clear()})}
+    };window.compareHistoricalCandidate=(request,result,seal,enrolled,liveCandidate)=>{
+      const images=enrolled.map(image=>({...image,records:new Map(image.records),fences:new Map(image.fences)})),names=Ordinary.ordinaryOperationNames(images[1].purpose),
+        marker=Ordinary.validateOrdinaryOperationMarker(images[1].records.get(names.marker)),leaseObserver=compareHistoricalLease;
+      Ordinary.restoreOrdinaryRenewalPredecessor(images[0],images[1],request,{id:marker.id,sequence:marker.sequence});
+      let candidate;const random=crypto.getRandomValues.bind(crypto),deadline=Ordinary.OrdinaryForegroundSigner.nativeDeadline,savedNow=Date.now;let entropy=0,foreground=0;
+      try{window.compareHistoricalLease=undefined;crypto.getRandomValues=()=>{entropy++;throw Error('pure C must not allocate')};
+        Ordinary.OrdinaryForegroundSigner.nativeDeadline=()=>{foreground++;throw Error('pure C must not acquire Fore')};Date.now=()=>images[1].expiresAt+43_200_000;
+        candidate=Ordinary.prepareOrdinaryRetainedRenewalCandidate(images,request,result,seal,enrolled);
+        const canonical=image=>JSON.stringify({...image,records:[...image.records].sort(([a],[b])=>a<b?-1:a>b?1:0),fences:[...image.fences].sort(([a],[b])=>a<b?-1:a>b?1:0),
+          migration:image.migration?{...image.migration,sources:[...image.migration.sources],names:[...image.migration.names]}:undefined});
+        window.candidateComparison=[candidate.every((image,i)=>canonical(image)===canonical(liveCandidate[i])),entropy,foreground]
+      }finally{Date.now=savedNow;crypto.getRandomValues=random;Ordinary.OrdinaryForegroundSigner.nativeDeadline=deadline;window.compareHistoricalLease=leaseObserver;
+        [...images,...candidate??[]].forEach(image=>{image.records.clear();image.fences.clear();image.migration?.sources.clear()})}
+    }`)
+    if(priorLease){
+      await page.evaluate(`(${setup})(${JSON.stringify({visitor,keep,noRelays:true})})`);await page.evaluate(`(${controls})()`);await page.evaluate('join()')
+      await page.evaluate("window.skipStartupCuts=1;window.requestedStage='candidate-prepared'")
+      await page.clock.fastForward(901000)
+      await expect.poll(()=>page.evaluate('(async()=>{try{const value=await bootstrap.load();try{return value.sealKeys.length}finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(value)}}catch{return 0}})()')).toBe(2)
+      await page.evaluate("member.send('before retained-result restart')")
+      await page.clock.fastForward(901000);await page.waitForFunction("window.actualStage==='candidate-prepared'")
+    }else await stage(page,'candidate-prepared',visitor,keep)
+    expect(await page.evaluate('lineageComparison')).toEqual([true,true,0,0])
+    expect(await page.evaluate('candidateComparison')).toEqual([true,0,0])
+  })
+}
