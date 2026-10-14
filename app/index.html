@@ -43,6 +43,7 @@
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
         <button id="workspaceBrandHome" class="workspaceBrand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</button>
+        <button id="workspaceContacts" type="button" class="quiet" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
         <button id="workspaceSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="workspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="workspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button></div>
         <button id="workspaceNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor">New project</button>
@@ -370,6 +371,7 @@
         </div>
         <nav id="mobileWorkspaceDestinations" aria-label="Workspace" hidden>
           <button id="mobileWorkspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button>
+          <button id="mobileContacts" type="button" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
           <button id="mobileWorkspaceProjects" type="button" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
           <button id="mobileWorkspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button>
         </nav>
@@ -554,6 +556,7 @@
               <p id="linkError" class="formError" role="alert" hidden></p>
             </form>
           </details>
+          <button id="homeContacts" type="button" class="quiet" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
           <button id="homeSignIn" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
         </div>
       </section>
@@ -1234,32 +1237,7 @@
         <div id="sendingIdentity" class="sendingIdentity" hidden></div>
         <p id="sheetHow" class="note"></p>
 
-        <h3 class="sheetHead">Signet contacts</h3>
-        <p class="note">Link one identity's contact list. KithMoot needs names, keys and who you have blocked, so tick both of those in Signet. Any other field is your choice there. Contact cards below keep the details used to reach people.</p>
-        <label><input type="checkbox" id="signetContactsTiers" /> Request Kin, Kith and Ken tiers</label>
-        <label><input type="checkbox" id="signetContactsChecks" /> Request check status, methods and dates</label>
-        <div class="toolRow">
-          <button type="button" id="signetContactsConnect">Link Signet contacts</button>
-          <button type="button" id="signetContactsRefresh">Refresh contacts</button>
-        </div>
-        <p id="signetContactsState" class="note" role="status"></p>
-        <div id="signetContactsPairing" hidden>
-          <canvas id="signetContactsQr" aria-label="Signet contacts pairing code"></canvas>
-          <input id="signetContactsUri" readonly aria-label="Signet contacts pairing link" />
-          <button type="button" id="signetContactsCancel">Cancel pairing</button>
-        </div>
-        <!-- The code goes one way: shown here, typed into Signet, compared
-             there. A QR can be photographed, so an approval alone does not
-             say whose Signet it came from. -->
-        <div id="signetContactsConfirm" hidden>
-          <p class="note">Type this code into Signet. Carry on only if Signet says it matches.</p>
-          <p id="signetContactsCode" class="pairingCode" aria-live="polite"></p>
-          <div class="toolRow">
-            <button type="button" id="signetContactsMatched" class="primary">Signet says it matches</button>
-            <button type="button" id="signetContactsMismatch">It does not match</button>
-          </div>
-        </div>
-        <ul id="signetGrantedContacts"></ul>
+        <button id="roomContacts" type="button" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
         <h3 class="sheetHead">Contact cards</h3>
         <!-- The contact book. A card is read here, on this device, from
              nothing but its own bytes; see app/src/contact-store.ts. A box
@@ -1443,6 +1421,48 @@
           <button id="tidyUpRoom" type="button" class="danger quiet">Leave and tidy up</button>
           <button id="forgetBrowserRoom" type="button" class="danger">Forget this browser</button>
         </div>
+      </div>
+    </dialog>
+
+    <dialog id="contactsDialog" class="sharedProjectsSheet" aria-labelledby="contactsTitle">
+      <div class="sheetBar"><h2 id="contactsTitle">Contacts</h2><button id="contactsClose" type="button">Close</button></div>
+      <div class="sheetBody">
+        <p class="note">Find someone from your Signet contacts and start a private conversation. Calls, files and shared work are available in the conversation.</p>
+        <button id="contactsSignIn" type="button">Sign in</button>
+        <details id="signetContactsAccess"><summary>Signet contact access</summary>
+        <p class="note">Link one identity's contact list. KithMoot needs names, keys and who you have blocked, so tick both of those in Signet. Any other field is your choice there. Contact cards below keep the details used to reach people.</p>
+        <label><input type="checkbox" id="signetContactsTiers" /> Request Kin, Kith and Ken tiers</label>
+        <label><input type="checkbox" id="signetContactsChecks" /> Request check status, methods and dates</label>
+        <div class="toolRow">
+          <button type="button" id="signetContactsConnect">Link Signet contacts</button>
+          <button type="button" id="signetContactsRefresh">Refresh contacts</button>
+        </div>
+        <p id="signetContactsState" class="note" role="status"></p>
+        <div id="signetContactsPairing" hidden>
+          <canvas id="signetContactsQr" aria-label="Signet contacts pairing code"></canvas>
+          <input id="signetContactsUri" readonly aria-label="Signet contacts pairing link" />
+          <button type="button" id="signetContactsCancel">Cancel pairing</button>
+        </div>
+        <!-- The code goes one way: shown here, typed into Signet, compared
+             there. A QR can be photographed, so an approval alone does not
+             say whose Signet it came from. -->
+        <div id="signetContactsConfirm" hidden>
+          <p class="note">Type this code into Signet. Carry on only if Signet says it matches.</p>
+          <p id="signetContactsCode" class="pairingCode" aria-live="polite"></p>
+          <div class="toolRow">
+            <button type="button" id="signetContactsMatched" class="primary">Signet says it matches</button>
+            <button type="button" id="signetContactsMismatch">It does not match</button>
+          </div>
+        </div>
+        </details>
+        <label for="signetContactsSearch">Find a contact</label>
+        <input id="signetContactsSearch" type="search" autocomplete="off" placeholder="Name or public identity" />
+        <p id="signetContactsEmpty" class="note" hidden>No matching contacts.</p>
+        <ul id="signetGrantedContacts" class="messageContacts"></ul>
+        <p id="contactInboxStatus" class="note" role="status"></p>
+        <button id="contactInboxRetry" type="button" hidden>Retry pending invitations</button>
+        <h3 id="contactInvitesHeading" class="sheetHead" hidden>Private conversation requests</h3>
+        <ul id="contactInvites" class="messageContacts"></ul>
       </div>
     </dialog>
 

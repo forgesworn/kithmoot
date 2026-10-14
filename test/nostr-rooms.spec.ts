@@ -1,3 +1,4 @@
+import { accountDevice as device, signInAccount as signIn } from './nostr-account.js'
 import { parsePairingRequestV2, buildPairingAckV2, ackEventTemplate, projectionTag, proposalTag, sealVaultPayload, projectionEventTemplate, pairingCode, formatPairingCode, type ContactProjectionV2 } from '@forgesworn/signet-contacts'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -30,52 +31,6 @@ function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
     })
     socket.on('error', reject)
   })
-}
-
-/** A test NIP-07 provider: signing keys stay in Node, never in the app. */
-async function device(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {}): Promise<BrowserContext> {
-  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
-  const pubkey = getPublicKey(secret)
-  await context.exposeFunction('testPublicKey', async () => { await beforePublicKey(); return pubkey })
-  await context.exposeFunction('testSign', (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, secret))
-  await context.exposeFunction('testEncrypt', (peer: string, plaintext: string) => encrypt(plaintext, getConversationKey(secret, peer)))
-  await context.exposeFunction('testDecrypt', (peer: string, ciphertext: string) => decrypt(ciphertext, getConversationKey(secret, peer)))
-  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  await context.addInitScript(({ relay, nip44 }) => {
-    const testWindow = window as typeof window & {
-      testPublicKey(): Promise<string>; testSign(template: unknown): Promise<unknown>;
-      testEncrypt(peer: string, text: string): Promise<string>; testDecrypt(peer: string, text: string): Promise<string>;
-    }
-    Object.defineProperty(window, 'nostr', { configurable: true, value: {
-      getPublicKey: () => testWindow.testPublicKey(),
-      signEvent: (event: unknown) => testWindow.testSign(event),
-      ...(nip44 ? { nip44: {
-        encrypt: (peer: string, text: string) => testWindow.testEncrypt(peer, text),
-        decrypt: (peer: string, text: string) => testWindow.testDecrypt(peer, text),
-      } } : {}),
-    } })
-    const NativeWebSocket = window.WebSocket
-    window.WebSocket = class extends NativeWebSocket {
-      constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io']
-        if (!defaults.includes(String(url).replace(/\/$/, '')) && String(url) !== relay) throw new Error('External relay blocked by acceptance test')
-        super(defaults.includes(String(url).replace(/\/$/, '')) ? relay : url, protocols)
-      }
-    }
-  }, { relay: relay.href, nip44 })
-  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
-  return context
-}
-
-async function signIn(page: Page, baseURL: string) {
-  await page.goto(baseURL + '?signin=nostr')
-  await page.getByRole('button', { name: /Browser extension/ }).click()
-  // Signed in and nothing found yet: the "Already on Nostr?" line is gone
-  // now that signing in is done, and Settings is where Sign out lives now.
-  await expect(page.locator('#homeSignIn')).toBeHidden()
-  await page.locator('#openAppSettings').click()
-  await expect(page.locator('#signOut')).toBeVisible()
-  await page.locator('#appSettingsClose').click()
 }
 
 test('a returning visitor can choose their Nostr profile at the door and the clerk receives that key', async ({ browser, baseURL }) => {
@@ -871,7 +826,8 @@ test('granted contacts pair with explicit fields and a confirmed code, persist a
     await expect(peerPage.locator('#roomArea')).toBeVisible()
     const peerTile = page.locator('#room .participant', { hasText: 'Granted Ada' })
     await expect(peerTile).toHaveCount(1, { timeout: 30000 })
-    await openRoomDetails(page)
+    await page.locator('#mobileContacts:visible, #workspaceContacts:visible').first().click()
+    await page.locator('#signetContactsAccess').evaluate(el => { (el as HTMLDetailsElement).open = true })
     await expect(page.locator('#signetContactsTiers')).not.toBeChecked()
     await expect(page.locator('#signetContactsChecks')).not.toBeChecked()
     await page.locator('#signetContactsTiers').check()
@@ -914,7 +870,8 @@ test('granted contacts pair with explicit fields and a confirmed code, persist a
     await page.reload()
     await expect(page.locator('#join')).toBeEnabled()
     await page.locator('#join').click()
-    await openRoomDetails(page)
+    await page.locator('#mobileContacts:visible, #workspaceContacts:visible').first().click()
+    await page.locator('#signetContactsAccess').evaluate(el => { (el as HTMLDetailsElement).open = true })
     await expect(page.locator('#signetGrantedContacts')).toContainText('Granted Ada', { timeout: 30000 })
     await expect(peerTile.locator('.verifyChip')).toHaveText('Signet check')
     const noChecks = { ...projection, scopes: projection.scopes.filter(scope => !scope.includes('read:check')),
@@ -927,14 +884,15 @@ test('granted contacts pair with explicit fields and a confirmed code, persist a
     await publish(blocked, now + 2)
     await page.locator('#signetContactsRefresh').click()
     await expect(page.locator('#signetGrantedContacts li')).toHaveCount(0)
-    await page.locator('#roomSheetClose').click()
+    await page.locator('#contactsClose').click()
     await expect(peerTile).toHaveCount(0)
-    await openRoomDetails(page)
+    await page.locator('#mobileContacts:visible, #workspaceContacts:visible').first().click()
+    await page.locator('#signetContactsAccess').evaluate(el => { (el as HTMLDetailsElement).open = true })
     await publish({ ...blocked, revoked: true, contacts: [] }, now + 3)
     await page.locator('#signetContactsRefresh').click()
     await expect(page.locator('#signetContactsState')).toContainText('revoked')
     await expect(page.locator('#signetGrantedContacts li')).toHaveCount(0)
-    await page.locator('#roomSheetClose').click()
+    await page.locator('#contactsClose').click()
     await expect(peerTile).toHaveCount(0)
   } finally { await context.close(); await peerContext.close(); publisher.close() }
 })

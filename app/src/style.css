@@ -4786,3 +4786,11 @@ html[data-call-docked] #mobileCall { display: none !important; }
 #mlsWitnessSettings textarea { resize: vertical; }
 #mlsWitnessSettings button { margin-block: .3rem; }
 #mlsWitnessSettings .profileSettingsHeader { position: sticky; top: 0; z-index: 1; background: var(--panel); padding-block: .25rem; }
+
+/* Contact actions stay usable at phone widths and with long names. */
+.messageContacts { list-style: none; padding: 0; display: grid; gap: .65rem; }
+.messageContacts li { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .65rem; border: 1px solid var(--border); border-radius: .6rem; }
+.messageContacts .contactLabel { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; }
+.messageContacts button { margin: 0; min-height: 44px; }
+#contactsDialog .sheetBody { overflow-y: auto; }
+#signetContactsSearch { width: 100%; }
