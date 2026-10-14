@@ -8,9 +8,141 @@ import { WebSocketServer } from 'ws'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { npubEncode } from 'nostr-tools/nip19'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
+import { createRumor, createSeal } from 'nostr-tools/nip59'
+import { Relay } from 'nostr-tools/relay'
 import { verifyEventUncached } from '../src/verify.js'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { openNewRoomForm } from './browser.js'
+import { TEST_RELAY_WS } from './relays.js'
+
+// The same signed kind-21236 response inside a kind-29999 gift wrap that
+// My Signet sends. Keep identity approval and the live signer handshake
+// separate: an approval without a handoff must not become a signing account.
+for (const liveSigner of [false, true]) test(`Signet approval ${liveSigner ? 'connects a live signer and signs a room join' : 'explains a missing signing connection'}`, async ({ browser, baseURL }) => {
+  const user = generateSecretKey(), endpoint = generateSecretKey()
+  const pubkey = getPublicKey(user), endpointPubkey = getPublicKey(endpoint)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const server = await Relay.connect(TEST_RELAY_WS)
+  const signedKinds: number[] = []
+  const serving = server.subscribe([{ kinds: [24133], '#p': [endpointPubkey] }], {
+    onevent: async event => {
+      const conversation = getConversationKey(endpoint, event.pubkey)
+      const request = JSON.parse(decrypt(event.content, conversation))
+      const reply = request.method === 'connect' ? { result: 'ack' }
+        : request.method === 'get_public_key' ? { result: pubkey }
+        : request.method === 'ping' ? { result: 'pong' }
+        : request.method === 'sign_event' ? (() => {
+          const template = JSON.parse(request.params[0]); signedKinds.push(template.kind)
+          return { result: JSON.stringify(finalizeEvent(template, user)) }
+        })() : { error: 'Unsupported fixture method' }
+      await server.publish(finalizeEvent({ kind: 24133, created_at: Math.floor(Date.now() / 1000), tags: [['p', event.pubkey]],
+        content: encrypt(JSON.stringify({ id: request.id, ...reply }), conversation) }, endpoint))
+    },
+  })
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  await context.routeWebSocket(url => url.href !== relay.href, socket => socket.close())
+  await context.addInitScript(relay => {
+    localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: [{ url: relay, read: true, write: true }] }))
+  }, relay.href)
+  try {
+    const page = await context.newPage()
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.locator('[data-choice="remote-signet"]').click()
+    const link = page.locator('#signet-login-open-signet')
+    await expect(link).toBeVisible()
+    const request = new URL(await link.getAttribute('href') ?? '')
+    const challenge = request.searchParams.get('challenge')!, origin = request.searchParams.get('origin')!
+    const authEvent = finalizeEvent({ kind: 21236, created_at: Math.floor(Date.now() / 1000), tags: [['challenge', challenge], ['origin', origin]], content: '' }, user)
+    const response = { type: 'signet-auth-response', requestId: challenge, authEvent,
+      ...(liveSigner ? { bunkerUri: `bunker://${endpointPubkey}?relay=${encodeURIComponent(relay.href)}` } : {}) }
+    const recipient = request.searchParams.get('sessionPubkey')!
+    const rumor = createRumor({ kind: 29999, created_at: Math.floor(Date.now() / 1000),
+      tags: [['session', challenge], ['status', 'approved']], content: JSON.stringify(response) }, user)
+    const seal = createSeal(rumor, user, recipient), outer = generateSecretKey()
+    // Signet auth uses a recent outer timestamp so the consumer's short
+    // response subscription matches it; ordinary DM wraps can be much older.
+    await server.publish(finalizeEvent({ kind: 1059, created_at: Math.floor(Date.now() / 1000), tags: [['p', recipient]],
+      content: encrypt(JSON.stringify(seal), getConversationKey(outer, recipient)) }, outer))
+    if (!liveSigner) {
+      await expect(page.locator('#status')).toContainText('Your identity was approved, but a signing connection was not established.')
+      await expect(page.locator('#homeSignIn')).toBeVisible()
+      expect(signedKinds).toEqual([])
+      expect(await page.evaluate(() => localStorage.getItem('signet:login.pubkey'))).toBeNull()
+    } else {
+      await expect(page.locator('#signet-login-dialog')).toHaveCount(0)
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('signet:login.pubkey'))).toBe(pubkey)
+      await expect(page.locator('#homeSignIn')).toBeHidden()
+      await openNewRoomForm(page)
+      await page.locator('#roomName').fill('Signet signing fixture')
+      await page.locator('#create').click()
+      await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible()
+      await expect.poll(() => signedKinds.length).toBeGreaterThan(0)
+      expect(await page.evaluate(() => localStorage.getItem('signet:login.pubkey'))).toBe(pubkey)
+    }
+  } finally { await context.close(); serving.close(); server.close() }
+})
+
+test('relay settings show activity outside account sync and keep the chosen order for Signet', async ({ browser, baseURL }) => {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const preferred = 'wss://preferred.example/'
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 900 } })
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  await context.routeWebSocket(url => url.href !== relay.href, socket => {
+    if (socket.url() !== preferred) { socket.close(); return }
+    socket.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'REQ') socket.send(JSON.stringify(['EOSE', frame[1]]))
+    })
+  })
+  await context.addInitScript(({ relay, preferred }) => {
+    if (localStorage.getItem('relay-order-seeded')) return
+    localStorage.setItem('relay-order-seeded', '1')
+    localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: [
+      { url: relay, read: true, write: true }, { url: preferred, read: true, write: true },
+    ] }))
+  }, { relay: relay.href, preferred })
+  try {
+    const page = await context.newPage()
+    await page.goto(encodeJoinUrl(baseURL!, generateRoomSecret(), [relay.href]))
+    await page.locator('#displayName').fill('Relay tester'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const openDefaults = async () => {
+      await page.locator('#roomMenu').click()
+      await page.locator('#roomRelaySettings').click()
+      await page.locator('#relayScope').selectOption('default')
+      await expect(page.locator('#relayScope')).toHaveValue('default')
+    }
+    await openDefaults()
+    const row = page.locator('#relayList .relayRow').filter({ hasText: relay.href })
+    await expect(row.locator('.relayHealth')).toContainText('Not in use here · Connected elsewhere in KithMoot')
+    await expect(row.locator('.relayHealth')).not.toContainText('Account authenticated')
+    await page.getByRole('button', { name: `Move ${preferred} up`, exact: true }).click()
+    await expect(page.locator('#relayList .relayAddress')).toHaveText([preferred, relay.href])
+    await expect(page.getByRole('button', { name: `Move ${preferred} up`, exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: `Move ${preferred} down`, exact: true })).toBeFocused()
+    await page.locator('#relaySave').click()
+    await expect(page.locator('#relaySettingsStatus')).toContainText('Saved on this device')
+    await page.reload(); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openDefaults()
+    await expect(page.locator('#relayList .relayAddress')).toHaveText([preferred, relay.href])
+    for (const width of [1280, 320]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.addStyleTag({ content: 'html { font-size: 200% !important; }' })
+      expect(await page.locator('#relaySettings').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    }
+    await page.locator('#relaySettingsClose').click()
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.locator('[data-choice="remote-signet"]').click()
+    await expect(page.locator('#signet-login-open-signet')).toBeVisible()
+    const handoff = new URL(await page.locator('#signet-login-open-signet').getAttribute('href') ?? '')
+    expect(handoff.searchParams.get('relay')).toBe(preferred)
+    await page.locator('#signet-login-dialog [data-action="cancel"]').click()
+  } finally { await context.close() }
+})
 
 test('relay settings enforce read-only traffic, show health and persist additions and removals', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -86,7 +218,7 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await page.reload(); await page.locator('#join').click(); await open()
     await expect(page.locator('#relayList .relayRow')).toHaveCount(1)
     await page.locator('#relayScope').selectOption('default')
-    while (await page.locator('#relayList .relayRow').count()) await page.locator('#relayList .relayRow button').first().click()
+    while (await page.locator('#relayList .relayRow').count()) await page.locator('#relayList .relayRow').first().getByRole('button', { name: /^Remove / }).click()
     for (const [url, mode] of [[relay.href, 'both'], [readRelay, 'read']]) {
       await page.locator('#relayUrl').fill(url!)
       await page.locator('#relayMode').selectOption(mode!)

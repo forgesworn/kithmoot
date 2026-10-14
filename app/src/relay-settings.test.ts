@@ -342,6 +342,26 @@ describe('scheduled liveness probing', () => {
 })
 
 describe('relay health', () => {
+  it('shows a socket used elsewhere without borrowing its authentication or accepted writes', async () => {
+    vi.useFakeTimers()
+    resetFakeRelays()
+    fakeRelay(defaults[0]!)
+    const connections = new RelayConnections(storage(), defaults)
+    const pool = connections.pool(room)
+    try {
+      const event = finalizeEvent({ kind: 1460, created_at: Math.floor(Date.now() / 1000), tags: [], content: 'x' }, generateSecretKey())
+      await pool.publish(event)
+      expect(connections.health(room)[0]?.state).toBe('connected')
+      expect(connections.connectedElsewhere('default', 'wss://default.test/')).toBe(true)
+      expect(connections.connectedElsewhere(room, 'wss://default.test/')).toBe(false)
+      expect(connections.health('default')[0]).toMatchObject({ state: 'idle' })
+      expect(connections.health('default')[0]?.lastPublishedAt).toBeUndefined()
+      expect(connections.health('default')[0]?.authentication).toBeUndefined()
+      pool.close()
+      expect(connections.connectedElsewhere('default', 'wss://default.test/')).toBe(false)
+    } finally { pool.close(); vi.useRealTimers() }
+  })
+
   it('reports a relay that accepted chat and did not return it, for the room it was seen in', async () => {
     vi.useFakeTimers()
     resetFakeRelays()

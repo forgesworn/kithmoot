@@ -1289,8 +1289,10 @@ async function signInWithNostr(): Promise<void> {
   if (!account.signer.capabilities.canSignEvents) {
     await logout(account)
     throw new Error(
-      'That sign-in can prove who you are but cannot sign anything afterwards, ' +
-        'and a room needs a signature to let this device in. Try an extension or a bunker.',
+      'Your identity was approved, but a signing connection was not established. ' +
+        'KithMoot needs your signer to approve joining rooms and sending private invitations. ' +
+        'If you used My Signet, turn on Bunker in its security settings and keep Signet open, then try again. ' +
+        'You can also connect using a signer QR code, a bunker URI or a browser extension.',
     )
   }
 
@@ -15370,7 +15372,7 @@ function roomRelaysApplied(entries: RelayConfig[]): void {
   }
 }
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
-$('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'))))
+$('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'), 'default')))
 $('appProfileSettings').addEventListener('click', () => closeAppSettingsFor(() => openProfileSettings($('appProfileSettings'))))
 $('dmRelaySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => void openDmRelaySettings()))
 $('dmRelaySettingsClose').addEventListener('click', () => ($('dmRelaySettings') as HTMLDialogElement).close())
@@ -18275,7 +18277,9 @@ const identityReady = restoreSessionWithExtensionGrace()
     if (!session?.signer.capabilities.canSignEvents) {
       if (!location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
         history.replaceState(null, '', joinLinkBase())
-        return signInWithNostr()
+        // This is an explicit sign-in, not a failed background restore.
+        // Keep its error visible instead of swallowing it below.
+        return signInWithNostr().catch(error => setStatus(describeError(error)))
       }
       return
     }
