@@ -306,15 +306,16 @@ export class MicPipeline {
     if (this.#stopped) return
     const raw = this.#stream?.getAudioTracks()[0]
     if (raw?.readyState === 'live' && !raw.muted) return
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    })
+    // Reopen the microphone actually selected for this call. An interrupted
+    // headset must not silently become the system's laptop/webcam default.
+    const stream = await this.#openMic(this.#deviceId)
     if (this.#stopped) { stream.getTracks().forEach(t => t.stop()); return }
     const next = stream.getAudioTracks()[0]
     if (!next) { stream.getTracks().forEach(t => t.stop()); throw new Error('No microphone track returned.') }
     const previous = this.#stream
     const enabled = this.track?.enabled ?? false
     this.#stream = stream
+    this.#deviceId = next.getSettings?.().deviceId
     this.#watchSource(next)
     if (this.#node && this.#context && !this.#fallback && this.#status !== 'degraded') {
       this.#source?.disconnect()

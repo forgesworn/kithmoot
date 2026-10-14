@@ -22,3 +22,17 @@ camera acceptance remain separate checks.
 
 Desktop version: 0.1.81, macOS build 66. The earlier contacts/header release
 remains 0.1.80 with its original immutable artefacts.
+
+## Microphone recovery
+
+When an interrupted microphone needed reopening, the pipeline requested the
+system default even if this call had selected a headset. Recovery now tries
+the actual previous microphone first, retains the existing processed and
+muted publication, and falls back to the default only if that device cannot
+open. The reported device follows the actual replacement. Both headset and
+unplugged-headset paths failed before the change and pass with it; all 62
+layout and microphone pipeline unit tests pass.
+
+This can prevent a call from switching to a room microphone after an
+interruption. It does not establish the cause of the reported background
+voices and does not add speaker isolation or change noise/gain processing.

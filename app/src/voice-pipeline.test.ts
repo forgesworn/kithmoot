@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MicPipeline } from './voice-pipeline.js'
 
 class Track extends EventTarget {
+  deviceId = 'default-microphone'
   enabled = true
   muted = false
   readyState = 'live'
   stop() { this.readyState = 'ended' }
+  getSettings() { return { deviceId: this.deviceId } }
 }
 function stream(track = new Track()) {
   return { getTracks: () => [track], getAudioTracks: () => [track] }
@@ -38,6 +40,39 @@ function setup() {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('microphone interruption recovery', () => {
+  it('reopens the selected headset with noise processing and the same muted publication', async () => {
+    const fake = setup()
+    fake.raw.deviceId = 'headset'
+    const pipeline = new MicPipeline({ preset: 'lower' })
+    const published = await pipeline.start({ deviceId: 'headset' })
+    published.enabled = false
+    fake.raw.stop()
+    const replacement = new Track(); replacement.deviceId = 'headset'
+    fake.capture.mockResolvedValue(stream(replacement))
+    await pipeline.resume()
+    expect(fake.capture).toHaveBeenLastCalledWith({ audio: { deviceId: { exact: 'headset' }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+    expect(pipeline.deviceId).toBe('headset')
+    expect(pipeline.track).toBe(published)
+    expect(pipeline.track?.enabled).toBe(false)
+    expect(pipeline.preset).toBe('lower')
+    pipeline.stop()
+  })
+
+  it('falls back only when the previous microphone cannot open and reports the actual device', async () => {
+    const fake = setup()
+    fake.raw.deviceId = 'headset'
+    const pipeline = new MicPipeline()
+    await pipeline.start({ deviceId: 'headset' })
+    fake.raw.stop()
+    const replacement = new Track(); replacement.deviceId = 'system-default'
+    fake.capture.mockRejectedValueOnce(new Error('Headset disconnected')).mockResolvedValueOnce(stream(replacement))
+    await pipeline.resume()
+    expect(fake.capture).toHaveBeenNthCalledWith(2, { audio: { deviceId: { exact: 'headset' }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+    expect(fake.capture).toHaveBeenLastCalledWith({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+    expect(pipeline.deviceId).toBe('system-default')
+    pipeline.stop()
+  })
+
   it('resumes an interrupted graph without replacing a live source', async () => {
     const fake = setup()
     const pipeline = new MicPipeline()
