@@ -41,14 +41,19 @@ specs.push('ordinary-room-board-catalogue.spec.ts')
 const stems = specs.map(spec => spec.replace(/\.spec\.ts$/, ''))
 if (new Set(stems).size !== specs.length) throw new Error('Duplicate ordinary spec')
 const consumerCases=/narrowed trusted consumer|narrowed consumer|consumer fields/
+const retainedStartupCases=/restart retained|retained startup|clean process restart completes/
 const projects = engines.flatMap(engine => [
   ...specs.map((spec, index) => ({
     name: `${engine.name}-${stems[index]}`, testMatch: spec, use: { ...engine.profile },
     ...(spec==='ordinary-foreground-signer.spec.ts'?{grepInvert:consumerCases}:{}),
+    ...(spec==='ordinary-renewal-startup.spec.ts'?{grepInvert:retainedStartupCases}:{}),
   })),
   // Keep the existing 77-case signer baseline and its new native-consumer
   // slice in distinct browser lifetimes. No retry or skipped case is added.
   {name:`${engine.name}-ordinary-foreground-consumer`,testMatch:'ordinary-foreground-signer.spec.ts',grep:consumerCases,use:{...engine.profile}},
+  // Separate the retained-result recovery cases from the startup baseline.
+  // Both slices run once in every engine, with the same assertions and timeout.
+  {name:`${engine.name}-ordinary-renewal-recovery`,testMatch:'ordinary-renewal-startup.spec.ts',grep:retainedStartupCases,use:{...engine.profile}},
 ])
 if (new Set(projects.map(project => project.name)).size !== projects.length) throw new Error('Duplicate ordinary project')
 export default defineConfig({

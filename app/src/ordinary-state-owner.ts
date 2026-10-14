@@ -619,6 +619,140 @@ export class OrdinaryStateOwner {
     })
     return this.#track(pending)
   }
+  /** Fixed retained-result E->C startup custody. This creates no current
+   * role, provider attempt, key, seal, credential or adoption capability. */
+  recoverRetainedRenewalAtStartup(purpose:`tab:${string}`,live:()=>boolean):Promise<Readonly<{status:'candidate-committed'|'already-committed'|'already-settled'}>>{
+    if(this.purpose!=='browser'||this.expiresAt!==0||typeof purpose!=='string'||!TAB_PURPOSE.test(purpose)||typeof live!=='function')hold()
+    const pending=Promise.resolve().then(async()=>{
+      const inspector=await import('./ordinary-renewal-startup.js'),snapshot=await import('./ordinary-snapshot.js'),
+        requestCodec=await import('./ordinary-renewal-request.js'),candidateModule=await import('./ordinary-renewal-candidate.js')
+      const check=()=>this.#check(live);check();if(this.#retry||!navigator.locks)hold()
+      return navigator.locks.request(WRITE_LOCK,async()=>{
+        check();const names=ordinaryOperationNames(purpose),equal=(a:OperationClassification,b:OperationClassification)=>JSON.stringify(a)===JSON.stringify(b)
+        let context:OperationTransaction|undefined,db:IDBDatabase|undefined,expected:OperationClassification|undefined,active:PreparedRenewalTarget|undefined,
+          retainedJournal:OrdinaryOperationJournal|undefined,candidateImages:readonly [OrdinaryImage,OrdinaryImage]|undefined
+        const cancel={stop:()=>context?.abort()};this.#resources.add(cancel)
+        const reopen=async(custodyOnly=false)=>{db?.close();db=await this.#existingStartupDatabase(custodyOnly?()=>true:live,custodyOnly)
+          if(!db)hold();const opened=db;opened.onversionchange=()=>{this.#revoke();opened.close()}}
+        const binding=(image:Pick<OrdinaryImage,'purpose'|'keyId'|'generation'|'expiresAt'>)=>({purpose:image.purpose,keyId:image.keyId,generation:image.generation,expiresAt:image.expiresAt})
+        const headerFor=(journal:OrdinaryOperationJournal)=>{const packet=encodeOrdinaryOperationJournal(journal)
+          try{return decodeOrdinaryOperationClassification(packet)}finally{packet.fill(0)}}
+        /** Private fixed preparation/write plumbing. No callback or journal
+         * input is accepted by the exported startup entry point. */
+        const withNative=async<T>(mode:IDBTransactionMode,work:(journal:OrdinaryOperationJournal,rows:readonly [Row,Row],images:readonly [OrdinaryImage,OrdinaryImage],
+          inverse:readonly [OrdinaryImage,OrdinaryImage]|undefined,facts:OperationClassification,selected:PreparedRenewalTarget)=>T):Promise<T>=>{
+          let b:OrdinaryImage|undefined,t:OrdinaryImage|undefined,j:OrdinaryOperationJournal|undefined,inverse:readonly [OrdinaryImage,OrdinaryImage]|undefined,done=false
+          try{
+            check();await reopen();check();context=operationTransaction(db!,mode)
+            const raw=await Promise.all([context.read(()=>context!.store.get('browser')),context.read(()=>context!.store.get(purpose)),context.read(()=>context!.store.get(names.control))]);check()
+            const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
+            b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:binding(b),key:br.key},tab:{binding:binding(t),key:tr.key}});check()
+            if(j.tab!==purpose||!['provider-returned','candidate-prepared','candidate-committed','settled'].includes(j.phase)||
+              active&&(j.id!==active.header.id||j.sequence!==active.header.sequence||j.phase!==active.header.phase))hold()
+            if(j.phase!=='settled'){await inspector.validateOrdinaryRenewalStartupRows(j,[br.frame,tr.frame],[b,t]);check()}
+            const selected:PreparedRenewalTarget={purpose,rows:[rowDigest(br),rowDigest(tr)],controlDigest:ordinaryOperationControlDigest(raw[2]),header:headerFor(j)}
+            const facts=await this.#classifyOperations(live,context,false,j.phase==='settled'?undefined:selected);check();if(expected&&!equal(facts,expected))hold()
+            const historicalTab=new OrdinaryStateOwner(purpose,t.expiresAt)
+            if(j.phase==='provider-returned'||j.phase==='candidate-prepared'){
+              inverse=[copyImage(b),copyImage(t)]
+              requestCodec.restoreOrdinaryRenewalPredecessor(inverse[0],inverse[1],j.request,{id:j.id,sequence:j.sequence})
+              const oldMarker=inverse[0].records.get(names.marker),historicalFacts:OperationClassification={...facts,
+                markers:facts.markers.flatMap(([name,value])=>name!==names.marker?[[name,value] as const]:oldMarker===undefined?[]:[[name,oldMarker] as const])}
+              this.#validateCleanupImage(inverse[0],inverse[1],historicalTab,historicalFacts,snapshot);check()
+            }else if(j.phase==='candidate-committed'){this.#validateCleanupImage(b,t,historicalTab,facts,snapshot);check()}
+            let result!:T
+            await context.step(()=>{check();const value=work(j!,[br,tr],[b!,t!],inverse,facts,selected)
+              if(value&&typeof(value as unknown as PromiseLike<unknown>).then==='function'){void Promise.resolve(value).catch(()=>{});hold()};check();result=value})
+            context.stop();await context.ended;done=true;return result
+          }finally{if(!done&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;
+            j?.secrets.forEach(secret=>secret.fill(0));inverse?.forEach(clearImage);clearImage(b);clearImage(t)}
+        }
+        const guardedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{check();const result=crypto.getRandomValues(value);check();return result}} as unknown as Crypto
+        try{
+          const prepared=await withNative('readonly',(journal,rows,images,inverse,facts,selected)=>{
+            expected=facts;active=selected
+            if(journal.phase==='settled'||journal.phase==='candidate-committed')return {terminal:journal.phase}
+            if(!inverse||!journal.result||journal.secrets.length!==1||!journal.nonces)hold()
+            retainedJournal={...journal,secrets:journal.secrets.map(secret=>secret.slice())}
+            candidateImages=candidateModule.prepareOrdinaryRetainedRenewalCandidate(inverse,journal.request,journal.result,journal.secrets[0]!,images)
+            const historicalTab=new OrdinaryStateOwner(purpose,images[1].expiresAt)
+            this.#validateCleanupImage(candidateImages[0],candidateImages[1],historicalTab,facts,snapshot);check()
+            candidateImages.forEach(ordinaryImageByteLength)
+            // Digest placeholders have the same exact encoded lengths as real
+            // digests; choose values distinct from every P/E digest.
+            const used=new Set([...journal.source,...journal.enrolled]),placeholder=['0','1','2','3','4'].map(v=>v.repeat(64)).find(v=>!used.has(v))!
+            const reservation:OrdinaryOperationJournal={...retainedJournal,phase:'candidate-prepared',target:[placeholder,placeholder],targetRevisions:[candidateImages[0].revision,candidateImages[1].revision]}
+            headerFor(reservation);headerFor({...reservation,phase:'candidate-committed',secrets:[],nonces:null})
+            return{rows,bindings:[binding(images[0]),binding(images[1])] as const,imageSemanticDigest:ordinaryOperationSemanticDigest(candidateImages[0],candidateImages[1])}
+          })
+          if('terminal' in prepared)return Object.freeze({status:prepared.terminal==='settled'?'already-settled':'already-committed'})
+          check();if(!retainedJournal?.nonces||!candidateImages)hold()
+          const freeze=async(image:OrdinaryImage,key:CryptoKey,encoded:string)=>{
+            const bytes=Uint8Array.from(encoded.match(/../g)!.map(value=>parseInt(value,16)));let used=false
+            const fixedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{
+              check();if(used||!(value instanceof Uint8Array)||value.length!==12)hold();used=true;value.set(bytes);check();return value}} as unknown as Crypto
+            try{const frame=await sealOrdinaryImage(image,key,fixedCrypto);check();return frame}finally{bytes.fill(0);clearImage(image)}
+          }
+          const cf=await freeze(candidateImages[0],prepared.rows[0].key,retainedJournal.nonces[0]);check()
+          const ct=await freeze(candidateImages[1],prepared.rows[1].key,retainedJournal.nonces[1]);check()
+          // Reopening the actual frozen frames confirms that encryption kept
+          // the complete uniquely projected plaintext before phase wrapping.
+          let cb:OrdinaryImage|undefined,ctab:OrdinaryImage|undefined
+          try{cb=await openOrdinaryFrame(cf,prepared.rows[0].key);check();ctab=await openOrdinaryFrame(ct,prepared.rows[1].key);check()
+            if(ordinaryOperationSemanticDigest(cb,ctab)!==prepared.imageSemanticDigest)hold()}
+          finally{clearImage(cb);clearImage(ctab)}
+          const frames=Object.freeze([cf,ct]) as readonly [OrdinaryFrame,OrdinaryFrame],digests=[ordinaryFrameDigest(cf),ordinaryFrameDigest(ct)] as const,revisions=[cf.revision,ct.revision] as const
+          if(retainedJournal.phase==='candidate-prepared'&&(!retainedJournal.target||!retainedJournal.targetRevisions||
+            retainedJournal.target.some((value,i)=>value!==digests[i])||retainedJournal.targetRevisions.some((value,i)=>value!==revisions[i])))hold()
+          const candidatePrepared:OrdinaryOperationJournal={...retainedJournal,phase:'candidate-prepared',target:digests,targetRevisions:revisions}
+          const preparedHeader=headerFor(candidatePrepared),committed:OrdinaryOperationJournal={...candidatePrepared,phase:'candidate-committed',secrets:[],nonces:null},committedHeader=headerFor(committed)
+          /** The only two physical transitions: one prepared control, then
+           * the fixed three-row C cohort. No arbitrary writer is exported. */
+          const writeFixed=async(stage:'prepare'|'commit',control:OrdinaryOperationControl,header:OrdinaryOperationClassification)=>{
+            if(!active||!expected||stage==='prepare'&&(active.header.phase!=='provider-returned'||header.phase!=='candidate-prepared')||
+              stage==='commit'&&(active.header.phase!=='candidate-prepared'||header.phase!=='candidate-committed'))hold()
+            const prior=active,priorFacts=expected,next:PreparedRenewalTarget={purpose,
+              rows:stage==='prepare'?prior.rows:[rowDigest({frame:frames[0]} as Row),rowDigest({frame:frames[1]} as Row)],controlDigest:ordinaryOperationControlDigest(control),header}
+            const target:OperationClassification=Object.freeze({...priorFacts,
+              owners:Object.freeze(priorFacts.owners.map(([name,digest])=>Object.freeze([name,name==='browser'?next.rows[0]:name===purpose?next.rows[1]:digest] as const))),
+              controls:Object.freeze(priorFacts.controls.map(([name,digest])=>Object.freeze([name,name===names.control?next.controlDigest:digest] as const)))})
+            for(;;){
+              let attempted=false
+              try{await withNative('readwrite',(journal,rows)=>{
+                if(stage==='commit'&&(!journal.target||!journal.targetRevisions||journal.target.some((value,i)=>value!==digests[i])||
+                  journal.targetRevisions.some((value,i)=>value!==revisions[i])))hold()
+                const packet=validateOrdinaryOperationControl(control)
+                if(stage==='prepare'){check();attempted=true;context!.store.put(packet,names.control)}
+                else{const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])}
+                  check();attempted=true;context!.store.put(br,'browser');check();context!.store.put(tr,purpose);check();context!.store.put(packet,names.control)}
+              })}catch(error){if(!attempted)throw error}
+              let retriedPrior=false
+              for(;;){
+                let read:OperationTransaction|undefined,isPrior=false
+                try{await reopen(true);read=operationTransaction(db!,'readonly');const current=await this.#classifyOperations(()=>true,read,true,[prior,next]);read.stop();await read.ended
+                  if(equal(current,target)){active=next;expected=target;return}isPrior=equal(current,priorFacts)
+                }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+                if(isPrior){check();if(retriedPrior)break}
+                await new Promise<void>(yes=>{this.#retry=yes});this.#retry=undefined;retriedPrior=isPrior
+              }
+            }
+          }
+          if(retainedJournal.phase==='provider-returned'){
+            await withNative('readonly',()=>undefined);check()
+            const control=await sealOrdinaryOperationControl(candidatePrepared,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+            await writeFixed('prepare',control,preparedHeader);check()
+          }
+          await withNative('readonly',()=>undefined);check()
+          const control=await sealOrdinaryOperationControl(committed,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+          await writeFixed('commit',control,committedHeader)
+          return Object.freeze({status:'candidate-committed'})
+        }finally{retainedJournal?.secrets.forEach(secret=>secret.fill(0));candidateImages?.forEach(clearImage);
+          context?.abort();await context?.ended.catch(()=>{});context?.stop();db?.close();this.#resources.delete(cancel)}
+      })
+    })
+    return this.#track(pending)
+  }
   /** Classify the whole origin before ordinary callbacks, single-row intent
    * promotion or expiry cleanup. The coherent reader stays alive across native
    * crypto; rows are opened one at a time rather than cloning every large tab
@@ -904,7 +1038,7 @@ export class OrdinaryStateOwner {
     const markers = new Map(classified.markers), name = ordinaryOperationNames(t.purpose).marker
     pairCustody.set(custody, { kind: 'historical-cleanup', browser: b, tab: t, browserOwner: this, tabOwner: retained,
       browserStore: browserView.store, tabStore: tabView.store, browserScope: scope(b), tabScope: scope(t),
-      operationMarkers: [markers, new Map([[name, t.records.get(name)!]])] })
+      operationMarkers: [markers, new Map(t.records.has(name)?[[name,t.records.get(name)!]]:[])] })
     try { snapshot.validateOrdinarySnapshot(b.records, t.records, { browser: true, tab: true }, snapshot.captureOrdinaryHistoricalSnapshotContext(b.records, t.records, custody)) }
     finally { pairCustody.delete(custody); browserView.close(); tabView.close() }
   }
