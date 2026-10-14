@@ -29,6 +29,24 @@ Session adoption cannot satisfy that boundary. Shutdown must synchronously revok
 first and externally join the exact root; callbacks inside it revoke and return
 instead of awaiting their own lifetime.
 
+The native paired producer path now checks acknowledged predecessor records
+again immediately before the two puts, in the active writer transaction after
+both fresh row keys authenticate. This validation-only callback receives frozen
+readonly views and genuine read custody; it must start no effects or asynchronous
+work. Candidate projections cannot supply that custody. Callback, source and
+authentication failures remain refusals. Definite abort requires an observed
+native abort before any put attempt, or a fresh authenticated read of both exact
+predecessor rows. Mixed, missing or unauthenticated readback keeps the original
+frames and lock until exact reconciliation.
+
+A known commit returns an opaque one-attempt receipt, with no candidate plaintext
+or permission to adopt. This fact can survive subsequent liveness loss; its
+consumer still needs a new coherent authenticated read of both exact candidate
+frames, the same owners and scopes, and current lifetimes before a synchronous
+callback. A refused or completed consumption permanently spends that receipt.
+Receipts are memory-only. Durable successor selection/restart and actual Session
+adoption remain producer responsibilities and are not mounted by this primitive.
+
 ## Selected successor
 
 Retain a versioned encrypted member lease beside the existing V2 proof. Each

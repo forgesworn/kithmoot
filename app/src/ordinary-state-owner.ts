@@ -1,5 +1,5 @@
 import type { DeviceStore } from './device-store.js'
-import { OrdinaryStateHold, ordinaryImageByteLength, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
+import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
 
@@ -20,10 +20,29 @@ export interface OrdinaryPairMutation<T> {
   readonly work: (browser: DeviceStore, tab: DeviceStore,
     browserMigratedNames: readonly string[], tabMigratedNames: readonly string[], custody: OrdinaryPairCustody) => T
 }
+export type OrdinaryPairPrewrite = (browser: Pick<DeviceStore, 'get' | 'keys'>, tab: Pick<DeviceStore, 'get' | 'keys'>,
+  browserMigratedNames: readonly string[], tabMigratedNames: readonly string[], custody: OrdinaryPairCustody) => void
+/** A private producer's validation-only last check, after native authentication
+ * and immediately before the two puts. It must perform no effect or asynchronous
+ * work. Its readonly views contain acknowledged predecessor records only. */
+export interface OrdinaryPairCommitInput extends OrdinaryPairMutation<void> {
+  readonly beforeWrite: OrdinaryPairPrewrite
+}
+declare const pairCommitBrand: unique symbol
+export interface OrdinaryPairCommitReceipt { readonly [pairCommitBrand]: true }
+/** Custody facts only. Neither result grants permission to mint or adopt. */
+export type OrdinaryPairCommitOutcome = Readonly<
+  { status: 'committed'; receipt: OrdinaryPairCommitReceipt } | { status: 'definite-abort' }>
 declare const pairCustodyBrand: unique symbol
 export interface OrdinaryPairCustody { readonly [pairCustodyBrand]: true }
 interface PairHeader { purpose: OrdinaryPurpose; expiresAt: number; generation: string; revision: number; fences: ReadonlyMap<string, number> }
-const pairCustody = new WeakMap<object, { kind:'read'|'mutation'; browser: OrdinaryImage; tab: OrdinaryImage; browserOwner: OrdinaryStateOwner; tabOwner: OrdinaryStateOwner; browserStore: DeviceStore; tabStore: DeviceStore; browserScope: OrdinaryScope; tabScope: OrdinaryScope }>()
+const pairCustody = new WeakMap<object, { kind:'read'|'mutation'; browser: OrdinaryImage; tab: OrdinaryImage; browserOwner: OrdinaryStateOwner; tabOwner: OrdinaryStateOwner; browserStore: DeviceStore; tabStore: DeviceStore; browserScope: OrdinaryScope; tabScope: OrdinaryScope; rows?: readonly [Row, Row] }>()
+const pairCommits = new WeakMap<object, {
+  browser: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
+  tab: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
+  frames: readonly [OrdinaryFrame, OrdinaryFrame]
+  state: 'available' | 'consuming' | 'consumed' | 'refused'
+}>()
 /** Only a live native pair callback can supply this opaque provenance. Exact
  * record matching prevents substituting a different image under its headers. */
 export function ordinaryPairCustodyFor(token: OrdinaryPairCustody, browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>):
@@ -92,10 +111,10 @@ const random = () => [...crypto.getRandomValues(new Uint8Array(32))].map(b => b.
 function request<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) })
 }
-function settled(tx: IDBTransaction): Promise<void> {
+function settled(tx: IDBTransaction, aborted?: () => void): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error ?? new OrdinaryStateHold())
+    tx.onabort = () => { aborted?.(); reject(tx.error ?? new OrdinaryStateHold()) }
     // Only abort is terminal failure: an individual request error can still
     // be prevented by the browser and is not proof that commit was impossible.
   })
@@ -130,12 +149,12 @@ function view(records: Map<string, string>, writable: boolean): { store: DeviceS
   let active = true
   const check = () => { if (!active) hold() }
   return {
-    store: {
+    store: Object.freeze<DeviceStore>({
       get: name => { check(); return records.get(name) ?? null },
       keys: () => { check(); return [...records.keys()] },
       set: (name, value) => { check(); if (!writable) hold(); records.set(name, value) },
       remove: name => { check(); if (!writable) hold(); records.delete(name) },
-    },
+    }),
     close: () => { active = false; records.clear() },
   }
 }
@@ -157,9 +176,16 @@ export class OrdinaryStateOwner {
     if (reconciling) { if (!live()) hold() }
     else this.#check(live)
   }
-  constructor(readonly purpose: OrdinaryPurpose = 'browser', readonly expiresAt = 0) {}
+  constructor(readonly purpose: OrdinaryPurpose = 'browser', readonly expiresAt = 0) {
+    // These identities are immutable at runtime too. An accessor cannot run
+    // between the final native check and a put argument.
+    Object.defineProperties(this, { purpose: { value: purpose, enumerable: true, writable: false, configurable: false },
+      expiresAt: { value: expiresAt, enumerable: true, writable: false, configurable: false } })
+  }
   #check(live: () => boolean, expiredCleanup = false): void {
-    if (this.#closed || !live() || !expiredCleanup && this.purpose !== 'browser' && Date.now() >= this.expiresAt) hold()
+    if (this.#closed) hold()
+    const selected = live()
+    if (this.#closed || selected !== true || !expiredCleanup && this.purpose !== 'browser' && Date.now() >= this.expiresAt) hold()
   }
   #track<T>(work: Promise<T>): Promise<T> {
     this.#work.add(work)
@@ -230,10 +256,11 @@ export class OrdinaryStateOwner {
       !(browser instanceof OrdinaryStateOwner)||!(tab instanceof OrdinaryStateOwner)||typeof live!=='function')hold()
     // Invoke the trusted selector before the final lifetime checks: it may
     // synchronously close an owner while still returning true.
-    if(live()!==true||browser.#closed||tab.#closed||browser.#retry||tab.#retry||
+    const selected = live(), now = Date.now()
+    if(selected!==true||browser.#closed||tab.#closed||browser.#retry||tab.#retry||
       browser.purpose!=='browser'||browser.expiresAt!==0||!TAB_PURPOSE.test(tab.purpose)||
       captured.browser.purpose!==browser.purpose||captured.browser.expiresAt!==browser.expiresAt||
-      captured.tab.purpose!==tab.purpose||captured.tab.expiresAt!==tab.expiresAt||Date.now()>=tab.expiresAt||
+      captured.tab.purpose!==tab.purpose||captured.tab.expiresAt!==tab.expiresAt||now>=tab.expiresAt||
       captured.browser.generation!==browser.#generation||captured.tab.generation!==tab.#generation)hold()
     for(const scope of [browserScope,tabScope])if(typeof scope.name!=='string'||!scope.name.length||scope.name.length>512||
       !Number.isSafeInteger(scope.fence)||scope.fence<0)hold()
@@ -475,6 +502,7 @@ export class OrdinaryStateOwner {
           !Number.isSafeInteger(tab.expiresAt) || tab.expiresAt <= 0 ||
           browser.#generation === undefined || tab.#generation === undefined) hold()
       browser.#check(live); tab.#check(live)
+      if (browser.#closed || tab.#closed) hold()
       for (const scope of [browserScope, tabScope]) if (typeof scope.name !== 'string' || !scope.name.length ||
         scope.name.length > 512 || !Number.isSafeInteger(scope.fence) || scope.fence < 0) hold()
     }
@@ -508,7 +536,7 @@ export class OrdinaryStateOwner {
           browser.#scope(first, browserScope); tab.#scope(second, tabScope)
           const browserView = view(new Map(first.records), false), tabView = view(new Map(second.records), false)
           const custody = Object.freeze({}) as OrdinaryPairCustody
-          pairCustody.set(custody, { kind:'read', browser: first, tab: second, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
+          pairCustody.set(custody, { kind:'read', browser: first, tab: second, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope, rows: [saved[0], saved[1]] })
           try {
             const result = work(browserView.store, tabView.store,
               Object.freeze([...first.migration.names]), Object.freeze([...second.migration.names]), custody)
@@ -529,21 +557,68 @@ export class OrdinaryStateOwner {
    * and validate that binding on startup before effects. This primitive does
    * not supply membership authority or independent rollback resistance. */
   static mutatePairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
-    return this.#mutatePairMigrated(input, false)
+    return this.#mutatePairMigrated(input, false) as Promise<T>
+  }
+  /** Additive producer path. Receipts exist only in memory; durable restart
+   * adoption must independently validate the stored successor. No callback
+   * result is released as
+   * plaintext. A known commit survives later liveness loss as a custody fact;
+   * effects require consumePairCommit's fresh native callback instead. */
+  static commitPairMigrated(input: OrdinaryPairCommitInput): Promise<OrdinaryPairCommitOutcome> {
+    const beforeWrite = input.beforeWrite
+    if (typeof beforeWrite !== 'function') return Promise.reject(new OrdinaryStateHold())
+    return this.#mutatePairMigrated(input, false, false, beforeWrite) as Promise<OrdinaryPairCommitOutcome>
+  }
+  /** One attempt only, bound to both exact owners, scopes and committed
+   * frames. The callback may synchronously adopt a preallocated successor;
+   * it still owes the application's complete semantic and authority checks. */
+  static consumePairCommit<T>(input: OrdinaryPairMutation<T> & { readonly receipt: OrdinaryPairCommitReceipt }): Promise<T> {
+    const token = input.receipt, receipt = pairCommits.get(token)
+    if (!receipt || receipt.state !== 'available') return Promise.reject(new OrdinaryStateHold())
+    receipt.state = 'consuming'
+    let body: Promise<unknown> | undefined
+    try {
+      const browser = { owner: input.browser.owner, scope: { ...input.browser.scope } }
+      const tab = { owner: input.tab.owner, scope: { ...input.tab.scope } }
+      const sameScope = (a: OrdinaryScope, b: OrdinaryScope) => a.name === b.name && a.generation === b.generation && a.fence === b.fence
+      if (browser.owner !== receipt.browser.owner || tab.owner !== receipt.tab.owner ||
+          !sameScope(browser.scope, receipt.browser.scope) || !sameScope(tab.scope, receipt.tab.scope)) hold()
+      const live = input.live, work = input.work
+      const pending = this.readPairMigrated({ browser, tab, live, work: (b, t, bn, tn, custody) => {
+        const captured = pairCustody.get(custody)
+        if (receipt.state !== 'consuming' || captured?.kind !== 'read' || !captured.rows ||
+            !sameOrdinaryFrame(captured.rows[0].frame, receipt.frames[0]) ||
+            !sameOrdinaryFrame(captured.rows[1].frame, receipt.frames[1])) hold()
+        OrdinaryStateOwner.validatePairBinding(custody, { browser, tab, live })
+        receipt.state = 'consumed' // before reentrant application code
+        const result = work(b, t, bn, tn, custody)
+        if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
+          body = Promise.resolve(result)
+          OrdinaryStateOwner.joinPairLifetime(browser.owner, tab.owner, body)
+          void body.catch(() => {}); hold()
+        }
+        OrdinaryStateOwner.validatePairBinding(custody, { browser, tab, live })
+        return result
+      } })
+      const result = pending.catch(error => { receipt.state = 'refused'; throw error })
+        .finally(async () => { pairCommits.delete(token); if (body) await Promise.allSettled([body]) })
+      return OrdinaryStateOwner.joinPairLifetime(browser.owner, tab.owner, result)
+    } catch (error) { receipt.state = 'refused'; pairCommits.delete(token); return Promise.reject(error) }
   }
   /** Reserve the two authenticated input scope names at their existing fence
    * values in the SAME candidate. First-use producers size this reservation
    * before entropy; later forget advances existing entries without needing new
    * fence slots. No prior fence is evicted and no scope is advanced here. */
   static retainPairScopesMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
-    return this.#mutatePairMigrated(input, false, true)
+    return this.#mutatePairMigrated(input, false, true) as Promise<T>
   }
   /** Deletion and both invitation fences share one native commit. Old captured
    * queries cannot recreate forgotten custody, even when no record existed. */
   static forgetPairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
-    return this.#mutatePairMigrated(input, true)
+    return this.#mutatePairMigrated(input, true) as Promise<T>
   }
-  static #mutatePairMigrated<T>(input: OrdinaryPairMutation<T>, fencing: boolean, reserveScopes = false): Promise<T> {
+  static #mutatePairMigrated<T>(input: OrdinaryPairMutation<T>, fencing: boolean, reserveScopes = false,
+    beforeWrite?: OrdinaryPairPrewrite): Promise<T | OrdinaryPairCommitOutcome> {
     const browser = input.browser.owner, tab = input.tab.owner
     const browserScope = { ...input.browser.scope }, tabScope = { ...input.tab.scope }
     const live = input.live, work = input.work
@@ -552,6 +627,7 @@ export class OrdinaryStateOwner {
           !TAB_PURPOSE.test(tab.purpose) || !Number.isSafeInteger(tab.expiresAt) || tab.expiresAt <= 0 ||
           browser.#generation === undefined || tab.#generation === undefined) hold()
       browser.#check(live); tab.#check(live)
+      if (browser.#closed || tab.#closed) hold()
       for (const scope of [browserScope, tabScope]) if (typeof scope.name !== 'string' ||
         !scope.name.length || scope.name.length > 512 || !Number.isSafeInteger(scope.fence) || scope.fence < 0) hold()
     }
@@ -564,6 +640,7 @@ export class OrdinaryStateOwner {
         check()
         let browserSnapshot: Snapshot | undefined, tabSnapshot: Snapshot | undefined
         let browserImage: OrdinaryImage | undefined, tabImage: OrdinaryImage | undefined
+        let body: Promise<unknown> | undefined
         const current = () => {
           check()
           if (!browserSnapshot?.image || !tabSnapshot?.image) hold()
@@ -590,8 +667,13 @@ export class OrdinaryStateOwner {
             result = work(browserView.store, tabView.store,
               Object.freeze([...browserImage.migration!.names]), Object.freeze([...tabImage.migration!.names]), custody)
             if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
+              if (beforeWrite) {
+                body = Promise.resolve(result)
+                OrdinaryStateOwner.joinPairLifetime(browser, tab, body)
+              }
               void Promise.resolve(result).catch(() => {}); hold()
             }
+            if (beforeWrite && result !== undefined) hold()
             current()
             ;(browserImage.records as Map<string, string>).clear()
             ;(tabImage.records as Map<string, string>).clear()
@@ -611,13 +693,24 @@ export class OrdinaryStateOwner {
           ordinaryImageByteLength(browserImage); ordinaryImageByteLength(tabImage)
           const browserFrame = await sealOrdinaryImage(browserImage, browserSnapshot.row.key); current()
           const tabFrame = await sealOrdinaryImage(tabImage, tabSnapshot.row.key); current()
-          await OrdinaryStateOwner.#installPair(browser, tab, browserSnapshot, tabSnapshot,
-            { key: browserSnapshot.row.key, frame: browserFrame }, { key: tabSnapshot.row.key, frame: tabFrame }, current)
+          const installed = await OrdinaryStateOwner.#installPair(browser, tab, browserSnapshot, tabSnapshot,
+            { key: browserSnapshot.row.key, frame: beforeWrite ? validateOrdinaryFrame(browserFrame) : browserFrame },
+            { key: tabSnapshot.row.key, frame: beforeWrite ? validateOrdinaryFrame(tabFrame) : tabFrame }, current,
+            beforeWrite && { work: beforeWrite, browserScope, tabScope })
+          if (beforeWrite) {
+            if (installed === 'definite-abort') return Object.freeze({ status: 'definite-abort' as const })
+            const receipt = Object.freeze({}) as OrdinaryPairCommitReceipt
+            pairCommits.set(receipt, { browser: { owner: browser, scope: Object.freeze({ ...browserScope }) },
+              tab: { owner: tab, scope: Object.freeze({ ...tabScope }) },
+              frames: [validateOrdinaryFrame(browserFrame), validateOrdinaryFrame(tabFrame)], state: 'available' })
+            return Object.freeze({ status: 'committed' as const, receipt })
+          }
           current()
           return result!
         } finally {
           clearImage(browserImage); clearImage(tabImage)
           clearImage(browserSnapshot?.image); clearImage(tabSnapshot?.image)
+          if (body) await Promise.allSettled([body])
         }
       })
     })
@@ -626,95 +719,173 @@ export class OrdinaryStateOwner {
   }
   static async #installPair(browser: OrdinaryStateOwner, tab: OrdinaryStateOwner,
     browserPrevious: Snapshot, tabPrevious: Snapshot, browserCandidate: Row, tabCandidate: Row,
-    check: () => void): Promise<void> {
+    check: () => void, barrier?: { work: OrdinaryPairPrewrite; browserScope: OrdinaryScope; tabScope: OrdinaryScope }): Promise<'committed' | 'definite-abort'> {
     check()
-    const tx = browserPrevious.db.transaction(OWNER_STORE, 'readwrite'), ended = settled(tx)
+    const tx = browserPrevious.db.transaction(OWNER_STORE, 'readwrite')
+    const browserPurpose = browser.purpose, tabPurpose = tab.purpose
+    let aborted = false
+    const ended = settled(tx, () => { aborted = true })
     void ended.catch(() => {})
     let writesAttempted = false, authentication: Promise<void> | undefined
+    let reconcile = !!barrier
+    // Preserve exact expectations independently of the objects passed to
+    // native put. Producer receipts are confirmed by a coherent readback even
+    // after ordinary oncomplete, rather than inferred from request outcomes.
+    const browserExpected = barrier ? { key: browserCandidate.key, frame: validateOrdinaryFrame(browserCandidate.frame) } : browserCandidate
+    const tabExpected = barrier ? { key: tabCandidate.key, frame: validateOrdinaryFrame(tabCandidate.frame) } : tabCandidate
+    let first: OrdinaryImage | undefined, second: OrdinaryImage | undefined, body: Promise<unknown> | undefined
+    let barrierRefused = false, sourceRefused = false, authenticationRefused = false
+    const sourceCheck = () => {
+      try { check() } catch (error) { sourceRefused = true; throw error }
+    }
+    const equalImage = (a: OrdinaryImage, b: OrdinaryImage) => {
+      const x = encodeOrdinaryImage(a), y = encodeOrdinaryImage(b)
+      try { return x.length === y.length && x.every((byte, i) => byte === y[i]) }
+      finally { x.fill(0); y.fill(0) }
+    }
     try {
-      const store = tx.objectStore(OWNER_STORE)
-      const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
-      const saved = raw.map(row)
-      check()
-      if (!saved[0]?.frame || !saved[1]?.frame || !sameRow(saved[0], browserPrevious.row) ||
-          !sameRow(saved[1], tabPrevious.row) || saved[0].pending || saved[1].pending) hold()
-      let authenticated = false, refused = false
-      // CryptoKey clones have no comparable public identity. Authenticate
-      // the freshly read keys while THIS native writer transaction owns both
-      // rows. Lightweight requests keep it alive across WebCrypto; the puts
-      // run in a later active request callback, never a crypto task.
-      const keepAlive = () => {
-        const r = store.getKey(browser.purpose)
-        r.onerror = () => { refused = true; try { tx.abort() } catch {} }
-        r.onsuccess = () => {
+      try {
+        const store = tx.objectStore(OWNER_STORE)
+        const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+        const saved = raw.map(row)
+        sourceCheck()
+        if (!saved[0]?.frame || !saved[1]?.frame || !sameRow(saved[0], browserPrevious.row) ||
+            !sameRow(saved[1], tabPrevious.row) || saved[0].pending || saved[1].pending) hold()
+        let authenticated = false, refused = false, barrierStarted = false
+        const barrierCheck = () => {
           try {
-            check()
-            if (refused) { tx.abort(); return }
-            if (!authenticated) { keepAlive(); return }
-            writesAttempted = true
-            store.put(browserCandidate, browser.purpose)
-            store.put(tabCandidate, tab.purpose)
-          } catch { refused = true; try { tx.abort() } catch {} }
+            sourceCheck()
+            if (!barrier || !first || !second || !browserPrevious.image || !tabPrevious.image ||
+                first.purpose !== browser.purpose || first.expiresAt !== browser.expiresAt || first.generation !== browser.#generation ||
+                second.purpose !== tab.purpose || second.expiresAt !== tab.expiresAt || second.generation !== tab.#generation ||
+                first.migration?.phase !== 'complete' || second.migration?.phase !== 'complete' ||
+                !sameRow(saved[0], browserPrevious.row) || !sameRow(saved[1], tabPrevious.row) ||
+                !equalImage(first, browserPrevious.image) || !equalImage(second, tabPrevious.image)) hold()
+            browser.#scope(first, barrier.browserScope); tab.#scope(second, barrier.tabScope)
+          } catch (error) { sourceRefused = true; throw error }
         }
-      }
-      keepAlive()
-      authentication = (async () => {
-        let first: OrdinaryImage | undefined, second: OrdinaryImage | undefined
-        try {
-          first = await openOrdinaryFrame(saved[0]!.frame!, saved[0]!.key); check()
-          second = await openOrdinaryFrame(saved[1]!.frame!, saved[1]!.key); check()
-          if (first.purpose !== browser.purpose || first.expiresAt !== browser.expiresAt ||
-              second.purpose !== tab.purpose || second.expiresAt !== tab.expiresAt) hold()
-          authenticated = true
-        } catch { refused = true }
-        finally { clearImage(first); clearImage(second) }
-      })()
-      await ended
-    } catch {
-      try { tx.abort() } catch {}
-      await ended.catch(() => {})
-      await authentication
-      // Before the first put, even an ambiguous terminal receipt cannot mean
-      // that this read-only candidate transaction wrote either new frame.
-      // Preserve the refused source rows rather than silently repairing them.
-      if (!writesAttempted) throw new OrdinaryStateHold()
-      // Always classify BOTH rows from ONE readonly transaction, using the
-      // exact candidates. A mixed or unauthenticated result cannot release
-      // the lock, rerun the callback, or allocate replacement ciphertext.
-      for (;;) {
-        browser.#db?.close(); browser.#db = undefined
-        tab.#db?.close(); tab.#db = undefined
-        try {
-          const db = await browser.#database(() => true, true)
-          const read = db.transaction(OWNER_STORE, 'readonly'), finished = settled(read)
-          void finished.catch(() => {})
-          let saved: (Row | undefined)[]
+        // CryptoKey clones have no comparable public identity. Authenticate
+        // the freshly read keys while THIS writer transaction owns both rows.
+        // The barrier and both puts run in its active request callback.
+        const keepAlive = () => {
+          const r = store.getKey(browser.purpose)
+          r.onerror = () => { refused = true; try { tx.abort() } catch {} }
+          r.onsuccess = () => {
+            try {
+              sourceCheck()
+              if (refused) { tx.abort(); return }
+              if (!authenticated) { keepAlive(); return }
+              if (barrier) {
+                if (barrierStarted) hold()
+                barrierStarted = true
+                barrierCheck()
+                const browserView = view(new Map(first!.records), false), tabView = view(new Map(second!.records), false)
+                const custody = Object.freeze({}) as OrdinaryPairCustody
+                pairCustody.set(custody, { kind: 'read', browser: first!, tab: second!, browserOwner: browser, tabOwner: tab,
+                  browserStore: browserView.store, tabStore: tabView.store, browserScope: barrier.browserScope, tabScope: barrier.tabScope,
+                  rows: [saved[0]!, saved[1]!] })
+                try {
+                  const result: unknown = barrier.work(browserView.store, tabView.store,
+                    Object.freeze([...first!.migration!.names]), Object.freeze([...second!.migration!.names]), custody)
+                  if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+                    body = Promise.resolve(result)
+                    OrdinaryStateOwner.joinPairLifetime(browser, tab, body)
+                    void body.catch(() => {}); hold()
+                  }
+                  if (result !== undefined) hold()
+                  barrierCheck()
+                } catch (error) { barrierRefused = true; throw error }
+                finally { pairCustody.delete(custody); browserView.close(); tabView.close() }
+              }
+              // No await, application callback, getter or entropy separates
+              // the final barrier check from these two candidate puts. Mark
+              // attempted before calling put: a throwing native wrapper may
+              // already have queued it, so only both-row reconciliation can
+              // prove absence after this point.
+              writesAttempted = true
+              store.put(browserCandidate, browserPurpose)
+              store.put(tabCandidate, tabPurpose)
+            } catch { refused = true; try { tx.abort() } catch {} }
+          }
+        }
+        keepAlive()
+        authentication = (async () => {
           try {
-            const store = read.objectStore(OWNER_STORE)
-            const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
-            await finished
-            saved = raw.map(row)
-          } catch (error) { try { read.abort() } catch {}; await finished.catch(() => {}); throw error }
-          if (!saved[0]?.frame || !saved[1]?.frame || saved[0].pending || saved[1].pending) hold()
-          let first: OrdinaryImage | undefined, second: OrdinaryImage | undefined
-          try {
-            first = await openOrdinaryFrame(saved[0].frame, saved[0].key)
-            second = await openOrdinaryFrame(saved[1].frame, saved[1].key)
+            first = await openOrdinaryFrame(saved[0]!.frame!, saved[0]!.key); sourceCheck()
+            second = await openOrdinaryFrame(saved[1]!.frame!, saved[1]!.key); sourceCheck()
             if (first.purpose !== browser.purpose || first.expiresAt !== browser.expiresAt ||
                 second.purpose !== tab.purpose || second.expiresAt !== tab.expiresAt) hold()
-            if (sameRow(saved[0], browserCandidate) && sameRow(saved[1], tabCandidate)) break
-            if (sameRow(saved[0], browserPrevious.row) && sameRow(saved[1], tabPrevious.row)) throw new DefiniteAbort()
-          } finally { clearImage(first); clearImage(second) }
-        } catch (error) {
-          if (error instanceof DefiniteAbort) throw new OrdinaryStateHold()
+            authenticated = true
+          } catch { refused = true; authenticationRefused = true }
+          finally { if (!barrier) { clearImage(first); clearImage(second) } }
+        })()
+        await ended
+      } catch {
+        try { tx.abort() } catch {}
+        await ended.catch(() => {})
+        await authentication
+        if (!writesAttempted) {
+          // Native abort is proof that neither put was queued. Callback,
+          // source or authentication refusal remains a refusal, not an
+          // inferred safe-abort result for the producer.
+          if (barrier && aborted && !barrierRefused && !sourceRefused && !authenticationRefused && first && second) {
+            return 'definite-abort'
+          }
+          throw new OrdinaryStateHold()
         }
-        await new Promise<void>(resolve => { browser.#retry = resolve; tab.#retry = resolve })
-        browser.#retry = undefined; tab.#retry = undefined
+        reconcile = true
       }
+      await authentication
+      if (!writesAttempted && (barrierRefused || sourceRefused || authenticationRefused)) throw new OrdinaryStateHold()
+      if (reconcile) {
+        // Classify BOTH exact rows from ONE readonly transaction. Unknown,
+        // mixed or unauthenticated results retain this lock and ciphertext.
+        for (;;) {
+          browser.#db?.close(); browser.#db = undefined
+          tab.#db?.close(); tab.#db = undefined
+          try {
+            const db = await browser.#database(() => true, true)
+            const read = db.transaction(OWNER_STORE, 'readonly'), finished = settled(read)
+            void finished.catch(() => {})
+            let saved: (Row | undefined)[]
+            try {
+              const store = read.objectStore(OWNER_STORE)
+              const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+              await finished
+              saved = raw.map(row)
+            } catch (error) { try { read.abort() } catch {}; await finished.catch(() => {}); throw error }
+            if (!saved[0]?.frame || !saved[1]?.frame || saved[0].pending || saved[1].pending) hold()
+            let a: OrdinaryImage | undefined, b: OrdinaryImage | undefined
+            try {
+              a = await openOrdinaryFrame(saved[0].frame, saved[0].key)
+              b = await openOrdinaryFrame(saved[1].frame, saved[1].key)
+              if (a.purpose !== browser.purpose || a.expiresAt !== browser.expiresAt ||
+                  b.purpose !== tab.purpose || b.expiresAt !== tab.expiresAt) hold()
+              if (sameRow(saved[0], browserExpected) && sameRow(saved[1], tabExpected)) break
+              if (sameRow(saved[0], browserPrevious.row) && sameRow(saved[1], tabPrevious.row)) throw new DefiniteAbort()
+            } finally { clearImage(a); clearImage(b) }
+          } catch (error) {
+            if (error instanceof DefiniteAbort) {
+              if (barrier) return 'definite-abort'
+              throw new OrdinaryStateHold()
+            }
+          }
+          await new Promise<void>(resolve => { browser.#retry = resolve; tab.#retry = resolve })
+          browser.#retry = undefined; tab.#retry = undefined
+        }
+      }
+      await authentication
+      // Existing mutation callers still suppress results after liveness loss.
+      // The producer receives only a committed custody fact and opaque receipt;
+      // adoption must independently authenticate a fresh current pair later.
+      if (!barrier) check()
+      return 'committed'
+    } finally {
+      clearImage(first); clearImage(second)
+      if (body) await Promise.allSettled([body])
     }
-    await authentication
-    check()
   }
+
   /** The fence is committed with deletion; a captured pre-forget scope can
    * never repopulate this room. Capacity is checked by the canonical codec. */
   forget(scope: OrdinaryScope, live: () => boolean, selected: (name: string, value: string) => boolean): Promise<void> {

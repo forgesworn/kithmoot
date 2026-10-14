@@ -11,6 +11,7 @@ const engines = [
 specs.push('ordinary-snapshot.spec.ts')
 specs.push('ordinary-routing-custody.spec.ts')
 specs.push('ordinary-pair.spec.ts')
+specs.push('ordinary-pair-commit.spec.ts')
 specs.push('ordinary-persistent-admission.spec.ts')
 specs.push('ordinary-member-device-custody.spec.ts')
 specs.push('ordinary-bootstrap.spec.ts')
