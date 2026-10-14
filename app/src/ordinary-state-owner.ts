@@ -48,6 +48,12 @@ const pairCustody = new WeakMap<object, { kind:'read'|'mutation'|'historical-cle
 declare const renewalEnrollmentBrand:unique symbol
 export interface OrdinaryRenewalEnrollment {readonly [renewalEnrollmentBrand]:true}
 export type OrdinaryRenewalEnrollmentOutcome=Readonly<{status:'enrolled';enrollment:OrdinaryRenewalEnrollment}|{status:'definite-abort'}>
+/** Storage disposition only. Ordinary reads/effects still owe their native
+ * barrier and current role; active phases grant no continuation capability. */
+export interface OrdinaryRenewalStartupDisposition {
+  readonly status:'empty'|'ordinary'|'recovery-required'
+  readonly operations:readonly Readonly<{tab:`tab:${string}`;id:string;sequence:number;phase:OrdinaryOperationJournal['phase']}>[]
+}
 interface PreparedRenewalTarget {
   readonly purpose:`tab:${string}`
   readonly rows:readonly [string,string]
@@ -443,6 +449,71 @@ export class OrdinaryStateOwner {
       this.#check(live)
       return result
     })
+  }
+  /** Inspect storage before factory construction, new custody or expiry. The
+   * one native read is separate from ordinary pair custody: it publishes no
+   * owner caches, view, key, phase grant, signer or writable continuation. */
+  inspectRenewalStartup(live:()=>boolean):Promise<OrdinaryRenewalStartupDisposition>{
+    if(this.purpose!=='browser'||this.expiresAt!==0)hold()
+    const pending=Promise.resolve().then(async()=>{
+      this.#check(live);const inspector=await import('./ordinary-renewal-startup.js');this.#check(live)
+      if(this.#retry||!navigator.locks)hold()
+      return navigator.locks.request(WRITE_LOCK,async()=>{
+        this.#check(live)
+        // Abort an absent database upgrade. Classification must not install a
+        // new database or turn a missing origin into fresh key allocation.
+        let absent=false,refused=false
+        const open=indexedDB.open(ORDINARY_DATABASE,1)
+        const db=await new Promise<IDBDatabase|undefined>((yes,no)=>{
+          open.onupgradeneeded=event=>{if(event.oldVersion===0)absent=true;open.transaction!.abort()}
+          open.onblocked=()=>{refused=true;no(new OrdinaryStateHold())}
+          open.onerror=()=>{if(absent)yes(undefined);else no(new OrdinaryStateHold())}
+          open.onsuccess=()=>{const value=open.result;if(refused){value.close();return}
+            try{this.#check(live);if(value.version!==1||value.objectStoreNames.length!==1||!value.objectStoreNames.contains(OWNER_STORE))hold();yes(value)}
+            catch(error){value.close();no(error)}}
+        });try{this.#check(live)}catch(error){db?.close();throw error}
+        if(!db)return Object.freeze({status:'empty',operations:Object.freeze([])}) as OrdinaryRenewalStartupDisposition
+        let context:OperationTransaction|undefined
+        const cancel={stop:()=>context?.abort()};this.#resources.add(cancel)
+        db.onversionchange=()=>{this.#revoke();db.close()}
+        try{
+          context=operationTransaction(db,'readonly')
+          const keys=await context.read(()=>context!.store.getAllKeys(undefined,2*MAX_ORDINARY_TAB_OWNERS+2));this.#check(live)
+          if(keys.length>2*MAX_ORDINARY_TAB_OWNERS+1)hold()
+          const targets:PreparedRenewalTarget[]=[],operations:OrdinaryRenewalStartupDisposition['operations'][number][]=[]
+          for(const key of keys){
+            if(typeof key!=='string')hold()
+            if(!key.startsWith(ORDINARY_OPERATION_CONTROL_PREFIX))continue
+            if(key.length!==ORDINARY_OPERATION_CONTROL_PREFIX.length+64||!/^[0-9a-f]{64}$/.test(key.slice(ORDINARY_OPERATION_CONTROL_PREFIX.length)))hold()
+            const purpose=('tab:'+key.slice(ORDINARY_OPERATION_CONTROL_PREFIX.length)) as `tab:${string}`
+            const raw=await Promise.all([context.read(()=>context!.store.get('browser')),context.read(()=>context!.store.get(purpose)),context.read(()=>context!.store.get(key))]);this.#check(live)
+            const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame)hold()
+            let b:OrdinaryImage|undefined,t:OrdinaryImage|undefined,j:OrdinaryOperationJournal|undefined
+            try{
+              b=await openOrdinaryFrame(br.frame,br.key);this.#check(live);t=await openOrdinaryFrame(tr.frame,tr.key);this.#check(live)
+              const binding=(image:OrdinaryImage)=>({purpose:image.purpose,keyId:image.keyId,generation:image.generation,expiresAt:image.expiresAt})
+              j=await openOrdinaryOperationControl(raw[2],{browser:{binding:binding(b),key:br.key},tab:{binding:binding(t),key:tr.key}});this.#check(live)
+              if(j.tab!==purpose)hold()
+              if(j.phase!=='settled'){
+                if(br.pending||tr.pending)hold()
+                await inspector.validateOrdinaryRenewalStartupRows(j,[br.frame,tr.frame],[b,t]);this.#check(live)
+                const bytes=encodeOrdinaryOperationJournal(j)
+                let header:OrdinaryOperationClassification;try{header=decodeOrdinaryOperationClassification(bytes)}finally{bytes.fill(0)}
+                targets.push({purpose,rows:[rowDigest(br),rowDigest(tr)],controlDigest:ordinaryOperationControlDigest(raw[2]),header})
+              }
+              operations.push(Object.freeze({tab:purpose,id:j.id,sequence:j.sequence,phase:j.phase}))
+            }finally{j?.secrets.forEach(secret=>secret.fill(0));clearImage(b);clearImage(t)}
+          }
+          // Reuse whole-origin structural authentication without installing
+          // these fixed startup targets into any ordinary-owner cache.
+          await this.#classifyOperations(live,context,false,targets);this.#check(live)
+          context.stop();await context.ended;this.#check(live)
+          return Object.freeze({status:targets.length?'recovery-required':'ordinary',operations:Object.freeze(operations)}) as OrdinaryRenewalStartupDisposition
+        }catch{context?.abort();await context?.ended.catch(()=>{});hold()}
+        finally{context?.stop();this.#resources.delete(cancel);db.close()}
+      })
+    })
+    return this.#track(pending)
   }
   /** Classify the whole origin before ordinary callbacks, single-row intent
    * promotion or expiry cleanup. The coherent reader stays alive across native
