@@ -76,6 +76,12 @@ export function accountRoomStore(store: DeviceStore, pubkey: string): DeviceStor
 
 export class RoomBookmarks {
   readonly rooms: DeviceStore
+  /** A pending or recovered tombstone must also suppress old account inbox
+   * invitations, so another carrier cannot resurrect a forgotten room. */
+  forgotten(roomId: string): boolean {
+    const value = this.#pending.get(roomId)?.value ?? this.#records.get(roomId)
+    return !!value && !value.room
+  }
   #records = new Map<string, RecordEntry>()
   #pending = new Map<string, Pending>()
   #closed = false

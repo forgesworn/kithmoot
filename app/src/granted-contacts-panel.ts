@@ -7,6 +7,7 @@ import type { SignetSession } from 'signet-login'
 import { GrantedContactsClient, firstReachableRelay, RELAY_ANSWER_MS } from './granted-contacts-client.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import type { DeviceStore } from './device-store.js'
+import { npubEncode } from 'nostr-tools/nip19'
 
 interface Options {
   account(): SignetSession | undefined
@@ -15,6 +16,7 @@ interface Options {
   store: DeviceStore
   qr(canvas: HTMLCanvasElement, value: string): Promise<unknown>
   changed(view: GrantedContactsView): void
+  message(pubkey: string, name?: string): Promise<void>
 }
 /** One panel for the document. It owns its relay pool and closes it on account
  * changes. Merely visiting the page never starts a new pairing. */
@@ -42,6 +44,7 @@ export class GrantedContactsPanel {
     this.#el<HTMLButtonElement>('signetContactsMatched').onclick = () => { this.#answer?.(true) }
     this.#el<HTMLButtonElement>('signetContactsMismatch').onclick = () => { this.#answer?.(false) }
     this.#el<HTMLButtonElement>('signetContactsRefresh').onclick = () => { void this.#client?.refresh() }
+    this.#el<HTMLInputElement>('signetContactsSearch').addEventListener('input', () => this.#paint())
   }
   reconcile(): void {
     const account = this.#options.account()
@@ -83,12 +86,33 @@ export class GrantedContactsPanel {
       : this.#view.status === 'revoked' ? 'This contact grant was revoked. Its contacts are hidden; known blocks remain.'
       : this.#view.status === 'unavailable' ? 'The contact cache needs attention. No contact names or tiers are being used.'
       : this.#view.status === 'waiting' ? 'Waiting for the first granted copy.' : 'Link Signet to read only the contacts and fields you approve.')
-    const list = this.#el('signetGrantedContacts'); list.replaceChildren()
+    const list = this.#el('signetGrantedContacts')
+    const previous = new Map([...list.querySelectorAll<HTMLLIElement>('li')].map(row => [row.dataset.contact, row]))
+    let index = 0
+    const query = this.#el<HTMLInputElement>('signetContactsSearch').value.trim().toLocaleLowerCase()
     for (const contact of this.#view.contacts) {
-      const row = document.createElement('li')
-      row.textContent = `${contact.name ?? 'Unnamed contact'} · ${contact.pubkey.slice(0, 12)}${contact.tier ? ` · ${contact.tier}` : ''}`
-      row.title = contact.pubkey; list.append(row)
+      if (contact.pubkey === this.#account?.pubkey) continue
+      const npub = npubEncode(contact.pubkey)
+      if (query && !`${contact.name ?? ''} ${npub}`.toLocaleLowerCase().includes(query)) continue
+      const row = previous.get(contact.pubkey) ?? document.createElement('li')
+      previous.delete(contact.pubkey); row.dataset.contact = contact.pubkey
+      const label = row.querySelector<HTMLSpanElement>('span') ?? document.createElement('span'); label.className = 'contactLabel'
+      const duplicateName = !!contact.name && this.#view.contacts.some(other => other.pubkey !== contact.pubkey && other.name === contact.name)
+      label.textContent = `${contact.name ?? `${npub.slice(0, 12)}…`}${duplicateName ? ` · ${npub.slice(0, 12)}…` : ''}${contact.tier ? ` · ${contact.tier}` : ''}`
+      label.title = npub
+      const message = row.querySelector<HTMLButtonElement>('button') ?? document.createElement('button'); message.type = 'button'; message.textContent = 'Message'
+      message.dataset.contact = contact.pubkey; message.setAttribute('aria-label', `Message ${contact.name ?? npub}${duplicateName ? ` (${npub})` : ''}`)
+      message.onclick = () => {
+        message.disabled = true
+        void this.#options.message(contact.pubkey, contact.name).finally(() => { message.disabled = false })
+      }
+      if (!row.childElementCount) row.append(label, message)
+      if (list.children[index] !== row) list.insertBefore(row, list.children[index] ?? null)
+      index++
     }
+    for (const row of previous.values()) row.remove()
+    this.#el('signetContactsEmpty').hidden = list.childElementCount > 0
+    this.#el('signetContactsEmpty').textContent = this.#view.contacts.length ? 'No matching contacts.' : 'Link your Signet contacts to find someone to message.'
   }
   /** The QR gives way to the code, so only one thing is asked at a time. */
   #confirm(code: string): Promise<boolean> {

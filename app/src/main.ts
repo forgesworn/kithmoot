@@ -26,6 +26,8 @@ import { DesktopRedaction } from './redaction.js'
 import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
+import { ContactInbox } from './contact-inbox.js'
+import type { ContactInvitation } from '../../src/contact-invitation.js'
 import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
 import { showChannelCheckDialog } from './channel-check-dialog.js'
 import { coverCopy, effectiveSource } from './redaction-geometry.js'
@@ -1336,6 +1338,7 @@ async function signOutOfNostr(): Promise<void> {
   clearImportedHistorySearch()
   relayConnections.clearAuthentication()
   const account = nostrSession
+  closeContactInbox()
   void sharedProjects.detach()
   bookmarks?.close()
   bookmarks = undefined
@@ -1420,6 +1423,7 @@ async function forgetThisBrowserContents(): Promise<void> {
   s?.leave()
 
   const account = nostrSession
+  closeContactInbox()
   relayConnections.clearAuthentication()
   void sharedProjects.detach()
   bookmarks?.close()
@@ -1520,6 +1524,7 @@ function groupAdmissions(): BookmarkAdmissions {
 }
 
 function startRoomBookmarks(account: SignetSession): void {
+  void startContactInbox(account)
   const crypt = account.signer.nip44
   if (crypt) void sharedProjects.attach({ pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event),
     encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text),
@@ -1536,6 +1541,7 @@ function startRoomBookmarks(account: SignetSession): void {
       renderRooms()
     }
     renderWorkspace()
+    renderContactInbox()
     if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   }, message => {
     $('roomSyncStatus').textContent = message
@@ -2904,6 +2910,147 @@ function renderHowIn(): void {
  */
 let grantedContactsPanel: GrantedContactsPanel | undefined
 let grantedContactView: GrantedContactsView | undefined
+let contactInbox: ContactInbox | undefined
+let contactInboxGeneration = 0
+let contactInboxMessage = ''
+let startingContactMessage = false
+let contactsReturn: HTMLElement | undefined
+function closeContactInbox(): void {
+  ++contactInboxGeneration; contactInbox?.close(); contactInbox = undefined; contactInboxMessage = ''
+  ;($('contactsDialog') as HTMLDialogElement).close()
+  renderContactInbox()
+}
+function mayMessageContact(peer: string): boolean {
+  const view = grantedContactView
+  return !!nostrSession?.signer.nip44 && nostrSession.signer.capabilities.canSignEvents && peer !== nostrSession.pubkey
+    && !!view && (view.status === 'ready' || view.status === 'stale') && !view.blocked.has(peer) && view.contacts.some(contact => contact.pubkey === peer)
+}
+async function startContactInbox(account: SignetSession): Promise<void> {
+  closeContactInbox()
+  const generation = contactInboxGeneration, crypt = account.signer.nip44
+  if (!crypt) { contactInboxMessage = 'This signer cannot open private invitations. Use a signer with encryption support.'; renderContactInbox(); return }
+  try {
+    const defaults = relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)
+    const lists = await lookUpDmRelayLists([account.pubkey], defaults)
+    if (generation !== contactInboxGeneration || nostrSession !== account) return
+    const targets = distinctRelays([...latestDmRelayList(lists, account.pubkey), ...defaults]).slice(0, 12)
+    const inbox = new ContactInbox({ identity: { pubkey: account.pubkey,
+      signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) },
+      store: deviceStore, transport: relayConnections.pool('contact-inbox', targets),
+      acquire: async key => {
+        if (!navigator.locks) throw new Error('This browser cannot safely coordinate private invitations between tabs.')
+        return new Promise<() => void>((resolve, reject) => {
+          void navigator.locks.request(key, { ifAvailable: true }, async lock => {
+            if (!lock) { reject(new Error('Your private inbox is open in another tab. Use that tab or close it and retry.')); return }
+            await new Promise<void>(release => { resolve(release) })
+          }).catch(reject)
+        })
+      },
+      pool: relays => relayConnections.pool('contact-send', relays),
+      current: () => nostrSession === account && generation === contactInboxGeneration,
+      allowed: mayMessageContact, blocked: contactIsBlocked,
+      changed: renderContactInbox,
+    })
+    contactInbox = inbox
+    await inbox.open()
+  } catch (error) {
+    if (generation === contactInboxGeneration) { contactInboxMessage = describeError(error); renderContactInbox() }
+  }
+}
+function contactInvitationRoom(invitation: ContactInvitation, name?: string): KnownRoom {
+  // A remote invitation supplies a fragment, never a navigation to its host.
+  return { roomId: invitation.room, link: joinLinkBase() + new URL(invitation.link, location.href).hash,
+    openedAt: invitation.sentAt, readAt: 0, ...(name ? { name } : {}) }
+}
+async function openContactInvitation(invitation: ContactInvitation): Promise<void> {
+  const account = nostrSession, inbox = contactInbox
+  if (!account || !inbox) return
+  const peer = invitation.sender === account.pubkey ? invitation.recipient : invitation.sender
+  if (contactIsBlocked(peer) || bookmarks?.forgotten(invitation.room) || !inbox.snapshot().invitations.some(entry => entry.id === invitation.id)) return
+  const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name
+  const room = rememberRoom(roomStore(), contactInvitationRoom(invitation, name))
+  bookmarks?.save(room)
+  ;($('contactsDialog') as HTMLDialogElement).close()
+  await switchRoom(room)
+}
+function renderContactInbox(): void {
+  const state = contactInbox?.snapshot(), self = nostrSession?.pubkey
+  $('contactsSignIn').hidden = !!self
+  $('contactInboxStatus').textContent = contactInboxMessage || state?.error || (!self ? 'Sign in to message your contacts.'
+    : !state?.ready ? 'Opening your private invitation inbox…' : state.pending.length ? 'Some invitations are not confirmed. They are kept encrypted on this device; retry when connected.' : '')
+  $('contactInboxRetry').hidden = !self || state?.ready === true && !state.pending.length && !state.error
+  const list = $('contactInvites')
+  const previous = new Map([...list.querySelectorAll<HTMLLIElement>('li')].map(row => [row.dataset.invitation, row]))
+  let index = 0
+  const invitations = state?.invitations.filter(invitation => invitation.sender !== self && !bookmarks?.forgotten(invitation.room) && !knownRoom(roomStore(), invitation.room)) ?? []
+  $('contactInvitesHeading').hidden = !invitations.length
+  for (const invitation of invitations) {
+    const peer = invitation.sender
+    const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name ?? shortKey(peer)
+    const row = previous.get(invitation.id) ?? document.createElement('li'); row.dataset.invitation = invitation.id
+    previous.delete(invitation.id)
+    const label = row.querySelector<HTMLSpanElement>('span') ?? document.createElement('span'); label.className = 'contactLabel'; label.textContent = `${name} wants a private conversation`; label.title = npubEncode(peer)
+    const open = row.querySelector<HTMLButtonElement>('[data-action=open]') ?? document.createElement('button'); open.type = 'button'; open.textContent = 'Open conversation'; open.dataset.action = 'open'; open.setAttribute('aria-label', `Open conversation with ${name}`)
+    open.onclick = () => { void openContactInvitation(invitation).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) }
+    const dismiss = row.querySelector<HTMLButtonElement>('[data-action=dismiss]') ?? document.createElement('button'); dismiss.type = 'button'; dismiss.textContent = 'Dismiss'; dismiss.dataset.action = 'dismiss'
+    dismiss.onclick = () => { void contactInbox?.dismiss(invitation.id).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) }
+    if (!row.childElementCount) row.append(label, open, dismiss)
+    if (list.children[index] !== row) list.insertBefore(row, list.children[index] ?? null)
+    index++
+  }
+  for (const row of previous.values()) row.remove()
+  for (const id of ['homeContacts', 'workspaceContacts', 'mobileContacts', 'roomContacts']) $(id).textContent = invitations.length ? `Contacts (${invitations.length})` : 'Contacts'
+}
+async function messageContact(peer: string, name?: string): Promise<void> {
+  if (startingContactMessage || !mayMessageContact(peer)) return
+  const account = nostrSession!, inbox = contactInbox, generation = contactInboxGeneration
+  const current = () => nostrSession === account && generation === contactInboxGeneration && mayMessageContact(peer)
+  const existing = preferredDm(knownRooms(roomStore()).filter(room => dmPeer(parseRoomLink(room.link).policy, account.pubkey) === peer && !isQuietRoom(room))
+    .map(room => ({ room: room.roomId, sentAt: room.openedAt, known: room })))
+  const offered = preferredDm((inbox?.snapshot().invitations ?? []).filter(invitation => !bookmarks?.forgotten(invitation.room) && (invitation.sender === peer || invitation.recipient === peer))
+    .map(invitation => ({ room: invitation.room, sentAt: invitation.sentAt, invitation })))
+  if (offered && (!existing || preferredDm([offered, { ...offered, room: existing.room, sentAt: existing.sentAt }])?.room === offered.room)) {
+    await openContactInvitation(offered.invitation); return
+  }
+  if (existing) { ($('contactsDialog') as HTMLDialogElement).close(); await switchRoom(existing.known); return }
+  if (!inbox?.snapshot().ready) { contactInboxMessage = 'Wait for your private inbox to open, or retry its connection.'; renderContactInbox(); return }
+  startingContactMessage = true
+  contactInboxMessage = `Starting a private conversation with ${name ?? shortKey(peer)}…`; renderContactInbox()
+  let createdRoom: string | undefined, retained = false
+  try {
+    const defaults = relayConnections.configuration('default').filter(relay => relay.read || relay.write).map(relay => relay.url)
+    const lists = await lookUpDmRelayLists([account.pubkey, peer], distinctRelays([...defaults, ...RELAYS, ...PROFILE_RELAYS]), [KIND_DM_RELAYS, KIND_RELAY_LIST])
+    if (!current()) throw new Error('Your account or contact permission changed.')
+    const own = inboxRelays(lists, account.pubkey), theirs = inboxRelays(lists, peer)
+    const dmRelays = relaysForPrivateConversation({ mine: own, theirs, fallback: defaults })
+    const secret = generateRoomSecret(), created = createRoomInvitation(true), { roomId } = deriveRoom(secret)
+    createdRoom = roomId
+    const roomRelays = invitationRelaysFrom(dmRelays)
+    storeInvitationOwner(created.invitation, secret, created.inviterSk)
+    relayConnections.setRoomRelays(roomId, { fixed: roomRelays, signed: true })
+    await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, { forRoom: roomId, roomRelays })
+    if (!current()) throw new Error('Your account or contact permission changed.')
+    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays: dmRelays, iceUrls, policy: dmPolicy(account.pubkey, peer) })
+    const invitation = await inbox.enqueue(peer, roomId, link, theirs.length ? theirs : defaults, own.length ? own : defaults)
+    retained = true
+    if (!current()) throw new Error('Your account or contact permission changed.')
+    const room = rememberRoom(roomStore(), contactInvitationRoom(invitation, name)); bookmarks?.save(room)
+    // A retained outbox is enough to open the conversation. A relay outage
+    // must not discard it, mint a second room or pretend delivery succeeded.
+    void inbox.retry()
+    contactInboxMessage = ''
+    ;($('contactsDialog') as HTMLDialogElement).close()
+    await switchRoom(room)
+  } catch (error) {
+    if (createdRoom && !retained) {
+      // Nothing was queued for the contact. Retire only this attempt's local
+      // authority; an unrelated existing private conversation is untouched.
+      try { forgetRoomAccess(deviceStore, createdRoom); relayConnections.forgetRoom(createdRoom) } catch { /* A failed local cleanup does not authorise delivery. */ }
+    }
+    if (nostrSession === account && generation === contactInboxGeneration) { contactInboxMessage = describeError(error); renderContactInbox() }
+  }
+  finally { startingContactMessage = false }
+}
 function contactIsBlocked(participant: string): boolean {
   return grantedContactView?.status === 'unavailable' || grantedContactView?.blocked.has(participant) === true
 }
@@ -2911,7 +3058,8 @@ function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
-    changed: view => { grantedContactView = view; session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals() },
+    changed: view => { grantedContactView = view; session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox() },
+    message: messageContact,
   })
   grantedContactsPanel.reconcile()
   const input = $('displayName') as HTMLInputElement
@@ -13729,7 +13877,7 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     setStatus('')
     showOpening(room)
     if (!await roomFromLocation()) throw new Error('The room has no invitation link.')
-    if (sharedProjects.forRoom(room.roomId).length && currentRoomId() !== room.roomId) throw new Error('This project invitation opened a different room. Ask the project owner to correct it before continuing.')
+    if ((sharedProjects.forRoom(room.roomId).length || dmPeerOf(room)) && currentRoomId() !== room.roomId) throw new Error('This invitation opened a different room. Ask the sender to correct it before continuing.')
     showRoomUi()
     renderIdentity()
     if (($('join') as HTMLButtonElement).disabled) return
@@ -14250,6 +14398,8 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
     return
   }
   if (!await confirmRoomAction({ title: `Forget ${knownRoomLabel(room)}?`, message: `Remove it ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}. You will need its invitation link to come back. This does not revoke access or erase relay history.`, confirmLabel: 'Forget room', danger: true })) return
+  try { await contactInbox?.forgetRoom(room.roomId) }
+  catch { setStatus('The private invitation could not be forgotten. Nothing was removed; check storage and retry.'); return }
   if (bookmarks) bookmarks.remove(room.roomId)
   forgetLocally(room.roomId)
 }
@@ -14910,6 +15060,26 @@ const sharedProjects = new SharedProjectsPanel(document, {
     pool: targets => relayConnections.pool('project-inbox', targets),
   }),
   signIn: () => { void signInWithNostr().catch(e => setStatus(e instanceof Error ? e.message : 'Sign-in did not finish.')) },
+})
+
+for (const id of ['homeContacts', 'workspaceContacts', 'mobileContacts', 'roomContacts']) $(id).addEventListener('click', () => {
+  contactsReturn = $(id)
+  closeRoomSheet()
+  const dialog = $('contactsDialog') as HTMLDialogElement
+  renderContactInbox()
+  if (!dialog.open) dialog.showModal()
+  ;($('signetContactsSearch') as HTMLInputElement).focus()
+})
+$('contactsClose').addEventListener('click', () => ($('contactsDialog') as HTMLDialogElement).close())
+$('contactsDialog').addEventListener('close', () => { if (contactsReturn?.isConnected) contactsReturn.focus({ preventScroll: true }) })
+$('contactsSignIn').addEventListener('click', () => {
+  ;($('contactsDialog') as HTMLDialogElement).close()
+  void signInWithNostr().catch(error => setStatus(describeError(error)))
+})
+$('contactInboxRetry').addEventListener('click', () => {
+  contactInboxMessage = ''
+  if (contactInbox?.snapshot().ready) void contactInbox.retry()
+  else if (nostrSession) void startContactInbox(nostrSession)
 })
 
 const assignmentPanel = new AssignmentPanel(document, () => {

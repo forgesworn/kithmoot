@@ -144,6 +144,13 @@ is narrower than "nothing to run".
 
 ## What works today
 
+**Contacts** opens the contact directory you explicitly share from My Signet.
+Find a person and choose **Message** to start or reopen a private conversation,
+without needing a shared room first. Account-addressed encrypted invitations
+can be picked up later; the conversation retains calls, files and shared work.
+See [Signet contact messaging](docs/signet-contact-messaging.md) for delivery,
+privacy and current web/desktop versus native Android boundaries.
+
 Encrypted personal, Kin and Kith context is available in Room details → Context,
 with the same MIT library exposed through CLI and MCP. See [the context guide](docs/context.md)
 for grants, explicit sharing, backups and current limits.
