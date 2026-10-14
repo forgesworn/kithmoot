@@ -102,12 +102,34 @@ Separate clean browser-process restart tests reuse the exact persistent profile
 and serialized CryptoKeys, with no plaintext export or replacement key.
 These are software restart checks, not abrupt power-loss or physical acceptance.
 
+## Fixed startup settlement
+
+`OrdinaryStateOwner.recoverCommittedRenewalAtStartup` performs only historical
+C-to-S custody maintenance. Its input is a native tab purpose and fresh startup
+owner liveness. It independently authenticates the exact committed pair, result,
+historical role and complete origin before constructing the stripped S body.
+Historical tab or foreground expiry does not grant activity or prevent this
+neutral settlement. Current room authority is checked separately on reopening.
+
+The semantic projection preserves every non-marker record and immutable history.
+After checking owner-image and control budgets, it uses the existing native
+CryptoKeys and four fresh AEAD nonces for the two frames and control copies.
+It allocates no signing key, credential or seal, calls no provider and performs
+no Session or carrier adoption. The coherent write transaction reauthenticates
+the complete C predecessor before atomically putting both S frames and control.
+
+One encrypted S cohort is retained for every uncertain acknowledgement. Exact C
+can retry that same cohort only while the fresh startup owner remains live.
+Exact S is recognised as custody even after close; mixed or unavailable facts
+hold the actual outer promise and origin lock until explicit reconciliation.
+Close joins pending native cryptography and unresolved writes. An already
+settled result follows a fresh whole-origin classification and grants no activity.
+
 ## Remaining recovery work
 
 The startup inspector does not advance an active phase. Fixed startup recovery
 producers are still needed to resume an unstarted prepared intent where current
-authority permits, use a retained exact result and candidate without re-signing,
-and settle acknowledged C without resuming a partial in-memory generation.
+authority permits and use a retained exact result and candidate without re-signing.
 A recorded provider start with no durable result remains unknown and must never
 invoke the provider again. Recovery must authenticate the whole current store
 and current role independently of any diagnostic disposition.

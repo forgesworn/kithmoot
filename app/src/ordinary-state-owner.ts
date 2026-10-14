@@ -450,6 +450,22 @@ export class OrdinaryStateOwner {
       return result
     })
   }
+  /** Existing native storage only. Custody-only reopening is private to an
+   * attempted fixed write's reconciliation; it never starts a fresh writer. */
+  async #existingStartupDatabase(live:()=>boolean,custodyOnly=false):Promise<IDBDatabase|undefined>{
+    const check=()=>this.#custodyCheck(live,custodyOnly)
+    check();let absent=false,refused=false
+    const open=indexedDB.open(ORDINARY_DATABASE,1)
+    const db=await new Promise<IDBDatabase|undefined>((yes,no)=>{
+      open.onupgradeneeded=event=>{if(event.oldVersion===0)absent=true;open.transaction!.abort()}
+      open.onblocked=()=>{refused=true;no(new OrdinaryStateHold())}
+      open.onerror=()=>{if(absent)yes(undefined);else no(new OrdinaryStateHold())}
+      open.onsuccess=()=>{const value=open.result;if(refused){value.close();return}
+        try{check();if(value.version!==1||value.objectStoreNames.length!==1||!value.objectStoreNames.contains(OWNER_STORE))hold();yes(value)}
+        catch(error){value.close();no(error)}}
+    });try{check()}catch(error){db?.close();throw error}
+    return db
+  }
   /** Inspect storage before factory construction, new custody or expiry. The
    * one native read is separate from ordinary pair custody: it publishes no
    * owner caches, view, key, phase grant, signer or writable continuation. */
@@ -462,16 +478,7 @@ export class OrdinaryStateOwner {
         this.#check(live)
         // Abort an absent database upgrade. Classification must not install a
         // new database or turn a missing origin into fresh key allocation.
-        let absent=false,refused=false
-        const open=indexedDB.open(ORDINARY_DATABASE,1)
-        const db=await new Promise<IDBDatabase|undefined>((yes,no)=>{
-          open.onupgradeneeded=event=>{if(event.oldVersion===0)absent=true;open.transaction!.abort()}
-          open.onblocked=()=>{refused=true;no(new OrdinaryStateHold())}
-          open.onerror=()=>{if(absent)yes(undefined);else no(new OrdinaryStateHold())}
-          open.onsuccess=()=>{const value=open.result;if(refused){value.close();return}
-            try{this.#check(live);if(value.version!==1||value.objectStoreNames.length!==1||!value.objectStoreNames.contains(OWNER_STORE))hold();yes(value)}
-            catch(error){value.close();no(error)}}
-        });try{this.#check(live)}catch(error){db?.close();throw error}
+        const db=await this.#existingStartupDatabase(live)
         if(!db)return Object.freeze({status:'empty',operations:Object.freeze([])}) as OrdinaryRenewalStartupDisposition
         let context:OperationTransaction|undefined
         const cancel={stop:()=>context?.abort()};this.#resources.add(cancel)
@@ -511,6 +518,103 @@ export class OrdinaryStateOwner {
           return Object.freeze({status:targets.length?'recovery-required':'ordinary',operations:Object.freeze(operations)}) as OrdinaryRenewalStartupDisposition
         }catch{context?.abort();await context?.ended.catch(()=>{});hold()}
         finally{context?.stop();this.#resources.delete(cancel);db.close()}
+      })
+    })
+    return this.#track(pending)
+  }
+  /** Fixed startup C->S custody maintenance only. Historical expiry grants
+   * no effects; fresh startup-owner liveness controls this neutral projection.
+   * No journal, image, writer, signer, current role or adoption token is input. */
+  recoverCommittedRenewalAtStartup(purpose:`tab:${string}`,live:()=>boolean):Promise<Readonly<{status:'settled'|'already-settled'}>>{
+    if(this.purpose!=='browser'||this.expiresAt!==0||typeof purpose!=='string'||!TAB_PURPOSE.test(purpose)||typeof live!=='function')hold()
+    const pending=Promise.resolve().then(async()=>{
+      const inspector=await import('./ordinary-renewal-startup.js'),snapshot=await import('./ordinary-snapshot.js')
+      const check=()=>this.#check(live);check();if(this.#retry||!navigator.locks)hold()
+      return navigator.locks.request(WRITE_LOCK,async()=>{
+        check();const names=ordinaryOperationNames(purpose),equal=(a:OperationClassification,b:OperationClassification)=>JSON.stringify(a)===JSON.stringify(b)
+        let context:OperationTransaction|undefined,db:IDBDatabase|undefined,attempted=false,expected:OperationClassification|undefined
+        const cancel={stop:()=>context?.abort()};this.#resources.add(cancel)
+        const reopen=async(custodyOnly=false)=>{
+          db?.close();db=await this.#existingStartupDatabase(custodyOnly?()=>true:live,custodyOnly)
+          if(!db)hold();const opened=db;opened.onversionchange=()=>{this.#revoke();opened.close()}
+        }
+        const binding=(image:Pick<OrdinaryImage,'purpose'|'keyId'|'generation'|'expiresAt'>)=>({purpose:image.purpose,keyId:image.keyId,generation:image.generation,expiresAt:image.expiresAt})
+        /** This callback is private fixed construction/put plumbing only. It
+         * runs in the same coherent native C transaction as final validation. */
+        const withC=async<T>(mode:IDBTransactionMode,work:(j:OrdinaryOperationJournal,rows:readonly [Row,Row],images:readonly [OrdinaryImage,OrdinaryImage],facts:OperationClassification,prior:PreparedRenewalTarget)=>T):Promise<T>=>{
+          let b:OrdinaryImage|undefined,t:OrdinaryImage|undefined,j:OrdinaryOperationJournal|undefined,done=false
+          try{
+            check();await reopen();check();context=operationTransaction(db!,mode)
+            const raw=await Promise.all([context.read(()=>context!.store.get('browser')),context.read(()=>context!.store.get(purpose)),context.read(()=>context!.store.get(names.control))]);check()
+            const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
+            b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:binding(b),key:br.key},tab:{binding:binding(t),key:tr.key}});check()
+            if(j.tab!==purpose||j.phase!=='candidate-committed')hold()
+            await inspector.validateOrdinaryRenewalStartupRows(j,[br.frame,tr.frame],[b,t]);check()
+            const packet=encodeOrdinaryOperationJournal(j);let header:OrdinaryOperationClassification
+            try{header=decodeOrdinaryOperationClassification(packet)}finally{packet.fill(0)}
+            const selected:PreparedRenewalTarget={purpose,rows:[rowDigest(br),rowDigest(tr)],controlDigest:ordinaryOperationControlDigest(raw[2]),header}
+            const facts=await this.#classifyOperations(live,context,false,selected);check();if(expected&&!equal(facts,expected))hold()
+            const historicalTab=new OrdinaryStateOwner(purpose,t.expiresAt)
+            this.#validateCleanupImage(b,t,historicalTab,facts,snapshot);check()
+            let result!:T
+            await context.step(()=>{check();const value=work(j!,[br,tr],[b!,t!],facts,selected)
+              if(value&&typeof(value as unknown as PromiseLike<unknown>).then==='function'){void Promise.resolve(value).catch(()=>{});hold()};check();result=value})
+            context.stop();await context.ended;done=true;return result
+          }finally{if(!done&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;j?.secrets.forEach(secret=>secret.fill(0));clearImage(b);clearImage(t)}
+        }
+        try{
+          // Already settled is reported only after a complete fresh ordinary
+          // classification. It still supplies no current controller authority.
+          const disposition=await (async()=>{
+            check();await reopen();context=operationTransaction(db!,'readonly')
+            try{const raw=await context.read(()=>context!.store.get(names.control));check()
+              const br=row(await context.read(()=>context!.store.get('browser'))),tr=row(await context.read(()=>context!.store.get(purpose)));check()
+              if(!br?.frame||!tr?.frame)hold()
+              const header=await openOrdinaryOperationClassification(raw,{browser:{binding:binding(br.frame),key:br.key},tab:{binding:binding(tr.frame),key:tr.key}});check()
+              if(header.phase==='settled'){await this.#classifyOperations(live,context);context.stop();await context.ended;check();return true}return false
+            }finally{context?.stop();await context?.ended.catch(()=>{});context=undefined}
+          })()
+          if(disposition)return Object.freeze({status:'already-settled'})
+          const prepared=await withC('readonly',(journal,rows,images,facts,prior)=>{
+            expected=facts
+            const settled:OrdinaryOperationJournal={...journal,phase:'settled',request:'',result:null,secrets:[],nonces:null},packet=encodeOrdinaryOperationJournal(settled)
+            let header:OrdinaryOperationClassification;try{header=decodeOrdinaryOperationClassification(packet)}finally{packet.fill(0)}
+            const marker=ordinaryOperationMarker({id:journal.id,tab:journal.tab,sequence:journal.sequence,commitment:ordinaryOperationCommitment(header)}),copies=[copyImage(images[0]),copyImage(images[1])] as const
+            let success=false
+            try{for(const image of copies){(image.records as Map<string,string>).set(names.marker,marker);image.revision++;ordinaryImageByteLength(image)}
+              success=true;return{journal:settled,header,marker,images:copies,rows,prior,bindings:[binding(images[0]),binding(images[1])] as const}}
+            finally{if(!success)copies.forEach(clearImage)}
+          })
+          check()
+          const guardedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{check();const result=crypto.getRandomValues(value);check();return result}} as unknown as Crypto
+          let sf:OrdinaryFrame,st:OrdinaryFrame
+          try{sf=await sealOrdinaryImage(prepared.images[0],prepared.rows[0].key,guardedCrypto);check();st=await sealOrdinaryImage(prepared.images[1],prepared.rows[1].key,guardedCrypto);check()}
+          finally{prepared.images.forEach(clearImage)}
+          const control=await sealOrdinaryOperationControl(prepared.journal,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+          const frames=Object.freeze([sf,st]) as readonly [OrdinaryFrame,OrdinaryFrame],next:PreparedRenewalTarget={purpose,rows:[rowDigest({frame:sf} as Row),rowDigest({frame:st} as Row)],
+            controlDigest:ordinaryOperationControlDigest(control),header:prepared.header},target:OperationClassification=Object.freeze({...expected!,
+              owners:Object.freeze(expected!.owners.map(([name,digest])=>Object.freeze([name,name==='browser'?next.rows[0]:name===purpose?next.rows[1]:digest] as const))),
+              controls:Object.freeze(expected!.controls.map(([name,digest])=>Object.freeze([name,name===names.control?next.controlDigest:digest] as const))),
+              markers:Object.freeze(expected!.markers.map(([name,marker])=>Object.freeze([name,name===names.marker?prepared.marker:marker] as const)))})
+          for(;;){
+            attempted=false
+            try{await withC('readwrite',(_j,rows)=>{
+              const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])},packet=validateOrdinaryOperationControl(control)
+              check();attempted=true;context!.store.put(br,'browser');check();context!.store.put(tr,purpose);check();context!.store.put(packet,names.control)
+            })}catch(error){if(!attempted)throw error}
+            let retriedPrior=false
+            for(;;){
+              let read:OperationTransaction|undefined,isPrior=false
+              try{await reopen(true);read=operationTransaction(db!,'readonly');const current=await this.#classifyOperations(()=>true,read,true,[prepared.prior,next]);read.stop();await read.ended
+                if(equal(current,target))return Object.freeze({status:'settled'})
+                isPrior=equal(current,expected!)
+              }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+              if(isPrior){check();if(retriedPrior)break}
+              await new Promise<void>(yes=>{this.#retry=yes});this.#retry=undefined;retriedPrior=isPrior
+            }
+          }
+        }finally{context?.abort();await context?.ended.catch(()=>{});context?.stop();db?.close();this.#resources.delete(cancel)}
       })
     })
     return this.#track(pending)
