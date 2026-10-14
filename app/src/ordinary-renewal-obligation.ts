@@ -19,6 +19,7 @@ import { ordinaryMemberLeaseName, readOrdinaryMemberLease, ordinaryMemberLeaseCr
   makeOrdinaryMemberLeaseHeader, ordinaryMemberAuthorityUntil, type OrdinaryMemberAuthority } from './ordinary-member-lease.js'
 import { credentialSeal } from '../../src/seal.js'
 import { ROOM_PREFIX } from './rooms-store.js'
+import { readOrdinaryRenewalRequest } from './ordinary-renewal-request.js'
 
 const HEX = /^[0-9a-f]{64}$/
 function hold(): never { throw new OrdinaryStateHold() }
@@ -223,6 +224,48 @@ export function checkOrdinaryRenewalSigningObligation(token:OrdinaryRenewalOblig
   if(value.binding.live()!==true||value.binding.account!==null&&!OrdinaryForegroundSigner.nativeCurrent(value.binding.identity as OrdinaryForegroundSigner,
     value.binding.participant,value.intent.authority.foregroundExpiresAt))hold()
   verifyOrdinaryLifecyclePromise(value.root,pending)
+}
+/** Fixed C-role validation for S only. The owner authenticates the exact
+ * committed C/control first; this does not grant a phase, writer or adoption. */
+export function validateOrdinaryRenewalCommittedCandidate(token:OrdinaryRenewalObligation,pending:Promise<unknown>,browser:DeviceStore,tab:DeviceStore,
+  custody:OrdinaryPairCustody,request:string,result:string):void{
+  checkOrdinaryRenewalSigningObligation(token,pending)
+  const value=obligations.get(token)!,binding=value.binding,expected=readOrdinaryRenewalRequest(request).intent,b=records(browser),t=records(tab)
+  if(JSON.stringify(expected)!==JSON.stringify(value.intent))hold()
+  try{
+    ordinaryPairReadCustodyFor(custody,b,t)
+    OrdinaryStateOwner.validatePairBinding(custody,{browser:binding.browser,tab:binding.tab,live:binding.live})
+    validateOrdinarySnapshot(b,t,{browser:true,tab:true},captureOrdinarySnapshotContext(b,t,custody))
+    const inspected=inspectPersistentAdmissionProofs(browser,tab)
+    try{
+      const found=inspected.selected.get(accountPrefix(expected.participant)+PERSISTENT_TAB_PROOF_V2_PREFIX+expected.invitationId)
+      if(!found)hold()
+      const proof=found.proof,bound=proof.binding
+      if(bound.account!==expected.account||bound.participant!==expected.participant||bound.invitationId!==expected.invitationId||
+        bound.roomId!==expected.roomId||proof.kept.enabled!==expected.keep||bound.device.pubkey!==expected.device||bound.device.epoch!==expected.epoch||
+        bound.device.credentialIds.length!==1)hold()
+      const credential=ordinaryMemberLeaseCredential(proof,bound.device.credentialIds[0]!)
+      if(JSON.stringify(credential)!==result)hold()
+      const owner=expected.keep?browser:tab,prefix=accountPrefix(expected.participant)
+      if(owner.get(prefix+OWN_CREDENTIAL_PREFIX+expected.roomId)!==result)hold()
+      const raw=tab.get(ordinaryMemberLeaseName(bound));if(raw===null)hold()
+      const lease=readOrdinaryMemberLease(raw,JSON.stringify(proof)),metadata=browser.get(prefix+ROOM_PREFIX+expected.roomId)
+      if(metadata===null)hold()
+      const room=JSON.parse(metadata)
+      if(room.link!==binding.link||room.keep!==expected.keep||room.endedAt!==undefined||lease.header.sequence!==expected.leaseSequence+1||
+        lease.header.bootstrap!==expected.bootstrap||lease.header.predecessor!==expected.predecessor||lease.header.credential!==credential.id||
+        lease.header.issuedAt!==expected.issuedAt||lease.header.expiresAt!==expected.expiresAt||lease.header.proof!==bound.operation)hold()
+      const foreground=expected.account===null?null:OrdinaryForegroundSigner.nativeDeadline(binding.identity as OrdinaryForegroundSigner,browser,tab,custody,expected.participant)
+      const authority:OrdinaryMemberAuthority={tabExpiresAt:binding.tab.owner.expiresAt,admissionEndsAt:found.admission.endsAt??null,
+        foregroundExpiresAt:foreground,membershipEndsAt:null}
+      if(JSON.stringify(authority)!==JSON.stringify(expected.authority)||JSON.stringify(lease.header.authority)!==JSON.stringify(authority))hold()
+      if(expected.account===null){
+        const raw=browser.get('kithmoot.participant');if(raw===null||!HEX.test(raw))hold()
+        const key=hexToBytes(raw);try{if(getPublicKey(key)!==expected.participant)hold()}finally{key.fill(0)}
+      }
+      ordinaryPairReadCustodyFor(custody,b,t);checkOrdinaryRenewalSigningObligation(token,pending)
+    }finally{inspected.close()}
+  }finally{b.clear();t.clear()}
 }
 /** Only the fixed owner constructs this temporary read token from authenticated
  * E and its exact bounded inverse. Original P frame/control metadata comes

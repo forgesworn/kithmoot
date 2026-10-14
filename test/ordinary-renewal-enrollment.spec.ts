@@ -22,6 +22,18 @@ test.beforeAll(async()=>{
               try{observer.signingReturned=await OrdinaryStateOwner.signMemberRenewal(observer.enrollmentOutcome.enrollment)}
               catch(error){observer.signingError=(error as Error).stack}
               observer.signingDone=true
+              if(observer.performCandidateCommit&&observer.signingReturned){
+                observer.beforeCandidateCommit?.()
+                try{observer.candidateCommitted=await OrdinaryStateOwner.commitMemberRenewalCandidate(observer.signingReturned)}
+                catch(error){observer.candidateCommitError=(error as Error).stack}
+                observer.candidateCommitDone=true
+                if(observer.performSettlement&&observer.candidateCommitted){
+                  observer.beforeSettlement?.()
+                  try{observer.renewalSettled=await OrdinaryStateOwner.settleMemberRenewalCandidate(observer.candidateCommitted)}
+                  catch(error){observer.settlementError=(error as Error).stack}
+                  observer.settlementDone=true
+                }
+              }
             }
             await new Promise<void>(resolve=>observer.releaseEnrollment=resolve)
             protocol!.close(); return
@@ -478,4 +490,156 @@ test('fixed signing captures an immutable result before the provider object chan
   expect([state.phase,state.target,state.result,state.signCalls,state.puts,state.randoms,state.error]).toEqual(['provider-returned',null,expect.any(String),1,5,13,true])
   expect(JSON.parse(state.result!)).toEqual(JSON.parse(await page.evaluate<string>('originalProviderJSON')))
   await page.evaluate('restoreReturnedCrypto()');await finish(page)
+})
+
+
+for(const visitor of [false,true])for(const keep of [false,true])test(`fixed candidate commit atomically retains C and strips journal secrets, visitor=${visitor}, keep=${keep}`,async({page})=>{
+  await start(page,visitor,keep)
+  await page.evaluate('window.performSigning=true;window.performCandidateCommit=true');await page.clock.fastForward(901000)
+  await page.waitForFunction('window.candidateCommitDone===true');expect(await page.evaluate('window.candidateCommitError')).toBeUndefined()
+  const state=await signingState(page)
+  expect([state.phase,state.secretCount,state.nonces,state.result,state.target!==null,state.puts,state.randoms,state.signCalls]).toEqual(['candidate-committed',0,null,expect.any(String),true,9,17,visitor?0:1])
+  expect(await page.evaluate(`(async()=>{const rows=new Map(await readAll()),br=rows.get('browser'),tr=rows.get(tabPurpose),b=await Ordinary.openOrdinaryFrame(br.frame,br.key),t=await Ordinary.openOrdinaryFrame(tr.frame,tr.key),h=i=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt}),j=await Ordinary.openOrdinaryOperationControl(rows.get(Ordinary.ordinaryOperationNames(tabPurpose).control),{browser:{binding:h(b),key:br.key},tab:{binding:h(t),key:tr.key}});
+    const pB=await Ordinary.openOrdinaryFrame(prior[0].frame,prior[0].key),pT=await Ordinary.openOrdinaryFrame(prior[1].frame,prior[1].key),owner=keep?b:t;
+    return [b.revision===pB.revision+2,t.revision===pT.revision+2,j.target[0]===Ordinary.ordinaryFrameDigest(br.frame),j.target[1]===Ordinary.ordinaryFrameDigest(tr.frame),
+      owner.records.get(prefix+Ordinary.OWN_CREDENTIAL_PREFIX+roomId)===j.result,Object.keys(candidateCommitted).length,await outcome(()=>bootstrap.load()),await outcome(()=>Ordinary.OrdinaryStateOwner.commitMemberRenewalCandidate(signingReturned)),puts,randoms];})()`))
+    .toEqual([true,true,true,true,true,0,'OrdinaryStateHold','OrdinaryStateHold',9,17])
+  await finish(page)
+})
+test('fixed candidate commit refuses fabricated handles before getters or entropy',async({page})=>{
+  expect(await page.evaluate(`(async()=>{let getters=0,entropy=0;const fake={get enrollment(){getters++;throw Error('forged handle')}};
+    crypto.getRandomValues=()=>{entropy++;throw Error('must not allocate')};return [await (async()=>{try{await Ordinary.OrdinaryStateOwner.commitMemberRenewalCandidate(fake);return 'bad'}catch(error){return error.name}})(),getters,entropy]})()`)).toEqual(['OrdinaryStateHold',0,0])
+})
+for(const cut of [1,2,3])for(const queued of [false,true])test(`fixed candidate commit put ${cut} throws ${queued?'after':'before'} queue and retries one frozen C`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.performCandidateCommit=true;window.beforeCandidateCommit=()=>{
+    const put=IDBObjectStore.prototype.put;let calls=0;window.firstCandidate=[];window.retryCandidate=[];
+    IDBObjectStore.prototype.put=function(value,key){const captured=structuredClone(value);(window.cRetrying?retryCandidate:firstCandidate).push([key,captured]);
+      if(++calls===${cut}&&!${queued})throw Error('candidate before queue');const result=put.call(this,value,key);if(calls===${cut})throw Error('candidate after queue');return result};
+    window.prepareCandidateRetry=()=>{window.cRetrying=true;calls=100};window.restoreCandidatePut=()=>IDBObjectStore.prototype.put=put;
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('browserOwner.holdingRetention&&tabOwner.holdingRetention')
+  const before=await signingState(page)
+  expect([before.phase,before.done,before.puts,before.randoms,before.signCalls]).toEqual(['candidate-prepared',true,6+cut-(queued?0:1),17,1])
+  expect(await page.evaluate('window.candidateCommitDone===true')).toBe(false)
+  await page.evaluate('prepareCandidateRetry();bootstrap.retryRetention()');await page.waitForFunction('window.candidateCommitDone===true')
+  expect(await page.evaluate('window.candidateCommitError')).toBeUndefined()
+  const after=await signingState(page);expect([after.phase,after.secretCount,after.nonces,after.randoms,after.signCalls]).toEqual(['candidate-committed',0,null,17,1])
+  expect(await page.evaluate(`(()=>{const same=(a,b)=>a.byteLength===b.byteLength&&new Uint8Array(a).every((v,i)=>v===new Uint8Array(b)[i]);return firstCandidate.every(([key,value])=>{
+    const other=retryCandidate.find(([k])=>k===key)?.[1];return key===Ordinary.ordinaryOperationNames(tabPurpose).control?['browser','tab'].every(k=>same(value[k].nonce,other[k].nonce)&&same(value[k].ciphertext,other[k].ciphertext)):Ordinary.sameOrdinaryFrame(value.frame,other.frame)
+  })})()`)).toBe(true)
+  await page.evaluate('restoreCandidatePut()');await finish(page)
+})
+
+
+for(const visitor of [false,true])for(const keep of [false,true])test(`fixed settlement retains S history, strips body and permits ordinary reads, visitor=${visitor}, keep=${keep}`,async({page})=>{
+  await start(page,visitor,keep)
+  await page.evaluate('window.performSigning=true;window.performCandidateCommit=true;window.performSettlement=true');await page.clock.fastForward(901000)
+  await page.waitForFunction('window.settlementDone===true');expect(await page.evaluate('window.settlementError')).toBeUndefined()
+  const state=await signingState(page)
+  expect([state.phase,state.secretCount,state.nonces,state.result,state.target!==null,state.puts,state.randoms,state.signCalls]).toEqual(['settled',0,null,null,true,12,21,visitor?0:1])
+  expect(await page.evaluate(`(async()=>{const rows=new Map(await readAll()),br=rows.get('browser'),tr=rows.get(tabPurpose),b=await Ordinary.openOrdinaryFrame(br.frame,br.key),t=await Ordinary.openOrdinaryFrame(tr.frame,tr.key),h=i=>({purpose:i.purpose,keyId:i.keyId,generation:i.generation,expiresAt:i.expiresAt}),names=Ordinary.ordinaryOperationNames(tabPurpose),j=await Ordinary.openOrdinaryOperationControl(rows.get(names.control),{browser:{binding:h(b),key:br.key},tab:{binding:h(t),key:tr.key}});
+    const header=Ordinary.decodeOrdinaryOperationClassification(Ordinary.encodeOrdinaryOperationJournal(j)),marker=Ordinary.ordinaryOperationMarker({id:j.id,tab:j.tab,sequence:j.sequence,commitment:Ordinary.ordinaryOperationCommitment(header)});
+    const pB=await Ordinary.openOrdinaryFrame(prior[0].frame,prior[0].key),pT=await Ordinary.openOrdinaryFrame(prior[1].frame,prior[1].key),s=await scopes(),entropy=randoms,writes=puts,signs=signCalls;
+    const readable=await outcome(()=>Ordinary.OrdinaryStateOwner.readPairMigrated({browser:{owner:browserOwner,scope:s.b},tab:{owner:tabOwner,scope:s.t},live:guard,work:(b,t)=>[b.keys().length,t.keys().length]}));
+    return [b.revision===pB.revision+3,t.revision===pT.revision+3,b.records.get(names.marker)===marker,t.records.get(names.marker)===marker,j.request,j.result,
+      j.requestDigest.length,j.resultDigest.length,j.targetRevisions[0]===b.revision-1,j.targetRevisions[1]===t.revision-1,readable,
+      await outcome(()=>Ordinary.OrdinaryStateOwner.settleMemberRenewalCandidate(candidateCommitted)),Object.keys(renewalSettled).length,entropy===randoms,writes===puts,signs===signCalls];})()`))
+    .toEqual([true,true,true,true,'',null,64,64,true,true,'ok','OrdinaryStateHold',0,true,true,true])
+  await finish(page)
+})
+
+
+for(const cut of [1,2,3])for(const queued of [false,true])test(`fixed settlement put ${cut} throws ${queued?'after':'before'} queue and retries one frozen S`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.performCandidateCommit=true;window.performSettlement=true;window.beforeSettlement=()=>{
+    const put=IDBObjectStore.prototype.put;let calls=0;window.firstSettlement=[];window.retrySettlement=[];
+    IDBObjectStore.prototype.put=function(value,key){const captured=structuredClone(value);(window.sRetrying?retrySettlement:firstSettlement).push([key,captured]);
+      if(++calls===${cut}&&!${queued})throw Error('settlement before queue');const result=put.call(this,value,key);if(calls===${cut})throw Error('settlement after queue');return result};
+    window.prepareSettlementRetry=()=>{window.sRetrying=true;calls=100};window.restoreSettlementPut=()=>IDBObjectStore.prototype.put=put;
+  }})()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('browserOwner.holdingRetention&&tabOwner.holdingRetention')
+  const before=await signingState(page)
+  expect([before.phase,before.puts,before.randoms,before.signCalls]).toEqual(['candidate-committed',9+cut-(queued?0:1),21,1])
+  expect(await page.evaluate('window.settlementDone===true')).toBe(false)
+  await page.evaluate('prepareSettlementRetry();bootstrap.retryRetention()');await page.waitForFunction('window.settlementDone===true')
+  expect(await page.evaluate('window.settlementError')).toBeUndefined()
+  const after=await signingState(page);expect([after.phase,after.result,after.secretCount,after.nonces,after.randoms,after.signCalls]).toEqual(['settled',null,0,null,21,1])
+  expect(await page.evaluate(`(()=>{const same=(a,b)=>a.byteLength===b.byteLength&&new Uint8Array(a).every((v,i)=>v===new Uint8Array(b)[i]);return firstSettlement.every(([key,value])=>{
+    const other=retrySettlement.find(([k])=>k===key)?.[1];return key===Ordinary.ordinaryOperationNames(tabPurpose).control?['browser','tab'].every(k=>same(value[k].nonce,other[k].nonce)&&same(value[k].ciphertext,other[k].ciphertext)):Ordinary.sameOrdinaryFrame(value.frame,other.frame)
+  })})()`)).toBe(true)
+  await page.evaluate('restoreSettlementPut()');await finish(page)
+})
+for(const phase of ['candidate','settlement'])for(const closing of ['fore','browser','tab','root'])test(`fixed ${phase} ${closing} revocation before producer allocation preserves prior custody`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.performCandidateCommit=true;window.performSettlement=true;
+    window.${phase==='candidate'?'beforeCandidateCommit':'beforeSettlement'}=()=>{window.closing=${closing==='fore'?'identity':closing==='root'?'bootstrap':closing+'Owner'}.close()};
+  })()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.'+(phase==='candidate'?'candidateCommitDone':'settlementDone')+'===true')
+  const state=await signingState(page),candidate=phase==='candidate'
+  expect([state.phase,state.randoms,state.puts,state.signCalls]).toEqual([candidate?'candidate-prepared':'candidate-committed',candidate?15:17,candidate?6:9,1])
+  expect(await page.evaluate('!!window.'+(phase==='candidate'?'candidateCommitError':'settlementError'))).toBe(true)
+  await finish(page);await page.evaluate('closing')
+})
+
+
+for(const phase of ['candidate','settlement'])for(const closing of ['fore','browser','tab','root'])for(const fault of ['corrupt','unavailable'])test(`fixed ${phase} ${closing} close joins unknown ${fault} cohort until exact repair`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.performCandidateCommit=true;window.performSettlement=${phase==='settlement'};
+    window.${phase==='candidate'?'beforeCandidateCommit':'beforeSettlement'}=()=>{
+      const put=IDBObjectStore.prototype.put,open=IDBFactory.prototype.open;window.frozenCohort=[];let calls=0;
+      IDBObjectStore.prototype.put=function(value,key){frozenCohort.push([key,structuredClone(value)]);if(++calls===3){
+        if('${fault}'==='corrupt'){const bad=structuredClone(value);new Uint8Array(bad.tab.ciphertext)[0]^=1;return put.call(this,bad,key)}
+        const result=put.call(this,value,key);IDBFactory.prototype.open=()=>{throw Error('cohort read unavailable')};return result
+      }return put.call(this,value,key)};
+      window.restoreCohort=()=>{IDBObjectStore.prototype.put=put;IDBFactory.prototype.open=open};
+    }
+  })()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('browserOwner.holdingRetention&&tabOwner.holdingRetention')
+  expect(await page.evaluate('window.'+(phase==='candidate'?'candidateCommitDone':'settlementDone')+'===true')).toBe(false)
+  await page.evaluate(`window.closeState='pending';window.closing=${closing==='fore'?'identity':closing==='root'?'bootstrap':closing+'Owner'}.close().then(()=>closeState='done');undefined`)
+  expect(await page.evaluate('closeState')).toBe('pending')
+  const counts=await page.evaluate<[number,number]>('[randoms,signCalls]')
+  await page.evaluate(`(async()=>{restoreCohort();const r=indexedDB.open(Ordinary.ORDINARY_DATABASE,1),db=await new Promise(resolve=>r.onsuccess=()=>resolve(r.result)),tx=db.transaction('owners','readwrite');
+    for(const[key,row]of frozenCohort)tx.objectStore('owners').put(row,key);await new Promise(resolve=>tx.oncomplete=resolve);db.close();bootstrap.retryRetention()})()`)
+  await page.waitForFunction('window.'+(phase==='candidate'?'candidateCommitDone':'settlementDone')+'===true')
+  expect(await page.evaluate('window.'+(phase==='candidate'?'candidateCommitError':'settlementError'))).toBeUndefined()
+  const state=await signingState(page);expect([state.phase,state.secretCount,state.nonces]).toEqual([phase==='candidate'?'candidate-committed':'settled',0,null])
+  expect(await page.evaluate('[randoms,signCalls]')).toEqual(counts)
+  await finish(page);await page.evaluate('closing');expect(await page.evaluate('closeState')).toBe('done')
+})
+
+
+for(const phase of ['candidate','settlement'])for(const copy of phase==='candidate'?[1,2]:[1,2,3,4])test(`fixed ${phase} close during crypto copy ${copy} stops further entropy and puts`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.performCandidateCommit=true;window.performSettlement=${phase==='settlement'};
+    window.${phase==='candidate'?'beforeCandidateCommit':'beforeSettlement'}=()=>{
+      const encrypt=crypto.subtle.encrypt.bind(crypto.subtle);let calls=0;
+      crypto.subtle.encrypt=async(...args)=>{const result=await encrypt(...args);if(++calls===${copy}){window.cryptoWaiting=true;await new Promise(resolve=>window.releaseCommitCrypto=resolve)}return result};
+      window.restoreCommitCrypto=()=>crypto.subtle.encrypt=encrypt;
+    }
+  })()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.cryptoWaiting===true')
+  const before=await signingState(page);await page.evaluate('window.closing=bootstrap.close();releaseCommitCrypto();undefined')
+  await page.waitForFunction('window.'+(phase==='candidate'?'candidateCommitDone':'settlementDone')+'===true')
+  const after=await signingState(page)
+  expect([after.phase,after.puts,after.randoms,after.signCalls]).toEqual([before.phase,before.puts,before.randoms,before.signCalls])
+  expect(await page.evaluate('!!window.'+(phase==='candidate'?'candidateCommitError':'settlementError'))).toBe(true)
+  await page.evaluate('restoreCommitCrypto()');await finish(page);await page.evaluate('closing')
+})
+for(const phase of ['candidate','settlement'])for(const cut of [1,2,3])for(const closing of ['fore','root'])test(`fixed ${phase} ${closing} close after put ${cut} aborts atomically and drains exact prior`,async({page})=>{
+  await start(page)
+  await page.evaluate(`(()=>{window.performSigning=true;window.performCandidateCommit=true;window.performSettlement=${phase==='settlement'};
+    window.${phase==='candidate'?'beforeCandidateCommit':'beforeSettlement'}=()=>{
+      const put=IDBObjectStore.prototype.put;let calls=0;
+      IDBObjectStore.prototype.put=function(...args){const result=put.apply(this,args);if(++calls===${cut})window.closing=${closing==='fore'?'identity':'bootstrap'}.close();return result};
+      window.restoreCommitPut=()=>IDBObjectStore.prototype.put=put;
+    }
+  })()`)
+  await page.clock.fastForward(901000);await page.waitForFunction('window.'+(phase==='candidate'?'candidateCommitDone':'settlementDone')+'===true')
+  const state=await signingState(page),candidate=phase==='candidate'
+  expect([state.phase,state.puts,state.randoms,state.signCalls]).toEqual([candidate?'candidate-prepared':'candidate-committed',(candidate?6:9)+cut,candidate?17:21,1])
+  expect(await page.evaluate('[browserOwner.holdingRetention,tabOwner.holdingRetention]')).toEqual([false,false])
+  expect(await page.evaluate('!!window.'+(phase==='candidate'?'candidateCommitError':'settlementError'))).toBe(true)
+  await page.evaluate('restoreCommitPut()');await finish(page);await page.evaluate('closing')
 })

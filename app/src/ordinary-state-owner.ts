@@ -5,7 +5,7 @@ import { sha256 } from '@noble/hashes/sha2'
 import type { OrdinaryRenewalObligation } from './ordinary-renewal-obligation.js'
 import type { DeviceStore } from './device-store.js'
 import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification, openOrdinaryOperationControl,
-  ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
+  ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, validateOrdinaryOperationControl, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
   type OrdinaryOperationJournal, type OrdinaryOperationClassification, type OrdinaryOperationControl } from './ordinary-operation-codec.js'
 import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
@@ -59,6 +59,16 @@ const consumedRenewalEnrollments=new WeakSet<object>()
 declare const renewalReturnedBrand:unique symbol
 export interface OrdinaryRenewalProviderReturned {readonly [renewalReturnedBrand]:true}
 const renewalReturned=new WeakMap<object,Readonly<{enrollment:OrdinaryRenewalEnrollment;target:PreparedRenewalTarget;classification:OperationClassification;candidate:readonly [OrdinaryFrame,OrdinaryFrame]}>>()
+const consumedRenewalReturned=new WeakSet<object>()
+declare const renewalCommittedBrand:unique symbol
+/** Custody receipt only. S settlement and current controller adoption remain
+ * separate operations; this opaque handle supplies neither permission. */
+export interface OrdinaryRenewalCandidateCommitted {readonly [renewalCommittedBrand]:true}
+const renewalCommitted=new WeakMap<object,Readonly<{enrollment:OrdinaryRenewalEnrollment;target:PreparedRenewalTarget;classification:OperationClassification}>>()
+const consumedRenewalCommitted=new WeakSet<object>()
+declare const renewalSettledBrand:unique symbol
+export interface OrdinaryRenewalSettled {readonly [renewalSettledBrand]:true}
+const renewalSettled=new WeakMap<object,Readonly<{enrollment:OrdinaryRenewalEnrollment;target:PreparedRenewalTarget;classification:OperationClassification}>>()
 const pairCommits = new WeakMap<object, {
   browser: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
   tab: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
@@ -1180,6 +1190,223 @@ export class OrdinaryStateOwner {
           renewalReturned.set(returned,Object.freeze({enrollment,target:active,classification:expected,candidate:Object.freeze([cf,ct]) as readonly [OrdinaryFrame,OrdinaryFrame]}))
           return returned
         }finally{providerActive=false;await Promise.allSettled([...providerRuns]);context?.abort();await context?.ended.catch(()=>{});context?.stop();browser.#resources.delete(cancel);tab.#resources.delete(cancel);seal?.secretKey.fill(0)}
+      })
+    }).then(resolve,reject).finally(()=>releaseOrdinaryRenewalSigningLifetime(foregroundLifetime)).catch(()=>{})
+    return pending
+  }
+  /** Commit the exact fixed C prepared by this native producer. No caller
+   * frames, journal, signer, writer callback or Session are accepted. */
+  static commitMemberRenewalCandidate(returned:OrdinaryRenewalProviderReturned):Promise<OrdinaryRenewalCandidateCommitted>{
+    const candidate=renewalReturned.get(returned),enrollment=candidate&&renewalEnrollments.get(candidate.enrollment)
+    if(!candidate||!enrollment||consumedRenewalReturned.has(returned))hold()
+    consumedRenewalReturned.add(returned)
+    const {held,obligation}=enrollment,browser=held.binding.browser.owner,tab=held.binding.tab.owner,
+      purpose=tab.purpose as `tab:${string}`,names=ordinaryOperationNames(purpose)
+    let resolve!:(value:OrdinaryRenewalCandidateCommitted)=>void,reject!:(reason:unknown)=>void
+    const pending=new Promise<OrdinaryRenewalCandidateCommitted>((yes,no)=>{resolve=yes;reject=no})
+    browser.#track(pending);tab.#track(pending)
+    let foregroundLifetime:OrdinaryRenewalSigningLifetime|undefined
+    try{
+      held.root.retain(pending)
+      if(held.binding.account!==null){
+        foregroundLifetime=registerOrdinaryRenewalSigningLifetime({obligation,pending,signer:held.binding.identity as OrdinaryForegroundSigner})
+        OrdinaryForegroundSigner.retainMemberRenewal(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+      }
+    }catch(error){releaseOrdinaryRenewalSigningLifetime(foregroundLifetime);reject(error);return pending}
+    void Promise.resolve().then(async()=>{
+      const bridge=await import('./ordinary-renewal-obligation.js'),codec=await import('./ordinary-renewal-request.js')
+      const check=()=>{browser.#check(held.binding.live);tab.#check(held.binding.live);bridge.checkOrdinaryRenewalSigningObligation(obligation,pending)}
+      check();if(browser.#retry||tab.#retry||!navigator.locks)hold()
+      if(foregroundLifetime)await OrdinaryForegroundSigner.checkMemberRenewalClients(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+      return navigator.locks.request(WRITE_LOCK,async()=>{
+        const equal=(a:OperationClassification,b:OperationClassification)=>JSON.stringify(a)===JSON.stringify(b)
+        const binding=(image:OrdinaryImage)=>({purpose:image.purpose,keyId:image.keyId,generation:image.generation,expiresAt:image.expiresAt})
+        let context:OperationTransaction|undefined,attempted=false
+        const cancel={stop:()=>context?.abort()};browser.#resources.add(cancel);tab.#resources.add(cancel)
+        /** All final role checks and the three queued puts use the same exact
+         * E transaction. The temporary P read is private and synchronous. */
+        const withE=async<T>(mode:IDBTransactionMode,work:(journal:OrdinaryOperationJournal,rows:readonly [Row,Row],bindings:readonly [ReturnType<typeof binding>,ReturnType<typeof binding>])=>T):Promise<T>=>{
+          let b:OrdinaryImage|undefined,t:OrdinaryImage|undefined,j:OrdinaryOperationJournal|undefined,completed=false
+          try{
+            check();context=operationTransaction(await browser.#database(held.binding.live),mode)
+            const current=await browser.#classifyOperations(held.binding.live,context,false,candidate.target);check();if(!equal(current,candidate.classification))hold()
+            const raw=await Promise.all([context.read(()=>context!.store.get('browser')),context.read(()=>context!.store.get(purpose)),context.read(()=>context!.store.get(names.control))])
+            const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
+            b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
+            const bindings=[binding(b),binding(t)] as const
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:bindings[0],key:br.key},tab:{binding:bindings[1],key:tr.key}});check()
+            if(j.phase!=='candidate-prepared'||j.request!==enrollment.request||j.id!==candidate.target.header.id||j.sequence!==candidate.target.header.sequence||
+              !j.target||!j.targetRevisions||j.target.some((digest,i)=>ordinaryFrameDigest(candidate.candidate[i]!)!==digest)||
+              j.targetRevisions.some((revision,i)=>candidate.candidate[i]!.revision!==revision))hold()
+            codec.restoreOrdinaryRenewalPredecessor(b,t,enrollment.request,{id:j.id,sequence:j.sequence})
+            const bv=view(new Map(b.records),false),tv=view(new Map(t.records),false),custody=Object.freeze({}) as OrdinaryPairCustody
+            pairCustody.set(custody,{kind:'read',browser:b,tab:t,browserOwner:browser,tabOwner:tab,browserStore:bv.store,tabStore:tv.store,
+              browserScope:held.binding.browser.scope,tabScope:held.binding.tab.scope,
+              operationMarkers:[new Map([...b.records].filter(([n])=>n.startsWith('kithmoot.operation-journal'))),new Map([...t.records].filter(([n])=>n.startsWith('kithmoot.operation-journal')))]})
+            try{
+              bridge.validateOrdinaryRenewalReconstructedPredecessor(obligation,pending,bv.store,tv.store,custody);check()
+              let value!:T
+              await context.step(()=>{check();const result=work(j!,[br,tr],bindings)
+                if(result&&typeof(result as unknown as PromiseLike<unknown>).then==='function'){void Promise.resolve(result).catch(()=>{});hold()}
+                check();value=result})
+              context.stop();await context.ended;completed=true;return value
+            }finally{pairCustody.delete(custody);bv.close();tv.close()}
+          }finally{if(!completed&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);j?.secrets.forEach(key=>key.fill(0))}
+        }
+        try{
+          const prepared=await withE('readonly',(journal,rows,bindings)=>({journal:{...journal,phase:'candidate-committed' as const,secrets:[],nonces:null},rows,bindings}))
+          check()
+          const guardedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{check();const result=crypto.getRandomValues(value);check();return result}} as unknown as Crypto
+          const control=await sealOrdinaryOperationControl(prepared.journal,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},
+            tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+          const bytes=encodeOrdinaryOperationJournal(prepared.journal);let header:OrdinaryOperationClassification
+          try{header=decodeOrdinaryOperationClassification(bytes)}finally{bytes.fill(0)}
+          const next:PreparedRenewalTarget={...candidate.target,header,controlDigest:ordinaryOperationControlDigest(control),
+            rows:[rowDigest({frame:candidate.candidate[0]} as Row),rowDigest({frame:candidate.candidate[1]} as Row)]}
+          const target:OperationClassification=Object.freeze({...candidate.classification,
+            owners:Object.freeze(candidate.classification.owners.map(([name,digest])=>Object.freeze([name,name==='browser'?next.rows[0]:name===purpose?next.rows[1]:digest] as const))),
+            controls:Object.freeze(candidate.classification.controls.map(([name,digest])=>Object.freeze([name,name===names.control?next.controlDigest:digest] as const)))})
+          for(;;){
+            if(foregroundLifetime)await OrdinaryForegroundSigner.checkMemberRenewalClients(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+            attempted=false
+            try{await withE('readwrite',(_j,rows)=>{
+              // Copy every mutable binary field for the public IDB argument;
+              // retain the original frozen C/control bytes for reconciliation.
+              const browserRow={key:rows[0].key,frame:validateOrdinaryFrame(candidate.candidate[0])},tabRow={key:rows[1].key,frame:validateOrdinaryFrame(candidate.candidate[1])},journal=validateOrdinaryOperationControl(control)
+              check();attempted=true;context!.store.put(browserRow,'browser');check();context!.store.put(tabRow,purpose);check();context!.store.put(journal,names.control)
+            })}catch(error){if(!attempted)throw error}
+            let retriedPrior=false
+            for(;;){
+              let read:OperationTransaction|undefined,isPrior=false
+              browser.#db?.close();browser.#db=undefined
+              try{
+                read=operationTransaction(await browser.#database(()=>true,true),'readonly')
+                const current=await browser.#classifyOperations(()=>true,read,true,[candidate.target,next]);read.stop();await read.ended
+                if(equal(current,target)){
+                  const committed=Object.freeze({}) as OrdinaryRenewalCandidateCommitted
+                  renewalCommitted.set(committed,Object.freeze({enrollment:candidate.enrollment,target:next,classification:target}));return committed
+                }
+                isPrior=equal(current,candidate.classification)
+              }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+              if(isPrior){check();if(retriedPrior)break}
+              await new Promise<void>(yes=>{browser.#retry=yes;tab.#retry=yes});browser.#retry=undefined;tab.#retry=undefined;retriedPrior=isPrior
+            }
+          }
+        }finally{context?.abort();await context?.ended.catch(()=>{});context?.stop();browser.#resources.delete(cancel);tab.#resources.delete(cancel)}
+      })
+    }).then(resolve,reject).finally(()=>releaseOrdinaryRenewalSigningLifetime(foregroundLifetime)).catch(()=>{})
+    return pending
+  }
+  /** Settle only the exact acknowledged C. S retains immutable history while
+   * removing the private journal body. This grants no Session adoption. */
+  static settleMemberRenewalCandidate(committed:OrdinaryRenewalCandidateCommitted):Promise<OrdinaryRenewalSettled>{
+    const candidate=renewalCommitted.get(committed),enrollment=candidate&&renewalEnrollments.get(candidate.enrollment)
+    if(!candidate||!enrollment||consumedRenewalCommitted.has(committed))hold()
+    consumedRenewalCommitted.add(committed)
+    const {held,obligation}=enrollment,browser=held.binding.browser.owner,tab=held.binding.tab.owner,
+      purpose=tab.purpose as `tab:${string}`,names=ordinaryOperationNames(purpose)
+    let resolve!:(value:OrdinaryRenewalSettled)=>void,reject!:(reason:unknown)=>void
+    const pending=new Promise<OrdinaryRenewalSettled>((yes,no)=>{resolve=yes;reject=no})
+    browser.#track(pending);tab.#track(pending)
+    let foregroundLifetime:OrdinaryRenewalSigningLifetime|undefined
+    try{
+      held.root.retain(pending)
+      if(held.binding.account!==null){
+        foregroundLifetime=registerOrdinaryRenewalSigningLifetime({obligation,pending,signer:held.binding.identity as OrdinaryForegroundSigner})
+        OrdinaryForegroundSigner.retainMemberRenewal(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+      }
+    }catch(error){releaseOrdinaryRenewalSigningLifetime(foregroundLifetime);reject(error);return pending}
+    void Promise.resolve().then(async()=>{
+      const bridge=await import('./ordinary-renewal-obligation.js')
+      const check=()=>{browser.#check(held.binding.live);tab.#check(held.binding.live);bridge.checkOrdinaryRenewalSigningObligation(obligation,pending)}
+      check();if(browser.#retry||tab.#retry||!navigator.locks)hold()
+      if(foregroundLifetime)await OrdinaryForegroundSigner.checkMemberRenewalClients(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+      return navigator.locks.request(WRITE_LOCK,async()=>{
+        const equal=(a:OperationClassification,b:OperationClassification)=>JSON.stringify(a)===JSON.stringify(b)
+        const binding=(image:OrdinaryImage)=>({purpose:image.purpose,keyId:image.keyId,generation:image.generation,expiresAt:image.expiresAt})
+        let context:OperationTransaction|undefined,attempted=false
+        const cancel={stop:()=>context?.abort()};browser.#resources.add(cancel);tab.#resources.add(cancel)
+        /** All final role checks and the three queued puts use the same exact
+         * C transaction. Its role/lease validation is private and synchronous. */
+        const withC=async<T>(mode:IDBTransactionMode,work:(journal:OrdinaryOperationJournal,rows:readonly [Row,Row],bindings:readonly [ReturnType<typeof binding>,ReturnType<typeof binding>],images:readonly [OrdinaryImage,OrdinaryImage])=>T):Promise<T>=>{
+          let b:OrdinaryImage|undefined,t:OrdinaryImage|undefined,j:OrdinaryOperationJournal|undefined,completed=false
+          try{
+            check();context=operationTransaction(await browser.#database(held.binding.live),mode)
+            const current=await browser.#classifyOperations(held.binding.live,context,false,candidate.target);check();if(!equal(current,candidate.classification))hold()
+            const raw=await Promise.all([context.read(()=>context!.store.get('browser')),context.read(()=>context!.store.get(purpose)),context.read(()=>context!.store.get(names.control))])
+            const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
+            b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
+            const bindings=[binding(b),binding(t)] as const
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:bindings[0],key:br.key},tab:{binding:bindings[1],key:tr.key}});check()
+            if(j.phase!=='candidate-committed'||j.request!==enrollment.request||j.id!==candidate.target.header.id||j.sequence!==candidate.target.header.sequence||
+              !j.result||!j.target||!j.targetRevisions||j.target.some((digest,i)=>ordinaryFrameDigest([br,tr][i]!.frame!)!==digest)||
+              j.targetRevisions.some((revision,i)=>[br,tr][i]!.frame!.revision!==revision))hold()
+            const bv=view(new Map(b.records),false),tv=view(new Map(t.records),false),custody=Object.freeze({}) as OrdinaryPairCustody
+            pairCustody.set(custody,{kind:'read',browser:b,tab:t,browserOwner:browser,tabOwner:tab,browserStore:bv.store,tabStore:tv.store,
+              browserScope:held.binding.browser.scope,tabScope:held.binding.tab.scope,rows:[br,tr],
+              operationMarkers:[new Map([...b.records].filter(([n])=>n.startsWith('kithmoot.operation-journal'))),new Map([...t.records].filter(([n])=>n.startsWith('kithmoot.operation-journal')))]})
+            try{
+              bridge.validateOrdinaryRenewalCommittedCandidate(obligation,pending,bv.store,tv.store,custody,enrollment.request,j.result!);check()
+              let value!:T
+              await context.step(()=>{check();const result=work(j!,[br,tr],bindings,[b!,t!])
+                if(result&&typeof(result as unknown as PromiseLike<unknown>).then==='function'){void Promise.resolve(result).catch(()=>{});hold()}
+                check();value=result})
+              context.stop();await context.ended;completed=true;return value
+            }finally{pairCustody.delete(custody);bv.close();tv.close()}
+          }finally{if(!completed&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);j?.secrets.forEach(key=>key.fill(0))}
+        }
+        try{
+          const prepared=await withC('readonly',(journal,rows,bindings,images)=>{
+            const settled:OrdinaryOperationJournal={...journal,phase:'settled',request:'',result:null,secrets:[],nonces:null},bytes=encodeOrdinaryOperationJournal(settled)
+            let header:OrdinaryOperationClassification;try{header=decodeOrdinaryOperationClassification(bytes)}finally{bytes.fill(0)}
+            const marker=ordinaryOperationMarker({id:journal.id,tab:journal.tab,sequence:journal.sequence,commitment:ordinaryOperationCommitment(header)}),copies=[copyImage(images[0]),copyImage(images[1])] as const
+            let success=false
+            try{for(const image of copies){(image.records as Map<string,string>).set(names.marker,marker);image.revision++;ordinaryImageByteLength(image)}
+              success=true;return {journal:settled,rows,bindings,header,marker,images:copies}
+            }finally{if(!success)copies.forEach(clearImage)}
+          })
+          check()
+          const guardedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{check();const result=crypto.getRandomValues(value);check();return result}} as unknown as Crypto
+          let sf:OrdinaryFrame,st:OrdinaryFrame
+          try{sf=await sealOrdinaryImage(prepared.images[0],prepared.rows[0].key,guardedCrypto);check();st=await sealOrdinaryImage(prepared.images[1],prepared.rows[1].key,guardedCrypto);check()}
+          finally{prepared.images.forEach(clearImage)}
+          const frames=Object.freeze([sf,st]) as readonly [OrdinaryFrame,OrdinaryFrame]
+          const control=await sealOrdinaryOperationControl(prepared.journal,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},
+            tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+          const header=prepared.header
+          const next:PreparedRenewalTarget={...candidate.target,header,controlDigest:ordinaryOperationControlDigest(control),
+            rows:[rowDigest({frame:frames[0]} as Row),rowDigest({frame:frames[1]} as Row)]}
+          const target:OperationClassification=Object.freeze({...candidate.classification,
+            owners:Object.freeze(candidate.classification.owners.map(([name,digest])=>Object.freeze([name,name==='browser'?next.rows[0]:name===purpose?next.rows[1]:digest] as const))),
+            controls:Object.freeze(candidate.classification.controls.map(([name,digest])=>Object.freeze([name,name===names.control?next.controlDigest:digest] as const))),
+            markers:Object.freeze(candidate.classification.markers.map(([name,marker])=>Object.freeze([name,name===names.marker?prepared.marker:marker] as const)))})
+          for(;;){
+            if(foregroundLifetime)await OrdinaryForegroundSigner.checkMemberRenewalClients(held.binding.identity as OrdinaryForegroundSigner,foregroundLifetime)
+            attempted=false
+            try{await withC('readwrite',(_j,rows)=>{
+              // Copy every mutable binary field for the public IDB argument;
+              // retain the original frozen S/control bytes for reconciliation.
+              const browserRow={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tabRow={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])},journal=validateOrdinaryOperationControl(control)
+              check();attempted=true;context!.store.put(browserRow,'browser');check();context!.store.put(tabRow,purpose);check();context!.store.put(journal,names.control)
+            })}catch(error){if(!attempted)throw error}
+            let retriedPrior=false
+            for(;;){
+              let read:OperationTransaction|undefined,isPrior=false
+              browser.#db?.close();browser.#db=undefined
+              try{
+                read=operationTransaction(await browser.#database(()=>true,true),'readonly')
+                const current=await browser.#classifyOperations(()=>true,read,true,[candidate.target,next]);read.stop();await read.ended
+                if(equal(current,target)){
+                  const settled=Object.freeze({}) as OrdinaryRenewalSettled
+                  renewalSettled.set(settled,Object.freeze({enrollment:candidate.enrollment,target:next,classification:target}));return settled
+                }
+                isPrior=equal(current,candidate.classification)
+              }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+              if(isPrior){check();if(retriedPrior)break}
+              await new Promise<void>(yes=>{browser.#retry=yes;tab.#retry=yes});browser.#retry=undefined;tab.#retry=undefined;retriedPrior=isPrior
+            }
+          }
+        }finally{context?.abort();await context?.ended.catch(()=>{});context?.stop();browser.#resources.delete(cancel);tab.#resources.delete(cancel)}
       })
     }).then(resolve,reject).finally(()=>releaseOrdinaryRenewalSigningLifetime(foregroundLifetime)).catch(()=>{})
     return pending
