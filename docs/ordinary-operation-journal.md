@@ -1,149 +1,140 @@
-# Ordinary operation journal: source boundary
+# Ordinary renewal journal and startup custody
 
-This is an unmounted local custody format and a generic owner barrier. It does
-not implement the durable producer, page or browser-process recovery, current
-membership authority, independent rollback protection, or deployment acceptance.
+This is an unmounted source implementation. Browser evidence uses actual native
+IndexedDB, Web Locks, cryptography and the private room factory with synthetic
+signing providers. It does not prove production deployment, physical-wallet
+behaviour, current independent MLS admission or rollback-protected allocation
+history. Active-phase recovery and production startup mounting remain required.
 
-The format has five phases: prepared, provider-started, provider-returned,
-candidate-committed and settled. All ordinary owner paths classify all reserved
-control rows under the origin-wide write lock before running callbacks, entropy,
-migration or expiry. An active, missing, mixed or unauthenticated journal holds
-ordinary work. The lock is not retained across provider work; the durable barrier
-must remain until an exact private continuation settles the operation.
+## Fixed renewal flow
 
-The exact stages are predecessor P, enrolled E, credential candidate C and
-settlement S. Both E revisions equal P+1; both C revisions equal E+1. Settlement
-must atomically write both S frames and a compact control, with S revisions C+1.
-The journal binds exact P/E/C frame digests and revisions. E/C markers carry a
-null commitment. S markers carry a domain-separated binary SHA-256 commitment
-binding id, tab, sequence, P/E/C digests and revisions, request/result digests,
-canonically sorted native scopes and immutable ceilings. Every subsequent
-ordinary mutation preserves these markers byte-for-byte. Generic settled reads
-require equal browser/tab markers, the matching control commitment and current
-revisions greater than C. This avoids putting a frame's own digest inside itself.
+The private member factory now uses six journal phases:
 
-A control encrypts byte-identical packets under the actual browser and tab
-nonextractable AES keys, with distinct purpose/key/generation/expiry AAD. A
-packet contains a bounded canonical classification header and a length-delimited
-opaque body. Generic classification parses only the header, checks exact lengths
-and request/result byte digests, and wipes decrypted packets. It never decodes
-producer strings or copies key material. Private producer decoding returns owned
-32-byte key arrays, which its caller must wipe. Prepared carries no keys/nonces;
-provider-started and provider-returned carry both; candidate-committed strips
-them; settled has no body and retains immutable request/result commitments.
+| Phase | Native pair | Retained private body |
+| --- | --- | --- |
+| `prepared` | E | Fixed request; no seal or nonces |
+| `provider-started` | E | Request, seal and candidate nonces; no result |
+| `provider-returned` | E | Exact verified result, request, seal and nonces |
+| `candidate-prepared` | E | Same result/material plus frozen C digests/revisions |
+| `candidate-committed` | C | Request/result and history; journal seal/nonces removed |
+| `settled` | S | Immutable history and digests; no request/result/seal/nonces |
 
-The still-required producer must commit both enrollment markers and prepared
-control atomically before invoking a provider. Restart after provider-started is
-unknown and must not invoke the provider again. Provider-returned retains the
-exact signed response and private candidate material. Candidate commit and
-settlement each require exact three-record reconciliation after a lost native
-completion. Only after freshly authenticating S may the private controller
-synchronously adopt S and resume. It must never resume between C and S.
+P is the complete acknowledged predecessor. E revisions are P+1, C revisions
+P+2 and S revisions P+3. Enrollment writes both E frames and prepared control
+atomically before any signing effect. The producer retains its actual outer
+promise on the quiescent root, both native owners and the foreground signer.
+The origin write lock and durable barrier cover the signing continuation.
 
-Known settled expiry must atomically remove the tab, its control and its browser
-marker. The private settled-expiry writer now authenticates the complete store,
-validates exact effective browser/tab images offline, and queues one browser
-marker removal plus tab/control deletions in a single native transaction.
-It preserves all other effective pending records, fences and migration metadata.
-Capacity is checked before the single fresh browser nonce. Every attempted write
-is reconciled against whole-store exact prior/target classifications; prior is
-HOLD, mixed/unavailable state retains the original candidate until a read-only
-retry establishes exact facts. Closing the retained owner joins this uncertainty.
-Active, unknown or malformed history still holds before cleanup entropy. There is no public journal write exemption or raw
-Session adoption facade.
+The request freezes original source headers, complete P semantic and frame
+commitments, actor/room/device/credential/proof/lease references, authority,
+exact scoped fences and prior settled marker/control history. The inverse
+restores only enrollment's marker/fence/revision changes on owned E copies and
+checks the complete semantic commitment. It never reproduces an old AES nonce.
+All six control packets and E/C/S owner-image budgets are reserved before entropy.
 
-The current native fixtures exercise custody classification, phase refusal,
-corrupt/mixed rows, settled commitment alterations, multiple controls, preserved
-markers during later writes, ordinary pending frames, storage limits, and
-close/live/version-change cuts during control decryption. Fixture enrollment is
-not a production producer. Same-page fresh-owner tests are not process-restart
-acceptance. Actual producer fault cuts and real process restart remain required.
+The provider receives one fixed statement produced by the pinned Fold-kit.
+The actual raw fulfilment is captured and freshly verified synchronously before
+any asynchronous handoff. Its seven fields and exact tag arrays are copied to
+one canonical bounded result. Verification cache metadata grants no trust.
 
-Complete app composition now routes canonical markers as protected records,
-then requires marker metadata from the same genuine pair custody token. Raw
-copies and projections that add, delete or change markers remain held. The
-metadata is provenance only and cannot advance or recover a phase. Consumer
-reads also compare exact encrypted control digests in their own coherent native
-transaction; a changed, missing or newly inserted control cannot inherit an
-earlier classification. The producer still must reauthenticate control payloads
-and exact owner frames in each fixed transition transaction.
+Result-only custody uses its own preallocated AEAD nonces. A valid result can
+therefore be retained after controller, owner or foreground revocation without
+new entropy, mutable selector checks, another provider attempt or C preparation.
+Unknown native acknowledgement retains that exact candidate until explicit
+reconciliation. An invalid/refused response leaves started custody unresolved.
 
-A lower-layer lifecycle-root verifier is backed by a module-private WeakMap. It
-accepts only the actual sole quiescent lifecycle root, with no children, a live
-body and current generation. It has no registration/mint API and returns no
-execution or journal capability. This check proves graph ownership only; the
-fixed producer must separately establish native custody and current authority.
-Owner-to-bootstrap imports and generic writer exemptions remain excluded.
+C and S each use a fixed atomic three-record write. Every attempted transition
+is reconciled against complete exact prior/target store facts. Mixed or
+unavailable facts retain the original bytes and joined ownership; confirmed
+prior can retry only with the required current authority. Exact target
+recognition is custody evidence and does not permit Session adoption.
 
-Historical cleanup uses only retained navigation, bookmarks, room links and
-creator evidence; the current page URL cannot rescue orphaned access or poison
-independently bound custody. Origin-bearing Signet and initial-login records
-must agree on one canonical retained origin, then pass their existing strict
-shape/signature checks. This proves historical internal consistency only, never
-current-origin authority. No-origin images use a sentinel only for otherwise
-empty origin-bound checks. Historical tokens are structurally excluded from
-live binding, projected sizing, reads, resources and commit receipts. The fixed
-composer module loads before the lock/transactions, avoiding a static owner
-import cycle; no public writer exemption, callback registration or token mint
-interface is introduced.
+S markers carry an immutable binary SHA-256 commitment to operation id,
+sequence, P/E/C digests and revisions, request/result digests, scopes and
+ceilings. Ordinary mutations preserve them. Settled expiry uses its dedicated
+atomic browser-marker removal and tab/control deletion after authentication.
+Active or malformed history holds before ordinary callbacks, migration,
+allocation and tab expiry.
 
-The native fixture cuts cover all eight old/new combinations of the three target
-records, changes to another control before writing and before reconciliation,
-lost completion/offline readback, joined close, and cancellation during each
-writer authentication. Version-change handler cuts invoke the handler directly;
-separate actual version-2 upgrade-event cuts also exercise every cleanup
-writer authentication boundary.
-Fixture journal enrollment remains distinct from the unimplemented producer,
-and these tests do not establish page/browser-process restart or production
-startup acceptance.
+## Live controller adoption
 
+After S acknowledgement the private factory takes fresh ordinary native reads.
+An opaque receipt must match the selected browser/tab S rows and complete
+control/marker set. Unrelated owner rows can advance after S; this receipt
+remains custody evidence only. Copied, stale, foreign-owner or mutation custody
+cannot substitute for the actual read.
 
-Durable renewal preflight now computes a separate domain-separated commitment
-of the complete acknowledged P images: owner roles, purpose/keyId/generation,
-revision/expiry, code-unit-sorted records and fences, and migration metadata.
-Original frame digests bind the encrypted enrollment transaction; this semantic
-commitment permits verification of a strictly inverted E projection without
-reproducing old ciphertext nonces. The future bounded request must persist this
-commitment and the exact prior marker/fence presence and values. Persistence and
-inversion during actual startup remain unimplemented.
+A separate role check validates the selected proof, current credential/lease,
+metadata, exact factory binding, quiescent root, visitor key or foreground
+authority, and remaining lifetime. The Session and carrier replacements are
+prepared before assignment and checked again in the final native callback.
+The final authority check precedes pure private guard/view/material swaps.
 
-The existing renewal controller now compares this complete commitment around
-provider waits, including fields outside the selected room/record projection.
-Its owner capacity check reserves fixed E=P+1, C=P+2 and S=P+3 images, marker
-replacement/addition, future settled commitment, scoped fence slots and revision
-digit growth before seal allocation/signing. These are sizing placeholders only:
-no E/C/S journal phase is written by this preflight. Journal-phase/body/result
-reservation, the actual fixed enrollment/provider continuation, C/S settlement,
-factory obligation binding and process-startup reconstruction remain required.
+Failures after S, during partial assignment, in the post-adoption read or final
+member-live check terminally close the controller. A fresh controller may reopen
+from durable S after independently validating current authority. Restatement
+belongs to a new generation after the adopted-state read; no activity resumes
+between C and S.
 
-The current WIP adds a factory-local, one-use renewal obligation. The registrar
-has one production callsite in the private bootstrap constructor; its capture
-closure remains a private field and is called only from the actual suspended
-renewal root's authenticated P read. It binds the exact factory, owners/scopes,
-participant/account/room/device/proof/lease, authority, source semantic and frame
-digests, and root. It does not grant a phase exemption or expose an arbitrary
-callback, raw frame or journal writer. Mutation/historical reads, fabricated
-objects, reused/completed roots and revoked foregrounds are refused.
+## Startup inspection
 
-The specialised owner enrollment consumes that obligation, reauthenticates P
-and all control topology, revalidates fixed semantic refs and owner/journal
-budgets, then commits exactly E-browser, E-tab and prepared control atomically.
-Prepared control carries no seal/C nonce material. Every attempted write is
-classified against the complete exact prior/target store; mixed/unavailable
-readback keeps the original frozen candidate, Web Lock and both owner obligations
-until a custody-only retry establishes facts. Definite prior is a typed abort;
-a returned E handle supplies no provider or Session-adoption authority.
+`OrdinaryStateOwner.inspectRenewalStartup` is a separate fixed native inspector.
+It takes the origin lock, opens one coherent read transaction, authenticates
+paired controls and every owner/control/marker, and publishes no ordinary-owner
+cache or pair-custody token. An absent database upgrade is aborted, leaving no
+new database or keys.
 
-The bounded versioned request stores complete P semantic/frame commitments,
-immutable typed refs, original source headers, the exact prior settled marker and
-control classification/digest, and fence presence/value. Its inverse accepts
-only exact E=P+1 with the new prepared marker and specified scope cells, restores
-only those cells/markers/revisions on owned authenticated copies, then verifies
-the complete P semantic commitment. Original P AES nonces are never replayed.
+Active E requires exact enrolled frame/revision bindings and an exact inverse P,
+including historical selected proof/device/credential/lease and room metadata.
+Retained results must match the pinned Fold statement and a fresh signature
+check. Committed C requires exact target rows and matching current and
+predecessor proof/lease, scope, credential, epoch and metadata references.
+Decrypted packets, owned images and copied seal arrays are cleaned up locally.
 
-Native enrollment fixtures insert the fixed enrollment call into the actual
-private factory renewal body and keep that root paused for observation. The
-normal renewal body still uses its earlier paired commit: enrollment integration,
-private provider-started continuation, exact result retention, C/S transitions,
-startup reconstruction and process-restart acceptance remain unimplemented.
-Production remains unmounted; the test observer is not a shipped producer.
+The returned frozen disposition is `empty`, `ordinary` or `recovery-required`,
+with bounded phase identifiers. It supplies no key, image, body, signing
+permission, writable continuation or authority to reset allocation history.
+Ordinary startup operations still run their own native barrier and role checks.
+Expiry does not turn an active operation into permission to erase or re-sign.
+
+Page reload tests discard all JavaScript tokens while preserving native storage.
+Separate clean browser-process restart tests reuse the exact persistent profile
+and serialized CryptoKeys, with no plaintext export or replacement key.
+These are software restart checks, not abrupt power-loss or physical acceptance.
+
+## Fixed startup settlement
+
+`OrdinaryStateOwner.recoverCommittedRenewalAtStartup` performs only historical
+C-to-S custody maintenance. Its input is a native tab purpose and fresh startup
+owner liveness. It independently authenticates the exact committed pair, result,
+historical role and complete origin before constructing the stripped S body.
+Historical tab or foreground expiry does not grant activity or prevent this
+neutral settlement. Current room authority is checked separately on reopening.
+
+The semantic projection preserves every non-marker record and immutable history.
+After checking owner-image and control budgets, it uses the existing native
+CryptoKeys and four fresh AEAD nonces for the two frames and control copies.
+It allocates no signing key, credential or seal, calls no provider and performs
+no Session or carrier adoption. The coherent write transaction reauthenticates
+the complete C predecessor before atomically putting both S frames and control.
+
+One encrypted S cohort is retained for every uncertain acknowledgement. Exact C
+can retry that same cohort only while the fresh startup owner remains live.
+Exact S is recognised as custody even after close; mixed or unavailable facts
+hold the actual outer promise and origin lock until explicit reconciliation.
+Close joins pending native cryptography and unresolved writes. An already
+settled result follows a fresh whole-origin classification and grants no activity.
+
+## Remaining recovery work
+
+The startup inspector does not advance an active phase. Fixed startup recovery
+producers are still needed to resume an unstarted prepared intent where current
+authority permits and use a retained exact result and candidate without re-signing.
+A recorded provider start with no durable result remains unknown and must never
+invoke the provider again. Recovery must authenticate the whole current store
+and current role independently of any diagnostic disposition.
+
+Actual entry mounting, all-consumer source inventory, old-client fences,
+registry dependency reproducibility, current independent MLS authority,
+rollback-protected allocation history and physical/mixed-client acceptance
+remain open. None is established by a local source commit or a browser test.

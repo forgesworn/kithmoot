@@ -230,8 +230,23 @@ export function checkOrdinaryRenewalSigningObligation(token:OrdinaryRenewalOblig
 export function validateOrdinaryRenewalCommittedCandidate(token:OrdinaryRenewalObligation,pending:Promise<unknown>,browser:DeviceStore,tab:DeviceStore,
   custody:OrdinaryPairCustody,request:string,result:string):void{
   checkOrdinaryRenewalSigningObligation(token,pending)
-  const value=obligations.get(token)!,binding=value.binding,expected=readOrdinaryRenewalRequest(request).intent,b=records(browser),t=records(tab)
-  if(JSON.stringify(expected)!==JSON.stringify(value.intent))hold()
+  const value=obligations.get(token)!
+  if(JSON.stringify(readOrdinaryRenewalRequest(request).intent)!==JSON.stringify(value.intent))hold()
+  validateCandidateRole(value,browser,tab,custody,result)
+  checkOrdinaryRenewalSigningObligation(token,pending)
+}
+/** Fixed post-settlement role check for the same private factory obligation.
+ * The owner must independently authenticate the exact S receipt first. This
+ * grants no writer, phase exemption or Session construction capability. */
+export function validateOrdinaryRenewalSettledCandidate(token:OrdinaryRenewalObligation,browser:DeviceStore,tab:DeviceStore,custody:OrdinaryPairCustody):void{
+  checkOrdinaryRenewalObligation(token)
+  const value=obligations.get(token)!
+  if(value.intent.expiresAt-Math.floor(Date.now()/1000)<RESUME_MIN_REMAINING_SECONDS)hold()
+  validateCandidateRole(value,browser,tab,custody)
+  checkOrdinaryRenewalObligation(token)
+}
+function validateCandidateRole(value:Obligation,browser:DeviceStore,tab:DeviceStore,custody:OrdinaryPairCustody,result?:string):void{
+  const binding=value.binding,expected=value.intent,b=records(browser),t=records(tab)
   try{
     ordinaryPairReadCustodyFor(custody,b,t)
     OrdinaryStateOwner.validatePairBinding(custody,{browser:binding.browser,tab:binding.tab,live:binding.live})
@@ -245,9 +260,10 @@ export function validateOrdinaryRenewalCommittedCandidate(token:OrdinaryRenewalO
         bound.roomId!==expected.roomId||proof.kept.enabled!==expected.keep||bound.device.pubkey!==expected.device||bound.device.epoch!==expected.epoch||
         bound.device.credentialIds.length!==1)hold()
       const credential=ordinaryMemberLeaseCredential(proof,bound.device.credentialIds[0]!)
-      if(JSON.stringify(credential)!==result)hold()
+      const canonical=JSON.stringify(credential)
+      if(result!==undefined&&canonical!==result)hold()
       const owner=expected.keep?browser:tab,prefix=accountPrefix(expected.participant)
-      if(owner.get(prefix+OWN_CREDENTIAL_PREFIX+expected.roomId)!==result)hold()
+      if(owner.get(prefix+OWN_CREDENTIAL_PREFIX+expected.roomId)!==canonical)hold()
       const raw=tab.get(ordinaryMemberLeaseName(bound));if(raw===null)hold()
       const lease=readOrdinaryMemberLease(raw,JSON.stringify(proof)),metadata=browser.get(prefix+ROOM_PREFIX+expected.roomId)
       if(metadata===null)hold()
@@ -263,7 +279,7 @@ export function validateOrdinaryRenewalCommittedCandidate(token:OrdinaryRenewalO
         const raw=browser.get('kithmoot.participant');if(raw===null||!HEX.test(raw))hold()
         const key=hexToBytes(raw);try{if(getPublicKey(key)!==expected.participant)hold()}finally{key.fill(0)}
       }
-      ordinaryPairReadCustodyFor(custody,b,t);checkOrdinaryRenewalSigningObligation(token,pending)
+      ordinaryPairReadCustodyFor(custody,b,t)
     }finally{inspected.close()}
   }finally{b.clear();t.clear()}
 }

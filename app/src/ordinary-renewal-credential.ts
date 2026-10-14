@@ -33,10 +33,16 @@ function exactTags(input: unknown, expected: string[][]): void {
  * The local capture stops before signing; it allocates no secret, invokes no
  * provider and does not relax Fold-kit's credential semantics. */
 export async function ordinaryRenewalStatement(request: string, seal: Uint8Array): Promise<Required<EventTemplate>> {
-  const intent = readOrdinaryRenewalRequest(request).intent
   if (!(seal instanceof Uint8Array) || seal.length !== 32) hold()
   let publicSeal: string
   try { publicSeal = getPublicKey(seal) } catch { return hold() }
+  return ordinaryRenewalStatementForPublicSeal(request,publicSeal)
+}
+/** Fixed Fold statement for a retained C whose journal has already discarded
+ * its private seal. Public data inspection grants no signing permission. */
+export async function ordinaryRenewalStatementForPublicSeal(request:string,publicSeal:string):Promise<Required<EventTemplate>>{
+  const intent=readOrdinaryRenewalRequest(request).intent
+  if(typeof publicSeal!=='string'||!/^[0-9a-f]{64}$/.test(publicSeal))hold()
   const capturedOnly = Object.freeze({})
   let captured: Required<EventTemplate> | undefined
   try {

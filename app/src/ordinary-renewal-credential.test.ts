@@ -5,7 +5,7 @@ import { nip19 } from 'nostr-tools'
 import { createDeviceCredential } from '../../src/credential.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { encodeOrdinaryRenewalRequest,type OrdinaryRenewalRequest } from './ordinary-renewal-request.js'
-import { ordinaryRenewalStatement,ordinaryRenewalResult,ordinaryRenewalResultForStatement,ORDINARY_RENEWAL_RESULT_BYTES } from './ordinary-renewal-credential.js'
+import { ordinaryRenewalStatement,ordinaryRenewalStatementForPublicSeal,ordinaryRenewalResult,ordinaryRenewalResultForStatement,ORDINARY_RENEWAL_RESULT_BYTES } from './ordinary-renewal-credential.js'
 const actor=new Uint8Array(32).fill(7),seal=new Uint8Array(32).fill(17),participant=getPublicKey(actor),device=getPublicKey(new Uint8Array(32).fill(9)),tab=('tab:'+'3'.repeat(64)) as `tab:${string}`
 function request(){
  const hex='4'.repeat(64),scope='invitation:'+participant+':'+hex
@@ -67,12 +67,20 @@ describe('fixed renewal credential data, never signer authority',()=>{
  it('derives the same statement as the pinned Fold-kit producer without provider or entropy',async()=>{
   const raw=request(),random=vi.spyOn(crypto,'getRandomValues'),before=seal.slice()
   try{
-   const statement=await ordinaryRenewalStatement(raw,seal)
+   const statement=await ordinaryRenewalStatement(raw,seal),publicStatement=await ordinaryRenewalStatementForPublicSeal(raw,getPublicKey(seal))
+   expect(publicStatement).toEqual(statement)
    expect(random).not.toHaveBeenCalled()
    const event=await createDeviceCredential({identity:{pubkey:participant,signEvent:async e=>finalizeEvent(e,actor)},roomId:'4'.repeat(64),devicePubkey:device,expiresAt:200,seal:getPublicKey(seal),now:()=>100})
    expect(statement).toEqual({kind:event.kind,created_at:event.created_at,tags:event.tags,content:event.content})
    expect(seal).toEqual(before);expect(Object.isFrozen(statement.tags[0])).toBe(true)
   }finally{random.mockRestore()}
+ })
+ it.each(['','G'.repeat(64),getPublicKey(seal).toUpperCase()])('rejects invalid public-seal statement data %s',async publicSeal=>{
+  await expect(ordinaryRenewalStatementForPublicSeal(request(),publicSeal)).rejects.toThrow(OrdinaryStateHold)
+ })
+ it('public-seal inspection never coerces an object or invokes its accessors',async()=>{
+  const getter=vi.fn(()=>getPublicKey(seal)),input={get toString(){return getter}}
+  await expect(ordinaryRenewalStatementForPublicSeal(request(),input as any)).rejects.toThrow(OrdinaryStateHold);expect(getter).not.toHaveBeenCalled()
  })
  it('retains one bounded canonical exact result regardless of incoming field order',async()=>{
   const e=await signed(),a=await ordinaryRenewalResult(request(),seal,e),b=await ordinaryRenewalResult(request(),seal,Object.fromEntries(Object.entries(e).reverse()) as any)

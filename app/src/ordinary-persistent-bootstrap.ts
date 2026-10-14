@@ -1,4 +1,4 @@
-import { registerOrdinaryRenewalFactory, releaseOrdinaryRenewalObligation, type OrdinaryRenewalObligation } from './ordinary-renewal-obligation.js'
+import { registerOrdinaryRenewalFactory, releaseOrdinaryRenewalObligation, validateOrdinaryRenewalSettledCandidate, type OrdinaryRenewalObligation } from './ordinary-renewal-obligation.js'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { revalidatePersistentInvitationEvidence } from '@forgesworn/fold-kit/persistent-invitation-evidence'
@@ -16,7 +16,7 @@ import type { PersistentRoomAdmission } from '../../src/persistent-invitation.js
 import { RelayConnections } from './relay-settings.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
 import { OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths, ordinaryPairPredecessorSemanticDigestFor, ordinaryPairRenewalByteLengths,
-  type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
+  type OrdinaryScope, type OrdinaryPairCustody, type OrdinaryRenewalSettled } from './ordinary-state-owner.js'
 import { captureOrdinarySnapshotContext, captureOrdinaryProjectedSnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
 import { validateOrdinaryEmbeddedDeviceCredential } from './ordinary-identity-snapshot.js'
@@ -32,7 +32,6 @@ import { inspectPersistentCreatorProofs, creatorIsSelected } from './persistent-
 import { MEMBER_LEASE_PREFIX, ordinaryMemberLeaseName, ordinaryMemberLeaseCredential, readOrdinaryMemberLease,
   ordinaryMemberAuthorityUntil, ordinaryMemberLeaseSource, makeOrdinaryMemberLeaseHeader, type OrdinaryMemberLeaseHeader,
   type OrdinaryMemberAuthority } from './ordinary-member-lease.js'
-import { makeOrdinaryMemberLease } from './ordinary-member-lease-preparation.js'
 import { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
 import { queryInvitationOnProtectedCarrier, type OrdinaryInvitationQueryOptions } from './ordinary-invitation-query.js'
 import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
@@ -811,9 +810,9 @@ export class OrdinaryPersistentBootstrap {
         }
         const renew = async (root: ProtocolExecution): Promise<void> => {
           let obligation: OrdinaryRenewalObligation | undefined
-          let source: RenewalSource | undefined, seal: ReturnType<typeof generateSealKey> | undefined, signed: Promise<DeviceCredential> | undefined
+          let source: RenewalSource | undefined, settled: OrdinaryRenewalSettled | undefined, credential: DeviceCredential | undefined
           let plan: NativeSessionPlan | undefined, carrierPlan: OrdinaryCarrierSuccessor | undefined
-          let candidateB: Map<string,string> | undefined, candidateT: Map<string,string> | undefined, nextSeals: Uint8Array[] = []
+          let nextSeals: Uint8Array[] = []
           let commitStarted = false, committed = false, adopted = false, application = false
           let operation: string | undefined, successor: OpenedImage | undefined
           const oldImage = await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => this.#image(b,t,c,true)))
@@ -850,113 +849,63 @@ export class OrdinaryPersistentBootstrap {
               catch(error){prepared.b.clear();prepared.t.clear();throw error}
             }))
             const selected = source
-            // All source, capacity and pruning checks have completed. Start
-            // the actual signer in a fresh acknowledged predecessor read.
-            const signing = await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => {
-              sameSource(b,t,c); protocol!.work.checkTransition(root)
-              const current = this.#renewalSource(b,t,c,nativeView!.snapshot())
-              try { if (current.issuedAt < selected.issuedAt || current.expiresAt < selected.expiresAt) hold() }
-              finally { current.b.clear(); current.t.clear() }
-              seal = generateSealKey()
-              const identity: ParticipantIdentity = { pubkey: this.#participant, signEvent: this.#options.account === null
-                ? event => Promise.resolve(signOrdinaryVisitorCredential(b,t,c,{account:null,participant:this.#participant,
-                    roomId:selected.proof.binding.roomId,devicePubkey:selected.proof.binding.device.pubkey,seal:seal!.pubkey,
-                    expiresAt:selected.expiresAt,createdAt:selected.issuedAt},event))
-                : OrdinaryForegroundSigner.borrowNativeSignEvent(this.#options.identity as OrdinaryForegroundSigner, {
-                    live: () => !closed && this.#live(), validate: (rb,rt,rc) => {
-                      sameSource(rb,rt,rc)
-                      protocol!.enterLifecycle(root,rb,rt,rc,() => { if (nativeView!.snapshot().credential.id !== selected.previous.credential) hold() })
-                    },
-                  }) }
-              signed = createDeviceCredential({ identity, roomId:selected.proof.binding.roomId,devicePubkey:selected.proof.binding.device.pubkey,
-                seal:seal.pubkey,expiresAt:selected.expiresAt,now:()=>selected.issuedAt })
-              root.retain(signed); void signed.catch(() => {}); return { pending:signed }
-            }))
-            const credential = await signing.pending
-            await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => {
-              sameSource(b,t,c); protocol!.work.checkTransition(root)
-              const checked = this.#renewalSource(b,t,c,nativeView!.snapshot())
-              try {
-                // Never restamp the already signed template after a delay.
-                if (checked.expiresAt < selected.expiresAt || credential.created_at !== selected.issuedAt ||
-                    selected.expiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
-                this.#credential(JSON.stringify(credential),selected.proof.binding.roomId,selected.proof.binding.device.pubkey,
-                  seal!.pubkey,selected.issuedAt,selected.expiresAt)
-                const projected = this.#renewalProjection(selected,credential,bytesToHex(seal!.secretKey))
-                candidateB = projected.b; candidateT = projected.t
-                const verified = makePersistentAdmissionProof({invitation:this.#options.invitation,evidence:selected.proof.evidence,
-                  account:this.#options.account,participant:this.#participant,browser:selected.proof.binding.browser,tab:selected.proof.binding.tab,
-                  deviceCustody:selected.proof.binding.deviceCustody,
-                  device:persistentAdmissionDeviceInPair(view(candidateB),view(candidateT),selected.proof.binding.roomId,this.#participant,
-                    this.#options.account,this.#options.keep?'browser':'tab'),keep:this.#options.keep,now:selected.proof.kept.at,
-                  expectedRoomSecret:material!.admission.secret})
-                try {
-                  operation = verified.proof.binding.operation
-                  const raw = JSON.stringify(verified.proof), lease = makeOrdinaryMemberLease(b,t,c,{predecessorProof:selected.proofRaw,currentProof:raw,
-                    ...(this.#options.account===null?{}:{identity:this.#options.identity as OrdinaryForegroundSigner})})
-                  if(this.#options.keep)candidateB.set(persistentProofName(verified.proof.binding),raw)
-                  candidateT.set(persistentTabProofName(verified.proof.binding),tabProofBytes(verified.proof))
-                  const name=ordinaryMemberLeaseName(verified.proof.binding);candidateT.set(name,lease);if(this.#options.keep)candidateB.set(name,lease)
-                  validateOrdinarySnapshot(candidateB,candidateT,{browser:true,tab:true},captureOrdinaryProjectedSnapshotContext(selected.b,selected.t,c,candidateB,candidateT))
-                  ordinaryPairProjectedByteLengths(c,selected.b,selected.t,{browser:candidateB,tab:candidateT},true)
-                  const sorted=(records:Map<string,string>)=>[...records].sort(([a],[b])=>a<b?-1:a>b?1:0)
-                  successor={browser:sorted(candidateB),tab:sorted(candidateT),browserRevision:selected.browserRevision+1,tabRevision:selected.tabRevision+1}
-                  nextSeals=[...selected.seals,bytesToHex(seal!.secretKey)].map(hexToBytes)
-                  plan=nativeView!.prepare({credential,sealKeys:nextSeals,predecessor:selected.previous.credential,operation,root,
-                    checkPreparation:checkPhase,checkApplication:()=>{if(!application||closed||!committed)hold()}})
-                  carrierPlan=OrdinaryRelayCarrier.prepareSuccessor(carrier!,root,successor)
-                } finally { verified.admission.secret.fill(0) }
-              } finally { checked.b.clear();checked.t.clear() }
-            }))
+            // The actual private factory now uses only fixed owner producers.
+            // Once E was attempted, a generic rejection never proves P intact.
             commitStarted=true
-            const answer=await OrdinaryStateOwner.commitPairMigrated({...this.#input((b,t,c)=>{
-              // Writable projections cannot supply the read custody needed by
-              // signing or the lifecycle barrier. Only compare then compose.
-              const bm=map(b),tm=map(t),headers=ordinaryPairCustodyFor(c,bm,tm)
-              try{if(JSON.stringify([...bm].sort())!==JSON.stringify([...selected.b].sort())||JSON.stringify([...tm].sort())!==JSON.stringify([...selected.t].sort())||
-                headers.browser.revision!==selected.browserRevision||headers.tab.revision!==selected.tabRevision)hold()
-                for(const[n,v]of candidateB!)if(b.get(n)!==v)b.set(n,v)
-                for(const[n,v]of candidateT!)if(t.get(n)!==v)t.set(n,v)
-                validateOrdinarySnapshot(candidateB!,candidateT!,{browser:true,tab:true},captureOrdinarySnapshotContext(candidateB!,candidateT!,c))
-              }finally{bm.clear();tm.clear()}
-            }, memberLive),beforeWrite:(b,t,_bn,_tn,c)=>{
-              const readonly=(store:Pick<DeviceStore,'get'|'keys'>):DeviceStore=>({get:store.get,keys:store.keys,set:hold,remove:hold})
-              const rb=readonly(b),rt=readonly(t)
-              protocol!.enterLifecycle(root,rb,rt,c,()=>{
-                checkPredecessor(rb,rt,c)
-                if (selected.expiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
-                nativeView!.check(plan!)
-              })
-            }})
-            if(answer.status==='definite-abort'){
+            const enrolled=await OrdinaryStateOwner.enrollMemberRenewal(obligation!)
+            if(enrolled.status==='definite-abort'){
               await this.#read((b,t,c)=>protocol!.enterLifecycle(root,b,t,c,()=>{checkPredecessor(b,t,c)}))
-              nativeView!.discard(plan!);plan=undefined
-              if (!memberLive()) hold()
+              if(!memberLive())hold()
               protocol!.work.resume(root);resumeGeneration(false);return
             }
+            const returned=await OrdinaryStateOwner.signMemberRenewal(enrolled.enrollment)
+            const candidate=await OrdinaryStateOwner.commitMemberRenewalCandidate(returned)
+            settled=await OrdinaryStateOwner.settleMemberRenewalCandidate(candidate)
             committed=true
-            await OrdinaryStateOwner.consumePairCommit({...this.#input((b,t,c)=>{
-              if(JSON.stringify(this.#image(b,t,c,true))!==JSON.stringify(successor))hold()
+            const readSettled=(b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody)=>{
+              OrdinaryStateOwner.validateSettledMemberRenewalReceipt(settled!,c)
+              validateOrdinaryRenewalSettledCandidate(obligation!,b,t,c)
               this.#preflight(b,t,c)
               const checked=inspectPersistentAdmissionProofs(b,t)
-              try{const verified=checked.selected.get(accountPrefix(this.#participant)+PERSISTENT_TAB_PROOF_V2_PREFIX+this.#id)!
+              try{
+                const verified=checked.selected.get(accountPrefix(this.#participant)+PERSISTENT_TAB_PROOF_V2_PREFIX+this.#id)
+                if(!verified)hold()
                 this.#bound(verified,b,t,c)
                 const current=this.#selectedCredential(b,t,c,verified)
-                if(verified.proof.binding.operation!==operation||current.credential.id!==credential.id||current.expiresAt!==selected.expiresAt)hold()
+                if(current.expiresAt!==selected.expiresAt||current.credential.created_at!==selected.issuedAt||
+                  current.expiresAt-Math.floor(Date.now()/1000)<RESUME_MIN_REMAINING_SECONDS)hold()
+                return {current,operation:verified.proof.binding.operation,image:this.#image(b,t,c,true)}
               }finally{checked.close()}
+            }
+            await this.#read((b,t,c)=>{
+              const current=readSettled(b,t,c)
+              successor=current.image;operation=current.operation;credential=current.current.credential
+              nextSeals=current.current.sealStrings.map(hexToBytes)
+              if(!nextSeals.length||getPublicKey(nextSeals[nextSeals.length-1]!)!==credentialSeal(credential))hold()
+              protocol!.enterLifecycle(root,b,t,c,()=>{
+                protocol!.work.checkTransition(root)
+                plan=nativeView!.prepare({credential:credential!,sealKeys:nextSeals,predecessor:selected.previous.credential,operation:operation!,root,
+                  checkPreparation:checkPhase,checkApplication:()=>{if(!application||closed||!committed)hold()}})
+                carrierPlan=OrdinaryRelayCarrier.prepareSuccessor(carrier!,root,successor!)
+              },successor)
+            })
+            await this.#read((b,t,c)=>{
+              const current=readSettled(b,t,c)
+              if(JSON.stringify(current.image)!==JSON.stringify(successor)||current.operation!==operation||current.current.credential.id!==credential!.id)hold()
               protocol!.enterLifecycle(root,b,t,c,()=>{
                 protocol!.work.checkTransition(root);nativeView!.check(plan!);OrdinaryRelayCarrier.checkSuccessor(carrier!,carrierPlan!,b,t,c)
-                // Preallocate the complete root material before the first
-                // assignment, retaining its shared admission/device buffers.
+                // Allocate the complete successor before the first assignment.
+                // The admission/device buffers remain owned by the same root.
                 const nextMaterial:OrdinaryPersistentBootstrapResult={admission:material!.admission,deviceKey:material!.deviceKey,
-                  credential:structuredClone(credential),sealKey:seal!.secretKey.slice(),sealKeys:nextSeals.map(k=>k.slice())}
+                  credential:structuredClone(credential!),sealKey:nextSeals[nextSeals.length-1]!.slice(),sealKeys:nextSeals.map(k=>k.slice())}
                 const oldMaterial=material!
                 try{
-                  // All selector-bearing graph, Session and carrier checks
-                  // precede this final store-bound authority check. Nothing
-                  // callable intervenes before the first successor assignment.
-                  if (this.#options.account !== null && OrdinaryForegroundSigner.nativeDeadline(
-                    this.#options.identity as OrdinaryForegroundSigner,b,t,c,this.#participant) !== selected.authority.foregroundExpiresAt) hold()
+                  OrdinaryStateOwner.validateSettledMemberRenewalReceipt(settled!,c)
+                  validateOrdinaryRenewalSettledCandidate(obligation!,b,t,c)
+                  // All callable preparation checks precede this final native
+                  // Fore/authority check and the first successor assignment.
+                  if(this.#options.account!==null&&OrdinaryForegroundSigner.nativeDeadline(
+                    this.#options.identity as OrdinaryForegroundSigner,b,t,c,this.#participant)!==selected.authority.foregroundExpiresAt)hold()
                   application=true
                   this.#ownedOperation=operation;this.#openedImage=successor;this.#credentialExpiresAt=selected.expiresAt
                   this.#effectUntil=Math.min(selected.expiresAt,ordinaryMemberAuthorityUntil(selected.authority))
@@ -967,10 +916,12 @@ export class OrdinaryPersistentBootstrap {
                 finally{application=false}
                 protocol!.work.checkTransition(root)
               },successor)
-            }, memberLive),receipt:answer.receipt})
+            })
             await this.#read((b,t,c)=>protocol!.enterLifecycle(root,b,t,c,()=>{
               protocol!.work.checkTransition(root)
-              if(nativeView!.snapshot().credential.id!==credential.id)hold()
+              OrdinaryStateOwner.validateSettledMemberRenewalReceipt(settled!,c)
+              validateOrdinaryRenewalSettledCandidate(obligation!,b,t,c)
+              if(nativeView!.snapshot().credential.id!==credential!.id)hold()
             }))
             if (!memberLive()) hold()
             protocol!.work.resume(root)
@@ -988,10 +939,9 @@ export class OrdinaryPersistentBootstrap {
             protocol!.close()
           }finally{
             releaseOrdinaryRenewalObligation(obligation)
-            if(signed)await Promise.allSettled([signed])
             if(plan&&!adopted)nativeView?.discard(plan)
-            seal?.secretKey.fill(0);for(const key of nextSeals)key.fill(0)
-            source?.b.clear();source?.t.clear();candidateB?.clear();candidateT?.clear()
+            for(const key of nextSeals)key.fill(0)
+            source?.b.clear();source?.t.clear()
           }
         }
         renewalTimers=new ProtocolTimers(protocol)
