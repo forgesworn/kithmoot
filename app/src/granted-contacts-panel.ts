@@ -1,6 +1,5 @@
 import { SimplePool } from 'nostr-tools/pool'
-import { normalizeURL } from 'nostr-tools/utils'
-import { relayDials } from '../../src/relay-dial-gate.js'
+import { bindRelayPoolDialCustody } from './relay-pool-dial-custody.js'
 import { createSimplePoolRelayIo } from '@forgesworn/signet-contacts/adapters/nostr-tools'
 import type { Capability } from '@forgesworn/signet-contacts'
 import type { SignetSession } from 'signet-login'
@@ -23,6 +22,7 @@ export class GrantedContactsPanel {
   #account: SignetSession | undefined
   #client: GrantedContactsClient | undefined
   #pool: SimplePool | undefined
+  #releaseDials: (() => void) | undefined
   #cancel: (() => void) | undefined
   #pairing = false
   /** True while a relay is being found, before there is a link to show. */
@@ -47,7 +47,9 @@ export class GrantedContactsPanel {
     const account = this.#options.account()
     if (account !== this.#account) {
       this.#cancel?.(); this.#cancel = undefined; this.#pairing = false; this.#looking = false; this.#answer?.(false)
-      this.#client?.stop(); this.#pool?.destroy(); this.#client = undefined; this.#pool = undefined
+      // Latch before the SDK can report a synchronous teardown callback.
+      this.#releaseDials?.(); this.#releaseDials = undefined; this.#client?.stop()
+      this.#pool?.destroy(); this.#client = undefined; this.#pool = undefined
       this.#account = account; this.#message = ''
       this.#view = { status: 'disconnected', contacts: [], blocked: new Set(), truncated: false }
       this.#options.changed(this.#view)
@@ -55,9 +57,7 @@ export class GrantedContactsPanel {
         const pool = new SimplePool(); this.#pool = pool
         // Polled every 30 s once paired: behind the same dial backoff as every
         // other pool, so a dead relay is not redialled at that pace.
-        pool.allowConnectingToRelay = url => pool.listConnectionStatus().get(normalizeURL(url)) === true || relayDials.take(normalizeURL(url))
-        pool.onRelayConnectionFailure = url => relayDials.failed(normalizeURL(url))
-        pool.onRelayConnectionSuccess = url => relayDials.connected(normalizeURL(url))
+        this.#releaseDials = bindRelayPoolDialCustody(pool)
         const client = new GrantedContactsClient({ signer: { pubkey: account.pubkey,
           nip44Encrypt: (peer, text) => account.signer.nip44!.encrypt(peer, text),
           nip44Decrypt: (peer, text) => account.signer.nip44!.decrypt(peer, text),

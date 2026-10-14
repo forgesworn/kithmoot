@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { setup } from './ordinary-bootstrap.setup.js'
+import { controls } from './ordinary-relay-carrier.setup.js'
 
 const ORIGIN = 'https://ordinary-relay-carrier.kithmoot.test'
 let bundle = ''
@@ -13,36 +14,7 @@ test.beforeEach(async ({ context, page }) => {
   await context.route(ORIGIN + '/**', route => route.fulfill({ contentType: 'text/html', body: `<script>${bundle.replace(/<\/script/gi, '<\\/script')}</script>` }))
   await page.goto(ORIGIN)
 })
-const controls = `async (options={})=>{
- window.nativeHeld=0;window.dials=[];window.frames=[];window.sockets=[];window.delivered=[];window.eoses=0;window.handoffs=[];
- window.allowed=true;window.authSigns??=0;window.autoOpen=options.autoOpen!==false;window.autoEose=options.autoEose!==false;window.autoAck=options.autoAck!==false;
- window.serverEvents=options.history===false?[]:[event];window.challenge=options.auth===true;
- const request=navigator.locks.request.bind(navigator.locks);
- navigator.locks.request=(name,...args)=>{const callback=args.pop();return request(name,...args,async lock=>{
-  if(name===Ordinary.ORDINARY_DATABASE+':write')nativeHeld++;try{return await callback(lock)}finally{if(name===Ordinary.ORDINARY_DATABASE+':write')nativeHeld--}})};
- class Socket {
-  readyState=0;onopen=null;onmessage=null;onclose=null;onerror=null;
-  constructor(url){this.url=url;dials.push([url,nativeHeld>0]);sockets.push(this);if(autoOpen)queueMicrotask(()=>this.open())}
-  open(){if(this.readyState!==0)return;this.readyState=1;this.onopen?.({type:'open'});if(challenge)this.message(['AUTH','shared-relay-challenge'])}
-  message(frame){if(this.readyState!==3)this.onmessage?.({data:JSON.stringify(frame)})}
-  send(data){frames.push([data,nativeHeld>0]);const frame=JSON.parse(data);queueMicrotask(()=>{
-   if(frame[0]==='AUTH')this.message(['OK',frame[1].id,true,'accepted']);
-   if(frame[0]==='EVENT'&&autoAck)this.message(['OK',frame[1].id,true,'accepted']);
-   if(frame[0]==='REQ'){for(const value of serverEvents)this.message(['EVENT',frame[1],value]);if(autoEose)this.message(['EOSE',frame[1]])}})}
-  close(){if(this.readyState===3)return;this.readyState=3;this.onclose?.({type:'close'})}
- }
- window.Socket=Socket;window.destinations=['wss://first.example/','wss://second.example/'];
- window.carrierOptions={browser:browserOwner,tab:tabOwner,scope:invScopeName,relays:destinations,profile:'direct',websocketImplementation:Socket,
-  account,participant,authentication:challenge?destinations.map(url=>({url,identity})):[],live:()=>live&&allowed,
-  validate:()=>{if(!allowed)throw new Ordinary.OrdinaryStateHold()}};
- window.carrier=await Ordinary.OrdinaryRelayCarrier.open(carrierOptions);
- window.listen=()=>{window.stop=carrier.subscribe([{kinds:[event.kind],authors:[event.pubkey]}],(value,via)=>{
-  delivered.push([value.id,via]);handoffs.push(nativeHeld>0)},()=>{eoses++;handoffs.push(nativeHeld>0)})};
- window.publish=()=>{window.publication='pending';window.publishing=carrier.publish(event).then(()=>{publication='ok'},error=>{publication=error.name});return publishing};
- window.takeLock=async()=>{let ready;const taken=new Promise(resolve=>ready=resolve);window.lockWork=navigator.locks.request(Ordinary.ORDINARY_DATABASE+':write',async()=>{
-  ready();await new Promise(resolve=>window.releaseLock=resolve)});await taken};
- window.shutdown=async()=>{carrier.close();await carrier.joinLifetime()};
-}`
+
 async function start(page: Page, options = {}, visitor = true) {
   await page.evaluate(`(${setup})(${JSON.stringify({ visitor })})`)
   await page.evaluate(`(${controls})(${JSON.stringify(options)})`)
@@ -176,8 +148,9 @@ test('closing joins the shared pool background publication after its first ackno
     const send=Socket.prototype.send;Socket.prototype.send=function(data){
     if(JSON.parse(data)[0]==='EVENT'&&this.url===destinations[1]){frames.push([data,nativeHeld>0]);return}return send.call(this,data)};publish()})()`)
   await page.evaluate('publishing'); expect(await page.evaluate('publication')).toBe('ok')
-  expect(await page.evaluate(`(async()=>{await carrier.joinLifetime();const before=actualPool.publishing;carrier.close();window.joined=false;
-    window.joining=carrier.joinLifetime().then(()=>joined=true);await Promise.resolve();return[before,actualPool.publishing,joined]})()`)).toEqual([true, true, false])
+  expect(await page.evaluate(`(async()=>{const before=actualPool.publishing;window.joined=false;
+    window.joining=carrier.joinLifetime().then(()=>joined=true);await Promise.resolve();const pending=!joined;
+    carrier.close();await Promise.resolve();return[before,pending,actualPool.publishing,joined]})()`)).toEqual([true, true, true, false])
   await page.evaluate('joining')
   expect(await page.evaluate('[actualPool.publishing,joined,sockets.every(socket=>socket.readyState===3),carrier.closed]')).toEqual([false, true, true, true])
 })

@@ -1,6 +1,6 @@
 import type { Event as NostrEvent } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
-import { NostrRelayPool, normaliseRelayConfig, type RelayConfig, type RelayTransport } from '../../src/relay-pool.js'
+import { NostrRelayPool, normaliseRelayConfig, SUBSCRIBE_EOSE_DEADLINE_MS, type RelayConfig, type RelayTransport } from '../../src/relay-pool.js'
 import type { RelayAuthentication } from '../../src/relay-auth.js'
 import type { NetworkProfile } from '../../src/anonymous.js'
 import type { DeviceStore } from './device-store.js'
@@ -67,8 +67,22 @@ function filterPlan(filters: Filter[]): string {
 }
 interface SubscriptionReceipt {
   readonly plan: string
+  readonly filters: Filter[]
+  readonly onEvent: (event: NostrEvent, via?: string) => void
+  readonly onEose?: () => void
+  readonly seen: Set<string>
   readonly bindings: Map<string, { socket: object; id: string; eosed: boolean }>
+  stop?: () => void
+  eoseSent: boolean
+  deadlineAt?: number
   active: boolean
+}
+interface PublicationReceipt {
+  readonly id: string
+  readonly generation: number
+  readonly bytes: number
+  readonly sent: Set<{ socket: object; raw: WebSocket; pending: boolean }>
+  scope?: ProtocolExecution
 }
 
 interface Options {
@@ -104,6 +118,12 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   readonly #sockets = new Set<{ close(): void }>()
   readonly #signing = new Map<object, Promise<unknown>>()
   readonly #subscriptions = new Set<SubscriptionReceipt>()
+  readonly #publications = new Map<string, PublicationReceipt>()
+  #publicationBytes = 0
+  #generation = 0
+  #paused = false
+  #resumeRequested = false
+  #stopSuspension?: () => void
   #pool: NostrRelayPool | undefined
   #releaseResource: (() => void) | undefined
   #image: string | undefined
@@ -136,7 +156,13 @@ export class OrdinaryRelayCarrier implements RelayTransport {
         const authentication: RelayAuthentication[] = grants.map(grant => ({ url: grant.url, identity: {
           pubkey: options.participant, signEvent: template => state.#authenticate(grant.identity!, grant.url, template),
         } }))
-        state.#pool = new NostrRelayPool(relays, undefined, { profile: options.profile, websocketImplementation, authentication })
+        if (state.#paused) hold()
+        state.#pool = new NostrRelayPool(relays, undefined, { profile: options.profile, websocketImplementation, authentication,
+          ...(options.work ? { ownBackground: (body: () => Promise<void>) => state.#track(options.work!.own(async () => { await body() })) } : {}) })
+        state.#stopSuspension = options.work?.execution.onSuspend?.(paused => {
+          if (paused) state.#suspend()
+          else state.#resumeRequested = true // cleanup listener starts no work
+        })
         state.#releaseResource = OrdinaryStateOwner.retainPairResource(custody, {
           browser: { owner: options.browser, scope: browser }, tab: { owner: options.tab, scope: tab }, live: state.#live,
         }, { revoke: () => state.close(), join: () => state.joinLifetime() })
@@ -176,23 +202,24 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       tab: { owner: this.#options.tab, scope: this.#tabScope }, live: this.#live,
       work: (b, t, _bn, _tn, custody) => {
         this.#validate(b, t, custody)
-        const result = graph ? graph.enter(scope!, 'relay-read', () => effect(b, t, custody)) : effect(b, t, custody)
+        const run = () => { if (this.#resumeRequested) this.#resumeResources(); return effect(b, t, custody) }
+        const result = graph ? graph.enter(scope!, 'relay-read', run) : run()
         this.#validate(b, t, custody)
         return result
       },
     }).catch(error => { this.close(); throw error })
     return this.#track(job)
   }
-  #enqueue(bytes: number, effect: () => void, tail: Promise<void>): Promise<void> {
+  #enqueue(bytes: number, effect: () => void, tail: Promise<void>, ackScope?: ProtocolExecution): Promise<void> {
     try {
-      if (!this.#live() || this.#queuedFrames + 1 > ORDINARY_RELAY_QUEUE_FRAMES ||
+      if (this.#closed || this.#queuedFrames + 1 > ORDINARY_RELAY_QUEUE_FRAMES ||
           this.#queuedBytes + bytes > ORDINARY_RELAY_QUEUE_BYTES) hold()
     } catch { this.close(); return Promise.resolve() }
     this.#queuedFrames++; this.#queuedBytes += bytes
     // Register before waiting for the queue tail. An already queued callback
     // must not appear as new work on the far side of a suspension latch.
-    const run = async (scope?: ProtocolExecution) => { await tail; await this.#read(effect, scope) }
-    const pending = this.#options.work ? this.#options.work.own(run) : run()
+    const run = async (scope?: ProtocolExecution) => { if (!this.#live()) hold(); await tail; await this.#read(effect, scope) }
+    const pending = ackScope?.task ? ackScope.task('old-relay-ack', run) : this.#options.work ? this.#options.work.own(run) : run()
     const job = pending.catch(() => { this.close() }).finally(() => {
       this.#queuedFrames--; this.#queuedBytes -= bytes
     })
@@ -206,6 +233,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       static readonly CONNECTING = 0; static readonly OPEN = 1; static readonly CLOSING = 2; static readonly CLOSED = 3
       readonly CONNECTING = 0; readonly OPEN = 1; readonly CLOSING = 2; readonly CLOSED = 3
       readonly url: string
+      readonly #socketGeneration = owner.#generation
       onopen: ((event: Event) => void) | null = null
       onmessage: ((event: MessageEvent) => void) | null = null
       onerror: ((event: Event) => void) | null = null
@@ -217,18 +245,35 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       get readyState(): number { return this.#stopped ? 3 : this.#socket?.readyState ?? 0 }
       constructor(url: string) {
         this.url = url
-        if (!destinations.has(url) || !owner.#live() || owner.#sockets.size >= owner.#relays.length * 4) { owner.close(); hold() }
+        if (owner.#paused || !destinations.has(url) || !owner.#live() || owner.#sockets.size >= owner.#relays.length * 4) { owner.close(); hold() }
         owner.#sockets.add(this)
         this.#queue(0, () => {
-          if (this.#stopped) return
+          if (this.#stopped || owner.#paused || this.#socketGeneration !== owner.#generation) return
           const socket = new Base(url); this.#socket = socket
           socket.onopen = () => this.#queue(0, () => this.onopen?.(new Event('open')))
           socket.onmessage = message => {
             try {
-              if (typeof message.data !== 'string') hold()
-              const data = message.data, bytes = ordinaryUtf8Length(data, ORDINARY_RELAY_FRAME_BYTES)
+              if (this.#stopped || this.#socketGeneration !== owner.#generation) return
+              const data = message.data
+              if (owner.#paused && (typeof data !== 'string' || !/^\s*\[\s*"OK"\s*,/.test(data))) return
+              if (typeof data !== 'string') hold()
+              const bytes = ordinaryUtf8Length(data, ORDINARY_RELAY_FRAME_BYTES)
+              // Post-latch observations cannot acquire a new root. Claim
+              // only one exact ACK for a successfully sent old EVENT on this
+              // raw socket/destination/generation and its still-owned tail.
+              let frame: unknown, ackScope: ProtocolExecution | undefined, claimed = false
+              if (/^\s*\[\s*"OK"\s*,/.test(data)) {
+                try { frame = JSON.parse(data) } catch { if (owner.#paused) return; throw new OrdinaryStateHold() }
+                const receipt = this.#ack(frame)
+                claimed = receipt !== undefined
+                if (owner.#paused) {
+                  if (!receipt || owner.#options.work && !receipt.scope) return
+                  ackScope = receipt.scope
+                }
+              }
               this.#queue(bytes, () => {
-                const frame: unknown = JSON.parse(data)
+                frame ??= JSON.parse(data)
+                if (!claimed) this.#ack(frame)
                 if (Array.isArray(frame) && frame.length === 2 && frame[0] === 'EOSE' && typeof frame[1] === 'string') {
                   for (const subscription of owner.#subscriptions) {
                     const binding = subscription.bindings.get(url)
@@ -236,25 +281,38 @@ export class OrdinaryRelayCarrier implements RelayTransport {
                   }
                 }
                 this.onmessage?.(new MessageEvent('message', { data }))
-              })
+              }, ackScope)
             } catch { owner.close() }
           }
-          socket.onerror = () => this.#queue(0, () => this.onerror?.(new Event('error')))
-          socket.onclose = () => this.#queue(0, () => { this.#notifyClose(new CloseEvent('close')); this.close() })
+          socket.onerror = () => { if (!owner.#paused) this.#queue(0, () => this.onerror?.(new Event('error'))) }
+          socket.onclose = () => {
+            if (owner.#paused) this.close()
+            else this.#queue(0, () => { this.#notifyClose(new CloseEvent('close')); this.close() })
+          }
         })
       }
-      #queue(bytes: number, effect: () => void): void {
-        if (this.#stopped) return
-        this.#tail = owner.#enqueue(bytes, () => { if (!this.#stopped) effect() }, this.#tail)
+      #ack(frame: unknown): PublicationReceipt | undefined {
+        if (!Array.isArray(frame) || frame.length !== 4 || frame[0] !== 'OK' || typeof frame[1] !== 'string' ||
+            typeof frame[2] !== 'boolean' || typeof frame[3] !== 'string') return
+        const publication = owner.#publications.get(frame[1])
+        if (!publication || publication.generation !== this.#socketGeneration) return
+        for (const receipt of publication.sent) if (receipt.pending && receipt.socket === this && receipt.raw === this.#socket) {
+          receipt.pending = false; return publication
+        }
+      }
+      #queue(bytes: number, effect: () => void, ackScope?: ProtocolExecution): void {
+        if (this.#stopped || this.#socketGeneration !== owner.#generation || owner.#paused && !ackScope) return
+        this.#tail = owner.#enqueue(bytes, () => { if (!this.#stopped && this.#socketGeneration === owner.#generation) effect() }, this.#tail, ackScope)
       }
       send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
-        if (this.#stopped) return
+        if (this.#stopped || owner.#paused || this.#socketGeneration !== owner.#generation) return
         try {
           if (typeof data !== 'string') hold()
           const bytes = ordinaryUtf8Length(data, ORDINARY_RELAY_FRAME_BYTES)
           const frame: unknown = JSON.parse(data)
           if (!Array.isArray(frame) || !['REQ', 'EVENT', 'AUTH', 'CLOSE'].includes(frame[0])) hold()
           this.#queue(bytes, () => {
+            if (owner.#paused || this.#socketGeneration !== owner.#generation) return
             if (this.#socket?.readyState !== 1) hold()
             if (frame[0] === 'REQ') {
               if (typeof frame[1] !== 'string') hold()
@@ -264,6 +322,10 @@ export class OrdinaryRelayCarrier implements RelayTransport {
               }
             }
             this.#socket.send(data)
+            if (frame[0] === 'EVENT' && !owner.#paused && this.#socketGeneration === owner.#generation) {
+              const publication = owner.#publications.get((frame[1] as NostrEvent)?.id)
+              if (publication && publication.generation === this.#socketGeneration) publication.sent.add({ socket: this, raw: this.#socket, pending: true })
+            }
           })
         } catch { owner.close() }
       }
@@ -290,7 +352,9 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     let canonical: ReturnType<typeof captureOrdinarySigningStatement>
     try { canonical = captureOrdinarySigningStatement(input) } catch { this.close(); return Promise.reject(new OrdinaryStateHold()) }
     const previous = this.#signing.get(identity) ?? Promise.resolve()
-    const job = previous.then(async () => {
+    const run = async (scope?: ProtocolExecution) => {
+      await previous
+      if (this.#paused) throw new Error('Relay authentication is suspended.')
       const challenge = canonical.tags[1]?.[1]
       if (canonical.kind !== 22242 || canonical.content !== '' || canonical.tags.length !== 2 ||
           JSON.stringify(canonical.tags[0]) !== JSON.stringify(['relay', url]) || canonical.tags[1]?.length !== 2 ||
@@ -303,37 +367,53 @@ export class OrdinaryRelayCarrier implements RelayTransport {
           else {
             if (!OrdinaryForegroundSigner.isNativeSigner(identity)) hold()
             signing = OrdinaryForegroundSigner.borrowNativeSignEvent(identity, { live: this.#live,
-              validate: (b, t, c) => this.#validate(b, t, c) })(canonical)
+              validate: (b, t, c) => {
+                this.#validate(b, t, c)
+                if (this.#options.work) this.#options.work.enter(scope!, 'relay-auth-provider', () => {})
+              } })(canonical)
           }
           void signing.catch(() => {})
-        })
+        }, scope)
         if (!signing) hold()
         const signed = await signing
-        return await this.#read(() => signed)
+        return await this.#read(() => signed, scope)
       } finally { if (signing) await Promise.allSettled([signing]) }
-    }).catch(error => { this.close(); throw error })
+    }
+    const owned = this.#options.work ? this.#options.work.execution.task!('relay-auth', run) : run()
+    const job = owned.catch(error => { if (!this.#paused) this.close(); throw error })
     this.#signing.set(identity, job)
     void job.finally(() => { if (this.#signing.get(identity) === job) this.#signing.delete(identity) }).catch(() => {})
     return this.#track(job)
   }
   publish(event: NostrEvent): Promise<void> {
-    let captured: NostrEvent
-    try { captured = captureEvent(event); ordinaryUtf8Length(JSON.stringify(captured), ORDINARY_RELAY_FRAME_BYTES) }
+    let captured: NostrEvent, bytes: number
+    try { captured = captureEvent(event); bytes = ordinaryUtf8Length(JSON.stringify(captured), ORDINARY_RELAY_FRAME_BYTES) }
     catch { this.close(); return Promise.reject(new OrdinaryStateHold()) }
     const run = async (scope?: ProtocolExecution) => {
+      if (this.#paused) throw new Error('Relay publication is suspended.')
+      if (this.#publications.has(captured.id)) throw new Error('This exact publication is already pending.')
+      if (this.#publications.size >= 128 || this.#publicationBytes + bytes > ORDINARY_RELAY_QUEUE_BYTES) hold()
+      const receipt: PublicationReceipt = { id: captured.id, generation: this.#generation, bytes, sent: new Set() }
+      this.#publications.set(receipt.id, receipt); this.#publicationBytes += bytes
       let pending: Promise<void> | undefined
+      let fanout: Promise<void> | undefined
+      try {
       await this.#read(() => {
         const pool = this.#pool!
         pending = pool.publish(captured); void pending.catch(() => {})
         // The public ACK may be the first relay. Keep its entire slower
         // fan-out/retry tail owned by this publication's job graph too.
-        if (this.#options.work) {
-          const fanout = this.#options.work.own(async () => { while (pool.publishing) await pool.settled() })
-          this.#track(fanout); void fanout.catch(() => {})
+        const drain = async (owned?: ProtocolExecution) => {
+          receipt.scope = owned
+          try { while (pool.publishing) await pool.settled() }
+          finally { this.#releasePublication(receipt) }
         }
+        fanout = this.#options.work ? this.#options.work.own(drain) : drain()
+        this.#track(fanout); void fanout.catch(() => {})
       }, scope)
       await pending
       await this.#read(() => {}, scope)
+      } finally { if (!fanout) this.#releasePublication(receipt) }
     }
     const pending = this.#options.work ? this.#options.work.execution.task!('relay-publication', run) : run()
     return this.#track(pending.catch(error => { if (this.#closed) hold(); throw error }))
@@ -343,33 +423,92 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     let captured: Filter[]
     try { captured = captureFilters(filters) }
     catch { this.close(); return () => {} }
-    const subscription: SubscriptionReceipt = { plan: filterPlan(captured), bindings: new Map(), active: true }
+    const subscription: SubscriptionReceipt = { plan: filterPlan(captured), filters: captured, onEvent, onEose,
+      seen: new Set(), bindings: new Map(), active: true, eoseSent: false }
     if (this.#subscriptions.size >= 128 || [...this.#subscriptions].some(value => value.plan === subscription.plan)) {
       this.close(); return () => {}
     }
     this.#subscriptions.add(subscription)
-    let stop: (() => void) | undefined, tail = Promise.resolve()
-    const deliver = (bytes: number, effect: () => void) => { if (subscription.active) tail = this.#enqueue(bytes, () => { if (subscription.active) effect() }, tail) }
     void this.#read(() => {
-      if (!subscription.active) return
-      stop = this.#pool!.subscribe(captured, (event, via) => {
-        try { const data = JSON.stringify(event); deliver(ordinaryUtf8Length(data, ORDINARY_RELAY_FRAME_BYTES), () => onEvent(JSON.parse(data), via)) }
+      if (subscription.active && !this.#paused && !subscription.stop) this.#bindSubscription(subscription)
+    }).catch(() => {})
+    return () => { subscription.active = false; this.#subscriptions.delete(subscription); subscription.stop?.(); subscription.stop = undefined }
+  }
+  #bindSubscription(subscription: SubscriptionReceipt): void {
+    const generation = this.#generation
+    // Old queued handoffs retain their original binding evidence through
+    // the drain. Clear it only when binding this fresh generation.
+    subscription.bindings.clear()
+    let tail = Promise.resolve()
+    const current = () => subscription.active && generation === this.#generation && !this.#closed
+    const deliver = (bytes: number, effect: () => void) => {
+      if (!current() || this.#paused) return
+      tail = this.#enqueue(bytes, () => { if (current()) effect() }, tail)
+    }
+    subscription.deadlineAt ??= Date.now() + SUBSCRIBE_EOSE_DEADLINE_MS
+    subscription.stop = this.#pool!.subscribe(subscription.filters, (event, via) => {
+        try { const data = JSON.stringify(event); deliver(ordinaryUtf8Length(data, ORDINARY_RELAY_FRAME_BYTES), () => {
+          if (subscription.seen.has(event.id)) return
+          subscription.seen.add(event.id)
+          if (subscription.seen.size > 8192) subscription.seen.delete(subscription.seen.values().next().value!)
+          subscription.onEvent(JSON.parse(data), via)
+        }) }
         catch { this.close() }
-      }, onEose ? () => deliver(0, () => {
+      }, subscription.onEose ? () => deliver(0, () => {
         // Both the pool and nostr-tools can report timeout/closed readers as
         // EOSE. Only actual guarded EOSE frames for this exact current REQ
         // at every configured reader can cross the native handoff.
         if (!this.#relays.filter(relay => relay.read).every(relay => subscription.bindings.get(relay.url)?.eosed === true)) hold()
-        onEose()
-      }) : undefined)
-    }).catch(() => {})
-    return () => { subscription.active = false; this.#subscriptions.delete(subscription); stop?.() }
+        if (!subscription.eoseSent) { subscription.eoseSent = true; subscription.onEose!() }
+      }) : undefined, { deadlineAt: subscription.deadlineAt, loaded: subscription.eoseSent })
   }
+  #releasePublication(receipt: PublicationReceipt): void {
+    if (this.#publications.get(receipt.id) !== receipt) return
+    this.#publications.delete(receipt.id); this.#publicationBytes -= receipt.bytes
+    if (this.#paused) this.#prunePausedSockets()
+  }
+  #hasOwnedPublication(socket: object): boolean {
+    for (const publication of this.#publications.values()) if (publication.generation === this.#generation) {
+      // A claimed ACK may still be queued behind a native read, or inside
+      // the dependency's message-processing microtask. Keep its socket until
+      // the full publication tail settles, not merely until ingress claims it.
+      for (const receipt of publication.sent) if (receipt.socket === socket) return true
+    }
+    return false
+  }
+  #prunePausedSockets(): void {
+    for (const socket of [...this.#sockets]) if (!this.#hasOwnedPublication(socket)) socket.close()
+  }
+  #suspend(): void {
+    if (this.#closed || this.#paused) return
+    this.#paused = true; this.#resumeRequested = false // latch before cleanup
+    // Settle the dependency's pending connect/AUTH before pool cancellation
+    // detaches its socket lifecycle callbacks. Sent EVENT tails stay open.
+    this.#prunePausedSockets()
+    this.#pool?.suspend()
+    for (const subscription of this.#subscriptions) {
+      subscription.stop?.(); subscription.stop = undefined
+    }
+    this.#prunePausedSockets()
+  }
+  #resumeResources(): void {
+    if (this.#closed || !this.#paused || this.#options.work?.suspended) hold()
+    // The caller's native read has just authenticated the exact selected
+    // image. Every old raw callback remains fenced by its fixed generation.
+    if (!Number.isSafeInteger(this.#generation + 1)) hold()
+    this.#generation++; this.#pool!.resume()
+    this.#paused = false; this.#resumeRequested = false
+    for (const subscription of this.#subscriptions) if (subscription.active) this.#bindSubscription(subscription)
+  }
+  /** Internal factory resource wake-up after a guarded graph transition.
+   * This method cannot resume the graph or replace its native predicate. */
+  resumeResources(): Promise<void> { return this.#read(() => {}) }
   describe(): RelayConfig[] { return this.#relays.map(relay => ({ ...relay })) }
   get closed(): boolean { return this.#closed }
   close(): void {
     if (this.#closed) return
     this.#closed = true
+    this.#stopSuspension?.(); this.#stopSuspension = undefined
     try { this.#options.onClose?.() } catch { /* the carrier still owns its cleanup */ }
     this.#releaseResource?.(); this.#releaseResource = undefined
     for (const socket of this.#sockets) socket.close()
@@ -386,5 +525,6 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     // slower fan-out/retry tails. Closing aborts them, but their promises
     // must settle before the native component reports its lifetime joined.
     if (this.#closed) while (this.#pool?.publishing) await this.#pool.settled()
+    await this.#pool?.joinBackground()
   }
 }

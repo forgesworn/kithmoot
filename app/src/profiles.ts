@@ -1,4 +1,5 @@
 import { NostrRelayPool, verifyEventUncached, sanitiseDisplayName } from '../../src/index.js'
+import type { RelayPoolClient } from '../../src/relay-pool.js'
 import type { Event } from 'nostr-tools/pure'
 import { normalizeURL } from 'nostr-tools/utils'
 
@@ -63,12 +64,12 @@ export interface ProfileBookOptions {
   relays: () => string[]
   /** Called when a lookup changed something worth re-rendering. */
   onChange: () => void
-  transport?: (relays: string[]) => Pick<NostrRelayPool, keyof NostrRelayPool>
+  transport?: (relays: string[]) => RelayPoolClient
 }
 
 export class ProfileBook {
   readonly #opts: ProfileBookOptions
-  #pool?: Pick<NostrRelayPool, keyof NostrRelayPool>
+  #pool?: RelayPoolClient
   #unsubs = new Set<() => void>()
   /** Pubkeys we have asked about, whether or not an answer came back. */
   readonly #asked = new Set<string>()

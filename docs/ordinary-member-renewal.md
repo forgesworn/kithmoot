@@ -153,10 +153,34 @@ wait cancels and unsubscribes when suspended. Caller-held prepared chat closures
 acquire fresh ownership only when published. Pool fan-out after the first ACK
 remains owned through actual settlement and close joins it.
 
-This graph and timer work does **not** activate native renewal. Full relay
-recovery/read-back/subscription suspension, the exact old-ACK exception, scoped
-AUTH and provider completion, the candidate producer and atomic acknowledged
-Session adoption remain unimplemented. General catch-up timers are outside this
+The carrier now latches suspension before cancelling recovery, read-back,
+subscription bindings, retry delays and unfinished dials. Background promises
+register before their first await. Each pending dial has its own cancellation
+signal, so dependency cancellation cannot strand it until its connection
+deadline. Shared dial reservations use opaque receipts, consumed at the first
+success, failure or cancellation. Duplicate/late callbacks and cached connection
+work cannot release another pool's reservation. Local cancellation preserves
+prior relay backoff. Already started AUTH providers remain joined; queued AUTH cannot start
+another provider after the latch. No general incoming observation or new socket
+write is admitted while paused.
+
+Only an exact canonical OK for an already sent event on its original raw socket
+and generation may enter as a child of the still-owned publication tail. Each
+receipt can be claimed once. The socket stays alive until the dependency has
+actually consumed its claimed ACK and the full publication fan-out settles.
+Negative ACKs settle refusals without retries. Freshly guarded abort resume
+recreates readers, keeps logical event deduplication and original absolute
+history deadlines, and preserves already completed history. Old callbacks stay
+fenced. Original bounded binding evidence survives already registered handoffs;
+fresh bindings clear it and use fresh wire subscription IDs. The route-facing
+pool type omits suspension controls; that type is not a
+runtime capability boundary.
+
+These pool, graph and timer changes do **not** activate native renewal. The
+candidate producer and atomic acknowledged Session adoption remain
+unimplemented. Browser suspension tests use actual native owners with a local
+graph controller; they supply no production successor or MLS authority.
+General catch-up timers are outside this
 bounded factory, which still sets `epochCatchUp:false`. The first-credential
 factory refuses minting a replacement before entropy; refusal leaves the old
 credential usable only until its original fixed expiry.

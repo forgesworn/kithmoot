@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { boxFixture } from '../../test/box-status-fixture.js'
+import { DIAL_LEASE_MS, relayDials } from '../../src/relay-dial-gate.js'
 
 class Socket {
   readyState = 0
@@ -23,6 +24,28 @@ function setup(two = false) {
 }
 afterEach(() => vi.useRealTimers())
 describe('box discovery relay history', () => {
+  it('another pool’s shared reservation prevents Box socket construction', () => {
+    vi.useFakeTimers(); const url = 'wss://shared-box-blocked.test/'
+    relayDials.failed(url); vi.advanceTimersByTime(1000)
+    const other = relayDials.reserve(url)!, socket = vi.fn()
+    const reader = new BoxRelayReader([{ url, read: true, write: false }], () => {}, socket)
+    reader.subscribe([{ kinds: [10640] }], () => {})
+    expect(socket).not.toHaveBeenCalled(); reader.close()
+    expect(relayDials.release(other)).toBe(true)
+  })
+  it.each(['disconnect', 'timeout', 'cleanup'])('a box %s cannot release a different pool’s replacement reservation', fault => {
+    vi.useFakeTimers()
+    const url = 'wss://shared-box-custody.test/'
+    relayDials.failed(url); vi.advanceTimersByTime(1000)
+    const socket = new Socket()
+    const reader = new BoxRelayReader([{ url, read: true, write: false }], () => {}, () => socket as unknown as WebSocket)
+    reader.subscribe([{ kinds: [10640] }], () => {})
+    vi.setSystemTime(Date.now() + DIAL_LEASE_MS)
+    const other = relayDials.reserve(url)!
+    if (fault === 'disconnect') socket.onerror?.(); else if (fault === 'timeout') vi.advanceTimersByTime(15_000); else reader.close()
+    expect(relayDials.open(url)).toBe(false); expect(relayDials.release(other)).toBe(true)
+    reader.close()
+  })
   it('waits for actual EOSE from every read relay and never sends a publication', async () => {
     const f = setup(true)
     f.sockets[0]!.message(['EOSE', 'box-1']); expect(f.ready).not.toHaveBeenCalled()
