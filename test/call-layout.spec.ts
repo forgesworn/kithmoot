@@ -294,6 +294,29 @@ test('a remote phone camera has a filled portrait tile and follows live rotation
     await expect(page.locator('#room')).toHaveAttribute('data-layout', 'speaker')
     await expect.poll(async () => (await shape()).tile).toBeCloseTo(9 / 16, 2)
     await shot(page, 'portrait-camera-speaker')
+    // Cross a presence heartbeat while watching every 50ms: a half-second
+    // blank must not hide between two successful endpoint measurements.
+    const continuity = await camera.evaluate(async (video: HTMLVideoElement) => {
+      const stream = video.srcObject, holder = video.parentElement
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 16
+      const context = canvas.getContext('2d', { willReadFrequently: true })!
+      let samples = 0, blackSamples = 0, missingSamples = 0, replacedSamples = 0
+      const timer = setInterval(() => {
+        samples++
+        if (!video.isConnected || video.parentElement !== holder || !video.checkVisibility()) missingSamples++
+        if (video.srcObject !== stream) replacedSamples++
+        context.drawImage(video, 0, 0, 16, 16)
+        const pixels = context.getImageData(0, 0, 16, 16).data
+        let light = 0
+        for (let i = 0; i < pixels.length; i += 4) light += pixels[i] + pixels[i + 1] + pixels[i + 2]
+        if (light / (16 * 16 * 3) < 4) blackSamples++
+      }, 50)
+      await new Promise(resolve => setTimeout(resolve, 22_000)); clearInterval(timer)
+      return { samples, blackSamples, missingSamples, replacedSamples }
+    })
+    expect(continuity.samples).toBeGreaterThan(100)
+    expect(continuity).toMatchObject({ blackSamples: 0, missingSamples: 0, replacedSamples: 0 })
+    await test.info().attach('portrait-camera-continuity', { body: JSON.stringify(continuity), contentType: 'application/json' })
   } finally { for (const context of contexts) await context.close() }
 })
 
