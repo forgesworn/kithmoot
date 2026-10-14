@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.80",
+  "currentRelease": "0.1.81",
   "releases": [
     {
-      "version": "0.1.80",
+      "version": "0.1.81",
       "updateTo": {
-        "version": "0.1.80",
-        "pub_date": "2026-10-14T14:48:23Z",
-        "notes": "Find a Signet contact and start a private conversation without a shared room. Reopen it for chat, calls and collaboration. The call gallery stays below board shortcuts.",
-        "name": "0.1.80",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.80/KithMoot-0.1.80-mac-arm64.zip",
-        "sha256": "7ad6bd9436f9099e12a00b01df5d5be80bef0036540c226a00f68fad8dd2f0e7",
-        "size": 177650381
+        "version": "0.1.81",
+        "pub_date": "2026-10-14T16:17:04Z",
+        "notes": "Portrait phone cameras have a tall, filled tile and follow live rotation. Microphone recovery keeps the selected headset when it is available.",
+        "name": "0.1.81",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.81/KithMoot-0.1.81-mac-arm64.zip",
+        "sha256": "76bf50957ae2d7676254afaa93aa591749a38c1fec5eadba8ed2089969be6c18",
+        "size": 177648953
       }
     }
   ]
