@@ -69,9 +69,16 @@ resource limits, not relay retention guarantees or a durable message archive.
 - Authenticate sender binding and exact membership; preserve failed writes,
   storage refusal, grant withdrawal, account cancellation and forgetting.
 
-Native Android contact-directory integration and matching invitation inbox
-remain separate implementation work. Existing native background call/message
-listeners remain in place; this web change does not make them receive these new
-account invitations. The Kotlin Signet contacts SDK is the intended reusable
-directory seam. Full cross-client, installed My Signet and physical-device
-acceptance must be recorded independently from web source and browser checks.
+The matching native Android directory and account invitation inbox are under
+review in [Android PR #261](https://github.com/forgesworn/kithmoot-android/pull/261),
+using the pinned shared Kotlin Signet contacts SDK. Initial invitations are
+read while the native account is open; joined-room background call/message
+listeners continue to serve the private rooms. This change does not add a
+background notification service for first-contact invitations.
+
+`scripts/contact-invitation-interop.mjs` generates the committed browser fixture
+and verifies native output. The independent native unit suite reads the browser
+fixture, and this repository's unit suite reads the committed native fixture.
+Both recipient and sender copies are checked. These prove wire compatibility;
+installed My Signet approval, a full browser-to-native room journey and physical
+signer/device acceptance remain independent gates.

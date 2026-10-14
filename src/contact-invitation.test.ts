@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { createRoomInvitation } from './invitation.js'
@@ -18,6 +19,15 @@ export function invitationLink(sender: string, recipient: string): { room: strin
 }
 
 describe('account-addressed private conversation invitations', () => {
+  it('opens both envelopes exported by the independent Android implementation', async () => {
+    const fixture = JSON.parse(readFileSync(new URL('../test/fixtures/contact-invitations-android.json', import.meta.url), 'utf8'))
+    const identity = (byte: number): ContactInvitationIdentity => {
+      const key = new Uint8Array(32).fill(byte)
+      return { pubkey: getPublicKey(key), ...localPeerCrypt(key), signEvent: async event => finalizeEvent(event, key) }
+    }
+    expect(await unwrapContactInvitation(fixture.other, identity(2), now)).toEqual(fixture.rumor)
+    expect(await unwrapContactInvitation(fixture.own, identity(1), now)).toEqual(fixture.rumor)
+  })
   it('opens the same authenticated invitation for the recipient and the sender, hiding all application tags', async () => {
     const a = invitationIdentity(), b = invitationIdentity(), room = invitationLink(a.pubkey, b.pubkey)
     const rumor = contactInvitationRumor(a.pubkey, b.pubkey, room.room, room.link, now)
