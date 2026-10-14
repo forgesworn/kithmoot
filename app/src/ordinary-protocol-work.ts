@@ -5,6 +5,7 @@ export class OrdinaryProtocolSuspended extends Error {
   constructor() { super('The owned protocol operation is suspended or has finished.'); this.name = 'OrdinaryProtocolSuspended' }
 }
 interface Job {
+  readonly lifecycleRoot: boolean
   readonly generation: number
   readonly parent?: Job
   readonly scope: ProtocolExecution
@@ -49,6 +50,7 @@ export class OrdinaryProtocolWork {
       run: <T>(operation: string, effect: () => T) => this.#run(this.#active, operation, effect),
       check: (operation: string) => { if (!this.#active) throw new OrdinaryProtocolSuspended(); this.#check(this.#active); this.#nativeCheck(operation) },
       retain: <T>(pending: Promise<T>) => this.#retain(this.#active, pending),
+      retainRoot: (pending: Promise<void>) => this.#retainRoot(pending),
       task: <T>(operation: string, work: (scope: ProtocolExecution) => Promise<T>) => this.#task(this.#active, operation, work),
       onSuspend: (listener: (suspended: boolean) => void) => this.#listen(listener),
     })
@@ -56,7 +58,7 @@ export class OrdinaryProtocolWork {
   #check(job: Job): void {
     if (this.#phase === 'closed' || job.terminal || !job.bodyOpen || job.generation !== this.#generation) throw new OrdinaryProtocolSuspended()
   }
-  #job(parent?: Job): Job {
+  #job(parent?: Job, lifecycleRoot = false): Job {
     if (this.#notifying) throw new OrdinaryProtocolSuspended()
     if (parent) this.#check(parent)
     else if (this.#phase !== 'open') throw new OrdinaryProtocolSuspended()
@@ -76,7 +78,7 @@ export class OrdinaryProtocolWork {
       task: <T>(operation: string, work: (execution: ProtocolExecution) => Promise<T>) => this.#task(job, operation, work),
       onSuspend: (listener: (suspended: boolean) => void) => this.#listen(listener, job),
     })
-    const job: Job = { generation: this.#generation, parent, scope, children: new Set(), listeners: new Set(), done, finish, bodyOpen: true, terminal: false, transitioned: false }
+    const job: Job = { lifecycleRoot, generation: this.#generation, parent, scope, children: new Set(), listeners: new Set(), done, finish, bodyOpen: true, terminal: false, transitioned: false }
     this.#scopes.set(scope, job)
     this.#jobs++
     if (parent) parent.children.add(job); else this.#roots.add(job)
@@ -211,9 +213,9 @@ export class OrdinaryProtocolWork {
     this.#promises.set(result, job)
     return this.#native.retain(result)
   }
-  #task<T>(parent: Job | undefined, operation: string, work: (scope: ProtocolExecution) => Promise<T>): Promise<T> {
+  #task<T>(parent: Job | undefined, operation: string, work: (scope: ProtocolExecution) => Promise<T>, lifecycleRoot = false): Promise<T> {
     let job: Job
-    try { job = this.#job(parent) } catch (error) { return Promise.reject(error) }
+    try { job = this.#job(parent, lifecycleRoot) } catch (error) { return Promise.reject(error) }
     const result = (async () => {
       let body: Promise<T> | undefined
       let startedBody = false
@@ -281,6 +283,41 @@ export class OrdinaryProtocolWork {
     job?.listeners.add(observe)
     return () => { this.#listeners.delete(observe); job?.listeners.delete(observe) }
   }
+  /** The private factory invokes this at the outer lifecycle entry, never
+   * inside another task that will await it. No operation-name inference or
+   * ancestor-derived exclusion is involved. The result must stay exact. */
+  startRoot(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+    if (this.#active || this.#notifying || [...this.#roots].some(root => root.lifecycleRoot)) return Promise.reject(new OrdinaryProtocolSuspended())
+    return this.#task(undefined, 'credential-lifecycle', work, true)
+  }
+  #retainRoot(pending: Promise<void>): Promise<void> {
+    const job = pending instanceof Promise ? this.#promises.get(pending) : undefined
+    if (!job?.lifecycleRoot || job.parent) {
+      try { this.close() } finally {
+        // An invalid wrapper may still await a real unabortable root. Join
+        // it as cleanup, without registering another awaiting graph root.
+        if (pending instanceof Promise) { this.#native.retain(pending); void pending.catch(() => {}) }
+      }
+      throw new OrdinaryProtocolSuspended()
+    }
+    return this.#native.retain(pending)
+  }
+  /** Structural barrier only; this grants no native callback or effects. */
+  checkQuiescent(scope: ProtocolExecution): void {
+    const root = this.#scopes.get(scope)
+    if (!root?.lifecycleRoot || root.parent || root !== this.#excluded || this.#phase !== 'quiescent' ||
+        this.#roots.size !== 1 || root.children.size) throw new OrdinaryProtocolSuspended()
+    this.#check(root)
+  }
+  /** The embedding separately authenticates the successor. Its guard swap
+   * and adoption still require this exact root inside the genuine callback,
+   * with every child finished. run() would itself create a child. */
+  checkTransition(scope: ProtocolExecution): void {
+    this.checkQuiescent(scope)
+    const root = this.#scopes.get(scope)!
+    if (this.#active !== root) throw new OrdinaryProtocolSuspended()
+    this.#nativeCheck('credential-lifecycle-transition')
+  }
   #notify(suspended: boolean): void {
     this.#notifying = true
     try {
@@ -298,7 +335,7 @@ export class OrdinaryProtocolWork {
    * synchronously disarming listeners, then join the complete old job graph. */
   suspend(scope: ProtocolExecution, timeoutMs = 30_000): Promise<void> {
     const root = this.#scopes.get(scope)
-    if (!root || root.parent || this.#phase !== 'open' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) return Promise.reject(new OrdinaryProtocolSuspended())
+    if (!root || root.parent || root.children.size || this.#phase !== 'open' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) return Promise.reject(new OrdinaryProtocolSuspended())
     try { this.#check(root) } catch (error) { return Promise.reject(error) }
     this.#phase = 'quiescing'; this.#excluded = root
     try { this.#notify(true) } catch (error) { this.close(); return Promise.reject(error) }

@@ -12,6 +12,23 @@ handoff described below. The first-credential factory still refuses renewed
 material. Offline custody remains readable after sign-out or account replacement;
 only a new genuine Fore check at preparation/open can authorise account effects.
 
+The timer/root groundwork now starts and retains an exact lifecycle promise
+without a timer task awaiting it. Registration precedes a queued native selector;
+concurrent lifecycle roots and wrapped root promises are refused. Suspension
+requires an empty root, and transition checks require that exact sole quiescent
+root, zero children and a genuine native callback. These are ownership barriers,
+not signing, commit, successor or membership authority. Browser fixtures exercise
+the unchanged-predecessor boundary with actual native read owners. No production
+timer currently selects this path.
+
+Session adoption remains unimplemented. The native producer must privately bind
+construction and synchronously verify the authenticated successor, replace its
+guards and apply all prepared Session views in one paired callback after the
+exact acknowledgement. A public structural lifecycle option or separate later
+Session adoption cannot satisfy that boundary. Shutdown must synchronously revoke
+first and externally join the exact root; callbacks inside it revoke and return
+instead of awaiting their own lifetime.
+
 ## Selected successor
 
 Retain a versioned encrypted member lease beside the existing V2 proof. Each

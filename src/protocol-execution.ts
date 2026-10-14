@@ -8,6 +8,10 @@ export interface ProtocolExecution {
   check(operation: string): void
   /** Resource ownership only, never permission to run an effect. */
   retain<T>(work: Promise<T>): Promise<T>
+  /** Verify and retain an exact embedding-owned lifecycle root promise.
+   * Wrapping it in another promise must not create an awaiting drain root.
+   * This is ownership only and supplies no execution or room authority. */
+  retainRoot?(work: Promise<void>): Promise<void>
   /** Optional ownership of a complete asynchronous job and its descendants.
    * The scoped executor expires when that callback and its owned work finish.
    * Keeping a prepared closure does not keep its preparation scope alive. */

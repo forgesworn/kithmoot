@@ -4,6 +4,7 @@ interface Timer {
   due: number
   readonly interval?: number
   readonly effect: (execution: ProtocolExecution | undefined) => void | Promise<void>
+  readonly rootStart?: (begin: (execution: ProtocolExecution) => boolean) => Promise<void>
   handle?: ReturnType<typeof setTimeout>
   serial: number
 }
@@ -37,6 +38,17 @@ export class ProtocolTimers {
     this.#timers.set(name, timer)
     if (!this.#suspended) this.#arm(name, timer)
   }
+  /** A lifecycle root must not sit beneath a timer job which awaits it.
+   * start registers the root synchronously and returns that exact promise.
+   * begin is called in its genuine native start callback, before suspension. */
+  scheduleRoot(name: string, delay: number, start: NonNullable<Timer['rootStart']>): void {
+    if (this.#closed) return
+    if (!this.#execution.retainRoot || !Number.isFinite(delay) || delay < 0) throw new Error('invalid lifecycle root timer')
+    this.cancel(name)
+    const timer: Timer = { due: this.#now() + delay, effect: () => {}, rootStart: start, serial: 0 }
+    this.#timers.set(name, timer)
+    if (!this.#suspended) this.#arm(name, timer)
+  }
   cancel(name: string): void {
     const timer = this.#timers.get(name)
     if (!timer) return
@@ -48,6 +60,18 @@ export class ProtocolTimers {
     timer.handle = setTimeout(() => {
       if (!current()) return
       timer.handle = undefined
+      if (timer.rootStart) {
+        try {
+          const pending = timer.rootStart(execution => {
+            execution.check('lifecycle-timer-start')
+            if (!current()) return false
+            this.#timers.delete(name); return true
+          })
+          this.#execution.retainRoot!(pending)
+          void pending.catch(() => { /* The lifecycle owner handles refusal. */ })
+        } catch { /* Invalid root ownership closes the embedding. */ }
+        return
+      }
       // task() registers synchronously, including while its native selector
       // is queued. Recheck the fence inside that genuine boundary as well.
       void protocolTask(this.#execution, 'timer-' + name, async execution => {

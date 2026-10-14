@@ -32,6 +32,7 @@ const graphControls = `async()=>{
    const previous=active;validateGraphPair(b,t,c);try{const value=effect();validateGraphPair(b,t,c);return value}
    finally{active=previous}}}))};
  window.workGraph=new Ordinary.OrdinaryProtocolWork(native,()=>window.carrier?.close());
+ window.withGraphRoot=(scope,effect)=>native.run('fixture root boundary',()=>workGraph.enter(scope,'fixture root boundary',effect));
  window.beginDrain=(timeout=5000)=>{window.drainState='starting';window.draining=workGraph.execution.task('fixture-renewal',async scope=>{
   window.producerScope=scope;await workGraph.suspend(scope,timeout);window.drainState='held';
   await new Promise(resolve=>window.releaseDrain=resolve);await scope.run('unchanged predecessor abort',()=>{});
@@ -49,6 +50,62 @@ async function start(page: Page, options = {}, visitor = true) {
   await page.evaluate(`(${graphControls})()`)
   await page.evaluate(`(${controls})(${JSON.stringify(options)})`)
 }
+
+test('genuine paired owners retain an exact timer lifecycle root without an awaiting timer ancestor', async ({ page }) => {
+  await page.clock.install(); await start(page)
+  await page.evaluate(`(()=>{
+   window.timers=new Ordinary.ProtocolTimers(workGraph.execution);
+   window.lifecycleState='waiting';
+   timers.scheduleRoot('fixture-renewal',10,begin=>window.lifecycle=workGraph.startRoot(async scope=>{
+    window.lifecycleScope=scope;if(!begin(scope))return;
+    await workGraph.suspend(scope);workGraph.checkQuiescent(scope);lifecycleState='held';
+    await new Promise(resolve=>window.finishLifecycle=resolve);
+    await withGraphRoot(scope,()=>workGraph.checkTransition(scope));
+    workGraph.resume(scope);lifecycleState='resumed'
+   }));return undefined
+  })()`)
+  await page.clock.runFor(10); await page.waitForFunction('lifecycleState==="held"')
+  expect(await page.evaluate('[timers.has("fixture-renewal"),workGraph.suspended]')).toEqual([false,true])
+  await page.evaluate('finishLifecycle();lifecycle'); expect(await page.evaluate('lifecycleState')).toBe('resumed')
+  expect(await page.evaluate('lifecycleScope.run("stale",()=>{}).then(()=>"bad",e=>e.name)')).toBe('OrdinaryProtocolSuspended')
+  await page.evaluate('timers.close();shutdown()')
+})
+
+test('genuine lifecycle transition refuses a live child and an unrelated callback scope', async ({ page }) => {
+  await start(page)
+  expect(await page.evaluate(`(async()=>{
+   const results=[];
+   await workGraph.startRoot(async scope=>{
+    await workGraph.suspend(scope);workGraph.checkQuiescent(scope);
+    const held=new Promise(resolve=>window.finishChild=resolve);scope.retain(held);
+    try{await withGraphRoot(scope,()=>workGraph.checkTransition(scope));results.push('bad')}
+    catch(e){results.push(e.name)}
+    finishChild();await held;await Promise.resolve();
+    await scope.run('child callback',()=>{try{workGraph.checkTransition(scope);results.push('bad')}catch(e){results.push(e.name)}});
+    await withGraphRoot(scope,()=>{workGraph.checkTransition(scope);results.push('exact root')});
+    workGraph.resume(scope)
+   });return results
+  })()`)).toEqual(['OrdinaryProtocolSuspended','OrdinaryProtocolSuspended','exact root'])
+  await page.evaluate('shutdown()')
+})
+
+test('genuine owners join a wrapped rejected lifecycle root through its unabortable body', async ({ page }) => {
+  await start(page)
+  await page.evaluate(`(()=>{
+   window.lifecycleState='waiting';
+   window.lifecycle=workGraph.startRoot(async()=>{window.lifecycleState='started';await new Promise(resolve=>window.finishLifecycle=resolve)});
+   window.result=lifecycle.then(()=>window.lifecycleState='bad',()=>window.lifecycleState='refused');
+   return undefined
+  })()`)
+  await page.waitForFunction('lifecycleState==="started"')
+  expect(await page.evaluate(`(()=>{
+   try{workGraph.execution.retainRoot(lifecycle.then(()=>{}));return 'bad'}catch(e){return e.name}
+  })()`)).toBe('OrdinaryProtocolSuspended')
+  await page.evaluate('window.graphJoined=false;window.graphJoining=workGraph.join().then(()=>graphJoined=true);undefined')
+  expect(await page.evaluate('graphJoined')).toBe(false)
+  await page.evaluate('finishLifecycle();graphJoining'); expect(await page.evaluate('[graphJoined,lifecycleState]')).toEqual([true,'refused'])
+  await page.evaluate('shutdown()')
+})
 
 test('native graph drains only exact already-sent old ACKs and recreates freshly guarded readers after abort', async ({ page }) => {
   await start(page, { autoAck: false, history: false })
