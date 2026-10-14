@@ -1314,7 +1314,7 @@ async function signInWithNostr(): Promise<void> {
   if (previous && previous !== account.pubkey) {
     const now = shownAs(account.pubkey), before = shownAs(previous)
     setStatus(`Signed in as ${now.name ?? now.npub}. Last time this was ${before.name ?? before.npub}, and the rooms saved under that account are not here. To get them back, select that account in your extension and sign in again.`)
-  }
+  } else setStatus('Signed in.', 'done')
 }
 
 async function signOutOfNostr(): Promise<void> {
