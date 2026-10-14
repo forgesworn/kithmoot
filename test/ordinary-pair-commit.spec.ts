@@ -119,7 +119,7 @@ for (const fault of ['throw-first','throw-second','abort-second','throw-after-fi
 test('an observed native abort before either put can report absence without publishing candidate material', async ({ page }) => {
   expect(await page.evaluate(`(async()=>{
    const getKey=IDBObjectStore.prototype.getKey;let once=false,checks=0;
-   IDBObjectStore.prototype.getKey=function(...args){const result=getKey.apply(this,args);if(!once){once=true;this.transaction.abort()}return result};
+   IDBObjectStore.prototype.getKey=function(...args){const result=getKey.apply(this,args);if(this.transaction.mode==='readwrite'&&!once){once=true;this.transaction.abort()}return result};
    const result=await commit(()=>{checks++});IDBObjectStore.prototype.getKey=getKey;
    return [result,checks,await values()]
   })()`)).toEqual([{status:'definite-abort'},0,[null,null]])

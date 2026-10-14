@@ -59,8 +59,8 @@ test('paired read authenticates one coherent final readonly transaction without 
     const value=await Ordinary.OrdinaryStateOwner.readPairMigrated({browser:{owner:browserOwner,scope:browserScope},
       tab:{owner:tabOwner,scope:tabScope},live:guard,work:(b,t,bNames,tNames)=>{escaped=b;return [b.get('proof'),t.get('admission'),bNames,tNames]}})
     crypto.subtle.encrypt=encrypt;IDBObjectStore.prototype.get=get
-    return [value,transactions.length,transactions.at(-1)===transactions.at(-2),await outcome(()=>escaped.get('proof'))]
-  })()`)).toEqual([['operation-1','operation-1',['legacy.fixture'],['legacy.fixture']],4,true,'OrdinaryStateHold'])
+    return [value,transactions.length,transactions[0]===transactions[1],transactions.at(-1)===transactions.at(-2),await outcome(()=>escaped.get('proof'))]
+  })()`)).toEqual([['operation-1','operation-1',['legacy.fixture'],['legacy.fixture']],6,true,true,'OrdinaryStateHold'])
 })
 
 for (const operation of ['set','remove','thenable'] as const) {
@@ -402,13 +402,14 @@ for (const fault of ['expired','foreground-lost'] as const) {
 test('fresh-key authentication retains the native writer transaction until a successful active-callback commit', async ({ page, context }) => {
   const other=await context.newPage();await other.goto(ORIGIN);await other.evaluate(`(${setup})()`)
   await page.evaluate(`(()=>{
-    const decrypt=crypto.subtle.decrypt.bind(crypto.subtle),put=IDBObjectStore.prototype.put,getKey=IDBObjectStore.prototype.getKey
-    let calls=0;window.puts=0;window.keepalives=0;window.callbacks=0;window.authenticating=false;window.pairReceipt='pending'
-    crypto.subtle.decrypt=async(...args)=>{if(++calls===3){authenticating=true;await new Promise(resolve=>window.resume=resolve)}return decrypt(...args)}
+    const decrypt=crypto.subtle.decrypt.bind(crypto.subtle),put=IDBObjectStore.prototype.put,getKey=IDBObjectStore.prototype.getKey,transaction=IDBDatabase.prototype.transaction
+    let held=false,writer=false;window.puts=0;window.keepalives=0;window.callbacks=0;window.authenticating=false;window.pairReceipt='pending'
+    IDBDatabase.prototype.transaction=function(...args){const tx=transaction.apply(this,args);if(this.name===Ordinary.ORDINARY_DATABASE&&tx.mode==='readwrite')writer=true;return tx}
+    crypto.subtle.decrypt=async(...args)=>{if(writer&&!held){held=true;authenticating=true;await new Promise(resolve=>window.resume=resolve)}return decrypt(...args)}
     IDBObjectStore.prototype.put=function(...args){puts++;return put.apply(this,args)}
-    IDBObjectStore.prototype.getKey=function(...args){keepalives++;return getKey.apply(this,args)}
+    IDBObjectStore.prototype.getKey=function(...args){if(this.transaction.mode==='readwrite')keepalives++;return getKey.apply(this,args)}
     window.pending=pair((b,t)=>{callbacks++;b.set('proof','held-transaction');t.set('admission','held-transaction')}).then(()=>pairReceipt='ack',e=>pairReceipt=e.name)
-    window.restore=()=>{crypto.subtle.decrypt=decrypt;IDBObjectStore.prototype.put=put;IDBObjectStore.prototype.getKey=getKey}
+    window.restore=()=>{crypto.subtle.decrypt=decrypt;IDBObjectStore.prototype.put=put;IDBObjectStore.prototype.getKey=getKey;IDBDatabase.prototype.transaction=transaction}
   })()`)
   await page.waitForFunction('authenticating && keepalives>=10')
   await other.evaluate(`(async()=>{
@@ -437,12 +438,13 @@ test('fresh-key authentication retains the native writer transaction until a suc
 for (const which of ['browser','tab'] as const) {
   test(`${which} close during write-time key authentication drains crypto and refuses both puts`, async ({ page }) => {
     await page.evaluate(`(()=>{
-      const decrypt=crypto.subtle.decrypt.bind(crypto.subtle),put=IDBObjectStore.prototype.put
-      let calls=0;window.puts=0;window.authenticating=false;window.pairReceipt='pending'
-      crypto.subtle.decrypt=async(...args)=>{if(++calls===3){authenticating=true;await new Promise(resolve=>window.resume=resolve)}return decrypt(...args)}
+      const decrypt=crypto.subtle.decrypt.bind(crypto.subtle),put=IDBObjectStore.prototype.put,transaction=IDBDatabase.prototype.transaction
+      let held=false,writer=false;window.puts=0;window.authenticating=false;window.pairReceipt='pending'
+      IDBDatabase.prototype.transaction=function(...args){const tx=transaction.apply(this,args);if(this.name===Ordinary.ORDINARY_DATABASE&&tx.mode==='readwrite')writer=true;return tx}
+      crypto.subtle.decrypt=async(...args)=>{if(writer&&!held){held=true;authenticating=true;await new Promise(resolve=>window.resume=resolve)}return decrypt(...args)}
       IDBObjectStore.prototype.put=function(...args){puts++;return put.apply(this,args)}
       window.pending=pair().then(()=>pairReceipt='ack',e=>pairReceipt=e.name)
-      window.restore=()=>{crypto.subtle.decrypt=decrypt;IDBObjectStore.prototype.put=put}
+      window.restore=()=>{crypto.subtle.decrypt=decrypt;IDBObjectStore.prototype.put=put;IDBDatabase.prototype.transaction=transaction}
     })()`)
     await page.waitForFunction('authenticating')
     await page.evaluate(`(()=>{window.closeReceipt='pending';window.closing=${which==='browser'?'browserOwner':'tabOwner'}.close().then(()=>closeReceipt='done')})()`)

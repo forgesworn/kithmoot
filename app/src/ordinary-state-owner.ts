@@ -1,4 +1,6 @@
 import type { DeviceStore } from './device-store.js'
+import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification,
+  ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, validateOrdinaryOperationMarker } from './ordinary-operation-codec.js'
 import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
@@ -36,7 +38,7 @@ export type OrdinaryPairCommitOutcome = Readonly<
 declare const pairCustodyBrand: unique symbol
 export interface OrdinaryPairCustody { readonly [pairCustodyBrand]: true }
 interface PairHeader { purpose: OrdinaryPurpose; expiresAt: number; generation: string; revision: number; fences: ReadonlyMap<string, number> }
-const pairCustody = new WeakMap<object, { kind:'read'|'mutation'; browser: OrdinaryImage; tab: OrdinaryImage; browserOwner: OrdinaryStateOwner; tabOwner: OrdinaryStateOwner; browserStore: DeviceStore; tabStore: DeviceStore; browserScope: OrdinaryScope; tabScope: OrdinaryScope; rows?: readonly [Row, Row] }>()
+const pairCustody = new WeakMap<object, { kind:'read'|'mutation'; browser: OrdinaryImage; tab: OrdinaryImage; browserOwner: OrdinaryStateOwner; tabOwner: OrdinaryStateOwner; browserStore: DeviceStore; tabStore: DeviceStore; browserScope: OrdinaryScope; tabScope: OrdinaryScope; rows?: readonly [Row, Row]; operationMarkers?: readonly [ReadonlyMap<string,string>, ReadonlyMap<string,string>] }>()
 const pairCommits = new WeakMap<object, {
   browser: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
   tab: { owner: OrdinaryStateOwner; scope: OrdinaryScope }
@@ -55,6 +57,19 @@ export function ordinaryPairCustodyFor(token: OrdinaryPairCustody, browser: Read
     return { purpose: image.purpose, expiresAt: image.expiresAt, generation: image.generation, revision: image.revision, fences: new Map(image.fences) }
   }
   return { browser: header(captured.browser, captured.browserStore, browser), tab: header(captured.tab, captured.tabStore, tab) }
+}
+/** Marker custody only, from the same fully classified native read/write
+ * projection. It neither exposes a control row nor advances any journal. */
+export function ordinaryPairOperationMarkersFor(token: OrdinaryPairCustody, browser: ReadonlyMap<string,string>, tab: ReadonlyMap<string,string>):
+  readonly [ReadonlyMap<string,string>, ReadonlyMap<string,string>] {
+  ordinaryPairCustodyFor(token, browser, tab)
+  const captured = pairCustody.get(token)
+  if (!captured?.operationMarkers) hold()
+  for (const [i, records] of [browser, tab].entries()) {
+    const markers = [...records].filter(([name]) => name.startsWith('kithmoot.operation-journal'))
+    if (markers.length !== captured.operationMarkers[i]!.size || markers.some(([name, raw]) => captured.operationMarkers![i]!.get(name) !== raw)) hold()
+  }
+  return [new Map(captured.operationMarkers[0]), new Map(captured.operationMarkers[1])]
 }
 /** Signing may consume only acknowledged input bytes from a read callback,
  * never a writable projection which has not yet acquired a native receipt. */
@@ -144,6 +159,11 @@ function clearImage(image?: OrdinaryImage): void {
     ;(image.migration.names as string[]).length = 0
   }
 }
+function preserveOperationMarkers(previous: ReadonlyMap<string, string>, candidate: ReadonlyMap<string, string>): void {
+  const selected = (records: ReadonlyMap<string, string>) => [...records].filter(([name]) => name.startsWith('kithmoot.operation-journal'))
+  const first = selected(previous), second = selected(candidate)
+  if (first.length !== second.length || first.some(([name, raw]) => candidate.get(name) !== raw)) hold()
+}
 /** A private synchronous helper view; escaping it cannot write after the call. */
 function view(records: Map<string, string>, writable: boolean): { store: DeviceStore; close(): void } {
   let active = true
@@ -169,6 +189,9 @@ export class OrdinaryStateOwner {
   #work = new Set<Promise<unknown>>()
   #resources = new Set<{ stop(): void }>()
   #retry?: () => void
+  #operationControls = new Set<string>()
+  #operationMarkerValues = new Map<string,string>()
+  #operationControlDigests = new Map<string,string>()
   /** An unknown native result keeps both the exact candidate and Web Lock. */
   get holdingRetention(): boolean { return this.#retry !== undefined }
   retryRetention(): void { this.#retry?.() }
@@ -271,10 +294,166 @@ export class OrdinaryStateOwner {
     if (!navigator.locks) hold()
     return navigator.locks.request(WRITE_LOCK, async () => {
       this.#check(live)
+      await this.#operationBarrier(live)
       const result = await work()
       this.#check(live)
       return result
     })
+  }
+  /** Classify the whole origin before ordinary callbacks, single-row intent
+   * promotion or expiry cleanup. The coherent reader stays alive across native
+   * crypto; rows are opened one at a time rather than cloning every large tab
+   * into memory. An active journal grants no ordinary read/write capability. */
+  async #operationBarrier(live: () => boolean): Promise<void> {
+    const db = await this.#database(live), tx = db.transaction(OWNER_STORE, 'readonly'), ended = settled(tx)
+    void ended.catch(() => {})
+    const store = tx.objectStore(OWNER_STORE)
+    let done = false, browserImage: OrdinaryImage | undefined
+    const controlNames = new Set<string>(), tabNames = new Set<string>(), controlDigests = new Map<string,string>()
+    const isTab = (name: string) => name.length === 68 && TAB_PURPOSE.test(name)
+    const marked = (image: OrdinaryImage) => [...image.records].filter(([name]) => name.startsWith('kithmoot.operation-journal'))
+    const reads: { run(): void; fail(): void }[] = []
+    // SubtleCrypto resolves outside an IDB task in Firefox. Queue the next
+    // read into a genuine request callback, rather than merely keeping the
+    // transaction alive and issuing a request from an inactive continuation.
+    const read = <T>(work: () => IDBRequest<T>): Promise<T> => new Promise((resolve, reject) => {
+      reads.push({ run: () => { try { const r = work(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error) }
+        catch (error) { reject(error) } }, fail: () => reject(new OrdinaryStateHold()) })
+    })
+    tx.addEventListener('abort', () => { done = true; for (const entry of reads.splice(0)) entry.fail() })
+    const keepAlive = () => {
+      if (done) return
+      const next = store.getKey('browser')
+      next.onerror = () => { done = true; try { tx.abort() } catch {} }
+      next.onsuccess = () => {
+        if (done) return
+        for (const entry of reads.splice(0)) entry.run()
+        keepAlive()
+      }
+    }
+    try {
+      keepAlive()
+      const keys = await read(() => store.getAllKeys(undefined, 2 * MAX_ORDINARY_TAB_OWNERS + 2)); this.#check(live)
+      if (keys.length > 2 * MAX_ORDINARY_TAB_OWNERS + 1) hold()
+      for (const key of keys) {
+        if (typeof key !== 'string') hold()
+        if (key === 'browser') continue
+        if (isTab(key)) tabNames.add(key)
+        else if (key.startsWith(ORDINARY_OPERATION_CONTROL_PREFIX) && key.length === ORDINARY_OPERATION_CONTROL_PREFIX.length + 64 &&
+          /^[0-9a-f]{64}$/.test(key.slice(ORDINARY_OPERATION_CONTROL_PREFIX.length))) controlNames.add(key)
+        else hold()
+      }
+      if (tabNames.size > MAX_ORDINARY_TAB_OWNERS || controlNames.size > MAX_ORDINARY_TAB_OWNERS) hold()
+      const open = async (name: string): Promise<{ key: CryptoKey; image: OrdinaryImage } | undefined> => {
+        const saved = row(await read(() => store.get(name))); this.#check(live)
+        if (!saved) return undefined
+        let active: OrdinaryImage | undefined, intended: OrdinaryImage | undefined
+        try {
+          for (const frame of [saved.frame, saved.pending]) {
+            if (!frame) continue
+            let image: OrdinaryImage | undefined = await openOrdinaryFrame(frame, saved.key)
+            try {
+              this.#check(live)
+              if (image.purpose !== name || !controlNames.size && marked(image).length) hold()
+              if (frame === saved.frame) active = image
+              else intended = image
+              image = undefined
+            } finally { clearImage(image) }
+          }
+          if (intended && active) {
+            if (intended.keyId !== active.keyId || intended.generation !== active.generation || intended.expiresAt !== active.expiresAt ||
+                intended.revision !== active.revision + 1 || [...active.fences].some(([name, fence]) => (intended!.fences.get(name) ?? 0) < fence)) hold()
+            preserveOperationMarkers(active.records, intended.records)
+          } else if (intended && marked(intended).length) hold()
+          if (!active) return undefined
+          const result = { key: saved.key, image: active }; active = undefined; return result
+        } finally { clearImage(active); clearImage(intended) }
+      }
+      const browser = keys.includes('browser') ? await open('browser') : undefined
+      browserImage = browser?.image
+      if (controlNames.size && !browser) hold()
+      const browserMarkers = new Map<string, string>()
+      if (browser) for (const [name, raw] of marked(browser.image)) {
+        const value = validateOrdinaryOperationMarker(raw), names = ordinaryOperationNames(value.tab)
+        if (name !== names.marker || !controlNames.has(names.control) || browserMarkers.has(value.tab)) hold()
+        browserMarkers.set(value.tab, raw)
+      }
+      for (const purpose of tabNames) {
+        const opened = await open(purpose)
+        if (!opened) continue
+        const names = ordinaryOperationNames(purpose as OrdinaryPurpose), markers = marked(opened.image)
+        try {
+          if (!controlNames.has(names.control)) { if (markers.length) hold(); continue }
+          if (markers.length !== 1 || markers[0]![0] !== names.marker || !browserMarkers.has(purpose) ||
+              markers[0]![1] !== browserMarkers.get(purpose) || opened.image.migration?.phase !== 'complete' ||
+              browser!.image.migration?.phase !== 'complete') hold()
+          const header = (image: OrdinaryImage) => ({ purpose: image.purpose, keyId: image.keyId,
+            generation: image.generation, expiresAt: image.expiresAt })
+          const control = await read(() => store.get(names.control)); this.#check(live)
+          const journal = await openOrdinaryOperationClassification(control, { browser: { binding: header(browser!.image), key: browser!.key },
+            tab: { binding: header(opened.image), key: opened.key } }); this.#check(live)
+          if (journal.phase !== 'settled') hold()
+          const expected = ordinaryOperationMarker({ id: journal.id, tab: journal.tab, sequence: journal.sequence, commitment: ordinaryOperationCommitment(journal) })
+          if (expected !== markers[0]![1] || journal.phase !== 'settled' || !journal.targetRevisions ||
+              browser!.image.revision <= journal.targetRevisions[0] || opened.image.revision <= journal.targetRevisions[1]) hold()
+          for (const [owner, name, generation, fence] of journal.scopes) {
+            const current = owner === 'browser' ? browser!.image : opened.image
+            if (current.purpose !== owner || current.generation !== generation || (current.fences.get(name) ?? 0) < fence) hold()
+          }
+          controlDigests.set(names.control, ordinaryOperationControlDigest(control))
+          controlNames.delete(names.control)
+        } finally { clearImage(opened.image) }
+      }
+      if (controlNames.size || browserMarkers.size !== keys.filter(key => typeof key === 'string' && key.startsWith(ORDINARY_OPERATION_CONTROL_PREFIX)).length) hold()
+      this.#operationControlDigests = controlDigests
+      this.#operationControls = new Set(browserMarkers.keys())
+      this.#operationMarkerValues = new Map([...browserMarkers].map(([purpose, raw]) => [ordinaryOperationNames(purpose as OrdinaryPurpose).marker, raw]))
+      done = true; await ended; this.#check(live)
+    } catch { done = true; try { tx.abort() } catch {} await ended.catch(() => {}); hold() }
+    finally { done = true; clearImage(browserImage) }
+  }
+  /** Re-read in the consumer's own coherent transaction. A control inserted,
+   * removed or changed after classification cannot inherit old provenance. */
+  #operationControlSnapshot(store: IDBObjectStore): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const keys = store.getAllKeys(undefined, 2 * MAX_ORDINARY_TAB_OWNERS + 2)
+      keys.onerror = () => reject(new OrdinaryStateHold())
+      keys.onsuccess = () => {
+        try {
+          const values = keys.result
+          if (values.length > 2 * MAX_ORDINARY_TAB_OWNERS + 1 || values.some(key => typeof key !== 'string' ||
+              key !== 'browser' && !(key.length === 68 && TAB_PURPOSE.test(key)) &&
+              !this.#operationControlDigests.has(key))) hold()
+          if (values.filter(key => typeof key === 'string' && key.startsWith('tab:')).length > MAX_ORDINARY_TAB_OWNERS) hold()
+          const controls = values.filter(key => typeof key === 'string' && key.startsWith(ORDINARY_OPERATION_CONTROL_PREFIX)) as string[]
+          if (controls.length !== this.#operationControlDigests.size || controls.some(name => !values.includes('browser') ||
+              !values.includes('tab:' + name.slice(ORDINARY_OPERATION_CONTROL_PREFIX.length)))) hold()
+          if (!controls.length) { resolve(); return }
+          let index = 0
+          // Stream one control at a time from genuine request callbacks. A
+          // bounded header check must not retain all large cipher copies.
+          const read = () => {
+            if (index === controls.length) { resolve(); return }
+            const name = controls[index]!, next = store.get(name)
+            next.onerror = () => reject(new OrdinaryStateHold())
+            next.onsuccess = () => {
+              try {
+                if (ordinaryOperationControlDigest(next.result) !== this.#operationControlDigests.get(name)) hold()
+                index++; read()
+              } catch { reject(new OrdinaryStateHold()) }
+            }
+          }
+          read()
+        } catch { reject(new OrdinaryStateHold()) }
+      }
+    })
+  }
+  #classifiedPairMarkers(browser: OrdinaryImage, tab: OrdinaryImage): readonly [ReadonlyMap<string,string>, ReadonlyMap<string,string>] {
+    const marked = (image: OrdinaryImage) => new Map([...image.records].filter(([name]) => name.startsWith('kithmoot.operation-journal')))
+    const b = marked(browser), t = marked(tab), names = ordinaryOperationNames(tab.purpose)
+    if (b.size !== this.#operationMarkerValues.size || [...b].some(([name, raw]) => this.#operationMarkerValues.get(name) !== raw) ||
+        t.size !== (b.has(names.marker) ? 1 : 0) || [...t].some(([name, raw]) => name !== names.marker || b.get(name) !== raw)) hold()
+    return [b, t]
   }
   async #database(live: () => boolean, reconciling = false): Promise<IDBDatabase> {
     this.#custodyCheck(live, reconciling)
@@ -303,12 +482,16 @@ export class OrdinaryStateOwner {
     db.onversionchange = () => { this.#revoke(); db.close(); this.#db = undefined }
     return db
   }
-  async #snapshot(live: () => boolean, reconciling = false): Promise<Snapshot> {
+  async #snapshot(live: () => boolean, reconciling = false, barrier: OrdinaryStateOwner = this): Promise<Snapshot> {
     let db = await this.#database(live, reconciling)
     const tx = db.transaction(OWNER_STORE, 'readonly'), ended = settled(tx)
     void ended.catch(() => {})
     let saved: Row | undefined
-    try { saved = row(await request(tx.objectStore(OWNER_STORE).get(this.purpose))); await ended }
+    try {
+      const store = tx.objectStore(OWNER_STORE)
+      const [raw] = await Promise.all([request(store.get(this.purpose)), barrier.#operationControlSnapshot(store)])
+      saved = row(raw); await ended
+    }
     catch (error) { try { tx.abort() } catch {} await ended.catch(() => {}); throw error }
     this.#custodyCheck(live, reconciling)
     if (!saved) return { db }
@@ -336,10 +519,14 @@ export class OrdinaryStateOwner {
   async #ownerNames(live: () => boolean): Promise<IDBValidKey[]> {
     const db = await this.#database(live), tx = db.transaction(OWNER_STORE, 'readonly'), ended = settled(tx)
     void ended.catch(() => {})
-    const names = await request(tx.objectStore(OWNER_STORE).getAllKeys(undefined, MAX_ORDINARY_TAB_OWNERS + 2))
+    const keys = await request(tx.objectStore(OWNER_STORE).getAllKeys(undefined, 2 * MAX_ORDINARY_TAB_OWNERS + 2))
     await ended; this.#check(live)
-    if (names.length > MAX_ORDINARY_TAB_OWNERS + 1 || names.some(name =>
-      typeof name !== 'string' || name !== 'browser' && !TAB_PURPOSE.test(name))) hold()
+    if (keys.length > 2 * MAX_ORDINARY_TAB_OWNERS + 1 || keys.some(name => typeof name !== 'string' ||
+      name !== 'browser' && !(name.length === 68 && TAB_PURPOSE.test(name)) &&
+      !(name.startsWith(ORDINARY_OPERATION_CONTROL_PREFIX) && name.length === ORDINARY_OPERATION_CONTROL_PREFIX.length + 64 &&
+        this.#operationControls.has('tab:' + name.slice(ORDINARY_OPERATION_CONTROL_PREFIX.length))))) hold()
+    const names = keys.filter(name => !(name as string).startsWith(ORDINARY_OPERATION_CONTROL_PREFIX))
+    if (names.length > MAX_ORDINARY_TAB_OWNERS + 1) hold()
     return names
   }
   /** Read only authenticated lease metadata. Missing custody is reported to
@@ -351,7 +538,9 @@ export class OrdinaryStateOwner {
       return await manager.#locked(live, async () => {
         const db = await manager.#database(live), tx = db.transaction(OWNER_STORE, 'readonly'), ended = settled(tx)
         void ended.catch(() => {})
-        const saved = row(await request(tx.objectStore(OWNER_STORE).get(purpose)))
+        const store = tx.objectStore(OWNER_STORE)
+        const [raw] = await Promise.all([request(store.get(purpose)), manager.#operationControlSnapshot(store)])
+        const saved = row(raw)
         await ended; manager.#check(live)
         if (!saved) return undefined
         const frame = saved.pending ?? saved.frame
@@ -369,6 +558,9 @@ export class OrdinaryStateOwner {
     const manager = new OrdinaryStateOwner()
     try {
       await manager.#locked(live, async () => {
+        // Settled journal cleanup needs its atomic browser-marker/tab/control
+        // transition. The ordinary single-row cleanup cannot remove one half.
+        if (manager.#operationControls.size) hold()
         const names = await manager.#ownerNames(live)
         for (const purpose of names) {
           if (purpose === 'browser') continue
@@ -407,6 +599,9 @@ export class OrdinaryStateOwner {
       const previous = await this.#snapshot(live)
       if (!previous.image) {
         if (this.#generation !== undefined) hold() // Deleted custody is not a fresh installation.
+        // Raw marker import cannot create authenticated enrollment. Only the
+        // dedicated atomic browser/tab/control transition may add markers.
+        preserveOperationMarkers(new Map(), records)
         // Fixed-width placeholders check canonical encoding and capacity before
         // expensive validators, key creation or entropy. Never retain this image.
         const checked: OrdinaryImage = { purpose: this.purpose, keyId: '0'.repeat(64), generation: '0'.repeat(64), revision: 0,
@@ -512,11 +707,12 @@ export class OrdinaryStateOwner {
       if (browser.#retry || tab.#retry || !navigator.locks) hold()
       return navigator.locks.request(WRITE_LOCK, async () => {
         check()
+        await browser.#operationBarrier(guarded); check()
         let first: OrdinaryImage | undefined, second: OrdinaryImage | undefined
         try {
           const priorBrowser = await browser.#snapshot(guarded)
           clearImage(priorBrowser.image); check()
-          const priorTab = await tab.#snapshot(guarded)
+          const priorTab = await tab.#snapshot(guarded, false, browser)
           clearImage(priorTab.image); check()
           const db = await browser.#database(guarded); check()
           const tx = db.transaction(OWNER_STORE, 'readonly'), ended = settled(tx)
@@ -524,7 +720,8 @@ export class OrdinaryStateOwner {
           let saved: (Row | undefined)[]
           try {
             const store = tx.objectStore(OWNER_STORE)
-            const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+            const [firstRow, secondRow] = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose)), browser.#operationControlSnapshot(store)])
+            const raw = [firstRow, secondRow]
             await ended; check(); saved = raw.map(row)
           } catch (error) { try { tx.abort() } catch {}; await ended.catch(() => {}); throw error }
           if (!saved[0]?.frame || !saved[1]?.frame || saved[0].pending || saved[1].pending) hold()
@@ -536,7 +733,7 @@ export class OrdinaryStateOwner {
           browser.#scope(first, browserScope); tab.#scope(second, tabScope)
           const browserView = view(new Map(first.records), false), tabView = view(new Map(second.records), false)
           const custody = Object.freeze({}) as OrdinaryPairCustody
-          pairCustody.set(custody, { kind:'read', browser: first, tab: second, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope, rows: [saved[0], saved[1]] })
+          pairCustody.set(custody, { kind:'read', browser: first, tab: second, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope, rows: [saved[0], saved[1]], operationMarkers: browser.#classifiedPairMarkers(first, second) })
           try {
             const result = work(browserView.store, tabView.store,
               Object.freeze([...first.migration.names]), Object.freeze([...second.migration.names]), custody)
@@ -652,16 +849,17 @@ export class OrdinaryStateOwner {
           try { check(); return true } catch { return false }
         }
         try {
+          await browser.#operationBarrier(guarded); check()
           // Prior single-owner intents must finish before the callback or any
           // new frame. Both lifetime guards also cover that recovery work.
           browserSnapshot = await browser.#snapshot(guarded); check()
-          tabSnapshot = await tab.#snapshot(guarded); current()
+          tabSnapshot = await tab.#snapshot(guarded, false, browser); current()
           if (!browserSnapshot.row || !tabSnapshot.row) hold()
           browserImage = copyImage(browserSnapshot.image!)
           tabImage = copyImage(tabSnapshot.image!)
           const browserView = view(new Map(browserImage.records), true), tabView = view(new Map(tabImage.records), true)
           const custody = Object.freeze({}) as OrdinaryPairCustody
-          pairCustody.set(custody, { kind:'mutation', browser: browserImage, tab: tabImage, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope })
+          pairCustody.set(custody, { kind:'mutation', browser: browserImage, tab: tabImage, browserOwner: browser, tabOwner: tab, browserStore: browserView.store, tabStore: tabView.store, browserScope, tabScope, operationMarkers: browser.#classifiedPairMarkers(browserSnapshot.image!, tabSnapshot.image!) })
           let result: T
           try {
             result = work(browserView.store, tabView.store,
@@ -680,6 +878,8 @@ export class OrdinaryStateOwner {
             browserImage.records = new Map(browserView.store.keys().map(name => [name, browserView.store.get(name)!]))
             tabImage.records = new Map(tabView.store.keys().map(name => [name, tabView.store.get(name)!]))
           } finally { pairCustody.delete(custody); browserView.close(); tabView.close() }
+          preserveOperationMarkers(browserSnapshot.image!.records, browserImage.records)
+          preserveOperationMarkers(tabSnapshot.image!.records, tabImage.records)
           browserImage.revision++; tabImage.revision++
           if (reserveScopes) {
             if (!browserImage.fences.has(browserScope.name)) (browserImage.fences as Map<string, number>).set(browserScope.name, browserScope.fence)
@@ -746,7 +946,8 @@ export class OrdinaryStateOwner {
     try {
       try {
         const store = tx.objectStore(OWNER_STORE)
-        const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+        const [firstRow, secondRow] = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose)), browser.#operationControlSnapshot(store)])
+            const raw = [firstRow, secondRow]
         const saved = raw.map(row)
         sourceCheck()
         if (!saved[0]?.frame || !saved[1]?.frame || !sameRow(saved[0], browserPrevious.row) ||
@@ -783,7 +984,7 @@ export class OrdinaryStateOwner {
                 const custody = Object.freeze({}) as OrdinaryPairCustody
                 pairCustody.set(custody, { kind: 'read', browser: first!, tab: second!, browserOwner: browser, tabOwner: tab,
                   browserStore: browserView.store, tabStore: tabView.store, browserScope: barrier.browserScope, tabScope: barrier.tabScope,
-                  rows: [saved[0]!, saved[1]!] })
+                  rows: [saved[0]!, saved[1]!], operationMarkers: browser.#classifiedPairMarkers(first!, second!) })
                 try {
                   const result: unknown = barrier.work(browserView.store, tabView.store,
                     Object.freeze([...first!.migration!.names]), Object.freeze([...second!.migration!.names]), custody)
@@ -850,7 +1051,8 @@ export class OrdinaryStateOwner {
             let saved: (Row | undefined)[]
             try {
               const store = read.objectStore(OWNER_STORE)
-              const raw = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose))])
+              const [firstRow, secondRow] = await Promise.all([request(store.get(browser.purpose)), request(store.get(tab.purpose)), browser.#operationControlSnapshot(store)])
+            const raw = [firstRow, secondRow]
               await finished
               saved = raw.map(row)
             } catch (error) { try { read.abort() } catch {}; await finished.catch(() => {}); throw error }
@@ -930,6 +1132,7 @@ export class OrdinaryStateOwner {
         }
         // Copy before revoking the helper view; no escaped helper may edit the candidate.
         image.records = new Map(records)
+        preserveOperationMarkers(current.image.records, image.records)
         privateView.close()
         control?.(image)
         image.revision++

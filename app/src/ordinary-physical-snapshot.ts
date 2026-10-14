@@ -1,3 +1,4 @@
+import { ordinaryOperationNames, validateOrdinaryOperationMarker } from './ordinary-operation-codec.js'
 import { OrdinaryStateHold, ORDINARY_NAME_UNITS, ORDINARY_RECORDS, ORDINARY_IMAGE_BYTES, ordinaryUtf8Length } from './ordinary-state-codec.js'
 
 const H = '[0-9a-f]{64}', A = `(?:visitor|${H})`, wrap = `(?:kithmoot\\.account\\.${H}\\.)?`
@@ -6,7 +7,7 @@ const signals = ['kithmoot-mls-vault-v1.revision', 'kithmoot.mls-coordinated-vau
 const marker = 'kithmoot.ordinary-tab.v1'
 export const ORDINARY_PHYSICAL_FAMILIES = Object.freeze(['signet', 'roomBoards', 'initialLogin', 'identity', 'access', 'invitationProofs', 'epoch', 'bookmarks', 'quiet', 'cadence', 'pending',
   'contacts', 'grantedContacts', 'metadata', 'channelChecks', 'journals', 'private', 'media', 'routing', 'ui', 'navigation', 'entryLayout',
-  'appearance', 'callCoordination', 'signal', 'tabMarker'] as const)
+  'appearance', 'callCoordination', 'signal', 'tabMarker', 'operationMarkers'] as const)
 export type OrdinaryPhysicalFamily = typeof ORDINARY_PHYSICAL_FAMILIES[number]
 export type OrdinaryPhysicalKind = 'browser' | 'tab'
 export interface OrdinaryPhysicalClassification { readonly family: OrdinaryPhysicalFamily; readonly custody: 'protected' | 'signal' | 'tab-marker' }
@@ -22,6 +23,7 @@ function add(family: OrdinaryPhysicalFamily, source: string, kinds: readonly Ord
 }
 const exact = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const names = (family: OrdinaryPhysicalFamily, values: readonly string[], kinds?: readonly OrdinaryPhysicalKind[]) => add(family, values.map(exact).join('|'), kinds)
+add('operationMarkers', `kithmoot\\.operation-journal\\.v1\\.${H}`, ['browser', 'tab'])
 names('initialLogin', ['kithmoot.initial-login.v1'], ['tab'])
 add('identity', 'kithmoot\\.participant')
 add('identity', `kithmoot\\.(?:device|own-credential|own-seal)\\.${H}`)
@@ -93,8 +95,9 @@ export function classifyOrdinaryPhysicalName(name: string, kind: OrdinaryPhysica
     return Object.freeze({ family: matched[0]!.family, custody: 'protected' })
   } catch { return hold() }
 }
-function specialValue(family: OrdinaryPhysicalRoute['family'], raw: string): void {
-  if (family === 'signal') { if (!UUID.test(raw)) hold() }
+function specialValue(name: string, family: OrdinaryPhysicalRoute['family'], raw: string): void {
+  if (family === 'operationMarkers') { if (ordinaryOperationNames(validateOrdinaryOperationMarker(raw).tab).marker !== name) hold() }
+  else if (family === 'signal') { if (!UUID.test(raw)) hold() }
   else if (family === 'tabMarker') { if (!/^[0-9a-f]{64}$/.test(raw)) hold() }
   else if (family === 'appearance') { if (!['standard', 'large', 'huge'].includes(raw)) hold() }
   else if (family === 'callCoordination') {
@@ -135,7 +138,7 @@ export function validateOrdinaryPhysicalSnapshot(records: ReadonlyMap<string, st
     // call coordination. The authenticated frame has its own encoding ceiling.
     for (const [name, raw] of snapshot) {
       const route = classifyOrdinaryPhysicalName(name, kind)
-      if (route) specialValue(route.family, raw)
+      if (route) specialValue(name, route.family, raw)
     }
     return Object.freeze({ ...c, families: Object.freeze(families) })
   } catch { return hold() }

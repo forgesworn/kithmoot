@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ProtocolTimers } from '../../src/protocol-timers.js'
-import { OrdinaryProtocolWork, OrdinaryProtocolSuspended } from './ordinary-protocol-work.js'
+import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot } from './ordinary-protocol-work.js'
 
 function deferred() {
   let resolve!: () => void
@@ -119,5 +119,43 @@ describe('private lifecycle ownership (synthetic IO, no native acceptance)', () 
     expect(starts).toBe(0)
     selected.resolve(); await exact; await f.work.join()
     expect(starts).toBe(1); expect(f.stops()).toBe(0)
+  })
+})
+
+describe('lower-layer lifecycle ownership verification (synthetic IO only)', () => {
+  it('admits only the actual quiescent lifecycle root and refuses replay after resume or terminal completion', async () => {
+    const f = fixture(); let held!: ProtocolExecution
+    await f.work.startRoot(async scope => {
+      held = scope
+      expect(() => verifyOrdinaryLifecycleRoot(scope)).toThrow(OrdinaryProtocolSuspended)
+      await f.work.suspend(scope)
+      expect(verifyOrdinaryLifecycleRoot(scope)).toBeUndefined()
+      for (const fake of [{ ...scope }, Object.create(scope), f.work.execution, {}])
+        expect(() => verifyOrdinaryLifecycleRoot(fake as ProtocolExecution)).toThrow(OrdinaryProtocolSuspended)
+      f.work.resume(scope)
+      expect(() => verifyOrdinaryLifecycleRoot(scope)).toThrow(OrdinaryProtocolSuspended)
+    })
+    await f.work.join()
+    expect(() => verifyOrdinaryLifecycleRoot(held)).toThrow(OrdinaryProtocolSuspended)
+    expect(f.stops()).toBe(0)
+  })
+  it('refuses an ordinary task and a closed lifecycle without exposing an execution capability', async () => {
+    const f = fixture()
+    await f.work.execution.task!('ordinary', async scope => {
+      await f.work.suspend(scope)
+      expect(() => verifyOrdinaryLifecycleRoot(scope)).toThrow(OrdinaryProtocolSuspended)
+      f.work.resume(scope)
+    })
+    await f.work.startRoot(async scope => {
+      await f.work.suspend(scope); verifyOrdinaryLifecycleRoot(scope); f.work.close()
+      expect(() => verifyOrdinaryLifecycleRoot(scope)).toThrow(OrdinaryProtocolSuspended)
+    }).catch(() => {})
+    await f.work.join()
+  })
+  it('rejects fabricated accessors without invoking caller code', () => {
+    const fake = {}, getter = vi.fn()
+    Object.defineProperty(fake,'check',{get:getter})
+    expect(() => verifyOrdinaryLifecycleRoot(fake as ProtocolExecution)).toThrow(OrdinaryProtocolSuspended)
+    expect(getter).not.toHaveBeenCalled()
   })
 })

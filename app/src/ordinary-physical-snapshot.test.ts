@@ -1,3 +1,4 @@
+import { ordinaryOperationMarker } from './ordinary-operation-codec.js'
 import { describe, expect, it, vi } from 'vitest'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { classifyOrdinaryPhysicalName as route, ordinaryPrivateStorageName as selected, validateOrdinaryPhysicalSnapshot as validate } from './ordinary-physical-snapshot.js'
@@ -69,5 +70,22 @@ describe('complete reserved physical namespace routing', () => {
       expect(() => validate(new Map(['kithmoot.call-tab-lock.msg', 'kithmoot.name', 'kithmoot.profiles.lastKnownName.v1', 'kithmoot.call.background'].map(n => [n, raw])), { kind: 'browser' })).toThrow(OrdinaryStateHold)
       expect(parse).not.toHaveBeenCalled()
     } finally { parse.mockRestore() }
+  })
+})
+
+describe('reserved operation marker physical routing', () => {
+  const tab = ('tab:' + h) as `tab:${string}`, name = 'kithmoot.operation-journal.v1.' + h
+  const raw = ordinaryOperationMarker({ id: j, tab, sequence: 1, commitment: null })
+  it('routes exact canonical paired markers while granting no journal provenance', () => {
+    for (const kind of ['browser', 'tab'] as const) {
+      expect(route(name,kind)).toEqual({ family: 'operationMarkers', custody: 'protected' })
+      expect(validate(new Map([[name,raw]]),{kind}).protectedRecords).toBe(1)
+    }
+  })
+  it('rejects marker name/value mismatch, aliases, unknown versions and account wrappers', () => {
+    expect(() => validate(new Map([[name.replace(h,j),raw]]),{kind:'browser'})).toThrow(OrdinaryStateHold)
+    for (const alias of [name+':alias',name.replace('.v1.','.v2.'),a+name]) expect(() => route(alias,'browser')).toThrow(OrdinaryStateHold)
+    for (const bad of [raw+' ',raw.replace('[1,','[2,'),JSON.stringify([1,j,tab,0,null]),JSON.stringify([1,j,tab,1,'invalid'])])
+      expect(() => validate(new Map([[name,bad]]),{kind:'tab'})).toThrow(OrdinaryStateHold)
   })
 })

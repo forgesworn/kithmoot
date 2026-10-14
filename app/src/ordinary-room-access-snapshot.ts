@@ -46,7 +46,7 @@ import { classifyOrdinaryPhysicalName, validateOrdinaryPhysicalSnapshot } from '
 import { inspectPersistentAdmissionProofs, validatePersistentAdmissionDeviceContinuityInPair, FIXED_INVITATION_RELAYS } from './persistent-admission-proof.js'
 import { inspectPersistentCreatorProofs, creatorIsSelected, CREATOR_PROOF_PREFIX, CREATOR_INTENT_PREFIX } from './persistent-creator-proof.js'
 import type { DeviceStore } from './device-store.js'
-import { ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
+import { ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairOperationMarkersFor, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 import { inspectOrdinaryMemberLeases } from './ordinary-member-lease.js'
 
 const HEX = /^[0-9a-f]{64}$/
@@ -617,6 +617,7 @@ interface CapturedImage {
   readonly startup: OrdinaryStartupContext
   readonly origin: string
   readonly custody?: ReturnType<typeof ordinaryPairCustodyFor>
+  readonly operationMarkers?: ReturnType<typeof ordinaryPairOperationMarkersFor>
 }
 const capturedImages = new WeakMap<object, CapturedImage>()
 function privateImage(records: ReadonlyMap<string, string>, kind: 'browser' | 'tab'): Map<string, string> {
@@ -635,7 +636,8 @@ export function captureOrdinarySnapshotContext(browserRecords: ReadonlyMap<strin
     const origin = new URL(capturedStartup.get(startup)!.href).origin
     const context = Object.freeze({ browserRecords: keptBrowser.size, tabRecords: keptTab.size }) as OrdinarySnapshotContext
     const custody = token ? ordinaryPairCustodyFor(token, browser, tab) : undefined
-    capturedImages.set(context, { browser: keptBrowser, tab: keptTab, startup, origin, custody })
+    const operationMarkers = token ? ordinaryPairOperationMarkersFor(token, browser, tab) : undefined
+    capturedImages.set(context, { browser: keptBrowser, tab: keptTab, startup, origin, custody, operationMarkers })
     return context
   } catch { return hold() }
 }
@@ -649,9 +651,10 @@ export function releaseOrdinarySnapshotContext(context: OrdinarySnapshotContext)
 export function captureOrdinaryProjectedSnapshotContext(sourceBrowser: ReadonlyMap<string, string>, sourceTab: ReadonlyMap<string, string>,
   token: OrdinaryPairCustody, browser: ReadonlyMap<string, string>, tab: ReadonlyMap<string, string>): OrdinarySnapshotContext {
   const custody = ordinaryPairReadCustodyFor(token, sourceBrowser, sourceTab)
+  const operationMarkers = ordinaryPairOperationMarkersFor(token, sourceBrowser, sourceTab)
   const context = captureOrdinarySnapshotContext(browser, tab)
   const image = capturedImages.get(context)!
-  capturedImages.set(context, { ...image, custody })
+  capturedImages.set(context, { ...image, custody, operationMarkers })
   return context
 }
 interface DeviceBinding { readonly account: string; readonly roomId: string; readonly device: string }
@@ -706,6 +709,12 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
       }
     }
     const part = (kind: 'browser' | 'tab', family: OrdinaryPhysicalFamily) => partitions[kind].get(family) ?? new Map<string, string>()
+    // Reserved markers need exact native classified provenance. A syntax-valid
+    // raw pair or an altered projection cannot fabricate settled history.
+    for (const [i, kind] of (['browser', 'tab'] as const).entries()) {
+      const markers = part(kind, 'operationMarkers'), proven = image.operationMarkers?.[i]
+      if (markers.size && !proven || proven && (markers.size !== proven.size || [...markers].some(([name, raw]) => proven.get(name) !== raw))) hold()
+    }
     // Independent family structure is checked before inner-message bindings.
     const simple = [
       ['contacts', validateOrdinaryContactSnapshot], ['grantedContacts', validateOrdinaryGrantedContactSnapshot],

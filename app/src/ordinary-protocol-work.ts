@@ -4,6 +4,15 @@ import { OrdinaryStateHold } from './ordinary-state-codec.js'
 export class OrdinaryProtocolSuspended extends Error {
   constructor() { super('The owned protocol operation is suspended or has finished.'); this.name = 'OrdinaryProtocolSuspended' }
 }
+const lifecycleRoots = new WeakMap<object, () => void>()
+/** Lower-layer ownership check for fixed native lifecycle transitions. The
+ * root must be the actual sole quiescent lifecycle root with no children.
+ * This grants no native custody, signer, membership or journal authority. */
+export function verifyOrdinaryLifecycleRoot(scope: ProtocolExecution): void {
+  const verify = lifecycleRoots.get(scope)
+  if (!verify) throw new OrdinaryProtocolSuspended()
+  verify()
+}
 interface Job {
   readonly lifecycleRoot: boolean
   readonly generation: number
@@ -80,6 +89,7 @@ export class OrdinaryProtocolWork {
     })
     const job: Job = { lifecycleRoot, generation: this.#generation, parent, scope, children: new Set(), listeners: new Set(), done, finish, bodyOpen: true, terminal: false, transitioned: false }
     this.#scopes.set(scope, job)
+    if (lifecycleRoot) lifecycleRoots.set(scope, () => this.checkQuiescent(scope))
     this.#jobs++
     if (parent) parent.children.add(job); else this.#roots.add(job)
     return job
@@ -91,7 +101,7 @@ export class OrdinaryProtocolWork {
   #complete(job: Job): void {
     // Iterative: a bounded but deep job tree must not overflow the JS stack.
     for (let current: Job | undefined = job; current && !current.terminal && !current.bodyOpen && !current.children.size;) {
-      current.terminal = true; this.#jobs--
+      current.terminal = true; lifecycleRoots.delete(current.scope); this.#jobs--
       if (current.parent) current.parent.children.delete(current); else this.#roots.delete(current)
       current.finish(); current = current.parent
     }
