@@ -1,3 +1,4 @@
+import { registerOrdinaryRenewalFactory, releaseOrdinaryRenewalObligation, type OrdinaryRenewalObligation } from './ordinary-renewal-obligation.js'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { revalidatePersistentInvitationEvidence } from '@forgesworn/fold-kit/persistent-invitation-evidence'
@@ -161,6 +162,7 @@ export class OrdinaryPersistentBootstrap {
   readonly #options: Options
   readonly #participant: string
   readonly #sign: ParticipantIdentity['signEvent']
+  readonly #prepareRenewalObligation: ReturnType<typeof registerOrdinaryRenewalFactory>
   readonly #browserScope: OrdinaryScope
   readonly #tabScope: OrdinaryScope
   readonly #id: string
@@ -184,6 +186,9 @@ export class OrdinaryPersistentBootstrap {
     this.#options = options; this.#participant = participant; this.#sign = sign
     this.#credentialExpiresAt = options.credentialExpiresAt
     this.#browserScope = browser; this.#tabScope = tab; this.#id = deriveInvitationId(options.invitation)
+    this.#prepareRenewalObligation=registerOrdinaryRenewalFactory(this,{browser:{owner:options.browser,scope:browser},tab:{owner:options.tab,scope:tab},
+      account:options.account,participant,invitationId:this.#id,keep:options.keep,link:options.link,bootstrapCredentialExpiresAt:options.credentialExpiresAt,
+      identity:options.identity,live:this.#live})
   }
   static async open(input: Options): Promise<OrdinaryPersistentBootstrap> {
     let invitation: RoomInvitation | undefined, state: OrdinaryPersistentBootstrap | undefined
@@ -805,6 +810,7 @@ export class OrdinaryPersistentBootstrap {
           })
         }
         const renew = async (root: ProtocolExecution): Promise<void> => {
+          let obligation: OrdinaryRenewalObligation | undefined
           let source: RenewalSource | undefined, seal: ReturnType<typeof generateSealKey> | undefined, signed: Promise<DeviceCredential> | undefined
           let plan: NativeSessionPlan | undefined, carrierPlan: OrdinaryCarrierSuccessor | undefined
           let candidateB: Map<string,string> | undefined, candidateT: Map<string,string> | undefined, nextSeals: Uint8Array[] = []
@@ -839,7 +845,9 @@ export class OrdinaryPersistentBootstrap {
             await protocol!.work.suspend(root)
             source = await this.#read((b,t,c) => protocol!.enterLifecycle(root,b,t,c,() => {
               protocol!.work.checkTransition(root)
-              return this.#renewalSource(b,t,c,nativeView!.snapshot())
+              const prepared=this.#renewalSource(b,t,c,nativeView!.snapshot())
+              try { obligation=this.#prepareRenewalObligation(root,b,t,c,{issuedAt:prepared.issuedAt,expiresAt:prepared.expiresAt,semanticDigest:prepared.semanticDigest});return prepared }
+              catch(error){prepared.b.clear();prepared.t.clear();throw error}
             }))
             const selected = source
             // All source, capacity and pruning checks have completed. Start
@@ -979,6 +987,7 @@ export class OrdinaryPersistentBootstrap {
             // Revoke synchronously; external close joins this actual root.
             protocol!.close()
           }finally{
+            releaseOrdinaryRenewalObligation(obligation)
             if(signed)await Promise.allSettled([signed])
             if(plan&&!adopted)nativeView?.discard(plan)
             seal?.secretKey.fill(0);for(const key of nextSeals)key.fill(0)

@@ -115,3 +115,35 @@ digit growth before seal allocation/signing. These are sizing placeholders only:
 no E/C/S journal phase is written by this preflight. Journal-phase/body/result
 reservation, the actual fixed enrollment/provider continuation, C/S settlement,
 factory obligation binding and process-startup reconstruction remain required.
+
+The current WIP adds a factory-local, one-use renewal obligation. The registrar
+has one production callsite in the private bootstrap constructor; its capture
+closure remains a private field and is called only from the actual suspended
+renewal root's authenticated P read. It binds the exact factory, owners/scopes,
+participant/account/room/device/proof/lease, authority, source semantic and frame
+digests, and root. It does not grant a phase exemption or expose an arbitrary
+callback, raw frame or journal writer. Mutation/historical reads, fabricated
+objects, reused/completed roots and revoked foregrounds are refused.
+
+The specialised owner enrollment consumes that obligation, reauthenticates P
+and all control topology, revalidates fixed semantic refs and owner/journal
+budgets, then commits exactly E-browser, E-tab and prepared control atomically.
+Prepared control carries no seal/C nonce material. Every attempted write is
+classified against the complete exact prior/target store; mixed/unavailable
+readback keeps the original frozen candidate, Web Lock and both owner obligations
+until a custody-only retry establishes facts. Definite prior is a typed abort;
+a returned E handle supplies no provider or Session-adoption authority.
+
+The bounded versioned request stores complete P semantic/frame commitments,
+immutable typed refs, original source headers, the exact prior settled marker and
+control classification/digest, and fence presence/value. Its inverse accepts
+only exact E=P+1 with the new prepared marker and specified scope cells, restores
+only those cells/markers/revisions on owned authenticated copies, then verifies
+the complete P semantic commitment. Original P AES nonces are never replayed.
+
+Native enrollment fixtures insert the fixed enrollment call into the actual
+private factory renewal body and keep that root paused for observation. The
+normal renewal body still uses its earlier paired commit: enrollment integration,
+private provider-started continuation, exact result retention, C/S transitions,
+startup reconstruction and process-restart acceptance remain unimplemented.
+Production remains unmounted; the test observer is not a shipped producer.
