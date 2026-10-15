@@ -14,48 +14,131 @@ without a server that can be shut down, subpoenaed or read. Live at
 
 ## Getting Started
 
+The library is not published to the npm registry. Its workspace packages are
+pinned at 0.2.0, which the registry does not carry, and `@forgesworn/fold-kit`
+and `@forgesworn/signet-contacts` come from pinned GitHub commits, so an
+install needs git access to GitHub. Build it from a checkout, then import
+from `dist/src/index.js` (the package `exports` entry):
+
 ```bash
 git clone https://github.com/forgesworn/kithmoot.git
 cd kithmoot
 npm ci
-npm run build:lib
-npm test
-npm run demo   # HTTPS dev server, phone-friendly
+npm run build:lib   # writes dist/src/index.js and its declarations
 ```
 
-Or drive a room headlessly: `npm run agent -- --help` (see `kithmoot-agent`).
+```js
+import { RoomAgent, AGENT_CHANNEL } from './dist/src/index.js'
+
+const agent = await RoomAgent.join({ link: process.argv[2], name: 'Ada' })
+
+agent.chat.onChange((messages) => {
+  const last = messages.at(-1)
+  if (last) console.log(`${last.name ?? last.participant.slice(0, 8)}: ${last.text}`)
+})
+
+await agent.chat.send('hello from a Node process')
+await agent.channel(AGENT_CHANNEL).send('note for the other agents')
+await agent.leave()
+```
+
+No browser is involved: `npm run agent -- join <link> --name Ada` does the
+same from the command line (`npm run agent -- --help` lists every
+subcommand and option).
 
 ## Key Concepts
 
-- **Room**: derived from a shared secret in the join link; a relay only sees
-  opaque identifiers, never contents or names.
+- **Room**: a join link carries a bearer admission capability and a pinned
+  inviter key in the fragment; the traffic key is returned encrypted to each
+  admitted device (v1 secret links are legacy). A relay only sees opaque
+  identifiers, never contents or names. A parsed link (`RoomLink`) holds
+  either an `invitation` (v2 live, v3 stored group) or a legacy `secret`.
 - **Participant identity**: a pubkey plus an async `signEvent`
-  (`ParticipantIdentity` in `src/identity.ts`); satisfied by a locally
+  (`ParticipantIdentity` in `src/identity.ts`, re-exported from
+  `@forgesworn/fold-kit`, where changes land); satisfied by a locally
   generated key or an external Nostr signer.
-- **Device credential**: what a paired device signs to join an existing
-  participant's tiles, scoped to one room and time-limited.
+- **Device credential**: signed by the participant key, scoped to one room,
+  valid twelve hours; it is what lets a device speak for that participant and
+  join their existing tiles. A paired secondary's credential is minted by its
+  primary.
 - **Agent**: a `RoomAgent` (`src/agent.ts`) that joins a room the same way a
   browser does, with one addition: it declares that it is an agent.
-- **Epoch**: the room's rekeying unit, used to rotate admins and channel
-  keys without changing the live room (`src/epoch.ts`).
+- **Epoch**: a fresh room secret issued by a keeper, from which roster, chat,
+  channel, descriptor and media keys are re-derived; used to remove members or
+  close a room, and optionally to turn the key over on a schedule
+  (`kithmoot-agent create --rekey-every`, off by default). Distinct from
+  invitation rotation, which retires a link and leaves the live room alone.
+  Code is in `src/epoch.ts`, re-exported from `@forgesworn/fold-kit`.
 
 ## API Surface
 
-Main entry point: `src/index.ts`.
+Main entry point: `src/index.ts` (built to `dist/src/index.js`). Link pair for
+new links: `parseRoomLink` and `encodeRoomLink`, which handle every link
+version. `encodeJoinUrl` and `decodeJoinUrl` read and write legacy v1
+room-secret links only.
 
-- `deriveRoom`, `generateRoomSecret`, `encodeJoinUrl`, `decodeJoinUrl`: create
-  and encode a room.
-- `parseRoomLink`, `encodeRoomLink`: the join link itself.
-- `RoomAgent`, `AGENT_CHANNEL`, `TRANSCRIPT_CHANNEL`, `MINUTES_CHANNEL`: the
-  headless agent runtime.
-- `verifyEventUncached`, `KINDS`: protocol event kinds and verification.
-- `importBoundedHistory`, `historyImportRequest`: bounded history import
-  between devices.
-- `deriveEpoch`, `encodeRekeyEvent`, `hostRoomEpoch`, `requestRoomEpoch`: room
-  rekeying.
+Rooms and links:
 
-CLIs: `kithmoot-agent` (join a room without a browser), `kithmoot-context`
-(context extraction), `kithmoot-forwarder` (`server/forwarder.mjs`).
+- `generateRoomSecret(): Uint8Array`: a fresh 32-byte room traffic secret
+  (legacy v1 links carry it directly).
+- `deriveRoom(secret: Uint8Array): { roomId: string; roomKey: Uint8Array }`:
+  public room id and symmetric room key.
+- `parseRoomLink(url: string): RoomLink`: read a link of any version; throws
+  on a link that does not parse or carries a policy it cannot read.
+- `encodeRoomLink(base: string, link: RoomLink): string`: write a link.
+- `encodeJoinUrl(base: string, secret: Uint8Array, relays: string[], policy?: RoomPolicy): string`:
+  legacy v1 link.
+- `decodeJoinUrl(url: string): { secret: Uint8Array; relays: string[]; policy?: RoomPolicy }`:
+  legacy v1 link.
+
+Agents (headless runtime):
+
+- `RoomAgent.join(opts: JoinRoomOptions): Promise<RoomAgent>`: join the room
+  behind `opts.link` as `opts.name`. `RoomAgent.create(opts: CreateRoomOptions)`
+  makes a room and keeps it (needs `base` and `name`).
+- Instance surface: `chat`, `backchannel`, `transcripts` and `minutes`
+  (each a `ChatLog` with `send(text)`, `messages()` and `onChange(cb)`),
+  `channel(name: string): ChatLog`, `roster(): ParticipantView[]`,
+  `leave(): Promise<void>`.
+- `AGENT_CHANNEL` (`'agents'`), `TRANSCRIPT_CHANNEL` (`'transcript'`),
+  `MINUTES_CHANNEL` (`'minutes'`): reserved channel names.
+
+Events and history:
+
+- `KINDS`: object of the numeric Nostr event kinds the protocol uses.
+- `verifyEventUncached(event: Event): boolean`: signature check with no
+  cached verdict.
+- `historyImportRequest(input: { class: 'authored' | 'addressed'; person: string; kinds: readonly number[]; since: number; until: number; limit: number; cursor?: HistoryCursor }): HistoryImportRequest`:
+  build a bounded request (limit at most 500).
+- `importBoundedHistory(input: { relays; requests; read; now? }): Promise<{ events: Event[]; receipts: HistoryImportReceipt[] }>`:
+  run bounded history import between devices.
+
+Epochs (room rekeying):
+
+- `deriveEpoch(epoch: { epoch: number; secret: Uint8Array }): { epoch: number; id: string; key: Uint8Array }`.
+- `encodeRekeyEvent(opts: EncodeRekeyOptions): Event`: announce the next epoch.
+- `hostRoomEpoch(opts: HostRoomEpochOptions): { close(): void }`: the keeper's
+  epoch desk.
+- `requestRoomEpoch(opts: RequestRoomEpochOptions): Promise<EpochGrant>`:
+  ask the desk where the room is; resolves with a grant that is not a refusal
+  and rejects with `EpochRefusedError` on a refusal.
+
+The full list of exports, with types, is `src/index.ts`.
+
+CLIs: `kithmoot-agent` (join a room without a browser; subcommands `create`,
+`join`, `mcp`, `host`, `scribe`, `attest`), `kithmoot-context` (encrypted
+context over MCP or one call: `node bin/kithmoot-context.mjs --help`),
+`kithmoot-forwarder` (`server/forwarder.mjs`; configured by environment
+only: `KITHMOOT_ROOM_ID`, `NOSTR_RELAYS` and one of `KITHMOOT_FORWARDER_SK` or
+`KITHMOOT_FORWARDER_ROOT_SK`).
+
+## Contributing
+
+```bash
+npm test           # unit and protocol tests, offline (builds the library first)
+npm run typecheck
+npm run demo       # HTTPS dev server, phone-friendly
+```
 
 ## Optional
 

@@ -44,7 +44,11 @@
     "bin",
     "server/forwarder.mjs",
     "vectors/kithmoot-vectors.json",
-    "llms.txt"
+    "llms.txt",
+    "CHANGELOG.md",
+    "docs/decisions.md",
+    "docs/agents.md",
+    "docs/nostr-identity.md"
   ],
   "scripts": {
     "brand:build": "node scripts/build-brand-assets.mjs",
