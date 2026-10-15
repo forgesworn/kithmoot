@@ -1,8 +1,13 @@
 name: CI
+run-name: ${{ inputs.board_open_diagnostic && 'DIAGNOSTIC board open - no acceptance credit' || github.workflow }}
 
 on:
   workflow_dispatch:
     inputs:
+      board_open_diagnostic:
+        description: Observe board opening in its original WebKit shard; no normal CI acceptance
+        type: boolean
+        default: false
       prior_lease_diagnostic:
         description: Run repeated Firefox and cold WebKit diagnostics alongside all acceptance gates
         type: boolean
@@ -29,6 +34,7 @@ concurrency:
 
 jobs:
   test:
+    if: github.event_name != 'workflow_dispatch' || !inputs.board_open_diagnostic
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -90,6 +96,7 @@ jobs:
   # acceptance shards. Each fixed project gets a separate process lifetime;
   # line logs retain test identities if a later timeout interrupts the job.
   ordinary-startup:
+    if: github.event_name != 'workflow_dispatch' || !inputs.board_open_diagnostic
     name: protected ordinary startup (${{ matrix.project }}, ${{ matrix.slice }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -164,7 +171,7 @@ jobs:
 
   # Diagnostics add evidence; they never replace or skip normal CI jobs.
   prior-lease-diagnostic:
-    if: github.event_name == 'workflow_dispatch' && inputs.prior_lease_diagnostic
+    if: github.event_name == 'workflow_dispatch' && inputs.prior_lease_diagnostic && !inputs.board_open_diagnostic
     name: diagnostic prior lease (${{ matrix.slice }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -225,6 +232,7 @@ jobs:
   # after all 634 regression cases passed. Each browser now retains its own
   # complete regression gate, with unchanged test timeouts and no retries.
   browser-regressions:
+    if: github.event_name != 'workflow_dispatch' || !inputs.board_open_diagnostic
     name: browser regressions (${{ matrix.project }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -297,6 +305,7 @@ jobs:
   # whatever the others do not name. Firefox and WebKit run small, even
   # specs, so Playwright's own `--shard` halves them well enough.
   acceptance:
+    if: github.event_name != 'workflow_dispatch' || !inputs.board_open_diagnostic
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
     # Retain the reviewed acceptance job budgets after moving regressions
@@ -370,3 +379,34 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  board-open-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.board_open_diagnostic
+    name: diagnostic board open (original webkit shard; no acceptance credit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install WebKit
+        run: npx playwright install --with-deps webkit
+      - name: Observe the original WebKit shard and board journey
+        run: npx playwright test --project=webkit --shard=1/2
+        env:
+          E2E_RELAYS: local
+          BOARD_OPEN_DIAGNOSTIC: '1'
+      - name: Keep diagnostic evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: board-open-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14

@@ -9,6 +9,7 @@ import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
 import {turnOnMedia} from './browser.js'
+import {installBoardOpenDiagnostic, captureBoardOpenDiagnostic} from './board-open-diagnostic.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -230,7 +231,7 @@ test('card colour saves when the colour label is clicked and survives reopening'
   } finally {await context.close()}
 })
 
-test('an existing private board keeps its cards and is shared only after the explicit room sharing action', async ({browser, baseURL}) => {
+test('an existing private board keeps its cards and is shared only after the explicit room sharing action', async ({browser, baseURL}, info) => {
   const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!)
   const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Existing board room', agent: false, ...agentRelaysFor(baseURL!)})
   const enter = async (who: typeof ada, name: string) => {
@@ -245,7 +246,9 @@ test('an existing private board keeps its cards and is shared only after the exp
     await createBoard(owner, 'Existing notes'); await addCard(owner, 'Keep my existing card')
     await ada.page.locator('#boardsClose').click()
     await enter(ada, 'Ada')
+    if (process.env.BOARD_OPEN_DIAGNOSTIC === '1') await installBoardOpenDiagnostic(ada.page)
     await ada.page.locator('#openAssignments').click()
+    if (process.env.BOARD_OPEN_DIAGNOSTIC === '1') await captureBoardOpenDiagnostic(ada.page, info, 'post-click')
     owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await owner.getByRole('link', {name: /^Existing notes/}).click()
     await ada.page.locator('#boardsRoom').selectOption({label: 'Existing board room'}); await ada.page.locator('#boardsAssociate').click()
