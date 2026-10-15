@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       prior_lease_diagnostic:
-        description: Run repeated Firefox timing diagnostics in addition to all acceptance gates
+        description: Run repeated Firefox and cold WebKit diagnostics alongside all acceptance gates
         type: boolean
         default: false
   # Prose-only changes run nothing: no test reads docs/ or a top-level
@@ -198,11 +198,24 @@ jobs:
         env:
           ORDINARY_STARTUP_TIMING: '1'
         run: npx playwright test -c playwright.ordinary-startup-diagnostic.config.ts --project=firefox-${{ matrix.slice }}
+      # This manual-only measurement never replaces the normal 30-second
+      # member gate. Learn whether its cold first journey terminates and keep
+      # stage evidence before proposing any product or acceptance change.
+      - name: Install WebKit for the cold member diagnostic
+        if: matrix.slice == 'member-startup'
+        run: npx playwright install --with-deps webkit
+      - name: Measure the exact cold WebKit member journey (diagnostic only)
+        if: matrix.slice == 'member-startup'
+        run: >-
+          npx playwright test -c playwright.ordinary.config.ts
+          --project=webkit-ordinary-member-startup
+          --grep 'visitor=false, keep=false, priorLease=false$'
+          --timeout=90000 --workers=1 --retries=0
       - name: Keep diagnostic failures
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: diagnostic-prior-lease-firefox-${{ matrix.slice }}
+          name: diagnostic-startup-${{ matrix.slice }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
