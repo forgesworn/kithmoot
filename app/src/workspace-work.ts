@@ -46,6 +46,7 @@ export class WorkspaceWorkPanel {
   #opening = false
   #error?: string
   #frame?: number
+  #currentRoomTasks?: HTMLButtonElement
   #renderKey?: string
   constructor(readonly root: Document, readonly options: {
     account(): string | undefined
@@ -58,6 +59,7 @@ export class WorkspaceWorkPanel {
     agent(room: KnownRoom, pubkey: string): boolean
     showMobileNavigation(): boolean
     openProjects(from: HTMLElement): void
+    currentRoomTasks?: {available(): boolean; open(): Promise<void>}
     observe(room: KnownRoom, changed: () => void): WorkspaceObservation | string
     openOrigin(room: KnownRoom, target: { assignment: string } | { message: MessageRef }): Promise<void>
     signIn(): void
@@ -69,6 +71,13 @@ export class WorkspaceWorkPanel {
         ;(this.root.getElementById('roomSwitcher') as HTMLDialogElement).close()
         this.open(mode === 'Inbox' ? 'inbox' : 'work', button)
       }
+    }
+    if (options.currentRoomTasks) {
+      const tasks = this.button('Current room tasks', () => {
+        this.dialog.close()
+        void options.currentRoomTasks!.open().catch(error => {this.open('work', tasks); this.#error = error instanceof Error ? error.message : 'Room tasks could not open'; this.render()})
+      })
+      this.#currentRoomTasks = tasks; this.el('workspaceWorkClose').before(tasks)
     }
     this.el('workspaceWorkClose').onclick = () => this.dialog.close()
     this.el('mobileWorkspaceProjects').onclick = () => this.options.openProjects(this.el('mobileWorkspaceProjects'))
@@ -152,6 +161,7 @@ export class WorkspaceWorkPanel {
   render(): void {
     if (!this.dialog.open) return
     if (this.#account !== this.options.account()) { this.reset(); return }
+    if (this.#currentRoomTasks) this.#currentRoomTasks.hidden = this.#mode !== 'work' || !this.options.currentRoomTasks?.available()
     const signedIn = !!this.#account
     this.el('workspaceWorkSignIn').hidden = signedIn
     this.el('workspaceWorkTitle').textContent = this.#mode === 'inbox' ? 'Inbox' : 'Room task boards'

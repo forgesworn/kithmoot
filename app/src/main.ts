@@ -15205,6 +15205,7 @@ workspaceWork = new WorkspaceWorkPanel(document, {
   agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
   showMobileNavigation: () => !!nostrSession && workspaceActivityRooms().some(room => room.roomId === currentRoomId()),
   openProjects: from => sharedProjects.open(from),
+  currentRoomTasks: {available: () => !!session, open: async () => {if (!session) throw new Error('Open a chat before viewing its tasks'); await assignmentPanel.openAssignment()}},
   signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
   openOrigin: async (room, target) => {
     const account = nostrSession?.pubkey, generation = identityGeneration
