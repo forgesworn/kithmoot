@@ -82,15 +82,17 @@ jobs:
         run: node test/package-smoke.mjs
 
   # Keep native custody checks independent of the already budgeted app
-  # acceptance shards. Each engine runs all four startup slices once.
+  # acceptance shards. Each fixed project gets a separate process lifetime;
+  # line logs retain test identities if a later timeout interrupts the job.
   ordinary-startup:
-    name: protected ordinary startup (${{ matrix.project }})
+    name: protected ordinary startup (${{ matrix.project }}, ${{ matrix.slice }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         project: [chromium, firefox, webkit]
+        slice: [prepared-startup, member-startup, prepared-extension, complete-extension, clients]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -124,17 +126,14 @@ jobs:
       - name: Protected ordinary startup custody
         run: >-
           npx playwright test -c playwright.ordinary.config.ts
-          --project=${{ matrix.project }}-ordinary-prepared-startup
-          --project=${{ matrix.project }}-ordinary-member-startup
-          --project=${{ matrix.project }}-ordinary-prepared-extension
-          --project=${{ matrix.project }}-ordinary-complete-extension
-          --project=${{ matrix.project }}-ordinary-clients
+          --project=${{ matrix.project }}-ordinary-${{ matrix.slice }}
+          --reporter=line
 
       - name: Keep the traces of anything that failed
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: playwright-traces-ordinary-startup-${{ matrix.project }}
+          name: playwright-traces-ordinary-startup-${{ matrix.project }}-${{ matrix.slice }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
