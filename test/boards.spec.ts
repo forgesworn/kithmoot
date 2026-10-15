@@ -134,8 +134,14 @@ test('boards created in a chat are discovered on another device and edited toget
     expect(catalogue.join('')).not.toContain('Room delivery')
     expect(catalogue.join('')).not.toContain('invitation')
     await bo.page.locator('#boardsClose').click(); await bo.page.reload()
-    if (await bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).isVisible()) await bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).click()
-    if (await bo.page.locator('#join').isVisible()) {await bo.page.locator('#displayName').fill('Bo'); await bo.page.locator('#join').click()}
+    const openRoom = bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true})
+    const joinRoom = bo.page.locator('#join')
+    const room = bo.page.locator('#roomArea')
+    await expect.poll(async () => await openRoom.isVisible() || await joinRoom.isVisible() || await room.isVisible()).toBe(true)
+    if (await openRoom.isVisible()) await openRoom.click()
+    await expect.poll(async () => await joinRoom.isVisible() || await room.isVisible()).toBe(true)
+    if (await joinRoom.isVisible()) {await bo.page.locator('#displayName').fill('Bo'); await joinRoom.click()}
+    await expect(room).toBeVisible()
     await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
     guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     const join = guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/}); if (await join.isVisible()) await join.click()

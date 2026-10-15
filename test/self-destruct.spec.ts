@@ -152,9 +152,18 @@ test('a room self-destructs at its end on every device, including one that was a
       new MutationObserver(records => {
         for (const record of records) for (const node of Array.from(record.addedNodes)) {
           if (!(node instanceof HTMLElement) || node.id !== 'destructEffect') continue
-          ;(window as unknown as { destructVisual: unknown }).destructVisual = {
-            text: node.textContent, role: node.getAttribute('role'), visible: node.getBoundingClientRect().width > 0,
+          // Dynamic startup can insert the effect before the root unhides
+          // the document. Keep measuring the real node until it is visible
+          // or removed; a hidden effect must still fail the assertion below.
+          const measure = () => {
+            if (!node.isConnected) return
+            const visible = node.getBoundingClientRect().width > 0
+            ;(window as unknown as { destructVisual: unknown }).destructVisual = {
+              text: node.textContent, role: node.getAttribute('role'), visible,
+            }
+            if (!visible) requestAnimationFrame(measure)
           }
+          measure()
         }
       }).observe(document, { childList: true, subtree: true })
     })
