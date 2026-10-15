@@ -1,7 +1,12 @@
+import { performance } from 'node:perf_hooks'
 import { measureStartupStage, startupTimingEnabled } from './ordinary-startup-timing.js'
 import { test, expect, type Page } from '@playwright/test'
 import { preparedRestart } from './ordinary-member-startup.setup.js'
 import { controls } from './ordinary-member-session.setup.js'
+
+// Preserve the exact failing cold journey, including its setup time. Tracing
+// records a refusal; it never retries or widens the existing journey budget.
+test.use({ trace: 'retain-on-failure' })
 
 async function memberTransport(page: Page): Promise<void> {
   await page.evaluate(`window.secret=new Uint8Array(preparedAuthoritySecret);window.roomId=Ordinary.deriveRoom(secret).roomId;
@@ -20,17 +25,35 @@ for (const visitor of [false, true]) for (const keep of [false, true]) for (cons
     // Two renewal generations have a separate, measured journey budget.
     if (priorLease && !startupTimingEnabled(priorLease)) test.setTimeout(60_000)
     if (!startupTimingEnabled(priorLease)) {
+      const started = performance.now()
+      const stage = (name: string) => console.log('native member-startup timing', JSON.stringify({ stage: name, elapsedMs: Math.round(performance.now() - started) }))
+      page.on('console', message => { if (message.text().startsWith('native recovered member ')) stage(message.text()) })
       page.on('pageerror', error => console.error('Native member relay fixture:', error.message))
+      stage('prepare begin')
       await preparedRestart(page, visitor, keep, priorLease)
+      stage('prepare complete')
       await memberTransport(page)
+      stage('transport installed; startup begin')
       await page.evaluate('(async()=>{window.startup=await Ordinary.OrdinaryMemberStartup.open(recoveryOptions)})()')
+      stage('startup complete')
       expect(await page.evaluate('preparedPhase()')).toBe('settled')
       expect(await page.evaluate('[signCalls,dials.length,frames.length]')).toEqual([visitor ? 0 : 1, 0, 0])
-      await page.evaluate('(async()=>{window.member=await startup.openMemberSession(sessionOptions);await member.join();await member.send("fresh recovered member")})()')
+      // Keep open, join and send in their original single browser task.
+      await page.evaluate(`(async()=>{
+        console.info('native recovered member open begin');
+        window.member=await startup.openMemberSession(sessionOptions);
+        console.info('native recovered member open complete; join begin');
+        await member.join();
+        console.info('native recovered member join complete; send begin');
+        await member.send("fresh recovered member");
+        console.info('native recovered member send complete');
+      })()`)
       expect(await page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))')).toContain('fresh recovered member')
       expect(await page.evaluate('[dials.length>0,dials.every(Boolean),frames.length>0,frames.every(frame=>frame[1])]')).toEqual([true, true, true, true])
       expect(await page.evaluate('startup.openMemberSession(sessionOptions).then(()=>"escaped",error=>error.name)')).toBe('OrdinaryStateHold')
+      stage('close begin')
       await page.evaluate('startup.close()')
+      stage('close complete')
       expect(await page.evaluate('sockets.every(socket=>socket.readyState===3)')).toBe(true)
       expect(await page.evaluate('member.send("closed").then(()=>"escaped",error=>error.name)')).not.toBe('escaped')
       return

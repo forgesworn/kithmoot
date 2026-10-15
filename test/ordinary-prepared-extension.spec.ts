@@ -3,6 +3,10 @@ import { test, expect, type Page } from '@playwright/test'
 import { preparedRestart } from './ordinary-prepared-extension.setup.js'
 import { memberTransport } from './ordinary-prepared-extension.transport.js'
 
+// Retain the actual member-open/join/send failure path without retries or a
+// wider journey budget. Restore alone is not evidence of member delivery.
+test.use({ trace: 'retain-on-failure' })
+
 async function extensionRestart(page: Page, keep = true, priorLease = false, sdkExpirySeconds?: number): Promise<void> {
   await preparedRestart(page, false, keep, priorLease, sdkExpirySeconds)
   await memberTransport(page)
@@ -33,7 +37,20 @@ for (const keep of [false, true]) for (const priorLease of [false, true]) {
       expect(await page.evaluate('[restoreStatus,restoreStack??null]')).toEqual(['ok', null])
       expect(await page.evaluate('[discoveryCalls,discoveryHeld,providerPhases,signCalls,dials.length,frames.length]')).toEqual([1, [true], ['prepared', 'provider-started'], 1, 0, 0])
       expect(await page.evaluate('preparedPhase()')).toBe('settled')
-      await page.evaluate('(async()=>{window.member=await extensionStartup.openMemberSession(sessionOptions);await member.join();await member.send("restored extension member")})()')
+      // Preserve the original one-task await ordering while identifying the
+      // pending stage in the Linux failure trace and console output.
+      page.on('console', message => {
+        if (message.text().startsWith('prepared extension member ')) console.log(message.text())
+      })
+      await page.evaluate(`(async()=>{
+        console.info('prepared extension member open begin');
+        window.member=await extensionStartup.openMemberSession(sessionOptions);
+        console.info('prepared extension member open complete; join begin');
+        await member.join();
+        console.info('prepared extension member join complete; send begin');
+        await member.send("restored extension member");
+        console.info('prepared extension member send complete');
+      })()`)
       expect(await page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))')).toContain('restored extension member')
       expect(await page.evaluate('[dials.every(Boolean),frames.every(frame=>frame[1])]')).toEqual([true, true])
       await page.evaluate('extensionStartup.close()')

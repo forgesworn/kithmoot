@@ -5,6 +5,9 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils.js'
 import { pairingFixture } from './mls-pairing-fixture.js'
+// Preserve context/browser closure evidence from the real regression gate;
+// this does not retry a failed newPage or weaken any protocol assertion.
+test.use({ trace: 'retain-on-failure' })
 const origin = 'https://browser-mls-vault.kithmoot.test'
 let bundle: string
 test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-coordinated-vault.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'M', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })

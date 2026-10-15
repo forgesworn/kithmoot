@@ -3,6 +3,10 @@ import { test, expect, type Page } from '@playwright/test'
 import { preparedRestart } from './ordinary-prepared-extension.setup.js'
 import { memberTransport } from './ordinary-prepared-extension.transport.js'
 
+// Capture the actual Linux/browser failure path without widening the existing
+// 30-second gate, adding retries, or substituting a diagnostic pass.
+test.use({ trace: 'retain-on-failure' })
+
 async function extensionRestart(page: Page, keep = true, priorLease = false, sdkExpirySeconds?: number): Promise<void> {
   await preparedRestart(page, false, keep, priorLease, sdkExpirySeconds, 'ordinary')
   await memberTransport(page)
@@ -24,8 +28,14 @@ async function extensionRestart(page: Page, keep = true, priorLease = false, sdk
 }
 
 test('ordinary native cold start restores the actual SDK privately before fresh member join and send', async ({ page }) => {
+  const started = Date.now()
+  const stage = (name: string) => console.log('ordinary cold-start timing', JSON.stringify({ stage: name, elapsedMs: Date.now() - started }))
+  page.on('console', message => { if (message.text().startsWith('ordinary cold-start member ')) stage(message.text()) })
+  stage('prepare begin')
   await preparedRestart(page, false, true, false, undefined, 'ordinary')
+  stage('prepare complete')
   await memberTransport(page)
+  stage('transport installed')
   await page.evaluate(() => {
     const w = window as any, c = w.current
     w.extensionSelection = { account: c.account, participant: c.participant, invitationId: c.invitationId,
@@ -45,12 +55,25 @@ test('ordinary native cold start restores the actual SDK privately before fresh 
     try { w.extensionStartup = await w.Ordinary.OrdinaryMemberExtensionStartup.open(w.extensionOptions); w.restoreStatus = 'ok' }
     catch (error) { w.restoreStatus = (error as Error).name }
   })
+  stage('provider restored')
   expect(await page.evaluate('[restoreStatus,discoveryCalls,discoveryHeld]')).toEqual(['ok', 1, [true]])
   expect(await page.evaluate('[entropy,puts,signCalls]')).toEqual(before)
-  await page.evaluate('(async()=>{window.member=await extensionStartup.openMemberSession(sessionOptions);await member.join();await member.send("ordinary cold-start member")})()')
+  // Keep the original awaited operation ordering in one browser task. These
+  // synchronous observations identify the pending stage if Linux times out.
+  await page.evaluate(`(async()=>{
+    console.info('ordinary cold-start member open begin');
+    window.member=await extensionStartup.openMemberSession(sessionOptions);
+    console.info('ordinary cold-start member open complete; join begin');
+    await member.join();
+    console.info('ordinary cold-start member join complete; send begin');
+    await member.send("ordinary cold-start member");
+    console.info('ordinary cold-start member send complete');
+  })()`)
   expect(await page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))')).toContain('ordinary cold-start member')
+  stage('close begin')
   await page.evaluate('extensionStartup.close()')
   expect(await page.evaluate('sockets.every(socket=>socket.readyState===3)')).toBe(true)
+  stage('close complete')
 })
 
 for (const fault of ['account', 'selection-pointer', 'selection-field', 'selection-getter', 'async-selection', 'generation', 'input-method']) {
