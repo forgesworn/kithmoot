@@ -49,6 +49,7 @@ specs.push('ordinary-startup-guard.spec.ts')
 specs.push('ordinary-startup-built.spec.ts')
 specs.push('ordinary-startup-lifetime.spec.ts')
 specs.push('ordinary-protected-worker.spec.ts')
+specs.push('ordinary-private-existing-root.spec.ts')
 const stems = specs.map(spec => spec.replace(/\.spec\.ts$/, ''))
 if (new Set(stems).size !== specs.length) throw new Error('Duplicate ordinary spec')
 const consumerCases=/narrowed trusted consumer|narrowed consumer|consumer fields/
