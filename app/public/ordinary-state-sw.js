@@ -16,7 +16,9 @@ self.addEventListener('message', event => {
     let ok = false
     const scope = new URL(self.registration.scope)
     const enumerate = async () => (await self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
-      .filter(client => { const url = new URL(client.url); return url.origin === scope.origin && url.pathname.startsWith(scope.pathname) })
+      // Storage and encrypted owner custody are origin-wide. An old window
+      // outside this worker's path scope can still read/write those stores.
+      .filter(client => new URL(client.url).origin === scope.origin)
     try {
       const clients = await enumerate()
       if (!clients.length || clients.length > 64 || !clients.some(client => client.id === event.source?.id)) throw new Error('unverified client inventory')

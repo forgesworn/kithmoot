@@ -43,6 +43,8 @@ specs.push('ordinary-prepared-startup.spec.ts')
 specs.push('ordinary-member-startup.spec.ts')
 specs.push('ordinary-prepared-extension.spec.ts')
 specs.push('ordinary-complete-extension.spec.ts')
+// Migration fencing must include legacy windows outside the deployed /j/ scope.
+specs.push('ordinary-clients.spec.ts')
 const stems = specs.map(spec => spec.replace(/\.spec\.ts$/, ''))
 if (new Set(stems).size !== specs.length) throw new Error('Duplicate ordinary spec')
 const consumerCases=/narrowed trusted consumer|narrowed consumer|consumer fields/

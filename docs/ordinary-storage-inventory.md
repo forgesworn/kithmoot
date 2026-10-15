@@ -270,3 +270,23 @@ board encrypted catalogue family is routed and structurally checked offline;
 its current-room decrypt/save/publication adapter and full native root mount
 remain required. The declared Girnel embed.5 archive is installed byte-exact as
 a target-only overlay; the full registry install remains unreproducible.
+
+## Origin-wide client fence
+
+`ordinary-state-sw.js` inventories every same-origin window, including
+uncontrolled windows outside the registration path. A production worker scoped
+to `/j/` cannot omit an older page at another path: browser Storage and the
+encrypted owner database remain shared across that origin. An unresponsive
+window holds the fence until it closes. A second inventory after acknowledgements
+refuses windows opened during the check. The protocol transmits only fresh
+correlation bytes and compatibility messages, with no storage, account or room
+contents.
+
+Native client tests register both root and `/j/` workers and cover modern
+windows, silent and uncontrolled legacy windows, and inventory changes during
+acknowledgement. They run in the dedicated protected-startup CI jobs in all
+three engines. This is bounded fence evidence: the actual root must still
+install the responder before private modules run, stop on legacy reappearance,
+and repeat the fence at migration, forget and dependent effect boundaries.
+Desktop hosts without this worker require their own reviewed client inventory.
+The fence does not authenticate identity, admission or independent continuity.

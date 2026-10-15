@@ -12,10 +12,13 @@ export class OrdinaryClientFence {
   #probe = async (event: MessageEvent) => {
     const value = event.data
     if (this.#closed || !value || value.protocol !== PROTOCOL || value.phase !== 'probe' ||
-        typeof value.nonce !== 'string' || !/^[0-9a-f]{64}$/.test(value.nonce) || event.ports.length !== 1) return
+        typeof value.nonce !== 'string' || !/^[0-9a-f]{64}$/.test(value.nonce) || event.ports.length !== 1 || !event.source) return
     try {
-      const registration = await navigator.serviceWorker.getRegistration()
-      if (this.#closed || event.source !== registration?.active) return
+      // A same-origin modern window may sit outside the worker path scope
+      // while sharing Storage. Authenticate the actual active worker rather
+      // than requiring this page to have a matching default registration.
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      if (this.#closed || !registrations.some(registration => registration.active === event.source)) return
       event.ports[0]!.postMessage({ protocol: PROTOCOL, phase: 'ready', nonce: value.nonce })
     } catch { /* Unverifiable worker custody cannot acknowledge readiness. */ }
     finally { event.ports[0]?.close() }
