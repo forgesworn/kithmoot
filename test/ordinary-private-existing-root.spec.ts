@@ -74,13 +74,25 @@ test.beforeAll(async () => {
           check()`).replace(
           'beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)',
           `beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
+           ;(globalThis as any).__privateOwnerPrototypeForTest = this.prototype
            ;(globalThis as any).__privateControlForTest = (root: OrdinaryPrivateExistingRoot) => this.#authenticatePrivateExistingProvider(root)`).replace(
           'challenge = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))',
           'challenge = bytesToHex((globalThis as any).__controlRandom(new Uint8Array(32)))').replace(
           'await context.step(() => {\n              check(); if (controlMode',
           'await context.step(() => { const previous = (globalThis as any).__controlDecision; if (controlMode) (globalThis as any).__controlDecision = true; try {\n              check(); if (controlMode').replace(
           'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n            })',
-          'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n            } finally { (globalThis as any).__controlDecision = previous } })') }
+          'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n            } finally { (globalThis as any).__controlDecision = previous } })').replace(
+          'while (this.#work.size) await Promise.allSettled([...this.#work])\n    this.#db?.close(); this.#db = undefined',
+          `while (this.#work.size) await Promise.allSettled([...this.#work])
+           this.#db?.close(); this.#db = undefined
+           const fixture = (globalThis as any).__privateOwnerCloseFixture
+           if (fixture) {
+             const name = this.purpose === 'browser' ? 'browser' : 'tab'
+             fixture.entered.push(name)
+             if (fixture.pending === name) await new Promise<void>(yes => { fixture.release = yes })
+             fixture.terminal.push(name)
+             if (fixture.reject === name) throw Error('Explicit ' + name + ' native owner close failure')
+           }`) }
       })
       builder.onLoad({ filter: /ordinary-state-clients\.ts$/ }, async input => {
         const source = await readFile(input.path, 'utf8'), marker = 'crypto.getRandomValues(new Uint8Array(32))'
@@ -824,3 +836,71 @@ for (const cut of [false, true]) test(`private control stage confines raw proof 
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
   expect(await page.evaluate('[providerFixture.closeCalls,providerFixture.closeTerminal]')).toEqual([1, true])
 })
+
+for (const stage of ['captured', 'provider-held', 'pending-control'] as const) {
+  test(`private owner cleanup bypasses a replaced public close at ${stage}`, async ({ page }) => {
+    if (stage === 'captured') {
+      const href = await seed(page)
+      await install(page); await enter(page, href, 'captured-held')
+    } else {
+      await prepareControlStage(page)
+      if (stage === 'pending-control') {
+        await page.evaluate('providerFixture.controlGated=true')
+        await startControlStage(page)
+        await page.waitForFunction('providerFixture.signs===1')
+      }
+    }
+    const effectsBeforeClose = await page.evaluate<Record<string, number>>('effects')
+    expect({ ...effectsBeforeClose, provider: 0 }).toEqual(none)
+    // Observe the actual owner class in the same split module graph. A public
+    // method replacement must receive neither private owner, even at close.
+    await page.evaluate(() => {
+      const w = window as any
+      w.ownerCloseDispatches = 0
+      const prototype = w.__privateOwnerPrototypeForTest
+      if (!prototype || typeof prototype.close !== 'function') throw Error('Missing native owner prototype observation')
+      Object.defineProperty(prototype, 'close', { configurable: true, value() {
+        w.ownerCloseDispatches++
+        throw Error('Public close intercepted a private owner')
+      } })
+    })
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await providerState(page, 'held')
+    expect(await page.evaluate('ownerCloseDispatches')).toBe(0)
+    if (stage === 'pending-control') {
+      expect(await lockAvailable(page, 'migration')).toBe(false)
+      expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+      expect(await page.evaluate('controlDone')).toBe(false)
+      await page.evaluate('providerFixture.releaseControl();undefined')
+      await page.evaluate('controlWork')
+      expect(await page.evaluate('controlOutcome')).not.toBe('verified')
+    }
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+    expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+    expect(await page.evaluate('ownerCloseDispatches')).toBe(0)
+    expect(await page.evaluate('effects')).toEqual(effectsBeforeClose)
+  })
+}
+
+for (const rejected of ['browser', 'tab'] as const) {
+  test(`private capture joins the pending owner after ${rejected} close rejects`, async ({ page }) => {
+    const href = await seed(page)
+    await install(page); await enter(page, href, 'captured-held')
+    await page.evaluate(reject => {
+      ;(window as any).__privateOwnerCloseFixture = {
+        reject, pending: reject === 'browser' ? 'tab' : 'browser', entered: [], terminal: [],
+      }
+    }, rejected)
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await providerState(page, 'held')
+    await page.waitForFunction('__privateOwnerCloseFixture.entered.length===2')
+    expect(await page.evaluate('__privateOwnerCloseFixture.terminal')).toEqual([rejected])
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+    await page.evaluate('__privateOwnerCloseFixture.release();undefined')
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+    expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+    await expect.poll(() => page.evaluate('window.__rootCloseFailure')).toBe('Explicit ' + rejected + ' native owner close failure')
+    expect(await page.evaluate('effects')).toEqual(none)
+  })
+}

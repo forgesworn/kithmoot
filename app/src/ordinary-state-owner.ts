@@ -732,7 +732,13 @@ export class OrdinaryStateOwner {
       let resolve!: () => void, reject!: (error: unknown) => void
       closing = new Promise<void>((yes, no) => { resolve = yes; reject = no })
       stop()
-      void Promise.all([browser.close(), tab?.close()]).then(() => resolve(), reject)
+      // One rejected owner must not release the root while the other still
+      // owns a native terminal tail. The root releases MIGRATION after this.
+      void Promise.allSettled([browser.#close(), tab ? tab.#close() : undefined]).then(results => {
+        const failed = results.find(result => result.status === 'rejected')
+        if (failed?.status === 'rejected') reject(failed.reason)
+        else resolve()
+      })
       return closing
     } })
   }
@@ -960,7 +966,7 @@ export class OrdinaryStateOwner {
         while (controlWork.size) await Promise.allSettled([...controlWork])
         const results = await Promise.allSettled([closeSource?.()]); source = undefined; closeSource = undefined
         browser.#resources.delete(cancel); tab.#resources.delete(cancel)
-        results.push(...await Promise.allSettled([browser.close(), tab.close()]))
+        results.push(...await Promise.allSettled([browser.#close(), tab.#close()]))
         const failed = results.find(result => result.status === 'rejected')
         if (failed?.status === 'rejected') throw failed.reason
       })().then(resolve, reject)
@@ -3762,7 +3768,8 @@ export class OrdinaryStateOwner {
     this.#check(live, expiredCleanup)
   }
   /** Stops local effects immediately, joins actual native work, then closes. */
-  async close(): Promise<void> {
+  close(): Promise<void> { return this.#close() }
+  async #close(): Promise<void> {
     this.#revoke()
     while (this.#work.size) await Promise.allSettled([...this.#work])
     this.#db?.close(); this.#db = undefined
