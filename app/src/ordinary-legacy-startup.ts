@@ -10,12 +10,15 @@ export class OrdinaryLegacyStartupLifetime {
   readonly #reads = new Set<Promise<boolean>>()
   #acquiring?: Promise<void>
   #work?: Promise<void>
-  #release?: () => void
+  #writeWork?: Promise<void>
+  #releaseWrite?: () => void
+  #releaseMigration?: () => void
   #closing?: Promise<void>
   #held = false
   #closed = false
   #committed = false
   #absent = false
+  #existing = false
   #inspected = false
 
   acquire(): Promise<void> {
@@ -24,12 +27,18 @@ export class OrdinaryLegacyStartupLifetime {
     if (!navigator.locks) return Promise.reject(new Error('Startup held'))
     this.#acquiring = new Promise<void>((resolve, reject) => {
       const work = Promise.resolve(navigator.locks.request(ORDINARY_MIGRATION_LOCK,
-        { mode: 'shared', signal: this.#abort.signal }, async () => { await navigator.locks.request(ORDINARY_WRITE_LOCK,
         { mode: 'shared', signal: this.#abort.signal }, async () => {
-          if (this.#closed) hold()
-          this.#held = true
-          await new Promise<void>(release => { this.#release = release; resolve() })
-        }) }))
+          const migration = new Promise<void>(release => { this.#releaseMigration = release })
+          const write = Promise.resolve(navigator.locks.request(ORDINARY_WRITE_LOCK,
+            { mode: 'shared', signal: this.#abort.signal }, async () => {
+              if (this.#closed) hold()
+              this.#held = true
+              await new Promise<void>(release => { this.#releaseWrite = release; resolve() })
+            }))
+          this.#writeWork = write
+          await write
+          await migration
+        }))
       this.#work = work
       void work.catch(reject)
     })
@@ -39,6 +48,13 @@ export class OrdinaryLegacyStartupLifetime {
    * database holds. An aborted creation proves absence without installing a
    * database, loading SDK/crypto modules or inspecting protected contents. */
   assertAbsent(): Promise<void> {
+    return this.inspectPresence().then(presence => {
+      if (presence !== 'absent') hold()
+    })
+  }
+  /** Presence selects a startup path only. It supplies no image, owner,
+   * current account, phase grant or authority to invoke a provider. */
+  inspectPresence(): Promise<'absent' | 'existing'> {
     if (!this.#held || this.#closed || this.#committed || this.#inspected) return Promise.reject(new Error('Startup held'))
     this.#inspected = true
     const pending = new Promise<boolean>((resolve, reject) => {
@@ -67,15 +83,30 @@ export class OrdinaryLegacyStartupLifetime {
     this.#reads.add(pending)
     void pending.finally(() => this.#reads.delete(pending)).catch(() => {})
     return pending.then(absent => {
-      if (this.#closed || !this.#held || !absent) hold()
-      this.#absent = true
+      if (this.#closed || !this.#held) hold()
+      this.#absent = absent
+      this.#existing = !absent
+      return absent ? 'absent' : 'existing'
     })
+  }
+  /** Release the initial shared WRITE exclusion after an existing-state path
+   * has queued its fixed exclusive capture. MIGRATION remains retained until
+   * close; this resource handoff grants no read, restoration or effect rights. */
+  async releaseInitialWrite(): Promise<void> {
+    if (!this.#held || this.#closed || this.#committed || !this.#existing ||
+        this.#reads.size || !this.#releaseWrite) hold()
+    this.#held = false
+    this.#releaseWrite()
+    this.#releaseWrite = undefined
+    await this.#writeWork
+    if (this.#closed) hold()
   }
   commitLegacy(): void {
     if (!this.#held || this.#closed || this.#committed || !this.#absent || this.#reads.size) hold()
     this.#committed = true
     // There is deliberately no application release path after this point.
-    this.#release = undefined
+    this.#releaseWrite = undefined
+    this.#releaseMigration = undefined
   }
   close(): Promise<void> {
     if (this.#closing) return this.#closing
@@ -83,8 +114,11 @@ export class OrdinaryLegacyStartupLifetime {
     if (!this.#committed) this.#abort.abort()
     this.#closing = (async () => {
       await Promise.allSettled([...this.#reads])
-      this.#release?.()
-      this.#release = undefined
+      this.#releaseWrite?.()
+      this.#releaseWrite = undefined
+      await this.#writeWork?.catch(() => {})
+      this.#releaseMigration?.()
+      this.#releaseMigration = undefined
       await this.#work?.catch(() => {})
       this.#held = false
     })()
