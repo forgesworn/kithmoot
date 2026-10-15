@@ -25,7 +25,10 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
   const identity = localIdentity(profileKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
   const pictureURL = 'https://profiles.example/rowan.svg'
-  await context.route('https://profiles.example/.well-known/nostr.json?name=rowan', route => route.fulfill({ json: { names: { rowan: identity.pubkey } } }))
+  let addressRequests = 0
+  await context.route('https://profiles.example/.well-known/nostr.json?name=rowan', route => {
+    addressRequests++; return route.fulfill({ json: { names: { rowan: identity.pubkey } } })
+  })
   let pictureRequests = 0
   await context.route(pictureURL, route => { pictureRequests++; return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="teal"/></svg>' }) })
   await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify({ name: 'Rowan', picture: pictureURL, nip05: 'rowan@profiles.example' }) }, profileKey))
@@ -78,7 +81,10 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(person.locator('.nip05')).toHaveCount(0)
     await expect(person.locator('.avatar.initials')).toHaveText('R')
     await page.keyboard.press('Escape')
-    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').check(); await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
+    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').check()
+    await expect(page.locator('#verifyAddresses')).not.toBeChecked()
+    expect(addressRequests).toBe(0)
+    await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
     await expect(person.locator('.nip05')).toHaveText('rowan@profiles.example')
     await hearts.hover()
     await person.hover()
@@ -90,7 +96,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await hearts.hover()
     await expect(row.getByRole('tooltip')).toBeInViewport()
     expect(await row.getByRole('tooltip').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
-    await page.screenshot({ path: `/tmp/kithmoot-reaction-profile-${test.info().project.name}.png` })
+    await page.screenshot({ path: test.info().outputPath('reaction-profile.png') })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.mouse.move(0, 0)
     await hearts.hover()
@@ -105,6 +111,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await laugh.focus()
     await expect(row.getByRole('tooltip').filter({ hasText: '😂' })).toContainText('Ada')
     await laugh.click()
+    await expect(laugh).toHaveCount(0)
     await row.getByRole('button', { name: 'Remove ❤️ reaction, 2', exact: true }).click()
     await expect(row.getByRole('button', { name: 'Add ❤️ reaction, 1', exact: true })).toHaveAttribute('aria-pressed', 'false')
     await expect(page.locator('#chatLog .msg')).toHaveCount(1)
@@ -112,7 +119,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(page.locator('#chatLog .mine .text')).toHaveText('before 🤦after')
     await page.setViewportSize({ width: 320, height: 700 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await page.screenshot({ path: `/tmp/kithmoot-chat-320-${test.info().project.name}.png` })
+    await page.screenshot({ path: test.info().outputPath('chat-320.png') })
   } finally { await writer.leave(); publisher.close(); await context.close() }
 })
 

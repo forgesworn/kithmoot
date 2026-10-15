@@ -133,6 +133,9 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
     for (let round = 0; round < 6; round++) {
       const each = new NostrRelayPool([GOOD, BAD])
       each.subscribe([{ kinds: [20461] }], () => {})
+      // Observe the genuine remote refusal before intentional teardown.
+      // A locally cancelled handshake is not evidence of remote failure.
+      await vi.advanceTimersByTimeAsync(1)
       each.setRelays([GOOD, BAD])
       await vi.advanceTimersByTimeAsync(5_000)
       each.close()

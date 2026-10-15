@@ -840,11 +840,12 @@ let creationForeground: BrowserMlsRoomForeground, creationRooms: BrowserMlsRoomO
 let creationVault: RoomCoordinatedMlsVault, creationResult: Promise<any>
 let creationApprove: (decision: 'approve' | 'deny') => void
 let creationLowerSettled = false, creationOwnerSettled = false, creationChild: MlsRoomCreateRendezvous | undefined
-export async function startCreationCustody(mode: 'cancel' | 'expiry' | 'foreground' | 'hold' | 'success') {
+export async function startCreationCustody(mode: 'cancel' | 'expiry' | 'foreground' | 'hold' | 'success' | 'pre-consent-expiry') {
   creationForeground = new BrowserMlsRoomForeground()
   creationVault = new RoomCoordinatedMlsVault(host, creationForeground, { now: () => clock, generation: () => generation })
   creationRooms = new BrowserMlsRoomOperations(host, creationVault, () => clock)
   creationLowerSettled = false; creationOwnerSettled = false
+  let consentEntered = false
   let ready!: () => void
   const began = new Promise<void>(resolve => { ready = resolve })
   creationResult = creationForeground.run(persona, () => true, async scope => {
@@ -852,8 +853,8 @@ export async function startCreationCustody(mode: 'cancel' | 'expiry' | 'foregrou
       creationChild = custody
       try {
         return await creationRooms.create({ vault: creationVault.context(principal, persona), rendezvousKey: custody.receipt.rendezvousPubkey,
-          current: () => custody.current() }, { name: 'Child-custodied room', homeBox: boxId, installation, expiresAt: clock + 86400 }, async () => {
-          ready()
+          current: () => custody.current() }, { name: 'Child-custodied room', homeBox: boxId, installation, expiresAt: mode === 'pre-consent-expiry' ? clock - 1 : clock + 86400 }, async () => {
+          consentEntered = true; ready()
           const decision = mode === 'success' ? 'approve' : await new Promise<'approve' | 'deny'>(resolve => { creationApprove = resolve })
           // A real private consent owner must suppress late permission.
           return mode !== 'cancel' && custody.current() ? decision : 'deny'
@@ -866,7 +867,9 @@ export async function startCreationCustody(mode: 'cancel' | 'expiry' | 'foregrou
   }).then(result => { creationOwnerSettled = true; return result }, error => {
     creationOwnerSettled = true; return { error: error instanceof Error ? error.message : String(error) }
   })
-  await began
+  await Promise.race([began, creationResult.then(result => {
+    if (!consentEntered) throw new Error('Creation ended before the actual consent callback: ' + JSON.stringify(result))
+  })])
   if (mode === 'cancel') creationRooms.invalidate()
   if (mode === 'expiry') { clock = rzReceipt.expiresAt; creationRooms.invalidate() }
   if (mode === 'foreground') { creationForeground.invalidate(); creationRooms.invalidate() }

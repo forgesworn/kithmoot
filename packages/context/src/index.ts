@@ -6,8 +6,12 @@ import { randomBytes, bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha2'
 import { finalizeEvent, generateSecretKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { verifyEventUncached } from './verify.js'
-import { encryptEnvelope, decryptEnvelope, uploadEnvelope, normaliseBlossomServer } from './blossom.js'
+import { encryptEnvelope, decryptEnvelope, inspectEnvelopeHeader, uploadEnvelope, normaliseBlossomServer } from './blossom.js'
 import { retrieveView, type ContextRetrievalOptions, type ContextRetrieval } from './retrieval.js'
+import { CONTEXT_EVENT_BYTES as MAX_EVENT_BYTES, CONTEXT_COLLECTIONS as MAX_COLLECTIONS,
+  CONTEXT_ENVELOPE_V2_BYTES, CONTEXT_ENVELOPE_LEGACY_BYTES, CONTEXT_ENVELOPE_BASE64_UNITS,
+  CONTEXT_CACHE_BYTES, contextTextFits } from './limits.js'
+export { CONTEXT_EVENT_BYTES, CONTEXT_CACHE_BYTES, CONTEXT_ENVELOPE_V2_BYTES, CONTEXT_ENVELOPE_LEGACY_BYTES } from './limits.js'
 export type { ContextRetrievalOptions, ContextRetrieval, ContextLink } from './retrieval.js'
 
 export type ContextScope = 'personal' | 'kin' | 'kith'
@@ -60,10 +64,7 @@ export interface ContextView {
 }
 
 const KIND = 30078
-const MAX_BYTES = 2 * 1024 * 1024
 const MAX_RECORDS = 128
-const MAX_COLLECTIONS = 32
-const MAX_EVENT_BYTES = 1024 * 1024
 const HEX = /^[0-9a-f]{64}$/
 const enc = new TextEncoder()
 const dec = new TextDecoder('utf-8', { fatal: true })
@@ -78,12 +79,18 @@ function text(value: unknown, max: number): value is string {
 }
 function seconds(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0 }
 function parse(value: string, max = MAX_EVENT_BYTES): unknown {
-  assert(enc.encode(value).length <= max, 'Context input is too large.')
+  assert(contextTextFits(value, max), 'Context input is too large.')
   try { return JSON.parse(value) } catch { throw new Error('Invalid context JSON.') }
 }
 function event(value: unknown, purpose: string): Event {
-  const e = object(value) as unknown as Event
-  assert(enc.encode(JSON.stringify(e)).length <= MAX_EVENT_BYTES && verifyEventUncached(e), 'Invalid context signature.')
+  // Capture one serialization, then own and revalidate the plain JSON image.
+  // A signer cannot change an extra field or toJSON between the measured
+  // event and the later cache/envelope serialization. Symbols stay outside
+  // the wire image; permitted JSON extra fields and insertion order remain.
+  const encoded = JSON.stringify(object(value))
+  assert(contextTextFits(encoded, MAX_EVENT_BYTES), 'Invalid context signature.')
+  const e = object(JSON.parse(encoded)) as unknown as Event
+  assert(verifyEventUncached(e), 'Invalid context signature.')
   assert(e.kind === KIND && e.tags.length === 1 && e.tags[0].length === 2 && e.tags[0][0] === 'd' && e.tags[0][1] === `kithmoot/context/v1/${purpose}`, 'Wrong context event domain.')
   return e
 }
@@ -156,7 +163,9 @@ function validators(verifyDelegation: VerifyDelegation = () => ({ ok: false })) 
 
 function pointer(value: unknown): ContextPointer {
   const p = object(value) as unknown as ContextPointer
-  assert(typeof p.url === 'string' && HEX.test(p.sha256) && Number.isSafeInteger(p.size) && p.size > 0 && p.size <= MAX_BYTES, 'Invalid encrypted context pointer.')
+  // The encrypted pointer does not expose the envelope format yet. Permit
+  // the writer's V2 ceiling, then enforce its format before envelope decrypt.
+  assert(typeof p.url === 'string' && HEX.test(p.sha256) && Number.isSafeInteger(p.size) && p.size > 0 && p.size <= CONTEXT_ENVELOPE_V2_BYTES, 'Invalid encrypted context pointer.')
   const url = new URL(p.url)
   const origin = normaliseBlossomServer(url.origin)
   assert(url.origin === origin && url.href === p.url && !url.username && !url.password && !url.search && !url.hash &&
@@ -168,9 +177,19 @@ function base64(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i += 8192) out += String.fromCharCode(...bytes.subarray(i, i + 8192))
   return btoa(out)
 }
+function checkEnvelopeSize(bytes: Uint8Array): void {
+  const header = inspectEnvelopeHeader(bytes)
+  const max = header.format === 'FSWNENC2' ? CONTEXT_ENVELOPE_V2_BYTES : CONTEXT_ENVELOPE_LEGACY_BYTES
+  assert(bytes.length <= max, 'Encrypted context envelope format or size is invalid.')
+  // Metadata, padding and all GCM tags are still checked by the shared
+  // primary decryptEnvelope below. Visible header framing grants nothing.
+}
 function unbase64(value: string): Uint8Array {
-  assert(typeof value === 'string' && value.length <= Math.ceil(MAX_BYTES * 4 / 3) + 4, 'Encrypted context cache is too large.')
-  return Uint8Array.from(atob(value), ch => ch.charCodeAt(0))
+  assert(typeof value === 'string' && value.length <= CONTEXT_ENVELOPE_BASE64_UNITS, 'Encrypted context cache is too large.')
+  const bytes = Uint8Array.from(atob(value), ch => ch.charCodeAt(0))
+  assert(base64(bytes) === value, 'Encrypted context cache is not canonical Base64.')
+  checkEnvelopeSize(bytes)
+  return bytes
 }
 
 export interface ContextVaultOptions {
@@ -229,9 +248,9 @@ export class ContextVault {
   async #sign(purpose: string, body: unknown): Promise<Event> {
     const unsigned = { kind: KIND, created_at: this.#now(), tags: [['d', `kithmoot/context/v1/${purpose}`]], content: JSON.stringify(body) }
     assert(enc.encode(unsigned.content).length < MAX_EVENT_BYTES, 'Context collection is full; create another collection.')
-    const signed = await this.#identity.signEvent(unsigned)
+    const signed = event(await this.#identity.signEvent(unsigned), purpose)
     assert(signed.pubkey === this.#identity.pubkey && signed.content === unsigned.content && signed.created_at === unsigned.created_at && JSON.stringify(signed.tags) === JSON.stringify(unsigned.tags), 'Signer changed the context request.')
-    return event(signed, purpose)
+    return signed
   }
   async #build(p: Event, records: Event[], previous?: OpenCollection, key = previous?.key ?? id()): Promise<OpenCollection> {
     const body = this.#checks.policy(p).body
@@ -340,7 +359,7 @@ export class ContextVault {
   async #openAccess(input: unknown): Promise<{ body: AccessBody; access: Event }> {
     const access = event(input, 'access')
     const sealed = object(parse(access.content))
-    assert(sealed.v === 1 && sealed.recipient === this.#identity.pubkey && text(sealed.ciphertext, 65536), 'Context collection not available.')
+    assert(sealed.v === 1 && sealed.recipient === this.#identity.pubkey && text(sealed.ciphertext, MAX_EVENT_BYTES), 'Context collection not available.')
     const body = object(parse(await this.#identity.decrypt(access.pubkey, sealed.ciphertext as string))) as unknown as AccessBody
     const p = this.#checks.policy(body.policy).body
     assert(body.v === 1 && HEX.test(body.key) && HEX.test(body.head), 'Invalid context access.')
@@ -370,7 +389,7 @@ export class ContextVault {
         const { value, done } = await reader.read()
         if (done) break
         length += value.length
-        assert(length <= location.size && length <= MAX_BYTES, 'Encrypted context download exceeded its signed size.')
+        assert(length <= location.size && length <= CONTEXT_ENVELOPE_V2_BYTES, 'Encrypted context download exceeded its signed size.')
         chunks.push(value)
       }
     } finally { await reader.cancel().catch(() => {}) }
@@ -381,6 +400,7 @@ export class ContextVault {
   }
 
   #accept(body: AccessBody, envelope: Uint8Array): ContextView {
+    checkEnvelopeSize(envelope)
     assert(envelope.length === body.pointer.size && bytesToHex(sha256(envelope)) === body.pointer.sha256, 'Encrypted context hash or size mismatch.')
     const opened = decryptEnvelope(envelope, body.key)
     const s = this.#checks.snapshot(parse(dec.decode(opened.source)))
@@ -412,18 +432,20 @@ export class ContextVault {
       const access = await this.#sign('cache', { v: 1, recipient: this.#identity.pubkey, ciphertext })
       collections.push({ access, envelope: base64(entry.envelope) })
     }
-    return JSON.stringify({ v: 1, identity: this.#identity.pubkey, collections })
+    const saved = JSON.stringify({ v: 1, identity: this.#identity.pubkey, collections })
+    assert(contextTextFits(saved, CONTEXT_CACHE_BYTES), 'Encrypted context cache is too large.')
+    return saved
   }
   async restore(serialised: string): Promise<void> {
-    const saved = object(parse(serialised, 32 * MAX_BYTES))
-    assert(saved.v === 1 && saved.identity === this.#identity.pubkey && Array.isArray(saved.collections) && saved.collections.length <= 32, 'Invalid encrypted context cache.')
+    const saved = object(parse(serialised, CONTEXT_CACHE_BYTES))
+    assert(saved.v === 1 && saved.identity === this.#identity.pubkey && Array.isArray(saved.collections) && saved.collections.length <= MAX_COLLECTIONS, 'Invalid encrypted context cache.')
     const previous = new Map(this.#collections)
     try { for (const value of saved.collections) {
       const stored = object(value) as unknown as StoredCollection
       const e = event(stored.access, 'cache')
       assert(e.pubkey === this.#identity.pubkey, 'Cache belongs to another identity.')
       const sealed = object(parse(e.content))
-      assert(sealed.recipient === this.#identity.pubkey && text(sealed.ciphertext, 65536), 'Invalid encrypted context cache.')
+      assert(sealed.v === 1 && sealed.recipient === this.#identity.pubkey && text(sealed.ciphertext, MAX_EVENT_BYTES), 'Invalid encrypted context cache.')
       const body = object(parse(await this.#identity.decrypt(e.pubkey, sealed.ciphertext as string))) as unknown as AccessBody
       const p = this.#checks.policy(body.policy).body
       if (!this.#visible(p)) continue

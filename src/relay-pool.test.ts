@@ -4,6 +4,7 @@ import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { NostrRelayPool } from './relay-pool.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays, type FakeRelayServer } from '../test/fake-socket.js'
 import { boundedEventVerifier } from './verify.js'
+import { RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
 
 // Must happen before any pool is constructed: SimplePool reads the websocket
 // implementation once, in its constructor.
@@ -41,6 +42,157 @@ describe('NostrRelayPool', () => {
   afterEach(() => {
     pool.close()
     vi.useRealTimers()
+  })
+
+  it('suspends recovery, stalls and scheduled read-back, then recreates readers without replaying seen events', async () => {
+    vi.useFakeTimers(); pool.close(); pool = new NostrRelayPool([URL_A])
+    const seen: string[] = [], first = evt(1), missed = evt(1)
+    pool.subscribe([{ kinds: [1] }], e => seen.push(e.id))
+    const sent = pool.publish(first); await vi.advanceTimersByTimeAsync(1); await sent
+    expect(seen).toEqual([first.id])
+    pool.suspend(); const frames = a.frames.length, attempts = a.attempts
+    a.seed(missed)
+    await vi.advanceTimersByTimeAsync(30_000)
+    // The plain test socket permits cancellation CLOSE frames. The owned
+    // native socket fences those too; neither path starts fresh REQ/EVENT.
+    expect(a.frames.slice(frames).every(frame => JSON.parse(frame)[0] === 'CLOSE')).toBe(true)
+    expect(a.attempts).toBe(attempts); expect(seen).toEqual([first.id])
+    await pool.joinBackground(); pool.resume(); await vi.advanceTimersByTimeAsync(1)
+    expect(seen).toEqual([first.id, missed.id]); expect(a.attempts).toBe(attempts + 1)
+  })
+
+  it('leaves an already sent slower publication ACK drainable while forbidding retries and new work', async () => {
+    vi.useFakeTimers(); pool.close()
+    const sockets: FakeWebSocket[] = []
+    class Socket extends FakeWebSocket { constructor(url: string) { super(url); sockets.push(this) } }
+    pool = new NostrRelayPool([URL_A, URL_B], undefined, { websocketImplementation: Socket as unknown as typeof WebSocket })
+    b.silent = true
+    const event = evt(), sent = pool.publish(event)
+    await vi.advanceTimersByTimeAsync(1); await sent
+    expect(b.stored.some(e => e.id === event.id)).toBe(true); expect(pool.publishing).toBe(true)
+    pool.suspend()
+    expect(() => pool.resume()).toThrow('not drained')
+    await expect(pool.publish(evt())).rejects.toThrow('suspended')
+    expect(() => pool.subscribe([], () => {})).toThrow('suspended')
+    expect(() => pool.reconnect()).toThrow('suspended')
+    sockets.find(s => s.url.startsWith(URL_B))!.deliver(JSON.stringify(['OK', event.id, true, 'accepted']))
+    await vi.advanceTimersByTimeAsync(1); expect(pool.publishing).toBe(false)
+    await pool.joinBackground(); pool.resume()
+  })
+
+  it('cancels a retry delay without reopening or resending during suspension', async () => {
+    vi.useFakeTimers(); pool.close(); pool = new NostrRelayPool([URL_A])
+    a.silent = true
+    const failure = expect(pool.publish(evt())).rejects.toThrow()
+    await vi.advanceTimersByTimeAsync(1)
+    pool.suspend(); const attempts = a.attempts, writes = a.stored.length
+    await vi.advanceTimersByTimeAsync(30_000); await failure
+    expect(a.attempts).toBe(attempts); expect(a.stored).toHaveLength(writes); expect(pool.publishing).toBe(false)
+    await pool.joinBackground()
+  })
+
+  it('cancels active query, probe and read-back obligations instead of waiting for new deadlines', async () => {
+    vi.useFakeTimers(); pool.close(); pool = new NostrRelayPool([URL_A])
+    const sent = pool.publish(evt(1)); await vi.advanceTimersByTimeAsync(1); await sent
+    a.silent = true
+    await vi.advanceTimersByTimeAsync(3100)
+    const query = pool.query(URL_A, [{ kinds: [1] }], 30_000), probe = pool.probe(30_000)
+    await vi.advanceTimersByTimeAsync(1); pool.suspend(); const frames = a.frames.length
+    expect((await query).complete).toBe(false); await probe; await pool.joinBackground()
+    pool.resume(); await vi.advanceTimersByTimeAsync(30_000)
+    expect(a.frames.slice(frames).every(frame => JSON.parse(frame)[0] === 'CLOSE')).toBe(true)
+    expect(pool.health()[0]!.unreturned).toBeUndefined()
+  })
+
+  it('retains the original history deadline across a pause beyond it', async () => {
+    vi.useFakeTimers(); pool.close(); pool = new NostrRelayPool([URL_A])
+    a.silent = true; let eosed = 0
+    pool.subscribe([{ kinds: [1] }], () => {}, () => eosed++)
+    await vi.advanceTimersByTimeAsync(1000); pool.suspend()
+    await vi.advanceTimersByTimeAsync(10_000); expect(eosed).toBe(0)
+    await pool.joinBackground(); pool.resume(); await vi.advanceTimersByTimeAsync(1)
+    expect(eosed).toBe(1)
+    await vi.advanceTimersByTimeAsync(9000); expect(eosed).toBe(1)
+  })
+
+  it('settles every unfinished dial on suspension without waiting for connection deadlines', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    const gate = new RelayDialGate()
+    gate.failed(URL_A + '/')
+    const previousBackoff = gate.retryAt(URL_A + '/')
+    await vi.advanceTimersByTimeAsync(1000)
+    pool = new NostrRelayPool([URL_A, URL_B], undefined, { dialGate: gate })
+    a.stallConnections = true; b.stallConnections = true
+    pool.subscribe([{ kinds: [1] }], () => {})
+    await vi.advanceTimersByTimeAsync(1)
+    expect(a.stalled.size).toBe(1); expect(b.stalled.size).toBe(1)
+    const before = Date.now()
+    pool.suspend(); await pool.joinBackground()
+    expect(Date.now()).toBe(before)
+    expect(a.stalled.size).toBe(0); expect(b.stalled.size).toBe(0)
+    expect(gate.retryAt(URL_A + '/')).toBe(previousBackoff)
+    expect(gate.failing(URL_B + '/')).toBe(false)
+    expect(gate.open(URL_A + '/')).toBe(true)
+    a.stallConnections = false; b.stallConnections = false
+    pool.resume(); await vi.advanceTimersByTimeAsync(1)
+    expect(a.frames.some(frame => JSON.parse(frame)[0] === 'REQ')).toBe(true)
+    expect(b.frames.some(frame => JSON.parse(frame)[0] === 'REQ')).toBe(true)
+  })
+
+  it('repeated cancellation never releases a dial reservation acquired by another pool after the drain', async () => {
+    vi.useFakeTimers(); pool.close()
+    const gate = new RelayDialGate()
+    gate.failed(URL_A + '/'); await vi.advanceTimersByTimeAsync(1000)
+    pool = new NostrRelayPool([URL_A], undefined, { dialGate: gate })
+    a.stallConnections = true; pool.subscribe([{ kinds: [1] }], () => {})
+    await vi.advanceTimersByTimeAsync(1); pool.suspend(); await pool.joinBackground()
+    expect(gate.take(URL_A + '/')).toBe(true)
+    pool.close(); expect(gate.open(URL_A + '/')).toBe(false)
+  })
+
+  it('cancelling a cached connected ensure cannot release another pool’s dial reservation', async () => {
+    vi.useFakeTimers(); pool.close()
+    const gate = new RelayDialGate(), starts: (() => void)[] = []
+    let delayed = false
+    pool = new NostrRelayPool([URL_A], undefined, { dialGate: gate, ownBackground: body => delayed
+      ? new Promise<void>((resolve, reject) => { starts.push(() => { void body().then(resolve, reject) }) }) : body() })
+    pool.subscribe([{ kinds: [1] }], () => {}); await vi.advanceTimersByTimeAsync(1)
+    gate.failed(URL_A + '/'); await vi.advanceTimersByTimeAsync(1000)
+    const other = gate.reserve(URL_A + '/')!
+    delayed = true; const publication = expect(pool.publish(evt())).rejects.toThrow()
+    expect(starts).toHaveLength(1); pool.suspend(); starts[0]!()
+    await publication; await pool.joinBackground()
+    expect(gate.open(URL_A + '/')).toBe(false)
+    expect(gate.release(other)).toBe(true)
+  })
+
+  it('a second success callback cannot release a reservation acquired after the first callback', async () => {
+    vi.useFakeTimers(); pool.close()
+    let other: RelayDialLease | undefined
+    class Gate extends RelayDialGate {
+      override release(receipt: RelayDialLease): boolean {
+        const released = super.release(receipt)
+        if (released && !other) other = this.reserve(URL_A + '/')
+        return released
+      }
+    }
+    const gate = new Gate(); gate.failed(URL_A + '/'); await vi.advanceTimersByTimeAsync(1000)
+    pool = new NostrRelayPool([URL_A], undefined, { dialGate: gate })
+    pool.subscribe([{ kinds: [1] }], () => {}); await vi.advanceTimersByTimeAsync(1)
+    expect(other).toBeDefined(); expect(gate.open(URL_A + '/')).toBe(false)
+    pool.close(); expect(gate.open(URL_A + '/')).toBe(false)
+  })
+
+  it('refuses a delayed ownership body before it can dial after the pause latch', async () => {
+    vi.useFakeTimers(); pool.close()
+    let start!: () => void
+    pool = new NostrRelayPool([URL_A], undefined, { ownBackground: body => new Promise<void>((resolve, reject) => {
+      start = () => { void body().then(resolve, reject) }
+    }) })
+    const failure = expect(pool.publish(evt())).rejects.toThrow()
+    pool.suspend(); start(); await vi.advanceTimersByTimeAsync(30_000); await failure; await pool.joinBackground()
+    expect(a.attempts).toBe(0); expect(a.frames).toHaveLength(0)
   })
 
   it('recovers a failed first connection without interrupting a healthy relay', async () => {

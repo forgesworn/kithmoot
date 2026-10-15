@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      prior_lease_diagnostic:
+        description: Run repeated Firefox timing diagnostics in addition to all acceptance gates
+        type: boolean
+        default: false
   # Prose-only changes run nothing: no test reads docs/ or a top-level
   # Markdown file (packages/*/THIRD_PARTY_NOTICES.md is read, and is not
   # matched here - `*.md` stops at the first slash).
@@ -81,6 +86,173 @@ jobs:
       - name: Check packaged library entry points
         run: node test/package-smoke.mjs
 
+  # Keep native custody checks independent of the already budgeted app
+  # acceptance shards. Each fixed project gets a separate process lifetime;
+  # line logs retain test identities if a later timeout interrupts the job.
+  ordinary-startup:
+    name: protected ordinary startup (${{ matrix.project }}, ${{ matrix.slice }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, firefox, webkit]
+        slice: [prepared-startup, member-startup, prepared-extension, complete-extension, clients, startup-guard, startup-built]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build library
+        run: npm run build:lib
+
+      - name: Find the Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.project }}
+
+      - name: Install browsers
+        run: npx playwright install --with-deps ${{ matrix.project }}
+
+      - name: Build production app for entry validation
+        if: matrix.slice == 'startup-built'
+        run: npm run build
+
+      - name: Protected ordinary startup custody
+        run: >-
+          npx playwright test -c playwright.ordinary.config.ts
+          --project=${{ matrix.project }}-ordinary-${{ matrix.slice }}
+          --reporter=line
+
+      - name: Keep the traces of anything that failed
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: playwright-traces-ordinary-startup-${{ matrix.project }}-${{ matrix.slice }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Diagnostics add evidence; they never replace or skip normal CI jobs.
+  prior-lease-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.prior_lease_diagnostic
+    name: diagnostic prior lease (${{ matrix.slice }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [member-startup, prepared-extension, complete-extension]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build library
+        run: npm run build:lib
+      - name: Find the Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-firefox
+      - name: Install Firefox
+        run: npx playwright install --with-deps firefox
+      - name: Measure repeated prior-lease journeys (diagnostic only)
+        env:
+          ORDINARY_STARTUP_TIMING: '1'
+        run: npx playwright test -c playwright.ordinary-startup-diagnostic.config.ts --project=firefox-${{ matrix.slice }}
+      - name: Keep diagnostic failures
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: diagnostic-prior-lease-firefox-${{ matrix.slice }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Keep the unchanged browser regressions out of the acceptance clock.
+  # Chromium completed 210 of 211 acceptance cases at the 30-minute job limit
+  # after all 634 regression cases passed. Each browser now retains its own
+  # complete regression gate, with unchanged test timeouts and no retries.
+  browser-regressions:
+    name: browser regressions (${{ matrix.project }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Find the Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.project }}
+
+      - name: Install browsers
+        run: npx playwright install --with-deps ${{ matrix.project }}
+
+      - name: MLS vault cross-tab regression tests
+        run: npm run test:vault -- --project=${{ matrix.project }}
+
+      - name: Browser Link ownership tests
+        run: npx playwright test -c playwright.link.config.ts --project=${{ matrix.project }}
+
+      - name: Browser MLS storage, coordination and recovery controls
+        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }}
+
+      - name: Browser MLS preview account lifecycle and production gate
+        if: matrix.project == 'chromium'
+        run: npm run build:lib && npx playwright test -c playwright.mls-app.config.ts
+
+      - name: Keep the traces of anything that failed
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: playwright-traces-browser-regressions-${{ matrix.project }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
   # The acceptance tests: the built app in a real browser, two or three
   # devices in a room, measured off decoded pixels and audio energy. The
   # unit suite cannot catch a room that negotiates media perfectly and puts
@@ -99,10 +271,9 @@ jobs:
   acceptance:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # The first shard also runs vault, Link and MLS regressions before normal
-    # acceptance. Desktop also reached case 65 of 69 at its old job limit.
-    # Retain both reviewed budgets; other groups keep 20 minutes and each
-    # Playwright test keeps its existing timeout and assertions.
+    # Retain the reviewed acceptance job budgets after moving regressions
+    # into their own complete per-browser gate. Every Playwright test keeps
+    # its existing timeout, assertions and zero retries.
     timeout-minutes: ${{ (matrix.name == 'chromium rest' || matrix.name == 'chromium desktop' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
     strategy:
       fail-fast: false
@@ -154,22 +325,6 @@ jobs:
 
       - name: Install browsers
         run: npx playwright install --with-deps ${{ matrix.browsers }}
-
-      - name: MLS vault cross-tab regression tests
-        if: matrix.name == 'chromium rest' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2'
-        run: npm run test:vault -- --project=${{ matrix.project }}
-
-      - name: Browser Link ownership tests
-        if: matrix.name == 'chromium rest' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2'
-        run: npx playwright test -c playwright.link.config.ts --project=${{ matrix.project }}
-
-      - name: Browser MLS storage, coordination and recovery controls
-        if: matrix.name == 'chromium rest' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2'
-        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }}
-
-      - name: Browser MLS preview account lifecycle and production gate
-        if: matrix.name == 'chromium rest'
-        run: npm run build:lib && npx playwright test -c playwright.mls-app.config.ts
 
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.

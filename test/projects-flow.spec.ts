@@ -282,6 +282,7 @@ test('three projects deliver only intended human and agent memberships to fresh 
     await page.setViewportSize(info.project.name === 'chromium-desktop' ? { width: 1440, height: 900 } : { width: 390, height: 844 })
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
     await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
     await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')

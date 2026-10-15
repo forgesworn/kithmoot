@@ -1,5 +1,14 @@
 import type { AssignmentLog } from '../../src/assignment-log.js'
 import type { RoomSession } from '../../src/session.js'
+import type { KnownRoom } from './rooms-store.js'
+
+/** The selected standing chat must keep the same invitation and policy.
+ * The caller selects from workspaceActivityRooms, which additionally validates
+ * invitation eligibility; this check grants no admission or signing authority. */
+export function boardAgentRoomCurrent(room: Pick<KnownRoom, 'roomId' | 'link' | 'endedAt' | 'endsAt' | 'destruct'> | undefined,
+  roomId: string, link: string): boolean {
+  return !!room && room.roomId === roomId && room.link === link && room.endedAt === undefined && room.endsAt === undefined && !room.destruct
+}
 
 /** A board borrows the chat's existing writer and installation. Closing a
  * card view releases its listeners, never the person's room or task journal. */

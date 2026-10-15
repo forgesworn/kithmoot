@@ -134,8 +134,14 @@ test('boards created in a chat are discovered on another device and edited toget
     expect(catalogue.join('')).not.toContain('Room delivery')
     expect(catalogue.join('')).not.toContain('invitation')
     await bo.page.locator('#boardsClose').click(); await bo.page.reload()
-    if (await bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).isVisible()) await bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).click()
-    if (await bo.page.locator('#join').isVisible()) {await bo.page.locator('#displayName').fill('Bo'); await bo.page.locator('#join').click()}
+    const openRoom = bo.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true})
+    const joinRoom = bo.page.locator('#join')
+    const room = bo.page.locator('#roomArea')
+    await expect.poll(async () => await openRoom.isVisible() || await joinRoom.isVisible() || await room.isVisible()).toBe(true)
+    if (await openRoom.isVisible()) await openRoom.click()
+    await expect.poll(async () => await joinRoom.isVisible() || await room.isVisible()).toBe(true)
+    if (await joinRoom.isVisible()) {await bo.page.locator('#displayName').fill('Bo'); await joinRoom.click()}
+    await expect(room).toBeVisible()
     await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
     guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     const join = guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/}); if (await join.isVisible()) await join.click()
@@ -284,8 +290,12 @@ test('a room keeps its board discoverable after popping out, closing the window 
     await expect(frame.getByRole('link', {name: 'Open me to add a checklist', exact: true})).toHaveCount(0)
     await page.locator('#boardsClose').click()
     await page.reload()
-    if (await page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true}).isVisible()) await page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true}).click()
+    const openRoom = page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true})
     const join = page.locator('#join')
+    const room = page.locator('#roomArea')
+    await expect.poll(async () => await openRoom.isVisible() || await join.isVisible() || await room.isVisible()).toBe(true)
+    if (await openRoom.isVisible()) await openRoom.click()
+    await expect.poll(async () => await join.isVisible() || await room.isVisible()).toBe(true)
     if (await join.isVisible()) {await page.locator('#displayName').fill('Ada'); await join.click()}
     await expect(page.locator('#roomBoards').getByRole('button', {name: 'Workshop board', exact: true})).toBeVisible()
     await page.locator('#roomBoards').getByRole('button', {name: 'Workshop board', exact: true}).click()
@@ -491,7 +501,25 @@ test('two agents handle separate cards while a second person edits the shared bo
       await expect(dialog.getByText('Room status: review. Attempt 1.', {exact: true})).toBeVisible()
       await expect(owner.getByRole('textbox', {name: 'Description', exact: true})).toHaveValue('')
       await dialog.getByRole('button', {name: 'Accept this result in the room', exact: true}).click()
-      await expect(dialog.getByText('Room status: accepted. Attempt 1.', {exact: true})).toBeVisible()
+      const accepted = dialog.getByText('Room status: accepted. Attempt 1.', {exact: true})
+      // Presence can change while the exact decision enters durable custody.
+      // Follow the actual held-action UI: review the same saved operation and
+      // current audience explicitly, rather than create another accept or
+      // bypass Girnel's audience/head guard. Repeated instability still fails.
+      const saved = dialog.getByRole('button', {name: 'Review saved accept', exact: true})
+      for (let review = 0; review < 3; review++) {
+        await expect.poll(async () => await accepted.isVisible() || await saved.isVisible()).toBe(true)
+        if (await accepted.isVisible()) break
+        // The original send may become accepted after the visibility check,
+        // removing this button. Only that exact accepted state ends the wait.
+        try { await saved.click({timeout:2_000}) }
+        catch (error) { if (await accepted.isVisible()) break; throw error }
+        await expect(dialog.getByRole('heading', {name: 'Audience for this saved room decision', exact: true})).toBeVisible()
+        const result = logs[i]!.snapshot().assignments.find(task => task.id === tasks[i]!.id)!.result!
+        await expect(dialog.getByLabel('Exact saved room decision preview', {exact: true})).toHaveText(JSON.stringify({op: 'accept', result: result.id}, null, 2))
+        await dialog.getByRole('button', {name: 'Send reviewed saved accept', exact: true}).click()
+      }
+      await expect(accepted).toBeVisible()
       await expect(owner.getByRole('textbox', {name: 'Description', exact: true})).toHaveValue('')
       await dialog.getByRole('button', {name: 'Review changes to this card', exact: true}).click()
       await dialog.getByLabel('Approve description', {exact: true}).check()

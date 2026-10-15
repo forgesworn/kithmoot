@@ -224,6 +224,17 @@ function readHeader(envelope: Uint8Array): Header {
   return readHeaderWithLength(envelope, envelope.length)
 }
 
+/** Visible framing only, never ciphertext authentication. A bounded header
+ * prefix may be supplied with the actual complete encrypted byte length. */
+export function inspectEnvelopeHeader(envelope: Uint8Array, envelopeLength = envelope.length): Readonly<{
+  format: 'FSWNENC2' | 'FSWNENC1' | 'WBLMENC1'; headerBytes: number; recordCount: number
+}> {
+  if (!Number.isSafeInteger(envelopeLength) || envelopeLength < envelope.length) throw new Error('The Wildbloom envelope length is invalid.')
+  const header = readHeaderWithLength(envelope, envelopeLength)
+  return Object.freeze({ format: String.fromCharCode(...header.bytes.subarray(0, 8)) as 'FSWNENC2' | 'FSWNENC1' | 'WBLMENC1',
+    headerBytes: header.bytes.length, recordCount: header.recordCount })
+}
+
 interface Metadata {
   name: string
   size: number
@@ -1068,19 +1079,25 @@ export function blobDeleteUrl(blobUrl: string, sha256: string, origins: Iterable
  * host (BUD-02: `t` delete, the hash in `x`). `lifetime` is how long it
  * stays good: a minute when it is sent at once, longer when it is kept to
  * be sent again later, so that nothing more than this one permission
- * outlives the key that signed it.
+ * outlives the key that signed it. The app-domain target tag signs the
+ * exact canonical HTTPS URL; it defaults to this origin's root hash path.
+ * Pass deleteUrl explicitly for a server mounted below another path.
  */
 export function buildDeleteAuthorisation(
   sha256: string,
   server: string,
   nowSeconds: number = Math.floor(Date.now() / 1000),
   lifetime: number = DELETE_AUTHORISATION_LIFETIME_SECONDS,
+  deleteUrl?: string,
 ): EventTemplate {
   const hash = sha256.toLowerCase()
   if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('The blob hash must be 64 hex characters.')
   if (!Number.isSafeInteger(lifetime) || lifetime <= 0) throw new Error('The authorisation lifetime must be a positive number of seconds.')
-  const hostname = new URL(normaliseBlossomServer(server)).hostname.toLowerCase()
+  const origin = normaliseBlossomServer(server), target = deleteUrl ?? `${origin}/${hash}`
+  if (blobDeleteUrl(target, hash, [origin]) !== target) throw new Error('The delete target must be a canonical hash URL on this server.')
+  const hostname = new URL(origin).hostname.toLowerCase()
   const createdAt = Math.max(0, nowSeconds - 1)
+  if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0 || !Number.isSafeInteger(createdAt + lifetime)) throw new Error('The authorisation needs a valid clock and expiry.')
   return {
     kind: BLOSSOM_AUTH_KIND,
     created_at: createdAt,
@@ -1089,6 +1106,7 @@ export function buildDeleteAuthorisation(
       ['expiration', String(createdAt + lifetime)],
       ['server', hostname],
       ['x', hash],
+      ['kithmoot-delete-target-v1', target],
     ],
     content: `Delete blob ${hash}`,
   }
@@ -1100,6 +1118,31 @@ export function isDeleteAuthorisation(event: Event, sha256: string, nowSeconds: 
   const expiration = Number(tag('expiration'))
   return event.kind === BLOSSOM_AUTH_KIND && tag('t') === 'delete' && tag('x') === sha256.toLowerCase()
     && Number.isFinite(expiration) && expiration > nowSeconds && verifyEventUncached(event)
+}
+
+/** Offline correlation, not fresh consent or proof of an upload. BUD-02's
+ * server tag binds only a hostname. Our app-domain target tag additionally
+ * signs the exact HTTPS origin, port and path. Legacy unbound authorisations
+ * cannot safely be replayed and are retained for deliberate recovery. */
+export function isDeleteAuthorisationTarget(event: Event, sha256: string, deleteUrl: string): boolean {
+  try {
+    const fields = ['kind', 'created_at', 'tags', 'content', 'pubkey', 'id', 'sig']
+    if (!/^[0-9a-f]{64}$/.test(sha256) || !event || event.kind !== BLOSSOM_AUTH_KIND ||
+        !Number.isSafeInteger(event.created_at) || event.created_at < 0 || !Array.isArray(event.tags) || event.tags.length !== 5 ||
+        event.content !== `Delete blob ${sha256}` || Object.keys(event).length !== fields.length ||
+        fields.some(key => !Object.hasOwn(event, key))) return false
+    const one = (name: string): string | undefined => {
+      const tags = event.tags.filter(t => Array.isArray(t) && t[0] === name)
+      return tags.length === 1 && tags[0]!.length === 2 && typeof tags[0]![1] === 'string' ? tags[0]![1] : undefined
+    }
+    const expiration = one('expiration'), url = new URL(deleteUrl)
+    if (one('t') !== 'delete' || one('x') !== sha256 || one('server') !== url.hostname.toLowerCase() ||
+        one('kithmoot-delete-target-v1') !== deleteUrl ||
+        event.tags.some((t, i) => t[0] !== ['t', 'expiration', 'server', 'x', 'kithmoot-delete-target-v1'][i]) ||
+        !expiration || !/^(0|[1-9][0-9]*)$/.test(expiration) || !Number.isSafeInteger(Number(expiration)) ||
+        Number(expiration) <= event.created_at || blobDeleteUrl(deleteUrl, sha256, [url.origin]) !== deleteUrl) return false
+    return verifyEventUncached(event)
+  } catch { return false }
 }
 
 /**
@@ -1131,12 +1174,22 @@ export interface DeleteBlobOptions {
  * the caller, by the key that signed the upload.
  */
 export async function deleteBlob(deleteUrl: string, authorisation: Event, opts: DeleteBlobOptions = {}): Promise<BlobDeleteOutcome> {
+  // Own a single plain JSON image before checking its signature and encoding
+  // the header. A mutable caller/toJSON cannot change the event after verify.
+  let captured: Event
+  try { captured = JSON.parse(JSON.stringify(authorisation)) as Event } catch {
+    return { status: 'failed', detail: 'File deletion authorisation could not be verified.' }
+  }
+  const hash = Array.isArray(captured?.tags) ? captured.tags.find(t => Array.isArray(t) && t[0] === 'x')?.[1] : undefined
+  if (!hash || !isDeleteAuthorisationTarget(captured, hash, deleteUrl)) {
+    return { status: 'failed', detail: 'File deletion authorisation could not be verified.' }
+  }
   const doFetch = opts.fetch ?? globalThis.fetch
   const host = (() => { try { return new URL(deleteUrl).hostname } catch { return deleteUrl } })()
   const common = { credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', redirect: 'error', signal: opts.signal } as const
   let response: Response
   try {
-    response = await doFetch(deleteUrl, { ...common, method: 'DELETE', headers: { Authorization: encodeBlossomAuthorisation(authorisation) } })
+    response = await doFetch(deleteUrl, { ...common, method: 'DELETE', headers: { Authorization: encodeBlossomAuthorisation(captured) } })
   } catch {
     return { status: 'failed', detail: `Could not reach ${host}.` }
   }
@@ -1148,8 +1201,7 @@ export async function deleteBlob(deleteUrl: string, authorisation: Event, opts: 
   try {
     check = await doFetch(deleteUrl, { ...common, method: 'HEAD' })
   } catch {
-    // It answered the delete and then could not be reached: taken at its word.
-    return { status: 'deleted' }
+    return { status: 'failed', detail: `Could not confirm file deletion on ${host}.` }
   }
   if (check.status === 404 || check.status === 410) return { status: 'deleted' }
   if (check.ok) return { status: 'kept', detail: `${host} still serves the file.` }

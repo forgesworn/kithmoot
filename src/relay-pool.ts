@@ -3,10 +3,11 @@ import { boundedEventVerifier } from './verify.js'
 import { normalizeURL } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
+import { bytesToHex, randomBytes } from '@noble/hashes/utils'
 import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
-import { relayDials, type RelayDialGate } from './relay-dial-gate.js'
+import { relayDials, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
 import { guardedWebSocket, handshakeObservedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
@@ -15,6 +16,9 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
   profile?: NetworkProfile
   /** Shared dial backoff; every pool in the process shares one by default. */
   dialGate?: RelayDialGate
+  /** Ownership only: register an entire background/dial body before its
+   * first await. The supplied socket still owns all execution permission. */
+  ownBackground?: (body: () => Promise<void>) => Promise<void>
 }
 
 /** The transport seam shared by real relays and the in-process simulator. */
@@ -44,6 +48,10 @@ export interface RelayTransport {
  *  circle, from verified current box status or an explicit keeper-confirmed mark. Only such a relay is
  *  ever shown as sheltered; see `lane.ts`. */
 export interface RelayConfig { url: string; read: boolean; write: boolean; circle?: boolean }
+/** Logical history state for recreating an owned subscription resource. It
+ * only shortens a timer; it creates no membership or relay provenance. */
+export interface RelaySubscriptionHistory { readonly deadlineAt: number; readonly loaded: boolean }
+export const SUBSCRIBE_EOSE_DEADLINE_MS = 8_000
 export interface RelayHealth extends RelayConfig {
   state: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'closed'
   lastConnectedAt?: number
@@ -126,6 +134,7 @@ type Subscription = {
   eosed: Set<string>
   eoseSent: boolean
   deadline?: ReturnType<typeof setTimeout>
+  deadlineAt?: number
 }
 
 export class NostrRelayPool implements RelayTransport {
@@ -136,8 +145,14 @@ export class NostrRelayPool implements RelayTransport {
   #generation = 0
   #abort = new AbortController()
   #closed = false
+  #paused = false
   #attempted = new Map<string, number>()
-  #recovery: ReturnType<typeof setInterval>
+  #recovery?: ReturnType<typeof setInterval>
+  #retryAbort = new AbortController()
+  readonly #backgroundJobs = new Set<Promise<void>>()
+  readonly #backgroundStops = new Set<() => void>()
+  readonly #readBackTimers = new Set<ReturnType<typeof setTimeout>>()
+  #cancelPendingDials: () => void = () => {}
   #authentication = new Map<string, AuthenticationGrant | null>()
   #authFailures = new Map<string, string>()
   #publishing = 0
@@ -163,8 +178,46 @@ export class NostrRelayPool implements RelayTransport {
     if (!Number.isSafeInteger(this.#authTimeout) || this.#authTimeout < 100 || this.#authTimeout > 120_000) throw new Error('Invalid relay authentication deadline')
     this.#authentication = this.#grants(options.authentication ?? [])
     this.#pool = this.#createPool()
-    this.#recovery = setInterval(() => this.#recoverSubscriptions(), 5_000)
+    this.#startRecovery()
+  }
+
+  #startRecovery(): void {
+    this.#recovery = setInterval(() => {
+      if (!this.#paused && !this.#closed) void this.#background(async () => this.#recoverSubscriptions()).catch(() => {})
+    }, 5_000)
     ;(this.#recovery as unknown as { unref?: () => void }).unref?.()
+  }
+
+  #background(body: () => Promise<void>): Promise<void> {
+    if (this.#paused || this.#closed) return Promise.reject(new Error('pool is suspended or closed'))
+    const generation = this.#generation
+    const start = () => {
+      if (this.#paused || this.#closed || generation !== this.#generation) return Promise.reject(new Error('pool is suspended or closed'))
+      return body()
+    }
+    const pending = this.options.ownBackground ? this.options.ownBackground(start) : start()
+    this.#backgroundJobs.add(pending)
+    void pending.finally(() => this.#backgroundJobs.delete(pending)).catch(() => {})
+    return pending
+  }
+
+  #ensure<T>(body: (abort: AbortSignal) => Promise<T>, external?: AbortSignal): Promise<T> {
+    let result: T
+    const controller = new AbortController()
+    const cancel = () => controller.abort()
+    if (external?.aborted) cancel()
+    else external?.addEventListener('abort', cancel, { once: true })
+    this.#backgroundStops.add(cancel)
+    // Relay.close detaches its socket-close callback before cancelling a
+    // handshake. A dedicated abort settles that dial's real promise too;
+    // sharing one signal would let the dependency overwrite onabort.
+    return this.#background(async () => {
+      if (controller.signal.aborted) throw new Error('Connection cancelled')
+      result = await body(controller.signal)
+    }).then(() => result!).finally(() => {
+      external?.removeEventListener('abort', cancel)
+      this.#backgroundStops.delete(cancel)
+    })
   }
 
   #createPool(): AbstractSimplePool {
@@ -173,6 +226,44 @@ export class NostrRelayPool implements RelayTransport {
     // stalled reconnect handshakes. Dependency reconnects can wait forever
     // without a timeout and leave a running agent unable to hear the room.
     const owner = this
+    const ownedDials = new Map<string, RelayDialLease>()
+    let dialsCancelled = false
+    const claim = (url: string, pool: AbstractSimplePool): boolean => {
+      const key = normalizeURL(url)
+      if (dialsCancelled || this.#paused || !current(key)) return false
+      if (pool.listConnectionStatus().get(key) === true || ownedDials.has(key)) return true
+      const receipt = this.#dials.reserve(key)
+      if (!receipt) return false
+      ownedDials.set(key, receipt); return true
+    }
+    const ensure = <T>(url: string, pool: AbstractSimplePool, connect: (abort: AbortSignal) => Promise<T>, external?: AbortSignal): Promise<T> =>
+      owner.#ensure(async abort => {
+        const key = normalizeURL(url)
+        // Direct read-back/lookup ensure calls do not pass through the
+        // dependency's allowConnecting hook. They need the same reservation.
+        if (!claim(key, pool)) throw DIAL_SKIPPED
+        const receipt = ownedDials.get(key)
+        const forget = () => { if (receipt && ownedDials.get(key) === receipt) ownedDials.delete(key) }
+        try {
+          const result = await connect(abort)
+          forget(); if (receipt) this.#dials.release(receipt)
+          return result
+        } catch (error) {
+          forget()
+          if (dialsCancelled) { if (receipt) this.#dials.release(receipt) }
+          else this.#dials.failedDial(key, receipt)
+          throw error
+        }
+      }, external)
+    this.#cancelPendingDials = () => {
+      if (dialsCancelled) return
+      dialsCancelled = true
+      // Release only this generation's pending reservations now, before a
+      // fresh generation can take them. Preserve previously earned backoff.
+      // Late dependency failures must not release another pool's new lease.
+      const receipts = [...ownedDials.values()]; ownedDials.clear()
+      for (const receipt of receipts) this.#dials.release(receipt)
+    }
     const current = (url: string) => !this.#closed && generation === this.#generation && !this.#authError(url)
     const configured = this.options.websocketImplementation && handshakeObservedWebSocket(this.options.websocketImplementation)
     const base = configured ?? (globalThis.WebSocket && handshakeObservedWebSocket(globalThis.WebSocket))
@@ -199,17 +290,20 @@ export class NostrRelayPool implements RelayTransport {
     // version of the same check.
     const pool = websocketImplementation ? new class extends AbstractSimplePool {
       override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
-        const connecting = super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
-          ? { ...params, connectionTimeout: owner.#authTimeout + 8_000 }
-          : params)
-        return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => owner.#dials.connected(normalizeURL(url)))
+        return ensure(url, this, abort => {
+          const connecting = super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
+            ? { ...params, abort, connectionTimeout: owner.#authTimeout + 8_000 } : { ...params, abort })
+          return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => {})
+        }, params?.abort)
       }
     }({ enableReconnect: false, enablePing: false, websocketImplementation,
       verifyEvent: this.#verifyEvent, maxWaitForConnection: 3_000 })
       : new class extends SimplePool {
         override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
-          const connecting = super.ensureRelay(url, params)
-          return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => owner.#dials.connected(normalizeURL(url)))
+          return ensure(url, this, abort => {
+            const connecting = super.ensureRelay(url, { ...params, abort })
+            return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => {})
+          }, params?.abort)
         }
       }({ enableReconnect: false, enablePing: false })
     // SimplePool deliberately exposes fewer constructor options than its
@@ -217,21 +311,18 @@ export class NostrRelayPool implements RelayTransport {
     pool.verifyEvent = this.#verifyEvent
     // A relay that refused, timed out or went silent on its last try is not dialled
     // again until its backoff passes; one already connected is never held up.
-    pool.allowConnectingToRelay = url => {
-      const key = normalizeURL(url)
-      return current(key) && (pool.listConnectionStatus().get(key) === true || this.#dials.take(key))
-    }
+    pool.allowConnectingToRelay = url => claim(url, pool)
     // An open socket does not end the backoff: a relay that accepts the
     // upgrade and then drops it, or never answers on it, would otherwise be
     // redialled at full speed. Only an answer does; see `#answered`.
     pool.onRelayConnectionSuccess = url => {
-      this.#dials.connected(normalizeURL(url))
+      // Receipt completion belongs to the exact ensure promise above.
+      // This URL-only callback may be duplicated or arrive after another dial.
       if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
     }
     pool.onRelayConnectionFailure = url => {
-      // Counted even for a pool that has since moved on: the relay still
-      // failed, and its dial still has to be handed back.
-      this.#dialFailed(normalizeURL(url))
+      if (dialsCancelled) return // deliberate cleanup is not a remote failure
+      // The actual ensure rejection has already recorded its owned failure.
       if (generation !== this.#generation) return
       this.#mark(url, { state: 'disconnected', lastError: this.#authError(normalizeURL(url)) ?? 'Connection failed' })
     }
@@ -259,6 +350,7 @@ export class NostrRelayPool implements RelayTransport {
    * and invalidates an outstanding signer response before it can be sent. */
   setAuthentication(entries: readonly RelayAuthentication[]): void {
     if (this.#closed) throw new Error('pool is closed')
+    if (this.#paused) throw new Error('pool is suspended')
     const next = this.#grants(entries)
     for (const url of this.#authentication.keys()) if (!next.has(url)) next.set(url, null)
     this.#authentication = next
@@ -298,9 +390,13 @@ export class NostrRelayPool implements RelayTransport {
   /** Rebind existing consumers without leaving the room or replaying history. */
   setRelays(entries: readonly (string | RelayConfig)[]): void {
     if (this.#closed) throw new Error('pool is closed')
+    if (this.#paused) throw new Error('pool is suspended')
     const next = normaliseRelayConfig(entries, this.options.profile)
     this.#generation++
+    this.#cancelPendingDials()
     this.#abort.abort()
+    this.#retryAbort.abort(); this.#retryAbort = new AbortController()
+    this.#stopBackground()
     for (const sub of this.#subscriptions) this.#stop(sub)
     this.#pool.destroy()
     this.#relays = next
@@ -345,6 +441,7 @@ export class NostrRelayPool implements RelayTransport {
 
   async publish(event: Event): Promise<void> {
     if (this.#closed) throw new Error('pool is closed')
+    if (this.#paused) throw new Error('pool is suspended')
     const urls = this.#relays.filter(relay => relay.write).map(relay => relay.url)
     if (!urls.length) throw new Error('no writable relay is configured')
     const generation = this.#generation
@@ -396,7 +493,7 @@ export class NostrRelayPool implements RelayTransport {
   async publishGuarded(event: Event, allowed: () => boolean): Promise<void> {
     const generation = this.#generation
     const current = () => {
-      try { return !this.#closed && generation === this.#generation && allowed() }
+      try { return !this.#closed && !this.#paused && generation === this.#generation && allowed() }
       catch { return false }
     }
     if (!current()) throw new Error('Publication is no longer authorised.')
@@ -461,7 +558,7 @@ export class NostrRelayPool implements RelayTransport {
         // its backoff keeps whatever it last earned.
         const unreachable = typeof error === 'string' && error.startsWith('connection failure:')
         const heldBack = error === DIAL_SKIPPED && timedOut
-        if (generation === this.#generation && !heldBack) {
+        if (generation === this.#generation && !heldBack && !this.#closed && !this.#paused) {
           // A connection failure has already counted against the relay; a
           // socket that opened and then said nothing counts here.
           if (!timedOut) this.#answered(url)
@@ -469,7 +566,7 @@ export class NostrRelayPool implements RelayTransport {
           this.#mark(url, { lastError: this.#authError(url) ?? (unreachable ? 'Connection failed' : timedOut ? 'Publish timed out'
             : error instanceof Error ? writeRefusal(error.message) : 'Last publish failed or was rejected') })
         }
-        if (!timedOut || Date.now() - start >= PUBLISH_RETRY_BUDGET_MS || generation !== this.#generation || this.#closed) throw error
+        if (!timedOut || Date.now() - start >= PUBLISH_RETRY_BUDGET_MS || generation !== this.#generation || this.#closed || this.#paused) throw error
         // A socket that swallowed the send without ever answering is worth
         // more suspicion than a slow one: reopen it rather than hammer the
         // same half-open connection again. One held back by the dial gate
@@ -485,8 +582,8 @@ export class NostrRelayPool implements RelayTransport {
         // Wait out the relay's dial backoff too, so the retry is not spent
         // being turned away by it, but never past the retry budget.
         const backoff = Math.min(this.#dials.retryAt(url) - Date.now(), start + PUBLISH_RETRY_BUDGET_MS - Date.now())
-        await delay(Math.max(RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!, backoff), this.#abort.signal)
-        if (generation !== this.#generation || this.#closed) throw error
+        await delay(Math.max(RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!, backoff), this.#retryAbort.signal)
+        if (generation !== this.#generation || this.#closed || this.#paused) throw error
       }
     }
   }
@@ -496,7 +593,7 @@ export class NostrRelayPool implements RelayTransport {
    *  the backoff once each, and a join (which publishes a few events at
    *  once) would spend its whole retry budget waiting on a relay that has
    *  already come back. */
-  #dialFailed(url: string): void { this.#dials.failed(url) }
+  #dialFailed(url: string): void { this.#dials.failedDial(url) }
 
   /** The relay said something on its own account: an `OK` either way, or an
    *  event. That, not an open socket, is what clears its backoff. */
@@ -517,40 +614,53 @@ export class NostrRelayPool implements RelayTransport {
    *  counts against it; a timeout, a refusal or a dropped socket proves
    *  nothing, and the kind is tried again on a later write. */
   #scheduleReadBack(url: string, event: Event, generation: number): void {
-    if (!isStoredKind(event.kind) || !this.#relays.some(relay => relay.url === url && relay.read)) return
+    if (this.#paused || this.#closed || !isStoredKind(event.kind) || !this.#relays.some(relay => relay.url === url && relay.read)) return
     const checked = this.#readBack.get(url) ?? new Set<number>()
     if (checked.has(event.kind)) return
     checked.add(event.kind)
     this.#readBack.set(url, checked)
-    const stale = () => this.#closed || generation !== this.#generation
+    const stale = () => this.#closed || this.#paused || generation !== this.#generation
     const timer = setTimeout(() => {
+      this.#readBackTimers.delete(timer)
       if (stale()) return
-      void this.#readBackOnce(url, event).then(returned => {
+      void this.#background(async () => {
+        const returned = await this.#readBackOnce(url, event, generation)
         if (stale()) return
         if (returned === undefined) { checked.delete(event.kind); return }
         const previous = this.#health.get(url)?.unreturned ?? []
         const unreturned = returned ? previous.filter(kind => kind !== event.kind) : [...new Set([...previous, event.kind])]
         this.#mark(url, { unreturned: unreturned.length ? unreturned : undefined })
-      }, () => { if (!stale()) checked.delete(event.kind) })
+      }).catch(() => { if (!stale()) checked.delete(event.kind) })
     }, READ_BACK_DELAY_MS)
+    this.#readBackTimers.add(timer)
     ;(timer as unknown as { unref?: () => void }).unref?.()
   }
 
-  async #readBackOnce(url: string, event: Event): Promise<boolean | undefined> {
+  async #readBackOnce(url: string, event: Event, generation: number): Promise<boolean | undefined> {
     if (this.#pool.listConnectionStatus().get(url) !== true) return undefined
     const relay = await this.#pool.ensureRelay(url, { abort: this.#abort.signal })
+    if (this.#paused || this.#closed || generation !== this.#generation) return undefined
     return new Promise(resolve => {
       let found = false
+      let sub: { close(): void } | undefined, timer: ReturnType<typeof setTimeout> | undefined, settled = false
+      const finish = (result: boolean | undefined) => {
+        if (settled) return
+        settled = true; clearTimeout(timer); this.#backgroundStops.delete(cancel)
+        sub?.close(); resolve(result)
+      }
+      const cancel = () => finish(undefined)
+      this.#backgroundStops.add(cancel)
       // The pool's own subscriptions fake an EOSE on a close or a timeout;
       // a bare relay subscription with a far deadline only calls `oneose`
       // for the relay's real answer before `timer` gives up.
-      const timer = setTimeout(() => { sub.close(); resolve(undefined) }, READ_BACK_TIMEOUT_MS)
-      const sub = relay.subscribe([{ ids: [event.id] }], {
+      timer = setTimeout(cancel, READ_BACK_TIMEOUT_MS)
+      sub = relay.subscribe([{ ids: [event.id] }], {
         eoseTimeout: READ_BACK_TIMEOUT_MS * 4,
         onevent: received => { if (received.id === event.id) found = true },
-        oneose: () => { clearTimeout(timer); resolve(found); sub.close() },
-        onclose: () => { clearTimeout(timer); resolve(undefined) },
+        oneose: () => finish(found),
+        onclose: cancel,
       })
+      if (settled) sub.close()
     })
   }
 
@@ -561,8 +671,12 @@ export class NostrRelayPool implements RelayTransport {
    *  which is the only way to notice a half-open socket that `send()`
    *  still accepts into the void. `enablePing` stays off (see module intro
    *  in relay-auth.ts / CLAUDE.md); this is the without-ping substitute. */
-  async probe(timeoutMs = 3_000): Promise<void> {
-    if (this.#closed) return
+  probe(timeoutMs = 3_000): Promise<void> {
+    if (this.#closed || this.#paused) return Promise.resolve()
+    return this.#background(() => this.#probeOwned(timeoutMs))
+  }
+
+  async #probeOwned(timeoutMs: number): Promise<void> {
     const generation = this.#generation
     const connected = [...this.#pool.listConnectionStatus().entries()].filter(([, ok]) => ok).map(([url]) => url)
     await Promise.all(connected.map(url => this.#probeRelay(url, timeoutMs, generation)))
@@ -571,24 +685,29 @@ export class NostrRelayPool implements RelayTransport {
   async #probeRelay(url: string, timeoutMs: number, generation: number): Promise<void> {
     const alive = await new Promise<boolean>(resolve => {
       let settled = false
+      let handle: { close(): void } | undefined, timer: ReturnType<typeof setTimeout> | undefined
       const finish = (ok: boolean): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        handle.close()
+        this.#backgroundStops.delete(cancel)
+        handle?.close()
         resolve(ok)
       }
+      const cancel = () => finish(false)
+      this.#backgroundStops.add(cancel)
       // A filter nothing can match: the round trip is the point, not the
       // answer. A far-future `since` is honoured by every NIP-01 relay.
-      const handle = this.#pool.subscribeMap([{ url, filter: { since: Math.floor(Date.now() / 1000) + 1_000_000_000 } }], {
+      handle = this.#pool.subscribeMap([{ url, filter: { since: Math.floor(Date.now() / 1000) + 1_000_000_000 } }], {
         abort: this.#abort.signal,
         maxWait: timeoutMs,
         oneose: () => finish(true),
         onclose: () => finish(false),
       })
-      const timer = setTimeout(() => finish(false), timeoutMs)
+      if (settled) handle.close()
+      else timer = setTimeout(cancel, timeoutMs)
     })
-    if (alive || generation !== this.#generation || this.#closed) return
+    if (alive || generation !== this.#generation || this.#closed || this.#paused) return
     this.#pool.close([url])
     this.#attempted.set(url, Date.now())
     for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
@@ -609,8 +728,15 @@ export class NostrRelayPool implements RelayTransport {
    */
   query(url: string, filters: Filter[], timeoutMs = 8_000): Promise<{ events: Event[]; complete: boolean }> {
     if (this.#closed) return Promise.reject(new Error('pool is closed'))
+    if (this.#paused) return Promise.reject(new Error('pool is suspended'))
     const relay = this.#relays.find(r => r.url === normalizeURL(url))
     if (!relay?.read) return Promise.reject(new Error('not a readable relay of this pool'))
+    let result: { events: Event[]; complete: boolean }
+    return this.#background(async () => { result = await this.#queryOwned(relay.url, filters, timeoutMs) }).then(() => result!)
+  }
+
+  #queryOwned(url: string, filters: Filter[], timeoutMs: number): Promise<{ events: Event[]; complete: boolean }> {
+    const generation = this.#generation
     return new Promise(resolve => {
       const events = new Map<string, Event>()
       let settled = false
@@ -621,18 +747,21 @@ export class NostrRelayPool implements RelayTransport {
       const finish = (complete: boolean): void => {
         if (settled) return
         settled = true
+        this.#backgroundStops.delete(cancel)
         clearTimeout(timer)
         handle?.close()
         resolve({ events: [...events.values()], complete })
       }
-      handle = this.#pool.subscribeMap(filters.map(filter => ({ url: relay.url, filter: { ...filter } })), {
+      const cancel = () => finish(false)
+      this.#backgroundStops.add(cancel)
+      handle = this.#pool.subscribeMap(filters.map(filter => ({ url, filter: { ...filter } })), {
         abort: this.#abort.signal,
         maxWait: timeoutMs * 2 + 5_000,
-        onevent: event => { events.set(event.id, event) },
+        onevent: event => { if (!this.#paused && !this.#closed && generation === this.#generation) events.set(event.id, event) },
         // nostr-tools reports an end of stored events for a relay it could
         // not reach, just before it says the relay closed. Wait a microtask
         // so the close is heard first.
-        oneose: () => queueMicrotask(() => finish(true)),
+        oneose: () => queueMicrotask(() => finish(!this.#paused && !this.#closed && generation === this.#generation)),
         onclose: () => finish(false),
       })
       if (settled) handle.close()
@@ -649,9 +778,10 @@ export class NostrRelayPool implements RelayTransport {
    */
   async publishQuietly(url: string, event: Event): Promise<void> {
     if (this.#closed) throw new Error('pool is closed')
+    if (this.#paused) throw new Error('pool is suspended')
     const relay = this.#relays.find(r => r.url === normalizeURL(url))
     if (!relay?.write) throw new Error('not a writable relay of this pool')
-    await this.#pool.publish([relay.url], event, { abort: this.#abort.signal })[0]
+    await this.#background(async () => { await this.#pool.publish([relay.url], event, { abort: this.#abort.signal })[0] })
   }
 
   describe(): RelayConfig[] {
@@ -662,11 +792,14 @@ export class NostrRelayPool implements RelayTransport {
     })
   }
 
-  subscribe(filters: Filter[], onEvent: (event: Event, via?: string) => void, onEose?: () => void): () => void {
+  subscribe(filters: Filter[], onEvent: (event: Event, via?: string) => void, onEose?: () => void, history?: RelaySubscriptionHistory): () => void {
     if (this.#closed) throw new Error('pool is closed')
-    const sub: Subscription = { filters, onEvent, onEose, seen: new Set(), bindings: new Map(), eosed: new Set(), eoseSent: false }
+    if (this.#paused) throw new Error('pool is suspended')
+    if (history && (!Number.isSafeInteger(history.deadlineAt) || history.deadlineAt < 0 || typeof history.loaded !== 'boolean')) throw new Error('invalid subscription history deadline')
+    const sub: Subscription = { filters, onEvent, onEose, seen: new Set(), bindings: new Map(), eosed: new Set(),
+      eoseSent: history?.loaded ?? false, ...(history ? { deadlineAt: Math.min(history.deadlineAt, Date.now() + SUBSCRIBE_EOSE_DEADLINE_MS) } : {}) }
     this.#subscriptions.add(sub)
-    this.#start(sub)
+    this.#start(sub, history !== undefined)
     return () => { this.#subscriptions.delete(sub); this.#stop(sub) }
   }
 
@@ -676,21 +809,23 @@ export class NostrRelayPool implements RelayTransport {
     sub.bindings.clear()
   }
 
-  #start(sub: Subscription): void {
+  #start(sub: Subscription, preserveDeadline = false): void {
+    if (this.#paused || this.#closed) return
     sub.eosed.clear()
-    sub.eoseSent = false
+    if (!preserveDeadline) { sub.eoseSent = false; sub.deadlineAt = Date.now() + SUBSCRIBE_EOSE_DEADLINE_MS }
     // History is as loaded as it is going to get once nostr-tools' own wait
     // has passed: a relay that accepted the socket and never answers is still
     // resent to below, but a reader is not kept waiting on it.
     clearTimeout(sub.deadline)
-    sub.deadline = setTimeout(() => {
-      if (!this.#closed && this.#subscriptions.has(sub) && !sub.eoseSent) { sub.eoseSent = true; sub.onEose?.() }
-    }, SUBSCRIBE_EOSE_DEADLINE_MS)
-    ;(sub.deadline as unknown as { unref?: () => void }).unref?.()
+    if (!sub.eoseSent) sub.deadline = setTimeout(() => {
+      if (!this.#closed && !this.#paused && this.#subscriptions.has(sub) && !sub.eoseSent) { sub.eoseSent = true; sub.onEose?.() }
+    }, Math.max(0, (sub.deadlineAt ?? Date.now()) - Date.now()))
+    ;(sub.deadline as unknown as { unref?: () => void } | undefined)?.unref?.()
     for (const relay of this.#relays) if (relay.read) this.#startRelay(sub, relay.url)
   }
 
   #startRelay(sub: Subscription, url: string, since = Date.now()): void {
+    if (this.#closed || this.#paused) return
     const previous = sub.bindings.get(url)
     previous?.stop()
     const generation = this.#generation
@@ -703,7 +838,7 @@ export class NostrRelayPool implements RelayTransport {
       if (this.#dialable(url)) this.#mark(url, { state: 'connecting' })
       this.#attempted.set(url, Date.now())
     }
-    const active = () => !this.#closed && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
+    const active = () => !this.#closed && !this.#paused && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
     // A `REQ` sent the instant a reopened socket connects can land in the
     // gap before a relay that was still recovering actually starts
     // answering again - the socket is open, but the relay drops the frame
@@ -723,9 +858,12 @@ export class NostrRelayPool implements RelayTransport {
     // rather than resending into the void forever.
     const stall = setTimeout(() => {
       if (!active() || this.#authError(url) || Date.now() - since >= SUBSCRIBE_STALL_BUDGET_MS) return
-      this.#startRelay(sub, url, since)
+      void this.#background(async () => this.#startRelay(sub, url, since)).catch(() => {})
     }, SUBSCRIBE_STALL_MS)
     const handle = this.#pool.subscribeMap(sub.filters.map(filter => ({ url, filter: { ...filter } })), {
+      // Dependency relay serials restart on fresh sockets. A fresh wire ID
+      // prevents an old reader's EOSE identifier satisfying a new binding.
+      id: bytesToHex(randomBytes(16)),
       abort: this.#abort.signal,
       maxWait: SUBSCRIBE_EOSE_DEADLINE_MS,
       oneose: () => {
@@ -768,7 +906,7 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   #recoverSubscriptions(): void {
-    if (this.#closed || this.#subscriptions.size === 0) return
+    if (this.#closed || this.#paused || this.#subscriptions.size === 0) return
     const connected = this.#pool.listConnectionStatus()
     const now = Date.now()
     for (const relay of this.#relays) {
@@ -793,15 +931,62 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   close(): void {
+    if (this.#closed) return
     this.#closed = true
     clearInterval(this.#recovery)
     this.#generation++
+    this.#cancelPendingDials()
     this.#abort.abort()
+    this.#retryAbort.abort()
+    this.#stopBackground()
     for (const sub of this.#subscriptions) this.#stop(sub)
     this.#subscriptions.clear()
     this.#pool.destroy()
   }
+
+  #stopBackground(): void {
+    for (const timer of this.#readBackTimers) clearTimeout(timer)
+    this.#readBackTimers.clear()
+    for (const stop of [...this.#backgroundStops]) stop()
+    this.#backgroundStops.clear()
+  }
+
+  /** Latch before cancelling long resources. Existing connected publications
+   * keep their finite ACK waits; no retry, background read or new dial starts.
+   * An owned native socket additionally fences every post-latch frame. */
+  suspend(): void {
+    if (this.#closed || this.#paused) return
+    this.#paused = true
+    this.#cancelPendingDials()
+    clearInterval(this.#recovery); this.#recovery = undefined
+    this.#retryAbort.abort()
+    for (const sub of this.#subscriptions) this.#stop(sub)
+    this.#stopBackground()
+    const pending = [...this.#pool.listConnectionStatus()].filter(([, connected]) => !connected).map(([url]) => url)
+    this.#pool.close(pending)
+  }
+
+  /** Resource recreation, not execution permission. Native callers invoke
+   * this only inside a fresh authorised read after their graph has drained. */
+  resume(): void {
+    if (this.#closed || !this.#paused || this.#publishing || this.#backgroundJobs.size) throw new Error('pool has not drained for resume')
+    this.#generation++; this.#abort.abort(); this.#pool.destroy()
+    this.#abort = new AbortController(); this.#retryAbort = new AbortController()
+    this.#authFailures.clear(); this.#attempted.clear(); this.#readBack.clear()
+    this.#paused = false; this.#pool = this.#createPool()
+    for (const sub of this.#subscriptions) this.#start(sub, true)
+    this.#startRecovery()
+  }
+
+  get suspended(): boolean { return this.#paused }
+  async joinBackground(): Promise<void> {
+    while (this.#backgroundJobs.size) await Promise.allSettled([...this.#backgroundJobs])
+  }
 }
+
+/** Route-facing clients do not acquire private native suspension controls
+ * merely because an implementation gains another lifecycle method. */
+export type RelayPoolClient = Omit<NostrRelayPool, 'suspend' | 'resume' | 'suspended' | 'joinBackground'>
 
 /** nostr-tools gives up on a socket that has not opened by its connection
  *  timeout without closing it: it only stops listening, and forgets the
@@ -811,8 +996,29 @@ export class NostrRelayPool implements RelayTransport {
  *  relay in the pool's map before it first waits, so it can be read there
  *  straight after the call. */
 async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>, opened: () => void): Promise<T> {
+  const socket = (relay as { ws?: {
+    readyState: number
+    close(): void
+    on?(event: string, listener: () => void): unknown
+    once?(event: string, listener: () => void): unknown
+    removeListener?(event: string, listener: () => void): unknown
+  } } | undefined)?.ws
+  let detach = () => {}
+  // Own the Node error observer before awaiting the dial: nostr-tools may
+  // close a timed-out handshake and detach its observer before rejecting.
+  // ws emits that closure's error on nextTick, ahead of our catch handler.
+  if (socket?.readyState === 0 && socket.on && socket.once && socket.removeListener) {
+    const closingError = () => {}
+    detach = () => {
+      socket.removeListener!('error', closingError)
+      socket.removeListener!('close', detach)
+    }
+    socket.on('error', closingError)
+    socket.once('close', detach)
+  }
   try {
     const connected = await connecting
+    detach()
     // nostr-tools reports an open socket to `onRelayConnectionSuccess` from
     // its subscriptions only, never from a publish or a direct dial. The
     // shared gate has to hear of every one, or a dial a publish made keeps
@@ -820,33 +1026,13 @@ async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>, opene
     opened()
     return connected
   } catch (error) {
-    const socket = (relay as { ws?: {
-      readyState: number
-      close(): void
-      on?(event: string, listener: () => void): unknown
-      once?(event: string, listener: () => void): unknown
-      removeListener?(event: string, listener: () => void): unknown
-    } } | undefined)?.ws
     if (socket?.readyState === 0) {
-      let detach = () => {}
-      try {
-        // Node ws emits an asynchronous error when an unfinished handshake is
-        // closed. nostr-tools has already removed its observer after timeout.
-        // Keep closure local to this abandoned socket and preserve its failure.
-        if (socket.on && socket.once && socket.removeListener) {
-          const closingError = () => {}
-          detach = () => {
-            socket.removeListener!('error', closingError)
-            socket.removeListener!('close', detach)
-          }
-          socket.on('error', closingError)
-          socket.once('close', detach)
-        }
-        socket.close()
-      } catch {
-        try { detach() } catch { /* preserve the original connection failure */ }
-      }
+      try { socket.close() }
+      catch { try { detach() } catch { /* preserve the original connection failure */ } }
     }
+    // Keep our observer until close if the dependency already began closing.
+    // Existing observers are never removed; successful sockets retain none.
+    if (socket?.readyState !== 2) detach()
     throw error
   }
 }
@@ -877,8 +1063,6 @@ const SUBSCRIBE_STALL_MS = 5_000
 /** How long a subscription's first `EOSE` may take, across all its relays,
  *  before its reader is told history has loaded: nostr-tools' own `maxWait`
  *  for a relay that never answers at all. */
-const SUBSCRIBE_EOSE_DEADLINE_MS = 8_000
-
 /** How nostr-tools rejects a publish it would not dial for, whether for a
  *  withdrawn authentication or the dial backoff above. */
 const DIAL_SKIPPED = 'connection skipped by allowConnectingToRelay'

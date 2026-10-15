@@ -11,7 +11,7 @@ import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
 import { isCultEmoji } from '../../src/custom-emoji.js'
 import { isOriginalEmoji } from '../../src/original-art.js'
 import { BrowserLink } from './browser-link.js'
-import { borrowBoardAgentRoom } from './board-agent-room.js'
+import { boardAgentRoomCurrent, borrowBoardAgentRoom } from './board-agent-room.js'
 import { startBrowserLink } from './browser-link-runtime.js'
 import { BrowserRoomRoutes } from './browser-room-routes.js'
 import { BrowserRoomActivation } from './browser-room-activation.js'
@@ -76,7 +76,7 @@ import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReas
 import { ANDROID_DOWNLOAD_URL, appLinkFor, isAndroidUserAgent } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
-import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
+import { ConversationDrafts, draftHasWork, draftSubmissionSnapshot, type ConversationDraft } from './drafts.js'
 import {
   DEVICE_PREFIX,
   browserDeviceStore,
@@ -100,6 +100,7 @@ import {
 import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, loadKeptRoomEpoch, loadWatchedEpoch, pastRootsOf, storeKeptRoomEpoch } from './room-epoch-store.js'
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
+import { storeTabAdmission } from './admission-store.js'
 import { destructDue, endLapsedConferences, forgetRoom, knownRoom, knownRooms, markDestruct, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { showDestructEffect } from './destruct-effect.js'
 import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countdown, countdownClock, fuseRemaining, countdownStage, dismissTombstone, finalBannerText, headsUpText, stageAnnouncement, tombstoneText, tombstones, type CountdownStage } from './self-destruct.js'
@@ -319,7 +320,10 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
 import { BoardsPanel } from './boards-panel.js'
+import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
+import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
+import { closeCataloguesBeforeAccountAdoption, closeFailedRoomWithCatalogues } from './room-board-lifecycle.js'
 import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
 import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -337,6 +341,7 @@ import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './in
  *  and sent as soon as a relay will take them. See pending-sends.ts. */
 const pendingSends = new PendingSends({
   store: browserDeviceStore(localStorage),
+  onStorageHold: () => setStatus('Your message is held because this browser could not save its state. Check local storage, then retry.'),
   connected: () => navigator.onLine !== false && (!sessionTransport || sessionTransport.health().some(relay => relay.state === 'connected')),
   onChange: () => { outbox.render(); refreshRoomNavigation() },
   active: () => session ? currentRoomId() : undefined,
@@ -352,7 +357,7 @@ const outbox = new Outbox(document.getElementById('outbox')!, pendingSends, () =
 async function editPending(item: PendingSend): Promise<void> {
   const input = $('chatInput') as HTMLTextAreaElement
   if (draftHasWork(captureDraft()) && !await confirmRoomAction({ title: 'Replace what you are writing?', message: 'The unsent message goes back into the message box in place of what is there now.', confirmLabel: 'Replace' })) return
-  if (!pendingSends.take(item.id)) {
+  if (!await pendingSends.take(item.id)) {
     setStatus('That message is already on its way, so it can no longer be edited here.')
     return
   }
@@ -365,6 +370,7 @@ async function editPending(item: PendingSend): Promise<void> {
   input.setSelectionRange(input.value.length, input.value.length)
 }
 window.addEventListener('online', () => pendingSends.wake())
+window.addEventListener('pagehide', () => { void pendingSends.close().catch(() => {}) })
 // The countdown on a held message, redrawn only while one is held.
 setInterval(() => { if (pendingSends.holding) outbox.render() }, 1000)
 
@@ -382,15 +388,20 @@ function sendDelaySeconds(): number {
 /** Queue a prepared message in the conversation it was written in. `durable`
  *  keeps it across a reload: only ordinary main-chat messages, which can be
  *  sent again from the room's own keys alone. */
-function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; editable?: boolean; holdSeconds?: number; publish?: () => Promise<void> } = {}): void {
+async function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; editable?: boolean; holdSeconds?: number; publish?: () => Promise<void> } = {}): Promise<void> {
   const roomId = currentRoomId()
   if (!roomId) throw new Error('Open a room to send a message.')
-  pendingSends.add({
+  const sendingSession = session
+  await pendingSends.add({
     id: prepared.message.id, roomId, channel, text: prepared.message.text, files: opts.files ?? [],
     ...(prepared.message.artwork?.length ? { artwork: prepared.message.artwork } : {}),
-    event: prepared.event, publish: opts.publish ?? prepared.publish, durable: opts.durable ?? false,
+    event: prepared.event, publish: async retained => {
+      if (JSON.stringify(retained) !== JSON.stringify(prepared.event)) throw new Error('The prepared message changed while it was being saved.')
+      await (opts.publish ?? prepared.publish)()
+    }, durable: opts.durable ?? false,
     ...(opts.editable ? { editable: true } : {}),
   }, (opts.holdSeconds ?? 0) * 1000)
+  if (session !== sendingSession || currentRoomId() !== roomId) throw new Error(CONVERSATION_MOVED)
 }
 function slotWords(): string {
   return QUIET_SLOT >= 60 ? `${Math.ceil(QUIET_SLOT / 60)} minutes` : `${QUIET_SLOT} seconds`
@@ -1158,7 +1169,10 @@ async function provisionRendezvousForThisBrowser(): Promise<void> {
 
 $('provisionRendezvous').addEventListener('click', () => { void provisionRendezvousForThisBrowser() })
 
-function adoptRestoredSession(account: SignetSession): void {
+async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
+  const generation=identityGeneration,previous=nostrSession
+  await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
+  if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
   if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) void pauseBrowserMls().catch(() => undefined)
   nostrSession = account
   browserRoomRoutes.resume()
@@ -1167,6 +1181,7 @@ function adoptRestoredSession(account: SignetSession): void {
   profiles.want([account.pubkey])
   renderIdentity()
   renderNudgeChoice()
+  return true
 }
 
 /** signet-login keeps a bunker's URI and client key when a restore fails,
@@ -1220,8 +1235,7 @@ function retryStoredBunker(): Promise<boolean> {
         return false
       }
       relayConnections.clearAuthentication()
-      adoptRestoredSession(restored)
-      return true
+      return adoptRestoredSession(restored)
     })
     .catch(() => false)
     .finally(() => { bunkerRetry = undefined })
@@ -1266,13 +1280,13 @@ async function signInWithNostr(): Promise<void> {
   if (loginBusy) return
   if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
   workspaceWork?.reset()
-  boardsPanel?.reset()
   loginBusy = true
-  identityGeneration++
+  const generation=++identityGeneration,previousSession=nostrSession
   admissionController?.abort()
   clearImportedHistorySearch()
   let account: SignetSession | null
   try {
+    await boardsPanel?.reset()
     if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
     account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
       // 'nsec' is the dangerous route, kept behind Advanced by the picker:
@@ -1282,6 +1296,7 @@ async function signInWithNostr(): Promise<void> {
       methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect', 'nsec'] })
   } finally { loginBusy = false; tryPendingJoin() }
   if (!account) return // cancelled or timed out - leave the page as it was
+  if(generation!==identityGeneration||nostrSession!==previousSession){if(nostrSession!==account)await account.signer.close();return}
 
   // An auth-only account proves who somebody is and then cannot sign
   // anything else. That is fine for a site that just wants a login; it is
@@ -1303,8 +1318,9 @@ async function signInWithNostr(): Promise<void> {
   // Say so, once, rather than leaving a person to work out why their rooms
   // are gone.
   browserRoomRoutes.pause()
-  await browserLinkPanel.stop()
   const previous = expectedAccount
+  await closeCataloguesBeforeAccountAdoption(account,async()=>{await browserLinkPanel.stop();await closeRoomBoardCatalogues()},()=>nostrSession)
+  if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
   relayConnections.clearAuthentication()
   nostrSession = account
   browserRoomRoutes.resume()
@@ -1328,7 +1344,8 @@ async function signOutOfNostr(): Promise<void> {
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
   workspaceWork?.reset()
-  boardsPanel?.reset()
+  await boardsPanel?.reset()
+  await closeRoomBoardCatalogues()
   // A signed-out account must not leave its device-specific rendezvous child
   // behind. Do this before changing the visible account state: a storage
   // failure keeps the account connected rather than pretending the clear won.
@@ -1410,6 +1427,8 @@ async function forgetThisBrowserContents(): Promise<void> {
     danger: true,
   })) return
 
+  await boardsPanel?.reset()
+  await closeRoomBoardCatalogues()
   contextPanel.close()
   await browserLinkPanel.link.forget()
   // As above, avoid creating a vault on a browser that never held one.
@@ -1419,7 +1438,6 @@ async function forgetThisBrowserContents(): Promise<void> {
   clearImportedHistorySearch()
   const s = session
   workspaceWork?.reset()
-  boardsPanel?.reset()
   session = undefined
   sessionTransport = undefined
   resetIncomingCall()
@@ -1865,16 +1883,7 @@ function admissionEpochHint(admission: SavedRoomAdmission): number | undefined {
 
 function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
   try {
-    const value: StoredAdmission = {
-      roomSecret: bytesToHex(admission.secret),
-      ...('delegate' in admission
-        ? { delegateSk: bytesToHex(admission.delegate.delegateSk), delegation: admission.delegate.chain }
-        : { persistent: true as const }),
-      ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
-      ...('endsAt' in admission && admission.endsAt !== undefined ? { ends: admission.endsAt } : {}),
-      ...('destruct' in admission && admission.destruct ? { destruct: true as const } : {}),
-    }
-    sessionStorage.setItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation), JSON.stringify(value))
+    storeTabAdmission(browserDeviceStore(sessionStorage), invitation, admission)
   } catch {
     // A reload will simply repeat the one-tap admission exchange.
   }
@@ -2173,7 +2182,7 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
     const text = 'Invited you to a room.'
     if (session !== s || contactIsBlocked(peer.participant)) throw new Error('The room or contact permission changed.')
     const prepared = s.chat.prepare(text, { invite })
-    queueSend(prepared, 'Chat', { publish: async () => {
+    await queueSend(prepared, 'Chat', { publish: async () => {
       if (session !== s || contactIsBlocked(peer.participant)) throw new Error('This room invitation is no longer allowed.')
       await prepared.publish()
     } })
@@ -2505,7 +2514,7 @@ function persistQuiet(): void {
  *  outbox so the person sees it leave. A message written for an epoch the
  *  room has since left is not sent as it stands: it is said so, and the
  *  person writes it again. */
-function requeueQuiet(s: RoomSession): void {
+async function requeueQuiet(s: RoomSession): Promise<void> {
   const roomId = currentRoomId()
   if (!quietTransport || !roomId) return
   const kept = loadQuietState(deviceStore, roomId, nowSeconds())
@@ -2519,30 +2528,30 @@ function requeueQuiet(s: RoomSession): void {
       addSystemLine('A message you wrote before this page reloaded was not sent: the room changed its key while it waited. Write it again if it still applies.')
       continue
     }
-    pendingSends.add({ id: msg.id, roomId, channel: 'Chat', text: msg.text, files: [], event, publish: () => transport.publish(event), durable: false })
+    await pendingSends.add({ id: msg.id, roomId, channel: 'Chat', text: msg.text, files: [], event, publish: retained => transport.publish(retained), durable: false })
   }
   persistQuiet()
 }
 /** Send again what a reload left unsent in this room's main chat. Each goes
  *  as the event it was, so a relay that already took it keeps one copy; one
  *  written under a key the room has since left is said so, not sent. */
-function resumePending(s: RoomSession): void {
+async function resumePending(s: RoomSession): Promise<void> {
   const roomId = currentRoomId()
   const transport = sessionTransport
   if (!roomId || quietTransport || !transport) return
   // Anything held from this room's last session publishes through that
   // session's closed chat: restore it through this one instead.
   pendingSends.release(roomId)
-  const restored = pendingSends.restore(roomId)
+  const restored = await pendingSends.restore(roomId)
   if (!restored.length) { outbox.render(); return }
   const root = s.epochKeys()
   const { roomKey } = deriveRoom(roomSecret)
   for (const item of restored) {
     const msg = decodeChatEvent(item.event, { roomId, roomKey, now: nowSeconds(), policy: roomPolicy, ...(root.epoch > 0 ? { epoch: { id: root.id, key: root.key } } : {}) })
-    if (!msg || msg.id !== item.id) { pendingSends.strand(item.id); continue }
-    pendingSends.resume(item.id, async () => {
+    if (!msg || msg.id !== item.id || msg.participant !== s.participant) { await pendingSends.strand(item.id); continue }
+    pendingSends.resume(item.id, async retained => {
       if (session !== s || s.epochKeys().epoch !== root.epoch) throw new Error(CONVERSATION_MOVED)
-      await transport.publish(item.event)
+      await transport.publish(retained)
     })
   }
 }
@@ -7130,7 +7139,7 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     const text = inviteText()
     if (session !== s || contactIsBlocked(peer)) throw new Error('The room or contact permission changed.')
     const prepared = s.chat.prepare(text, { invite })
-    queueSend(prepared, 'Chat', { publish: async () => {
+    await queueSend(prepared, 'Chat', { publish: async () => {
       if (session !== s || contactIsBlocked(peer)) throw new Error('This room invitation is no longer allowed.')
       await prepared.publish()
     } })
@@ -9419,7 +9428,7 @@ const QUIET_READ_ONLY = 'This device reads and cannot post: two devices per pers
 
 function renderChat(messages: ChatMessage[]): void {
   // A message on screen no longer needs its pending row.
-  if (pendingSends.pending) pendingSends.arrived(messages.map(message => message.id))
+  if (pendingSends.pending) void pendingSends.arrived(messages.map(message => message.id)).catch(() => setStatus('The message arrived, but this browser could not save its outbox state.'))
   outbox.render()
   renderLaneNote()
   // Minutes are written in paragraphs with their line breaks doing the
@@ -10665,13 +10674,15 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       try {
         const reaction = toggleReaction(chat.messages(), original, meParticipant, emoji)
         const text = reactionText(reaction)
-        queueSend(chat.prepare(text, { reaction }), currentChannel ?? 'Chat')
+        const prepared = chat.prepare(text, { reaction })
+        void queueSend(prepared, currentChannel ?? 'Chat').then(() => {
         if (reaction.active) {
           const current = Array.from(log.querySelectorAll<HTMLElement>('[data-message-id]'))
             .find(row => row.dataset.messageId === original.id && row.dataset.messageAuthor === original.participant)
           const anchor = current?.querySelector<HTMLElement>('.bubble')
           if (anchor) showReactionFeedback(anchor, emoji)
         }
+        }).catch(error => setStatus(describeError(error)))
         return true
       } catch (error) { setStatus(describeError(error)); return false }
     }
@@ -12411,8 +12422,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         }).catch(() => {})
       }
     }
-    requeueQuiet(s)
-    resumePending(s)
+    await requeueQuiet(s)
+    await resumePending(s)
     // A reply draft reads its original message from the new session. Its
     // logs must exist before restoring that context.
     selectRoomDrafts()
@@ -12559,11 +12570,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const failed = session
     if (generation !== roomGeneration) return
     const failedTransport = sessionTransport
-    session = undefined
-    sessionTransport = undefined
-    resetIncomingCall()
-    void failed?.leave()
-    failedTransport?.close()
+    await closeFailedRoomWithCatalogues(failed,failedTransport,()=>failed?closeRoomBoardCatalogues(failed):Promise.resolve(),()=>{
+      if(session===failed&&sessionTransport===failedTransport){session=undefined;sessionTransport=undefined;resetIncomingCall()}
+    })
+    if(generation!==roomGeneration)return
     if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
     iceRefreshTimer = undefined
     // A relay that timed out never looked at the event; a phone whose
@@ -12690,16 +12700,37 @@ $('chatLog').addEventListener('scroll', () => {
 const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
 let workspaceWork: WorkspaceWorkPanel | undefined
 let boardsPanel: BoardsPanel | undefined
-const roomBoards = new WeakMap<RoomSession, RoomBoards>()
+const roomBoards = new Map<RoomSession, RoomBoards>()
+const openingRoomBoards = new Map<RoomSession, RoomBoards>()
+const closingRoomBoards = new Map<RoomSession, Promise<void>>()
+/** Revocation is immediate. Keep captured closing owners until their join
+ * succeeds; a failed close cannot turn into permission to clear the signer. */
+function closeRoomBoardCatalogues(selected?:RoomSession):Promise<void> {
+  const owners=new Map([...roomBoards,...openingRoomBoards])
+  for(const [s,boards]of owners){if(selected&&s!==selected)continue
+    roomBoards.delete(s);openingRoomBoards.delete(s)
+    const job=Promise.resolve().then(()=>boards.close());closingRoomBoards.set(s,job)
+    void job.then(()=>{if(closingRoomBoards.get(s)===job)closingRoomBoards.delete(s)},()=>{})
+    boards.revoke()
+  }
+  return Promise.all([...closingRoomBoards].filter(([s])=>!selected||s===selected).map(([,job])=>job)).then(()=>{})
+}
 function attachRoomBoards(s: RoomSession): void {
   const account = nostrSession
-  if (!account?.signer.nip44 || s.participant !== account.pubkey || roomBoards.has(s)) return
-  const boards = new RoomBoards(s, {account: account.pubkey, store: isQuietPolicy(roomPolicy) ? memoryDeviceStore() : deviceStore,
-    crypt: signerSelfCrypt({pubkey: account.pubkey, nip44: account.signer.nip44}),
-    current: () => nostrSession === account && (session === s || dockedCall?.session === s),
+  if (!account?.signer.nip44 || s.participant !== account.pubkey || roomBoards.has(s) || openingRoomBoards.has(s) || closingRoomBoards.has(s)) return
+  const current=()=>nostrSession===account&&(session===s||dockedCall?.session===s)
+  const custody=legacyRoomBoardCatalogueCustody({account:account.pubkey,roomId:s.roomId,
+    store:isQuietPolicy(roomPolicy)?memoryDeviceStore():deviceStore,
+    crypt:signerSelfCrypt({pubkey:account.pubkey,nip44:account.signer.nip44}),current})
+  const boards = new RoomBoards(s, {custody,current,
     changed: () => boardsPanel?.sync(), report: error => setStatus(describeError(error))})
-  roomBoards.set(s, boards)
-  void boards.open().catch(error => setStatus(describeError(error)))
+  openingRoomBoards.set(s,boards)
+  void boards.open().then(()=>{
+    if(openingRoomBoards.get(s)!==boards)return boards.close()
+    if(!current())return closeRoomBoardCatalogues(s)
+    openingRoomBoards.delete(s);roomBoards.set(s,boards);boardsPanel?.sync()
+  }).catch(async error=>{if(openingRoomBoards.get(s)===boards)await closeRoomBoardCatalogues(s);else await boards.close();if(current())setStatus(describeError(error))})
+    .catch(error=>{if(current())setStatus(describeError(error))})
 }
 let roomsTimer: ReturnType<typeof setInterval> | undefined
 /** Whether the list is what is on screen. Nothing below draws, or keeps a
@@ -13960,15 +13991,17 @@ function tearDownCallMedia(): void {
 
 /** Stop the room completely before any other room can own the controls. */
 async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}): Promise<void> {
+  const pendingRoom = currentRoomId()
+  if (pendingRoom) pendingSends.release(pendingRoom)
   if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
   chatScroll.suspend()
-  ++roomGeneration
-  const old = session
+  const generation=++roomGeneration
+  const old = session,transport=sessionTransport
   // A docked call outlives the room on screen: its session, relays, media,
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
-  if (old && !keepCall) {roomBoards.get(old)?.close(); roomBoards.delete(old)}
+  const boardsClosing=old&&!keepCall?closeRoomBoardCatalogues(old):Promise.resolve()
   const recordingStop = activeRecording?.session === old && old !== dockedCall?.session
     ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
   if (!keepCall) {
@@ -13976,8 +14009,10 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
     const key = callLockKey()
     if (key) callTabLock.release(key)
   }
+  if(!keepCall)tearDownCallMedia()
+  await boardsClosing
+  if(generation!==roomGeneration||session!==old||sessionTransport!==transport)return
   if (heldElsewhereKey !== undefined) { heldElsewhereKey = undefined; renderCallTabNotice() }
-  const transport = sessionTransport
   persistQuiet()
   session = undefined
   sessionTransport = undefined
@@ -14007,7 +14042,6 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   if (!keepCall) {
     if (assistTimer !== undefined) clearInterval(assistTimer)
     assistTimer = undefined
-    tearDownCallMedia()
   }
   presenceAnnouncements = undefined
   if (departureNoticeTimer !== undefined) clearTimeout(departureNoticeTimer)
@@ -14203,6 +14237,7 @@ function resumeDockedCall(): void {
 async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: string): Promise<void> {
   const c = dockedCall
   if (!c) return
+  const boardsClosing=closeRoomBoardCatalogues(c.session)
   const key = callLockKey()
   // The warning needs its original transport; microphone and camera shutdown
   // must never wait for that transport's receipt.
@@ -14236,6 +14271,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   renderDock()
   renderWorkspace()
   setStatus(notice ?? `You left the call in ${c.label}.`, 'done')
+  await boardsClosing
   if (reason === 'preempted') await c.session.farewellCall().catch(() => {})
   void (recordingStop ? recordingStop.then(() => c.session.leave()) : c.session.leave())
     .finally(() => c.transport?.close()).catch(() => {})
@@ -15144,7 +15180,8 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
 }
 
 boardsPanel = new BoardsPanel(document, {
-  session: () => nostrSession ?? undefined, store: deviceStore,
+  session: () => nostrSession ?? undefined,
+  contexts: async (account,current) => legacyBoardContextCustody(deviceStore,account.pubkey,current),
   projects: () => projectChoices(workspaceActivityRooms()).map(p => ({id: p.key, name: p.name})),
   rooms: project => workspaceActivityRooms().filter(room => !project || matchesRoom(room, '', project)).map(room => ({id: room.roomId, name: knownRoomLabel(room)})),
   currentRoom: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); return room ? {id: room.roomId, name: knownRoomLabel(room)} : undefined},
@@ -15156,16 +15193,15 @@ boardsPanel = new BoardsPanel(document, {
   agentRoom: async id => {
     const account = nostrSession
     if (!account) throw new Error('Sign in before assigning a card')
-    if (session?.roomId !== id) {
-      const linked = workspaceActivityRooms().find(room => room.roomId === id)
-      if (!linked) throw new Error('This board’s linked chat is no longer available')
-      await switchRoom(linked)
-    }
+    const linked = workspaceActivityRooms().find(room => room.roomId === id)
+    if (!linked || !boardAgentRoomCurrent(linked, id, linked.link)) throw new Error('This board’s linked chat is no longer available')
+    const selectedLink = linked.link
+    if (session?.roomId !== id) await switchRoom(linked)
     const selected = session
     if (nostrSession !== account || !selected || selected.roomId !== id || selected.participant !== account.pubkey) throw new Error('Complete admission in this board’s linked chat before assigning a card')
     const current = () => {
-      const room = knownRoom(roomStore(), id)
-      return nostrSession === account && session === selected && !!room && room.endedAt === undefined && (room.endsAt === undefined || room.endsAt > nowSeconds())
+      const room = workspaceActivityRooms().find(room => room.roomId === id)
+      return nostrSession === account && session === selected && selected.participant === account.pubkey && boardAgentRoomCurrent(room, id, selectedLink)
     }
     // Joining starts the existing journal reader asynchronously. Wait for its
     // real history, never create a second writer for an embedded view.
@@ -16406,9 +16442,9 @@ function showTidyReport(report: TidyUpReport): void {
   const results = $('tidyUpResults')
   results.replaceChildren()
   const heading = document.createElement('h3')
-  heading.textContent = report.refused ? 'Nothing was deleted' : report.remaining.length ? 'What a fresh query still finds' : 'Tidied up'
+  heading.textContent = report.refused ? 'Nothing was deleted' : report.localRetained ? 'Tidy-up paused' : report.remaining.length ? 'What a fresh query still finds' : 'Tidied up'
   const lead = document.createElement('p')
-  lead.textContent = report.refused ?? (report.remaining.length ? 'These relays still return records of yours for this room:' : 'Every relay that answered returned nothing more of yours for this room.')
+  lead.textContent = report.refused ?? report.localRetained ?? (report.remaining.length ? 'These relays still return records of yours for this room:' : 'Every relay that answered returned nothing more of yours for this room.')
   results.append(heading, lead)
   if (report.remaining.length) {
     const list = document.createElement('ul')
@@ -16428,10 +16464,11 @@ function showTidyReport(report: TidyUpReport): void {
 function deleteRoomFiles(context: TidyUpContext): (deviceEvents: readonly NostrEvent[]) => Promise<FileDeletionReport> {
   return async deviceEvents => {
     const recorded = roomUploads(deviceStore, context.roomId)
-    const origins = [blossomServer(), ...recorded.map(blob => { try { return new URL(blob.url).origin } catch { return '' } })].filter(Boolean)
+    const origins = [blossomServer()].filter(Boolean)
     return deleteUploads({
       blobs: [...recorded, ...uploadsFromEvents(deviceEvents, getPublicKey(context.deviceSk))],
       origins,
+      signedUploads: deviceEvents,
       sk: context.deviceSk,
       now: nowSeconds,
       store: deviceStore,
@@ -16533,7 +16570,7 @@ async function runRoomTidyUp(): Promise<void> {
       progress: showTidyStep,
     })
     showTidyReport(report)
-    if (report.refused) {
+    if (report.refused || report.localRetained) {
       ;($('tidyUpCancel') as HTMLButtonElement).hidden = false
       ;($('tidyUpCancel') as HTMLButtonElement).textContent = 'Close'
       return
@@ -16894,7 +16931,7 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
             addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
           },
         })
-        if (report.refused) throw new Error(report.refused)
+        if (report.refused || report.localRetained) throw new Error(report.refused ?? report.localRetained)
         console.info(`room self-destructed: ${report.steps.map(step => `${step.id}${step.skipped ? ' (skipped)' : ''}`).join(', ')}; ${report.remaining.length} relay record groups still found`)
       } finally {
         --roomOperation
@@ -17428,13 +17465,14 @@ async function retractMessage(original: ChatMessage): Promise<void> {
   if (!await confirmRoomAction({ title: 'Retract this message?', message: 'It will be marked retracted. People who already received it may still have a copy.', confirmLabel: 'Retract message', danger: true })) return
   try {
     const text = retractionText()
-    queueSend(chat.prepare(text, { retracts: original.id }), channel ?? 'Chat')
+    await queueSend(chat.prepare(text, { retracts: original.id }), channel ?? 'Chat')
   } catch (err) {
     setStatus(describeError(err))
   }
 }
 
-$('chatForm').addEventListener('submit', (event) => {
+const retainingDrafts = new WeakMap<ConversationDraft, Set<string>>()
+$('chatForm').addEventListener('submit', async (event) => {
   event.preventDefault()
   const draft = captureDraft()
   if (draft.job || draft.pendingFiles?.length || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
@@ -17464,10 +17502,17 @@ $('chatForm').addEventListener('submit', (event) => {
   if (mentions.length) sendOpts.mentions = mentions
   if (draft.editing) sendOpts.replaces = draft.editing.id
   else if (draft.replyTo) sendOpts.replyTo = draft.replyTo
+  const submissionSnapshot = draftSubmissionSnapshot(input.value, draft)
+  let submissions = retainingDrafts.get(draft)
+  if (submissions?.has(submissionSnapshot)) return
+  if (!submissions) { submissions = new Set(); retainingDrafts.set(draft, submissions) }
+  submissions.add(submissionSnapshot)
   let prepared: PreparedSend
   try {
     prepared = log.prepare(text, sendOpts)
   } catch (err) {
+    submissions.delete(submissionSnapshot)
+    if (!submissions.size) retainingDrafts.delete(draft)
     setStatus(describeError(err))
     return
   }
@@ -17478,8 +17523,10 @@ $('chatForm').addEventListener('submit', (event) => {
   // Edit takes back only what it can put back as it was: a plain new
   // message, not a reply, an edit or one carrying files.
   // Queue and show it before clearing the draft.
+  const sendingSession = session, sendingChannel = currentChannel
+  const draftSnapshot = draftSubmissionSnapshot(input.value, draft)
   try {
-    queueSend(prepared, currentChannel ?? 'Chat', {
+    await queueSend(prepared, currentChannel ?? 'Chat', {
       files: attachments.map(a => a.name ?? 'Encrypted file'),
       durable: currentChannel === undefined && !quietTransport,
       editable: !attachments.length && !sendOpts.replaces && !sendOpts.replyTo,
@@ -17488,7 +17535,12 @@ $('chatForm').addEventListener('submit', (event) => {
   } catch (err) {
     setStatus(describeError(err))
     return
+  } finally {
+    submissions.delete(submissionSnapshot)
+    if (!submissions.size) retainingDrafts.delete(draft)
   }
+  if (session !== sendingSession || currentChannel !== sendingChannel || drafts.get(sendingChannel) !== draft ||
+      draftSubmissionSnapshot(input.value, draft) !== draftSnapshot) return
   input.value = ''
   showPasteSize()
   draft.text = ''
@@ -18306,7 +18358,7 @@ async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null>
 }
 
 const identityReady = restoreSessionWithExtensionGrace()
-  .then((session) => {
+  .then(async (session) => {
     if (identityGeneration !== 0) return
     if (!session?.signer.capabilities.canSignEvents) {
       if (!location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
@@ -18317,7 +18369,7 @@ const identityReady = restoreSessionWithExtensionGrace()
       }
       return
     }
-    adoptRestoredSession(session)
+    await adoptRestoredSession(session)
   })
   .catch(() => {
     // No stored session, or a signer that is not answering today. Either

@@ -951,7 +951,7 @@ describe('deleting a blob this device uploaded', () => {
   })
 
   const url = `https://files.example/blossom/${hash}`
-  const auth = finalizeEvent(buildDeleteAuthorisation(hash, 'https://files.example', now), sk)
+  const auth = finalizeEvent(buildDeleteAuthorisation(hash, 'https://files.example', now, undefined, url), sk)
   const server = (deleteStatus: number | Error, headStatus: number | Error = 404, headers: Record<string, string> = {}) =>
     vi.fn(async (_url: string, init?: RequestInit) => {
       const status = init?.method === 'DELETE' ? deleteStatus : headStatus
@@ -985,7 +985,8 @@ describe('deleting a blob this device uploaded', () => {
     expect(await deleteBlob(url, auth, { fetch: server(401, 404, { 'X-Reason': 'Auth missing hash' }) as never })).toEqual({ status: 'failed', detail: 'files.example answered 401: Auth missing hash.' })
     expect((await deleteBlob(url, auth, { fetch: server(503) as never })).status).toBe('failed')
     expect((await deleteBlob(url, auth, { fetch: server(200, 502) as never })).status).toBe('failed')
-    // Answered the delete, then could not be reached to check: taken at its word.
-    expect(await deleteBlob(url, auth, { fetch: server(200, new TypeError('offline')) as never })).toEqual({ status: 'deleted' })
+    // A failed follow-up is not evidence the blob is absent.
+    expect(await deleteBlob(url, auth, { fetch: server(200, new TypeError('offline')) as never }))
+      .toEqual({ status: 'failed', detail: 'Could not confirm file deletion on files.example.' })
   })
 })

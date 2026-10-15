@@ -1,10 +1,12 @@
 import {describe, expect, it, vi} from 'vitest'
 import type {RoomSession} from '../../src/session.js'
 import type {AssignmentLog} from '../../src/assignment-log.js'
-import {borrowBoardAgentRoom} from './board-agent-room.js'
+import type {KnownRoom} from './rooms-store.js'
+import {boardAgentRoomCurrent, borrowBoardAgentRoom} from './board-agent-room.js'
 
-function fixture() {
+function fixture(overrides: Partial<KnownRoom> = {}) {
   let current = true
+  const scope: KnownRoom = {roomId: 'room-a', link: 'standing-invitation', openedAt: 1, readAt: 0, ...overrides}
   const off = vi.fn(), publish = vi.fn(async () => ({}))
   const room = {roomId: 'room-a', participant: 'person-a', device: 'device-a',
     participants: () => [{participant: 'tally', name: 'Tally', agent: true, devices: ['agent-device']}],
@@ -19,8 +21,8 @@ function fixture() {
       return {id: 'canonical-assignment'}
     }),
   }
-  return {room, source, off, publish, change: () => {current = false},
-    borrowed: borrowBoardAgentRoom(room as unknown as RoomSession, source as unknown as AssignmentLog, () => current)}
+  return {room, source, off, publish, scope, change: () => {current = false},
+    borrowed: borrowBoardAgentRoom(room as unknown as RoomSession, source as unknown as AssignmentLog, () => current && boardAgentRoomCurrent(scope, room.roomId, 'standing-invitation'))}
 }
 
 describe('board assignment uses the existing admitted chat', () => {
@@ -55,5 +57,27 @@ describe('board assignment uses the existing admitted chat', () => {
     expect(f.publish).not.toHaveBeenCalled()
     await b.room.channel('control').send(JSON.stringify({op: 'catalogue?'}))
     expect(f.publish).toHaveBeenCalledOnce()
+  })
+})
+
+describe('standing board room scope', () => {
+  it.each([{endsAt: 1}, {endsAt: 9_999_999_999}, {destruct: true as const}, {endedAt: 0}])('refuses retained restricted context %j before a channel opens or a card submits', async scope => {
+    const f = fixture(scope)
+    expect(f.borrowed.isCurrent()).toBe(false)
+    expect(() => f.borrowed.room.channel('control')).toThrow('linked chat')
+    await expect(f.borrowed.submitReviewed(() => true, async () => 'must not run')).rejects.toThrow('linked chat')
+    expect(f.room.channel).not.toHaveBeenCalled()
+    expect(f.publish).not.toHaveBeenCalled()
+    expect(f.source.submit).not.toHaveBeenCalled()
+  })
+  it.each(['expiry', 'destruct', 'invitation'] as const)('holds an open card before refresh or publication when its %s changes', async change => {
+    const f = fixture(), channel = f.borrowed.room.channel('control')
+    if (change === 'expiry') f.scope.endsAt = 9_999_999_999
+    if (change === 'destruct') f.scope.destruct = true
+    if (change === 'invitation') f.scope.link = 'replacement-invitation'
+    await expect(channel.send(JSON.stringify({op: 'catalogue?'}))).rejects.toThrow('linked chat')
+    await expect(f.borrowed.submitReviewed(() => true, () => f.borrowed.log.submit(undefined, {op: 'create', owner: 'tally', objective: 'Card', criteria: ''}, 'request', null))).rejects.toThrow('linked chat')
+    expect(f.publish).not.toHaveBeenCalled()
+    expect(f.source.submit).not.toHaveBeenCalled()
   })
 })

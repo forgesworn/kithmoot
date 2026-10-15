@@ -1,4 +1,9 @@
 import { getPublicKey } from 'nostr-tools/pure'
+import type { ProtocolExecution } from './protocol-execution.js'
+import { captureProtocolData, protocolTask } from './protocol-execution.js'
+import { ProtocolTimers } from './protocol-timers.js'
+import { consumeNativeSessionBinding, nativeChatView, type NativeSessionBinding, type NativeSessionCandidate,
+  type NativeSessionPlan, type NativeSessionView } from './session-native-binding.js'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
 import { requestFreshRootEpoch } from './fresh-epoch.js'
@@ -197,6 +202,10 @@ export interface RoomSessionBaseOptions {
    * and so a host that already has a stable per-process id can use that.
    */
   sid?: string
+  /** Fresh execution at private protocol preparation, separate from relay
+   * writes. Construction and synchronous channel access require an active
+   * boundary too. The embedding supplies current native custody/proof checks. */
+  protocol?: ProtocolExecution
   /** Builds an `RTCPeerConnectionLike` for each remote device. Omit to run
    *  the session with no media - roster, access and chat still work, but
    *  `publishTracks`/`onRemoteTrack` become no-ops. */
@@ -353,6 +362,9 @@ export interface RoomSessionBaseOptions {
    * See `member-epoch.ts`.
    */
   memberEpochDesk?: boolean
+  /** Defaults to enabled. An embedding with no safe catch-up execution path
+   * can disable it: a missing epoch then terminates the joined session. */
+  epochCatchUp?: boolean
   /** Upper bound, in milliseconds, of the random wait before this device's
    *  member desk answers, so several members do not all answer at once.
    *  Default 1500; zero in tests. */
@@ -646,7 +658,7 @@ export class RoomSession {
    * this device taken once stops reading the room once the credential it
    * caught has lapsed and the room has rekeyed. See `seal.ts`.
    */
-  readonly #sealKeys = new Map<string, Uint8Array>()
+  #sealKeys = new Map<string, Uint8Array>()
   #pendingCredential?: { credential: DeviceCredential; sealSk?: Uint8Array }
   #credentialWork?: Promise<DeviceCredential>
   #retentionWork?: Promise<void>
@@ -658,11 +670,11 @@ export class RoomSession {
    * still-live credential, and must not move what rekeys and grants are
    * sealed to back onto the seal key they copied.
    */
-  readonly #newestCredentials = new Map<string, DeviceCredential>()
+  #newestCredentials = new Map<string, DeviceCredential>()
   /** When each device in `#newestCredentials` was last seen, in unix
    *  seconds: the newest stamp on a roster entry heard from it, never later
    *  than now. What a scheduled rekey's window is measured by. */
-  readonly #deviceSeen = new Map<string, number>()
+  #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
   /**
@@ -700,6 +712,7 @@ export class RoomSession {
   #heartbeatTimer?: ReturnType<typeof setInterval>
   #sweepTimer?: ReturnType<typeof setInterval>
   #renewalTimer?: ReturnType<typeof setTimeout>
+  readonly #protocolTimers?: ProtocolTimers
   #left = false
   #rekeying = false
   readonly #admissionAbort = new AbortController()
@@ -787,8 +800,17 @@ export class RoomSession {
   /** Set while joining when a rekey said this participant is out, or the
    *  room is closed, so `join()` can say so rather than carry on. */
   #refusedWhileJoining?: EpochRefusal
+  readonly #nativeBinding: Readonly<NativeSessionBinding> | undefined
+  #nativeRevoked = false
+  #nativeDiscard?: () => void
 
   constructor(opts: RoomSessionOptions) {
+    const native = consumeNativeSessionBinding(opts)
+    this.#nativeBinding = native
+    let allocatedRoomKey: Uint8Array | undefined, allocatedEpochKey: Uint8Array | undefined
+    try {
+    if (native && new.target !== RoomSession) throw new Error('native Session cannot be subclassed')
+    opts.protocol?.check('session-construction')
     if (opts.requireFreshEpoch && !opts.authority) throw new Error('fresh epoch admission needs a pinned authority')
     this.#admissionTransport = opts.transport
     if (opts.requireFreshEpoch) {
@@ -806,12 +828,14 @@ export class RoomSession {
       } }
     }
     const { roomId, roomKey } = deriveRoom(opts.secret)
+    allocatedRoomKey = roomKey
     this.roomId = roomId
     this.#roomKey = roomKey
     this.#opts = opts
     for (const sk of opts.identity ? opts.sealKeys ?? [] : []) this.#keepSealKey(sk)
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
+    allocatedEpochKey = this.#epoch.key
     if (this.#epochSecret.epoch > 0) this.#keepSecret(this.#epochSecret)
     if (opts.forwarderMediaPipeline && !opts.forwarderMediaPipeline.rekey(this.#epoch.key.slice())) {
       throw new Error('forwarder media pipeline could not install the room epoch key')
@@ -843,6 +867,8 @@ export class RoomSession {
       // comparison against a roster entry or a credential is correct by
       // construction. See `hex.ts`'s `normaliseHex`.
       this.participant = normaliseHex(opts.identity.pubkey)
+      if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
+      if (native) native.attach(this.#nativeView())
       return
     }
 
@@ -854,6 +880,128 @@ export class RoomSession {
     if (verdict.device !== this.device) throw new Error('device credential names a different device')
     this.participant = verdict.participant
     this.#credential = opts.credential
+    if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
+    if (native) throw new Error('native Session requires retained participant custody')
+    } catch (error) {
+      if (native) {
+        this.#nativeRevoked = true; this.#nativeDiscard?.(); this.#protocolTimers?.close()
+        for (const key of this.#sealKeys.values()) key.fill(0)
+        this.#sealKeys.clear(); allocatedRoomKey?.fill(0); allocatedEpochKey?.fill(0)
+        native.revoke()
+      }
+      throw error
+    }
+  }
+
+  /** Only the exact one-shot native construction cell receives these closures.
+   * The returned plans are opaque and have no public Session entry point. */
+  #nativeView(): NativeSessionView {
+    type Self = { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>>; call?: CallMembership }
+    type Prepared = {
+      readonly candidate: NativeSessionCandidate
+      readonly credential: DeviceCredential
+      readonly self: Self
+      readonly oldSelf: Self
+      readonly epoch: EpochKeys
+      readonly opts: RoomSessionOptions
+      readonly nextOpts: RoomSessionOptions
+      readonly chats: readonly [ChatLog, ReturnType<typeof nativeChatView>][]
+      readonly channels: readonly [string, ChatLog][]
+      readonly oldSeals: readonly [string, Uint8Array][]
+      readonly seals: Map<string, Uint8Array>
+      readonly newest: Map<string, DeviceCredential>
+      readonly seen: Map<string, number>
+      readonly oldNewest: readonly [string, DeviceCredential][]
+      readonly oldSeen: readonly [string, number][]
+      used: boolean
+    }
+    const plans = new WeakMap<object, Prepared>()
+    let pending: Prepared | undefined
+    const checkLive = () => {
+      if (this.#nativeRevoked || this.#left || this.#closed || this.#ended() || this.#admissionAbort.signal.aborted ||
+          !this.#self || !this.#chat || this.#credentialWork || this.#retentionWork || this.#pendingCredential) throw new Error('native Session is unavailable')
+      this.#opts.protocol!.check('credential-lifecycle-transition')
+    }
+    const wipe = (data: Prepared) => { for (const key of data.seals.values()) key.fill(0); data.seals.clear() }
+    this.#nativeDiscard = () => { if (pending) { pending.used = true; wipe(pending); pending = undefined } }
+    const dataFor = (plan: NativeSessionPlan) => {
+      const data = plans.get(plan)
+      if (!data || data.used || pending !== data) throw new Error('native Session plan is spent or foreign')
+      return data
+    }
+    const check = (data: Prepared, native = true) => {
+      if (native) checkLive()
+      else if (this.#nativeRevoked || this.#left || this.#closed || this.#admissionAbort.signal.aborted) throw new Error('native Session revoked')
+      if (this.#self !== data.oldSelf || this.#epoch !== data.epoch || this.#opts !== data.opts ||
+          this.#self.credential.id !== data.candidate.predecessor || this.#channels.size !== data.channels.length ||
+          data.channels.some(([name, log]) => this.#channels.get(name) !== log) || this.#sealKeys.size !== data.oldSeals.length ||
+          data.oldSeals.some(([name, key]) => this.#sealKeys.get(name) !== key) || this.#newestCredentials.size !== data.oldNewest.length ||
+          data.oldNewest.some(([name, value]) => this.#newestCredentials.get(name) !== value) || this.#deviceSeen.size !== data.oldSeen.length ||
+          data.oldSeen.some(([name, value]) => this.#deviceSeen.get(name) !== value)) throw new Error('native Session changed after preparation')
+      for (const [log, view] of data.chats) { if (log !== this.#chat && !data.channels.some(([, value]) => value === log)) throw new Error('native conversation changed'); view.check(data.candidate.predecessor) }
+    }
+    return Object.freeze({
+      snapshot: () => {
+        checkLive()
+        return Object.freeze({ credential: structuredClone(this.#self!.credential), epoch: this.#epochSecret.epoch,
+          epochId: this.#epoch.id, seals: Object.freeze([...this.#sealKeys.keys()]) })
+      },
+      prepare: (candidate: NativeSessionCandidate): NativeSessionPlan => {
+        checkLive(); candidate.checkPreparation()
+        if (pending || !/^[0-9a-f]{64}$/.test(candidate.operation) || !candidate.root ||
+            candidate.predecessor !== this.#self!.credential.id || candidate.sealKeys.length < 1 || candidate.sealKeys.length > MAX_SEAL_KEYS) throw new Error('invalid native Session candidate')
+        const credential = structuredClone(candidate.credential), verdict = verifyDeviceCredential(credential, { roomId: this.roomId, now: this.#now() })
+        if (!verdict.ok || verdict.device !== this.device || verdict.participant !== this.participant || credential.id === candidate.predecessor ||
+            credentialExpiresAt(credential) <= credentialExpiresAt(this.#self!.credential) || credential.created_at <= this.#self!.credential.created_at) throw new Error('invalid native successor credential')
+        Object.freeze(credential.tags.map(tag => Object.freeze(tag))); Object.freeze(credential.tags); Object.freeze(credential)
+        const seals = new Map<string, Uint8Array>()
+        try {
+          for (const key of candidate.sealKeys) {
+            const copy = Uint8Array.prototype.slice.call(key), name = getPublicKey(copy)
+            if (seals.has(name)) { copy.fill(0); throw new Error('duplicate native seal') }
+            seals.set(name, copy)
+          }
+          if (!seals.has(credentialSeal(credential)!)) throw new Error('missing native current seal')
+          const channels = [...this.#channels], logs = [this.#chat!, ...channels.map(([, log]) => log)]
+          const chats = logs.map(log => [log, nativeChatView(log)] as [ChatLog, ReturnType<typeof nativeChatView>])
+          for (const [, view] of chats) view.check(candidate.predecessor)
+          const newest = new Map(this.#newestCredentials), seen = new Map(this.#deviceSeen)
+          newest.delete(this.device); newest.set(this.device, credential)
+          if (newest.size > MAX_NEWEST_CREDENTIALS) { const first = newest.keys().next().value!; newest.delete(first); seen.delete(first) }
+          const data: Prepared = { candidate: Object.freeze({ ...candidate }), credential, self: { ...this.#self!, credential },
+            oldSelf: this.#self!, epoch: this.#epoch, opts: this.#opts,
+            nextOpts: { ...this.#opts, resume: credential, sealKeys: [...seals.values()] } as RoomSessionOptions,
+            channels, chats, oldSeals: [...this.#sealKeys], seals, newest, seen,
+            oldNewest: [...this.#newestCredentials], oldSeen: [...this.#deviceSeen], used: false }
+          const plan = Object.freeze({}) as NativeSessionPlan
+          plans.set(plan, data); pending = data; return plan
+        } catch (error) { for (const key of seals.values()) key.fill(0); seals.clear(); throw error }
+      },
+      check: (plan: NativeSessionPlan) => { const data = dataFor(plan); data.candidate.checkPreparation(); check(data) },
+      apply: (plan: NativeSessionPlan) => {
+        const data = dataFor(plan); data.candidate.checkApplication(); check(data, false)
+        data.used = true; pending = undefined
+        try {
+          // Every validation precedes the first assignment. No callback,
+          // entropy, prototype setter or await occurs across these writes.
+          this.#sealKeys = data.seals
+          this.#self = data.self
+          this.#opts = data.nextOpts
+          for (const [, view] of data.chats) view.apply(data.credential)
+          this.#newestCredentials = data.newest
+          this.#deviceSeen = data.seen
+          for (const [, key] of data.oldSeals) key.fill(0)
+          plans.delete(plan)
+        } catch (error) { wipe(data); this.#nativeRevoked = true; throw error }
+      },
+      discard: (plan: NativeSessionPlan) => { const data = plans.get(plan); if (data && !data.used) { data.used = true; wipe(data); if (pending === data) pending = undefined }; plans.delete(plan) },
+      restate: async (scope: ProtocolExecution) => {
+        checkLive(); scope.check('credential-restatement'); this.#announceCredential(this.#self!.credential)
+        await this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, scope)
+        this.#scheduleRenewal(this.#renewalDelayMs(this.#self!.credential))
+      },
+      revoke: () => { this.#nativeRevoked = true; this.#nativeDiscard?.() },
+    })
   }
 
   /**
@@ -883,12 +1031,24 @@ export class RoomSession {
     return candidate.credential
   }
 
-  async #mintCredential(devicePubkey: string, ttlSeconds: number): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
+  #mintCredential(devicePubkey: string, ttlSeconds: number, execution = this.#opts.protocol): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
+    let candidate: { credential: DeviceCredential; sealSk?: Uint8Array } | undefined
+    return protocolTask(execution, 'credential-mint', async owned => {
+      candidate = await this.#mintOwnedCredential(devicePubkey, ttlSeconds, owned)
+      return candidate
+    }).catch(error => { candidate?.sealSk?.fill(0); throw error })
+  }
+
+  async #mintOwnedCredential(devicePubkey: string, ttlSeconds: number, execution: ProtocolExecution | undefined): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
     const identity = this.#opts.identity
     if (!identity) throw new Error('this device cannot sign for the participant, so it cannot issue credentials')
-    const seal = normaliseHex(devicePubkey) === this.device ? generateSealKey() : undefined
+    let seal: ReturnType<typeof generateSealKey> | undefined
     try {
-      const credential = await createDeviceCredential({
+      const prepare = () => {
+      execution?.check('credential-preparation')
+      if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+      seal = normaliseHex(devicePubkey) === this.device ? generateSealKey() : undefined
+      const pending = createDeviceCredential({
         identity,
         devicePubkey,
         roomId: this.roomId,
@@ -896,7 +1056,18 @@ export class RoomSession {
         ...(seal ? { seal: seal.pubkey } : {}),
         now: this.#now,
       })
-      return { credential, ...(seal ? { sealSk: seal.secretKey } : {}) }
+      void pending.catch(() => {})
+      execution?.retain(pending)
+      return { pending }
+      }
+      const prepared = execution ? await execution.run('credential-preparation', prepare) : prepare()
+      const credential = await prepared.pending
+      const handoff = () => {
+        execution?.check('credential-handoff')
+        if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+        return { credential, ...(seal ? { sealSk: seal.secretKey } : {}) }
+      }
+      return execution ? await execution.run('credential-handoff', handoff) : handoff()
     } catch (error) {
       seal?.secretKey.fill(0)
       throw error
@@ -910,9 +1081,9 @@ export class RoomSession {
 
   /** One exact candidate and one retention attempt at a time. Uncertain
    * outcomes stay private, including after expiry, until acknowledged. */
-  #ownCredential(ttlSeconds = this.#credentialTtl()): Promise<DeviceCredential> {
+  #ownCredential(ttlSeconds = this.#credentialTtl(), execution = this.#opts.protocol): Promise<DeviceCredential> {
     if (this.#credentialWork) return this.#credentialWork
-    const work = this.#retainOwnCredential(ttlSeconds)
+    const work = protocolTask(execution, 'credential-retention', owned => this.#retainOwnCredential(ttlSeconds, owned))
     this.#credentialWork = work
     void work.finally(() => {
       if (this.#credentialWork === work) this.#credentialWork = undefined
@@ -920,10 +1091,10 @@ export class RoomSession {
     return work
   }
 
-  async #retainOwnCredential(ttlSeconds: number): Promise<DeviceCredential> {
+  async #retainOwnCredential(ttlSeconds: number, execution: ProtocolExecution | undefined): Promise<DeviceCredential> {
     if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
     if (!this.#pendingCredential) {
-      const candidate = await this.#mintCredential(this.device, ttlSeconds)
+      const candidate = await this.#mintCredential(this.device, ttlSeconds, execution)
       this.#pendingCredential = candidate
     }
     const candidate = this.#pendingCredential
@@ -989,6 +1160,7 @@ export class RoomSession {
   /** The seal key secrets this device holds, newest first: the order a
    *  reader tries them in. */
   #sealSks(): Uint8Array[] {
+    this.#opts.protocol?.check('seal-key-access')
     return [...this.#sealKeys.values()].reverse()
   }
 
@@ -1068,21 +1240,22 @@ export class RoomSession {
   join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
     if (this.#joinWork) return this.#joinWork
     if (this.#self) return Promise.reject(new Error('room already joined'))
-    const work = this.#joinWithAdmission(tracks, claims)
+    const work = protocolTask(this.#opts.protocol, 'session-join', execution => this.#joinWithAdmission(tracks, claims, execution))
     this.#joinWork = work
+    this.#opts.protocol?.retain(work)
     void work.finally(() => {
       if (this.#joinWork === work) this.#joinWork = undefined
     }).catch(() => {})
     return work
   }
 
-  async #joinWithAdmission(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
-    if (!this.#opts.requireFreshEpoch) return this.#join(tracks, claims)
+  async #joinWithAdmission(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>, execution = this.#opts.protocol): Promise<void> {
+    if (!this.#opts.requireFreshEpoch) return this.#join(tracks, claims, execution)
     const signal = this.#opts.admissionSignal
     const cancel = () => { void this.leave() }
     signal?.addEventListener('abort', cancel, { once: true })
     try {
-      await this.#join(tracks, claims)
+      await this.#join(tracks, claims, execution)
       if (this.#left || signal?.aborted) throw new Error('room admission cancelled')
     } catch (error) {
       // No room effects have started: keep an uncertain exact candidate for
@@ -1094,7 +1267,7 @@ export class RoomSession {
     finally { signal?.removeEventListener('abort', cancel) }
   }
 
-  async #join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+  async #join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>, execution = this.#opts.protocol): Promise<void> {
     if (this.#left || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
     if (this.#ended()) throw new Error(CONFERENCE_ENDED_MESSAGE)
     if (this.#opts.policy) {
@@ -1113,7 +1286,7 @@ export class RoomSession {
     // which is the only endpoint holding the participant key, can mint one,
     // and it reuses the one it minted last time while that is still good.
     const resumed = this.#resumable()
-    const credential = this.#credential ?? resumed ?? (await this.#ownCredential())
+    const credential = this.#credential ?? resumed ?? (await this.#ownCredential(undefined, execution))
     if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || this.#ended()) throw new Error('room admission cancelled')
     if (!this.#credential && !resumed) this.#announceCredential(credential)
     if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
@@ -1141,7 +1314,7 @@ export class RoomSession {
         // a relay that forgot them cannot put this device back in epoch 0.
         const kept = await this.#opts.archive?.read({ kind: KINDS.ROOM_REKEY, d: this.roomId, limit: 1_000 }).catch(() => [])
         for (const event of kept ?? []) this.#ingestRekey(event)
-        await this.#settleEpoch(replayed)
+        await this.#settleEpoch(replayed, execution)
         if (this.#left || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
         this.#freshEpochConfirmed = true
       } catch (err) {
@@ -1249,7 +1422,7 @@ export class RoomSession {
     )
 
     try {
-      await this.#publishEntry(false)
+      await this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution)
     } catch (err) {
       // Nobody heard us, so nothing of ours may stay on the network: a mesh
       // that never joined must not answer offers, and a subscription with no
@@ -1266,7 +1439,10 @@ export class RoomSession {
       throw err
     }
 
-    this.#chat = new ChatLog({
+    const makeChat = () => {
+    this.#opts.protocol?.check('chat-construction')
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted) throw new Error('room admission cancelled')
+    return new ChatLog({
       isBlocked: participant => this.#blocked(participant),
       transport: this.#opts.transport,
       roomId: this.roomId,
@@ -1285,12 +1461,22 @@ export class RoomSession {
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
       expiresAt: this.#opts.endsAt,
+      protocol: this.#opts.protocol,
     })
+    }
+    this.#chat = execution ? await execution.run('chat-construction', makeChat) : makeChat()
 
     // Presence is live state, so it has to be restated and it has to lapse -
     // see `PRESENCE_TTL_SECONDS`. Both timers are unreferenced where the
     // runtime allows it, because a library keeping a Node process alive after
     // its caller has finished is a bug in the library.
+    if (this.#protocolTimers) {
+      this.#startOwnedHeartbeat()
+      const interval = this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS
+      this.#protocolTimers.schedule('sweep', interval, () => {
+        if (!this.#left && this.#evictLapsed()) this.#notify()
+      }, interval)
+    } else {
     this.#heartbeatTimer = this.#every(
       this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
       () => {
@@ -1300,6 +1486,7 @@ export class RoomSession {
     this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
       if (this.#evictLapsed()) this.#notify()
     })
+    }
     if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
     this.#openMemberDesk()
   }
@@ -1432,6 +1619,7 @@ export class RoomSession {
    * open the room again as `pastEpochs`.
    */
   pastSecrets(): LeftEpoch[] {
+    this.#opts.protocol?.check('epoch-key-access')
     const current = this.#epoch.epoch
     const left: LeftEpoch[] = []
     const leftAt = (epoch: number) => this.rekeyedAt(epoch + 1) ?? this.#leftAt.get(epoch)
@@ -1526,11 +1714,13 @@ export class RoomSession {
   /** The current epoch's secret. What a keeper persists and hands to a
    *  member that asks; nothing else should want it. */
   currentEpoch(): RoomEpoch {
+    this.#opts.protocol?.check('epoch-key-access')
     return { epoch: this.#epochSecret.epoch, secret: this.#epochSecret.secret.slice() }
   }
 
   /** The id and key the roster and chat ride under now. */
   epochKeys(): EpochKeys {
+    this.#opts.protocol?.check('epoch-key-access')
     return { epoch: this.#epoch.epoch, id: this.#epoch.id, key: this.#epoch.key.slice() }
   }
 
@@ -1547,18 +1737,27 @@ export class RoomSession {
    * same instruction to ask. Told the room is where this device is, or
    * behind it, say nothing and get on.
    */
-  async #settleEpoch(replayed: Promise<void>): Promise<void> {
+  async #settleEpoch(replayed: Promise<void>, execution = this.#opts.protocol): Promise<void> {
     if (this.#opts.requireFreshEpoch) {
-      this.#drainRekeys()
+      if (execution) await execution.run('epoch-replay', () => this.#drainRekeys()); else this.#drainRekeys()
       if (this.#refusedWhileJoining) throw new EpochRefusedError(this.#refusedWhileJoining)
       const floor = () => Math.max(this.#epoch.epoch, this.#opts.expectedEpoch ?? 0, ...this.#pendingRekeys.keys())
       try {
-        const grant = await requestFreshRootEpoch({ transport: this.#admissionTransport, roomId: this.roomId,
+        const request = () => {
+        const pending = requestFreshRootEpoch({ transport: this.#admissionTransport, roomId: this.roomId,
           authority: this.#opts.authority!, deviceSk: this.#opts.deviceSk, roomKey: this.#roomKey,
           credential: this.#self!.credential, proof: this.#opts.proof, now: this.#now, floor,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
           expiresAt: this.#opts.endsAt, sealSks: () => this.#sealSks(),
-          signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])] })
+          signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])], protocol: execution })
+        execution?.retain(pending); void pending.catch(() => {})
+        return { pending }
+        }
+        const requested = execution ? await execution.run('epoch-request-start', request) : request()
+        void requested.pending.catch(() => {})
+        const grant = await (execution?.retain(requested.pending) ?? requested.pending)
+        const adopt = () => {
+        execution?.check('epoch-adoption')
         if (this.#left || this.#opts.admissionSignal?.aborted || grant.epoch.epoch < floor()) throw new Error('room admission changed while awaiting authority')
         if (grant.removed.includes(this.participant)) throw new EpochRefusedError('removed')
         if (grant.epoch.epoch === this.#epoch.epoch && grant.epoch.epoch > 0 &&
@@ -1568,6 +1767,8 @@ export class RoomSession {
         if (grant.epoch.epoch > this.#epoch.epoch) this.#moveToEpoch(grant.epoch as RoomEpoch,
           { epoch: grant.epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() }, grant.passed ?? [])
         for (const n of this.#pendingRekeys.keys()) if (n <= this.#epoch.epoch) this.#pendingRekeys.delete(n)
+        }
+        if (execution) await execution.run('epoch-adoption', adopt); else adopt()
       } catch (error) {
         if (error instanceof EpochRefusedError && error.refused !== 'unknown') throw error
         throw new EpochUnreachableError(error)
@@ -1615,6 +1816,7 @@ export class RoomSession {
 
   /** Never throws: a relay subscription handler. */
   #ingestRekey(event: Event): void {
+    this.#opts.protocol?.check('rekey-ingress')
     if (!this.#opts.authority) return
     const epoch = peekRekeyEvent(event, { roomId: this.roomId, authority: this.#opts.authority })
     if (epoch === null) return
@@ -1646,6 +1848,7 @@ export class RoomSession {
    * what gets it back in step.
    */
   #drainRekeys(): boolean {
+    this.#opts.protocol?.check('rekey-ingress')
     if (this.#closed || this.#left) return false
     for (;;) {
       const at = this.#epoch.epoch + 1
@@ -1720,6 +1923,10 @@ export class RoomSession {
    *  `member-epoch.ts`), so it is taken on the same terms as the
    *  authority's. */
   #catchUp(): Promise<void> {
+    if (this.#opts.epochCatchUp === false) {
+      void this.leave().catch(() => {})
+      throw new Error('epoch catch-up is unavailable for this session')
+    }
     if (this.#catchingUp) return this.#catchingUp
     if (this.#epochRetryTimer !== undefined) clearTimeout(this.#epochRetryTimer)
     this.#epochRetryTimer = undefined
@@ -1948,6 +2155,7 @@ export class RoomSession {
    * never restates itself under the new key lapses on the ordinary timeout.
    */
   #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly (RoomEpoch & { leftAt?: number })[] = []): void {
+    this.#opts.protocol?.check('epoch-adoption')
     if (notice.members) this.#members = new Set(notice.members)
     const from = this.#epoch.epoch
     const left = this.#epochRoot()
@@ -2066,6 +2274,7 @@ export class RoomSession {
   }
 
   async #makeRekey(opts: { authoritySk: Uint8Array; removed?: string[]; by?: string; closed?: boolean; destruct?: boolean; scheduled?: boolean }): Promise<RekeyNotice> {
+    this.#opts.protocol?.check('rekey-preparation')
     if (!this.#self) throw new Error('join the room before rekeying it')
     if (this.#closed) throw new Error('this room has been closed')
     const authority = getPublicKey(opts.authoritySk)
@@ -2166,6 +2375,11 @@ export class RoomSession {
   }
 
   #scheduleRenewal(afterMs: number): void {
+    if (this.#nativeBinding) { if (!this.#nativeRevoked) this.#nativeBinding.schedule(afterMs); return }
+    if (this.#protocolTimers) {
+      this.#protocolTimers.schedule('renewal', afterMs, execution => this.#renewCredential(execution))
+      return
+    }
     if (this.#renewalTimer !== undefined) clearTimeout(this.#renewalTimer)
     const timer = setTimeout(() => {
       this.#renewalTimer = undefined
@@ -2184,16 +2398,20 @@ export class RoomSession {
    * fact. A signer that refuses, or a relay that is down, costs a retry
    * rather than the room - the old credential is still good for a while.
    */
-  async #renewCredential(): Promise<void> {
+  #renewCredential(execution = this.#opts.protocol): Promise<void> {
+    return protocolTask(execution, 'credential-renewal', owned => this.#renewOwnedCredential(owned))
+  }
+
+  async #renewOwnedCredential(execution: ProtocolExecution | undefined): Promise<void> {
     if (this.#left || !this.#self || !this.#opts.identity) return
     try {
-      const credential = await this.#ownCredential()
+      const credential = await this.#ownCredential(undefined, execution)
       if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || !this.#self) return
       this.#self = { ...this.#self, credential }
       this.#chat?.setCredential(credential)
       for (const log of this.#channels.values()) log.setCredential(credential)
       this.#announceCredential(credential)
-      await this.#publishEntry(true)
+      await this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, execution)
       this.#scheduleRenewal(this.#renewalDelayMs(credential))
     } catch {
       if (!this.#left && !this.#closed) this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
@@ -2283,15 +2501,23 @@ export class RoomSession {
    * because a forwarder is named by url and pubkey and is never given the
    * room key - see `RoomDescriptor`.
    */
-  async publishDescriptor(config: {
+  publishDescriptor(config: {
     forwarders?: ForwarderRef[]
     iceServers?: IceServerRef[]
     /** Unix seconds. Defaults to now; exposed so a caller can supersede a
      *  descriptor whose publisher's clock ran ahead. */
     updatedAt?: number
   }): Promise<void> {
+    return protocolTask(this.#opts.protocol, 'descriptor-publication', execution => this.#publishOwnedDescriptor(config, execution))
+  }
+  async #publishOwnedDescriptor(config: { forwarders?: ForwarderRef[]; iceServers?: IceServerRef[]; updatedAt?: number },
+    execution: ProtocolExecution | undefined): Promise<void> {
+    if (this.#opts.protocol) config = captureProtocolData(config)
+    const prepare = () => {
+    this.#opts.protocol?.check('descriptor-preparation')
     const self = this.#self
     if (!self) throw new Error('join the room before publishing its descriptor')
+    if (this.#left || this.#closed) throw new Error('room admission cancelled')
 
     const event = encodeDescriptorEvent(
       {
@@ -2305,7 +2531,15 @@ export class RoomSession {
       },
       { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt },
     )
-    await this.#opts.transport.publish(event)
+    return event
+    }
+    if (execution) {
+      const prepared = await execution.run('descriptor-preparation', () => {
+        const event = prepare(), pending = this.#opts.transport.publish(event)
+        execution.retain(pending); void pending.catch(() => {}); return { pending }
+      })
+      await prepared.pending
+    } else await this.#opts.transport.publish(prepare())
   }
 
   /** Never throws - this runs inside a relay subscription handler.
@@ -2313,6 +2547,7 @@ export class RoomSession {
    *  out: wrong room, wrong key, bad signature, an uncredentialled publisher,
    *  a timestamp past clock skew. */
   #ingestDescriptor(event: Event): void {
+    this.#opts.protocol?.check('descriptor-ingress')
     const descriptor = decodeDescriptorEvent(event, {
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -2427,7 +2662,14 @@ export class RoomSession {
     }
   }
 
-  async #publishEntry(reply: boolean, left = false, live = this.#currentOutgoingLiveRecording(), allowed?: () => boolean): Promise<void> {
+  #publishEntry(reply: boolean, left = false, live = this.#currentOutgoingLiveRecording(), allowed?: () => boolean,
+    execution = this.#opts.protocol): Promise<void> {
+    return protocolTask(execution, 'roster-publication', owned => this.#publishOwnedEntry(reply, left, live, allowed, owned))
+  }
+  async #publishOwnedEntry(reply: boolean, left: boolean, live: LiveRecordingState | undefined, allowed: (() => boolean) | undefined,
+    execution: ProtocolExecution | undefined): Promise<void> {
+    const prepare = () => {
+    this.#opts.protocol?.check('roster-preparation')
     const self = this.#self
     if (!self || this.#left) return
 
@@ -2472,6 +2714,15 @@ export class RoomSession {
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       expiresAt: this.#opts.endsAt,
     })
+    let pending: Promise<void> | undefined
+    if (execution && !allowed) {
+      pending = this.#opts.transport.publish(event); execution.retain(pending); void pending.catch(() => {})
+    }
+    return { entry, event, pending }
+    }
+    const prepared = execution ? await execution.run('roster-preparation', prepare) : prepare()
+    if (!prepared) return
+    const { entry, event } = prepared
     if (allowed) {
       if (!this.#opts.transport.publishGuarded) throw new Error('This connection cannot confirm a recording warning safely.')
       const publicationAllowed = () => allowed() &&
@@ -2479,14 +2730,20 @@ export class RoomSession {
       if (!publicationAllowed()) throw new Error('The recording device needs a current room credential.')
       await this.#opts.transport.publishGuarded(event, publicationAllowed)
       if (!publicationAllowed()) throw new Error('The original call changed before the warning was confirmed.')
-      this.#ingest(event)
-    } else await this.#opts.transport.publish(event)
+      if (execution) await execution.run('roster-acknowledgement', () => this.#ingest(event)); else this.#ingest(event)
+    } else await (prepared.pending ?? this.#opts.transport.publish(event))
   }
 
   #every(intervalMs: number, run: () => void): ReturnType<typeof setInterval> {
     const timer = setInterval(run, intervalMs)
     ;(timer as unknown as { unref?: () => void }).unref?.()
     return timer
+  }
+
+  #startOwnedHeartbeat(): void {
+    const interval = this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS
+    this.#protocolTimers!.schedule('heartbeat', interval, execution =>
+      this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution), interval)
   }
 
   /**
@@ -2567,6 +2824,13 @@ export class RoomSession {
   /** Schedule one answer to a new arrival, jittered. Coalesced: an answer
    *  already pending covers every device that arrives before it fires. */
   #scheduleReply(): void {
+    if (this.#protocolTimers) {
+      if (this.#protocolTimers.has('reply') || this.#left || !this.#self) return
+      const jitter = this.#opts.announceJitterMs ?? DEFAULT_ANNOUNCE_JITTER_MS
+      this.#protocolTimers.schedule('reply', Math.floor(randomFraction() * jitter), execution =>
+        this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, execution))
+      return
+    }
     if (this.#replyTimer !== undefined || this.#left || !this.#self) return
     const jitter = this.#opts.announceJitterMs ?? DEFAULT_ANNOUNCE_JITTER_MS
     this.#replyTimer = setTimeout(
@@ -2657,11 +2921,18 @@ export class RoomSession {
    * closed - see `call-bell.ts`. Fire and forget: it never holds up going on
    * or off a call, and a failure costs only the ring, so it is swallowed.
    */
-  #ringBell(state: CallBellState, call: CallMembership): Promise<void> {
+  async #ringBell(state: CallBellState, call: CallMembership): Promise<void> {
+    if (this.#opts.protocol) call = captureProtocolData(call)
     // A conference room that has ended rings nobody.
     if (this.#opts.callBell === false || this.#ended()) return Promise.resolve()
     try {
-      const event = encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#opts.endsAt })
+      const prepare = () => {
+        this.#opts.protocol?.check('call-bell-preparation')
+        if (this.#ended() || this.#left) return undefined
+        return encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#opts.endsAt })
+      }
+      const event = this.#opts.protocol ? await this.#opts.protocol.run('call-bell-preparation', prepare) : prepare()
+      if (!event) return
       return this.#opts.transport.publish(event).catch(() => {})
     } catch {
       return Promise.resolve()
@@ -2704,6 +2975,7 @@ export class RoomSession {
    */
   pausePresence(): void {
     this.#mesh?.standDown()
+    if (this.#protocolTimers) { this.#protocolTimers.cancel('heartbeat'); return }
     if (this.#heartbeatTimer === undefined) return
     clearInterval(this.#heartbeatTimer)
     this.#heartbeatTimer = undefined
@@ -2714,6 +2986,10 @@ export class RoomSession {
    *  call repeatedly. */
   resumePresence(): void {
     this.#mesh?.standUp()
+    if (this.#protocolTimers) {
+      if (!this.#protocolTimers.has('heartbeat') && !this.#left && this.#self) this.#startOwnedHeartbeat()
+      return
+    }
     if (this.#heartbeatTimer !== undefined || this.#left || !this.#self) return
     this.#heartbeatTimer = this.#every(
       this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
@@ -2850,6 +3126,7 @@ export class RoomSession {
    * conversation its principal cannot see. See `deriveChannel`.
    */
   async assignments(storage: AssignmentStorage): Promise<AssignmentLog> {
+    this.#opts.protocol?.check('assignment-construction')
     if (!this.#chat || this.#left) throw new Error('Join the room before opening assignments')
     if (this.#assignmentsOpening) return this.#assignmentsOpening
     if (this.#assignments) return this.#assignments
@@ -2868,6 +3145,7 @@ export class RoomSession {
   }
 
   channel(name: string): ChatLog {
+    this.#opts.protocol?.check('channel-construction')
     if (!this.#chat) throw new Error('join the room before using a channel')
     const existing = this.#channels.get(name)
     if (existing) return existing
@@ -2891,12 +3169,14 @@ export class RoomSession {
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
       expiresAt: this.#opts.endsAt,
+      protocol: this.#opts.protocol,
     })
     this.#channels.set(name, log)
     return log
   }
 
   #ingest(event: Event): void {
+    this.#opts.protocol?.check('roster-ingress')
     const entry = decodeRosterEvent(event, {
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -3189,7 +3469,9 @@ export class RoomSession {
    * Everything else here is immediate.
    */
   leave(): Promise<void> {
+    if (this.#nativeBinding) { this.#nativeRevoked = true; this.#nativeDiscard?.(); this.#nativeBinding.revoke() }
     this.#admissionAbort.abort()
+    this.#protocolTimers?.close()
     // The last thing this device says is an entry claiming nothing,
     // publishing nothing, and marked `left`. That releases a singular role
     // and takes the tile off everybody's screen at once, rather than making
@@ -3257,5 +3539,17 @@ export class RoomSession {
       this.#discardPendingCredential()
     }) ?? Promise.resolve().then(() => { this.#discardPendingCredential() })
     return Promise.all([farewell, retention]).then(() => {})
+  }
+  /** A native embedding calls this only after revocation and joined work,
+   * with owned input buffers. No permission check is needed to erase data. */
+  disposeProtocolSecrets(): void {
+    if (!this.#opts.protocol || !this.#left || this.#joinWork || this.#credentialWork || this.#retentionWork) throw new Error('join native session cleanup before erasing secrets')
+    this.#roomKey.fill(0); this.#epoch.key.fill(0); this.#epochSecret.secret.fill(0)
+    for (const key of this.#sealKeys.values()) key.fill(0)
+    this.#sealKeys.clear()
+    for (const secret of this.#secrets.values()) secret.fill(0)
+    this.#secrets.clear()
+    for (const past of this.#pastEpochs) past.root?.key.fill(0)
+    this.#pastEpochs = []; this.#discardPendingCredential()
   }
 }

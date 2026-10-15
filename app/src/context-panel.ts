@@ -1,4 +1,4 @@
-import { ContextVault, type ContextIdentity, type ContextView, type ContextGrant, type ContextScope, type ContextRecord } from '../../src/context.js'
+import { ContextVault, CONTEXT_EVENT_BYTES, CONTEXT_CACHE_BYTES, type ContextIdentity, type ContextView, type ContextGrant, type ContextScope, type ContextRecord } from '../../src/context.js'
 import type { AgentOwnership } from '../../src/types.js'
 import { FILE_STORAGE_REQUIRED } from './file-storage.js'
 
@@ -57,7 +57,7 @@ export class ContextPanel {
       this.#download(JSON.stringify(await v.access(view.id, recipient)), `context-access-${recipient.slice(0, 12)}.json`)
     }, true, 'Encrypted revision uploaded. Send the downloaded access file to its named recipient; only their identity can open it.') }
     this.#el('contextPreview').onclick = () => { void this.#run(async v => {
-      const file = this.#file(); if (file.size > 100000) throw new Error('Access file is too large.')
+      const file = this.#file(); if (file.size > CONTEXT_EVENT_BYTES) throw new Error('Access file is too large.')
       let ticket: unknown
       try { ticket = JSON.parse(await file.text()) } catch { throw new Error('Invalid access file JSON.') }
       const preview = await v.previewAccess(ticket)
@@ -74,7 +74,7 @@ export class ContextPanel {
     }, true, 'Encrypted context imported. Its signed records are available below.') }
     this.#el('contextBackup').onclick = () => { void this.#run(async v => { this.#download(await v.save(), 'kithmoot-context-backup.json') }, false, 'Encrypted backup downloaded. Keep it with access to this signing identity.') }
     this.#el('contextRestore').onclick = () => { void this.#run(async v => {
-      const file = this.#file(); if (file.size > 90 * 1024 * 1024) throw new Error('Backup is too large.')
+      const file = this.#file(); if (file.size > CONTEXT_CACHE_BYTES) throw new Error('Backup is too large.')
       await v.restore(await file.text())
     }, true, 'Encrypted backup restored for this identity.') }
   }
@@ -87,7 +87,7 @@ export class ContextPanel {
   close(): void { this.#dialog.close(); this.#clear() }
   #clear(): void {
     this.#generation++; this.#vault = undefined; this.#identity = undefined; this.#view = undefined; this.#ticket = undefined; this.#members = []
-    for (const el of this.#dialog.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')) el.value = ''
+    for (const el of Array.from(this.#dialog.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea'))) el.value = ''
     for (const id of ['contextRecords', 'contextCollection', 'contextGrants', 'contextMembers', 'contextShareRecipient']) this.#el(id).replaceChildren()
     for (const id of ['contextStatus', 'contextSummary', 'contextImportPreview']) this.#el(id).textContent = ''
     this.#el('contextDetails').hidden = true; this.#el('contextImport').hidden = true

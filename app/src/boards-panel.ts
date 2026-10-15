@@ -1,7 +1,8 @@
 import type { SignetSession } from 'signet-login'
-import type { DeviceStore } from './device-store.js'
-import { boardContextTitle, listBoardContexts, readBoardContext, saveBoardContext, type BoardContext } from './board-context.js'
-import { girnelAccess, type GirnelBoard, type GirnelWindow } from './girnel-host.js'
+import type { BoardContextCustody } from './board-context-custody.js'
+import { BoardContextView } from './board-context-view.js'
+import { boardContextTitle, type BoardContext } from './board-context.js'
+import { girnelAccess, type GirnelBoard, type GirnelWindow, type GirnelBorrowedAccess } from './girnel-host.js'
 import './boards-panel.css'
 import popupStyles from './boards-panel.css?inline'
 import type { RoomBoard } from '../../src/room-boards.js'
@@ -20,6 +21,11 @@ interface BoardView {
   project?: Scope
   room?: Scope
   popup?: Window
+  custody: BoardContextView
+  selection: number
+  boardGeneration: number
+  boardId?: string
+  access?: GirnelBorrowedAccess
   share?: () => void
 }
 
@@ -41,9 +47,12 @@ export class BoardsPanel {
   #share: HTMLButtonElement
   #navigationState = ''
   #timer: ReturnType<typeof setInterval>
+  #closing = new Set<Promise<void>>()
+  #navigationView?: {account: SignetSession; custody: BoardContextView; abort: AbortController}
+  #navigationBusy = false
   constructor(readonly root: Document, readonly options: {
     session(): SignetSession | undefined
-    store: DeviceStore
+    contexts(account: SignetSession, current: () => boolean, stop: () => void): Promise<BoardContextCustody>
     projects(): Scope[]
     rooms(project?: string): Scope[]
     currentRoom(): Scope | undefined
@@ -66,7 +75,8 @@ export class BoardsPanel {
       const view = this.#view
       if (view) {
         await (view.frame.contentWindow as GirnelWindow).girnelEmbed?.prepareMove()
-        if (this.#view === view && !view.abort.signal.aborted) view.frame.contentWindow!.location.hash = '#/'
+        await view.custody.run(async () => {})
+        if (this.#view === view && !view.abort.signal.aborted && this.options.session() === view.account) view.frame.contentWindow!.location.hash = '#/'
       } else this.open(this.#return ?? picker)
     })().catch(error => this.report(error))})
     const tasks = this.button('Room tasks', () => {this.dialog.close(); this.options.roomTasks(tasks)})
@@ -87,7 +97,7 @@ export class BoardsPanel {
     for (const [text, select] of [['Project', this.#project], ['Chat', this.#room]] as const) {
       const label = this.el('label', text); label.append(select); this.#scope.append(label)
     }
-    this.#link = this.button('Use these labels', () => this.associate()); this.#link.id = 'boardsAssociate'
+    this.#link = this.button('Use these labels', () => {void this.associate()}); this.#link.id = 'boardsAssociate'
     this.#share = this.button('Share with this chat', () => this.#view?.share?.()); this.#share.id = 'boardsShareRoom'; this.#share.disabled = true
     this.#scope.append(this.#link, this.#share)
     this.#project.onchange = () => {this.fillRooms(); this.#link.disabled = !this.#view?.context}
@@ -119,49 +129,86 @@ export class BoardsPanel {
       this.#share.textContent = view.context.room ? `Share with ${view.context.room.name}` : 'Share with this chat'
     }
   }
-  private associate() {
+  private async associate() {
     const view = this.#view
     if (!view?.context || this.options.session() !== view.account) return
-    view.project = this.scope(this.#project); view.room = this.scope(this.#room)
-    view.context = {boardId: view.context.boardId, boardName: view.context.boardName,
+    const selection = view.selection, project = this.scope(this.#project), room = this.scope(this.#room)
+    const context = {boardId: view.context.boardId, boardName: view.context.boardName,
       ...(view.context.cardId ? {cardId: view.context.cardId} : {}),
-      ...(view.project ? {project: view.project} : {}), ...(view.room ? {room: view.room} : {})}
-    try {saveBoardContext(this.options.store, view.account.pubkey, view.context); this.labels(view); this.navigation(); this.#status.textContent = 'Labels saved on this browser. Board membership is unchanged.'}
-    catch (error) {this.report(error)}
+      ...(project ? {project} : {}), ...(room ? {room} : {})}
+    try {
+      await view.custody.run(async custody => {
+        if (view.selection !== selection) throw new Error('The board changed before its labels could save.')
+        await custody.save(context,() => this.options.session() === view.account && !view.abort.signal.aborted && view.selection === selection)
+      })
+      if (view.selection !== selection || this.#view !== view) return
+      view.project = project; view.room = room; view.context = context
+      this.labels(view); this.navigation(); this.#status.textContent = 'Labels saved on this browser. Board membership is unchanged.'
+    } catch (error) {if (this.#view === view && !view.abort.signal.aborted) this.report(error)}
   }
   private report(error: unknown) {this.#status.textContent = errorText(error)}
   private navigation() {
-    const account = this.options.session()?.pubkey, room = this.options.currentRoom()
-    const contexts = account ? listBoardContexts(this.options.store, account) : []
-    const shared = room && account ? this.options.roomBoards(room.id) : []
-    for (const board of shared) {
-      const index = contexts.findIndex(context => context.boardId === board.boardId && context.room?.id === room!.id)
-      const context: BoardContext = {boardId: board.boardId, boardName: board.name, room}
-      if (index >= 0) contexts[index] = {...contexts[index], ...context}; else contexts.push(context)
-    }
-    const state = JSON.stringify([account, room?.id, contexts, [...this.#popups].filter(view => !view.popup?.closed).map(view => view.context?.boardId)])
-    if (state === this.#navigationState) return
-    this.#navigationState = state
-    const button = (context: BoardContext, full: boolean) => {
-      const popped = [...this.#popups].some(view => view.account.pubkey === account && view.context?.boardId === context.boardId && !view.popup?.closed)
-      const open = this.button(`${full ? [context.project?.name, context.room?.name, context.boardName].filter(Boolean).join(' · ') : context.boardName}${popped ? ' · Open in window' : ''}`, () => {void this.reopen(open, context).catch(error => this.report(error))})
-      open.dataset.boardId = context.boardId; open.title = boardContextTitle(context)
-      return open
-    }
-    this.#saved.replaceChildren(...contexts.map(context => button(context, true)))
-    this.#saved.hidden = !contexts.length
-    const linked = this.root.getElementById('roomBoards')
-    if (linked) {
-      const boards = contexts.filter(context => context.room?.id === room?.id && !!room)
-      linked.replaceChildren(...boards.map(context => button(context, false))); linked.hidden = !boards.length
-    }
+    if (this.#navigationBusy) return
+    this.#navigationBusy = true
+    void (async () => {
+      const account = this.options.session(), room = this.options.currentRoom()
+      if (this.#navigationView && this.#navigationView.account !== account) this.closeNavigation()
+      if (!account) {
+        this.#navigationState = ''; this.#saved.replaceChildren(); this.#saved.hidden = true
+        const linked = this.root.getElementById('roomBoards'); if (linked) {linked.replaceChildren(); linked.hidden = true}
+        return
+      }
+      if (!this.#navigationView) {
+        const abort = new AbortController(), person = account.pubkey, signer = account.signer, method = account.method, expiry = account.expiresAt
+        const current = () => !abort.signal.aborted && this.options.session() === account && account.pubkey === person && account.signer === signer &&
+          account.method === method && account.expiresAt === expiry && (expiry === undefined || Number.isFinite(expiry) && Date.now() < expiry)
+        const custody = new BoardContextView(current, () => this.options.contexts(account,current,() => abort.abort()))
+        this.#navigationView = {account,custody,abort}
+      }
+      const navigation = this.#navigationView
+      const contexts = await navigation.custody.run(storage => storage.list())
+      if (this.#navigationView !== navigation || this.options.session() !== account || this.options.currentRoom()?.id !== room?.id) return
+      const shared = room ? this.options.roomBoards(room.id) : []
+      for (const board of shared) {
+        const index = contexts.findIndex(context => context.boardId === board.boardId && context.room?.id === room!.id)
+        const context: BoardContext = {boardId: board.boardId, boardName: board.name, room}
+        if (index >= 0) contexts[index] = {...contexts[index], ...context}; else contexts.push(context)
+      }
+      const state = JSON.stringify([account.pubkey, room?.id, contexts, [...this.#popups].filter(view => !view.popup?.closed).map(view => view.context?.boardId)])
+      if (state === this.#navigationState) return
+      this.#navigationState = state
+      const button = (context: BoardContext, full: boolean) => {
+        const popped = [...this.#popups].some(view => view.account === account && view.context?.boardId === context.boardId && !view.popup?.closed)
+        const open = this.button(`${full ? [context.project?.name, context.room?.name, context.boardName].filter(Boolean).join(' · ') : context.boardName}${popped ? ' · Open in window' : ''}`, () => {void this.reopen(open, context).catch(error => this.report(error))})
+        open.dataset.boardId = context.boardId; open.title = boardContextTitle(context)
+        return open
+      }
+      this.#saved.replaceChildren(...contexts.map(context => button(context, true))); this.#saved.hidden = !contexts.length
+      const linked = this.root.getElementById('roomBoards')
+      if (linked) {
+        const boards = contexts.filter(context => context.room?.id === room?.id && !!room)
+        linked.replaceChildren(...boards.map(context => button(context, false))); linked.hidden = !boards.length
+      }
+    })().catch(error => {if (this.#navigationView && !this.#navigationView.abort.signal.aborted) this.report(error)})
+      .finally(() => {this.#navigationBusy = false})
+  }
+  private closeNavigation() {
+    const navigation = this.#navigationView
+    if (!navigation) return
+    this.#navigationView = undefined; navigation.abort.abort(); navigation.custody.revoke()
+    this.#saved.replaceChildren(); this.#saved.hidden = true
+    const linked = this.root.getElementById('roomBoards'); if(linked) {linked.replaceChildren(); linked.hidden = true}
+    const closing = navigation.custody.close(); this.#closing.add(closing)
+    void closing.finally(() => this.#closing.delete(closing)).catch(() => {})
   }
   private async reopen(from: HTMLElement, context: BoardContext) {
     const account = this.options.session()
     const popped = [...this.#popups].find(view => view.account === account && view.context?.boardId === context.boardId && !view.popup?.closed)
     if (popped?.popup) {popped.popup.focus(); this.dialog.close(); this.options.showChat(); return}
-    await (this.#view?.frame.contentWindow as GirnelWindow | undefined)?.girnelEmbed?.prepareMove()
-    if (this.options.session() !== account) return
+    const previous = this.#view
+    await (previous?.frame.contentWindow as GirnelWindow | undefined)?.girnelEmbed?.prepareMove()
+    await previous?.custody.run(async () => {})
+    if (this.options.session() !== account || this.#view !== previous) return
     const shared = context.room && this.options.roomBoards(context.room.id).find(board => board.boardId === context.boardId)
     this.open(from, context, shared?.invitation)
   }
@@ -175,8 +222,10 @@ export class BoardsPanel {
           !/^#(?:[A-Za-z0-9_-]+|\/b\/[a-zA-Z0-9_-]+(?:\/c\/[a-zA-Z0-9_-]+)?)$/.test(url.hash)) throw new Error()
       hash = url.hash
     } catch {throw new Error('Paste the whole board invitation or card link, including the part after #.')}
-    await (this.#view?.frame.contentWindow as GirnelWindow | undefined)?.girnelEmbed?.prepareMove()
-    if (this.options.session() !== account) throw new Error('Your account changed before the board could open.')
+    const previous = this.#view
+    await (previous?.frame.contentWindow as GirnelWindow | undefined)?.girnelEmbed?.prepareMove()
+    await previous?.custody.run(async () => {})
+    if (this.options.session() !== account || this.#view !== previous) throw new Error('Your account or board changed before the board could open.')
     this.closeView(this.#view)
     this.#view = this.mount(this.dialog.querySelector('.boardsShell')!, account, undefined, this.scope(this.#project), this.scope(this.#room), undefined, hash)
     this.#status.textContent = 'Opening the board link. Review the board invitation before joining.'
@@ -217,44 +266,64 @@ export class BoardsPanel {
     if (context) url.hash = `#/b/${context.boardId}${'cardId' in context && typeof context.cardId === 'string' ? `/c/${context.cardId}` : ''}`
     if (route) url.hash = route
     frame.src = url.href
-    const view: BoardView = {frame, abort, account, context, project, room, popup}
-    const current = () => !abort.signal.aborted && this.options.session() === account && (!popup || !popup.closed)
+    const person = account.pubkey, signer = account.signer, method = account.method, expiry = account.expiresAt
+    const current = () => !abort.signal.aborted && this.options.session() === account && (!popup || !popup.closed) &&
+      account.pubkey === person && account.signer === signer && account.method === method && account.expiresAt === expiry &&
+      (expiry === undefined || Number.isFinite(expiry) && expiry > Date.now())
+    const custody = new BoardContextView(current, () => this.options.contexts(account,current,() => abort.abort(new Error('Board context custody held.'))))
+    const view: BoardView = {frame, abort, account, context, project, room, popup, custody, selection: 0, boardGeneration: 0}
+    abort.signal.addEventListener('abort', () => custody.revoke(), {once: true})
     frame.addEventListener('load', () => {
       if (!current()) return
       const child = frame.contentWindow as GirnelWindow
-      const start = () => {
+      const start = async () => {
         if (!current() || !child.girnelEmbed) return
-        void child.girnelEmbed.start({signal: abort.signal,
-          access: girnelAccess(account, current, () => {
+        try { await custody.ready; if (!current()) return
+        view.access?.revoke(); await view.access?.close(); if (!current()) return
+        const access = girnelAccess(account, current, () => {
             this.closeView(view)
             if (this.#view === view) {this.#view = undefined; this.dialog.close()}
             popup?.close()
-          }),
+          })
+        view.access = access
+        abort.signal.addEventListener('abort', () => access.revoke(), {once: true})
+        await child.girnelEmbed.start({signal: abort.signal, access,
           onBoard: (board: GirnelBoard | null) => {
             if (!current()) return
+            const selection = ++view.selection
+            const boardId = board?.boardId
+            if (view.boardId !== boardId) {view.boardId = boardId; view.boardGeneration++}
             if (!board) {view.context = undefined; this.labels(view); return}
-            const saved = readBoardContext(this.options.store, account.pubkey, board.boardId)
-            view.context = {boardId: board.boardId, boardName: board.name, ...(board.cardId ? {cardId: board.cardId} : {}),
+            const chosen = {...board}, project = view.project && {...view.project}, room = view.room && {...view.room}
+            view.context = undefined; this.labels(view)
+            void custody.run(async storage => {
+            if (view.selection !== selection) return
+            const saved = await storage.read(chosen.boardId)
+            if (!current() || view.selection !== selection) return
+            const context: BoardContext = {boardId: chosen.boardId, boardName: chosen.name, ...(chosen.cardId ? {cardId: chosen.cardId} : {}),
               ...(saved?.project ? {project: saved.project} : {}), ...(saved?.room ? {room: saved.room} : {})}
             // A new board takes the explicitly selected creation context. An
             // existing board retains its own labels when the main chat changes.
-            if (!saved && view.project) view.context.project = view.project
-            if (!saved && view.room) view.context.room = view.room
-            try {saveBoardContext(this.options.store, account.pubkey, view.context)} catch (error) {this.report(error)}
-            this.labels(view)
-            this.navigation()
+            if (!saved && project) context.project = project
+            if (!saved && room) context.room = room
+            await storage.save(context,() => current() && view.selection === selection)
+            if (!current() || view.selection !== selection) return
+            view.context = context
+            this.labels(view); this.navigation()
+            }).catch(error => {if (current() && view.selection === selection) this.report(error)})
           },
           onBoards: boards => {
             if (!current()) return
-            try {
-              for (const board of boards) {
-                const saved = readBoardContext(this.options.store, account.pubkey, board.boardId)
-                saveBoardContext(this.options.store, account.pubkey, {...saved, boardId: board.boardId, boardName: board.name})
+            const captured = boards.map(board => ({...board}))
+            void custody.run(async storage => {
+              for (const board of captured) {
+                if (!current()) return
+                const saved = await storage.read(board.boardId)
+                await storage.save({...saved,boardId:board.boardId,boardName:board.name},current)
               }
-              this.navigation()
-            } catch (error) {this.report(error)}
+              if (current()) this.navigation()
+            }).catch(error => {if (current()) this.report(error)})
           },
-          roomInvitation: () => view.context?.room ? this.options.roomInvitation(view.context.room.id) : undefined,
           agentRoom: async () => {
             const room = view.context?.room ?? view.room
             if (!room || !current()) throw new Error('Choose this board’s chat before assigning a card')
@@ -265,18 +334,27 @@ export class BoardsPanel {
           roomShare: () => {
             const room = view.context?.room ?? view.room
             if (!room || !current()) return
-            return {name: room.name, publish: async (board, invitation) => {
-              if (!current()) throw new Error('Your account changed before sharing the board.')
-              await this.options.shareBoard(room, {...board, invitation})
-              if (!current()) throw new Error('Reopen Boards to check the shared board.')
-              this.navigation()
+            const linked = {...room}
+            return {name:linked.name,publish:async (board,invitation) => {
+              const chosen = {...board,invitation}, generation = view.boardGeneration
+              const selected = () => current() && view.boardGeneration === generation && view.boardId === chosen.boardId &&
+                (view.context?.room ?? view.room)?.id === linked.id
+              try {
+                await custody.run(storage => storage.list())
+                if (!selected()) throw new Error('Your account or board changed before sharing the board.')
+                await this.options.shareBoard(linked,chosen)
+                await custody.run(storage => storage.list())
+                if (!selected()) throw new Error('Reopen Boards to check the shared board.')
+                this.navigation()
+              } catch(error) {if(current()) this.report(error); throw error}
             }}
           },
-          onRoomShareReady: share => {if (current()) {view.share = share ?? undefined; this.labels(view)}},
-          discuss: (_board, card) => {if (current() && view.context) {this.dialog.close(); void this.options.discuss(view.context, card).catch(error => {this.report(error); if (!this.dialog.open) this.dialog.showModal()})}},
-        }).catch(error => {if (current()) this.report(error)})
+          onRoomShareReady: share => {if (current()) {view.share = share ? () => {if(current()) share()} : undefined; this.labels(view)}},
+          roomInvitation: () => current() && view.context?.room ? this.options.roomInvitation(view.context.room.id) : undefined,
+          discuss: (_board, card) => {if (current() && view.context) {this.dialog.close(); void this.options.discuss(view.context, card).catch(error => {if (current()) {this.report(error); if (!this.dialog.open) this.dialog.showModal()}})}},
+        }) } catch (error) {if (current()) this.report(error)}
       }
-      if (child.girnelEmbed) start(); else child.addEventListener('girnel-ready', start, {once: true})
+      if (child.girnelEmbed) void start(); else child.addEventListener('girnel-ready', () => {void start()}, {once: true})
     })
     container.append(frame)
     if (context) this.labels(view)
@@ -292,10 +370,13 @@ export class BoardsPanel {
     if (!popup) {this.#status.textContent = 'Your browser blocked the board window. Allow pop-ups for KithMoot, then try again.'; return}
     try {
       await (view.frame.contentWindow as GirnelWindow).girnelEmbed?.prepareMove()
+      await view.custody.run(async () => {})
       if (this.options.session() !== view.account || view.abort.signal.aborted) throw new Error('Your account changed before the board could move.')
+      if (view.context?.boardId !== context.boardId) throw new Error('The board changed before it could move.')
+      const moving = view.context
       this.closeView(view); this.#view = undefined
-      this.mountPopup(popup, view.account, context)
-      this.#context.textContent = `${boardContextTitle(context)} · Open in its own window`
+      this.mountPopup(popup, view.account, moving)
+      this.#context.textContent = `${boardContextTitle(moving)} · Open in its own window`
       this.#status.textContent = 'This board is open in its own window. You can open another board here.'
       this.#pop.disabled = this.#link.disabled = true
       this.dialog.close()
@@ -322,7 +403,9 @@ export class BoardsPanel {
     back.onclick = () => {void (async () => {
       try {
         await (detached.frame.contentWindow as GirnelWindow).girnelEmbed?.prepareMove()
+        await detached.custody.run(async () => {})
         await (this.#view?.frame.contentWindow as GirnelWindow | undefined)?.girnelEmbed?.prepareMove()
+        await this.#view?.custody.run(async () => {})
         if (this.options.session() !== account || detached.abort.signal.aborted || popup.closed) throw new Error('Your account changed before the board could return.')
         const returning = detached.context ?? context
         this.closeView(this.#view); this.#view = undefined
@@ -333,7 +416,12 @@ export class BoardsPanel {
     popup.addEventListener('pagehide', () => detached.abort.abort(new Error('Board window reloading')), {once: true})
     return detached
   }
-  private closeView(view?: BoardView) {if (!view) return; view.abort.abort(new Error('Board connection closed')); view.frame.remove(); this.#popups.delete(view)}
+  private closeView(view?: BoardView) {
+    if (!view) return
+    view.abort.abort(new Error('Board connection closed')); view.custody.revoke(); view.access?.revoke(); view.frame.remove(); this.#popups.delete(view)
+    const closing = Promise.allSettled([view.custody.close(),view.access?.close()]).then(() => {}); this.#closing.add(closing)
+    void closing.finally(() => this.#closing.delete(closing)).catch(() => {})
+  }
   sync() {
     const session = this.options.session()
     if (this.#view && this.#view.account !== session) {this.closeView(this.#view); this.#view = undefined; this.dialog.close()}
@@ -355,11 +443,11 @@ export class BoardsPanel {
     }
     this.navigation()
   }
-  reset() {this.closeView(this.#view); this.#view = undefined; for (const view of this.#popups) {this.closeView(view); view.popup?.close()}; this.dialog.close()}
+  reset(): Promise<void> {this.closeNavigation(); this.#navigationState = ''; this.closeView(this.#view); this.#view = undefined; for (const view of this.#popups) {this.closeView(view); view.popup?.close()}; this.dialog.close(); return Promise.allSettled([...this.#closing]).then(() => {})}
   get hasPendingEdits(): boolean {
-    return [this.#view, ...this.#popups].some(view => {
+    return this.#navigationBusy || this.#closing.size !== 0 || [this.#view, ...this.#popups].some(view => {
       if (!view || view.abort.signal.aborted || view.popup?.closed) return false
-      try {return !!(view.frame.contentWindow as GirnelWindow)?.girnelEmbed?.hasPendingEdits?.()} catch {return true}
+      try {return view.custody.pending || !!(view.frame.contentWindow as GirnelWindow)?.girnelEmbed?.hasPendingEdits?.()} catch {return true}
     })
   }
 }

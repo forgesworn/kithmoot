@@ -1,0 +1,6 @@
+export * from './ordinary-state.browser-entry.js'
+export { validateOrdinaryIdentitySnapshot } from '../app/src/ordinary-identity-snapshot.js'
+export { createDeviceCredential } from '../src/credential.js'
+export { localIdentity } from '../src/identity.js'
+export { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
+export { bytesToHex } from '@noble/hashes/utils'

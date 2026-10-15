@@ -11,3 +11,5 @@
 
 const fold = document.getElementById('callExtras')
 if (fold instanceof HTMLDetailsElement) fold.open = false
+
+export {}

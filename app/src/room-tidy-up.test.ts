@@ -111,12 +111,24 @@ describe('leave and tidy up', () => {
     expect(files.label).toBe('Ask the file server to delete the files this device shared in the room')
   })
 
-  it('still wipes when the file step throws, and says the server was not asked', async () => {
+  it('retains local custody and pauses account cleanup when the file step throws', async () => {
     const { deps, order } = setup()
     deps.files = async () => { throw new Error('no device key') }
     const report = await runTidyUp(deps)
-    expect(order).toContain('local')
-    expect(report.steps.find(s => s.id === 'files')?.skipped).toBe('The file server was not asked: no device key')
+    expect(order).not.toContain('local')
+    expect(order).not.toContain('bookmark')
+    expect(report.localRetained).toContain('Local room keys and upload records were retained')
+    expect(report.refused).toBeUndefined()
+    expect(report.steps.find(s => s.id === 'files')?.skipped).toBe('File cleanup paused: no device key')
+  })
+
+  it('retains keys and upload records when a historical file target was refused', async () => {
+    const { deps, order } = setup()
+    deps.files = async () => ({found: 1, deleted: 0, refused: 1, pending: 0, details: []})
+    const report = await runTidyUp(deps)
+    expect(order).not.toContain('local'); expect(order).not.toContain('bookmark')
+    expect(report.localRetained).toContain('Some file targets could not be verified')
+    expect(report.steps.find(s => s.id === 'files')?.files?.refused).toBe(1)
   })
 
   it('deletes in order while the keys exist, names addressable records by e and a, and finds nothing of theirs afterwards', async () => {
