@@ -248,6 +248,8 @@ test('alternating current selection cannot substitute a foreign pointer for the 
 
 for (const keep of [false,true]) for (const priorLease of [false,true]) {
   test(`ordinary P restore uses current credential, keep=${keep}, priorLease=${priorLease}`, async ({page})=>{
+    // Two renewal generations have a separate, measured journey budget.
+    if (priorLease && !startupTimingEnabled(priorLease)) test.setTimeout(60_000)
     if (!startupTimingEnabled(priorLease)) {
       await extensionRestart(page,keep,priorLease)
       const before=await page.evaluate('[entropy,puts,signCalls]')

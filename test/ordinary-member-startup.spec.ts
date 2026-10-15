@@ -17,6 +17,8 @@ async function memberTransport(page: Page): Promise<void> {
 
 for (const visitor of [false, true]) for (const keep of [false, true]) for (const priorLease of [false, true]) {
   test(`prepared recovery opens a fresh guarded member, visitor=${visitor}, keep=${keep}, priorLease=${priorLease}`, async ({ page }) => {
+    // Two renewal generations have a separate, measured journey budget.
+    if (priorLease && !startupTimingEnabled(priorLease)) test.setTimeout(60_000)
     if (!startupTimingEnabled(priorLease)) {
       page.on('pageerror', error => console.error('Native member relay fixture:', error.message))
       await preparedRestart(page, visitor, keep, priorLease)

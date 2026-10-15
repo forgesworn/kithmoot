@@ -25,6 +25,8 @@ async function extensionRestart(page: Page, keep = true, priorLease = false, sdk
 
 for (const keep of [false, true]) for (const priorLease of [false, true]) {
   test(`actual extension restores at E then recovers and sends, keep=${keep}, priorLease=${priorLease}`, async ({ page }) => {
+    // Two renewal generations have a separate, measured journey budget.
+    if (priorLease && !startupTimingEnabled(priorLease)) test.setTimeout(60_000)
     if (!startupTimingEnabled(priorLease)) {
       await extensionRestart(page, keep, priorLease)
       await page.evaluate('beginExtension();undefined'); await page.waitForFunction("restoreStatus!=='pending'")
