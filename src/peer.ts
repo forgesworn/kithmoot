@@ -455,6 +455,12 @@ export class Peer implements NegotiatingPeer {
    *  makes that ask answerable without touching the connection at all. */
   #lastRemoteOfferSdp?: string
   #lastAnswerSdp?: string
+  #lastAnswerReplyTo?: number
+  // Android already correlates profile-1 answers with the offer's seq. Keep
+  // the same optional wire fields here so a delayed answer cannot settle a
+  // newer camera offer. Older peers without re retain the legacy handling.
+  #offerSeq = 0
+  #outstandingOfferSeq?: number
   /**
    * Every answer shape this connection has accounted for - applied, or
    * already repaired against. See `#answerDisagrees`.
@@ -715,7 +721,9 @@ export class Peer implements NegotiatingPeer {
     try {
       const offer = await this.#pc.createOffer()
       await this.#pc.setLocalDescription(offer)
-      this.#onSignal({ type: 'offer', roomId: '', sdp: offer.sdp })
+      if (this.#offerSeq === Number.MAX_SAFE_INTEGER) throw new Error('call offer identifiers exhausted')
+      this.#outstandingOfferSeq = ++this.#offerSeq
+      this.#onSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: this.#outstandingOfferSeq })
     } finally {
       this.#makingOffer = false
     }
@@ -787,7 +795,7 @@ export class Peer implements NegotiatingPeer {
     if (this.#pc.signalingState !== 'have-local-offer') return false
     const local = this.#pc.localDescription
     if (!local || local.type !== 'offer') return false
-    this.#onSignal({ type: 'offer', roomId: '', sdp: local.sdp })
+    this.#onSignal({ type: 'offer', roomId: '', sdp: local.sdp, seq: this.#outstandingOfferSeq })
     return true
   }
 
@@ -842,6 +850,7 @@ export class Peer implements NegotiatingPeer {
     if (this.#closed || this.#makingOffer) return
     if (this.#pc.signalingState !== 'have-local-offer') return
     await this.#pc.setLocalDescription({ type: 'rollback' })
+    this.#outstandingOfferSeq = undefined
     this.#clearNegotiationTimers()
     // A browser raises `negotiationneeded` after a rollback that left tracks
     // unnegotiated, and that is the ordinary way back. It is not the only
@@ -875,7 +884,8 @@ export class Peer implements NegotiatingPeer {
       if (this.#closed) return
       if (this.#sendLocalOfferAgain()) return
       if (this.#pc.signalingState === 'stable' && this.#lastAnswerSdp !== undefined) {
-        this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp })
+        this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp,
+          ...(this.#lastAnswerReplyTo !== undefined ? { re: this.#lastAnswerReplyTo } : {}) })
       }
     }).catch(() => {})
   }
@@ -921,8 +931,13 @@ export class Peer implements NegotiatingPeer {
     if (this.#closed) return
 
     if (body.type === 'offer') {
-      await this.#handleOffer(body.sdp)
+      await this.#handleOffer(body.sdp, body.seq)
     } else if (body.type === 'answer') {
+      // At stable, a changed answer can still expose the one-way-audio
+      // disagreement repaired below. While a newer offer is outstanding,
+      // only its correlated reply may be applied to that proposal.
+      if (this.#pc.signalingState !== 'stable' && body.re !== undefined &&
+          body.re !== this.#outstandingOfferSeq) return
       if (this.#pc.signalingState === 'stable') {
         // A duplicate answer, which is what our own offer retransmission
         // prompts from a far end that answered the first copy. There is
@@ -951,6 +966,7 @@ export class Peer implements NegotiatingPeer {
         if (answerOrder !== undefined && offerOrder !== undefined && answerOrder !== offerOrder) return
       }
       await this.#pc.setRemoteDescription({ type: 'answer', sdp: body.sdp })
+      this.#outstandingOfferSeq = undefined
       this.#remoteSession = sdpSession(body.sdp)
       this.#accountForAnswer(body.sdp)
       // The offer has been answered, so it is no longer anything to re-send.
@@ -1030,7 +1046,7 @@ export class Peer implements NegotiatingPeer {
     }
   }
 
-  async #handleOffer(sdp: string | undefined): Promise<void> {
+  async #handleOffer(sdp: string | undefined, seq?: number): Promise<void> {
     // The same offer, again, on a connection that has already applied it and
     // answered it. That means our answer is what went missing: the far end is
     // the only side waiting for anything, and asking again is the only way it
@@ -1048,7 +1064,9 @@ export class Peer implements NegotiatingPeer {
       !this.#makingOffer &&
       this.#pc.signalingState === 'stable'
     ) {
-      this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp })
+      this.#lastAnswerReplyTo = seq
+      this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp,
+        ...(seq !== undefined ? { re: seq } : {}) })
       return
     }
 
@@ -1077,6 +1095,7 @@ export class Peer implements NegotiatingPeer {
       // Only the polite side reaches here: give up its own pending offer so
       // the incoming one can be answered instead.
       await this.#pc.setLocalDescription({ type: 'rollback' })
+      this.#outstandingOfferSeq = undefined
       // The offer we gave up on must not come back from a timer.
       this.#clearNegotiationTimers()
       // We are renegotiating from `stable` now. Candidates still arriving
@@ -1104,6 +1123,7 @@ export class Peer implements NegotiatingPeer {
       throw error
     }
     this.#remoteSession = sdpSession(sdp)
+    this.#outstandingOfferSeq = undefined
     this.#hasRemoteDescription = true
     this.#remoteOffersApplied += 1
     // Whether this is an offer this side has answered before, held now
@@ -1122,7 +1142,9 @@ export class Peer implements NegotiatingPeer {
     const answer = await this.#pc.createAnswer()
     await this.#pc.setLocalDescription(answer)
     this.#lastAnswerSdp = answer.sdp
-    this.#onSignal({ type: 'answer', roomId: '', sdp: answer.sdp })
+    this.#lastAnswerReplyTo = seq
+    this.#onSignal({ type: 'answer', roomId: '', sdp: answer.sdp,
+      ...(seq !== undefined ? { re: seq } : {}) })
 
     await this.#drainCandidates()
 
