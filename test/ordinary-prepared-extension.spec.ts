@@ -1,5 +1,5 @@
 import { measureStartupStage, startupTimingEnabled } from './ordinary-startup-timing.js'
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './ordinary-browser-page-fixture.js'
 import { preparedRestart } from './ordinary-prepared-extension.setup.js'
 import { memberTransport } from './ordinary-prepared-extension.transport.js'
 
