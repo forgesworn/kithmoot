@@ -143,7 +143,7 @@ cp -R site/. "$staging"/
 mkdir -p "$staging"/j
 cp -R app/dist/. "$staging"/j/
 
-for required in index.html style.css j/index.html j/sw.js j/manifest.webmanifest; do
+for required in index.html style.css .well-known/assetlinks.json j/index.html j/sw.js j/manifest.webmanifest; do
   [[ -s "$staging/$required" ]] || { echo "deploy.sh: assembled tree is missing $required" >&2; exit 1; }
 done
 

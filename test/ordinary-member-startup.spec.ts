@@ -1,10 +1,10 @@
 import { performance } from 'node:perf_hooks'
 import { measureStartupStage, startupTimingEnabled } from './ordinary-startup-timing.js'
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './ordinary-browser-page-fixture.js'
 import { preparedRestart } from './ordinary-member-startup.setup.js'
 import { controls } from './ordinary-member-session.setup.js'
 
-// Preserve the exact failing cold journey, including its setup time. Tracing
+// Preserve the cold application journey, including its native setup time. Tracing
 // records a refusal; it never retries or widens the existing journey budget.
 test.use({ trace: 'retain-on-failure' })
 

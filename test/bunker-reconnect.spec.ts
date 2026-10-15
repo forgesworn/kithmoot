@@ -85,6 +85,9 @@ test('Reconnect asks the stored bunker again rather than pairing a new signer', 
     // The restore on load times out against a sleeping bunker.
     await expect(page.locator('#accountReconnect')).toBeVisible({ timeout: 45_000 })
     expect(bunker.state.requests).toBeGreaterThan(0)
+    // Signet serves on its own relay after pairing, so a stored link is
+    // also asked there (app/src/signet-relays.ts).
+    expect(new URL(await page.evaluate(() => localStorage.getItem('signet:login.bunkerUri') ?? '')).searchParams.getAll('relay')).toContain('wss://nos.lol')
 
     bunker.state.awake = true
     await page.locator('#accountReconnectButton').click()

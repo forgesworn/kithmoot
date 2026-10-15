@@ -1,5 +1,16 @@
 # Changelog
 
+## Desktop 0.1.85 and Android 0.6.88 — 15 October 2026
+
+- A Signet sign-in stays signed in across restarts. Signet answers on its own relay after pairing, so every sign-in link now names it and an existing sign-in is also asked there; nobody has to pair again.
+- A signer that was asleep when KithMoot opened is asked again after five seconds rather than thirty.
+- Clicking a KithMoot invitation opens it in the desktop app, which now handles `kithmoot://` links on macOS, Windows and Linux. A live call is asked about first.
+- The web join page offers Open in the KithMoot app on computers as well as Android, for the invitation it was opened with.
+- Android opens tapped join links on kithmoot.forgesworn.dev and kithmoot.app straight in the app, and holds a call tile's picture through a missed heartbeat.
+- The Use your phone sign-in link carries three relays rather than one.
+- While a call is docked the conversation keeps its height, and the chat drawer control is named for what it does.
+- Also carries the startup and private-storage groundwork merged since 0.1.84 (#427, #429, #434).
+
 ## Desktop 0.1.84 and Android 0.6.87 — 15 October 2026
 
 - Relay settings say whether each relay answered a read, refused it or wants authentication. A relay's own fault or a dropped connection is not shown as a refusal.

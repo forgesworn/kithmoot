@@ -23,7 +23,7 @@ fi
 for home in /root /home/*; do
   entry="$home/.local/share/applications/dev.forgesworn.kithmoot.desktop"
   [ -f "$entry" ] || continue
-  if grep -qxF "Exec=\"$home/.local/share/kithmoot-desktop/kithmoot\"" "$entry"; then
+  if grep -qxF -e "Exec=\"$home/.local/share/kithmoot-desktop/kithmoot\"" -e "Exec=\"$home/.local/share/kithmoot-desktop/kithmoot\" %u" "$entry"; then
     rm -f "$entry"
   fi
 done
