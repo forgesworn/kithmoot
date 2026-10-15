@@ -814,3 +814,25 @@ test('switching from the rail to a room that has to let you in shows the door, n
     await b.close()
   }
 })
+
+test('the chat drawer control says what it will do, not "Chat" beside the Chat conversation tab', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  const context = await newDeviceContext(browser, baseURL!)
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1440, height: 860 })
+    const url = await createRoom(page, baseURL!)
+    await open(page, url, 'Ada')
+    await page.locator('#join').click()
+    const toggle = page.locator('#chatDrawerToggle')
+    await expect(toggle).toBeVisible()
+    await expect(toggle).toHaveText('Hide chat')
+    await toggle.click()
+    await expect(toggle).toHaveText('Show chat')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.click()
+    await expect(toggle).toHaveText('Hide chat')
+  } finally {
+    await context.close()
+  }
+})

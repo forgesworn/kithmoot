@@ -26,11 +26,14 @@ if (import.meta.env.VITE_DESKTOP === 'true') {
   toggle.type = 'button'
   toggle.id = 'chatDrawerToggle'
   toggle.className = 'barBtn'
-  toggle.textContent = 'Chat'
   toggle.setAttribute('aria-controls', 'chatDrawer')
+  // It says what it will do, never "Chat": that is also the name of the
+  // room's main conversation tab, and two of them side by side read as one
+  // thing said twice.
   const setOpen = (open: boolean): void => {
     conversation.dataset.open = String(open)
     toggle.setAttribute('aria-expanded', String(open))
+    toggle.textContent = open ? 'Hide chat' : 'Show chat'
     saveDrawerOpen(window.localStorage, open)
   }
   toggle.addEventListener('click', () => setOpen(conversation.dataset.open !== 'true'))
