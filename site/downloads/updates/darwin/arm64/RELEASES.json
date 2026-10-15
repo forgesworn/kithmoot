@@ -5,12 +5,12 @@
       "version": "0.1.83",
       "updateTo": {
         "version": "0.1.83",
-        "pub_date": "2026-10-15T06:42:11Z",
+        "pub_date": "2026-10-15T07:37:26Z",
         "notes": "Assign board cards to agents through the existing chat. Progress, questions and results stay with the card.",
         "name": "0.1.83",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.83/KithMoot-0.1.83-mac-arm64.zip",
-        "sha256": "ab441f0577e55dd831260931b2ae634724ab8be4b3bf510338b3b1c9e38e0174",
-        "size": 177652941
+        "sha256": "4bb3068370efb4a35f45711d1bd1f9043f8fcf6aa214c9fb3f6d42201b14d700",
+        "size": 177653359
       }
     }
   ]
