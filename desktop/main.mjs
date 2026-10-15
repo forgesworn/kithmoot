@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
-import { HOME, ORIGIN, CSP, appContentPolicy, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
+import { HOME, ORIGIN, CSP, appContentPolicy, invitationTarget, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
 import { SCREEN_SETTINGS_URL, answerDisplayRequest, displayChoice, screenAccessGranted, refuse } from './screen-share.mjs'
 import platformFeatures from './platform-features.cjs'
 
@@ -100,6 +100,34 @@ async function external(url) {
   })
   if (response === 1) await shell.openExternal(url)
 }
+/** An invitation that arrived before there was a window to open it in. */
+let pendingInvitation
+/** Where to go back to if the page keeps itself open after an invitation moved its address. */
+let invitationRevert
+
+/**
+ * Open an invitation link handed to the app by the system: `kithmoot://join`
+ * from a browser, or a join link on the command line. A live call is asked
+ * about first; unsent work is guarded by the page itself, as on any reload.
+ */
+async function openInvitation(link) {
+  const target = invitationTarget(link)
+  if (!target) return
+  if (!win || win.isDestroyed()) { pendingInvitation = target; return }
+  if (win.isMinimized()) win.restore()
+  win.show(); win.focus()
+  if (callActive && !confirmClose('Leave the call and open the invitation?', 'The call on this device will end. Your other devices and everyone else stay connected.')) return
+  const current = win.webContents.getURL()
+  // A link that differs only after the # is a same-document change, which
+  // the page does not watch for: reload so it arrives as a fresh visit.
+  const sameDocument = current.split('#')[0] === target.split('#')[0]
+  try {
+    await win.webContents.loadURL(target)
+    if (sameDocument) { invitationRevert = current; win.webContents.reload() }
+  } catch { /* A superseded load: the newer one wins. */ }
+}
+const invitationIn = argv => argv.find(arg => invitationTarget(arg))
+
 function confirmClose(message, detail) {
   return dialog.showMessageBoxSync(win, {
     type: 'question', message, detail, buttons: ['Stay', 'Close KithMoot'], defaultId: 0, cancelId: 0,
@@ -299,7 +327,10 @@ async function createWindow() {
   attachContextMenu(win.webContents)
   win.webContents.on('will-prevent-unload', event => {
     if (confirmClose('Close with unsent work?', 'Your current draft or unfinished work may be lost.')) event.preventDefault()
+    else if (invitationRevert) void win.webContents.loadURL(invitationRevert).catch(() => {})
+    invitationRevert = undefined
   })
+  win.webContents.on('did-finish-load', () => { invitationRevert = undefined })
   win.on('close', event => {
     if (callActive) {
       if (!confirmClose('Leave the call and close KithMoot?', 'The call on this device will end. Your other devices and everyone else stay connected.')) { event.preventDefault(); return }
@@ -309,13 +340,23 @@ async function createWindow() {
   win.on('show', applyUnreadBadge)
   win.on('closed', () => { releaseCall(); notices.clear(); unreadCount = 0; applyUnreadBadge(); win = undefined })
   win.webContents.on('render-process-gone', () => releaseCall())
-  await win.loadURL(HOME)
+  const start = pendingInvitation ?? HOME
+  pendingInvitation = undefined
+  await win.loadURL(start)
 }
 
 if (!testProfile && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => { if (win) { win.restore(); win.show(); win.focus() } })
+  app.on('second-instance', (_event, argv) => {
+    const invitation = invitationIn(argv)
+    if (invitation) void openInvitation(invitation)
+    else if (win) { win.restore(); win.show(); win.focus() }
+  })
+  // macOS hands a clicked link over by event, possibly before the app is ready.
+  app.on('open-url', (event, url) => { event.preventDefault(); void openInvitation(url) })
+  // Windows and Linux start a closed app with the link as an argument.
+  pendingInvitation = invitationTarget(invitationIn(process.argv) ?? '')
   app.whenReady().then(async () => {
     ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
@@ -388,6 +429,10 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       contents.on('will-redirect', (event, url) => { if (!isAppUrl(url)) event.preventDefault() })
       contents.on('will-attach-webview', event => event.preventDefault())
     })
+    // Browsers hand kithmoot://join links to the installed app. Never from
+    // a development run or an automation profile, which would take the
+    // scheme away from the real installation.
+    if (app.isPackaged && !testProfile) app.setAsDefaultProtocolClient('kithmoot')
     await createWindow()
     updates.start()
     app.on('activate', () => { if (!win) void createWindow() })

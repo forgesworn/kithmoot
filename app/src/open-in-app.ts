@@ -18,6 +18,22 @@ export function isAndroidUserAgent(userAgent: string): boolean {
   return /\bAndroid\b/i.test(userAgent)
 }
 
+/** Where the desktop downloads live. */
+export const DESKTOP_DOWNLOAD_URL = 'https://kithmoot.app/downloads/'
+
+/**
+ * Which KithMoot app a browser could hand a room to: Android, or the
+ * desktop app on Windows, macOS or Linux, which registers `kithmoot://` the
+ * same way. Nothing on iPhone or iPad, which have no app; an iPad asking
+ * for the desktop site says Macintosh, so a touch screen there counts as one.
+ */
+export function appPlatform(userAgent: string, maxTouchPoints = 0): 'android' | 'desktop' | undefined {
+  if (isAndroidUserAgent(userAgent)) return 'android'
+  if (/\b(iPhone|iPad|iPod)\b/i.test(userAgent)) return undefined
+  if (/\bMacintosh\b/i.test(userAgent)) return maxTouchPoints > 1 ? undefined : 'desktop'
+  return !/\bCrOS\b/i.test(userAgent) && /\b(Windows NT|Linux|X11)\b/i.test(userAgent) ? 'desktop' : undefined
+}
+
 /**
  * The `kithmoot://` form of a web join link, keeping its query and fragment
  * byte for byte. `undefined` when the link carries no fragment, because the

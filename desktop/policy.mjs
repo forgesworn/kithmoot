@@ -6,6 +6,24 @@ export function isAppUrl(value) {
   try { const u = new URL(value); return u.origin === ORIGIN && u.pathname === '/j/' && !u.username && !u.password }
   catch { return false }
 }
+/** Hosts whose /j/ join links the desktop app opens itself. */
+const INVITATION_HOSTS = new Set(['kithmoot.forgesworn.dev', 'kithmoot.app'])
+/**
+ * The app address an invitation opens, or undefined for anything else.
+ *
+ * Accepts the `kithmoot://join` form the web join page and Android use, and
+ * a web join link handed over on the command line. The room is in the
+ * fragment, so a link without one is not an invitation. Query and fragment
+ * are kept byte for byte; only the origin and path become the app's own.
+ */
+export function invitationTarget(value) {
+  let u
+  try { u = new URL(value) } catch { return undefined }
+  if (u.username || u.password || u.hash.length <= 1) return undefined
+  const scheme = u.protocol === 'kithmoot:' && u.host === 'join' && (u.pathname === '' || u.pathname === '/')
+  const web = u.protocol === 'https:' && INVITATION_HOSTS.has(u.host) && (u.pathname === '/j' || u.pathname === '/j/')
+  return scheme || web ? `${HOME}${u.search}${u.hash}` : undefined
+}
 /**
  * What a `window.open` from inside the app may do.
  *

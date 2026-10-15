@@ -9,7 +9,8 @@ const source = name => readFileSync(new URL(`../${name}`, import.meta.url), 'utf
 test('the menu entry has the id the app announces for its badge', () => {
   assert.equal(DESKTOP_ID, 'dev.forgesworn.kithmoot.desktop')
   assert.match(source('main.mjs'), /setDesktopName\('dev\.forgesworn\.kithmoot\.desktop'\)/)
-  assert.match(desktopEntry(), /^Exec=\/opt\/KithMoot\/kithmoot$/m)
+  assert.match(desktopEntry(), /^Exec=\/opt\/KithMoot\/kithmoot %u$/m)
+  assert.match(desktopEntry(), /^MimeType=x-scheme-handler\/kithmoot;$/m)
 })
 
 test('a renamed t64 library is preferred, so apt never fills it with a stub', () => {
@@ -35,7 +36,8 @@ test('the package source, keyring and AppArmor profile are the repository and ap
 
 test('the postinst removes only the tarball installer\'s own menu entry', () => {
   const script = source('linux/postinst')
-  assert.match(script, /grep -qxF "Exec=\\"\$home\/\.local\/share\/kithmoot-desktop\/kithmoot\\""/)
+  // Both the entry before invitation links (no %u) and the one after.
+  assert.match(script, /grep -qxF -e "Exec=\\"\$home\/\.local\/share\/kithmoot-desktop\/kithmoot\\"" -e "Exec=\\"\$home\/\.local\/share\/kithmoot-desktop\/kithmoot\\" %u"/)
   const commands = script.split('\n').filter(line => !line.trimStart().startsWith('#')).join('\n')
   assert.doesNotMatch(commands, /\.config/)
 })

@@ -73,7 +73,7 @@ import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReason } from '../../src/session.js'
-import { ANDROID_DOWNLOAD_URL, appLinkFor, isAndroidUserAgent } from './open-in-app.js'
+import { ANDROID_DOWNLOAD_URL, DESKTOP_DOWNLOAD_URL, appLinkFor, appPlatform } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, draftSubmissionSnapshot, type ConversationDraft } from './drafts.js'
@@ -336,6 +336,16 @@ import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
+
+const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
+/** Whether this page was opened from an invitation link, read before anything
+ *  rewrites the address: a room the app reloaded into itself, or one created
+ *  here, is not an invitation to hand to an app. */
+const OPENED_FROM_LINK = location.hash.length > 1 && (() => {
+  try { return sessionStorage.getItem(ROOM_SWITCH_KEY) === null } catch { return true }
+})()
+/** The room that link opened, once the door has shown it. */
+let linkArrivalRoom: string | undefined
 
 /** This device's unsent messages, kept across a reload for ordinary chat,
  *  and sent as soon as a relay will take them. See pending-sends.ts. */
@@ -4387,13 +4397,19 @@ async function startNewRoom(): Promise<void> {
   rememberCurrentRoom()
 }
 
-/** The "Open in the KithMoot app" button: Android browsers only, and only when
- *  the page carries a room to hand over. See open-in-app.ts. */
+/** The "Open in the KithMoot app" button: browsers on Android and on a
+ *  computer the desktop app runs on, never inside the desktop app itself,
+ *  and only for the room an invitation link opened. See open-in-app.ts. */
 function renderOpenInApp(): void {
-  const appLink = isAndroidUserAgent(navigator.userAgent) ? appLinkFor(location.href) : undefined
+  if (OPENED_FROM_LINK && linkArrivalRoom === undefined) linkArrivalRoom = currentRoomId()
+  const invited = OPENED_FROM_LINK && linkArrivalRoom !== undefined && currentRoomId() === linkArrivalRoom
+  const platform = !invited || import.meta.env.VITE_DESKTOP === 'true' ? undefined : appPlatform(navigator.userAgent, navigator.maxTouchPoints)
+  const appLink = platform ? appLinkFor(location.href) : undefined
   $('openInApp').hidden = appLink === undefined
   if (appLink !== undefined) ($('openInAppLink') as HTMLAnchorElement).href = appLink
-  ;($('getAndroidApp') as HTMLAnchorElement).href = ANDROID_DOWNLOAD_URL
+  const get = $('getAndroidApp') as HTMLAnchorElement
+  get.href = platform === 'desktop' ? DESKTOP_DOWNLOAD_URL : ANDROID_DOWNLOAD_URL
+  get.textContent = platform === 'desktop' ? 'Get KithMoot for your computer' : 'Get KithMoot for Android'
 }
 
 function renderDoorBothyRecovery(): void {
@@ -13728,7 +13744,6 @@ function renderWorkspace(): void {
   }
 }
 
-const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
 let roomSwitcherReturn: HTMLElement | undefined
 let previousRoom: KnownRoom | undefined
 let switchDestination: KnownRoom | undefined
