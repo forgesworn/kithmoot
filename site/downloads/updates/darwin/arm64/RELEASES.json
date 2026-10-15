@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.82",
+  "currentRelease": "0.1.83",
   "releases": [
     {
-      "version": "0.1.82",
+      "version": "0.1.83",
       "updateTo": {
-        "version": "0.1.82",
-        "pub_date": "2026-10-14T21:04:28Z",
-        "notes": "Relay status and saved ordering. Signet errors are visible, and a successful sign-in clears a stale reconnect warning.",
-        "name": "0.1.82",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.82/KithMoot-0.1.82-mac-arm64.zip",
-        "sha256": "29a5b7e56082f2fe0c5471100e44d174a27e2e6b8a358b778e25bfdf0a5e89cc",
-        "size": 177649450
+        "version": "0.1.83",
+        "pub_date": "2026-10-15T06:42:11Z",
+        "notes": "Assign board cards to agents through the existing chat. Progress, questions and results stay with the card.",
+        "name": "0.1.83",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.83/KithMoot-0.1.83-mac-arm64.zip",
+        "sha256": "ab441f0577e55dd831260931b2ae634724ab8be4b3bf510338b3b1c9e38e0174",
+        "size": 177652941
       }
     }
   ]
