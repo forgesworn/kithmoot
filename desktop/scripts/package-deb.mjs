@@ -48,7 +48,8 @@ export function controlFile({ version, arch, installedKiB }) {
 export function desktopEntry() {
   return [
     '[Desktop Entry]', 'Type=Application', 'Name=KithMoot', 'Comment=Private rooms, chat and calls',
-    'Exec=/opt/KithMoot/kithmoot', 'Icon=kithmoot', 'Terminal=false',
+    'Exec=/opt/KithMoot/kithmoot %u', 'Icon=kithmoot', 'Terminal=false',
+    'MimeType=x-scheme-handler/kithmoot;',
     'Categories=Network;InstantMessaging;', 'StartupWMClass=KithMoot', '',
   ].join('\n')
 }

@@ -50,7 +50,7 @@ def quoted(value):
 applications = base / 'applications'
 applications.mkdir(parents=True, exist_ok=True)
 entry = applications / 'dev.forgesworn.kithmoot.desktop'
-entry.write_text('[Desktop Entry]\nType=Application\nName=KithMoot\nComment=Private rooms, chat and calls\nExec=' + quoted(target / 'kithmoot') + '\nIcon=' + str(target / 'resources/app.asar.unpacked/icon.png') + '\nTerminal=false\nCategories=Network;InstantMessaging;\nStartupWMClass=KithMoot\n')
+entry.write_text('[Desktop Entry]\nType=Application\nName=KithMoot\nComment=Private rooms, chat and calls\nExec=' + quoted(target / 'kithmoot') + ' %u\nIcon=' + str(target / 'resources/app.asar.unpacked/icon.png') + '\nTerminal=false\nCategories=Network;InstantMessaging;\nStartupWMClass=KithMoot\nMimeType=x-scheme-handler/kithmoot;\n')
 # Icon outside ASAR is also available to the launcher when the app is closed.
 icon = target / 'kithmoot.png'
 shutil.copyfile(source / 'kithmoot.png', icon)

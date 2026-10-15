@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HOME, ORIGIN, CSP, appContentPolicy, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from '../policy.mjs'
+import { HOME, ORIGIN, CSP, appContentPolicy, invitationTarget, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from '../policy.mjs'
 test('only the bundled top-level page may navigate inside the app', () => {
   assert.equal(isAppUrl(HOME + '#invite'), true)
   for (const url of ['file:///etc/passwd', 'javascript:alert(1)', ORIGIN + '/evil', 'https://kithmoot.forgesworn.dev.evil/j/', 'https://user@kithmoot.forgesworn.dev/j/']) assert.equal(isAppUrl(url), false)
@@ -27,4 +27,18 @@ test('only the bundled Girnel surface can be framed by the workspace', () => {
   assert.ok(appContentPolicy(HOME).includes("frame-ancestors 'none'"))
   assert.ok(appContentPolicy(HOME + 'girnel/embedded/index.html').includes("frame-ancestors 'self'"))
   assert.equal(appContentPolicy('https://elsewhere.test/j/girnel/'), CSP)
+})
+test('an invitation opens the bundled page with its query and fragment unchanged', () => {
+  assert.equal(invitationTarget('kithmoot://join#eyJ2Ijoz'), HOME + '#eyJ2Ijoz')
+  assert.equal(invitationTarget('kithmoot://join?x=1#eyJ2Ijoz'), HOME + '?x=1#eyJ2Ijoz')
+  assert.equal(invitationTarget('https://kithmoot.forgesworn.dev/j/#eyJ2Ijoz'), HOME + '#eyJ2Ijoz')
+  assert.equal(invitationTarget('https://kithmoot.app/j#eyJ2Ijoz'), HOME + '#eyJ2Ijoz')
+  for (const target of [invitationTarget('kithmoot://join#a'), invitationTarget('https://kithmoot.app/j/#a')]) assert.equal(isAppUrl(target), true)
+})
+test('anything that is not an invitation link is ignored', () => {
+  for (const value of ['', '--no-sandbox', '/home/me/file#x', 'kithmoot://join', 'kithmoot://join#', 'kithmoot://signet#x',
+    'kithmoot://join/other#x', 'kithmoot://user@join#x', 'https://kithmoot.forgesworn.dev/evil#x', 'https://kithmoot.forgesworn.dev.evil/j/#x',
+    'http://kithmoot.forgesworn.dev/j/#x', 'https://user@kithmoot.app/j/#x', 'javascript:alert(1)#x', 'file:///j/#x']) {
+    assert.equal(invitationTarget(value), undefined, value)
+  }
 })
