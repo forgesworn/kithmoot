@@ -173,6 +173,9 @@ for (const keep of [false, true]) {
     await page.clock.install()
     await page.goto(origin + '/j/setup')
     await page.evaluate(`(${setup})(${JSON.stringify({ keep, noRelays: true })})`)
+    // Match the existing member-restoration fixture's synthetic epoch budget.
+    // This test asserts authenticated renewal/capture, not a one-second relay deadline.
+    await page.evaluate('window.memberEpochTimeoutMs=10000')
     await page.evaluate(`(${controls})()`)
     await page.evaluate('member.join()')
     await page.clock.fastForward(901_000)
