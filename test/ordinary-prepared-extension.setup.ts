@@ -47,7 +47,7 @@ test.beforeEach(async({context,page})=>{
   await context.route(ORIGIN+'/**',route=>route.fulfill({contentType:'text/html',body:`<script>${bundle.replace(/<\/script/gi,'<\\/script')}</script>`}))
   await page.goto(ORIGIN);await page.clock.install();await page.evaluate('window.memberEpochTimeoutMs=10000')
 })
-export async function preparedRestart(page:Page,visitor:boolean,keep:boolean,priorLease=false,sdkExpirySeconds?:number){
+export async function preparedRestart(page:Page,visitor:boolean,keep:boolean,priorLease=false,sdkExpirySeconds?:number,nativePhase:'prepared'|'ordinary'|'provider-started'|'provider-returned'|'candidate-prepared'|'candidate-committed'|'settled'='prepared'){
   const key=generateSecretKey()
   await page.exposeFunction('freshProviderPubkey',()=>getPublicKey(key))
   await page.exposeFunction('freshProviderSign',(event:Parameters<typeof finalizeEvent>[0])=>finalizeEvent(event,key))
@@ -67,7 +67,25 @@ export async function preparedRestart(page:Page,visitor:boolean,keep:boolean,pri
     await expect.poll(()=>page.evaluate('(async()=>{try{const result=await bootstrap.load();try{return result.sealKeys.length}finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(result)}}catch{return 0}})()')).toBe(2)
     await page.evaluate("member.send('first generation')")
   }
-  await page.evaluate("window.requestedStage='prepared'");await page.clock.fastForward(901000);await page.waitForFunction("window.actualStage==='prepared'")
+  if(nativePhase!=='ordinary'){
+    await page.evaluate(stage=>{
+      const w=window as any;w.requestedStage=stage
+      w.beforeActualSigning=()=>{
+        if(stage==='provider-started')w.gateSigner()
+        if(stage==='provider-returned'){
+          const encrypt=crypto.subtle.encrypt.bind(crypto.subtle);let blocked=false
+          crypto.subtle.encrypt=async(...args)=>{
+            if(!blocked&&typeof args[0]!=='string'&&'additionalData' in args[0]&&new TextDecoder().decode(args[0].additionalData).includes('kithmoot.ordinary-state')){
+              blocked=true;w.actualStage='provider-returned';await new Promise(()=>{})
+            }
+            return encrypt(...args)
+          }
+        }
+      }
+    },nativePhase);await page.clock.fastForward(901000)
+    if(nativePhase==='provider-started')await page.waitForFunction('window.signing===true')
+    else await page.waitForFunction(stage=>(window as any).actualStage===stage,nativePhase)
+  }
   const captured=await page.evaluate<any>(`({account,participant,keep,link:url,inviter:invitation.inviter,bearer:Array.from(invitation.bearer),credentialExpiresAt,tabPurpose,tabExpiry,
     authoritySecret:Array.from(secret),authoritySigner:Array.from(inviterSk),
     time:Date.now(),sdkExpiresAt:sourceSession?.expiresAt,auth:account===null?null:JSON.stringify(sourceSession.authEvent),method:account===null?null:sourceSession.method})`)
@@ -82,7 +100,9 @@ export async function preparedRestart(page:Page,visitor:boolean,keep:boolean,pri
       const db=request.result,tx=db.transaction('owners'),store=tx.objectStore('owners'),keys=store.getAllKeys(),values=store.getAll();tx.oncomplete=()=>{db.close();resolve(keys.result.map((name,i)=>[name,values.result[i]]))};tx.onabort=()=>reject(tx.error)}})
     w.preparedPhase=async()=>{const rows=new Map(await w.readPreparedRows()),b:any=rows.get('browser'),t:any=rows.get(value.tabPurpose),names=o.ordinaryOperationNames(value.tabPurpose),
       binding=(frame:any)=>({purpose:frame.purpose,keyId:frame.keyId,generation:frame.generation,expiresAt:frame.expiresAt})
-      return(await o.openOrdinaryOperationClassification(rows.get(names.control),{browser:{key:b.key,binding:binding(b.frame)},tab:{key:t.key,binding:binding(t.frame)}})).phase}
+      if(!rows.has(names.control))return'ordinary'
+      const phase=(await o.openOrdinaryOperationClassification(rows.get(names.control),{browser:{key:b.key,binding:binding(b.frame)},tab:{key:t.key,binding:binding(t.frame)}})).phase
+      return value.nativePhase==='ordinary'&&phase==='settled'?'ordinary':phase}
     w.nostr={getPublicKey:async()=>{w.providerPhases.push(await w.preparedPhase());return w.freshProviderPubkey()},signEvent:async(event:any)=>{
       w.signCalls++;w.providerPhases.push(await w.preparedPhase());return w.freshProviderSign(event)}}
     const identity=value.account===null?{pubkey:value.participant,signEvent:()=>{throw Error('visitor recovery must use native participant custody')}}:new o.Nip07Signer(value.participant,w.nostr)
@@ -93,5 +113,5 @@ export async function preparedRestart(page:Page,visitor:boolean,keep:boolean,pri
     w.recoveryOptions={browser:w.browserOwner,tab:w.tabOwner,invitation,account:value.account,identity,link:value.link,keep:value.keep,credentialExpiresAt:value.credentialExpiresAt,current:()=>w.current,live:w.guard,
       ...(value.account===null?{}:{foreground:{session:w.sourceSession,currentSession:()=>w.sourceSession,generation:0,currentGeneration:()=>0,checkClients:async()=>{},stop:()=>{}}})}
     w.recoveryStatus='pending';w.recoveryStack=null;w.beginPrepared=()=>{w.recovering=o.OrdinaryPersistentBootstrap.recoverPreparedAtStartup(w.recoveryOptions).then((result:any)=>{w.recoveryStatus=result.status},(error:any)=>{w.recoveryStatus=error.name;w.recoveryStack=error.stack})}
-  },captured)
+  },{...captured,nativePhase})
 }

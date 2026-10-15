@@ -2,9 +2,10 @@ import { HEADLESS_PROVIDER_EFFECT_BOUNDARY, HEADLESS_NIP07_DISCOVERY_BOUNDARY, t
 import { bytesToHex } from '@noble/hashes/utils'
 import { roomInvitation, deriveInvitationId, type RoomInvitation } from '../../src/invitation.js'
 import { parseRoomLink } from '../../src/link.js'
-import { OrdinaryStateOwner } from './ordinary-state-owner.js'
+import { MAX_ORDINARY_TAB_OWNERS, OrdinaryStateOwner } from './ordinary-state-owner.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
+import { registerOrdinaryColdExtensionFactory } from './ordinary-cold-extension-factory.js'
 import { registerOrdinaryPreparedExtensionFactory } from './ordinary-prepared-extension-factory.js'
 import { OrdinaryMemberStartup } from './ordinary-member-startup.js'
 import type { OrdinaryMemberSessionOptions, OrdinaryOwnedMemberSession } from './ordinary-persistent-bootstrap.js'
@@ -49,8 +50,8 @@ function data(input: unknown, names: readonly string[]): Record<string, unknown>
   return result
 }
 
-/** Restores one account's actual NIP-07 SDK under prepared E, then hands it
- * privately to the fresh guarded member factory. No SDK session or raw signer
+/** Restores one account's actual NIP-07 SDK after neutral recovery under P
+ * or E, then hands it privately to the fresh guarded member factory. No SDK session or raw signer
  * escapes; the original SDK is closed after all borrowed member work joins. */
 export class OrdinaryMemberExtensionStartup {
   readonly #input: OrdinaryMemberExtensionStartupOptions
@@ -58,8 +59,8 @@ export class OrdinaryMemberExtensionStartup {
   readonly #options: OrdinaryMemberExtensionStartupOptions
   readonly #selected: OrdinaryExtensionMemberSelection
   readonly #selectionPointer: OrdinaryExtensionMemberSelection
-  readonly #provider: NonNullable<Window['nostr']>
-  readonly #providerFields: readonly unknown[]
+  #provider: NonNullable<Window['nostr']> | undefined
+  #providerFields: readonly unknown[] | undefined
   readonly #work = new Set<Promise<unknown>>()
   #root: ReturnType<typeof OrdinaryProtocolWork.registerPreparedStartup> | undefined
   #source: Readonly<SignetSession> | undefined
@@ -92,13 +93,15 @@ export class OrdinaryMemberExtensionStartup {
       if (captured.account !== raw.account || captured.participant !== raw.account || captured.invitationId !== deriveInvitationId(invitation) ||
           captured.link !== raw.link || captured.keep !== raw.keep || captured.credentialExpiresAt !== raw.credentialExpiresAt) hold()
       this.#selectionPointer = selected!; this.#selected = Object.freeze(captured)
-      if (!window.nostr) hold()
-      this.#provider = window.nostr; this.#providerFields = Object.freeze(this.#providerValues())
     } catch (error) { invitation.bearer.fill(0); throw error }
   }
   #providerValues(): unknown[] {
-    const p = this.#provider, n04 = p.nip04, n44 = p.nip44
-    return [p.getPublicKey, p.signEvent, n04, n44, n04?.encrypt, n04?.decrypt, n44?.encrypt, n44?.decrypt]
+    const p = this.#provider
+    if (!p) hold()
+    const read = <T>(body: () => T): T => { const value = body(); this.#nativeCheck(); return value }
+    const n04 = read(() => p.nip04), n44 = read(() => p.nip44)
+    return [read(() => p.getPublicKey), read(() => p.signEvent), n04, n44, read(() => n04?.encrypt),
+      read(() => n04?.decrypt), read(() => n44?.encrypt), read(() => n44?.decrypt)]
   }
   #inputUnchanged(): boolean {
     const current = data(this.#input, INPUT)
@@ -109,17 +112,25 @@ export class OrdinaryMemberExtensionStartup {
     if (source !== this.#selectionPointer || !SELECTION.every(name => selected[name] === this.#selected[name]) || this.#held || this.#closed) hold()
     return selected as unknown as OrdinaryExtensionMemberSelection
   }
-  #live = (): boolean => {
+  #nativeLive = (): boolean => {
     if (this.#held || this.#closed) return false
     try {
       if (!this.#inputUnchanged()) return false
-      const live = this.#options.live() === true && this.#options.currentGeneration() === this.#options.generation &&
-        window.nostr === this.#provider && this.#providerValues().every((value, index) => value === this.#providerFields[index])
+      const live = this.#options.live() === true && this.#options.currentGeneration() === this.#options.generation
       if (!live || !this.#inputUnchanged()) return false
       const now = Date.now()
       if (!Number.isSafeInteger(now) || now < 0 || now >= this.#options.tab.expiresAt || this.#deadline !== undefined && now >= this.#deadline) return false
       // Every preceding external callback/getter may have changed selection.
       // Strictly recapture last; no caller callback follows this decision.
+      this.#currentSelection()
+      return !this.#held && !this.#closed
+    } catch { return false }
+  }
+  #nativeCheck(): void { if (!this.#nativeLive()) hold() }
+  #live = (): boolean => {
+    if (!this.#nativeLive() || !this.#provider || !this.#providerFields) return false
+    try {
+      if (window.nostr !== this.#provider || !this.#providerValues().every((value, index) => value === this.#providerFields![index])) return false
       this.#currentSelection()
       return !this.#held && !this.#closed
     } catch { return false }
@@ -138,12 +149,13 @@ export class OrdinaryMemberExtensionStartup {
   #stop(): void {
     if (this.#held) return
     this.#held = true; this.#root?.close(); this.#member?.revoke()
+    this.#options.browser.retryRetention(); this.#options.tab.retryRetention()
     queueMicrotask(() => { void this.close().catch(() => {}) })
     try { this.#options.stop() } catch { /* held already */ }
   }
   #track<T>(body: () => Promise<T>): Promise<T> {
     const pending = Promise.resolve().then(body)
-    OrdinaryStateOwner.joinPairLifetime(this.#options.browser, this.#options.tab, pending)
+    OrdinaryStateOwner.joinPairLifetime(this.#options.browser, this.#options.tab, pending, () => this.#stop())
     this.#work.add(pending); void pending.finally(() => this.#work.delete(pending)).catch(() => {})
     return pending
   }
@@ -162,12 +174,40 @@ export class OrdinaryMemberExtensionStartup {
     }
   }
   async #open(): Promise<void> {
-    this.#check(); const o = this.#options; this.#scheduleExpiry()
+    this.#nativeCheck(); const o = this.#options; this.#scheduleExpiry()
+    let disposition = await o.browser.inspectRenewalStartup(this.#nativeLive)
+    for (let transitions = 0; ; transitions++) {
+      this.#nativeCheck()
+      if (disposition.status === 'empty' || disposition.operations.some(operation => operation.phase === 'provider-started' ||
+          operation.phase === 'prepared' && operation.tab !== o.tab.purpose)) hold()
+      const operation = disposition.operations.find(operation => operation.phase !== 'prepared' && operation.phase !== 'settled')
+      if (!operation) break
+      if (transitions >= 3 * MAX_ORDINARY_TAB_OWNERS) hold()
+      if (operation.phase === 'provider-returned' || operation.phase === 'candidate-prepared') {
+        await o.browser.recoverRetainedRenewalAtStartup(operation.tab, this.#nativeLive)
+      } else if (operation.phase === 'candidate-committed') {
+        await o.browser.recoverCommittedRenewalAtStartup(operation.tab, this.#nativeLive)
+      } else hold()
+      this.#nativeCheck()
+      const next = await o.browser.inspectRenewalStartup(this.#nativeLive)
+      this.#nativeCheck()
+      if (JSON.stringify(next) === JSON.stringify(disposition)) hold()
+      disposition = next
+    }
+    const prepared = disposition.operations.some(operation => operation.phase === 'prepared')
+    if (!prepared && disposition.status !== 'ordinary') hold()
+    // Provider accessors are untrusted. None run during classification or
+    // neutral C/S recovery, and selection is repeated after every access.
+    this.#nativeCheck(); const provider = window.nostr; this.#nativeCheck()
+    if (!provider) hold()
+    this.#provider = provider; this.#providerFields = Object.freeze(this.#providerValues()); this.#check()
     this.#root = OrdinaryProtocolWork.registerPreparedStartup(this, async root => {
-      const preparation = registerOrdinaryPreparedExtensionFactory(this, { browser: o.browser, tab: o.tab,
+      const binding = { browser: o.browser, tab: o.tab,
         account: o.account, invitationId: this.#selected.invitationId, link: o.link, keep: o.keep,
-        bootstrapCredentialExpiresAt: o.credentialExpiresAt, live: this.#live, checkClients: o.checkClients })
-      this.#source = await OrdinaryStateOwner.restorePreparedExtensionAtStartup(preparation, root)
+        bootstrapCredentialExpiresAt: o.credentialExpiresAt, live: this.#live, checkClients: o.checkClients }
+      this.#source = prepared
+        ? await OrdinaryStateOwner.restorePreparedExtensionAtStartup(registerOrdinaryPreparedExtensionFactory(this, binding), root)
+        : await OrdinaryStateOwner.restoreOrdinaryExtensionAtStartup(registerOrdinaryColdExtensionFactory(this, binding), root)
       this.#deadline = Math.min(o.tab.expiresAt, this.#source.expiresAt ?? o.tab.expiresAt)
       this.#scheduleExpiry()
       this.#check()

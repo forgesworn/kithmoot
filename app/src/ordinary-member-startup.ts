@@ -2,7 +2,7 @@ import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
 import { OrdinaryPersistentBootstrap, type OrdinaryMemberSessionOptions, type OrdinaryOwnedMemberSession,
   wipeOrdinaryPersistentBootstrapResult } from './ordinary-persistent-bootstrap.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
-import { OrdinaryStateOwner } from './ordinary-state-owner.js'
+import { MAX_ORDINARY_TAB_OWNERS, OrdinaryStateOwner } from './ordinary-state-owner.js'
 import { deriveInvitationId } from '../../src/invitation.js'
 
 type BootstrapOptions = Parameters<typeof OrdinaryPersistentBootstrap.open>[0]
@@ -58,7 +58,7 @@ export class OrdinaryMemberStartup {
     // Install the actual outer promise in both owner lifetimes before body
     // starts. Close joins it outside its own body, including on refusal.
     const pending = Promise.resolve().then(body)
-    OrdinaryStateOwner.joinPairLifetime(this.#options.browser, this.#options.tab, pending)
+    OrdinaryStateOwner.joinPairLifetime(this.#options.browser, this.#options.tab, pending, () => this.#stop())
     this.#work.add(pending)
     void pending.finally(() => this.#work.delete(pending)).catch(() => {})
     return pending
@@ -83,21 +83,28 @@ export class OrdinaryMemberStartup {
     // permanently non-retriable. Diagnostic classification grants no role.
     if (disposition.operations.some(operation => operation.phase === 'provider-started' ||
         operation.phase === 'prepared' && operation.tab !== options.tab.purpose)) hold()
-    for (const operation of disposition.operations) {
+    // Reauthenticate the whole origin after every fixed phase transition.
+    // A diagnostic list never grants permission for a later recovery write.
+    for (let transitions = 0; ; transitions++) {
       this.#check()
+      if (disposition.operations.some(operation => operation.phase === 'provider-started' ||
+          operation.phase === 'prepared' && operation.tab !== options.tab.purpose)) hold()
+      const operation = disposition.operations.find(operation => operation.phase !== 'settled')
+      if (!operation) break
+      if (transitions >= 3 * MAX_ORDINARY_TAB_OWNERS) hold()
       if (operation.phase === 'prepared') {
         await OrdinaryPersistentBootstrap.recoverPreparedAtStartup({ ...options, live: this.#live })
       } else if (operation.phase === 'provider-returned' || operation.phase === 'candidate-prepared') {
         await options.browser.recoverRetainedRenewalAtStartup(operation.tab, this.#live)
-        this.#check()
-        await options.browser.recoverCommittedRenewalAtStartup(operation.tab, this.#live)
       } else if (operation.phase === 'candidate-committed') {
         await options.browser.recoverCommittedRenewalAtStartup(operation.tab, this.#live)
-      }
+      } else hold()
       this.#check()
+      const next = await options.browser.inspectRenewalStartup(this.#live)
+      this.#check()
+      if (JSON.stringify(next) === JSON.stringify(disposition)) hold()
+      disposition = next
     }
-    disposition = await options.browser.inspectRenewalStartup(this.#live)
-    this.#check()
     if (disposition.status !== 'ordinary') hold()
     await options.browser.openExisting(this.#live)
     this.#check()

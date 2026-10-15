@@ -38,6 +38,11 @@ specs.push('ordinary-initial-login.spec.ts')
 specs.push('ordinary-extension-restore.spec.ts')
 specs.push('ordinary-room-board-storage.spec.ts')
 specs.push('ordinary-room-board-catalogue.spec.ts')
+// Keep startup recovery and SDK restoration in the ordinary native gate.
+specs.push('ordinary-prepared-startup.spec.ts')
+specs.push('ordinary-member-startup.spec.ts')
+specs.push('ordinary-prepared-extension.spec.ts')
+specs.push('ordinary-complete-extension.spec.ts')
 const stems = specs.map(spec => spec.replace(/\.spec\.ts$/, ''))
 if (new Set(stems).size !== specs.length) throw new Error('Duplicate ordinary spec')
 const consumerCases=/narrowed trusted consumer|narrowed consumer|consumer fields/

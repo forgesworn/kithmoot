@@ -129,6 +129,8 @@ describe('ordinary whole-image custody encoding', () => {
     expect(input.records.get('large')).toBe(raw)
   })
 
+  // Three full 32 MiB scans plus canonical allocation: this is a byte-bound
+  // acceptance case, with a separate budget for concurrent CI scheduling.
   it('admits exactly 32 MiB with sealed duplication and rejects the next canonical byte', () => {
     const input = image(); input.revision = 9; input.fences = new Map()
     let names = ['a', 'b']; input.records = new Map(names.map(name => [name, '']))
@@ -148,7 +150,7 @@ describe('ordinary whole-image custody encoding', () => {
       expect(() => encodeOrdinaryImage({ ...input, revision: 10 })).toThrow(OrdinaryStateHold)
       expect(stringify).not.toHaveBeenCalled()
     } finally { stringify.mockRestore() }
-  })
+  }, 15_000)
 
   it('uses non-extractable custody, fresh 96-bit nonces and exact whole-frame equality', async () => {
     const secret = await key()
