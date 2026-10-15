@@ -37,9 +37,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## @modelcontextprotocol/sdk@1.30.0
+## @modelcontextprotocol/sdk@1.32.1
 
-Declared licence: MIT. Source package: https://www.npmjs.com/package/@modelcontextprotocol/sdk/v/1.30.0
+Declared licence: MIT. Source package: https://www.npmjs.com/package/@modelcontextprotocol/sdk/v/1.32.1
 
 ```text
 MIT License
