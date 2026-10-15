@@ -116,7 +116,10 @@ test('a message written with no relay reachable waits as pending, survives a rel
     expect(chatEvents).toEqual([])
     blocked = false
     await page.reload()
-    if (await page.locator('#join').isVisible()) await page.locator('#join').click()
+    const joinButton = page.locator('#join')
+    const room = page.locator('#roomArea')
+    await expect.poll(async () => await joinButton.isVisible() || await room.isVisible()).toBe(true)
+    if (await joinButton.isVisible()) await joinButton.click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#chatLog')).toContainText('Written on a train')
     await expect(page.locator('#outbox')).toBeHidden()
