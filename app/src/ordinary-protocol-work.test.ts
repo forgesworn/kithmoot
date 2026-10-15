@@ -32,6 +32,47 @@ function fixture(before: (operation: string) => Promise<void> = async () => {}) 
 }
 const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
 afterEach(() => { vi.useRealTimers() })
+describe('private prepared-startup ownership, never phase authority', () => {
+  it('registers the real sole quiescent root synchronously and joins its exact retained promise', async () => {
+    const resource = deferred(), body = deferred()
+    let root!: ProtocolExecution
+    const startup = OrdinaryProtocolWork.registerPreparedStartup({}, async scope => {
+      root = scope; verifyOrdinaryLifecycleRoot(root)
+      root.retain(resource.promise); verifyOrdinaryLifecyclePromise(root, resource.promise)
+      await resource.promise; verifyOrdinaryLifecycleRoot(root); await body.promise
+    })
+    const pending = startup.start()
+    expect(() => verifyOrdinaryLifecyclePromise(root, resource.promise)).not.toThrow()
+    let joined = false; void startup.join().then(() => { joined = true })
+    await tick(); expect(joined).toBe(false)
+    resource.resolve(); await tick(); expect(joined).toBe(false)
+    body.resolve(); await pending; await startup.join(); expect(joined).toBe(true)
+    expect(() => verifyOrdinaryLifecycleRoot(root)).toThrow(OrdinaryProtocolSuspended)
+    await expect(startup.start()).rejects.toThrow(OrdinaryProtocolSuspended)
+  })
+  it.each(['run', 'check', 'task'] as const)('refuses generic %s before any effect and still drains owned resources', async method => {
+    const resource = deferred(), effect = vi.fn(), ready = deferred()
+    let root!: ProtocolExecution
+    const startup = OrdinaryProtocolWork.registerPreparedStartup({}, async scope => {
+      root = scope; root.retain(resource.promise); ready.resolve(); await resource.promise
+    })
+    const pending = startup.start(); await ready.promise
+    if (method === 'check') expect(() => root.check('no phase grant')).toThrow(OrdinaryProtocolSuspended)
+    else if (method === 'run') await expect(root.run('no phase grant', effect)).rejects.toThrow(OrdinaryProtocolSuspended)
+    else await expect(root.task!('no phase grant', async () => { effect() })).rejects.toThrow(OrdinaryProtocolSuspended)
+    expect(effect).not.toHaveBeenCalled()
+    startup.close(); let joined = false; void startup.join().then(() => { joined = true })
+    await tick(); expect(joined).toBe(false)
+    resource.resolve(); await pending; await startup.join(); expect(joined).toBe(true)
+  })
+  it('refuses duplicate factories, a closed startup and an asynchronous data return', async () => {
+    const factory = {}, startup = OrdinaryProtocolWork.registerPreparedStartup(factory, async () => {})
+    expect(() => OrdinaryProtocolWork.registerPreparedStartup(factory, async () => {})).toThrow(OrdinaryProtocolSuspended)
+    startup.close(); await expect(startup.start()).rejects.toThrow(OrdinaryProtocolSuspended)
+    const data = OrdinaryProtocolWork.registerPreparedStartup({}, (async () => 'not custody') as unknown as () => Promise<void>)
+    await expect(data.start()).rejects.toThrow(OrdinaryProtocolSuspended); await data.join()
+  })
+})
 async function renewal(f: ReturnType<typeof fixture>) {
   const ready = deferred(), finish = deferred(), held = deferred()
   let scope!: ProtocolExecution

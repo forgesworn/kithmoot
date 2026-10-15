@@ -1,4 +1,4 @@
-import { registerOrdinaryRenewalFactory, releaseOrdinaryRenewalObligation, validateOrdinaryRenewalSettledCandidate, type OrdinaryRenewalObligation } from './ordinary-renewal-obligation.js'
+import { registerOrdinaryRenewalFactory, registerOrdinaryPreparedRenewalFactory, releaseOrdinaryRenewalObligation, validateOrdinaryRenewalSettledCandidate, type OrdinaryRenewalObligation } from './ordinary-renewal-obligation.js'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { revalidatePersistentInvitationEvidence } from '@forgesworn/fold-kit/persistent-invitation-evidence'
@@ -80,6 +80,11 @@ interface Options {
   readonly credentialExpiresAt: number
   readonly current: () => Selection | undefined
   readonly live: () => boolean
+}
+interface PreparedStartupOptions extends Options {
+  /** A genuine currently selected SDK session. Its fields must match the
+   * immutable native E session exactly; this never performs fresh login. */
+  readonly foreground?: Omit<Parameters<typeof OrdinaryForegroundSigner.capturePreparedStartup>[0], 'browser' | 'tab' | 'live'>
 }
 interface OpenedImage {
   readonly browser: readonly (readonly [string, string])[]
@@ -234,6 +239,60 @@ export class OrdinaryPersistentBootstrap {
       })
       return state
     } catch (error) { if (state) await state.close(); else invitation?.bearer.fill(0); throw error }
+  }
+  /** Fixed startup recovery before ordinary open/read. The temporary factory,
+   * signer and ownership root never escape; S is storage status, not adoption. */
+  static async recoverPreparedAtStartup(input: PreparedStartupOptions): Promise<Readonly<{ status: 'settled' }>> {
+    let state: OrdinaryPersistentBootstrap | undefined, invitation: RoomInvitation | undefined,
+      startup: ReturnType<typeof OrdinaryProtocolWork.registerPreparedStartup> | undefined, foreground: OrdinaryForegroundSigner | undefined,
+      obligation: OrdinaryRenewalObligation | undefined
+    try {
+      const captured = { ...input }, participant = captured.identity.pubkey, sign = captured.identity.signEvent
+      invitation = roomInvitation(new Uint8Array(captured.invitation.bearer), captured.invitation.inviter, true)
+      const id = deriveInvitationId(invitation)
+      if (captured.invitation.persistent !== true || !HEX.test(participant) || typeof sign !== 'function' || typeof captured.keep !== 'boolean' ||
+          !integer(captured.credentialExpiresAt) || captured.credentialExpiresAt === 0 || typeof captured.link !== 'string' ||
+          captured.account !== null && (captured.account !== participant || !captured.foreground || captured.foreground.session.signer !== captured.identity) ||
+          captured.account === null && captured.foreground !== undefined) hold()
+      const link = parseRoomLink(captured.link)
+      try {
+        if (link.secret || link.pairingCode || !link.invitation?.persistent || deriveInvitationId(link.invitation) !== id ||
+            link.invitation.inviter !== invitation.inviter || bytesToHex(link.invitation.bearer) !== bytesToHex(invitation.bearer)) hold()
+      } finally { wipeLink(link) }
+      const selectedLive = () => {
+        const selected = captured.current()
+        return captured.live() === true && captured.identity.pubkey === participant && captured.identity.signEvent === sign && selected?.identity === captured.identity &&
+          selected.account === captured.account && selected.participant === participant && selected.invitationId === id && selected.link === captured.link &&
+          selected.keep === captured.keep && selected.credentialExpiresAt === captured.credentialExpiresAt
+      }
+      const unavailable: OrdinaryScope = Object.freeze({ name: '@prepared-startup-no-ordinary-custody', generation: '', fence: 0 })
+      state = new OrdinaryPersistentBootstrap({ ...captured, invitation, live: selectedLive }, participant, sign, unavailable, unavailable)
+      const owner = state
+      startup = OrdinaryProtocolWork.registerPreparedStartup(owner, async root => {
+        if (!owner.#live()) hold()
+        if (captured.account !== null) foreground = OrdinaryForegroundSigner.capturePreparedStartup({ ...captured.foreground!,
+          browser: captured.browser, tab: captured.tab, live: owner.#live }, root)
+        const factory = registerOrdinaryPreparedRenewalFactory(owner, { browser: captured.browser, tab: captured.tab,
+          account: captured.account, participant, invitationId: id, keep: captured.keep, link: captured.link,
+          bootstrapCredentialExpiresAt: captured.credentialExpiresAt, identity: foreground ?? captured.identity, live: owner.#live })
+        const witness = await OrdinaryStateOwner.authenticatePreparedRenewalAtStartup(factory.preparation, root)
+        obligation = factory.claim(root, witness)
+        await OrdinaryStateOwner.signPreparedRenewalAtStartup(obligation)
+        releaseOrdinaryRenewalObligation(obligation); obligation = undefined
+        // A retained verified result can finish historical custody without
+        // constructing a live member. Each fixed producer owns its own P.
+        const candidate = captured.browser.recoverRetainedRenewalAtStartup(captured.tab.purpose as `tab:${string}`, owner.#live)
+        root.retain(candidate); await candidate
+        const settled = captured.browser.recoverCommittedRenewalAtStartup(captured.tab.purpose as `tab:${string}`, owner.#live)
+        root.retain(settled); await settled
+      })
+      await startup.start()
+      return Object.freeze({ status: 'settled' as const })
+    } finally {
+      releaseOrdinaryRenewalObligation(obligation)
+      startup?.close(); await startup?.join(); await foreground?.close()
+      if (state) await state.close(); else invitation?.bearer.fill(0)
+    }
   }
   #live = (): boolean => {
     if (this.#closed || this.#forgetting) return false

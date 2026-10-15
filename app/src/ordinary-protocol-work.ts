@@ -6,6 +6,7 @@ export class OrdinaryProtocolSuspended extends Error {
 }
 const lifecycleRoots = new WeakMap<object, () => void>()
 const lifecyclePromises = new WeakMap<object, (pending: Promise<unknown>) => void>()
+const preparedStartupFactories = new WeakSet<object>()
 /** Lower-layer ownership check for fixed native lifecycle transitions. The
  * root must be the actual sole quiescent lifecycle root with no children.
  * This grants no native custody, signer, membership or journal authority. */
@@ -41,6 +42,26 @@ export const MAX_ORDINARY_PROTOCOL_JOBS = 4096
  * effect still enters the embedding's genuine fresh execution boundary. Only
  * the private factory shares this coordinator with its Session and carrier. */
 export class OrdinaryProtocolWork {
+  /** @internal One-use ownership entry captured by the private startup
+   * factory. No native executor, operation name or mutable writer is supplied.
+   * This graph cannot execute or resume ordinary application work. */
+  static registerPreparedStartup(factory: object, body: (root: ProtocolExecution) => Promise<void>): Readonly<{
+    start(): Promise<void>; close(): void; join(): Promise<void>
+  }> {
+    if (!factory || preparedStartupFactories.has(factory) || typeof body !== 'function') throw new OrdinaryProtocolSuspended()
+    preparedStartupFactories.add(factory)
+    const refuse = (): never => { throw new OrdinaryProtocolSuspended() }
+    const graph = new OrdinaryProtocolWork({ run: refuse, check: refuse, retain: pending => pending })
+    let used = false
+    return Object.freeze({
+      start: () => {
+        if (used) return Promise.reject(new OrdinaryProtocolSuspended())
+        used = true
+        return graph.#preparedStartupBody(body)
+      },
+      close: () => graph.close(), join: () => graph.join(),
+    })
+  }
   readonly execution: ProtocolExecution
   readonly #native: ProtocolExecution
   readonly #stop: () => void
@@ -311,6 +332,27 @@ export class OrdinaryProtocolWork {
   startRoot(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
     if (this.#active || this.#notifying || [...this.#roots].some(root => root.lifecycleRoot)) return Promise.reject(new OrdinaryProtocolSuspended())
     return this.#task(undefined, 'credential-lifecycle', work, true)
+  }
+  #preparedStartupBody(body: (root: ProtocolExecution) => Promise<void>): Promise<void> {
+    if (this.#phase !== 'open' || this.#jobs || this.#roots.size || this.#listeners.size || this.#active || this.#notifying) {
+      return Promise.reject(new OrdinaryProtocolSuspended())
+    }
+    const job = this.#job(undefined, true)
+    // Establish ownership without invoking an effect boundary or a listener.
+    this.#excluded = job; this.#phase = 'quiescent'
+    let pending: Promise<void>
+    try {
+      pending = body(job.scope)
+      if (!(pending instanceof Promise)) throw new OrdinaryProtocolSuspended()
+      void pending.catch(() => {})
+    } catch (error) {
+      this.close(); this.#bodyDone(job); return Promise.reject(error)
+    }
+    const result = pending.then(value => {
+      if (value !== undefined) throw new OrdinaryProtocolSuspended()
+    }).finally(() => this.#bodyDone(job))
+    this.#promises.set(result, job)
+    return this.#native.retain(result)
   }
   #retainRoot(pending: Promise<void>): Promise<void> {
     const job = pending instanceof Promise ? this.#promises.get(pending) : undefined

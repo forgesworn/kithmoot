@@ -20,6 +20,7 @@ import { ordinaryMemberLeaseName, readOrdinaryMemberLease, ordinaryMemberLeaseCr
 import { credentialSeal } from '../../src/seal.js'
 import { ROOM_PREFIX } from './rooms-store.js'
 import { readOrdinaryRenewalRequest } from './ordinary-renewal-request.js'
+import type { OrdinaryPreparedRenewalWitness } from './ordinary-state-owner.js'
 
 const HEX = /^[0-9a-f]{64}$/
 function hold(): never { throw new OrdinaryStateHold() }
@@ -72,9 +73,81 @@ interface Obligation {
   readonly root: ProtocolExecution
   readonly intent: OrdinaryRenewalIntent
   state: 'available'|'claimed'|'released'
+  readonly prepared?: OrdinaryPreparedRenewalWitness
 }
 const factories = new WeakSet<object>()
 const obligations = new WeakMap<object,Obligation>()
+declare const preparedFactoryBrand: unique symbol
+export interface OrdinaryPreparedRenewalFactory { readonly [preparedFactoryBrand]: true }
+export interface OrdinaryPreparedRenewalFactoryCapture {
+  readonly browser: OrdinaryStateOwner
+  readonly tab: OrdinaryStateOwner
+  readonly account: string | null
+  readonly participant: string
+  readonly invitationId: string
+  readonly keep: boolean
+  readonly link: string
+  readonly bootstrapCredentialExpiresAt: number
+  readonly identity: ParticipantIdentity
+  readonly live: () => boolean
+}
+const preparedFactories = new WeakSet<object>()
+const preparedCaptures = new WeakMap<object, { factory: object; binding: Readonly<OrdinaryPreparedRenewalFactoryCapture>; root?: ProtocolExecution }>()
+/** @internal Captured solely by the private startup bootstrap constructor.
+ * The closure accepts no desired intent, stores, template, time or callback. */
+export function registerOrdinaryPreparedRenewalFactory(factory: object, input: OrdinaryPreparedRenewalFactoryCapture): Readonly<{
+  preparation: OrdinaryPreparedRenewalFactory
+  claim(root: ProtocolExecution, witness: OrdinaryPreparedRenewalWitness): OrdinaryRenewalObligation
+}> {
+  if (!factory || preparedFactories.has(factory) || input.account !== null && input.account !== input.participant ||
+      !HEX.test(input.participant) || !HEX.test(input.invitationId) || typeof input.keep !== 'boolean' || typeof input.live !== 'function') hold()
+  preparedFactories.add(factory)
+  const binding = Object.freeze({ ...input }), preparation = Object.freeze({}) as OrdinaryPreparedRenewalFactory
+  const captured = { factory, binding, root: undefined as ProtocolExecution | undefined }
+  preparedCaptures.set(preparation, captured)
+  let claimed = false
+  return Object.freeze({ preparation, claim: (root, witness) => {
+    verifyOrdinaryLifecycleRoot(root)
+    if (claimed || captured.root !== root || binding.live() !== true) hold()
+    const native = OrdinaryStateOwner.consumePreparedRenewalWitness(witness, preparation, root, binding.browser, binding.tab)
+    const expected = native.intent
+    if (expected.account !== binding.account || expected.participant !== binding.participant || expected.invitationId !== binding.invitationId ||
+        expected.keep !== binding.keep || expected.linkDigest !== hash(binding.link)) hold()
+    verifyOrdinaryLifecycleRoot(root)
+    if (binding.live() !== true || binding.account !== null && !OrdinaryForegroundSigner.nativeCurrent(binding.identity as OrdinaryForegroundSigner,
+      binding.participant, expected.authority.foregroundExpiresAt)) hold()
+    claimed = true
+    const token = Object.freeze({}) as OrdinaryRenewalObligation
+    const fixed: Readonly<Factory> = Object.freeze({ ...binding,
+      browser: Object.freeze({ owner: binding.browser, scope: native.browserScope }),
+      tab: Object.freeze({ owner: binding.tab, scope: native.tabScope }) })
+    obligations.set(token, { factory, binding: fixed, root, intent: expected, state: 'claimed', prepared: witness })
+    return token
+  } })
+}
+/** Ownership and immutable capture only; the owner still owes native E. */
+export function takeOrdinaryPreparedFactory(preparation: OrdinaryPreparedRenewalFactory, root: ProtocolExecution): Readonly<OrdinaryPreparedRenewalFactoryCapture> {
+  const value = preparedCaptures.get(preparation)
+  verifyOrdinaryLifecycleRoot(root)
+  if (!value || value.root || value.binding.live() !== true) hold()
+  value.root = root
+  return value.binding
+}
+export function checkOrdinaryPreparedFactoryPromise(preparation: OrdinaryPreparedRenewalFactory, root: ProtocolExecution, pending: Promise<unknown>): void {
+  const value = preparedCaptures.get(preparation)
+  if (!value || value.root !== root) hold()
+  verifyOrdinaryLifecyclePromise(root, pending)
+  if (value.binding.live() !== true) hold()
+  verifyOrdinaryLifecyclePromise(root, pending)
+}
+export function takeOrdinaryPreparedSigningObligation(token: OrdinaryRenewalObligation): Readonly<{
+  binding: Readonly<Factory>; root: ProtocolExecution; intent: OrdinaryRenewalIntent; witness: OrdinaryPreparedRenewalWitness
+}> {
+  const value = obligations.get(token)
+  if (!value || value.state !== 'claimed' || !value.prepared) hold()
+  checkOrdinaryRenewalObligation(token)
+  return Object.freeze({ binding: value.binding, root: value.root, intent: value.intent, witness: value.prepared })
+}
 /** Native facts and fixed preparation only. No entropy, provider or write. */
 function intent(binding: Factory, browser: DeviceStore, tab: DeviceStore, token: OrdinaryPairCustody,
   desired: Readonly<{issuedAt:number;expiresAt:number;semanticDigest:string}>, reconstructed?: OrdinaryRenewalIntent): OrdinaryRenewalIntent {
@@ -221,6 +294,7 @@ export function checkOrdinaryRenewalSigningObligation(token:OrdinaryRenewalOblig
   if(!value||value.state!=='claimed')hold()
   verifyOrdinaryLifecyclePromise(value.root,pending)
   if(value.intent.expiresAt-Math.floor(Date.now()/1000)<RESUME_MIN_REMAINING_SECONDS)hold()
+  if(value.prepared&&value.intent.issuedAt>Math.floor(Date.now()/1000))hold()
   if(value.binding.live()!==true||value.binding.account!==null&&!OrdinaryForegroundSigner.nativeCurrent(value.binding.identity as OrdinaryForegroundSigner,
     value.binding.participant,value.intent.authority.foregroundExpiresAt))hold()
   verifyOrdinaryLifecyclePromise(value.root,pending)

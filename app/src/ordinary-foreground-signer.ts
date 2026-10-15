@@ -6,6 +6,9 @@ import { OrdinaryStateHold, ordinaryUtf8Length, ORDINARY_VALUE_BYTES, ORDINARY_V
 import { OrdinaryStateOwner, ordinaryPairReadCustodyFor, type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
 import { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { ORDINARY_SIGNET_KEYS as keys } from './ordinary-signet-snapshot.js'
+import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
+import type { ProtocolExecution } from '../../src/protocol-execution.js'
+import { ordinaryPreparedRenewalCustodyFor, type OrdinaryPreparedRenewalCustody } from './ordinary-state-owner.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const SESSION_KEYS = ['pubkey', 'method', 'authEvent', 'bunkerUri', 'bunkerClientSk', 'expiresAt', 'displayName'] as const
@@ -142,7 +145,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   /** Read the exact immutable SDK deadline during another native component's
    * acknowledged pair read. A public session property alone is not provenance. */
   static nativeDeadline(signer: OrdinaryForegroundSigner, browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string): number | null {
-    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#participant !== participant) hold()
+    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#participant !== participant || signer.#preparedRoot) hold()
     const b = records(browser), t = records(tab)
     try {
       // Refuse mutation projections and exact-byte substitutions first.
@@ -159,7 +162,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   /** Native consumers invoke the captured implementation, never a replaced
    * instance borrowing method supplied through a consent object. */
   static borrowNativeSignEvent(signer:OrdinaryForegroundSigner,input:OrdinaryForegroundConsumer):SignetSigner['signEvent'] {
-    if(!OrdinaryForegroundSigner.isNativeSigner(signer))hold()
+    if(!OrdinaryForegroundSigner.isNativeSigner(signer)||signer.#preparedRoot)hold()
     const consumer=signer.#captureConsumer(input)
     return Object.freeze((event:EventTemplate,external?:SignerEffectBoundary)=>signer.#signEvent(event,external,consumer))
   }
@@ -211,6 +214,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   readonly #browserScope: OrdinaryScope
   readonly #tabScope: OrdinaryScope
   readonly #work = new Set<Promise<unknown>>()
+  #preparedRoot: ProtocolExecution | undefined
   #expected: readonly (string | null)[] | undefined
   #closed = false
   #held = false
@@ -308,6 +312,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     })
   }
   #preflight(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void {
+    if (this.#preparedRoot) hold()
     const b = records(browser), t = records(tab)
     try {
       validateOrdinarySnapshot(b, t, { browser: true, tab: true }, captureOrdinarySnapshotContext(b, t, custody))
@@ -340,7 +345,58 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       return state
     } catch (error) { if (state) { state.#stop(); await state.close() } else { try { options.stop() } catch {} }; throw error }
   }
+  /** @internal Inert private startup capture. It supplies no ordinary signer,
+   * crypto or read capability. The fixed owner must authenticate E separately. */
+  static capturePreparedStartup(input: Options, root: ProtocolExecution): OrdinaryForegroundSigner {
+    verifyOrdinaryLifecycleRoot(root)
+    const options = Object.freeze({ ...input }), captured = captureOrdinaryForegroundSession(options.session)
+    if (!Number.isSafeInteger(options.generation) || options.generation < 0 || options.browser.purpose !== 'browser' ||
+        !/^tab:[0-9a-f]{64}$/.test(options.tab.purpose) || captured.signer.providerEffectBoundary !== 1 ||
+        captured.signer.capabilities.canSignEvents !== true || typeof captured.signer.signEvent !== 'function') hold()
+    const unavailable: OrdinaryScope = Object.freeze({ name: '@prepared-startup-no-ordinary-custody', generation: '', fence: 0 })
+    const signer = new OrdinaryForegroundSigner(options, captured, unavailable, unavailable)
+    signer.#preparedRoot = root
+    signer.#check(); verifyOrdinaryLifecycleRoot(root)
+    return signer
+  }
+  /** Resource-only retention before initial E authentication. No effect or
+   * signing lifetime is registered through this entry. */
+  static retainPreparedStartupAuthentication(signer: OrdinaryForegroundSigner, root: ProtocolExecution, pending: Promise<unknown>): void {
+    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#preparedRoot !== root || signer.#busy) hold()
+    verifyOrdinaryLifecyclePromise(root, pending); signer.#check()
+    signer.#busy = true; signer.#work.add(pending)
+    void pending.finally(() => { signer.#work.delete(pending); signer.#busy = false }).catch(() => {})
+  }
+  static async checkPreparedStartupAuthentication(signer: OrdinaryForegroundSigner, root: ProtocolExecution, pending: Promise<unknown>): Promise<void> {
+    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#preparedRoot !== root || !signer.#busy || !signer.#work.has(pending)) hold()
+    verifyOrdinaryLifecyclePromise(root, pending); await signer.#clients(); verifyOrdinaryLifecyclePromise(root, pending)
+    if (!signer.#work.has(pending)) hold()
+  }
+  /** Purpose-specific native E validation only. An ordinary read token, fake
+   * stores or a copied witness cannot satisfy this short-lived callback. */
+  static nativePreparedDeadline(signer: OrdinaryForegroundSigner, root: ProtocolExecution, browser: DeviceStore, tab: DeviceStore,
+    custody: OrdinaryPreparedRenewalCustody, participant: string, historicalDeadline: number | null): number | null {
+    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#preparedRoot !== root || signer.#participant !== participant ||
+        signer.#sessionExpiresAt !== historicalDeadline) hold()
+    const check = () => {
+      ordinaryPreparedRenewalCustodyFor(custody, browser, tab, signer.#options.browser, signer.#options.tab, root)
+      signer.#check()
+    }
+    check()
+    const proof = JSON.parse(signer.#proof)
+    if (!verifyEventUncached(proof) || proof.tags.filter((tag: string[]) => tag[0] === 'origin').length !== 1 ||
+        proof.tags.find((tag: string[]) => tag[0] === 'origin')?.[1] !== location.origin) hold()
+    const session = SESSION_KEYS.map(name => browser.get(keys[name]))
+    if (session[0] !== signer.pubkey || session[1] !== signer.method || session[2] !== signer.#proof ||
+        session[5] !== (historicalDeadline === null ? null : String(historicalDeadline)) || session[6] !== (signer.session.displayName ?? null) ||
+        signer.#expected && session.some((value, index) => value !== signer.#expected![index]) ||
+        signer.#bunker && (session[3] !== signer.#bunker.uri || session[4] !== [...signer.#bunker.key].map(byte => byte.toString(16).padStart(2, '0')).join(''))) hold()
+    signer.#expected ??= Object.freeze(session)
+    check()
+    return signer.#sessionExpiresAt
+  }
   #run<T>(capture: () => (boundary: SignerEffectBoundary) => Promise<T>, finish: (value: T) => T, consumer?: OrdinaryForegroundConsumer): Promise<T> {
+    if (this.#preparedRoot) return Promise.reject(new OrdinaryStateHold())
     let invoke: (boundary: SignerEffectBoundary) => Promise<T>
     // Latch and capture before any caller-owned selector or live callback.
     if (this.#busy || this.#closed || this.#held) { this.#stop(); return Promise.reject(new OrdinaryStateHold()) }
@@ -411,6 +467,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
    * preflight runs in the SAME authentic read as every actual SDK attempt and
    * final handoff; an earlier asynchronous decision is never a substitute. */
   borrowNip44(input: OrdinaryForegroundConsumer): NonNullable<SignetSigner['nip44']> {
+    if (this.#preparedRoot) hold()
     const consumer=this.#captureConsumer(input)
     if(!this.#crypto.nip44||!this.#methods.nip44)hold()
     const methods=this.#methods.nip44,receiver=this.#crypto.nip44
