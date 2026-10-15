@@ -45,7 +45,7 @@ export interface AssignmentReaderOptions extends Pick<AssignmentLogOptions,
   /** Only request recent envelopes. Defaults to the last 24 hours. */
   since?: number
 }
-interface Pending { inner: Event; outer: Event }
+interface Pending { inner: Event; outer: Event; reviewRequired?: true }
 export interface AssignmentLogSnapshot {
   assignments: Assignment[]
   ready: boolean
@@ -171,15 +171,18 @@ export class AssignmentLog {
 
   /** Stable request IDs are mandatory at this boundary. Failed/ambiguous sends
    * remain in the encrypted outbox and retry the exact same signed operation. */
-  async submit(assignment: string | undefined, operation: AssignmentOperation, request: string, expectedHead?: string | null): Promise<Assignment> {
+  async submit(assignment: string | undefined, operation: AssignmentOperation, request: string, expectedHead?: string | null, review?: () => boolean): Promise<Assignment> {
     const opts = this.#opts
     if ('readOnly' in opts) throw new Error('Open the origin room to update this assignment')
+    const checkReview = () => { if (review && !review()) throw new Error('The reviewed assignment or its source changed') }
     const pending = await this.#serial(async () => {
+      checkReview()
       if (!this.snapshot().ready) throw new Error(this.#error ?? 'Wait for assignment history to finish loading')
       const identity = opts.identity
       if (!identity) throw new Error('This device cannot sign assignment updates')
       const existing = [...this.#events.values()].find(e => e.pubkey === identity.pubkey && assignmentPayload(e, this.roomId)?.request === request)
       const retry = this.#outbox.get(request)
+      if (retry?.reviewRequired && !review) throw new Error('Review this saved assignment in its source before retrying')
       const old = existing ?? retry?.inner
       if (old) {
         const payload = assignmentPayload(old, this.roomId)!
@@ -195,6 +198,7 @@ export class AssignmentLog {
       // A host approval for one head must never sign against a newer head.
       if (expectedHead !== undefined && (before?.head ?? null) !== expectedHead) throw new Error('Assignment version changed')
       const inner = await signAssignment(identity, this.roomId, { v: 1, assignment: id, request, previous: before?.head ?? null, device: getPublicKey(opts.deviceSk), operation }, this.#now())
+      checkReview()
       const projected = projectAssignments([...this.#events.values(), inner], this.roomId)
       const next = projected.assignments.find(s => s.id === id)
       if (!next || next.head !== inner.id || next.status === 'conflicted' || projected.pending.includes(inner.id)) throw new Error('This update is not permitted in the current assignment state')
@@ -205,12 +209,15 @@ export class AssignmentLog {
         ...(opts.name ? { name: opts.name } : {}), ...(opts.proof ? { proof: opts.proof } : {}),
         ...(opts.owner ? { owner: opts.owner } : {}),
       }, { roomId: this.roomId, roomKey: opts.roomKey, deviceSk: opts.deviceSk, channel: ASSIGNMENT_CHANNEL, epoch: this.#epoch, expiresAt: opts.expiresAt })
-      const candidate = new Map(this.#outbox).set(request, { inner, outer })
+      const saved: Pending = {inner, outer, ...(review ? {reviewRequired: true as const} : {})}
+      const candidate = new Map(this.#outbox).set(request, saved)
+      checkReview()
       await this.#persist(this.#events, candidate)
-      this.#outbox.set(request, { inner, outer }); this.#emit()
-      return { inner, outer }
+      this.#outbox.set(request, saved); this.#emit()
+      return saved
     })
     if (pending.outer) {
+      checkReview()
       if (this.#closed) throw new Error('The assignment room has closed')
       if (!decodeChatEvent(pending.outer, { roomId: this.roomId, roomKey: this.#opts.roomKey, channel: ASSIGNMENT_CHANNEL, epoch: this.#epoch, policy: this.#opts.policy, now: this.#now() })) {
         throw new Error('Room access changed; this pending operation cannot be republished')

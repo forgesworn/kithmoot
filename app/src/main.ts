@@ -11,6 +11,7 @@ import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
 import { isCultEmoji } from '../../src/custom-emoji.js'
 import { isOriginalEmoji } from '../../src/original-art.js'
 import { BrowserLink } from './browser-link.js'
+import { borrowBoardAgentRoom } from './board-agent-room.js'
 import { startBrowserLink } from './browser-link-runtime.js'
 import { BrowserRoomRoutes } from './browser-room-routes.js'
 import { BrowserRoomActivation } from './browser-room-activation.js'
@@ -15142,8 +15143,31 @@ boardsPanel = new BoardsPanel(document, {
   signIn: () => {void signInWithNostr().catch(error => setStatus(describeError(error)))},
   showChat: () => {if (session) {showMobileRoomView('chat'); const drawer = document.getElementById('chatDrawerToggle'); if (drawer?.getAttribute('aria-expanded') === 'false') drawer.click()}},
   roomTasks: from => workspaceWork?.open('work', from),
-  newRoomTask: async () => {if (!session) throw new Error('Join a chat before offering a room task.'); await assignmentPanel.openAssignment()},
   roomInvitation: id => workspaceActivityRooms().find(room => room.roomId === id)?.link,
+  agentRoom: async id => {
+    const account = nostrSession
+    if (!account) throw new Error('Sign in before assigning a card')
+    if (session?.roomId !== id) {
+      const linked = workspaceActivityRooms().find(room => room.roomId === id)
+      if (!linked) throw new Error('This board’s linked chat is no longer available')
+      await switchRoom(linked)
+    }
+    const selected = session
+    if (nostrSession !== account || !selected || selected.roomId !== id || selected.participant !== account.pubkey) throw new Error('Complete admission in this board’s linked chat before assigning a card')
+    const current = () => {
+      const room = knownRoom(roomStore(), id)
+      return nostrSession === account && session === selected && !!room && room.endedAt === undefined && (room.endsAt === undefined || room.endsAt > nowSeconds())
+    }
+    // Joining starts the existing journal reader asynchronously. Wait for its
+    // real history, never create a second writer for an embedded view.
+    const deadline = Date.now() + 15_000
+    while (current()) {
+      try {return borrowBoardAgentRoom(selected, assignmentPanel.logFor(selected), current)}
+      catch (error) {if (Date.now() >= deadline) throw error}
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    throw new Error('Your account or this board’s linked chat changed')
+  },
   roomBoards: id => {
     const s = session?.roomId === id ? session : dockedCall?.session.roomId === id ? dockedCall.session : undefined
     return s ? roomBoards.get(s)?.boards ?? [] : []

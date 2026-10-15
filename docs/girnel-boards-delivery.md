@@ -36,3 +36,28 @@ The web app and desktop 0.1.78 were published on 13 October 2026. The
 [publication receipt](evidence/girnel-boards-publication-2026-10-13.json) records
 the exact CI/source, public files, signatures and live board-window check. Native
 Android Boards remains outside this delivery.
+
+## Direct card assignment
+
+The embedded card's **Assign to agent** action uses the linked chat's existing
+admission and canonical task journal. Card text and completion criteria are
+prefilled in the card panel; selecting an agent and assigning it creates the
+room assignment without copying it into a separate room-task form. A sole
+agent and its sole advertised action are selected automatically. The card keeps
+the agent as an assignee and shows the originating task's progress, questions
+and result. Existing room tasks remain available for review.
+
+The board borrows the host's room connection. Closing the panel releases its
+listeners and leaves the chat and its journal open. A popped-out board retains
+its own chat binding; assigning from it opens that linked chat through normal
+KithMoot admission rather than using whichever room happens to be selected.
+Canonical updates recheck the selected card through signing and publication,
+and a saved request awaiting publication requires renewed review before retry.
+
+The local qualification covers all 4,235 KithMoot unit tests, ten Boards browser
+scenarios and the integrated two-agent/two-person workflow. The latter verifies
+that assigning cards creates no additional user installation, that concurrent
+board edits converge, and that results return to their originating cards. The
+pinned Girnel package carries its own committed source and asset manifest.
+These checks establish the UI and protocol path; an installed Oathrun provider
+run and public artifact readback remain separate delivery evidence.

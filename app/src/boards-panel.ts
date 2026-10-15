@@ -50,8 +50,8 @@ export class BoardsPanel {
     currentProject(): Scope | undefined
     signIn(): void
     roomTasks(from: HTMLElement): void
-    newRoomTask(): Promise<void>
     roomInvitation(id: string): string | undefined
+    agentRoom(id: string): Promise<import('./board-agent-room.js').BoardAgentRoom>
     discuss(context: BoardContext, card: {id: string; title: string; description?: string}): Promise<void>
     showChat(): void
     roomBoards(id: string): RoomBoard[]
@@ -72,8 +72,7 @@ export class BoardsPanel {
     const tasks = this.button('Room tasks', () => {this.dialog.close(); this.options.roomTasks(tasks)})
     const invite = this.button('Open board link', () => {linkForm.hidden = !linkForm.hidden; if (!linkForm.hidden) linkInput.focus()})
     const close = this.button('Close', () => this.dialog.close()); close.id = 'boardsClose'
-    const createTask = this.button('New room task', () => {this.dialog.close(); void this.options.newRoomTask().catch(error => {this.report(error); if (!this.dialog.open) this.dialog.showModal()})})
-    bar.append(title, picker, invite, tasks, createTask, this.#pop, close)
+    bar.append(title, picker, invite, tasks, this.#pop, close)
     const linkForm = root.createElement('form'); linkForm.className = 'boardsLink'; linkForm.hidden = true
     const linkLabel = this.el('label', 'Board invitation or card link'), linkInput = root.createElement('input')
     linkInput.type = 'password'; linkInput.autocomplete = 'off'; linkInput.maxLength = 32768
@@ -256,6 +255,13 @@ export class BoardsPanel {
             } catch (error) {this.report(error)}
           },
           roomInvitation: () => view.context?.room ? this.options.roomInvitation(view.context.room.id) : undefined,
+          agentRoom: async () => {
+            const room = view.context?.room ?? view.room
+            if (!room || !current()) throw new Error('Choose this board’s chat before assigning a card')
+            const connection = await this.options.agentRoom(room.id)
+            if (!current()) {await connection.close(); throw new Error('Your board account changed')}
+            return connection
+          },
           roomShare: () => {
             const room = view.context?.room ?? view.room
             if (!room || !current()) return
