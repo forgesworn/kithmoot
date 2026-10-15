@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      prior_lease_diagnostic:
+        description: Run repeated Firefox timing diagnostics in addition to all acceptance gates
+        type: boolean
+        default: false
   # Prose-only changes run nothing: no test reads docs/ or a top-level
   # Markdown file (packages/*/THIRD_PARTY_NOTICES.md is read, and is not
   # matched here - `*.md` stops at the first slash).
@@ -138,6 +143,51 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: playwright-traces-ordinary-startup-${{ matrix.project }}-${{ matrix.slice }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Diagnostics add evidence; they never replace or skip normal CI jobs.
+  prior-lease-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.prior_lease_diagnostic
+    name: diagnostic prior lease (${{ matrix.slice }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [member-startup, prepared-extension, complete-extension]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build library
+        run: npm run build:lib
+      - name: Find the Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-firefox
+      - name: Install Firefox
+        run: npx playwright install --with-deps firefox
+      - name: Measure repeated prior-lease journeys (diagnostic only)
+        env:
+          ORDINARY_STARTUP_TIMING: '1'
+        run: npx playwright test -c playwright.ordinary-startup-diagnostic.config.ts --project=firefox-${{ matrix.slice }}
+      - name: Keep diagnostic failures
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: diagnostic-prior-lease-firefox-${{ matrix.slice }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7

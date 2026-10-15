@@ -1,3 +1,4 @@
+import { measureStartupStage, startupTimingEnabled } from './ordinary-startup-timing.js'
 import { test, expect, type Page } from '@playwright/test'
 import { preparedRestart } from './ordinary-member-startup.setup.js'
 import { controls } from './ordinary-member-session.setup.js'
@@ -16,17 +17,35 @@ async function memberTransport(page: Page): Promise<void> {
 
 for (const visitor of [false, true]) for (const keep of [false, true]) for (const priorLease of [false, true]) {
   test(`prepared recovery opens a fresh guarded member, visitor=${visitor}, keep=${keep}, priorLease=${priorLease}`, async ({ page }) => {
+    if (!startupTimingEnabled(priorLease)) {
+      page.on('pageerror', error => console.error('Native member relay fixture:', error.message))
+      await preparedRestart(page, visitor, keep, priorLease)
+      await memberTransport(page)
+      await page.evaluate('(async()=>{window.startup=await Ordinary.OrdinaryMemberStartup.open(recoveryOptions)})()')
+      expect(await page.evaluate('preparedPhase()')).toBe('settled')
+      expect(await page.evaluate('[signCalls,dials.length,frames.length]')).toEqual([visitor ? 0 : 1, 0, 0])
+      await page.evaluate('(async()=>{window.member=await startup.openMemberSession(sessionOptions);await member.join();await member.send("fresh recovered member")})()')
+      expect(await page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))')).toContain('fresh recovered member')
+      expect(await page.evaluate('[dials.length>0,dials.every(Boolean),frames.length>0,frames.every(frame=>frame[1])]')).toEqual([true, true, true, true])
+      expect(await page.evaluate('startup.openMemberSession(sessionOptions).then(()=>"escaped",error=>error.name)')).toBe('OrdinaryStateHold')
+      await page.evaluate('startup.close()')
+      expect(await page.evaluate('sockets.every(socket=>socket.readyState===3)')).toBe(true)
+      expect(await page.evaluate('member.send("closed").then(()=>"escaped",error=>error.name)')).not.toBe('escaped')
+      return
+    }
     page.on('pageerror', error => console.error('Native member relay fixture:', error.message))
     await preparedRestart(page, visitor, keep, priorLease)
     await memberTransport(page)
-    await page.evaluate('(async()=>{window.startup=await Ordinary.OrdinaryMemberStartup.open(recoveryOptions)})()')
+    await measureStartupStage(page, 'startup open', () => page.evaluate('(async()=>{window.startup=await Ordinary.OrdinaryMemberStartup.open(recoveryOptions)})()'), priorLease)
     expect(await page.evaluate('preparedPhase()')).toBe('settled')
     expect(await page.evaluate('[signCalls,dials.length,frames.length]')).toEqual([visitor ? 0 : 1, 0, 0])
-    await page.evaluate('(async()=>{window.member=await startup.openMemberSession(sessionOptions);await member.join();await member.send("fresh recovered member")})()')
-    expect(await page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))')).toContain('fresh recovered member')
+    await measureStartupStage(page, 'member open', () => page.evaluate('(async()=>{window.memberOpenStatus="pending";window.memberOpening=startup.openMemberSession(sessionOptions);const value=await memberOpening;window.member=value;window.memberOpenStatus="complete"})()'), priorLease)
+    await measureStartupStage(page, 'member join', () => page.evaluate('(async()=>{window.memberJoinStatus="pending";window.memberJoining=member.join();const value=await memberJoining;window.memberJoinStatus="complete"})()'), priorLease)
+    await measureStartupStage(page, 'member send', () => page.evaluate('(async()=>{window.memberSendStatus="pending";window.memberSending=member.send("fresh recovered member");const value=await memberSending;window.memberSendStatus="complete"})()'), priorLease)
+    expect(await measureStartupStage(page, 'message read', () => page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))'), priorLease)).toContain('fresh recovered member')
     expect(await page.evaluate('[dials.length>0,dials.every(Boolean),frames.length>0,frames.every(frame=>frame[1])]')).toEqual([true, true, true, true])
     expect(await page.evaluate('startup.openMemberSession(sessionOptions).then(()=>"escaped",error=>error.name)')).toBe('OrdinaryStateHold')
-    await page.evaluate('startup.close()')
+    await measureStartupStage(page, 'member close', () => page.evaluate('(async()=>{window.memberCloseStatus="pending";window.memberClosing=startup.close();await memberClosing;window.memberCloseStatus="complete"})()'), priorLease)
     expect(await page.evaluate('sockets.every(socket=>socket.readyState===3)')).toBe(true)
     expect(await page.evaluate('member.send("closed").then(()=>"escaped",error=>error.name)')).not.toBe('escaped')
   })

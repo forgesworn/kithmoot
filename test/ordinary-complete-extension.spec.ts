@@ -1,3 +1,4 @@
+import { measureStartupStage, startupTimingEnabled } from './ordinary-startup-timing.js'
 import { test, expect, type Page } from '@playwright/test'
 import { preparedRestart } from './ordinary-prepared-extension.setup.js'
 import { memberTransport } from './ordinary-prepared-extension.transport.js'
@@ -247,15 +248,30 @@ test('alternating current selection cannot substitute a foreign pointer for the 
 
 for (const keep of [false,true]) for (const priorLease of [false,true]) {
   test(`ordinary P restore uses current credential, keep=${keep}, priorLease=${priorLease}`, async ({page})=>{
+    if (!startupTimingEnabled(priorLease)) {
+      await extensionRestart(page,keep,priorLease)
+      const before=await page.evaluate('[entropy,puts,signCalls]')
+      await page.evaluate('beginExtension();undefined');await page.waitForFunction("restoreStatus!=='pending'")
+      expect(await page.evaluate('[restoreStatus,restoreStack??null]')).toEqual(['ok',null])
+      expect(await page.evaluate('[discoveryCalls,discoveryHeld]')).toEqual([1,[true]])
+      expect(await page.evaluate('[entropy,puts,signCalls]')).toEqual(before)
+      await page.evaluate('(async()=>{window.member=await extensionStartup.openMemberSession(sessionOptions);await member.join();await member.send("ordinary selected lease")})()')
+      expect(await page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))')).toContain('ordinary selected lease')
+      await page.evaluate('extensionStartup.close()')
+      expect(await page.evaluate('sockets.every(socket=>socket.readyState===3)')).toBe(true)
+      return
+    }
     await extensionRestart(page,keep,priorLease)
     const before=await page.evaluate('[entropy,puts,signCalls]')
-    await page.evaluate('beginExtension();undefined');await page.waitForFunction("restoreStatus!=='pending'")
+    await measureStartupStage(page, 'extension startup open', async () => { await page.evaluate('beginExtension();undefined');await page.waitForFunction("restoreStatus!=='pending'") }, priorLease)
     expect(await page.evaluate('[restoreStatus,restoreStack??null]')).toEqual(['ok',null])
     expect(await page.evaluate('[discoveryCalls,discoveryHeld]')).toEqual([1,[true]])
     expect(await page.evaluate('[entropy,puts,signCalls]')).toEqual(before)
-    await page.evaluate('(async()=>{window.member=await extensionStartup.openMemberSession(sessionOptions);await member.join();await member.send("ordinary selected lease")})()')
-    expect(await page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))')).toContain('ordinary selected lease')
-    await page.evaluate('extensionStartup.close()')
+    await measureStartupStage(page, 'member open', () => page.evaluate('(async()=>{window.memberOpenStatus="pending";window.memberOpening=extensionStartup.openMemberSession(sessionOptions);const value=await memberOpening;window.member=value;window.memberOpenStatus="complete"})()'), priorLease)
+    await measureStartupStage(page, 'member join', () => page.evaluate('(async()=>{window.memberJoinStatus="pending";window.memberJoining=member.join();const value=await memberJoining;window.memberJoinStatus="complete"})()'), priorLease)
+    await measureStartupStage(page, 'member send', () => page.evaluate('(async()=>{window.memberSendStatus="pending";window.memberSending=member.send("ordinary selected lease");const value=await memberSending;window.memberSendStatus="complete"})()'), priorLease)
+    expect(await measureStartupStage(page, 'message read', () => page.evaluate('member.messages().then(messages=>messages.map(message=>message.text))'), priorLease)).toContain('ordinary selected lease')
+    await measureStartupStage(page, 'member close', () => page.evaluate('(async()=>{window.memberCloseStatus="pending";window.memberClosing=extensionStartup.close();await memberClosing;window.memberCloseStatus="complete"})()'), priorLease)
     expect(await page.evaluate('sockets.every(socket=>socket.readyState===3)')).toBe(true)
   })
 }
