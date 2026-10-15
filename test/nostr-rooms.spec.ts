@@ -318,6 +318,8 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
     await page.reload()
     await expect(page.locator('#previousAccount')).toContainText('disconnected')
     await page.locator('#join').click()
+    // The visitor choice is ignored while the account join is still failing.
+    await expect(page.locator('#status')).toContainText('Your Nostr account is disconnected')
     await expect(page.locator('#roomArea')).toBeHidden()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
     await page.locator('#joinVisitor').click()
@@ -670,6 +672,9 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
     await signIn(page, baseURL!)
     await page.locator('#openAppSettings').click()
     await page.locator('#signOut').click()
+    // Wait until signet-login has cleared its storage. Navigating before then
+    // can leave the account to be restored on the next load.
+    await expect(page.locator('#status')).toContainText('Signed out')
     await page.goto(link)
     await page.reload()
     await page.locator('#displayName').fill('Same familiar name')

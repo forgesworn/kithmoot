@@ -12,7 +12,7 @@ hold. Session coherence, signed proof, captured origin/app/account, secret
 scalars, bunker relays, pending handshake fields and value bounds use the same
 checks as the adapter. Stored proof integrity is checked at its signed time;
 this is not a fresh login or room membership. The current dependency and lockfile
-pin published `signet-login@0.18.2`; see [SDK provenance](ordinary-sdk-provenance.md).
+pin published `signet-login@0.19.1`; see [SDK provenance](ordinary-sdk-provenance.md).
 That release does not establish protected production startup.
 
 Pending preflight structurally validates every queue and both physical owners

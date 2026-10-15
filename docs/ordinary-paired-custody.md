@@ -49,6 +49,6 @@ storage hardware.
 The Fold-kit pin includes the optional persistent-invitation-evidence API.
 Earlier source tests used a reviewed local Signet candidate; those substitutions
 remain recorded in the external validation receipts. KithMoot now pins the
-published `signet-login@0.18.2` in its dependency and lockfile; see
+published `signet-login@0.19.1` in its dependency and lockfile; see
 [SDK provenance](ordinary-sdk-provenance.md). Complete protected consumer
 integration and release remain separate gates.

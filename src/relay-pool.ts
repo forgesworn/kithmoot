@@ -8,7 +8,7 @@ import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
 import { relayDials, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
-import { guardedWebSocket } from './guarded-websocket.js'
+import { guardedWebSocket, handshakeObservedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
 /** Extra policy chosen by a caller that owns the complete network route. */
@@ -64,6 +64,36 @@ export interface RelayHealth extends RelayConfig {
    *  it. Only what was observed, once per kind per connection setup; a read
    *  that timed out or was refused leaves this unchanged. */
   unreturned?: number[]
+  /** What this relay last said to a read, worst first across the pool's
+   *  subscriptions: one subscription's history coming back must not hide
+   *  another's being refused. Only a relay's own `EOSE` or `CLOSED` counts;
+   *  a timeout, a dropped socket or a local close leaves it unknown. */
+  readEvidence?: ReadEvidence
+}
+
+export type ReadEvidence = 'confirmed' | 'refused' | 'authentication-required'
+
+/** Worst read evidence first, so a merge can keep the one that matters. */
+export const READ_EVIDENCE_RANK: Record<ReadEvidence, number> = { refused: 0, 'authentication-required': 1, confirmed: 2 }
+
+/** The read evidence a relay's own `CLOSED` reason carries, by its NIP-01
+ *  prefix, or undefined when the close was not the relay answering: our own
+ *  close, a dropped socket, a dial held back. */
+export function closedReadEvidence(reason: string): ReadEvidence | undefined {
+  if (reason.startsWith('auth-required:')) return 'authentication-required'
+  // `error:` is the relay failing, not a decision about this reader.
+  return /^(blocked|restricted|rate-limited|invalid|unsupported):/.test(reason) ? 'refused' : undefined
+}
+
+/** A fixed description of a relay's `OK false`, by its NIP-01 prefix. The
+ *  relay's own words stay out of health, which a settings screen shows. */
+export function writeRefusal(reason: string): string {
+  if (reason.startsWith('auth-required:')) return 'Write refused: authentication required'
+  if (reason.startsWith('rate-limited:')) return 'Write refused: rate limited'
+  if (reason.startsWith('pow:')) return 'Write refused: proof of work required'
+  if (reason.startsWith('blocked:') || reason.startsWith('restricted:')) return 'Write refused: not accepted from this account or kind'
+  if (reason.startsWith('invalid:')) return 'Write refused as invalid'
+  return 'Write refused'
 }
 
 /** The most relays one pool connects to: a room's own relays (at most
@@ -93,12 +123,14 @@ export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[],
   })
 }
 
+type Binding = { stop: () => void; closed: boolean; readEvidence?: ReadEvidence }
+
 type Subscription = {
   filters: Filter[]
   onEvent: (event: Event, via?: string) => void
   onEose?: () => void
   seen: Set<string>
-  bindings: Map<string, { stop: () => void; closed: boolean }>
+  bindings: Map<string, Binding>
   eosed: Set<string>
   eoseSent: boolean
   deadline?: ReturnType<typeof setTimeout>
@@ -233,7 +265,8 @@ export class NostrRelayPool implements RelayTransport {
       for (const receipt of receipts) this.#dials.release(receipt)
     }
     const current = (url: string) => !this.#closed && generation === this.#generation && !this.#authError(url)
-    const base = this.options.websocketImplementation ?? globalThis.WebSocket
+    const configured = this.options.websocketImplementation && handshakeObservedWebSocket(this.options.websocketImplementation)
+    const base = configured ?? (globalThis.WebSocket && handshakeObservedWebSocket(globalThis.WebSocket))
     const websocketImplementation = this.#authentication.size
       ? authenticatedWebSocket(base, url => this.#authentication.get(url) ?? undefined, current, (url, reason) => {
           if (generation === this.#generation) {
@@ -241,7 +274,7 @@ export class NostrRelayPool implements RelayTransport {
             this.#mark(url, { state: 'disconnected', lastError: reason })
           }
         }, this.#authTimeout)
-      : this.options.websocketImplementation
+      : configured
     // `enablePing` stays off. In a browser `AbstractRelay` has no real ping
     // frame to send, so it falls back to `waitForDummyReq`: every 29s it
     // opens a throwaway `REQ` and, if no `EOSE` answers within 20s, closes
@@ -347,7 +380,10 @@ export class NostrRelayPool implements RelayTransport {
       const authentication = grant === null ? 'withdrawn' : grant
         ? this.#authFailures.has(relay.url) ? 'failed' : connected ? 'authenticated' : 'allowed'
         : undefined
-      return { ...previous, ...relay, state, authentication }
+      const readEvidence = [...this.#subscriptions].map(sub => sub.bindings.get(relay.url)?.readEvidence)
+        .filter((value): value is ReadEvidence => value !== undefined)
+        .sort((a, b) => READ_EVIDENCE_RANK[a] - READ_EVIDENCE_RANK[b])[0]
+      return { ...previous, ...relay, state, authentication, ...(readEvidence ? { readEvidence } : {}) }
     })
   }
 
@@ -527,7 +563,8 @@ export class NostrRelayPool implements RelayTransport {
           // socket that opened and then said nothing counts here.
           if (!timedOut) this.#answered(url)
           else if (!unreachable) this.#dialFailed(url)
-          this.#mark(url, { lastError: this.#authError(url) ?? (unreachable ? 'Connection failed' : timedOut ? 'Publish timed out' : 'Last publish failed or was rejected') })
+          this.#mark(url, { lastError: this.#authError(url) ?? (unreachable ? 'Connection failed' : timedOut ? 'Publish timed out'
+            : error instanceof Error ? writeRefusal(error.message) : 'Last publish failed or was rejected') })
         }
         if (!timedOut || Date.now() - start >= PUBLISH_RETRY_BUDGET_MS || generation !== this.#generation || this.#closed || this.#paused) throw error
         // A socket that swallowed the send without ever answering is worth
@@ -789,10 +826,14 @@ export class NostrRelayPool implements RelayTransport {
 
   #startRelay(sub: Subscription, url: string, since = Date.now()): void {
     if (this.#closed || this.#paused) return
-    sub.bindings.get(url)?.stop()
+    const previous = sub.bindings.get(url)
+    previous?.stop()
     const generation = this.#generation
-    const binding = { stop: () => {}, closed: false }
+    // What the relay last said stands until it answers this request.
+    const binding: Binding = { stop: () => {}, closed: false, readEvidence: previous?.readEvidence }
     sub.bindings.set(url, binding)
+    const requestedAt = Date.now()
+    let closedBy: string | undefined
     if (!this.#pool.listConnectionStatus().get(url)) {
       if (this.#dialable(url)) this.#mark(url, { state: 'connecting' })
       this.#attempted.set(url, Date.now())
@@ -827,6 +868,13 @@ export class NostrRelayPool implements RelayTransport {
       maxWait: SUBSCRIBE_EOSE_DEADLINE_MS,
       oneose: () => {
         clearTimeout(stall)
+        // nostr-tools calls this for the relay's own `EOSE`, for its own wait
+        // running out at `maxWait` after the `REQ`, and just before a close.
+        // Only an answer inside that wait, with no close heard after it, is
+        // the relay's: the `REQ` went out after `requestedAt`.
+        if (Date.now() - requestedAt < SUBSCRIBE_EOSE_DEADLINE_MS) {
+          queueMicrotask(() => { if (closedBy === undefined && active() && !this.#authError(url)) binding.readEvidence = 'confirmed' })
+        }
         if (!active() || this.#authError(url)) return
         sub.eosed.add(url)
         if (!sub.eoseSent && this.#relays.filter(relay => relay.read).every(relay => sub.eosed.has(relay.url))) {
@@ -845,7 +893,14 @@ export class NostrRelayPool implements RelayTransport {
         if (sub.seen.size > MAX_SEEN_PER_SUBSCRIPTION) sub.seen.delete(sub.seen.values().next().value!)
         sub.onEvent(event, url)
       },
-      onclose: () => { clearTimeout(stall); if (active()) binding.closed = true },
+      onclose: closes => {
+        clearTimeout(stall)
+        closedBy = closes[0]?.reason ?? ''
+        if (!active()) return
+        binding.closed = true
+        const evidence = closedReadEvidence(closedBy)
+        if (evidence) binding.readEvidence = evidence
+      },
     })
     binding.stop = () => { clearTimeout(stall); handle.close() }
   }

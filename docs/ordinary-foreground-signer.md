@@ -5,7 +5,7 @@ Signet session. It requires the reviewed SDK provider-boundary contract
 (`providerEffectBoundary === 1`), completed native browser and tab migration,
 and the complete authenticated paired-image composer. Passing an extra argument
 to an older SDK cannot establish this contract. KithMoot now pins the published
-`signet-login@0.18.2`, which contains this boundary. See [SDK provenance](ordinary-sdk-provenance.md). The protected
+`signet-login@0.19.1`, which contains this boundary. See [SDK provenance](ordinary-sdk-provenance.md). The protected
 foreground adapter remains unmounted in production.
 
 The adapter captures the source session, account, method, signed authentication
