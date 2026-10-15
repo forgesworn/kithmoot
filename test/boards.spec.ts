@@ -68,6 +68,13 @@ async function device(browser: Browser, base: string, offline = false): Promise<
   return {context, page, pubkey}
 }
 async function openBoards(page: Page): Promise<Frame> {
+  // Loading the module does not finish restoring the saved account. The
+  // sign-in button is also hidden while restore is pending, so it cannot
+  // establish the account this board journey requires. Settings is closed;
+  // inspect its sign-out control's state rather than ancestor visibility.
+  await expect(page.locator('html')).toHaveAttribute('data-ordinary-startup', 'ready')
+  await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
+  await expect(page.locator('#homeWork')).toHaveAttribute('aria-controls', 'boardsPanel')
   await page.locator('#homeWork').click()
   await expect(page.locator('#boardsPanel')).toBeVisible()
   await expect(page.locator('#boardsPanel iframe')).toBeVisible()
