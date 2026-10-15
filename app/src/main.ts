@@ -344,8 +344,10 @@ const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
 const OPENED_FROM_LINK = location.hash.length > 1 && (() => {
   try { return sessionStorage.getItem(ROOM_SWITCH_KEY) === null } catch { return true }
 })()
-/** The room that link opened, once the door has shown it. */
-let linkArrivalRoom: string | undefined
+/** Set once this page leaves the invitation it was opened with, by creating
+ *  or switching to another room. Not the room id: an invitation is often
+ *  shown at the door before admission says which room it is. */
+let linkArrivalOver = false
 
 /** This device's unsent messages, kept across a reload for ordinary chat,
  *  and sent as soon as a relay will take them. See pending-sends.ts. */
@@ -4401,8 +4403,7 @@ async function startNewRoom(): Promise<void> {
  *  computer the desktop app runs on, never inside the desktop app itself,
  *  and only for the room an invitation link opened. See open-in-app.ts. */
 function renderOpenInApp(): void {
-  if (OPENED_FROM_LINK && linkArrivalRoom === undefined) linkArrivalRoom = currentRoomId()
-  const invited = OPENED_FROM_LINK && linkArrivalRoom !== undefined && currentRoomId() === linkArrivalRoom
+  const invited = OPENED_FROM_LINK && !linkArrivalOver
   const platform = !invited || import.meta.env.VITE_DESKTOP === 'true' ? undefined : appPlatform(navigator.userAgent, navigator.maxTouchPoints)
   const appLink = platform ? appLinkFor(location.href) : undefined
   $('openInApp').hidden = appLink === undefined
@@ -13910,6 +13911,7 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   const identity = identityGeneration
   if (session) previousRoom = navigationRooms().find(room => room.roomId === currentRoomId())
   switchDestination = room
+  linkArrivalOver = true
   captureDraft()
   switchingRoom = true
   armStopOpening()
@@ -15760,6 +15762,7 @@ $('createRoomForm').addEventListener('submit', async event => {
   $('createError').hidden = true
   try {
     await startNewRoom()
+    linkArrivalOver = true
     setStatus('')
     showRoomUi()
     $('identity').scrollIntoView({ block: 'start' })

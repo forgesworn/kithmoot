@@ -116,7 +116,7 @@ async function openInvitation(link) {
   if (!win || win.isDestroyed()) { pendingInvitation = target; return }
   if (win.isMinimized()) win.restore()
   win.show(); win.focus()
-  if (callActive && !confirmClose('Leave the call and open the invitation?', 'The call on this device will end. Your other devices and everyone else stay connected.')) return
+  if (callActive && !confirmClose('Leave the call and open the invitation?', 'The call on this device will end. Your other devices and everyone else stay connected.', 'Leave call and open')) return
   const current = win.webContents.getURL()
   // A link that differs only after the # is a same-document change, which
   // the page does not watch for: reload so it arrives as a fresh visit.
@@ -128,9 +128,9 @@ async function openInvitation(link) {
 }
 const invitationIn = argv => argv.find(arg => invitationTarget(arg))
 
-function confirmClose(message, detail) {
+function confirmClose(message, detail, proceed = 'Close KithMoot') {
   return dialog.showMessageBoxSync(win, {
-    type: 'question', message, detail, buttons: ['Stay', 'Close KithMoot'], defaultId: 0, cancelId: 0,
+    type: 'question', message, detail, buttons: ['Stay', proceed], defaultId: 0, cancelId: 0,
   }) === 1
 }
 
@@ -326,7 +326,10 @@ async function createWindow() {
   win.webContents.on('will-attach-webview', event => event.preventDefault())
   attachContextMenu(win.webContents)
   win.webContents.on('will-prevent-unload', event => {
-    if (confirmClose('Close with unsent work?', 'Your current draft or unfinished work may be lost.')) event.preventDefault()
+    const leave = invitationRevert
+      ? confirmClose('Open the invitation with unsent work?', 'Your current draft or unfinished work may be lost.', 'Open invitation')
+      : confirmClose('Close with unsent work?', 'Your current draft or unfinished work may be lost.')
+    if (leave) event.preventDefault()
     else if (invitationRevert) void win.webContents.loadURL(invitationRevert).catch(() => {})
     invitationRevert = undefined
   })
