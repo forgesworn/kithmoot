@@ -1,10 +1,10 @@
 import { measureStartupStage, startupTimingEnabled } from './ordinary-startup-timing.js'
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './ordinary-browser-page-fixture.js'
 import { preparedRestart } from './ordinary-prepared-extension.setup.js'
 import { memberTransport } from './ordinary-prepared-extension.transport.js'
 
 // Capture the actual Linux/browser failure path without widening the existing
-// 30-second gate, adding retries, or substituting a diagnostic pass.
+// 30-second application gate, adding retries, or substituting a diagnostic pass.
 test.use({ trace: 'retain-on-failure' })
 
 async function extensionRestart(page: Page, keep = true, priorLease = false, sdkExpirySeconds?: number): Promise<void> {
