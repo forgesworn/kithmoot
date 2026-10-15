@@ -49,6 +49,8 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     await context.addInitScript(visitorSecret => {
       localStorage.setItem('kithmoot.participant', visitorSecret)
       localStorage.setItem('kithmoot.name', 'Typed Alice')
+      // This journey explicitly opts into remote address verification.
+      localStorage.setItem('kithmoot.nip05.verify', 'true')
     }, visitorSecret)
     const page = await context.newPage()
     await page.goto(link)
