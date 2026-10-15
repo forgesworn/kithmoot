@@ -91,6 +91,15 @@ cd "$repo_root"
 
 remote() { ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" "$@"; }
 
+# The commit being shipped, marked -dirty when tracked files differ from it,
+# so the next deploy can say exactly what the box was running.
+revision() {
+  local sha
+  sha="$(git rev-parse HEAD 2>/dev/null)" || { echo unknown; return; }
+  git diff --quiet HEAD -- 2>/dev/null || sha="$sha-dirty"
+  echo "$sha"
+}
+
 echo "==> building dist/"
 npm run build:lib
 [[ -s dist/src/node/cli.js ]] || { echo "keeper-deploy.sh: dist/src/node/cli.js missing after build:lib" >&2; exit 1; }
@@ -134,6 +143,8 @@ rsync -az --delete -e "ssh ${SSH_OPTS[*]}" --relative \
   ./deploy/README.md \
   ./docs/agents.md \
   "$DEPLOY_HOST:/opt/kithmoot-keeper/"
+# What the units are about to run, readable without sudo by the next deploy.
+remote "echo $(printf %q "$(revision)") > /opt/kithmoot-keeper/REVISION"
 
 # The name may carry a quote or a space; %q makes it one word for the remote
 # shell whatever it holds.
@@ -149,4 +160,4 @@ else
   remote "sudo env $install_env bash /opt/kithmoot-keeper/deploy/keeper-install.sh $install_args" </dev/null
 fi
 
-echo "==> keeper tree deployed to $DEPLOY_HOST"
+echo "==> keeper tree $(revision) deployed to $DEPLOY_HOST"

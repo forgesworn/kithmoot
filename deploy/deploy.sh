@@ -25,6 +25,8 @@ set -euo pipefail
 #   /var/www/kithmoot/
 #     releases/<ts>/            one deploy: site/ at the root, app/dist under j/
 #     current -> releases/<ts>  what Caddy's root points at
+#     revisions.log             one line per deploy: release, commit, time.
+#                               Outside releases/ so it is never served or pruned
 #     apk/                      outside the releases, so a rollback of the site
 #                               does not take the downloads with it
 #
@@ -97,6 +99,15 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 remote() { ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" "$@"; }
+
+# The commit being shipped, marked -dirty when tracked files differ from it,
+# so the next deploy can say exactly what the box was running.
+revision() {
+  local sha
+  sha="$(git rev-parse HEAD 2>/dev/null)" || { echo unknown; return; }
+  git diff --quiet HEAD -- 2>/dev/null || sha="$sha-dirty"
+  echo "$sha"
+}
 
 # --- check ------------------------------------------------------------------
 
@@ -279,5 +290,6 @@ done
 REMOTE
 fi
 
-echo "==> deployed release $release"
+remote "printf '%s %s %s\\n' $(printf %q "$release") $(printf %q "$(revision)") $(printf %q "$(date -u +%Y-%m-%dT%H:%M:%SZ)") >> $(printf %q "$DEPLOY_ROOT/revisions.log")"
+echo "==> deployed release $release from $(revision)"
 echo "    https://kithmoot.app/  and  https://kithmoot.forgesworn.dev/j"
