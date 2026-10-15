@@ -12,7 +12,7 @@ const ROOT_ENTRY = '/j/build/ordinary-private-existing-root.browser-entry.js'
 const probes = `window.effects={provider:0,socket:0,storageWrite:0,put:0,entropy:0,key:0};window.probeNonces=0;window.curveInitializationProbes=0;window.curveProbeActive=false;window.privateEntropyCalls=[];
 const nativeProbeRandom=crypto.getRandomValues.bind(crypto);window.__probeRandom=value=>{probeNonces++;return nativeProbeRandom(value)};
 window.__curveProbeRandom=(random,length)=>{curveInitializationProbes++;curveProbeActive=true;try{return random(length)}finally{curveProbeActive=false}};
-Object.defineProperty(window,'nostr',{get(){effects.provider++;throw Error('provider forbidden')}});
+Object.defineProperty(window,'nostr',{get(){effects.provider++;if(window.providerFixture)return window.providerFixture.current;throw Error('provider forbidden')}});
 window.WebSocket=class{constructor(){effects.socket++;throw Error('socket forbidden')}};
 for(const name of ['setItem','removeItem','clear'])Storage.prototype[name]=()=>{effects.storageWrite++;throw Error('Storage write forbidden')};
 for(const name of ['put','add','delete','clear'])IDBObjectStore.prototype[name]=()=>{effects.put++;throw Error('native write forbidden')};
@@ -26,10 +26,41 @@ test.beforeAll(async () => {
     outdir: '.private-root-test-build', chunkNames: 'chunks/[name]-[hash]', write: false, metafile: true,
     plugins: [{ name: 'observe-private-root-failure-only', setup(builder) {
       builder.onLoad({ filter: /ordinary-private-existing-root\.ts$/ }, async input => {
-        const source = await readFile(input.path, 'utf8'), marker = '}, async () => {'
+        const source = await readFile(input.path, 'utf8'), marker = '}, async () => {\n      this.#stop()'
         if (source.split(marker).length !== 2) throw Error('Private root observation fixture drift')
         return { loader: 'ts', contents: source.replace(marker,
-          '}, async (error) => { (globalThis as any).__rootFailure=error?.stack;') }
+          '}, async (error) => { (globalThis as any).__rootFailure=error?.stack; this.#stop()').replace(
+            '}, async () => { this.#stop(); await this.close() })',
+            '}, async (error) => { (globalThis as any).__providerFailure=error?.stack; this.#stop(); await this.close() })').replace(
+            'this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot)',
+            `const provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot)
+             if ((globalThis as any).providerFixture?.cutAssignment === 'before') window.dispatchEvent(new PageTransitionEvent('pagehide'))
+             this.#provider = provider
+             if ((globalThis as any).providerFixture?.cutAssignment === 'after') window.dispatchEvent(new PageTransitionEvent('pagehide'))`).replace(
+            '#pagehide = () => { void this.close().catch(() => {}) }',
+            '#pagehide = () => { void this.close().catch(error => { (globalThis as any).__rootCloseFailure=error?.message }) }') }
+      })
+      builder.onLoad({ filter: /ordinary-state-owner\.ts$/ }, async input => {
+        const source = await readFile(input.path, 'utf8'), marker = 'raw = await sdk; check()'
+        if (source.split(marker).length !== 2) throw Error('Private provider SDK close fixture drift')
+        // Wrap only this checkpoint's already-created actual SDK signer. Its
+        // real close still runs; explicit fault fixtures delay/reject its join.
+        return { loader: 'ts', contents: source.replace(marker, `raw = await sdk;
+          const fixture = (globalThis as any).providerFixture
+          if (fixture?.closeMode) {
+            const actual = raw
+            raw = new Proxy(actual, { get(target, key) {
+              if (key !== 'close') return Reflect.get(target, key, target)
+              return async () => {
+                fixture.closeCalls = (fixture.closeCalls ?? 0) + 1
+                await actual.close()
+                if (fixture.closeMode === 'pending') await new Promise<void>(yes => { fixture.closeRelease = yes })
+                fixture.closeTerminal = true
+                if (fixture.closeMode === 'reject') throw Error('Explicit SDK close fixture rejection')
+              }
+            } })
+          }
+          check()`) }
       })
       builder.onLoad({ filter: /ordinary-state-clients\.ts$/ }, async input => {
         const source = await readFile(input.path, 'utf8'), marker = 'crypto.getRandomValues(new Uint8Array(32))'
@@ -62,6 +93,10 @@ test.beforeAll(async () => {
   }
   visit(entry)
   expect([...staticInputs].some(name => /ordinary-state-owner|signet-login|nostr-tools|ordinary-foreground-signer/.test(name))).toBe(false)
+  modules.set('/j/mutate-native.js', (await build({
+    entryPoints: ['test/ordinary-private-provider-mutation.browser-entry.ts'], bundle: true,
+    format: 'esm', platform: 'browser', target: 'es2022', write: false,
+  })).outputFiles[0]!.text)
   fixture = (await build({ entryPoints: ['test/ordinary-bootstrap.browser-entry.ts'], bundle: true,
     format: 'iife', globalName: 'Ordinary', platform: 'browser', target: 'es2022', write: false })).outputFiles[0]!.text
   pureFence = (await build({ entryPoints: ['test/ordinary-protected-worker.browser-entry.ts'], bundle: true,
@@ -286,11 +321,14 @@ test('the lexical native bridge refuses forged and proxy roots without invoking 
   expect(await page.evaluate(() => {
     const w = window as any
     let getters = 0, refused = 0
-    for (const root of [{}, Object.freeze({}), new Proxy({}, { get() { getters++; throw Error('caller getter') } })]) {
-      try { w.Ordinary.beginOrdinaryPrivateExistingCapture(root) } catch { refused++ }
+    for (const name of ['beginOrdinaryPrivateExistingCapture', 'beginOrdinaryPrivateExistingProvider']) {
+      if (typeof w.Ordinary[name] !== 'function') throw Error('Missing fixed native bridge: ' + name)
+      for (const root of [{}, Object.freeze({}), new Proxy({}, { get() { getters++; throw Error('caller getter') } })]) {
+        try { w.Ordinary[name](root) } catch { refused++ }
+      }
     }
     return { getters, refused }
-  })).toEqual({ getters: 0, refused: 3 })
+  })).toEqual({ getters: 0, refused: 6 })
   expect(await page.evaluate(() => indexedDB.databases())).toEqual([])
 })
 
@@ -394,3 +432,188 @@ for (const [target, outcome] of [['presence', 'success'], ['capture', 'success']
     expect(await page.evaluate('effects')).toEqual(none)
   })
 }
+
+async function providerFixture(page: Page, account: string, gated = false): Promise<void> {
+  await page.addInitScript(({ account, gated }) => {
+    const w = window as any
+    const fixture: any = { account, gated, started: false, calls: 0, signs: 0, mutations: 0, release: undefined,
+      nativeRandom: crypto.getRandomValues.bind(crypto), nativePut: IDBObjectStore.prototype.put }
+    const provider = {
+      getPublicKey: async () => {
+        fixture.calls++; fixture.started = true
+        if (fixture.gated) await new Promise<void>(yes => { fixture.release = yes })
+        return fixture.account
+      },
+      signEvent: async () => { fixture.signs++; throw Error('Signing is outside provider discovery') },
+    }
+    fixture.current = provider; fixture.provider = provider; w.providerFixture = fixture
+  }, { account, gated })
+}
+async function startProvider(page: Page): Promise<void> {
+  await page.evaluate(`window.providerDone=false;window.providerOpening=import('${ROOT_ENTRY}').then(module=>module.restoreOrdinaryPrivateExistingProviderRoot()).then(()=>{window.providerDone=true});undefined`)
+}
+async function providerState(page: Page, state: 'held' | 'provider-held'): Promise<void> {
+  await page.waitForFunction(state => document.documentElement.dataset.ordinaryProtectedStartup === state, state)
+  const result = await page.evaluate('({state:document.documentElement.dataset.ordinaryProtectedStartup,error:window.__providerFailure,effects})')
+  expect(result, JSON.stringify(result)).toMatchObject({ state, effects: { ...none, provider: expect.any(Number) } })
+}
+for (const keep of [false, true]) test(`private root restores only its actual NIP07 provider account, keep=${keep}`, async ({ page }) => {
+  const href = await seed(page, keep), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account)
+  await enter(page, href, 'captured-held')
+  await startProvider(page); await providerState(page, 'provider-held')
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([1, 0])
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+  expect(await lockAvailable(page, 'write')).toBe(true)
+  const nonces = await page.evaluate('probeNonces')
+  await page.evaluate(`import('${ROOT_ENTRY}').then(module=>module.restoreOrdinaryPrivateExistingProviderRoot())`)
+  expect(await page.evaluate('[providerFixture.calls,probeNonces]')).toEqual([1, nonces])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+})
+for (const fault of ['account', 'missing-provider'] as const) test(`provider restoration refuses ${fault} without signing or writes`, async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, fault === 'account' ? 'f'.repeat(64) : account)
+  await enter(page, href, 'captured-held')
+  if (fault === 'missing-provider') await page.evaluate('providerFixture.current=undefined')
+  await startProvider(page); await providerState(page, 'held'); await page.evaluate('providerOpening')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([fault === 'account' ? 1 : 0, 0])
+})
+for (const field of ['getPublicKey', 'signEvent'] as const) test(`provider ${field} metadata revocation holds before actual discovery`, async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account)
+  await enter(page, href, 'captured-held')
+  await page.evaluate(field => {
+    const f = (window as any).providerFixture, original = f.provider[field]
+    Object.defineProperty(f.provider, field, { get() {
+      if (!f.cut) { f.cut = true; window.dispatchEvent(new PageTransitionEvent('pagehide')) }
+      return original
+    } })
+  }, field)
+  await startProvider(page); await providerState(page, 'held'); await page.evaluate('providerOpening')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0, 0])
+})
+test('pagehide joins an actual pending SDK account discovery before releasing MIGRATION', async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account, true)
+  await enter(page, href, 'captured-held'); await startProvider(page)
+  await page.waitForFunction('providerFixture.started')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await providerState(page, 'held')
+  expect(await page.evaluate('providerDone')).toBe(false)
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+  await page.evaluate('providerFixture.release();undefined'); await page.evaluate('providerOpening')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerDone,providerFixture.calls,providerFixture.signs]')).toEqual([true, 1, 0])
+})
+
+for (const timing of ['before-discovery', 'pending-discovery'] as const) test(`authenticated native revision change ${timing} refuses stale provider handoff`, async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account, timing === 'pending-discovery')
+  await enter(page, href, 'captured-held')
+  if (timing === 'pending-discovery') { await startProvider(page); await page.waitForFunction('providerFixture.started') }
+  // The explicit fixture seals a valid new frame through the actual codec;
+  // application write/entropy probes stay installed throughout.
+  await page.evaluate("import('/j/mutate-native.js').then(module=>module.advanceBrowserRevision())")
+  expect(await page.evaluate('providerFixture.mutations')).toBe(1)
+  if (timing === 'before-discovery') await startProvider(page)
+  else await page.evaluate('providerFixture.release();undefined')
+  await providerState(page, 'held'); await page.evaluate('providerOpening')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([timing === 'before-discovery' ? 0 : 1, 0])
+})
+test('provider replacement during pending discovery cannot adopt the old result', async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account, true)
+  await enter(page, href, 'captured-held'); await startProvider(page)
+  await page.waitForFunction('providerFixture.started')
+  await page.evaluate('providerFixture.current={...providerFixture.provider};providerFixture.release();undefined')
+  await providerState(page, 'held'); await page.evaluate('providerOpening')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([1, 0])
+})
+test('a failed provider witness cannot be reused after the account is corrected', async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, 'f'.repeat(64))
+  await enter(page, href, 'captured-held'); await startProvider(page)
+  await providerState(page, 'held'); await page.evaluate('providerOpening')
+  const probes = await page.evaluate('probeNonces')
+  await page.evaluate(account => { (window as any).providerFixture.account = account }, account)
+  await page.evaluate(`import('${ROOT_ENTRY}').then(module=>module.restoreOrdinaryPrivateExistingProviderRoot())`)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,probeNonces]')).toEqual([1, 0, probes])
+  expect(await lockAvailable(page, 'migration')).toBe(true)
+})
+test('expiry during actual pending discovery discards the late account and releases after it joins', async ({ page }) => {
+  await page.clock.install()
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account, true)
+  await enter(page, href, 'captured-held'); await startProvider(page)
+  await page.waitForFunction('providerFixture.started')
+  await page.clock.fastForward(1_201_000)
+  await providerState(page, 'held')
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  await page.evaluate('providerFixture.release();undefined')
+  await providerState(page, 'held'); await page.evaluate('providerOpening')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([1, 0])
+})
+
+for (const mode of ['success', 'pending', 'reject'] as const) test(`actual SDK ${mode} close joins owners before MIGRATION release`, async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account)
+  await enter(page, href, 'captured-held')
+  await page.evaluate(mode => { (window as any).providerFixture.closeMode = mode }, mode)
+  await startProvider(page); await providerState(page, 'provider-held')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await providerState(page, 'held'); await page.waitForFunction('providerFixture.closeCalls===1')
+  if (mode === 'pending') {
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+    expect(await page.evaluate('providerFixture.closeTerminal')).toBeUndefined()
+    await page.evaluate('providerFixture.closeRelease();undefined')
+  }
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+  expect(await page.evaluate('[providerFixture.closeCalls,providerFixture.closeTerminal,providerFixture.calls,providerFixture.signs]')).toEqual([1, true, 1, 0])
+  if (mode === 'reject') await expect.poll(() => page.evaluate('window.__rootCloseFailure')).toBe('Explicit SDK close fixture rejection')
+})
+for (const timing of ['before', 'after'] as const) test(`pagehide ${timing} the provider resource assignment boundary joins late ownership`, async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account)
+  await enter(page, href, 'captured-held')
+  await page.evaluate(timing => { (window as any).providerFixture.cutAssignment = timing }, timing)
+  await startProvider(page); await providerState(page, 'held'); await page.evaluate('providerOpening')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0, 0])
+})
+test('held provider expires without a new discovery or signing effect', async ({ page }) => {
+  await page.clock.install()
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account)
+  await enter(page, href, 'captured-held'); await startProvider(page); await providerState(page, 'provider-held')
+  await page.clock.fastForward(1_201_000); await providerState(page, 'held')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+  await page.evaluate(`import('${ROOT_ENTRY}').then(module=>module.restoreOrdinaryPrivateExistingProviderRoot())`)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([1, 0])
+})
+for (const mutation of ['provider', 'native'] as const) test(`held ${mutation} mutation cannot turn cached discovery into a fresh handoff`, async ({ page }) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account)
+  await enter(page, href, 'captured-held'); await startProvider(page); await providerState(page, 'provider-held')
+  if (mutation === 'provider') await page.evaluate('providerFixture.current={...providerFixture.provider}')
+  else await page.evaluate("import('/j/mutate-native.js').then(module=>module.advanceBrowserRevision())")
+  const probes = await page.evaluate('probeNonces')
+  // Discovery is a cached historical checkpoint, not a current-state consumer.
+  // Repeating it performs no handoff; future private consumption must re-read.
+  await page.evaluate(`import('${ROOT_ENTRY}').then(module=>module.restoreOrdinaryPrivateExistingProviderRoot())`)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,probeNonces]')).toEqual([1, 0, probes])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
