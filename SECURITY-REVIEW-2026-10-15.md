@@ -292,15 +292,81 @@ deserves the argv warning its neighbours already have.
 
 ## Follow-up (same day)
 
-Findings 1 and 2 were fixed immediately after this review, in the commits
-that landed it:
+All three findings were addressed immediately after this review, in the
+commits that landed it:
 
 - **Finding 1:** `@modelcontextprotocol/sdk` 1.30.0 → 1.32.1 (the exact pin
   in `packages/context-tools` had been what held the floor) plus transitive
   bumps of `fast-uri`, `proxy-addr`, `ip-address`, `hono`, `express`,
   `express-rate-limit` and `ajv` within their ranges. `npm audit --omit=dev`
   now reports 0 vulnerabilities; full suite (303 files, 4,230 tests) green.
-  The CI gate recommendation stands as the remaining action.
+  The recommended gate landed with it: `npm audit --omit=dev` is now a
+  required step of the CI `test` job, so the zero-finding state is enforced
+  rather than remembered.
 - **Finding 2:** `KITHMOOT_TURN_CREDENTIAL` is now accepted and preferred,
   and using `--turn-credential` emits the same argv-exposure warning
   `--nsec` gives.
+- **Finding 3:** automatic NIP-05 verification is now **opt-in, default
+  off**, rather than automatic with an off-switch. `ProfileBook` holds a
+  claimed address unverified until the person turns on "Verify Nostr
+  addresses" in profile settings (which then checks every claim already
+  held, and can be switched back off with in-flight checks aborted and late
+  answers ignored). The honest settings copy names the cost: the address's
+  domain — chosen by the person being looked up — learns the visitor's IP,
+  timing and rough browser. Behaviour under the (library-level, not yet
+  user-exposed) anonymous/Tor profile should remain "never automatic":
+  when that profile reaches the app, it must force this preference off
+  regardless of the stored value — noted as a requirement in
+  `app/src/profiles.ts`. Unit tests pin both the default-off gate and the
+  toggle-on/off lifecycle.
+
+## Adjacent review: forgesworn/fold-kit at `eaa3495`
+
+The scope note's deferred item was also taken in this pass: the
+security-critical modules of the pinned fold-kit were reviewed in the
+installed distribution (`node_modules/@forgesworn/fold-kit@0.12.0`,
+`git+ssh` resolved at `eaa3495127e55242cf8a09e4c57963c570d68e8d`):
+`epoch.js`, `member-epoch.js`, `seal.js`, `credential.js`,
+`live-persistent-admission.js`, `mls-admission.js`, and
+`invitation.js`'s delegation-chain and grant-decoding paths.
+
+No reportable findings. Highlights worth recording:
+
+- **Member epoch catch-up** is trustless end to end: every intermediate
+  epoch secret is proven by the next rekey decrypting under it (NIP-44 MAC),
+  and the last epoch requires the authority's in-body commitment; a chain
+  that removes the requester is refused; the requester subscribes to
+  authority-signed rekeys first and refuses any grant that ends below that
+  floor, so a removed member cannot pin anyone to an epoch it can still
+  read. Desks never answer removed or (post-first-removal) unknown
+  participants, grants travel under one-time signers sealed to the asking
+  device, and amplification is damped by jitter plus a once-per-device
+  stand-down rule.
+- **Epoch requests** prove admission by an HMAC under a key derived from
+  the epoch-0 room key, domain-separated (request-key info), compared in
+  constant time, and bound to device/room/authority/timestamp; the request
+  body is itself NIP-44-sealed to the authority. Legacy (proof-less)
+  participants are an explicit configured set, not a fallback.
+- **Rekeys** move the room forward by exactly one epoch, refuse a
+  scheduled rekey that removes or closes, encrypt the body under the epoch
+  being left, and carry an optional commitment that member-serving code
+  requires for the chain's head when it can check it.
+- **Credentials/seal keys:** the credential verifier fails closed on a
+  non-finite expiration (with a comment naming the fail-open trap it
+  avoids), person credentials are capped at 30 days measured from the
+  signed `created_at` with a mint-time restamp error for remote signers
+  (#205), and seal-target selection refuses the healing-breaking fallback
+  of sealing to a copied device key when the credential names a seal key.
+- **MLS admission v4** is the strictest parser in either repository:
+  canonical-JSON with a hand-rolled depth limit (≤8), fixed-size padded
+  envelopes verified both directions, exact deadline arithmetic, credentials
+  doubly capped (from `created_at` and from `now`), capability handles via
+  frozen null-prototype objects in a WeakMap with revalidation at retained
+  use, and every caller secret copied and wiped on exit paths.
+
+One informational note: `encodeMemberEpochGrant`'s one-time grant signer is
+not zeroed after signing, unlike the `finally { …fill(0) }` discipline used
+for the revocation wrap's ephemeral key and throughout this repository.
+Impact is negligible — a grant is trusted only for its authority-signed
+contents, so the signer's disclosure re-signs nothing of value — recording
+it only for consistency of hygiene.
