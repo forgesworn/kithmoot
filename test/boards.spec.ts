@@ -284,8 +284,12 @@ test('a room keeps its board discoverable after popping out, closing the window 
     await expect(frame.getByRole('link', {name: 'Open me to add a checklist', exact: true})).toHaveCount(0)
     await page.locator('#boardsClose').click()
     await page.reload()
-    if (await page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true}).isVisible()) await page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true}).click()
+    const openRoom = page.locator('#roomList').getByRole('button', {name: 'Open Board workshop', exact: true})
     const join = page.locator('#join')
+    const room = page.locator('#roomArea')
+    await expect.poll(async () => await openRoom.isVisible() || await join.isVisible() || await room.isVisible()).toBe(true)
+    if (await openRoom.isVisible()) await openRoom.click()
+    await expect.poll(async () => await join.isVisible() || await room.isVisible()).toBe(true)
     if (await join.isVisible()) {await page.locator('#displayName').fill('Ada'); await join.click()}
     await expect(page.locator('#roomBoards').getByRole('button', {name: 'Workshop board', exact: true})).toBeVisible()
     await page.locator('#roomBoards').getByRole('button', {name: 'Workshop board', exact: true}).click()
