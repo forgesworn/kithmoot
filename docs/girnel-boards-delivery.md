@@ -41,9 +41,10 @@ Android Boards remains outside this delivery.
 
 The embedded card's **Assign to agent** action uses the linked chat's existing
 admission and canonical task journal. Card text and completion criteria are
-prefilled in the card panel; selecting an agent and assigning it creates the
+prefilled under **Task details**; selecting an agent and assigning it creates the
 room assignment without copying it into a separate room-task form. A sole
-agent and its sole advertised action are selected automatically. The card keeps
+agent and its sole advertised action are selected automatically. The default panel
+shows the agent picker and Assign, with sharing details available to expand. The card keeps
 the agent as an assignee and shows the originating task's progress, questions
 and result. Existing room tasks remain available for review.
 

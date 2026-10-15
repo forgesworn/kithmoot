@@ -15162,7 +15162,7 @@ boardsPanel = new BoardsPanel(document, {
     // real history, never create a second writer for an embedded view.
     const deadline = Date.now() + 15_000
     while (current()) {
-      try {return borrowBoardAgentRoom(selected, assignmentPanel.logFor(selected), current)}
+      try {return borrowBoardAgentRoom(selected, assignmentPanel.logFor(selected), current, currentRoomLabel())}
       catch (error) {if (Date.now() >= deadline) throw error}
       await new Promise(resolve => setTimeout(resolve, 100))
     }

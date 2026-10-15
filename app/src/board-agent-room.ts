@@ -3,7 +3,7 @@ import type { RoomSession } from '../../src/session.js'
 
 /** A board borrows the chat's existing writer and installation. Closing a
  * card view releases its listeners, never the person's room or task journal. */
-export function borrowBoardAgentRoom(session: RoomSession, source: AssignmentLog, current: () => boolean) {
+export function borrowBoardAgentRoom(session: RoomSession, source: AssignmentLog, current: () => boolean, label?: string) {
   let closed = false
   let review: (() => boolean) | undefined
   const listeners = new Set<() => void>()
@@ -50,7 +50,7 @@ export function borrowBoardAgentRoom(session: RoomSession, source: AssignmentLog
     leave: close,
     session: {assignments: async () => {check(); return log}},
   }
-  return {room, log, close, isCurrent: valid,
+  return {label, room, log, close, isCurrent: valid,
     async submitReviewed<T>(guard: () => boolean, submit: () => Promise<T>): Promise<T> {
       check(); if (review) throw new Error('Another card request is still being shared')
       review = guard
