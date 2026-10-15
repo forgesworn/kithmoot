@@ -1,0 +1,116 @@
+name: Build reviewed web candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact reviewed source commit (40 lowercase hex characters)
+        required: true
+        type: string
+  # A change to this producer builds the frozen PR BASE, never unreviewed app
+  # changes on its head. Retargeting the producer PR to main builds that main.
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    paths: ['.github/workflows/web-candidate.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || inputs.source_sha }}
+    steps:
+      - name: Require an immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected a complete source commit'; exit 1; }
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build and freeze public files
+        env:
+          TMPDIR: ${{ github.workspace }}/.web-candidate-build-tmp
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          mkdir "$TMPDIR"
+          npm ci
+          npm run build
+          git diff --exit-code
+          python3 <<'PY'
+          import hashlib, json, os, pathlib, shutil, stat, subprocess
+          root = pathlib.Path.cwd()
+          source = os.environ['SOURCE_SHA']
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          if commit != source:
+              raise SystemExit('Source changed during the build')
+          destination = root / 'release' / 'web-candidates' / source
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          destination.mkdir()  # Refuse replacement of a previously frozen candidate.
+          public = destination / 'public'
+          public.mkdir()
+          files = {}
+          def copy_file(original, relative):
+              if original.is_symlink() or not stat.S_ISREG(original.stat().st_mode):
+                  raise SystemExit('Only regular public files may enter the candidate')
+              if relative in files:
+                  raise SystemExit('Duplicate public path')
+              target = public / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(original, target)
+              data = target.read_bytes()
+              files[relative] = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+          tracked = subprocess.check_output(['git', 'ls-files', '-z', '--', 'site']).split(b'\0')
+          for raw in tracked:
+              if raw:
+                  path = pathlib.PurePosixPath(os.fsdecode(raw))
+                  copy_file(root / path, path.relative_to('site').as_posix())
+          app = root / 'app' / 'dist'
+          for path in sorted(app.rglob('*')):
+              if path.is_symlink():
+                  raise SystemExit('Symlink in generated application')
+              if path.is_file():
+                  copy_file(path, 'j/' + path.relative_to(app).as_posix())
+          for required in ('index.html', 'style.css', 'j/index.html', 'j/sw.js', 'j/manifest.webmanifest'):
+              if required not in files or not files[required]['bytes']:
+                  raise SystemExit('Incomplete public candidate: ' + required)
+          manifest = {
+              'format': 'kithmoot.web-candidate.v1',
+              'sourceCommit': source,
+              'sourceTree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'runId': os.environ['GITHUB_RUN_ID'],
+              'runAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'workflowRef': os.environ['GITHUB_WORKFLOW_REF'],
+              'workflowCommit': os.environ['GITHUB_WORKFLOW_SHA'],
+              'files': dict(sorted(files.items())),
+              'scope': 'Tracked public website plus generated PWA. Installer/APK payloads are not included. No deployment or activation.',
+          }
+          (destination / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          print('Frozen', len(files), 'public files for source', source)
+          PY
+          tar -czf "release/web-candidates/$SOURCE_SHA.tar.gz" -C "release/web-candidates/$SOURCE_SHA" .
+          sha256sum "release/web-candidates/$SOURCE_SHA.tar.gz" > "release/web-candidates/$SOURCE_SHA.tar.gz.sha256"
+      - name: Keep the immutable candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kithmoot-web-${{ env.SOURCE_SHA }}
+          path: |
+            release/web-candidates/${{ env.SOURCE_SHA }}.tar.gz
+            release/web-candidates/${{ env.SOURCE_SHA }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove owned build scratch
+        if: always()
+        shell: bash
+        run: rm -rf -- .web-candidate-build-tmp
