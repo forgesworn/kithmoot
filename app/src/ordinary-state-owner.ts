@@ -24,9 +24,9 @@ import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOr
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
 
-export const ORDINARY_DATABASE = 'kithmoot-ordinary-state-v1'
+import { ORDINARY_DATABASE, ORDINARY_WRITE_LOCK as WRITE_LOCK } from './ordinary-state-layout.js'
+export { ORDINARY_DATABASE } from './ordinary-state-layout.js'
 const OWNER_STORE = 'owners'
-const WRITE_LOCK = ORDINARY_DATABASE + ':write'
 export const MAX_ORDINARY_TAB_OWNERS = 64
 const TAB_PURPOSE = /^tab:[0-9a-f]{64}$/
 export interface OrdinaryScope {

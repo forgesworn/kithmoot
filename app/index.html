@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB">
+<html lang="en-GB" data-ordinary-startup="checking">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -11,10 +11,14 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>KithMoot</title>
     <link rel="stylesheet" href="/src/style.css" />
-    <script type="module" src="/src/text-size.ts"></script>
-    <script type="module" src="/src/call-folds.ts"></script>
+    <style>
+      :root[data-ordinary-startup]:not([data-ordinary-startup="ready"]) body > :not(#ordinaryStartupNotice):not(noscript) { display: none !important; }
+      #ordinaryStartupNotice { max-width: 40rem; margin: 4rem auto; padding: 1rem; }
+    </style>
   </head>
   <body>
+    <div id="ordinaryStartupNotice" role="status" aria-live="polite">Checking saved room state…</div>
+    <noscript><p>KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
     <aside id="updateNotice" hidden role="status" aria-atomic="true">
       <div><strong>Update ready</strong><span>Update when you are ready. Your room will reopen.</span></div>
       <button id="updateApp" type="button">Update now</button>
@@ -1613,6 +1617,6 @@
       </details>
       <div id="assignmentCards"></div>
     </dialog>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/ordinary-startup-entry.ts"></script>
   </body>
 </html>

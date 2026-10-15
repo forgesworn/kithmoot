@@ -1,7 +1,7 @@
 import { OrdinaryStateHold, type OrdinaryMigration } from './ordinary-state-codec.js'
 import { OrdinaryStateOwner } from './ordinary-state-owner.js'
+import { ORDINARY_MIGRATION_LOCK as MIGRATION_LOCK } from './ordinary-state-layout.js'
 
-const MIGRATION_LOCK = 'kithmoot-ordinary-state-v1:migration'
 function hold(): never { throw new OrdinaryStateHold() }
 /** Enumerate actual Storage, never infer emptiness from a parsing failure. */
 function snapshot(storage: Storage, selected: (name: string) => boolean): Map<string, string> {
