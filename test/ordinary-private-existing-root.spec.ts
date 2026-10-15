@@ -46,7 +46,8 @@ test.beforeAll(async () => {
             'roots.set(this, { root: this, claimed: false })',
             `roots.set(this, { root: this, claimed: false })
              // Instrument this private stage only; no production action or public API is added.
-             ;(globalThis as any).__invokePrivateControlForTest = () => (globalThis as any).__privateControlForTest(this)`) }
+             ;(globalThis as any).__invokePrivateControlForTest = () => (globalThis as any).__privateControlForTest(this)
+             ;(globalThis as any).__invokePrivateForegroundForTest = () => (globalThis as any).__privateForegroundForTest(this)`) }
       })
       builder.onLoad({ filter: /ordinary-state-owner\.ts$/ }, async input => {
         const source = await readFile(input.path, 'utf8'), marker = 'raw = await sdk; check()'
@@ -69,13 +70,34 @@ test.beforeAll(async () => {
               fixture.closeTerminal = true
               if (fixture.closeMode === 'reject') throw Error('Explicit SDK close fixture rejection')
             } })
+            if (fixture.sdkDoubleStart?.family === 'sign') {
+              const sign = actual.signEvent
+              raw.signEvent = async (template, boundary) => {
+                const result = await Reflect.apply(sign, actual, [template, boundary])
+                if (template.kind !== 21236) {
+                  if (fixture.sdkDoubleStart.timing === 'microtask') await Promise.resolve()
+                  await boundary!.start(() => { fixture.duplicateCallbacks = (fixture.duplicateCallbacks ?? 0) + 1; return actual.signEvent(template) })
+                }
+                return result
+              }
+            }
+            if (fixture.sdkDoubleStart?.family === 'crypto') {
+              const family = actual.nip44!
+              raw.nip44 = Object.freeze({ ...family, encrypt: async (peer, text, boundary) => {
+                const result = await family.encrypt(peer, text, boundary)
+                if (fixture.sdkDoubleStart.timing === 'microtask') await Promise.resolve()
+                await boundary!.start(() => { fixture.duplicateCallbacks = (fixture.duplicateCallbacks ?? 0) + 1; return family.encrypt(peer, text) })
+                return result
+              } })
+            }
           }
           if (fixture) fixture.sdk = raw
           check()`).replace(
           'beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)',
           `beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
            ;(globalThis as any).__privateOwnerPrototypeForTest = this.prototype
-           ;(globalThis as any).__privateControlForTest = (root: OrdinaryPrivateExistingRoot) => this.#authenticatePrivateExistingProvider(root)`).replace(
+           ;(globalThis as any).__privateControlForTest = (root: OrdinaryPrivateExistingRoot) => this.#authenticatePrivateExistingProvider(root)
+           ;(globalThis as any).__privateForegroundForTest = (root: OrdinaryPrivateExistingRoot) => this.#beginPrivateExistingForeground(root)`).replace(
           'challenge = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))',
           'challenge = bytesToHex((globalThis as any).__controlRandom(new Uint8Array(32)))').replace(
           'await context.step(() => {\n              check(); if (controlMode',
@@ -92,7 +114,34 @@ test.beforeAll(async () => {
              if (fixture.pending === name) await new Promise<void>(yes => { fixture.release = yes })
              fixture.terminal.push(name)
              if (fixture.reject === name) throw Error('Explicit ' + name + ' native owner close failure')
-           }`) }
+           }`).replace('return work(browser, tab, custody)',
+          `const previous = (globalThis as any).__controlDecision
+           const previousForeground = (globalThis as any).__foregroundDecision
+           ;(globalThis as any).__controlDecision = true
+           ;(globalThis as any).__foregroundDecision = true
+           try { return work(browser, tab, custody) }
+           finally { (globalThis as any).__controlDecision = previous; (globalThis as any).__foregroundDecision = previousForeground }`) }
+      })
+      builder.onLoad({ filter: /ordinary-foreground-signer\.ts$/ }, async input => {
+        const source = await readFile(input.path, 'utf8')
+        return { loader: 'ts', contents: source.replace(
+          'const binding = takeOrdinaryPrivateForegroundClaim(claim)',
+          'const binding = takeOrdinaryPrivateForegroundClaim(claim); (globalThis as any).__seenPrivateForegroundClaim = claim').replace(
+          'static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding) }',
+          `static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding)
+           ;(globalThis as any).__privateForegroundClassForTest = this
+           ;(globalThis as any).__openPrivateForegroundClaimForTest = openOrdinaryPrivateForegroundFromOwnerClaim }`).replace(
+          'Object.freeze(actual)\n      })',
+          `Object.freeze(actual)
+           ;(globalThis as any).__privateForegroundProbe = Object.freeze({
+             sign: (event: EventTemplate) => actual.#signEvent(event),
+             encrypt: (peer: string, text: string) => actual.nip44!.encrypt(peer, text),
+             signWithConsumer: (event: EventTemplate, validate: () => unknown) => actual.#signEvent(event, undefined, { live: () => true, validate }),
+             metadata: () => [Object.isFrozen(actual), Object.hasOwn(actual, 'signEvent'), actual.session.authEvent.kind],
+           })
+      })`).replace('state = new OrdinaryForegroundSigner(options, captured, scopes[0], scopes[1])',
+          `if ((globalThis as any).providerFixture?.constructorFailure) throw (globalThis as any).providerFixture.constructorFailure
+           state = new OrdinaryForegroundSigner(options, captured, scopes[0], scopes[1])`) }
       })
       builder.onLoad({ filter: /ordinary-state-clients\.ts$/ }, async input => {
         const source = await readFile(input.path, 'utf8'), marker = 'crypto.getRandomValues(new Uint8Array(32))'
@@ -465,8 +514,8 @@ for (const [target, outcome] of [['presence', 'success'], ['capture', 'success']
   })
 }
 
-async function providerFixture(page: Page, account: string, gated = false): Promise<void> {
-  await page.addInitScript(({ account, gated }) => {
+async function providerFixture(page: Page, account: string, gated = false, withCrypto = false): Promise<void> {
+  await page.addInitScript(({ account, gated, withCrypto }) => {
     const w = window as any
     const fixture: any = { account, gated, started: false, calls: 0, signs: 0, mutations: 0, release: undefined, controlNonces: 0,
       nativeRandom: crypto.getRandomValues.bind(crypto), nativePut: IDBObjectStore.prototype.put }
@@ -479,8 +528,15 @@ async function providerFixture(page: Page, account: string, gated = false): Prom
       },
       signEvent: async (event: any) => {
         fixture.signs++
+        if (fixture.foregroundExpected) {
+          fixture.foregroundStarts = (fixture.foregroundStarts ?? 0) + 1
+          fixture.foregroundGuarded = !!w.__foregroundDecision
+          if (fixture.foregroundGated) await new Promise<void>(yes => { fixture.releaseForeground = yes })
+          if (fixture.foregroundFailure) throw fixture.foregroundFailure
+        }
         if (!fixture.controlMode) throw Error('Signing is outside provider discovery')
         fixture.signingStarted = true; fixture.statement = structuredClone(event)
+        if (fixture.controlFailure) throw fixture.controlFailure
         if (fixture.controlGated) await new Promise<void>(yes => { fixture.releaseControl = yes })
         if (fixture.controlMode === 'transient') throw Error('Request failed: explicit transient provider fixture')
         const captured = structuredClone(event)
@@ -507,8 +563,12 @@ async function providerFixture(page: Page, account: string, gated = false): Prom
         })
       },
     }
+    if (withCrypto) (provider as any).nip44 = {
+      encrypt: async (_peer: string, text: string) => { fixture.crypts = (fixture.crypts ?? 0) + 1; return 'encrypted:' + text },
+      decrypt: async (_peer: string, text: string) => { fixture.crypts = (fixture.crypts ?? 0) + 1; return text.slice('encrypted:'.length) },
+    }
     fixture.current = provider; fixture.provider = provider; w.providerFixture = fixture
-  }, { account, gated })
+  }, { account, gated, withCrypto })
 }
 async function startProvider(page: Page): Promise<void> {
   await page.evaluate(`window.providerDone=false;window.providerOpening=import('${ROOT_ENTRY}').then(module=>module.restoreOrdinaryPrivateExistingProviderRoot()).then(()=>{window.providerDone=true});undefined`)
@@ -683,16 +743,18 @@ for (const mutation of ['provider', 'native'] as const) test(`held ${mutation} m
 // Explicit native-stage instrumentation, not a production authentication UI or
 // member-authority test. The real private driver/action and subsequent member
 // construction remain part of the unpublished vertical under construction.
-async function prepareControlStage(page: Page, keep = true, proxyProvider = false): Promise<void> {
+async function prepareControlStage(page: Page, keep = true, proxyProvider = false,
+  duplicated?: { family: 'sign' | 'crypto'; timing: 'sequential' | 'microtask' }): Promise<void> {
   const href = await seed(page, keep), account = await page.evaluate<string>('account'),
     secret = Uint8Array.from(await page.evaluate<number[]>('Array.from(participantSk)'))
   await page.exposeFunction('__controlSign', (event: Parameters<typeof finalizeEvent>[0]) =>
     JSON.parse(JSON.stringify(finalizeEvent(event, secret))))
-  await install(page); await providerFixture(page, account)
+  await install(page); await providerFixture(page, account, false, duplicated?.family === 'crypto')
   await enter(page, href, 'captured-held')
-  await page.evaluate(proxyProvider => {
+  await page.evaluate(({ proxyProvider, duplicated }) => {
     const w = window as any, fixture = w.providerFixture
     fixture.closeMode = 'success'
+    fixture.sdkDoubleStart = duplicated
     if (proxyProvider) {
       const inspect = () => {
         if (!fixture.controlMode) return
@@ -707,7 +769,7 @@ async function prepareControlStage(page: Page, keep = true, proxyProvider = fals
       })
       fixture.provider = fixture.current
     }
-  }, proxyProvider)
+  }, { proxyProvider, duplicated })
   await startProvider(page); await providerState(page, 'provider-held')
   await page.evaluate(() => {
     const w = window as any
@@ -904,3 +966,189 @@ for (const rejected of ['browser', 'tab'] as const) {
     expect(await page.evaluate('effects')).toEqual(none)
   })
 }
+
+// Construction-stage observation only. The production trusted button and the
+// bootstrap/carrier/member/epoch graph remain unmounted and unfinished.
+async function startPrivateForeground(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as any
+    w.privateForegroundDone = false
+    w.privateForegroundOpening = w.__invokePrivateForegroundForTest().then((result: unknown) => {
+      w.privateForegroundDone = true; w.privateForegroundOutcome = 'ready'; w.privateForegroundReturnedVoid = result === undefined
+    }, (error: Error) => { w.privateForegroundDone = true; w.privateForegroundOutcome = error.name; w.privateForegroundError = error.message })
+  })
+  await page.waitForFunction('privateForegroundDone')
+}
+async function signPrivateForeground(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as any
+    w.foregroundSignDone = false; w.providerFixture.foregroundExpected = true
+    w.foregroundSigning = w.__privateForegroundProbe.sign({ kind: 1, created_at: Math.floor(Date.now() / 1000),
+      content: 'private foreground message', tags: [['t', 'guarded']] }).then((event: any) => {
+      w.foregroundSignDone = true; w.foregroundSignOutcome = 'signed'
+      w.foregroundSignResult = [event.kind, event.content, Object.isFrozen(event), Object.isFrozen(event.tags[0])]
+    }, (error: Error) => { w.foregroundSignDone = true; w.foregroundSignOutcome = error.name })
+  })
+}
+test('private foreground claim rejects forgeries and replay without caller getters', async ({ page }) => {
+  await prepareControlStage(page)
+  expect(await page.evaluate(() => {
+    const w = window as any; let refused = 0, getters = 0
+    for (const fake of [{}, Object.freeze({}), new Proxy({}, { get() { getters++; throw Error('Forged claim getter') } })]) {
+      try { w.__openPrivateForegroundClaimForTest(fake) } catch { refused++ }
+    }
+    return { refused, getters }
+  })).toEqual({ refused: 3, getters: 0 })
+  expect(await page.evaluate('providerFixture.signs')).toBe(0)
+  await startPrivateForeground(page)
+  expect(await page.evaluate('({outcome:privateForegroundOutcome,error:window.privateForegroundError,returned:privateForegroundReturnedVoid})')).toEqual({ outcome: 'ready', error: undefined, returned: true })
+  expect(await page.evaluate(() => {
+    const w = window as any
+    try { w.__openPrivateForegroundClaimForTest(w.__seenPrivateForegroundClaim); return 'replayed' }
+    catch (error) { return (error as Error).name }
+  })).toBe('OrdinaryStateHold')
+  await page.evaluate('__invokePrivateForegroundForTest().catch(()=>{});undefined')
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,providerFixture.controlNonces]')).toEqual([1, 1, 1])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+test('private foreground uses the actual pinned SDK and bypasses replaced public methods', async ({ page }) => {
+  await prepareControlStage(page)
+  await page.evaluate(() => {
+    const w = window as any
+    w.publicForegroundDispatches = 0
+    const intercepted = () => { w.publicForegroundDispatches++; throw Error('Private foreground reached a public method') }
+    const owner = w.__privateOwnerPrototypeForTest.constructor, foreground = w.__privateForegroundClassForTest
+    for (const name of ['readPairMigrated', 'joinPairLifetime']) owner[name] = intercepted
+    for (const name of ['capture', 'close']) owner.prototype[name] = intercepted
+    for (const name of ['open', 'isNativeSigner', 'nativeCurrent', 'nativeDeadline', 'borrowNativeSignEvent']) foreground[name] = intercepted
+    for (const name of ['signEvent', 'revoke', 'close']) foreground.prototype[name] = intercepted
+  })
+  await startPrivateForeground(page)
+  expect(await page.evaluate('({outcome:privateForegroundOutcome,error:window.privateForegroundError})')).toEqual({ outcome: 'ready', error: undefined })
+  expect(await page.evaluate('__privateForegroundProbe.metadata()')).toEqual([true, true, 21236])
+  await signPrivateForeground(page); await page.evaluate('foregroundSigning')
+  expect(await page.evaluate('[foregroundSignOutcome,foregroundSignResult,providerFixture.foregroundGuarded]')).toEqual(['signed', [1, 'private foreground message', true, true], true])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[publicForegroundDispatches,providerFixture.calls,providerFixture.signs,providerFixture.controlNonces,effects.put,effects.socket]')).toEqual([0, 1, 2, 1, 0, 0])
+})
+for (const changed of ['sdk', 'native'] as const) test(`private foreground refuses ${changed} replacement before provider signing`, async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  if (changed === 'sdk') await page.evaluate('providerFixture.sdk.signEvent=async()=>{providerFixture.replacedSigns=(providerFixture.replacedSigns??0)+1;throw Error("Replacement signer")};undefined')
+  else await page.evaluate("import('/j/mutate-native.js').then(module=>module.advanceBrowserRevision())")
+  await signPrivateForeground(page); await page.evaluate('foregroundSigning')
+  expect(await page.evaluate('[foregroundSignOutcome,providerFixture.signs,providerFixture.replacedSigns??0]')).toEqual(['OrdinaryStateHold', 1, 0])
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+test('private foreground confines provider and raw-proof Proxy reflection to its native callback', async ({ page }) => {
+  await prepareControlStage(page, true, true); await startPrivateForeground(page)
+  expect(await page.evaluate('({outcome:privateForegroundOutcome,error:window.privateForegroundError})')).toEqual({ outcome: 'ready', error: undefined })
+  await page.evaluate('providerFixture.proofProxy=true')
+  await signPrivateForeground(page); await page.evaluate('foregroundSigning')
+  expect(await page.evaluate('foregroundSignOutcome')).toBe('signed')
+  expect(await page.evaluate('[providerFixture.providerOutside??0,providerFixture.proofOutside??0,providerFixture.foregroundGuarded]')).toEqual([0, 0, true])
+  expect(await page.evaluate('providerFixture.proofInspections')).toBeGreaterThan(0)
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+for (const phase of ['control', 'foreground'] as const) test(`private ${phase} rejection cannot expose hostile error metadata to SDK retry classification`, async ({ page }) => {
+  await prepareControlStage(page)
+  if (phase === 'foreground') {
+    await startPrivateForeground(page)
+    expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  }
+  await page.evaluate(phase => {
+    const fixture = (window as any).providerFixture
+    fixture.errorInspections = 0
+    const rejection = new Error()
+    Object.defineProperty(rejection, 'message', { get() { fixture.errorInspections++; return 'Request failed: hostile provider error' } })
+    if (phase === 'control') fixture.controlFailure = rejection
+    else fixture.foregroundFailure = rejection
+  }, phase)
+  if (phase === 'control') { await startPrivateForeground(page); expect(await page.evaluate('privateForegroundOutcome')).toBe('OrdinaryStateHold') }
+  else { await signPrivateForeground(page); await page.evaluate('foregroundSigning'); expect(await page.evaluate('foregroundSignOutcome')).toBe('OrdinaryStateHold') }
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.errorInspections,providerFixture.signs]')).toEqual([0, phase === 'control' ? 1 : 2])
+})
+test('private foreground joins an unabortable wallet then the SDK close before releasing locks', async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  await page.evaluate('providerFixture.foregroundGated=true;providerFixture.closeMode="pending"')
+  await signPrivateForeground(page); await page.waitForFunction('providerFixture.foregroundStarts===1')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await providerState(page, 'held')
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  expect(await page.evaluate('[foregroundSignDone,providerFixture.closeCalls??0]')).toEqual([false, 0])
+  await page.evaluate('providerFixture.releaseForeground();undefined'); await page.evaluate('foregroundSigning')
+  await page.waitForFunction('providerFixture.closeCalls===1')
+  expect(await page.evaluate('foregroundSignOutcome')).toBe('OrdinaryStateHold')
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+  await page.evaluate('providerFixture.closeRelease();undefined')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+  expect(await page.evaluate('[providerFixture.closeCalls,providerFixture.closeTerminal,providerFixture.signs,effects.put,effects.socket]')).toEqual([1, true, 2, 0, 0])
+})
+
+for (const phase of ['control', 'constructor', 'foreground'] as const) test(`private foreground owner replaces a hostile ${phase} rejection with an owned refusal`, async ({ page }) => {
+  await prepareControlStage(page)
+  if (phase === 'foreground') { await startPrivateForeground(page); expect(await page.evaluate('privateForegroundOutcome')).toBe('ready') }
+  await page.evaluate(phase => {
+    const fixture = (window as any).providerFixture
+    fixture.rejectionTraps = 0
+    const trap = () => { fixture.rejectionTraps++; throw Error('Hostile rejection was inspected') }
+    const rejection = new Proxy({}, { get: trap, getPrototypeOf: trap, ownKeys: trap, getOwnPropertyDescriptor: trap })
+    if (phase === 'control') fixture.controlFailure = rejection
+    else if (phase === 'constructor') fixture.constructorFailure = rejection
+    else fixture.foregroundFailure = rejection
+  }, phase)
+  if (phase === 'foreground') { await signPrivateForeground(page); await page.evaluate('foregroundSigning'); expect(await page.evaluate('foregroundSignOutcome')).toBe('OrdinaryStateHold') }
+  else { await startPrivateForeground(page); expect(await page.evaluate('privateForegroundOutcome')).toBe('OrdinaryStateHold') }
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.rejectionTraps,providerFixture.signs]')).toEqual([0, phase === 'foreground' ? 2 : 1])
+})
+for (const family of ['sign', 'crypto'] as const) for (const timing of ['sequential', 'microtask'] as const) {
+  test(`private foreground permanently refuses a second ${timing} SDK ${family} effect`, async ({ page }) => {
+    await prepareControlStage(page, true, false, { family, timing }); await startPrivateForeground(page)
+    expect(await page.evaluate('({outcome:privateForegroundOutcome,error:window.privateForegroundError})')).toEqual({ outcome: 'ready', error: undefined })
+    if (family === 'sign') {
+      await signPrivateForeground(page); await page.evaluate('foregroundSigning')
+      expect(await page.evaluate('foregroundSignOutcome')).toBe('OrdinaryStateHold')
+    } else {
+      expect(await page.evaluate(async () => {
+        const w = window as any
+        try { await w.__privateForegroundProbe.encrypt(w.providerFixture.account, 'private'); return 'encrypted' }
+        catch (error) { return (error as Error).name }
+      })).toBe('OrdinaryStateHold')
+    }
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+    expect(await page.evaluate('[providerFixture.duplicateCallbacks??0,providerFixture.signs,providerFixture.crypts??0]')).toEqual([0, family === 'sign' ? 2 : 1, family === 'crypto' ? 1 : 0])
+  })
+}
+for (const disposition of ['rejected', 'pending'] as const) test(`private foreground sinks and joins an invalid ${disposition} asynchronous consumer`, async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  await page.evaluate(disposition => {
+    const w = window as any
+    w.validationUnhandled = 0
+    window.addEventListener('unhandledrejection', () => { w.validationUnhandled++ })
+    w.invalidValidation = disposition === 'rejected' ? undefined : new Promise<void>(yes => { w.releaseInvalidValidation = yes })
+    w.invalidConsumerDone = false
+    w.invalidConsumerSigning = w.__privateForegroundProbe.signWithConsumer({ kind: 1, created_at: Math.floor(Date.now() / 1000), content: 'refused', tags: [] },
+      () => disposition === 'rejected' ? Promise.reject(new Error('Invalid asynchronous native restriction')) : w.invalidValidation)
+      .then(() => { w.invalidConsumerDone = true; w.invalidConsumerOutcome = 'signed' },
+        (error: Error) => { w.invalidConsumerDone = true; w.invalidConsumerOutcome = error.name })
+  }, disposition)
+  await page.evaluate('invalidConsumerSigning')
+  expect(await page.evaluate('[invalidConsumerOutcome,providerFixture.signs]')).toEqual(['OrdinaryStateHold', 1])
+  if (disposition === 'pending') {
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await page.evaluate('providerFixture.closeCalls??0')).toBe(0)
+    await page.evaluate('releaseInvalidValidation();undefined')
+  }
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  await page.evaluate(() => new Promise<void>(yes => setTimeout(yes, 0)))
+  expect(await page.evaluate('validationUnhandled')).toBe(0)
+})

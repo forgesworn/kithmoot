@@ -1,4 +1,5 @@
-import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
+import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
+  type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
 import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
@@ -76,11 +77,48 @@ interface PrivateExistingProvider {
   // explicit member action consumes this entry before using them; discovery
   // and restore do not invoke fresh account authentication.
   readonly freshControl: (start?: () => void) => Promise<void>
+  readonly constructForeground: (construct: () => void) => Promise<void>
+  readonly assertForegroundProvider: () => void
   readonly trackControl: <T>(pending: Promise<T>) => Promise<T>
   readonly stop: () => void
   consumed: boolean
+  foregroundStarted: boolean
+  foregroundClaimed: boolean
+  foreground: OrdinaryPrivateForegroundResource | undefined
 }
 const privateExistingProviders = new WeakMap<object, PrivateExistingProvider>()
+declare const foregroundClaimBrand: unique symbol
+export interface OrdinaryPrivateForegroundClaim { readonly [foregroundClaimBrand]: true }
+/** This binding is unpacked only by the fixed foreground module. No caller
+ * receives its root, owners, source or closed native operations. */
+interface PrivateForegroundBinding {
+  readonly browser: OrdinaryStateOwner
+  readonly tab: OrdinaryStateOwner
+  readonly source: Readonly<SignetSession>
+  readonly generation: number
+  readonly live: () => boolean
+  readonly stop: () => void
+  readonly assertClientsCurrent: () => Promise<void>
+  readonly captureForegroundScopes: () => Promise<readonly [OrdinaryScope, OrdinaryScope]>
+  readonly constructForeground: (construct: () => void) => Promise<void>
+  readonly readForeground: <T>(live: () => boolean,
+    work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T) => Promise<T>
+  readonly joinForeground: <T>(pending: Promise<T>) => Promise<T>
+  readonly assertForegroundProvider: () => void
+}
+const privateForegroundClaims = new WeakMap<object, Readonly<{
+  provider: PrivateExistingProvider; binding: PrivateForegroundBinding
+}>>()
+/** Fixed component-internal take. A claim never leaves the owner's direct
+ * call into the foreground module; consume it before reflection or an await. */
+export function takeOrdinaryPrivateForegroundClaim(claim: OrdinaryPrivateForegroundClaim): PrivateForegroundBinding {
+  const value = privateForegroundClaims.get(claim)
+  if (!value) hold()
+  privateForegroundClaims.delete(claim)
+  if (!value.provider.foregroundClaimed) hold()
+  value.provider.controlLive()
+  return value.binding
+}
 let beginPrivateExistingProvider!: (root: OrdinaryPrivateExistingRoot) => OrdinaryPrivateExistingCaptureResource
 /** Fixed private-root consumer only; no account, owner or provider input. */
 export const beginOrdinaryPrivateExistingProvider = (root: OrdinaryPrivateExistingRoot): OrdinaryPrivateExistingCaptureResource => beginPrivateExistingProvider(root)
@@ -454,7 +492,11 @@ export class OrdinaryStateOwner {
    * lifetime joins borrowed provider/deferred work after revoking storage.
    * An operation must never await the close which is joining that same work. */
   static joinPairLifetime<T>(browser: OrdinaryStateOwner, tab: OrdinaryStateOwner, operation: Promise<T>, revoke?: () => void): Promise<T> {
-    if (!(browser instanceof OrdinaryStateOwner) || !(tab instanceof OrdinaryStateOwner) || browser === tab ||
+    return OrdinaryStateOwner.#joinPairLifetime(browser, tab, operation, revoke)
+  }
+  static #joinPairLifetime<T>(browser: OrdinaryStateOwner, tab: OrdinaryStateOwner, operation: Promise<T>, revoke?: () => void): Promise<T> {
+    if (typeof browser !== 'object' || browser === null || !(#work in browser) ||
+        typeof tab !== 'object' || tab === null || !(#work in tab) || browser === tab ||
         browser.purpose !== 'browser' || !TAB_PURPOSE.test(tab.purpose) || !(operation instanceof Promise)) hold()
     if (revoke !== undefined && typeof revoke !== 'function') hold()
     browser.#track(operation); tab.#track(operation)
@@ -755,6 +797,7 @@ export class OrdinaryStateOwner {
     let closeSource: (() => Promise<void>) | undefined
     let expiryTimer: ReturnType<typeof setTimeout> | undefined
     let provider: NonNullable<Window['nostr']> | undefined, fields: readonly unknown[] | undefined
+    let retainedProvider: PrivateExistingProvider | undefined, foregroundConstructionStarted = false
     let controlMode = false
     let sdkCurrent: (() => boolean) | undefined
     // Descriptor reflection can itself invoke Proxy traps. During explicit
@@ -808,6 +851,7 @@ export class OrdinaryStateOwner {
       if (stopped) return
       stopped = true; if (expiryTimer !== undefined) clearTimeout(expiryTimer)
       privateExistingProviders.delete(root); context?.abort()
+      retainedProvider?.foreground?.stop()
       binding.revoke(); browser.#revoke(); tab.#revoke()
     }
     const cancel = { stop }; browser.#resources.add(cancel); tab.#resources.add(cancel)
@@ -930,18 +974,33 @@ export class OrdinaryStateOwner {
           if (expectedSdk[4] !== 1 || typeof sdkClose !== 'function') hold()
           closeSource = () => sdkClose.call(sdkSigner)
           sdkCurrent = () => source?.signer === sdkSigner && sdkFields().every((value, index) => value === expectedSdk[index])
-          privateExistingProviders.set(root, { capture: captured, source,
+          retainedProvider = { capture: captured, source,
             beginControl: () => { controlMode = true; nativeCheck() },
             controlLive: nativeCheck,
             freshControl: async start => {
               // Wallet waits and all reflective provider/proof work are kept
               // out of the native reader until its final authenticated step.
               nativeCheck()
+              if (retainedProvider?.foregroundClaimed) hold()
               await navigator.locks.request(WRITE_LOCK, async () => {
+                if (retainedProvider?.foregroundClaimed) hold()
                 await clients(); await fresh(start); nativeCheck()
               })
               nativeCheck()
-            }, trackControl, stop, consumed: false })
+            }, constructForeground: async construct => {
+              if (foregroundConstructionStarted || !retainedProvider?.foregroundClaimed) hold()
+              foregroundConstructionStarted = true
+              await navigator.locks.request(WRITE_LOCK, async () => {
+                await clients()
+                await fresh(() => { construct(); nativeCheck() })
+                // Constructor reflection is followed by another complete read.
+                await fresh(); nativeCheck()
+              })
+              nativeCheck()
+            }, assertForegroundProvider: () => {
+              check(); if (!sdkCurrent || !sdkCurrent()) hold()
+            }, trackControl, stop, consumed: false, foregroundStarted: false, foregroundClaimed: false, foreground: undefined }
+          privateExistingProviders.set(root, retainedProvider)
           raw = undefined
         } finally {
           if (sdk) await Promise.allSettled([sdk]); if (providerPending) await Promise.allSettled([providerPending])
@@ -964,7 +1023,10 @@ export class OrdinaryStateOwner {
         // Any later explicit authentication/member work must join before the
         // borrowed raw SDK is closed, even when that work refused or rejected.
         while (controlWork.size) await Promise.allSettled([...controlWork])
-        const results = await Promise.allSettled([closeSource?.()]); source = undefined; closeSource = undefined
+        // A foreground may have been assigned after revocation while its
+        // construction was joining. Always settle it before the borrowed SDK.
+        const results = await Promise.allSettled([retainedProvider?.foreground?.close()])
+        results.push(...await Promise.allSettled([closeSource?.()])); source = undefined; closeSource = undefined
         browser.#resources.delete(cancel); tab.#resources.delete(cancel)
         results.push(...await Promise.allSettled([browser.#close(), tab.#close()]))
         const failed = results.find(result => result.status === 'rejected')
@@ -1031,7 +1093,7 @@ export class OrdinaryStateOwner {
                 phase = 'complete'
               }
               return result // Every SDK boundary retains its actual result identity.
-            } catch (error) { phase = 'failed'; provider.stop(); throw error }
+            } catch { phase = 'failed'; provider.stop(); throw new OrdinaryStateHold() }
             finally { if (actual) await Promise.allSettled([actual]) }
           }))
         },
@@ -1078,6 +1140,87 @@ export class OrdinaryStateOwner {
       } catch (error) { phase = 'failed'; provider.stop(); throw error }
     }).catch(error => { phase = 'failed'; provider.stop(); throw error })
     return provider.trackControl(pending)
+  }
+  /** Internal part of the unfinished member driver. No proof, signer, owner,
+   * foreground instance or claim is returned to the document controller. */
+  static #beginPrivateExistingForeground(root: OrdinaryPrivateExistingRoot): Promise<void> {
+    const provider = privateExistingProviders.get(root)
+    if (!provider || provider.foregroundStarted || provider.consumed) return Promise.reject(new OrdinaryStateHold())
+    provider.foregroundStarted = true
+    // Authentication spends the provider synchronously before the first await.
+    const authentication = OrdinaryStateOwner.#authenticatePrivateExistingProvider(root)
+    return provider.trackControl(Promise.resolve().then(async () => {
+      try {
+        await authentication // The detached fresh proof remains within this owner.
+        provider.controlLive()
+        const { capture, source } = provider
+        let scopes: readonly [OrdinaryScope, OrdinaryScope] | undefined, scopeCaptureStarted = false
+        let sdkExpiresAt: number | null = null
+        const live = () => {
+          try {
+            provider.controlLive()
+            return sdkExpiresAt === null || Date.now() < sdkExpiresAt
+          } catch { return false }
+        }
+        const binding: PrivateForegroundBinding = Object.freeze({
+          browser: capture.browser, tab: capture.tab, source, generation: capture.binding.generation,
+          live, stop: provider.stop, assertClientsCurrent: capture.binding.assertClientsCurrent,
+          captureForegroundScopes: async () => {
+            if (scopeCaptureStarted) hold()
+            scopeCaptureStarted = true
+            const browserScope = await capture.browser.#capture('@ordinary-signet', live)
+            const tabScope = await capture.tab.#capture('@ordinary-signet', live)
+            if (!live()) hold()
+            scopes = Object.freeze([browserScope, tabScope] as const)
+            return scopes
+          },
+          constructForeground: provider.constructForeground,
+          readForeground: <T>(selected: () => boolean,
+            work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T) => {
+            if (!scopes) return Promise.reject(new OrdinaryStateHold())
+            const current = () => live() && selected() === true && live()
+            return OrdinaryStateOwner.#readPairMigrated({
+              browser: { owner: capture.browser, scope: scopes[0] },
+              tab: { owner: capture.tab, scope: scopes[1] }, live: current,
+              work: (browser, tab, _bn, _tn, custody) => {
+                // This construction stage still owns the exact predecessor.
+                // A later acknowledged member epoch must replace this binding
+                // through the fixed adoption path before renewal can extend it.
+                const native = pairCustody.get(custody)
+                if (native?.kind !== 'read' || !native.rows ||
+                    native.rows.some((row, index) => rowDigest(row) !== capture.rows[index])) hold()
+                return work(browser, tab, custody)
+              },
+            })
+          },
+          joinForeground: <T>(pending: Promise<T>) => OrdinaryStateOwner.#joinPairLifetime(capture.browser, capture.tab, pending),
+          assertForegroundProvider: provider.assertForegroundProvider,
+        })
+        let opening: Promise<OrdinaryPrivateForegroundResource> | undefined
+        await provider.freshControl(() => {
+          if (provider.foregroundClaimed || privateExistingProviders.get(root) !== provider) hold()
+          const expiry = Object.getOwnPropertyDescriptor(source, 'expiresAt')
+          sdkExpiresAt = expiry === undefined ? null : expiry.value
+          if (sdkExpiresAt !== null && (!Number.isSafeInteger(sdkExpiresAt) || Date.now() >= sdkExpiresAt)) hold()
+          provider.foregroundClaimed = true // Spend the predecessor control seam.
+          const claim = Object.freeze({}) as OrdinaryPrivateForegroundClaim
+          privateForegroundClaims.set(claim, Object.freeze({ provider, binding }))
+          // The fixed ESM wrapper takes the token synchronously, without an
+          // unlocked handoff or a mutable public class method in between.
+          opening = openOrdinaryPrivateForegroundFromOwnerClaim(claim)
+          provider.trackControl(opening); void opening.catch(() => {})
+        })
+        if (!opening) hold()
+        provider.foreground = await opening // Own even a late assignment.
+        provider.controlLive()
+      } catch {
+        provider.stop()
+        // Join this component only. Joining the provider/root here would join
+        // the very driver whose rejection their close is waiting to settle.
+        await Promise.allSettled([provider.foreground?.close()])
+        throw new OrdinaryStateHold()
+      }
+    }))
   }
   /** @internal A one-use witness is consumed solely by the captured private
    * startup factory. It grants no ordinary read or arbitrary phase writer. */
@@ -3211,7 +3354,8 @@ export class OrdinaryStateOwner {
       this.#generation = image.generation
     }).finally(() => { records.clear(); manifest?.sources.clear() }))
   }
-  capture(name: string, live: () => boolean): Promise<OrdinaryScope> {
+  capture(name: string, live: () => boolean): Promise<OrdinaryScope> { return this.#capture(name, live) }
+  #capture(name: string, live: () => boolean): Promise<OrdinaryScope> {
     return this.#track(this.#locked(live, async () => {
       if (typeof name !== 'string' || !name.length || name.length > 512 || this.#generation === undefined) hold()
       const current = await this.#snapshot(live)
@@ -3258,6 +3402,9 @@ export class OrdinaryStateOwner {
   /** Coherent authenticated browser/tab read. Final semantic bindings must be
    * checked inside the synchronous callback before any result can escape. */
   static readPairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
+    return OrdinaryStateOwner.#readPairMigrated(input)
+  }
+  static #readPairMigrated<T>(input: OrdinaryPairMutation<T>): Promise<T> {
     const browser = input.browser.owner, tab = input.tab.owner
     const browserScope = { ...input.browser.scope }, tabScope = { ...input.tab.scope }
     const live = input.live, work = input.work

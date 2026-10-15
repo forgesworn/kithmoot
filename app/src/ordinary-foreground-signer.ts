@@ -9,6 +9,20 @@ import { ORDINARY_SIGNET_KEYS as keys } from './ordinary-signet-snapshot.js'
 import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ordinaryPreparedRenewalCustodyFor, type OrdinaryPreparedRenewalCustody } from './ordinary-state-owner.js'
+import { takeOrdinaryPrivateForegroundClaim, type OrdinaryPrivateForegroundClaim } from './ordinary-state-owner.js'
+
+type PrivateForegroundBinding = ReturnType<typeof takeOrdinaryPrivateForegroundClaim>
+export interface OrdinaryPrivateForegroundResource {
+  stop(): void
+  close(): Promise<void>
+}
+let openPrivateForeground!: (binding: PrivateForegroundBinding) => Promise<OrdinaryPrivateForegroundResource>
+/** Only the owner calls this fixed edge. Consume the opaque component claim
+ * synchronously; no owner, signer or foreground object returns to its caller. */
+export function openOrdinaryPrivateForegroundFromOwnerClaim(claim: OrdinaryPrivateForegroundClaim): Promise<OrdinaryPrivateForegroundResource> {
+  const binding = takeOrdinaryPrivateForegroundClaim(claim)
+  return openPrivateForeground(binding)
+}
 
 const HEX = /^[0-9a-f]{64}$/
 const SESSION_KEYS = ['pubkey', 'method', 'authEvent', 'bunkerUri', 'bunkerClientSk', 'expiresAt', 'displayName'] as const
@@ -129,6 +143,7 @@ interface Options {
  * This does not initialise login/connections, guard internal transport frames
  * or expose NIP-46 management. Protected startup must mount it explicitly. */
 export class OrdinaryForegroundSigner implements SignetSigner {
+  static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding) }
   /** Private-field provenance, including refusal of prototype-only forgeries. */
   static isNativeSigner(input:unknown):input is OrdinaryForegroundSigner {
     return typeof input==='object'&&input!==null&&#options in input
@@ -204,6 +219,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   readonly nip44?: SignetSigner['nip44']
   readonly session: Readonly<SignetSession>
   readonly #options: Options
+  #privateForeground: PrivateForegroundBinding | undefined
   readonly #raw: SignetSigner
   readonly #sign: SignetSigner['signEvent']
   readonly #crypto: { nip04?: SignetSigner['nip04']; nip44?: SignetSigner['nip44'] }
@@ -251,6 +267,12 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   #live = (): boolean => {
     if (this.#closed || this.#held) return false
     try {
+      if (this.#privateForeground) {
+        // Provider and SDK metadata are inspected only inside the current
+        // authenticated native read. Outside it, use owned lifetime facts.
+        return this.#privateForeground.live() && !this.#closed && !this.#held &&
+          (this.#sessionExpiresAt === null || Date.now() < this.#sessionExpiresAt)
+      }
       const live = this.#options.live(), generation = this.#options.currentGeneration(), selected = this.#options.currentSession()
       if (!selected || selected !== this.#options.session) return false
       const current = captureOrdinaryForegroundSession(selected)
@@ -287,12 +309,34 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   }
   #track<T>(work: () => Promise<T>): Promise<T> {
     const pending = Promise.resolve().then(work)
-    OrdinaryStateOwner.joinPairLifetime(this.#options.browser, this.#options.tab, pending)
+    if (this.#privateForeground) this.#privateForeground.joinForeground(pending)
+    else OrdinaryStateOwner.joinPairLifetime(this.#options.browser, this.#options.tab, pending)
     this.#work.add(pending); void pending.finally(() => this.#work.delete(pending)).catch(() => {})
     return pending
   }
   async #clients(): Promise<void> { this.#check(); await this.#options.checkClients(); this.#check() }
   #read<T>(work: () => T, consumer?: OrdinaryForegroundConsumer): Promise<T> {
+    if (this.#privateForeground) return this.#privateForeground.readForeground(this.#live, (b, t, custody) => {
+      this.#preflight(b, t, custody); this.#check()
+      if (consumer) {
+        if (consumer.live() !== true) hold()
+        const checked: unknown = consumer.validate(b, t, custody)
+        if (checked !== undefined) {
+          // Invalid asynchronous restrictions grant nothing, but their real
+          // tails still belong to this foreground and both native owners.
+          const invalid = Promise.resolve(checked)
+          this.#privateForeground!.joinForeground(invalid); this.#work.add(invalid)
+          void invalid.finally(() => this.#work.delete(invalid)).catch(() => {})
+          hold()
+        }
+        this.#preflight(b, t, custody); this.#check()
+        if (consumer.live() !== true) hold()
+      }
+      const result = work()
+      this.#check()
+      if (consumer && consumer.live() !== true) hold()
+      return result
+    })
     return OrdinaryStateOwner.readPairMigrated({
       browser: { owner: this.#options.browser, scope: this.#browserScope },
       tab: { owner: this.#options.tab, scope: this.#tabScope }, live: this.#live,
@@ -313,6 +357,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   }
   #preflight(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void {
     if (this.#preparedRoot) hold()
+    this.#privateForeground?.assertForegroundProvider()
     const b = records(browser), t = records(tab)
     try {
       validateOrdinarySnapshot(b, t, { browser: true, tab: true }, captureOrdinarySnapshotContext(b, t, custody))
@@ -324,6 +369,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       if (this.#bunker && (session[3] !== this.#bunker.uri ||
           session[4] !== [...this.#bunker.key].map(byte => byte.toString(16).padStart(2, '0')).join(''))) hold()
       this.#expected ??= Object.freeze(session)
+      this.#privateForeground?.assertForegroundProvider()
     } finally { b.clear(); t.clear() }
   }
   static async open(input: Options): Promise<OrdinaryForegroundSigner> {
@@ -344,6 +390,42 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       await state.#clients(); await state.#read(() => {}); state.#check()
       return state
     } catch (error) { if (state) { state.#stop(); await state.close() } else { try { options.stop() } catch {} }; throw error }
+  }
+  static async #openPrivateForeground(binding: PrivateForegroundBinding): Promise<OrdinaryPrivateForegroundResource> {
+    let state: OrdinaryForegroundSigner | undefined
+    try {
+      const scopes = await binding.captureForegroundScopes()
+      await binding.constructForeground(() => {
+        const captured = captureOrdinaryForegroundSession(binding.source)
+        if (captured.method !== 'nip07' || captured.signer.providerEffectBoundary !== 1 ||
+            (captured.signer as SignetSigner & { pinnedProviderCalls?: number }).pinnedProviderCalls !== 1 ||
+            captured.signer.capabilities.canSignEvents !== true) hold()
+        const options: Options = Object.freeze({ browser: binding.browser, tab: binding.tab,
+          session: binding.source, currentSession: () => binding.source,
+          generation: binding.generation, currentGeneration: () => binding.generation,
+          live: binding.live, checkClients: binding.assertClientsCurrent, stop: binding.stop })
+        state = new OrdinaryForegroundSigner(options, captured, scopes[0], scopes[1])
+        // A caller cannot select private mode through constructor arguments.
+        // Only this fixed private core attaches the spent native claim.
+        state.#privateForeground = binding
+        const actual = state
+        // Prototype replacements cannot intercept later private use. The
+        // instance and its borrowed SDK stay within this module.
+        Object.defineProperties(actual, {
+          signEvent: { value: (input: EventTemplate, boundary?: SignerEffectBoundary) => actual.#signEvent(input, boundary) },
+          revoke: { value: () => actual.#revoke() }, close: { value: () => actual.#close() },
+        })
+        Object.freeze(actual)
+      })
+      if (!state) hold()
+      const actual = state
+      await actual.#clients(); await actual.#read(() => {}); await actual.#read(() => {}); actual.#check()
+      return Object.freeze({ stop: () => actual.#stop(), close: () => actual.#close() })
+    } catch {
+      binding.stop()
+      if (state) await Promise.allSettled([state.#close()])
+      throw new OrdinaryStateHold()
+    }
   }
   /** @internal Inert private startup capture. It supplies no ordinary signer,
    * crypto or read capability. The fixed owner must authenticate E separately. */
@@ -396,6 +478,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     return signer.#sessionExpiresAt
   }
   #run<T>(capture: () => (boundary: SignerEffectBoundary) => Promise<T>, finish: (value: T) => T, consumer?: OrdinaryForegroundConsumer): Promise<T> {
+    if (this.#privateForeground) return this.#runPrivateForeground(capture, finish, consumer)
     if (this.#preparedRoot) return Promise.reject(new OrdinaryStateHold())
     let invoke: (boundary: SignerEffectBoundary) => Promise<T>
     // Latch and capture before any caller-owned selector or live callback.
@@ -437,6 +520,54 @@ export class OrdinaryForegroundSigner implements SignetSigner {
         const result = await this.#read(() => value,consumer)
         this.#check(); return result
       } catch (error) { this.#stop(); throw error }
+      finally { active = false; if (sdk) await Promise.allSettled([sdk]); this.#busy = false }
+    })
+  }
+  #runPrivateForeground<T>(capture: () => (boundary: SignerEffectBoundary) => Promise<T>,
+    finish: (value: T) => T, consumer?: OrdinaryForegroundConsumer): Promise<T> {
+    if (this.#busy || this.#closed || this.#held) { this.#stop(); return Promise.reject(new OrdinaryStateHold()) }
+    this.#busy = true
+    return this.#track(async () => {
+      let active = true, providerStarted = false, sdk: Promise<T> | undefined
+      const boundary: SignerEffectBoundary = Object.freeze({ start: <V>(provider: () => Promise<V>): Promise<V> => {
+        if (!active || providerStarted) { active = false; this.#stop(); return Promise.reject(new OrdinaryStateHold()) }
+        providerStarted = true // Permanent for this whole SDK operation, before work.
+        return this.#track(async () => {
+          let operation: Promise<V> | undefined
+          try {
+            await this.#clients()
+            await this.#read(() => {
+              if (!active) hold()
+              try { operation = Promise.resolve(provider()) } catch { operation = Promise.reject(new OrdinaryStateHold()) }
+              this.#privateForeground!.joinForeground(operation); void operation.catch(() => {})
+            }, consumer)
+            if (!operation) hold()
+            const result = await operation
+            await this.#clients(); await this.#read(() => { if (!active) hold() }, consumer)
+            return result
+          } catch {
+            // Do not let SDK retry classification inspect a provider-supplied
+            // rejection object outside native custody. The owned refusal has
+            // a different identity, so no second provider attempt is possible.
+            active = false; this.#stop(); throw new OrdinaryStateHold()
+          } finally { if (operation) await Promise.allSettled([operation]) }
+        })
+      } })
+      try {
+        let invoke: ((boundary: SignerEffectBoundary) => Promise<T>) | undefined
+        await this.#clients(); await this.#read(() => { invoke = capture() }, consumer)
+        await this.#read(() => {}, consumer)
+        if (!invoke) hold()
+        sdk = Promise.resolve(invoke(boundary)); void sdk.catch(() => {})
+        const raw = await sdk
+        let finished: { readonly value: T } | undefined
+        await this.#clients(); await this.#read(() => { finished = { value: finish(raw) } }, consumer)
+        // Raw proof capture and uncached verification may run Proxy traps.
+        // Repeat all native facts before releasing the detached owned value.
+        await this.#read(() => {}, consumer); this.#check()
+        if (!finished) hold()
+        return finished.value
+      } catch { this.#stop(); throw new OrdinaryStateHold() }
       finally { active = false; if (sdk) await Promise.allSettled([sdk]); this.#busy = false }
     })
   }
@@ -491,9 +622,13 @@ export class OrdinaryForegroundSigner implements SignetSigner {
     if(typeof live!=='function'||typeof validate!=='function')hold()
     return Object.freeze({live:()=>live.call(input),validate:(b:DeviceStore,t:DeviceStore,c:OrdinaryPairCustody)=>validate.call(input,b,t,c)})
   }
-  revoke(): void { this.#closed = true }
+  revoke(): void { this.#revoke() }
+  #revoke(): void { this.#closed = true }
   async close(): Promise<void> {
-    this.revoke()
+    return this.#close()
+  }
+  async #close(): Promise<void> {
+    this.#revoke()
     // A boundary can add its own work after the outer call first yielded.
     while (this.#work.size) await Promise.allSettled([...this.#work])
     this.#expected = undefined
