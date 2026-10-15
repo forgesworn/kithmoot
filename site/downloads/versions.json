@@ -1,6 +1,66 @@
 {
   "desktop": [
     {
+      "version": "0.1.83",
+      "published": "2026-10-15",
+      "files": [
+        {
+          "os": "mac",
+          "arch": "arm64",
+          "kind": "app",
+          "filename": "KithMoot-0.1.83-mac-arm64.zip",
+          "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-mac-arm64.zip",
+          "bytes": 177653359,
+          "sha256": "4bb3068370efb4a35f45711d1bd1f9043f8fcf6aa214c9fb3f6d42201b14d700"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.83-linux-arm64.tar.gz",
+          "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-linux-arm64.tar.gz",
+          "bytes": 171920495,
+          "sha256": "765fb727dea039aa352d7d704b9c25c03c69c3a4391ff4fe6ba7bdeb3426ed90"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.83-linux-x64.tar.gz",
+          "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-linux-x64.tar.gz",
+          "bytes": 170799921,
+          "sha256": "149ce7cad3553732c09d3149d79f241cfb9b56d06392817ff398f849ee19e18e"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.83-windows-x64.zip",
+          "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-windows-x64.zip",
+          "bytes": 206251317,
+          "sha256": "6e4fb002ba9ef369bfd0d0f4335870f579e0419ce41481bd3b4644840d7ee89a"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.83_amd64.deb",
+          "url": "/apk/desktop/0.1.83/kithmoot_0.1.83_amd64.deb",
+          "bytes": 134084868,
+          "sha256": "74fc75b2fa67c0facbb047b7f368fa7638c1911af34c3cb606b2401446d69b20"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.83_arm64.deb",
+          "url": "/apk/desktop/0.1.83/kithmoot_0.1.83_arm64.deb",
+          "bytes": 129127540,
+          "sha256": "c2d6894fda4992e8af17bc2d54d5ac13d6af06bf3bf553b127227a6010920208"
+        }
+      ]
+    },
+    {
       "version": "0.1.82",
       "published": "2026-10-14",
       "files": [
