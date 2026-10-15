@@ -41,6 +41,10 @@ class ExistingRoot {
   readonly #startup = new OrdinaryLegacyStartupLifetime()
   #worker?: OrdinaryProtectedWorkerLifetime
   #capture?: OrdinaryPrivateExistingCaptureResource
+  #provider?: OrdinaryPrivateExistingCaptureResource
+  #beginProvider?: (root: OrdinaryPrivateExistingRoot) => OrdinaryPrivateExistingCaptureResource
+  #providerWork?: Promise<void>
+  #providerOpening?: Promise<void>
   #work?: Promise<void>
   #opening?: Promise<void>
   #closing?: Promise<void>
@@ -94,6 +98,20 @@ class ExistingRoot {
     })
     return this.#opening
   }
+  restoreProvider(): Promise<void> {
+    if (this.#providerOpening) return this.#providerOpening
+    void this.start().catch(() => {})
+    // Join internal capture work, not its close-on-error continuation.
+    this.#providerWork = this.#work!.then(() => {
+      this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot)
+      return this.#provider.completed
+    })
+    this.#providerOpening = this.#providerWork.then(async () => {
+      if (!this.#live()) { await this.close(); return }
+      this.#notice('provider-held')
+    }, async () => { this.#stop(); await this.close() })
+    return this.#providerOpening
+  }
   async #run(): Promise<void> {
     if (!this.#marker || !HEX.test(this.#marker) || !this.#origin || this.#origin === 'null' ||
         new URL(this.#href).origin !== this.#origin) hold()
@@ -121,6 +139,7 @@ class ExistingRoot {
     // This is the first owner/crypto/SDK runtime import in the root graph.
     const native = await import('./ordinary-state-owner.js')
     this.#check()
+    this.#beginProvider = native.beginOrdinaryPrivateExistingProvider
     this.#claimable = true
     this.#capture = native.beginOrdinaryPrivateExistingCapture(this as unknown as OrdinaryPrivateExistingRoot)
     // begin queues the fixed exclusive native WRITE operation synchronously.
@@ -130,7 +149,7 @@ class ExistingRoot {
     await this.#capture.completed
     this.#check()
   }
-  #notice(state: 'held' | 'captured-held'): void {
+  #notice(state: 'held' | 'captured-held' | 'provider-held'): void {
     document.documentElement.dataset.ordinaryProtectedStartup = state
   }
   #stop(): void {
@@ -142,6 +161,7 @@ class ExistingRoot {
     // Abort a queued acquisition now; once acquired, retain MIGRATION until
     // the ordered close below joins every subsequently owned resource.
     if (!this.#startupAcquired) void this.#startup.close().catch(() => {})
+    this.#provider?.stop()
     this.#capture?.stop()
     this.#workerClose = this.#worker?.close()
     window.removeEventListener('pagehide', this.#pagehide)
@@ -156,26 +176,41 @@ class ExistingRoot {
     this.#stop()
     // Starting close synchronously revokes native transactions. Its join runs
     // alongside the root work so a blocked open retains its real terminal tail.
+    const providerClose = this.#provider?.close()
     const nativeClose = this.#capture?.close()
+    const nativeJoins = Promise.allSettled([providerClose, nativeClose])
     void (async () => {
       await this.#work?.catch(() => {})
-      await nativeClose
+      await this.#providerWork?.catch(() => {})
+      // Rejection cannot skip another owned resource. Pending provider work
+      // still retains the tab and MIGRATION locks until it has actually joined.
+      const results = await nativeJoins
       this.#releaseTab?.()
       this.#releaseTab = undefined
       await this.#lockWork?.catch(() => {})
-      await this.#workerClose
-      await this.#startup.close() // MIGRATION is released last.
+      results.push(...await Promise.allSettled([this.#workerClose]))
+      results.push(...await Promise.allSettled([this.#startup.close()])) // MIGRATION last.
+      const failed = results.find(result => result.status === 'rejected')
+      if (failed?.status === 'rejected') throw failed.reason
     })().then(resolve, reject)
     return this.#closing
   }
 }
 
 let started: Promise<void> | undefined
+let actualRoot: ExistingRoot | undefined
 /** Unmounted existing-member checkpoint only. No root, owner, image, selector,
  * key, provider, signer or current-authority capability is returned. */
 export function prepareOrdinaryPrivateExistingRoot(): Promise<void> {
   if (started) return started
-  try { started = new ExistingRoot().start() }
+  try { actualRoot = new ExistingRoot(); started = actualRoot.start() }
   catch { started = Promise.resolve(); document.documentElement.dataset.ordinaryProtectedStartup = 'held' }
   return started
+}
+
+/** Unmounted current-provider discovery checkpoint. All native/SDK objects
+ * remain private; no member session, carrier or UI is activated. */
+export function restoreOrdinaryPrivateExistingProviderRoot(): Promise<void> {
+  void prepareOrdinaryPrivateExistingRoot().catch(() => {})
+  return actualRoot?.restoreProvider() ?? Promise.resolve()
 }
