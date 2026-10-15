@@ -66,9 +66,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## nostr-tools@2.25.0
+## nostr-tools@2.25.2
 
-Declared licence: Unlicense. Source package: https://www.npmjs.com/package/nostr-tools/v/2.25.0
+Declared licence: Unlicense. Source package: https://www.npmjs.com/package/nostr-tools/v/2.25.2
 
 ```text
 This is free and unencumbered software released into the public domain.
@@ -113,7 +113,7 @@ tarball. The fixture directory records its source and licence.
 
 ## Transitive dependency: nostr-wasm@0.1.0
 
-`nostr-tools@2.25.0` declares this dependency. This context package imports
+`nostr-tools@2.25.2` declares this dependency. This context package imports
 `nostr-tools/pure` and `nostr-tools/nip44`, which do not load its WASM module.
 The npm dependency installation can nevertheless contain `nostr-wasm`.
 
