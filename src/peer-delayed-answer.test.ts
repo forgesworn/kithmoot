@@ -42,8 +42,10 @@ it('keeps a replacement camera offer pending when an old accepted answer is repl
     expect(pc.signalingState).toBe('have-local-offer')
     expect(pc.localDescription?.sdp).toBe(cameraOffer.sdp)
 
-    // An unknown malformed answer must still reach the stack and fail.
-    const unknown = { ...cameraOffAnswer, sdp: cameraOffAnswer.sdp!.replace('a=recvonly', 'a=inactive') }
+    // An unknown malformed answer naming the outstanding offer must still
+    // reach the stack and fail; one naming an older offer is ignored above.
+    const unknown = { ...cameraOffAnswer, re: cameraOffer.seq,
+      sdp: cameraOffAnswer.sdp!.replace('a=recvonly', 'a=inactive') }
     expect(unknown.sdp).not.toBe(cameraOffAnswer.sdp)
     await expect(browser.handleSignal(unknown)).rejects.toThrow('order of m-lines')
     expect(pc.signalingState).toBe('have-local-offer')
