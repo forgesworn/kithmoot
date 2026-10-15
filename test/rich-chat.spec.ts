@@ -92,6 +92,7 @@ test('familiar artwork keeps Unicode, human tones, drafts and links intact', asy
 for (const member of [false, true]) test(`full reactions, clickable profiles and picker-only member packs (${member ? 'member' : 'non-member'})`, async ({ browser, baseURL }) => {
   const secret = generateSecretKey(), senderKey = generateSecretKey(), identity = localIdentity(senderKey)
   const context = await nostrTestDevice(browser, baseURL!, secret)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.nip05.verify', 'true'))
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Rich chat', relays: [relay.href], iceUrls: [] })
   const pool = new NostrRelayPool([TEST_RELAY_WS])

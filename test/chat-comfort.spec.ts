@@ -78,7 +78,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(person.locator('.nip05')).toHaveCount(0)
     await expect(person.locator('.avatar.initials')).toHaveText('R')
     await page.keyboard.press('Escape')
-    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').check(); await page.locator('#profileSettingsClose').click()
+    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').check(); await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
     await expect(person.locator('.nip05')).toHaveText('rowan@profiles.example')
     await hearts.hover()
     await person.hover()
