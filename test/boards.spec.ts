@@ -461,7 +461,7 @@ test('two agents handle separate cards while a second person edits the shared bo
     }
     for (const [i, title] of ['Design task', 'Release task'].entries()) {
       const dialog = await connect(title)
-      const reviewDisclosure = async () => {
+      await expect.poll(async () => {
         await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
         await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
         await dialog.getByRole('combobox', {name: /^Assign to/}).selectOption(`${workers[i]!.participant}/${workers[i]!.device}`)
