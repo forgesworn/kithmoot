@@ -1186,15 +1186,29 @@ export class OrdinaryStateOwner {
     const check=()=>this.#custodyCheck(live,custodyOnly)
     check();let absent=false,refused=false
     const open=indexedDB.open(ORDINARY_DATABASE,1)
-    const db=await new Promise<IDBDatabase|undefined>((yes,no)=>{
-      open.onupgradeneeded=event=>{if(event.oldVersion===0)absent=true;open.transaction!.abort()}
-      open.onblocked=()=>{refused=true;no(new OrdinaryStateHold())}
-      open.onerror=()=>{if(absent)yes(undefined);else no(new OrdinaryStateHold())}
-      open.onsuccess=()=>{const value=open.result;if(refused){value.close();return}
-        try{check();if(value.version!==1||value.objectStoreNames.length!==1||!value.objectStoreNames.contains(OWNER_STORE))hold();yes(value)}
-        catch(error){value.close();no(error)}}
-    });try{check()}catch(error){db?.close();throw error}
-    return db
+    let finish!:()=>void
+    const terminal=this.#track(new Promise<void>(resolve=>{finish=resolve}))
+    try{
+      const db=await new Promise<IDBDatabase|undefined>((yes,no)=>{
+        open.onupgradeneeded=event=>{if(event.oldVersion===0)absent=true;open.transaction!.abort()}
+        open.onblocked=()=>{refused=true;no(new OrdinaryStateHold());this.#revoke()}
+        open.onerror=()=>{try{if(absent&&!refused)yes(undefined);else no(new OrdinaryStateHold())}finally{finish()}}
+        open.onsuccess=()=>{
+          const value=open.result
+          try{
+            if(refused){value.close();return}
+            try{check();if(value.version!==1||value.objectStoreNames.length!==1||!value.objectStoreNames.contains(OWNER_STORE))hold();yes(value)}
+            catch(error){value.close();no(error)}
+          }finally{finish()}
+        }
+      });try{check()}catch(error){db?.close();throw error}
+      return db
+    }finally{
+      // A blocked decision revokes immediately, but the native request has
+      // no cancellation API. Keep its owner and enclosing lock joined until
+      // an error or a closed late success establishes the terminal outcome.
+      await terminal
+    }
   }
   /** Inspect storage before factory construction, new custody or expiry. The
    * one native read is separate from ordinary pair custody: it publishes no
@@ -1646,27 +1660,44 @@ export class OrdinaryStateOwner {
     if (this.#db) return this.#db
     const opened = indexedDB.open(ORDINARY_DATABASE, 1)
     let refused = false
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      opened.onupgradeneeded = event => {
-        if (event.oldVersion !== 0) { opened.transaction!.abort(); return }
-        opened.result.createObjectStore(OWNER_STORE)
-      }
-      opened.onerror = () => reject(opened.error)
-      opened.onblocked = () => { refused = true; reject(new OrdinaryStateHold()) }
-      opened.onsuccess = () => {
-        const value = opened.result
-        if (refused) { value.close(); return }
-        try {
-          this.#custodyCheck(live, reconciling)
-          if (value.version !== 1 || value.objectStoreNames.length !== 1 || !value.objectStoreNames.contains(OWNER_STORE)) hold()
-          resolve(value)
-        } catch (error) { value.close(); reject(error) }
-      }
-    })
-    this.#custodyCheck(live, reconciling)
-    this.#db = db
-    db.onversionchange = () => { this.#revoke(); db.close(); this.#db = undefined }
-    return db
+    let finish!: () => void
+    const terminal = this.#track(new Promise<void>(resolve => { finish = resolve }))
+    const resource = { stop: () => { try { opened.transaction?.abort() } catch { /* The request remains joined. */ } } }
+    this.#resources.add(resource)
+    try {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        opened.onupgradeneeded = event => {
+          try {
+            if (refused || this.#closed || event.oldVersion !== 0) { opened.transaction!.abort(); return }
+            this.#custodyCheck(live, reconciling)
+            opened.result.createObjectStore(OWNER_STORE)
+          } catch (error) {
+            refused = true
+            resource.stop(); reject(error); this.#revoke()
+          }
+        }
+        opened.onerror = () => { try { reject(opened.error) } finally { finish() } }
+        opened.onblocked = () => { refused = true; reject(new OrdinaryStateHold()); this.#revoke() }
+        opened.onsuccess = () => {
+          const value = opened.result
+          try {
+            if (refused) { value.close(); return }
+            try {
+              this.#custodyCheck(live, reconciling)
+              if (value.version !== 1 || value.objectStoreNames.length !== 1 || !value.objectStoreNames.contains(OWNER_STORE)) hold()
+              resolve(value)
+            } catch (error) { value.close(); reject(error) }
+          } finally { finish() }
+        }
+      })
+      try { this.#custodyCheck(live, reconciling) } catch (error) { db.close(); throw error }
+      this.#db = db
+      db.onversionchange = () => { this.#revoke(); db.close(); this.#db = undefined }
+      return db
+    } finally {
+      await terminal
+      this.#resources.delete(resource)
+    }
   }
   async #snapshot(live: () => boolean, reconciling = false, barrier: OrdinaryStateOwner = this): Promise<Snapshot> {
     let db = await this.#database(live, reconciling)

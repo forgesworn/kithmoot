@@ -13,6 +13,117 @@ async function serve(context: BrowserContext) {
   await context.route(`${ORIGIN}/**`, route => route.fulfill({ status: 200, contentType: 'text/html',
     body: `<!doctype html><meta charset="utf-8"><script>${bundle.replace(/<\/script/gi, '<\\/script')}</script>` }))
 }
+
+// The blocked notification is injected; the eventual success/error and the
+// database connection are native. Version-one reads cannot naturally upgrade
+// an existing version-one database. Delaying delivery exposes the otherwise
+// unbounded request tail without pretending an engine produced that block.
+for (const operation of ['existing', 'prepare'] as const) {
+  for (const outcome of ['success', 'version-error', 'absent-abort'] as const) {
+    test(`open terminal tail ${operation} joins delayed native ${outcome} after injected block`, async ({ browser }) => {
+      const context = await browser.newContext(); await serve(context)
+      const page = await context.newPage(); await page.goto(ORIGIN)
+      await page.evaluate(`(async ({operation,outcome}) => {
+        const nativeOpen = indexedDB.open.bind(indexedDB), name = Ordinary.ORDINARY_DATABASE
+        if (outcome !== 'absent-abort') await new Promise((yes,no) => {
+          const r=nativeOpen(name,outcome==='version-error'?2:1)
+          r.onupgradeneeded=()=>r.result.createObjectStore('owners')
+          r.onerror=()=>no(r.error);r.onsuccess=()=>{r.result.close();yes()}
+        })
+        window.tail={decision:'pending',close:'pending',ready:false,kind:null,keys:0,puts:0,stores:0}
+        const key=crypto.subtle.generateKey.bind(crypto.subtle), put=IDBObjectStore.prototype.put,
+          create=IDBDatabase.prototype.createObjectStore
+        crypto.subtle.generateKey=(...args)=>{tail.keys++;return key(...args)}
+        IDBObjectStore.prototype.put=function(...args){tail.puts++;return put.apply(this,args)}
+        IDBDatabase.prototype.createObjectStore=function(...args){tail.stores++;return create.apply(this,args)}
+        indexedDB.open=(...args)=>{
+          const request=nativeOpen(...args)
+          const proxy=new Proxy(request,{
+            get(target,name){const v=Reflect.get(target,name,target);return typeof v==='function'?v.bind(target):v},
+            set(target,name,value){
+              if(name==='onsuccess'||name==='onerror') {
+                target[name]=event=>{
+                  event.preventDefault();tail.kind=event.type;tail.ready=true
+                  window.deliver=()=>value.call(target,event)
+                };return true
+              }
+              return Reflect.set(target,name,value,target)
+            }
+          })
+          queueMicrotask(()=>request.dispatchEvent(new Event('blocked')))
+          return proxy
+        }
+        window.owner=new Ordinary.OrdinaryStateOwner()
+        window.pending=(operation==='existing'?owner.openExisting(()=>true):owner.prepare(()=>true,new Map()))
+          .then(()=>tail.decision='success',error=>tail.decision=error.name)
+        window.finishTail=async()=>{
+          deliver();await pending;await closing
+          indexedDB.open=nativeOpen;crypto.subtle.generateKey=key
+          IDBObjectStore.prototype.put=put;IDBDatabase.prototype.createObjectStore=create
+          // A fresh native upgrade must complete: a late connection cannot
+          // remain leaked after owner.close resolves. For absent storage,
+          // abort the probe so the test itself does not create a database.
+          const version=await new Promise((yes,no)=>{
+            const r=nativeOpen(name,outcome==='version-error'?3:2);let old
+            r.onupgradeneeded=e=>{old=e.oldVersion;if(outcome==='absent-abort')r.transaction.abort()}
+            r.onerror=()=>{if(outcome==='absent-abort')yes(old);else no(r.error)}
+            r.onsuccess=()=>{r.result.close();yes(old)}
+            r.onblocked=()=>no(new Error('late native connection leaked'))
+          })
+          return {...tail,version,lock:await navigator.locks.request(name+':write',{ifAvailable:true},lock=>!!lock)}
+        }
+      })(${JSON.stringify({ operation, outcome })})`)
+      await page.waitForFunction('tail.ready')
+      const before = await page.evaluate(`(async()=>{
+        window.closing=owner.close().then(()=>tail.close='closed')
+        const lock=await navigator.locks.request(Ordinary.ORDINARY_DATABASE+':write',{ifAvailable:true},lock=>!!lock)
+        let revoked=false;try{await owner.capture('room-a',()=>true)}catch{revoked=true}
+        return {...tail,lock,revoked}
+      })()`)
+      expect(before).toEqual({ decision:'pending',close:'pending',ready:true,
+        kind:outcome==='success'?'success':'error',keys:0,puts:0,stores:0,lock:false,revoked:true })
+      expect(await page.evaluate('finishTail()')).toEqual({ decision:'OrdinaryStateHold',close:'closed',ready:true,
+        kind:outcome==='success'?'success':'error',keys:0,puts:0,stores:0,
+        version:outcome==='success'?1:outcome==='version-error'?2:0,lock:true })
+      await context.close()
+    })
+  }
+  test(`open terminal tail ${operation} closes a native connection revoked during success adoption`, async ({ browser }) => {
+    const context=await browser.newContext();await serve(context)
+    const page=await context.newPage();await page.goto(ORIGIN)
+    expect(await page.evaluate(`(async operation=>{
+      const native=indexedDB.open.bind(indexedDB),name=Ordinary.ORDINARY_DATABASE
+      await new Promise((yes,no)=>{const r=native(name,1);r.onupgradeneeded=()=>r.result.createObjectStore('owners');
+        r.onerror=()=>no(r.error);r.onsuccess=()=>{r.result.close();yes()}})
+      const owner=new Ordinary.OrdinaryStateOwner();let closing,intercepted=0,keys=0,puts=0
+      const key=crypto.subtle.generateKey.bind(crypto.subtle),put=IDBObjectStore.prototype.put
+      crypto.subtle.generateKey=(...args)=>{keys++;return key(...args)}
+      IDBObjectStore.prototype.put=function(...args){puts++;return put.apply(this,args)}
+      indexedDB.open=(...args)=>{
+        const request=native(...args)
+        return new Proxy(request,{
+          get(target,name){const v=Reflect.get(target,name,target);return typeof v==='function'?v.bind(target):v},
+          set(target,name,value){
+            if(name==='onsuccess'){
+              target.onsuccess=event=>{intercepted++;value.call(target,event);closing=owner.close()};return true
+            }
+            return Reflect.set(target,name,value,target)
+          }
+        })
+      }
+      let decision
+      try{await(operation==='existing'?owner.openExisting(()=>true):owner.prepare(()=>true,new Map()));decision='success'}
+      catch(error){decision=error.name}
+      await closing;indexedDB.open=native;crypto.subtle.generateKey=key;IDBObjectStore.prototype.put=put
+      const version=await new Promise((yes,no)=>{const r=native(name,2);let old;
+        r.onupgradeneeded=e=>{old=e.oldVersion};r.onerror=()=>no(r.error);
+        r.onsuccess=()=>{r.result.close();yes(old)};r.onblocked=()=>no(new Error('success adoption leaked a connection'))})
+      return {decision,intercepted,keys,puts,version,
+        lock:await navigator.locks.request(name+':write',{ifAvailable:true},lock=>!!lock)}
+    })('${operation}')`)).toEqual({decision:'OrdinaryStateHold',intercepted:1,keys:0,puts:0,version:1,lock:true})
+    await context.close()
+  })
+}
 // These accessors exist only in the routed test bundle, never production.
 const setup = `async () => {
   window.owner = new Ordinary.OrdinaryStateOwner()
