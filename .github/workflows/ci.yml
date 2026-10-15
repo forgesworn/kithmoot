@@ -46,6 +46,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The production dependency floor is a gate, not a memory: any new
+      # advisory in a shipped dependency fails the run. Dev-only advisories
+      # are out of scope for this check.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
       - name: Type check
         run: npm run typecheck
 
