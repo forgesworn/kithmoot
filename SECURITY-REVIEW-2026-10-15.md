@@ -1,5 +1,8 @@
 # Security Review — 2026-10-15
 
+The fix list for this review's findings — what changed, and in which files —
+is `SECURITY-REMEDIATION-2026-10-15.md`.
+
 Scope: full delta review of everything changed since the 2026-09-20 review
 (`22f1f27..12911b1`, ~1,215 files, ~135K lines: 328 non-test, non-asset source
 files), across the three tiers agreed for this pass:
