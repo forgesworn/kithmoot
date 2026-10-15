@@ -310,7 +310,7 @@ import {
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
-import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
+import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
@@ -2599,6 +2599,8 @@ const profiles = new ProfileBook({
 
 let profilesEnabled = profilePreference(relayStorage)
 profiles.setEnabled(profilesEnabled)
+let nip05Verify = nip05VerifyPreference(relayStorage)
+profiles.setNip05Automatic(nip05Verify)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
 $('roomProfileSettings').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
 $('lookupProfiles').addEventListener('change', () => {
@@ -2612,6 +2614,13 @@ $('lookupProfiles').addEventListener('change', () => {
     repaintActiveChat()
   }
   renderIdentity()
+})
+
+;($('verifyAddresses') as HTMLInputElement).checked = nip05Verify
+$('verifyAddresses').addEventListener('change', () => {
+  nip05Verify = ($('verifyAddresses') as HTMLInputElement).checked
+  try { localStorage.setItem('kithmoot.nip05.verify', String(nip05Verify)) } catch { /* The switch still applies to this visit. */ }
+  profiles.setNip05Automatic(nip05Verify)
 })
 
 /**

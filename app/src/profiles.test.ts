@@ -15,6 +15,9 @@ function fixture() {
     subscribe: (_filters: unknown, handler: typeof receive) => { receive = handler; return () => {} },
     close() {},
   }) as unknown as NostrRelayPool })
+  // These cases exercise verification itself; the default-off gate has its
+  // own tests below.
+  book.setNip05Automatic(true)
   books.push(book)
   book.want([pubkey])
   const publish = (content: unknown, created_at = 1) => receive(finalizeEvent({ kind: 0, tags: [], created_at, content: JSON.stringify(content) }, secret))
@@ -60,6 +63,46 @@ it('does not let a late address response restore a replaced or disabled profile'
   await new Promise(done => setTimeout(done, 0))
   expect(book.get(pubkey)).toBeUndefined()
   expect(onChange).toHaveBeenCalledTimes(changes)
+})
+
+it('does not contact an address’s domain until verification is switched on', async () => {
+  const secret = generateSecretKey()
+  const pubkey = getPublicKey(secret)
+  let receive!: (event: Event) => void
+  const book = new ProfileBook({ relays: () => [], onChange: vi.fn(), transport: () => ({
+    subscribe: (_filters: unknown, handler: typeof receive) => { receive = handler; return () => {} },
+    close() {},
+  }) as unknown as NostrRelayPool })
+  books.push(book)
+  book.want([pubkey])
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ names: { alice: pubkey } }) })
+  vi.stubGlobal('fetch', fetcher)
+  receive(finalizeEvent({ kind: 0, tags: [], created_at: 1, content: JSON.stringify({ name: 'Alice', nip05: 'alice@example.com' }) }, secret))
+  await new Promise(done => setTimeout(done, 10))
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(book.get(pubkey)?.nip05).toBeUndefined()
+  // Switching it on verifies every claim already held, with no new lookup.
+  book.setNip05Automatic(true)
+  await vi.waitFor(() => expect(book.get(pubkey)?.nip05).toBe('alice@example.com'))
+  expect(fetcher).toHaveBeenCalledOnce()
+  expect(fetcher).toHaveBeenCalledWith('https://example.com/.well-known/nostr.json?name=alice', expect.objectContaining({ credentials: 'omit' }))
+})
+
+it('a check in flight when verification is switched off can never publish its answer', async () => {
+  const { book, pubkey, publish, onChange } = fixture()
+  let resolve!: (value: unknown) => void
+  vi.stubGlobal('fetch', vi.fn(() => new Promise(done => { resolve = done })))
+  publish({ name: 'Alice', nip05: 'alice@example.com' })
+  book.setNip05Automatic(false)
+  resolve({ ok: true, json: async () => ({ names: { alice: pubkey } }) })
+  await new Promise(done => setTimeout(done, 10))
+  expect(book.get(pubkey)?.nip05).toBeUndefined()
+  // And switching it back on asks again, cleanly.
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ names: { alice: pubkey } }) })
+  vi.stubGlobal('fetch', fetcher)
+  book.setNip05Automatic(true)
+  await vi.waitFor(() => expect(book.get(pubkey)?.nip05).toBe('alice@example.com'))
+  expect(onChange).toHaveBeenCalled()
 })
 
 it('ignores forged profiles and invalid address URLs without contacting their hosts', () => {
