@@ -1,4 +1,9 @@
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
+import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
+import { HEADLESS_NIP07_DISCOVERY_BOUNDARY, createNip07SignerWithDiscoveryBoundary, type SignetSession, type SignetSigner, type Nip07DiscoveryBoundary } from 'signet-login'
+import { ORDINARY_SIGNET_KEYS } from './ordinary-signet-snapshot.js'
+import { ORDINARY_INITIAL_LOGIN_KEY } from './ordinary-initial-login-snapshot.js'
+import { takeOrdinaryPreparedExtensionFactory, checkOrdinaryPreparedExtensionPromise, type OrdinaryPreparedExtensionFactory } from './ordinary-prepared-extension-factory.js'
 import { registerOrdinaryRenewalSigningLifetime,registerOrdinaryRenewalSigningAttempt,releaseOrdinaryRenewalSigningLifetime,type OrdinaryRenewalSigningLifetime } from './ordinary-renewal-signing-bridge.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha2'
@@ -496,6 +501,139 @@ export class OrdinaryStateOwner {
     browser.#check(() => true); tab.#check(() => true)
     value.claimed = true
     return Object.freeze({ intent: value.intent, browserScope: value.browserScope, tabScope: value.tabScope })
+  }
+  /** @internal Actual SDK account discovery under fixed prepared E. The
+   * returned raw SDK session remains private to its extension-startup owner;
+   * it supplies no ordinary view, native CU, phase writer or current member. */
+  static restorePreparedExtensionAtStartup(preparation: OrdinaryPreparedExtensionFactory, root: ProtocolExecution): Promise<Readonly<SignetSession>> {
+    const binding = takeOrdinaryPreparedExtensionFactory(preparation, root), browser = binding.browser, tab = binding.tab
+    let resolve!: (value: Readonly<SignetSession>) => void, reject!: (error: unknown) => void
+    const pending = new Promise<Readonly<SignetSession>>((yes, no) => { resolve = yes; reject = no })
+    browser.#track(pending); tab.#track(pending)
+    try { root.retain(pending) } catch (error) { reject(error); return pending }
+    void Promise.resolve().then(async () => {
+      const check = () => { browser.#check(binding.live); tab.#check(binding.live); checkOrdinaryPreparedExtensionPromise(preparation, root, pending) }
+      const clients = async () => { check(); await binding.checkClients(); check() }
+      check()
+      if (HEADLESS_NIP07_DISCOVERY_BOUNDARY !== 1 || !navigator.locks || browser.#retry || tab.#retry) hold()
+      await clients()
+      return navigator.locks.request(WRITE_LOCK, async () => {
+        const startup = await import('./ordinary-renewal-startup.js'), codec = await import('./ordinary-renewal-request.js'),
+          snapshot = await import('./ordinary-snapshot.js'), proofs = await import('./persistent-admission-proof.js'), lease = await import('./ordinary-member-lease.js')
+        let db: IDBDatabase | undefined, context: OperationTransaction | undefined
+        let facts: OperationClassification | undefined, target: PreparedRenewalTarget | undefined
+        let retained: Omit<SignetSession, 'signer' | 'method'> | undefined, sessionValues: readonly (string | null)[] | undefined
+        let raw: SignetSigner | undefined, sdk: Promise<SignetSigner> | undefined, providerPending: Promise<unknown> | undefined, used = false
+        const cancel = { stop: () => context?.abort() }; browser.#resources.add(cancel); tab.#resources.add(cancel)
+        const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+        // Fixed private reader: its only effect is the SDK's one account
+        // discovery callback, started in this authentic native transaction.
+        const withE = async (start?: () => void): Promise<void> => {
+          let b: OrdinaryImage | undefined, t: OrdinaryImage | undefined, journal: OrdinaryOperationJournal | undefined
+          try {
+            check(); db?.close(); db = await browser.#existingStartupDatabase(binding.live); check(); if (!db) hold()
+            db.onversionchange = () => { browser.#revoke(); tab.#revoke(); db?.close() }
+            context = operationTransaction(db, 'readonly')
+            const names = ordinaryOperationNames(tab.purpose), rows = await Promise.all([
+              context.read(() => context!.store.get('browser')), context.read(() => context!.store.get(tab.purpose)), context.read(() => context!.store.get(names.control)),
+            ])
+            check(); const br = row(rows[0]), tr = row(rows[1]); if (!br?.frame || !tr?.frame || br.pending || tr.pending) hold()
+            b = await openOrdinaryFrame(br.frame, br.key); check(); t = await openOrdinaryFrame(tr.frame, tr.key); check()
+            const header = (image: OrdinaryImage) => ({ purpose: image.purpose, keyId: image.keyId, generation: image.generation, expiresAt: image.expiresAt })
+            journal = await openOrdinaryOperationControl(rows[2], { browser: { binding: header(b), key: br.key }, tab: { binding: header(t), key: tr.key } }); check()
+            if (journal.phase !== 'prepared' || journal.tab !== tab.purpose || t.expiresAt !== tab.expiresAt ||
+                journal.result !== null || journal.secrets.length || journal.nonces !== null || journal.target !== null) hold()
+            await startup.validateOrdinaryRenewalStartupRows(journal, [br.frame, tr.frame], [b, t]); check()
+            const request = codec.readOrdinaryRenewalRequest(journal.request), intent = request.intent
+            if (intent.account !== binding.account || intent.participant !== binding.account || intent.invitationId !== binding.invitationId ||
+                intent.keep !== binding.keep || intent.issuedAt > Math.floor(Date.now() / 1000) || intent.expiresAt - Math.floor(Date.now() / 1000) < 600) hold()
+            const linkBytes = new TextEncoder().encode(binding.link)
+            try { if (bytesToHex(sha256(linkBytes)) !== intent.linkDigest) hold() } finally { linkBytes.fill(0) }
+            const packet = encodeOrdinaryOperationJournal(journal); let classification: OrdinaryOperationClassification
+            try { classification = decodeOrdinaryOperationClassification(packet) } finally { packet.fill(0) }
+            const actual: PreparedRenewalTarget = { purpose: tab.purpose as `tab:${string}`, rows: [rowDigest(br), rowDigest(tr)],
+              controlDigest: ordinaryOperationControlDigest(rows[2]), header: classification }
+            const currentFacts = await browser.#classifyOperations(binding.live, context, false, actual); check()
+            if (target && (!same(actual, target) || !same(currentFacts, facts))) hold()
+            const inverse = [copyImage(b), copyImage(t)] as const
+            try {
+              codec.restoreOrdinaryRenewalPredecessor(inverse[0], inverse[1], journal.request, { id: journal.id, sequence: journal.sequence })
+              const markers = new Map(currentFacts.markers), marker = inverse[0].records.get(names.marker)
+              if (marker === undefined) markers.delete(names.marker); else markers.set(names.marker, marker)
+              browser.#validateCleanupImage(inverse[0], inverse[1], tab, { ...currentFacts, markers: [...markers] }, snapshot)
+              const bv = view(new Map(inverse[0].records), false), tv = view(new Map(inverse[1].records), false), inspected = proofs.inspectPersistentAdmissionProofs(bv.store, tv.store)
+              try {
+                const selected = inspected.selected.get(proofs.accountPrefix(binding.account) + proofs.PERSISTENT_TAB_PROOF_V2_PREFIX + binding.invitationId)
+                if (!selected) hold()
+                const prior = inverse[1].records.get(lease.ordinaryMemberLeaseName(selected.proof.binding))
+                const bootstrap = prior === undefined ? selected.proof : JSON.parse(lease.readOrdinaryMemberLease(prior, JSON.stringify(selected.proof)).bootstrapProof)
+                const first = lease.ordinaryMemberLeaseCredential(bootstrap, bootstrap.binding.device.credentialIds[0]!)
+                if (Number(first.tags[2]![1]) !== binding.bootstrapCredentialExpiresAt) hold()
+              } finally { inspected.close(); bv.close(); tv.close() }
+            } finally { inverse.forEach(clearImage) }
+            const k = ORDINARY_SIGNET_KEYS, keys = [k.pubkey, k.method, k.authEvent, k.bunkerUri, k.bunkerClientSk, k.expiresAt, k.displayName]
+            const values = keys.map(name => b!.records.get(name) ?? null), [pubkey, method, proof, bunkerUri, bunkerKey, expiry, displayName] = values
+            if (pubkey !== binding.account || method !== 'nip07' || !proof || bunkerUri !== null || bunkerKey !== null ||
+                b.records.has(k.pendingRedirect) || b.records.has(k.pendingRelayAuth) || t.records.has(ORDINARY_INITIAL_LOGIN_KEY) ||
+                sessionValues && !same(values, sessionValues)) hold()
+            const expiresAt = expiry === null ? undefined : Number(expiry)
+            if (expiresAt !== undefined && Date.now() >= expiresAt || (expiresAt ?? null) !== intent.authority.foregroundExpiresAt) hold()
+            const captured = captureOrdinaryForegroundProof(JSON.parse(proof))
+            if (captured.kind !== 21236 || captured.pubkey !== pubkey || JSON.stringify(captured) !== proof) hold()
+            if (!retained) retained = Object.freeze({ pubkey, authEvent: { ...captured, kind: 21236 as const },
+              ...(expiresAt === undefined ? {} : { expiresAt }), ...(displayName === null ? {} : { displayName }) })
+            target = actual; facts = currentFacts; sessionValues = Object.freeze(values)
+            await context.step(() => {
+              check()
+              const now = Date.now()
+              if (!Number.isSafeInteger(now) || now < 0 || intent.issuedAt > Math.floor(now / 1000) ||
+                  intent.expiresAt - Math.floor(now / 1000) < 600 || expiresAt !== undefined && now >= expiresAt) hold()
+              check()
+              const result: unknown = start?.()
+              if (result && typeof (result as PromiseLike<unknown>).then === 'function') hold()
+              check()
+            })
+            context.stop(); await context.ended; check()
+          } finally {
+            context?.abort(); await context?.ended.catch(() => {}); context?.stop(); context = undefined
+            journal?.secrets.forEach(secret => secret.fill(0)); clearImage(b); clearImage(t)
+          }
+        }
+        const boundary: Nip07DiscoveryBoundary = Object.freeze({ discoveryPreflightBoundary: 1 as const, start: <T>(prepare: () => void, provider: () => Promise<T>): Promise<T> => {
+          if (used) return Promise.reject(new OrdinaryStateHold())
+          used = true
+          return (async () => {
+            await clients()
+            // SDK metadata accessors run before the fresh native E decision.
+            prepare()
+            let actual: Promise<T> | undefined
+            try {
+              await withE(() => {
+                try { actual = Promise.resolve(provider()) } catch (error) { actual = Promise.reject(error) }
+                void actual.catch(() => {}); providerPending = actual
+                browser.#track(actual); tab.#track(actual)
+              })
+              if (!actual) hold(); const value = await actual
+              await clients(); await withE(); check(); return value
+            } finally { if (actual) await Promise.allSettled([actual]) }
+          })()
+        } })
+        try {
+          await withE(); check()
+          sdk = createNip07SignerWithDiscoveryBoundary(boundary); browser.#track(sdk); tab.#track(sdk); void sdk.catch(() => {})
+          raw = await sdk
+          if (!used || raw.providerEffectBoundary !== 1 || raw.method !== 'nip07' || raw.pubkey !== binding.account) hold()
+          await clients(); await withE(); check()
+          const result = Object.freeze({ ...retained!, method: 'nip07' as const, signer: raw })
+          raw = undefined; return result
+        } finally {
+          if (sdk) await Promise.allSettled([sdk]); if (providerPending) await Promise.allSettled([providerPending])
+          await raw?.close(); context?.abort(); await context?.ended.catch(() => {}); context?.stop(); db?.close()
+          retained = undefined; sessionValues = undefined; browser.#resources.delete(cancel); tab.#resources.delete(cancel)
+        }
+      })
+    }).then(resolve, reject)
+    return pending
   }
   /** Fixed native authentication of an unstarted operation. Capture/ownership
    * is not phase permission; every fact is authenticated under the origin lock. */
