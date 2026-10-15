@@ -6,6 +6,18 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.88 steady call video and compact record control — 15 October 2026
+Version **0.6.88**, code **111**, keeps a call tile's picture through a brief
+gap instead of flashing black, makes Record a red button and puts the
+recording notice and its controls on one compact row. It also carries verified
+join links, which open the app only once both sites serve the matching
+`assetlinks.json`.
+The production APK is built from Android source
+`d2ffffca66b48442f67e77f68119f2161063585c` (pull request #266, all checks passed), SHA-256
+`3f5bfc3711a313b78e104eb1cabebb40ff23f7784219a304b2062a26af494f3d`, signed with
+the retained production certificate. The flash fix follows from code reading
+and has not yet been observed on a device.
+
 ## Android 0.6.87 relay order and delivery evidence — 15 October 2026
 
 Version **0.6.87**, code **110**, moves relays up or down in Settings, notices a
