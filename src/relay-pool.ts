@@ -73,7 +73,8 @@ export const READ_EVIDENCE_RANK: Record<ReadEvidence, number> = { refused: 0, 'a
  *  close, a dropped socket, a dial held back. */
 export function closedReadEvidence(reason: string): ReadEvidence | undefined {
   if (reason.startsWith('auth-required:')) return 'authentication-required'
-  return /^(blocked|restricted|rate-limited|invalid|error|unsupported):/.test(reason) ? 'refused' : undefined
+  // `error:` is the relay failing, not a decision about this reader.
+  return /^(blocked|restricted|rate-limited|invalid|unsupported):/.test(reason) ? 'refused' : undefined
 }
 
 /** A fixed description of a relay's `OK false`, by its NIP-01 prefix. The

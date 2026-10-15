@@ -386,6 +386,13 @@ describe('NostrRelayPool', () => {
     expect(second!.readEvidence).toBe('refused')
   })
 
+  it('does not call a relay fault a refused read', async () => {
+    a.refuseReads = 'error: database unavailable'
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await settle()
+    expect(pool.health()[0]!.readEvidence).toBeUndefined()
+  })
+
   it('says a relay wants authentication to read, apart from refusing outright', async () => {
     a.refuseReads = 'auth-required: sign in first'
     pool.subscribe([{ kinds: [20461] }], () => {})
