@@ -127,7 +127,9 @@ Options
                            derives its own from the room's origin (the same
                            /turn endpoint the web app uses), refreshed for a
                            long-running room - see docs/decisions.md.
-  --turn-credential <u:p>  Static credentials for every TURN url given
+  --turn-credential <u:p>  Static credentials for every TURN url given.
+                           Visible to anyone on this machine who can run ps;
+                           prefer KITHMOOT_TURN_CREDENTIAL (below) instead
   --persona <file>         Markdown: the character, put in front of the model
   --memory <dir>           Append everything seen and said to <dir>/log.jsonl
   --brain <kind>           stdio (default) | ollama | anthropic | none
@@ -161,8 +163,8 @@ separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
 KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
 KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
 KITHMOOT_FORWARDER (JSON, or a file path), KITHMOOT_LINK, KITHMOOT_ROOM_NAME,
-KITHMOOT_NUDGE (1 to turn it on), KITHMOOT_DESTRUCT (1 to turn it on), KITHMOOT_REKEY_EVERY (days). A flag
-wins over the environment. With --state, the room link is also written
+KITHMOOT_NUDGE (1 to turn it on), KITHMOOT_DESTRUCT (1 to turn it on), KITHMOOT_REKEY_EVERY (days),
+KITHMOOT_TURN_CREDENTIAL (user:pass). A flag wins over the environment. With --state, the room link is also written
 beside the state file as <state>.link, readable by the keeper's user only.
 
 A keeper with --state holds <state>.lock while it runs, so two keepers
@@ -300,7 +302,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     nsec: values.nsec,
     relays: relays.length ? relays : envList('RELAYS'),
     ice: values.ice?.length ? values.ice : envList('ICE'),
-    turnCredential: values['turn-credential'],
+    turnCredential: values['turn-credential'] ?? env('TURN_CREDENTIAL'),
     persona: values.persona ?? env('PERSONA'),
     memory: values.memory ?? env('MEMORY'),
     // A scribe with no model still works, so none is its default; a joiner
@@ -364,6 +366,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const owner = common.ownerProof ? await loadOwnerProof(common.ownerProof, identity.pubkey) : undefined
   const persona = await loadPersona(common)
   const turn = common.turnCredential ? splitCredential(common.turnCredential) : undefined
+  if (values['turn-credential']) {
+    // Same exposure as --nsec: the credential is in argv for as long as the
+    // process runs, readable by anyone on this machine who can run ps.
+    log('--turn-credential puts the credential on the command line, where anyone on this machine who can run ps can read it. Prefer KITHMOOT_TURN_CREDENTIAL instead.')
+  }
 
   // Everything this process keeps for a room, so a self-destructing room can
   // take it with it. A shared --memory directory loses its log.jsonl whole.
