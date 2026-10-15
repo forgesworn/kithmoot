@@ -1,8 +1,8 @@
 # Ordinary browser storage inventory
 
-This is the production source inventory for the protected-state integration
-branch, following main `7eec830` and local composition `0831a0c`. It is not
-evidence that the application has switched persistence or that DG08 is complete.
+Updated 15 October 2026. This is the production source inventory for the
+protected-state integration branch. It is not evidence that the application
+has switched persistence or that DG08 is complete.
 The approved migration contract still requires complete coherent validation,
 the actual all-client version fence, awaited retention before effects, and
 coordinated forget. Individual validators below are offline custody checks.
@@ -39,7 +39,7 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | Physical family | Actual producer / retained meaning | Required treatment |
 | --- | --- | --- |
 | `kithmoot.participant`, `.name`, `.last-nostr-account`, `.last-nostr-method`, `.profiles.lastKnownName.v1` | `main.ts`: local identity, signer selection and display names | Existing identity check; signer/account reconciliation before use |
-| `signet:login.*` | Signet SDK login, auth event, bunker/client scalars and pending redirects | Existing required async Signet adapter; audited published SDK pin still needed |
+| `signet:login.*` | Signet SDK login, auth event, bunker/client scalars and pending redirects | Existing required async Signet adapter; published `signet-login@0.18.2` pin, with protected consumer mounting still required |
 | `kithmoot.initial-login.v1` | Native tab-only pending NIP-07 login challenge/account and paired generation/fence binding | Full native provenance and explicit fenced cancellation; atomic SDK promotion; startup remains unmounted |
 | `kithmoot.device.H`, `.device-owner.*`, `.credential.H`, `.own-credential.H`, `.own-seal.H` | `device-store.ts`: room keys, credentials, complete seal history | Existing strict checks and awaited adapter; account conversion must preserve explicit ownership |
 | `kithmoot.device`, `.credential` | Previous shared-device layout | Hold/recovery under explicit legacy policy; do not silently remove at startup |
@@ -105,8 +105,9 @@ JSON/labels hold intact. See [board-context custody](ordinary-board-context.md).
 The physical classifier keeps protected the exact browser key
 `kithmoot.textSize` with `standard`, `large` or `huge`, from independently loaded
 `text-size.ts`. It contains no identifier and only selects a root-font scale.
-Invalid values hold during strict preflight. Its independent module must move
-behind protected startup before release; no visual exception is adopted.
+Invalid values hold during strict preflight. The independent module is now
+imported only after the root absence guard. Its protected appearance consumer
+remains unmounted; no visual exception is adopted.
 
 Other identifier-free keys currently written by layout modules include
 `kithmoot.call-chat-panel`, `.call-chat-divider`, `.call-view`,
@@ -232,8 +233,12 @@ Neither this extension nor an outer framing check decrypts or authenticates an
 encrypted journal, establishes account/room authority, or closes DG08.
 
 The ordinary native test config gives each fixed spec its own project and
-worker/browser process, with one worker, zero retries and the same 30-second
-timeout and desktop browser profiles. Select an engine with a wildcard, for
+worker/browser process, with one worker, zero retries and desktop browser
+profiles. The default timeout remains 30 seconds. Eight positive journeys per
+engine that exercise two renewal generations have a measured 60-second budget;
+their original combined execution and assertions remain unchanged. Separately
+labelled repeated timing diagnostics use 90 seconds and give no normal acceptance
+credit. Select an engine with a wildcard, for
 example `--project='webkit-*'`. This bounds process lifetime after repeated
 initial-navigation stalls reproduced on a minimal WebKit page without app or
 storage code. It is harness isolation, not a WebKit root-cause or engine-fix
@@ -243,7 +248,7 @@ normalised to their engine, and distinguish original failures from later runs.
 | Surface | Actual storage / boundary | Required embedding work |
 | --- | --- | --- |
 | `kithmoot.call-tab-lock.msg` | Plaintext Storage fallback includes `roomId\|devicePubkey`, tab ID, timestamp and claim/release/probe | Remove the metadata-leaking fallback or replace it with reviewed protected coordination; moving the row alone breaks its storage-event protocol |
-| `kithmoot.call-tab-lock`, `kithmoot.room-tabs`, route-ready/client-version channels | BroadcastChannel/Web Locks/message names, not automatically Storage records | Actual discovery/version fence still required; voluntary old-tab leave is not that fence |
+| `kithmoot.call-tab-lock`, `kithmoot.room-tabs`, route-ready/client-version channels | BroadcastChannel/Web Locks/message names, not automatically Storage records | Origin-wide worker fence source is implemented below; protected root and every dependent consumer must mount/recheck it. Voluntary old-tab leave is not that fence |
 | `kithmoot.mls-coordinated-vault.revision` | Random UUID revision signal for a separate witnessed encrypted owner | Audit exact opaque value and coordination separately; not room/account metadata or a visual preference |
 | `kithmoot-mls-vault-v1.revision`, `kithmoot-rendezvous-vault-v1:revision` | Default encrypted-vault names with random UUID revision signals | Include dash-prefixed names in the source audit; preserve synchronous invalidation semantics until reviewed replacement |
 | MLS/persona/grant/room/link/rendezvous/history-index/archive stores | Separate IDB stores, opaque keys, encrypted frames and witnessed custody | Retain their own authority/anti-rollback gates; do not mistake a record AAD or DB name for a raw ordinary Storage key |
@@ -251,10 +256,13 @@ normalised to their engine, and distinguish original failures from later runs.
 | Draft and scroll state | `drafts.ts` and `chat-scroll.ts` currently keep in-memory state | Pending signed sends/file references are separate; do not invent persisted draft keys from map operations |
 
 The remaining work is the unsupported family validators, complete same-image
-classification and binding, actual startup/client fence, every awaited consumer,
+classification and binding, protected startup/client-fence mounting, every awaited consumer,
 quiet/epoch before-effect library hooks, authenticated restoration, and full
-forget/recovery. The current raw production startup still runs before migration.
-No helper, audit report or focused browser result closes that composition gap.
+forget/recovery. The [production root guard](ordinary-startup-entry.md) now holds
+every existing protected database before importing the legacy application. An
+absent database permits legacy startup under document-held native leases; the
+protected member UI remains unmounted. No helper, audit report or focused browser
+result closes that composition gap.
 
 Native NIP-07 session restore is implemented as an unmounted controller in
 `ordinary-extension-restore.ts`: historical proof verification precedes guarded
@@ -268,8 +276,11 @@ native owner lifetimes and returns only personal labels. Share callbacks capture
 the selected board before waiting and refuse a changed board/account. The room-
 board encrypted catalogue family is routed and structurally checked offline;
 its current-room decrypt/save/publication adapter and full native root mount
-remain required. The declared Girnel embed.5 archive is installed byte-exact as
-a target-only overlay; the full registry install remains unreproducible.
+remain required. The committed dependency now selects the vendored Girnel
+`1.1.0-kithmoot.6` archive. Historical target-only overlay checks remain recorded
+in their original receipts. The current dependency lockfile and fresh registry
+CI are separate evidence; [SDK provenance](ordinary-sdk-provenance.md) records
+the completed Signet release without claiming the protected consumer is mounted.
 
 ## Origin-wide client fence
 

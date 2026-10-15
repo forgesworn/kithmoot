@@ -41,4 +41,5 @@ production native checks. They do not prove real relay/device acceptance.
 
 Full application entry mounting, SDK restoration before E, all other consumers,
 old-client/service-worker fencing, independent rollback continuity, current MLS
-authority, registry installation, deployment and physical acceptance remain open.
+authority, protected consumer release, deployment and physical acceptance remain
+open. The [published SDK pin](ordinary-sdk-provenance.md) is separate evidence.

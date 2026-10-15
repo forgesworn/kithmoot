@@ -51,4 +51,5 @@ current-role construction after S.
 
 This is source work. Full application root mounting, SDK restoration at the
 entry, guarded consumers, old-client fencing, independent rollback continuity,
-current MLS authority, registry release and physical acceptance remain separate.
+current MLS authority, protected consumer release and physical acceptance remain
+separate. The [SDK registry release](ordinary-sdk-provenance.md) does not close them.

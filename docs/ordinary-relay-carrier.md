@@ -65,8 +65,9 @@ The browser suite uses actual encrypted native owners, complete composition,
 the real relay pool and SDK classes, controlled route/wallet scheduling, and
 actual loopback WebSockets with and without NIP-42. Controlled callbacks do not
 establish a deployed route, Tor isolation, a physical device or an actual wallet.
-The SDK is still an exact unpublished development overlay, not a reproducible
-registry dependency.
+The dependency and lockfile now pin published `signet-login@0.18.2`. See
+[SDK provenance](ordinary-sdk-provenance.md) for the release evidence and the
+separate limits of earlier development-overlay receipts.
 
 The [member factory](ordinary-member-session.md) now owns a genuine first-credential
 `RoomSession` and its supported private preparation. Renewal, board invitation

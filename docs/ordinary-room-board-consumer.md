@@ -50,14 +50,15 @@ account adoption; disposal does not clear another account's global SDK keys.
 
 Unit tests cover the consumer and the same lifecycle helpers used by the root.
 Native browser tests use real IndexedDB, Web Locks, WebCrypto, NIP-44 and the
-reviewed unpublished SDK. Their room object and channel/chat callbacks are
-synthetic; they prove custody and lifetime behaviour, not real RoomSession,
+published SDK pinned by the dependency and lockfile. Their room object and
+channel/chat callbacks are synthetic; they prove custody and lifetime behaviour, not real RoomSession,
 relay or physical acceptance. Built-app journeys separately cover the explicit
 legacy production adapter with the actual bundled board child.
 
 Pre/post `custody.check` does not guard actual deferred socket starts. Native
 RoomSession binding, subscription/publication frames, actual invitation/Girnel
 grant checks, explicit legacy recovery, protected production startup and other
-login/restore carriers remain open. SDK registry/consumer release, current MLS
+login/restore carriers remain open. The [SDK registry release](ordinary-sdk-provenance.md)
+is complete; protected consumer release, current MLS
 authority, independent continuity, deployment, physical acceptance and DG08
 completion are also open.

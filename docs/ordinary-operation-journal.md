@@ -136,7 +136,7 @@ invoke the provider again. Recovery must authenticate the whole current store
 and current role independently of any diagnostic disposition.
 
 Actual entry mounting, all-consumer source inventory, old-client fences,
-registry dependency reproducibility, current independent MLS authority,
+complete protected consumer release, current independent MLS authority,
 rollback-protected allocation history and physical/mixed-client acceptance
 remain open. None is established by a local source commit or a browser test.
 

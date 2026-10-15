@@ -63,8 +63,9 @@ native commit; a superseded protected save holds that view for reopening and
 preserves both frames. Authentication evidence passed to the child is detached
 and deeply frozen. Session acquisition is tracked and checked before and after
 settlement. Sign-in, sign-out and browser forgetting await view reset before
-starting new signer work or clearing the browser's state. No full production migration, Signet registry
-reproducibility, Tor, deployment or physical acceptance is established;
+starting new signer work or clearing the browser's state. These checks do not
+establish full production migration, Tor, deployment or physical acceptance;
+the [published SDK](ordinary-sdk-provenance.md) is separate evidence.
 DG08 remains open.
 
 Native consumer tests also instantiate the actual Boards panel, inject the
@@ -95,7 +96,7 @@ canonical `{chunks}` carrier and visible NIP-44 framing without decryption.
 Framing does not authenticate the account, room, plaintext, MAC or invitation.
 A later current-room adapter must authenticate and bind each decrypted board
 before use, guard encryption/publication, and retain the exact source on refusal.
-Full startup mounting, registry/consumer release and physical acceptance remain
+Full startup mounting, protected consumer release and physical acceptance remain
 open.
 
 A room-share destination may be obtained before board creation. Its board

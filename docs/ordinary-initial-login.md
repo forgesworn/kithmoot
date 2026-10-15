@@ -58,10 +58,11 @@ remain owned by the coordinated tab runtime.
 
 Tests use real IndexedDB, Web Locks, AES-GCM and the complete image composer.
 The extension backend is synthetic. Source/package/automated-browser evidence
-does not prove real-wallet behaviour, deployed root mounting, registry release,
+does not prove real-wallet behaviour, protected root mounting, consumer release,
 independent anti-rollback continuity or physical acceptance. Guarded session
 restore, the modal, redirects/Amber, initial NIP-46 connection, management and
 transport frames, tab/credential renewal and the remaining root consumers remain
-open. The installed SDK is an exact recorded development candidate; the current
-registry dependency does not reproduce it. Production MLS and DG08 completion
+open. The dependency and lockfile now pin published `signet-login@0.18.2`;
+[SDK provenance](ordinary-sdk-provenance.md) separates that release from the
+earlier development-candidate receipts. Production MLS and DG08 completion
 remain held until their separate gates pass.

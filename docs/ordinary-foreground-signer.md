@@ -4,8 +4,9 @@
 Signet session. It requires the reviewed SDK provider-boundary contract
 (`providerEffectBoundary === 1`), completed native browser and tab migration,
 and the complete authenticated paired-image composer. Passing an extra argument
-to an older SDK cannot establish this contract. KithMoot's registry dependency
-and production startup do not contain the new SDK boundary yet.
+to an older SDK cannot establish this contract. KithMoot now pins the published
+`signet-login@0.18.2`, which contains this boundary. See [SDK provenance](ordinary-sdk-provenance.md). The protected
+foreground adapter remains unmounted in production.
 
 The adapter captures the source session, account, method, signed authentication
 proof, expiry, display name, raw signer, capabilities and method receivers.
@@ -86,8 +87,8 @@ Its trusted consumer callbacks cannot establish current membership or MLS
 admission authority.
 
 Native tests use real IndexedDB, Web Locks, WebCrypto, the complete composer and
-the reviewed unpublished SDK candidate. Extensions and bunker backends are
-synthetic. They check provider starts under the native lock, unlocked waiting,
+the published SDK pinned by the dependency and lockfile. Extensions and bunker
+backends are synthetic. They check provider starts under the native lock, unlocked waiting,
 coherent session/fence/lease checks, revocation, retry, delayed upgrade,
 template aliases, signature validation, encryption/decryption and joined close.
 The borrowed-signing cases additionally check consent and native relay-row
@@ -96,15 +97,15 @@ and final handoff. Loopback NIP-42 tests use real browser WebSockets and the
 actual authentication adapter with the narrowed SDK signer; they establish
 signature handoff behaviour, not native socket constructor/frame guards.
 They do not prove production mounting, real wallet/device behaviour or carrier
-privacy. The candidate archive and installed bytes are recorded outside the
-repository; the existing dependency declaration is not a reproducible install
-of this source addition.
+privacy. Historical local candidate substitutions remain recorded in their
+validation receipts. The current dependency is the published package; its release and
+registry evidence do not establish this adapter's production mounting.
 
 Protected initial login/connection/restoration, ephemeral nsec foreground
 binding without persistent secret/session records, NIP-46 management and
 transport-internal frames still need their own coordinated startup/carrier
 boundaries. Credential/tab-epoch renewal, creator/member bootstrap and the
 native board-provider mount remain part of the full startup integration.
-Current authority, independent continuity, registry release, deployment and
+Current authority, independent continuity, protected consumer release, deployment and
 physical acceptance remain open. DG08 and the overall delivery goal are not
 complete.

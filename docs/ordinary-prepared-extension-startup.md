@@ -39,8 +39,9 @@ The browser tests use real encrypted IndexedDB, Web Locks, the actual packaged
 SDK and signed protocol events. The relay is a synthetic authority which
 validates the actual epoch request and encrypts the grant to its credential.
 This is browser/source evidence, not real relay or physical-device acceptance.
-The SDK candidate is an audited local overlay; KithMoot's committed dependency
-and lock still require an official published package and clean installation.
+KithMoot's committed dependency and lockfile now select published
+`signet-login@0.18.2`; see [SDK provenance](ordinary-sdk-provenance.md). Earlier
+local overlay checks remain distinct from fresh registry CI and deployed acceptance.
 
 Full application entry mounting, other login carriers and roles/policies,
 old-client/service-worker fencing, independent rollback continuity, current MLS

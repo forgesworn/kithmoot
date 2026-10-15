@@ -3,7 +3,7 @@
 This is unpublished source preparation for the protected client. The production
 PWA does not call `OrdinaryInvitationCreator.publish`. It does not establish
 current admission, keeper/rekey authority, an independently verified Tor
-carrier, independent rollback protection, production registry reproducibility,
+carrier, independent rollback protection, protected production consumer release,
 or physical/browser–Android MLS acceptance.
 
 `publish` requires an already durably retained creator event and pending intent.

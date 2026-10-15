@@ -11,4 +11,3 @@ export async function memberTransport(page: Page): Promise<void> {
     .replace('credential:ownCredential', "credential:JSON.parse(Ordinary.nip44.v2.decrypt(frame[1].content,Ordinary.nip44.v2.utils.getConversationKey(inviterSk,frame[1].pubkey))).credential")
   await page.evaluate(`(()=>{${relay}})()`)
 }
-

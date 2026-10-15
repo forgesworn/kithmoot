@@ -35,7 +35,8 @@ interface Options {
 /** Required Signet custody for one captured foreground. Opening requires a
  * completed migration and validates the whole SDK partition before any SDK
  * entropy, connection or restore. It supplies custody, never MLS authority
- * or independent rollback resistance. SDK v0.18.0 is required by the caller. */
+ * or independent rollback resistance. The caller requires the provider boundary
+ * contract in pinned SDK v0.18.2. */
 export class OrdinarySignetState implements SignetStorage {
   readonly required = true
   readonly #options: Options

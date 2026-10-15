@@ -42,9 +42,9 @@ close that joins its own operation.
 
 Browser tests use real IndexedDB, Web Locks, encryption and complete paired
 image validation, with a synthetic extension backend. Those tests do not prove
-real-wallet/device acceptance or deployment. The installed SDK is a recorded
-unpublished source candidate; declared registry dependencies do not reproduce
-it. Full native root startup, modal/redirect/Amber/NIP-46 initial connection,
+real-wallet/device acceptance or deployment. The dependency and lockfile now
+pin published `signet-login@0.18.2`; see [SDK provenance](ordinary-sdk-provenance.md).
+Full native root startup, modal/redirect/Amber/NIP-46 initial connection,
 management and transport, auth-only/bunker restore, tab/credential renewal,
 consumer release and physical acceptance remain open. Production MLS and DG08
 remain held behind their separate gates.

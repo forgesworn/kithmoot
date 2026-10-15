@@ -61,16 +61,18 @@ acknowledgement. Unknown retention, failed clients, changed SDK/catalogue bytes,
 forgotten room fences and full capacity hold rather than granting an effect.
 
 Browser tests exercise real IndexedDB, Web Locks, WebCrypto and NIP-44 through
-the reviewed unpublished SDK, with synthetic extension callbacks and room
+the published SDK pinned by the dependency and lockfile, with synthetic
+extension callbacks and room
 selection. Multi-chunk round-trips and changes specifically between the
 initial SDK read and actual wallet start are covered. This is source/browser
 evidence, not a real wallet, board grant, production or physical acceptance.
-The registry dependency still does not install that SDK candidate.
+See [SDK provenance](ordinary-sdk-provenance.md) for the published package and
+the limits of historical local overlay evidence.
 
 The [awaited `RoomBoards` consumer](ordinary-room-board-consumer.md) can now own
 this adapter's complete queued operations through `joinLifetime`; its `check`
 performs a fresh paired read. Production still selects the explicit legacy
 adapter. Native RoomSession binding, guarded actual transport frames, legacy
 recovery, protected production startup and other login/restore carriers remain
-open. Current MLS authority, independent continuity, SDK consumer and
-registry release, deployment, physical acceptance and DG08 are not complete.
+open. Current MLS authority, independent continuity, protected SDK consumer
+release, deployment, physical acceptance and DG08 are not complete.

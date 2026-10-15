@@ -260,4 +260,5 @@ drain-boundary and timer-overlap races, queue overflow, failed post-commit
 adoption, reconnect after unknown ACK and immutable authority versus advancing
 credential expiry. Test every protocol/timer path against the suspension and
 swap. Schema/source, automated, independent review, production
-mounting, registry release and physical acceptance remain separate gates.
+mounting, protected consumer release and physical acceptance remain separate gates.
+The [SDK registry release](ordinary-sdk-provenance.md) does not close them.

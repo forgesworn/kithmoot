@@ -34,4 +34,5 @@ queued relay cancellation and joined owner close. SDK wallets and scheduling
 remain controlled fixtures. Loopback query/creator tests use real browser
 WebSockets and actual signed protocol events. Production startup, RoomSession,
 remaining login/restore/carriers, credential/tab renewal, current authority,
-independent continuity, registry release and physical acceptance remain open.
+independent continuity, protected consumer release and physical acceptance remain
+open. The [SDK registry release](ordinary-sdk-provenance.md) is separate evidence.

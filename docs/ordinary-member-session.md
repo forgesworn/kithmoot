@@ -3,8 +3,9 @@
 `OrdinaryPersistentBootstrap.openMemberSession` constructs the genuine library
 `RoomSession` from this bootstrap's acknowledged incoming-member proof. The
 private factory owns its root/device/seal buffers, protocol execution guard and
-exact `OrdinaryRelayCarrier`. It remains **unmounted in production** and uses the
-inherited unpublished Signet development overlay.
+exact `OrdinaryRelayCarrier`. It remains **unmounted in production**. The
+dependency and lockfile now pin published `signet-login@0.18.2`; see
+[SDK provenance](ordinary-sdk-provenance.md).
 
 The public facade exposes join, chat sends, publish-only prepared retries,
 detached message reads, named chat channels, descriptor publication and awaited
@@ -105,5 +106,5 @@ Production root/startup and every carrier, creator-member sessions, restrictive
 and quiet policies, durable unknown-commit startup classification, media/assignments/member epoch
 desks and the complete protocol inventory remain open. So do board invitation
 verification and explicit legacy recovery, current MLS admission authority,
-independently permanent allocation continuity, required SDK consumers/registry
+independently permanent allocation continuity, required protected SDK consumer
 release and deployment/device acceptance. Production MLS remains disabled.

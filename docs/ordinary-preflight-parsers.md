@@ -11,8 +11,9 @@ Signet retains the exact ten SDK names in browser custody. Unknown names under
 hold. Session coherence, signed proof, captured origin/app/account, secret
 scalars, bunker relays, pending handshake fields and value bounds use the same
 checks as the adapter. Stored proof integrity is checked at its signed time;
-this is not a fresh login or room membership. Signet 0.18.0 publication and the
-production pin remain separate requirements.
+this is not a fresh login or room membership. The current dependency and lockfile
+pin published `signet-login@0.18.2`; see [SDK provenance](ordinary-sdk-provenance.md).
+That release does not establish protected production startup.
 
 Pending preflight structurally validates every queue and both physical owners
 before invoking any supplied binding callback. Only exact account-scoped room names are accepted; legacy

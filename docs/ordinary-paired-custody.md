@@ -47,8 +47,8 @@ fixtures do not exercise real invitations, production adapters or independent
 storage hardware.
 
 The Fold-kit pin includes the optional persistent-invitation-evidence API.
-The source tests currently use the previously reviewed local Signet 0.18.0
-package; KithMoot's registry declaration remains 0.17.1. This substitution is
-recorded in the external validation receipts. A reproducible published
-consumer install and release remain open until the upstream dependency gate
-is resolved.
+Earlier source tests used a reviewed local Signet candidate; those substitutions
+remain recorded in the external validation receipts. KithMoot now pins the
+published `signet-login@0.18.2` in its dependency and lockfile; see
+[SDK provenance](ordinary-sdk-provenance.md). Complete protected consumer
+integration and release remain separate gates.
