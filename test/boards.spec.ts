@@ -9,6 +9,7 @@ import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
 import {turnOnMedia} from './browser.js'
+import {installBoardOpenDiagnostic, captureBoardOpenDiagnostic} from './board-open-diagnostic.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -29,8 +30,9 @@ async function offlineRelease() {
   let closed = false
   return {base: `http://127.0.0.1:${(server.address() as {port: number}).port}/j/`, close: async () => {if (closed) return; closed = true; server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()))}}
 }
-async function device(browser: Browser, base: string, offline = false): Promise<{context: BrowserContext; page: Page; pubkey: string}> {
+async function device(browser: Browser, base: string, offline = false, diagnose = false): Promise<{context: BrowserContext; page: Page; pubkey: string}> {
   const context = await browser.newContext({ignoreHTTPSErrors: true, serviceWorkers: offline ? 'allow' : 'block'})
+  if (diagnose && process.env.BOARD_OPEN_DIAGNOSTIC === '1') await installBoardOpenDiagnostic(context)
   const secret = generateSecretKey(), pubkey = getPublicKey(secret), relay = new URL('/__test-relay', base); relay.protocol = 'wss:'
   await context.exposeFunction('boardsKey', () => pubkey)
   await context.exposeFunction('boardsSign', (event: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(event, secret))
@@ -230,8 +232,8 @@ test('card colour saves when the colour label is clicked and survives reopening'
   } finally {await context.close()}
 })
 
-test('an existing private board keeps its cards and is shared only after the explicit room sharing action', async ({browser, baseURL}) => {
-  const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!)
+test('an existing private board keeps its cards and is shared only after the explicit room sharing action', async ({browser, baseURL}, info) => {
+  const ada = await device(browser, baseURL!, false, true), bo = await device(browser, baseURL!)
   const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Existing board room', agent: false, ...agentRelaysFor(baseURL!)})
   const enter = async (who: typeof ada, name: string) => {
     await who.page.evaluate(({pubkey, room}) => localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room)), {pubkey: who.pubkey, room: {roomId: keeper.roomId, name: 'Existing board room', link: keeper.url, openedAt: 1, readAt: 0}})
@@ -265,7 +267,10 @@ test('an existing private board keeps its cards and is shared only after the exp
     if (await reminder.isVisible()) await reminder.click()
     await guest.getByRole('button', {name: /^Join (?:board|Existing notes)$/}).click()
     await expect(guest.getByRole('link', {name: 'Keep my existing card', exact: true})).toBeVisible({timeout: 60000})
-  } finally {await keeper.leave(); await ada.context.close(); await bo.context.close()}
+  } finally {
+    if (process.env.BOARD_OPEN_DIAGNOSTIC === '1') await captureBoardOpenDiagnostic(ada.page, info, 'before-cleanup').catch(error => console.error('Board diagnostic capture failed:', error instanceof Error ? error.name : typeof error))
+    await keeper.leave(); await ada.context.close(); await bo.context.close()
+  }
 })
 
 test('a room keeps its board discoverable after popping out, closing the window and reloading', async ({browser, baseURL}, info) => {
