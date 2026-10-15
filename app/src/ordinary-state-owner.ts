@@ -2,7 +2,9 @@ import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
 import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
-import { HEADLESS_NIP07_DISCOVERY_BOUNDARY, createNip07SignerWithDiscoveryBoundary, type SignetSession, type SignetSigner, type Nip07DiscoveryBoundary } from 'signet-login'
+import { HEADLESS_NIP07_DISCOVERY_BOUNDARY, createNip07SignerWithDiscoveryBoundary, createPinnedNip07SignerWithDiscoveryBoundary, createSessionFromSigner,
+  type SignetSession, type SignetSigner, type SignetAuthEvent, type SignerEffectBoundary, type Nip07DiscoveryBoundary } from 'signet-login'
+import { captureOrdinaryFreshAccountProof } from './ordinary-fresh-account-proof.js'
 import { ORDINARY_SIGNET_KEYS } from './ordinary-signet-snapshot.js'
 import { ORDINARY_INITIAL_LOGIN_KEY } from './ordinary-initial-login-snapshot.js'
 import { takeOrdinaryPreparedExtensionFactory, checkOrdinaryPreparedExtensionPromise, type OrdinaryPreparedExtensionFactory } from './ordinary-prepared-extension-factory.js'
@@ -68,7 +70,14 @@ const privateExistingCaptures = new WeakMap<object, PrivateExistingCapture>()
 interface PrivateExistingProvider {
   readonly capture: PrivateExistingCapture
   readonly source: Readonly<SignetSession>
-  readonly providerCurrent: () => boolean
+  readonly beginControl: () => void
+  readonly controlLive: () => void
+  // These native operations never escape the owner module. The eventual
+  // explicit member action consumes this entry before using them; discovery
+  // and restore do not invoke fresh account authentication.
+  readonly freshControl: (start?: () => void) => Promise<void>
+  readonly trackControl: <T>(pending: Promise<T>) => Promise<T>
+  readonly stop: () => void
   consumed: boolean
 }
 const privateExistingProviders = new WeakMap<object, PrivateExistingProvider>()
@@ -737,8 +746,26 @@ export class OrdinaryStateOwner {
     const { browser, tab, binding } = captured
     let stopped = false, closing: Promise<void> | undefined, context: OperationTransaction | undefined
     let source: Readonly<SignetSession> | undefined
+    let closeSource: (() => Promise<void>) | undefined
     let expiryTimer: ReturnType<typeof setTimeout> | undefined
     let provider: NonNullable<Window['nostr']> | undefined, fields: readonly unknown[] | undefined
+    let controlMode = false
+    let sdkCurrent: (() => boolean) | undefined
+    // Descriptor reflection can itself invoke Proxy traps. During explicit
+    // control it is used only in the final authenticated native decision.
+    const own = (object: object, key: PropertyKey, optional = false): unknown => {
+      const descriptor = Object.getOwnPropertyDescriptor(object, key)
+      nativeCheck()
+      if (!descriptor && optional) return undefined
+      if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) hold()
+      return descriptor.value
+    }
+    const controlWork = new Set<Promise<unknown>>()
+    const trackControl = <T>(pending: Promise<T>): Promise<T> => {
+      controlWork.add(pending); browser.#track(pending); tab.#track(pending)
+      void pending.finally(() => controlWork.delete(pending)).catch(() => {})
+      return pending
+    }
     const nativeCheck = () => {
       if (stopped || privateExistingCaptures.get(root) !== captured || !binding.live() || stopped ||
           navigator.serviceWorker.controller !== binding.controller) hold()
@@ -750,6 +777,14 @@ export class OrdinaryStateOwner {
     const providerFields = (): unknown[] => {
       if (!provider) hold()
       const read = <T>(work: () => T): T => { const value = work(); nativeCheck(); return value }
+      if (controlMode) {
+        const n04 = own(provider!, 'nip04', true), n44 = own(provider!, 'nip44', true)
+        return [own(provider!, 'getPublicKey'), own(provider!, 'signEvent'), n04, n44,
+          n04 === undefined ? undefined : own(n04 as object, 'encrypt'),
+          n04 === undefined ? undefined : own(n04 as object, 'decrypt'),
+          n44 === undefined ? undefined : own(n44 as object, 'encrypt'),
+          n44 === undefined ? undefined : own(n44 as object, 'decrypt')]
+      }
       const n04 = read(() => provider!.nip04), n44 = read(() => provider!.nip44)
       return [read(() => provider!.getPublicKey), read(() => provider!.signEvent), n04, n44,
         read(() => n04?.encrypt), read(() => n04?.decrypt), read(() => n44?.encrypt), read(() => n44?.decrypt)]
@@ -757,11 +792,12 @@ export class OrdinaryStateOwner {
     const check = () => {
       nativeCheck()
       if (provider) {
-        const actual = window.nostr; nativeCheck()
+        const actual = controlMode ? own(window, 'nostr') : window.nostr; nativeCheck()
         if (actual !== provider || fields && !providerFields().every((value, i) => value === fields![i])) hold()
       }
       nativeCheck()
     }
+    const readCheck = () => { if (controlMode) nativeCheck(); else check() }
     const stop = () => {
       if (stopped) return
       stopped = true; if (expiryTimer !== undefined) clearTimeout(expiryTimer)
@@ -791,21 +827,21 @@ export class OrdinaryStateOwner {
         const fresh = async (start?: () => void) => {
           let b: OrdinaryImage | undefined, t: OrdinaryImage | undefined
           try {
-            check(); db?.close(); db = await browser.#existingStartupDatabase(binding.live); check(); if (!db) hold()
+            readCheck(); db?.close(); db = await browser.#existingStartupDatabase(binding.live); readCheck(); if (!db) hold()
             db.onversionchange = () => { stop(); db?.close() }
             context = operationTransaction(db, 'readonly')
             const rows = await Promise.all([context.read(() => context!.store.get('browser')),
               context.read(() => context!.store.get(captured.purpose))])
-            check(); const br = row(rows[0]), tr = row(rows[1])
+            readCheck(); const br = row(rows[0]), tr = row(rows[1])
             if (!br?.frame || !tr?.frame || br.pending || tr.pending ||
                 rowDigest(br) !== captured.rows[0] || rowDigest(tr) !== captured.rows[1]) hold()
-            b = await openOrdinaryFrame(br.frame, br.key); check()
-            t = await openOrdinaryFrame(tr.frame, tr.key); check()
+            b = await openOrdinaryFrame(br.frame, br.key); readCheck()
+            t = await openOrdinaryFrame(tr.frame, tr.key); readCheck()
             if (b.purpose !== 'browser' || b.expiresAt !== 0 || t.purpose !== captured.purpose ||
                 t.expiresAt !== captured.expiresAt || b.revision !== captured.revisions[0] || t.revision !== captured.revisions[1] ||
                 b.generation !== captured.generations[0] || t.generation !== captured.generations[1] ||
                 b.migration?.phase !== 'complete' || t.migration?.phase !== 'complete') hold()
-            const facts = await browser.#classifyOperations(binding.live, context); check()
+            const facts = await browser.#classifyOperations(binding.live, context); readCheck()
             if (JSON.stringify(facts) !== captured.classification) hold()
             browser.#validateCleanupImage(b, t, tab, facts, snapshot)
             const k = ORDINARY_SIGNET_KEYS, pubkey = b.records.get(k.pubkey), method = b.records.get(k.method),
@@ -825,19 +861,20 @@ export class OrdinaryStateOwner {
             if (!retained) retained = Object.freeze({ pubkey, authEvent: { ...proof, kind: 21236 as const },
               ...(expiresAt === undefined ? {} : { expiresAt }), ...(displayName === undefined ? {} : { displayName }) })
             await context.step(() => {
-              check(); const now = Date.now(); check()
+              check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()
+              const now = Date.now(); nativeCheck()
               if (!Number.isSafeInteger(now) || now < 0 || now >= captured.expiresAt ||
                   captured.selection.credentialExpiresAt - Math.floor(now / 1000) < 600 ||
                   expiresAt !== undefined && now >= expiresAt) hold()
-              start?.(); check()
+              start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()
             })
-            context.stop(); await context.ended; check()
+            context.stop(); await context.ended; readCheck()
           } finally {
             context?.abort(); await context?.ended.catch(() => {}); context?.stop(); context = undefined
-            clearImage(b); clearImage(t)
+            clearImage(b); clearImage(t); db?.close(); db = undefined
           }
         }
-        const clients = async () => { check(); await binding.assertClientsCurrent(); check() }
+        const clients = async () => { readCheck(); await binding.assertClientsCurrent(); readCheck() }
         try {
           // Establish actual provider identity only after fresh native custody.
           await fresh(); nativeCheck()
@@ -861,14 +898,44 @@ export class OrdinaryStateOwner {
                 } finally { if (actual) await Promise.allSettled([actual]) }
               })()
             } })
-          sdk = createNip07SignerWithDiscoveryBoundary(boundary)
+          sdk = createPinnedNip07SignerWithDiscoveryBoundary(boundary)
           browser.#track(sdk); tab.#track(sdk); void sdk.catch(() => {})
           raw = await sdk; check()
           if (!used || raw.providerEffectBoundary !== 1 || raw.method !== 'nip07' || raw.pubkey !== captured.selection.account) hold()
           await clients(); await fresh(); check()
           source = Object.freeze({ ...retained!, method: 'nip07' as const, signer: raw })
+          const sdkSigner = source.signer
+          const sdkFields = () => {
+            const get = (object: object, key: PropertyKey, optional = false): unknown => {
+              const value = controlMode ? own(object, key, optional) : Reflect.get(object, key)
+              readCheck(); return value
+            }
+            const capabilities = get(sdkSigner, 'capabilities') as object,
+              n04 = get(sdkSigner, 'nip04', true) as object | undefined, n44 = get(sdkSigner, 'nip44', true) as object | undefined
+            return [get(sdkSigner, 'pubkey'), get(sdkSigner, 'method'), get(sdkSigner, 'signEvent'),
+              get(sdkSigner, 'providerEffectBoundary'), get(sdkSigner, 'pinnedProviderCalls'), capabilities,
+              get(capabilities, 'canSignEvents'), get(capabilities, 'hasNip44'), n04, n44,
+              n04 === undefined ? undefined : get(n04, 'encrypt'), n04 === undefined ? undefined : get(n04, 'decrypt'),
+              n44 === undefined ? undefined : get(n44, 'encrypt'), n44 === undefined ? undefined : get(n44, 'decrypt'),
+              Object.getPrototypeOf(sdkSigner)]
+          }
+          const expectedSdk = Object.freeze(sdkFields()), sdkClose = sdkSigner.close
+          check()
+          if (expectedSdk[4] !== 1 || typeof sdkClose !== 'function') hold()
+          closeSource = () => sdkClose.call(sdkSigner)
+          sdkCurrent = () => source?.signer === sdkSigner && sdkFields().every((value, index) => value === expectedSdk[index])
           privateExistingProviders.set(root, { capture: captured, source,
-            providerCurrent: () => { try { check(); return true } catch { return false } }, consumed: false })
+            beginControl: () => { controlMode = true; nativeCheck() },
+            controlLive: nativeCheck,
+            freshControl: async start => {
+              // Wallet waits and all reflective provider/proof work are kept
+              // out of the native reader until its final authenticated step.
+              nativeCheck()
+              await navigator.locks.request(WRITE_LOCK, async () => {
+                await clients(); await fresh(start); nativeCheck()
+              })
+              nativeCheck()
+            }, trackControl, stop, consumed: false })
           raw = undefined
         } finally {
           if (sdk) await Promise.allSettled([sdk]); if (providerPending) await Promise.allSettled([providerPending])
@@ -888,7 +955,10 @@ export class OrdinaryStateOwner {
       stop()
       void (async () => {
         await operation.catch(() => {})
-        const results = await Promise.allSettled([source?.signer.close()]); source = undefined
+        // Any later explicit authentication/member work must join before the
+        // borrowed raw SDK is closed, even when that work refused or rejected.
+        while (controlWork.size) await Promise.allSettled([...controlWork])
+        const results = await Promise.allSettled([closeSource?.()]); source = undefined; closeSource = undefined
         browser.#resources.delete(cancel); tab.#resources.delete(cancel)
         results.push(...await Promise.allSettled([browser.close(), tab.close()]))
         const failed = results.find(result => result.status === 'rejected')
@@ -896,6 +966,112 @@ export class OrdinaryStateOwner {
       })().then(resolve, reject)
       return closing
     } })
+  }
+  /** Private construction stage only. It remains unreachable from discovery,
+   * restore and public APIs. The full member driver must call it solely after
+   * consuming its actual trusted UI action, then confine the resulting proof
+   * to the exact one-use foreground claim. No historical auth row is replaced. */
+  static #authenticatePrivateExistingProvider(root: OrdinaryPrivateExistingRoot): Promise<Readonly<SignetAuthEvent>> {
+    const provider = privateExistingProviders.get(root)
+    if (!provider || provider.consumed) return Promise.reject(new OrdinaryStateHold())
+    provider.consumed = true // Before getters, imports, awaits or signing effects.
+    try { provider.beginControl() } catch (error) { provider.stop(); return Promise.reject(error) }
+    let phase: 'ready' | 'signing' | 'signed' | 'finalising' | 'complete' | 'failed' = 'ready'
+    const pending = Promise.resolve().then(async () => {
+      const { capture, source } = provider
+      const current = () => {
+        // Memory/native liveness only. No SDK/provider field or proof reflection
+        // is allowed outside the authenticated final freshControl decision.
+        provider.controlLive()
+        if (privateExistingProviders.get(root) !== provider || phase === 'failed') hold()
+      }
+      const fresh = async (start?: () => void) => {
+        current()
+        await provider.freshControl(() => { current(); start?.(); current() })
+        current()
+      }
+      let challenge = '', sdkStartedAt = 0, sdkPreparedAt = 0
+      let signed: Readonly<SignetAuthEvent> | undefined, rawSigned: unknown
+      let facade: SignetSigner | undefined
+      const proof = (input: unknown) => captureOrdinaryFreshAccountProof(input, Object.freeze({
+        account: capture.selection.account, challenge, origin: capture.binding.origin, sdkStartedAt, sdkPreparedAt,
+      }))
+      const boundary: SignerEffectBoundary = Object.freeze({
+        start: <T>(effect: () => Promise<T>): Promise<T> => {
+          const signing = phase === 'ready'
+          if (!signing && phase !== 'signed') {
+            phase = 'failed'; provider.stop(); return Promise.reject(new OrdinaryStateHold())
+          }
+          phase = signing ? 'signing' : 'finalising'
+          return provider.trackControl(Promise.resolve().then(async () => {
+            let actual: Promise<T> | undefined
+            try {
+              await fresh(() => {
+                if (phase !== (signing ? 'signing' : 'finalising')) hold()
+                try { actual = Promise.resolve(effect()) } catch (error) { actual = Promise.reject(error) }
+                provider.trackControl(actual); void actual.catch(() => {})
+              })
+              if (!actual) hold()
+              const result = await actual
+              let detached: Readonly<SignetAuthEvent> | undefined
+              await fresh(() => { detached = proof(result) })
+              // Reflective proof capture may execute hostile Proxy traps. A
+              // second complete native read follows it before accepting phase.
+              await fresh()
+              if (!detached || phase !== (signing ? 'signing' : 'finalising')) hold()
+              if (signing) { rawSigned = result; signed = detached; phase = 'signed' }
+              else {
+                if (!signed || JSON.stringify(detached) !== JSON.stringify(signed)) hold()
+                phase = 'complete'
+              }
+              return result // Every SDK boundary retains its actual result identity.
+            } catch (error) { phase = 'failed'; provider.stop(); throw error }
+            finally { if (actual) await Promise.allSettled([actual]) }
+          }))
+        },
+      })
+      try {
+        await fresh(() => {
+          challenge = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))
+          const signer = source.signer, sign = signer.signEvent
+          const pubkey = signer.pubkey, method = signer.method
+          if (pubkey !== capture.selection.account || method !== 'nip07' || signer.providerEffectBoundary !== 1 ||
+              signer.capabilities.canSignEvents !== true || typeof sign !== 'function') hold()
+          // This SDK-owned callable normalises owned templates and invokes only
+          // captured provider functions behind the supplied unchanged boundary.
+          // The outer SDK helper receives owned plain proof, never raw Proxy data.
+          facade = Object.freeze({ pubkey, method, providerEffectBoundary: 1 as const,
+            capabilities: Object.freeze({ ...signer.capabilities }),
+            signEvent: async (template, supplied) => {
+              if (supplied === undefined) hold()
+              const actual = await Reflect.apply(sign, signer, [template, supplied])
+              current()
+              if (actual !== rawSigned || !signed || phase !== 'signed') hold()
+              return signed
+            },
+            close: async () => { provider.stop() },
+          } satisfies SignetSigner)
+        })
+        await fresh()
+        if (!facade) hold()
+        sdkStartedAt = Date.now()
+        const sdk = provider.trackControl(createSessionFromSigner(facade, {
+          appName: 'KithMoot', origin: capture.binding.origin, challenge, boundary,
+        }))
+        sdkPreparedAt = Date.now()
+        const session = await sdk
+        let detached: Readonly<SignetAuthEvent> | undefined
+        await fresh(() => {
+          detached = proof(session.authEvent)
+          if (phase !== 'complete' || !signed || session.signer !== facade || session.pubkey !== capture.selection.account ||
+              session.method !== 'nip07' || JSON.stringify(detached) !== JSON.stringify(signed)) hold()
+        })
+        await fresh()
+        if (!detached) hold()
+        return detached
+      } catch (error) { phase = 'failed'; provider.stop(); throw error }
+    }).catch(error => { phase = 'failed'; provider.stop(); throw error })
+    return provider.trackControl(pending)
   }
   /** @internal A one-use witness is consumed solely by the captured private
    * startup factory. It grants no ordinary read or arbitrary phase writer. */
