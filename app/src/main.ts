@@ -336,6 +336,7 @@ import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
+import { signinRelays, withSignetRelay } from './signet-relays.js'
 
 const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
 /** Whether this page was opened from an invitation link, read before anything
@@ -1198,6 +1199,15 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
 
 /** signet-login keeps a bunker's URI and client key when a restore fails,
  *  so the same signer can be asked again without pairing afresh. */
+/** A stored remote signer is also asked on Signet's own relay; see signet-relays.ts. */
+function reachStoredSignerOnSignetRelay(): void {
+  try {
+    const uri = localStorage.getItem('signet:login.bunkerUri')
+    const updated = uri && localStorage.getItem('signet:login.method') === 'bunker' ? withSignetRelay(uri) : undefined
+    if (updated) localStorage.setItem('signet:login.bunkerUri', updated)
+  } catch { /* No storage, nothing stored to reach. */ }
+}
+
 function storedBunkerSession(): boolean {
   try {
     return localStorage.getItem('signet:login.method') === 'bunker' && !!localStorage.getItem('signet:login.bunkerUri')
@@ -1238,6 +1248,7 @@ function retryStoredBunker(): Promise<boolean> {
   if ((session || joining) && session?.participant !== expectedAccount) return Promise.resolve(false)
   const generation = identityGeneration
   bunkerRetryAt = Date.now()
+  reachStoredSignerOnSignetRelay()
   bunkerRetry = restoreSession()
     .then(async (restored) => {
       if (!restored) return false
@@ -1302,7 +1313,7 @@ async function signInWithNostr(): Promise<void> {
   try {
     await boardsPanel?.reset()
     if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
-    account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
+    account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS),
       // 'nsec' is the dangerous route, kept behind Advanced by the picker:
       // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
       // memory for this page only. It exists for dogfooding and for people
@@ -18365,6 +18376,7 @@ renderIdentity()
  * was right there. Wait for it, briefly, and restore again.
  */
 async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null> {
+  reachStoredSignerOnSignetRelay()
   const session = await restoreSession()
   if (session?.signer.capabilities.canSignEvents) return session
   let storedMethod: string | null = null
