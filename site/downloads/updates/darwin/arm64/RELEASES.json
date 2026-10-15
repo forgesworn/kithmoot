@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.84",
+  "currentRelease": "0.1.85",
   "releases": [
     {
-      "version": "0.1.84",
+      "version": "0.1.85",
       "updateTo": {
-        "version": "0.1.84",
-        "pub_date": "2026-10-15T10:51:37Z",
-        "notes": "Relay settings show whether each relay answered a read, refused it or wants authentication, and give the reason a write was refused.",
-        "name": "0.1.84",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.84/KithMoot-0.1.84-mac-arm64.zip",
-        "sha256": "9376d594187b440a47b122980cb6acb215f82ced8dc23d3b8c91d030fb9241d0",
-        "size": 177652804
+        "version": "0.1.85",
+        "pub_date": "2026-10-15T19:58:26Z",
+        "notes": "A Signet sign-in stays signed in across restarts, and clicking a KithMoot invitation opens it in the desktop app.",
+        "name": "0.1.85",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.85/KithMoot-0.1.85-mac-arm64.zip",
+        "sha256": "d9db4f49402476e81d0e8597dfbbcb866ac8d55953981d9ac0fed23a572d8411",
+        "size": 177677878
       }
     }
   ]
