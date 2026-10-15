@@ -1,7 +1,16 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.83 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.84 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
+
+## 15 October 2026: relay read evidence
+
+Desktop 0.1.84 bundles relay read evidence and write refusal reasons. The Mac
+archive is Developer ID signed, notarised and stapled; Gatekeeper accepted it,
+and the packaged app passed the sandbox/profile smoke. All 99 desktop unit
+tests passed. Linux tarballs and Debian packages, and the unsigned Windows
+portable archive, were built from the same source; all four bundles carry the
+same 350 web files. Installed-app update from 0.1.83 is not yet observed.
 
 ## 15 October 2026: board agents
 

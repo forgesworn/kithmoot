@@ -158,7 +158,7 @@ old/new-client and capacity fencing, recovery/quiet/Tor transitions, current
 admission/keeper/rekey authority and independent continuity. Browser/Android MLS,
 physical signer/device/Tor acceptance and protected client release deployment
 remain open. The dependency and lockfile now pin published
-`signet-login@0.18.2`; [SDK provenance](ordinary-sdk-provenance.md) distinguishes
+`signet-login@0.19.1`; [SDK provenance](ordinary-sdk-provenance.md) distinguishes
 its registry release from the earlier local test overlays and these client gates.
 
 Native browser checks use actual Fold signatures/evidence, IndexedDB, Web Locks

@@ -1,6 +1,66 @@
 {
   "desktop": [
     {
+      "version": "0.1.84",
+      "published": "2026-10-15",
+      "files": [
+        {
+          "os": "mac",
+          "arch": "arm64",
+          "kind": "app",
+          "filename": "KithMoot-0.1.84-mac-arm64.zip",
+          "url": "/apk/desktop/0.1.84/KithMoot-0.1.84-mac-arm64.zip",
+          "bytes": 177652804,
+          "sha256": "9376d594187b440a47b122980cb6acb215f82ced8dc23d3b8c91d030fb9241d0"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.84-windows-x64.zip",
+          "url": "/apk/desktop/0.1.84/KithMoot-0.1.84-windows-x64.zip",
+          "bytes": 206250379,
+          "sha256": "b5ae9d4d67027a90aa9f342b7ba0f1c9673ab95fd5785922600a1b9cbf42b5e8"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.84_arm64.deb",
+          "url": "/apk/desktop/0.1.84/kithmoot_0.1.84_arm64.deb",
+          "bytes": 129141452,
+          "sha256": "1cf976d9bd76fc2faf63221ce3cfa769724ce42ce0612ed6241ffdc67d560709"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.84_amd64.deb",
+          "url": "/apk/desktop/0.1.84/kithmoot_0.1.84_amd64.deb",
+          "bytes": 134088420,
+          "sha256": "43ce7418b75458bba5ecd3ae4696cf06fd15a6912d83b8c09d6cf870e242fe7a"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.84-linux-arm64.tar.gz",
+          "url": "/apk/desktop/0.1.84/KithMoot-0.1.84-linux-arm64.tar.gz",
+          "bytes": 171923879,
+          "sha256": "803b46bfafa03789f72ed2a93ddefba850195fa99d7e7664bf3d47b6bb37665d"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.84-linux-x64.tar.gz",
+          "url": "/apk/desktop/0.1.84/KithMoot-0.1.84-linux-x64.tar.gz",
+          "bytes": 170803178,
+          "sha256": "ab6cf18c3fc03ecf38ec209e43e5cae757f2db62cab69457a22ea4ef91b869ee"
+        }
+      ]
+    },
+    {
       "version": "0.1.83",
       "published": "2026-10-15",
       "files": [
@@ -12,6 +72,33 @@
           "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-mac-arm64.zip",
           "bytes": 177653359,
           "sha256": "4bb3068370efb4a35f45711d1bd1f9043f8fcf6aa214c9fb3f6d42201b14d700"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.83-windows-x64.zip",
+          "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-windows-x64.zip",
+          "bytes": 206251317,
+          "sha256": "6e4fb002ba9ef369bfd0d0f4335870f579e0419ce41481bd3b4644840d7ee89a"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.83_arm64.deb",
+          "url": "/apk/desktop/0.1.83/kithmoot_0.1.83_arm64.deb",
+          "bytes": 129127540,
+          "sha256": "c2d6894fda4992e8af17bc2d54d5ac13d6af06bf3bf553b127227a6010920208"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.83_amd64.deb",
+          "url": "/apk/desktop/0.1.83/kithmoot_0.1.83_amd64.deb",
+          "bytes": 134084868,
+          "sha256": "74fc75b2fa67c0facbb047b7f368fa7638c1911af34c3cb606b2401446d69b20"
         },
         {
           "os": "linux",
@@ -30,33 +117,6 @@
           "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-linux-x64.tar.gz",
           "bytes": 170799921,
           "sha256": "149ce7cad3553732c09d3149d79f241cfb9b56d06392817ff398f849ee19e18e"
-        },
-        {
-          "os": "windows",
-          "arch": "x64",
-          "kind": "portable",
-          "filename": "KithMoot-0.1.83-windows-x64.zip",
-          "url": "/apk/desktop/0.1.83/KithMoot-0.1.83-windows-x64.zip",
-          "bytes": 206251317,
-          "sha256": "6e4fb002ba9ef369bfd0d0f4335870f579e0419ce41481bd3b4644840d7ee89a"
-        },
-        {
-          "os": "linux",
-          "arch": "x64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.83_amd64.deb",
-          "url": "/apk/desktop/0.1.83/kithmoot_0.1.83_amd64.deb",
-          "bytes": 134084868,
-          "sha256": "74fc75b2fa67c0facbb047b7f368fa7638c1911af34c3cb606b2401446d69b20"
-        },
-        {
-          "os": "linux",
-          "arch": "arm64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.83_arm64.deb",
-          "url": "/apk/desktop/0.1.83/kithmoot_0.1.83_arm64.deb",
-          "bytes": 129127540,
-          "sha256": "c2d6894fda4992e8af17bc2d54d5ac13d6af06bf3bf553b127227a6010920208"
         }
       ]
     },
@@ -72,6 +132,33 @@
           "url": "/apk/desktop/0.1.82/KithMoot-0.1.82-mac-arm64.zip",
           "bytes": 177649450,
           "sha256": "29a5b7e56082f2fe0c5471100e44d174a27e2e6b8a358b778e25bfdf0a5e89cc"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.82-windows-x64.zip",
+          "url": "/apk/desktop/0.1.82/KithMoot-0.1.82-windows-x64.zip",
+          "bytes": 206233123,
+          "sha256": "43cc764df9e19a414d28dfc92d7d0e7c2c1fc559df38913b4b7039c097acbf1e"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.82_arm64.deb",
+          "url": "/apk/desktop/0.1.82/kithmoot_0.1.82_arm64.deb",
+          "bytes": 129134692,
+          "sha256": "33f9ad030f05fb4da4f6c5a7715bcd8817faf2ecb2ee2cdacd83e9915c3cbb4f"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.82_amd64.deb",
+          "url": "/apk/desktop/0.1.82/kithmoot_0.1.82_amd64.deb",
+          "bytes": 134096344,
+          "sha256": "d15417acdbf6a4e2dad72efc01941e91e523e22ea1c190d50742b1b45daf4504"
         },
         {
           "os": "linux",
@@ -90,33 +177,6 @@
           "url": "/apk/desktop/0.1.82/KithMoot-0.1.82-linux-x64.tar.gz",
           "bytes": 170823320,
           "sha256": "ebf614bc65add3c2eaa561ad1bae9233c078f5a5592b30c25b6cddd8c1ea08a3"
-        },
-        {
-          "os": "windows",
-          "arch": "x64",
-          "kind": "portable",
-          "filename": "KithMoot-0.1.82-windows-x64.zip",
-          "url": "/apk/desktop/0.1.82/KithMoot-0.1.82-windows-x64.zip",
-          "bytes": 206233123,
-          "sha256": "43cc764df9e19a414d28dfc92d7d0e7c2c1fc559df38913b4b7039c097acbf1e"
-        },
-        {
-          "os": "linux",
-          "arch": "x64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.82_amd64.deb",
-          "url": "/apk/desktop/0.1.82/kithmoot_0.1.82_amd64.deb",
-          "bytes": 134096344,
-          "sha256": "d15417acdbf6a4e2dad72efc01941e91e523e22ea1c190d50742b1b45daf4504"
-        },
-        {
-          "os": "linux",
-          "arch": "arm64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.82_arm64.deb",
-          "url": "/apk/desktop/0.1.82/kithmoot_0.1.82_arm64.deb",
-          "bytes": 129134692,
-          "sha256": "33f9ad030f05fb4da4f6c5a7715bcd8817faf2ecb2ee2cdacd83e9915c3cbb4f"
         }
       ]
     },
@@ -132,6 +192,33 @@
           "url": "/apk/desktop/0.1.81/KithMoot-0.1.81-mac-arm64.zip",
           "bytes": 177648953,
           "sha256": "76bf50957ae2d7676254afaa93aa591749a38c1fec5eadba8ed2089969be6c18"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.81-windows-x64.zip",
+          "url": "/apk/desktop/0.1.81/KithMoot-0.1.81-windows-x64.zip",
+          "bytes": 206251305,
+          "sha256": "37c55006a95affe070b90d7e394268d3a37e5bd0064adc19acbbb63645e7f529"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.81_arm64.deb",
+          "url": "/apk/desktop/0.1.81/kithmoot_0.1.81_arm64.deb",
+          "bytes": 129141660,
+          "sha256": "717ecb5a75f8afc598e96fa734b60c7ea3ba8b060cda33978667890db2bd4e45"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.81_amd64.deb",
+          "url": "/apk/desktop/0.1.81/kithmoot_0.1.81_amd64.deb",
+          "bytes": 134080588,
+          "sha256": "a18cfd8192a23fb10997daadda82e681be94eaafd1cdaae873dcffc7febd3899"
         },
         {
           "os": "linux",
@@ -150,33 +237,6 @@
           "url": "/apk/desktop/0.1.81/KithMoot-0.1.81-linux-x64.tar.gz",
           "bytes": 170826913,
           "sha256": "593b838d9e248a8895e88bd6f6b18a9527998881b765f373836a42b68d560b8d"
-        },
-        {
-          "os": "windows",
-          "arch": "x64",
-          "kind": "portable",
-          "filename": "KithMoot-0.1.81-windows-x64.zip",
-          "url": "/apk/desktop/0.1.81/KithMoot-0.1.81-windows-x64.zip",
-          "bytes": 206251305,
-          "sha256": "37c55006a95affe070b90d7e394268d3a37e5bd0064adc19acbbb63645e7f529"
-        },
-        {
-          "os": "linux",
-          "arch": "x64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.81_amd64.deb",
-          "url": "/apk/desktop/0.1.81/kithmoot_0.1.81_amd64.deb",
-          "bytes": 134080588,
-          "sha256": "a18cfd8192a23fb10997daadda82e681be94eaafd1cdaae873dcffc7febd3899"
-        },
-        {
-          "os": "linux",
-          "arch": "arm64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.81_arm64.deb",
-          "url": "/apk/desktop/0.1.81/kithmoot_0.1.81_arm64.deb",
-          "bytes": 129141660,
-          "sha256": "717ecb5a75f8afc598e96fa734b60c7ea3ba8b060cda33978667890db2bd4e45"
         }
       ]
     },
@@ -192,6 +252,33 @@
           "url": "/apk/desktop/0.1.80/KithMoot-0.1.80-mac-arm64.zip",
           "bytes": 177650381,
           "sha256": "7ad6bd9436f9099e12a00b01df5d5be80bef0036540c226a00f68fad8dd2f0e7"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.80-windows-x64.zip",
+          "url": "/apk/desktop/0.1.80/KithMoot-0.1.80-windows-x64.zip",
+          "bytes": 206249838,
+          "sha256": "a9260d0732b9a49b6faee62182947f46ffc6190708a5a8c9ca950d6e618564fe"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.80_arm64.deb",
+          "url": "/apk/desktop/0.1.80/kithmoot_0.1.80_arm64.deb",
+          "bytes": 129161944,
+          "sha256": "0b8190964294233a9e8c52a6514079ac10540f2c5db962550b1674cff4f900a3"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.80_amd64.deb",
+          "url": "/apk/desktop/0.1.80/kithmoot_0.1.80_amd64.deb",
+          "bytes": 134084552,
+          "sha256": "c170c5aa14e518b122256cb3e8efa0369fe7635ee8940ab07b89580797f08fa5"
         },
         {
           "os": "linux",
@@ -210,33 +297,6 @@
           "url": "/apk/desktop/0.1.80/KithMoot-0.1.80-linux-x64.tar.gz",
           "bytes": 170819056,
           "sha256": "674d0cf7458a75e10557918c18bdeaa31d268fd3b6effe9a1ce17de45e01f6a1"
-        },
-        {
-          "os": "windows",
-          "arch": "x64",
-          "kind": "portable",
-          "filename": "KithMoot-0.1.80-windows-x64.zip",
-          "url": "/apk/desktop/0.1.80/KithMoot-0.1.80-windows-x64.zip",
-          "bytes": 206249838,
-          "sha256": "a9260d0732b9a49b6faee62182947f46ffc6190708a5a8c9ca950d6e618564fe"
-        },
-        {
-          "os": "linux",
-          "arch": "x64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.80_amd64.deb",
-          "url": "/apk/desktop/0.1.80/kithmoot_0.1.80_amd64.deb",
-          "bytes": 134084552,
-          "sha256": "c170c5aa14e518b122256cb3e8efa0369fe7635ee8940ab07b89580797f08fa5"
-        },
-        {
-          "os": "linux",
-          "arch": "arm64",
-          "kind": "deb",
-          "filename": "kithmoot_0.1.80_arm64.deb",
-          "url": "/apk/desktop/0.1.80/kithmoot_0.1.80_arm64.deb",
-          "bytes": 129161944,
-          "sha256": "0b8190964294233a9e8c52a6514079ac10540f2c5db962550b1674cff4f900a3"
         }
       ]
     },

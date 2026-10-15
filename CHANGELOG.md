@@ -1,5 +1,12 @@
 # Changelog
 
+## Desktop 0.1.84 and Android 0.6.87 — 15 October 2026
+
+- Relay settings say whether each relay answered a read, refused it or wants authentication. A relay's own fault or a dropped connection is not shown as a refusal.
+- A refused write gives its reason, such as rate limiting or authentication, rather than the relay's own words.
+- A refusal stays on show while other reads or writes on the same relay succeed.
+- Android can move relays up or down in Settings, notices a relay that accepts a message and then does not return it, and keeps reading older keeper requests from relays that serve short pages.
+
 ## Desktop 0.1.82 — 14 October 2026
 
 - Show relay activity and let you move relays up or down, keeping the chosen order after reopening.
@@ -9,6 +16,7 @@
 
 ## Unreleased
 
+- **"Use your phone" sign-in survives an unreachable relay.** The sign-in link now names up to three of the site's relays instead of only the first, so a phone that cannot reach nos.lol can still answer on another (signet-login 0.19.1; needs a My Signet build with multi-relay sign-in).
 - **Fresh sign-in clears a failed reconnect warning.** Approving a new My Signet QR for the same account now replaces the old "Your signer did not answer" message with "Signed in."
 
 - **Screen-share popouts belong to their call.** Multiple share windows keep the original room, project and sharer while you read another conversation. Each can show, hide and resize that sharer's live camera. Drawing still reaches the original call; leaving or stopping a share clears its video rather than retaining a frozen picture. Closing a viewer leaves the call and other viewers running. This covers the web and desktop viewer; the persistent gallery and native Android equivalent remain separate work.

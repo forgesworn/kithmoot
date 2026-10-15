@@ -4,7 +4,7 @@
 `RoomSession` from this bootstrap's acknowledged incoming-member proof. The
 private factory owns its root/device/seal buffers, protocol execution guard and
 exact `OrdinaryRelayCarrier`. It remains **unmounted in production**. The
-dependency and lockfile now pin published `signet-login@0.18.2`; see
+dependency and lockfile now pin published `signet-login@0.19.1`; see
 [SDK provenance](ordinary-sdk-provenance.md).
 
 The public facade exposes join, chat sends, publish-only prepared retries,
