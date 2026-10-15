@@ -7,7 +7,7 @@ import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
 import { relayDials, type RelayDialGate } from './relay-dial-gate.js'
-import { guardedWebSocket } from './guarded-websocket.js'
+import { guardedWebSocket, handshakeObservedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
 /** Extra policy chosen by a caller that owns the complete network route. */
@@ -142,7 +142,8 @@ export class NostrRelayPool implements RelayTransport {
     // without a timeout and leave a running agent unable to hear the room.
     const owner = this
     const current = (url: string) => !this.#closed && generation === this.#generation && !this.#authError(url)
-    const base = this.options.websocketImplementation ?? globalThis.WebSocket
+    const configured = this.options.websocketImplementation && handshakeObservedWebSocket(this.options.websocketImplementation)
+    const base = configured ?? (globalThis.WebSocket && handshakeObservedWebSocket(globalThis.WebSocket))
     const websocketImplementation = this.#authentication.size
       ? authenticatedWebSocket(base, url => this.#authentication.get(url) ?? undefined, current, (url, reason) => {
           if (generation === this.#generation) {
@@ -150,7 +151,7 @@ export class NostrRelayPool implements RelayTransport {
             this.#mark(url, { state: 'disconnected', lastError: reason })
           }
         }, this.#authTimeout)
-      : this.options.websocketImplementation
+      : configured
     // `enablePing` stays off. In a browser `AbstractRelay` has no real ping
     // frame to send, so it falls back to `waitForDummyReq`: every 29s it
     // opens a throwaway `REQ` and, if no `EOSE` answers within 20s, closes
