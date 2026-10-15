@@ -74,6 +74,15 @@ for (const mode of ['cancel', 'expiry', 'foreground'] as const) test(`room creat
   expect((await run(page, 'M.local()')).generation).toBeNull()
   expect((await run(page, 'M.creationPermissions()')).value.approved).toEqual([])
 })
+test('creation custody reports a pre-consent refusal instead of leaving the test promise unreachable', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  expect(await run(page, 'M.provisionJoin()')).toMatchObject({ ok: true })
+  await expect(run(page, "M.startCreationCustody('pre-consent-expiry')")).rejects.toThrow('Creation ended before the actual consent callback:')
+  expect(await run(page, 'M.creationCustodyStatus()')).toMatchObject({ lowerSettled: true, ownerSettled: true })
+  expect(await run(page, 'M.creationChildLockAvailable()')).toBe(true)
+  expect((await run(page, 'M.local()')).generation).toBeNull()
+  expect((await run(page, 'M.creationPermissions()')).value.approved).toEqual([])
+})
 test('another tab invalidates creation custody before waiting for an actual consent tail', async ({ context }) => {
   const { page } = await enrolled(context, false)
   await run(page, 'M.provisionJoin()'); await run(page, "M.startCreationCustody('hold')")
