@@ -1211,7 +1211,9 @@ let bunkerRetryDelay = 0
 /** The stored bunker answered as somebody other than the account expected:
  *  asking it again will not change that. */
 let bunkerRetryForeign = false
-const BUNKER_RETRY_MIN_MS = 30_000
+// A phone signer that was asleep at launch usually answers within seconds of
+// waking: the first retry comes soon, then backs off.
+const BUNKER_RETRY_MIN_MS = 5_000
 const BUNKER_RETRY_MAX_MS = 5 * 60_000
 
 /**
