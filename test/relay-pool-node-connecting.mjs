@@ -1,6 +1,6 @@
 // Real Node ws against a loopback-only unfinished HTTP upgrade. No room or radio.
 import http from 'node:http'
-import WebSocket from 'ws'
+import WebSocket, { WebSocketServer } from 'ws'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { NostrRelayPool } from '../dist/src/relay-pool.js'
 
@@ -15,7 +15,14 @@ server.on('connection', socket => {
   socket.once('end', () => socket.destroy())
   socket.once('close', () => sockets.delete(socket))
 })
-server.on('upgrade', () => {})
+if (mode === 'open') {
+  new WebSocketServer({ server }).on('connection', socket => {
+    socket.on('message', bytes => {
+      const message = JSON.parse(String(bytes))
+      if (message[0] === 'EVENT') socket.send(JSON.stringify(['OK', message[1].id, true, '']))
+    })
+  })
+} else server.on('upgrade', () => {})
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const address = server.address()
 class TrackedSocket extends WebSocket {
@@ -36,8 +43,10 @@ const key = generateSecretKey()
 const event = finalizeEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [], content: 'synthetic loopback handshake refusal' }, key)
 key.fill(0)
 let rejected = false
+let activeErrorListeners
 try {
   await pool.publish(event)
+  activeErrorListeners = created.map(socket => socket.listenerCount('error'))
 } catch {
   rejected = true
 } finally {
@@ -47,7 +56,7 @@ const deadline = Date.now() + 2000
 while (Date.now() < deadline && (closed !== created.length || sockets.size)) {
   await new Promise(resolve => setTimeout(resolve, 10))
 }
-console.log(JSON.stringify({ rejected, created: created.length, closed, existingErrors,
+console.log(JSON.stringify({ rejected, activeErrorListeners, created: created.length, closed, existingErrors,
   remainingSockets: sockets.size,
   remainingErrorListeners: created.map(socket => socket.listenerCount('error')),
   allSocketsClosed: created.every(socket => socket.readyState === WebSocket.CLOSED) }))

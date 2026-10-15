@@ -941,8 +941,29 @@ export type RelayPoolClient = Omit<NostrRelayPool, 'suspend' | 'resume' | 'suspe
  *  relay in the pool's map before it first waits, so it can be read there
  *  straight after the call. */
 async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>, opened: () => void): Promise<T> {
+  const socket = (relay as { ws?: {
+    readyState: number
+    close(): void
+    on?(event: string, listener: () => void): unknown
+    once?(event: string, listener: () => void): unknown
+    removeListener?(event: string, listener: () => void): unknown
+  } } | undefined)?.ws
+  let detach = () => {}
+  // Own the Node error observer before awaiting the dial: nostr-tools may
+  // close a timed-out handshake and detach its observer before rejecting.
+  // ws emits that closure's error on nextTick, ahead of our catch handler.
+  if (socket?.readyState === 0 && socket.on && socket.once && socket.removeListener) {
+    const closingError = () => {}
+    detach = () => {
+      socket.removeListener!('error', closingError)
+      socket.removeListener!('close', detach)
+    }
+    socket.on('error', closingError)
+    socket.once('close', detach)
+  }
   try {
     const connected = await connecting
+    detach()
     // nostr-tools reports an open socket to `onRelayConnectionSuccess` from
     // its subscriptions only, never from a publish or a direct dial. The
     // shared gate has to hear of every one, or a dial a publish made keeps
@@ -950,33 +971,13 @@ async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>, opene
     opened()
     return connected
   } catch (error) {
-    const socket = (relay as { ws?: {
-      readyState: number
-      close(): void
-      on?(event: string, listener: () => void): unknown
-      once?(event: string, listener: () => void): unknown
-      removeListener?(event: string, listener: () => void): unknown
-    } } | undefined)?.ws
     if (socket?.readyState === 0) {
-      let detach = () => {}
-      try {
-        // Node ws emits an asynchronous error when an unfinished handshake is
-        // closed. nostr-tools has already removed its observer after timeout.
-        // Keep closure local to this abandoned socket and preserve its failure.
-        if (socket.on && socket.once && socket.removeListener) {
-          const closingError = () => {}
-          detach = () => {
-            socket.removeListener!('error', closingError)
-            socket.removeListener!('close', detach)
-          }
-          socket.on('error', closingError)
-          socket.once('close', detach)
-        }
-        socket.close()
-      } catch {
-        try { detach() } catch { /* preserve the original connection failure */ }
-      }
+      try { socket.close() }
+      catch { try { detach() } catch { /* preserve the original connection failure */ } }
     }
+    // Keep our observer until close if the dependency already began closing.
+    // Existing observers are never removed; successful sockets retain none.
+    if (socket?.readyState !== 2) detach()
     throw error
   }
 }

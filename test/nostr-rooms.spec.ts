@@ -43,7 +43,10 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
   const profiles = new NostrRelayPool([TEST_RELAY_WS])
   try {
     await profiles.publish(finalizeEvent({ kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Account Alice', picture: 'https://profile.example/alice.svg', nip05: 'alice@profile.example' }) }, secret))
-    await context.route('https://profile.example/.well-known/nostr.json?name=alice', route => route.fulfill({ json: { names: { alice: pubkey } } }))
+    let addressRequests = 0
+    await context.route('https://profile.example/.well-known/nostr.json?name=alice', route => {
+      addressRequests++; return route.fulfill({ json: { names: { alice: pubkey } } })
+    })
     await context.route('https://profile.example/alice.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="blue"/></svg>' }))
     const visitorSecret = Array.from(generateSecretKey()).map(byte => byte.toString(16).padStart(2, '0')).join('')
     await context.addInitScript(visitorSecret => {
@@ -58,15 +61,21 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     await page.locator('#joinNostr').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#whoami')).toContainText('Account Alice')
-    await expect(page.locator('#whoami')).toContainText('alice@profile.example')
+    await expect(page.locator('#whoami')).not.toContainText('alice@profile.example')
+    expect(addressRequests).toBe(0)
     await expect(page.locator('#whoami img')).toHaveJSProperty('naturalWidth', 16)
     await expect(page.locator('#whoami')).toContainText(npubEncode(pubkey).slice(0, 12))
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    await openRoomDetails(page); await page.locator('#roomProfileSettings').click()
+    await expect(page.locator('#verifyAddresses')).not.toBeChecked()
+    await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
+    await expect(page.locator('#whoami')).toContainText('alice@profile.example')
+    expect(addressRequests).toBeGreaterThan(0)
     await page.locator('#chatInput').fill('Tally, this is my account')
     await page.locator('#chatInput').press('Enter')
     await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, this is my account')?.participant).toBe(pubkey)
-    await page.screenshot({ path: '/tmp/kithmoot-identity-room.png', fullPage: true })
+    await page.screenshot({ path: test.info().outputPath('identity-room.png'), fullPage: true })
   } finally { profiles.close(); await context.close(); await clerk.leave() }
 })
 

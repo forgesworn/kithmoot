@@ -1,4 +1,5 @@
 import { describe,it,expect,vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { getPublicKey,finalizeEvent,verifiedSymbol } from 'nostr-tools/pure'
 import { createLocalSignerFromNsec,SIGNET_VERIFIED_EVENT_SYMBOL } from 'signet-login'
 import { nip19 } from 'nostr-tools'
@@ -18,11 +19,10 @@ function request(){
 }
 async function signed(){return JSON.parse(JSON.stringify(finalizeEvent(JSON.parse(JSON.stringify(await ordinaryRenewalStatement(request(),seal))),actor)))}
 describe('fixed renewal credential data, never signer authority',()=>{
- it('accepts a genuine separately installed SDK LocalSigner and captures its result synchronously',async()=>{
+ it('accepts the installed SDK LocalSigner and captures its result synchronously',async()=>{
   const signer=createLocalSignerFromNsec(nip19.nsecEncode(actor)),statement=await ordinaryRenewalStatement(request(),seal)
   try{
    const event=await signer.signEvent(statement),before=JSON.stringify(event)
-   expect(SIGNET_VERIFIED_EVENT_SYMBOL).not.toBe(verifiedSymbol)
    expect(Object.getOwnPropertySymbols(event)).toEqual([SIGNET_VERIFIED_EVENT_SYMBOL])
    const result=ordinaryRenewalResultForStatement(request(),statement,event)
    expect(JSON.parse(result)).toEqual(JSON.parse(before));expect(JSON.stringify(event)).toBe(before)
@@ -30,9 +30,37 @@ describe('fixed renewal credential data, never signer authority',()=>{
    expect(()=>ordinaryRenewalResultForStatement(request(),statement,event)).toThrow(OrdinaryStateHold)
   }finally{await signer.close()}
  })
- it('rejects two known but distinct verification cache identities',async()=>{
-  const event=await signed();event[verifiedSymbol]=true;event[SIGNET_VERIFIED_EVENT_SYMBOL]=true
-  await expect(ordinaryRenewalResult(request(),seal,event)).rejects.toThrow(OrdinaryStateHold)
+ it.each(['shared','separate'] as const)('verifies the %s dependency cache layout without trusting cached signatures',async layout=>{
+  // The official IIFE bundles a genuine independent nostr-tools symbol.
+  // Evaluate in this realm so only the dependency identity varies, not the
+  // event's Object/Array prototypes. Keep the bundle's global export private.
+  const source=readFileSync(new URL('../../node_modules/signet-login/dist/signet-login.iife.js',import.meta.url),'utf8')
+  const sdk=new Function('globalThis',source+'; return __SignetLoginIIFE;')({crypto:globalThis.crypto}) as typeof import('signet-login')
+  expect(sdk.SIGNET_VERIFIED_EVENT_SYMBOL).not.toBe(verifiedSymbol)
+  const cache=layout==='shared'?verifiedSymbol:sdk.SIGNET_VERIFIED_EVENT_SYMBOL
+  vi.resetModules()
+  vi.doMock('signet-login',async importOriginal=>({...await importOriginal<typeof import('signet-login')>(),SIGNET_VERIFIED_EVENT_SYMBOL:cache}))
+  let signer:ReturnType<typeof sdk.createLocalSignerFromNsec>|undefined
+  try{
+   const isolated=await import('./ordinary-renewal-credential.js'),{OrdinaryStateHold:Hold}=await import('./ordinary-state-codec.js')
+   const statement=await isolated.ordinaryRenewalStatement(request(),seal)
+   signer=sdk.createLocalSignerFromNsec(nip19.nsecEncode(actor))
+   const event=layout==='shared'?finalizeEvent(JSON.parse(JSON.stringify(statement)),actor):await signer.signEvent(statement)
+   expect(Object.getOwnPropertySymbols(event)).toEqual([cache])
+   const before=JSON.stringify(event)
+   expect(JSON.parse(isolated.ordinaryRenewalResultForStatement(request(),statement,event))).toEqual(JSON.parse(before))
+   expect(JSON.stringify(event)).toBe(before)
+   if(layout==='separate'){
+    Object.defineProperty(event,verifiedSymbol,{value:true,configurable:true})
+    expect(Object.getOwnPropertySymbols(event)).toHaveLength(2)
+    expect(()=>isolated.ordinaryRenewalResultForStatement(request(),statement,event)).toThrow(Hold)
+    Reflect.deleteProperty(event,verifiedSymbol)
+   }
+   event.sig='0'.repeat(128)
+   expect(()=>isolated.ordinaryRenewalResultForStatement(request(),statement,event)).toThrow(Hold)
+  }finally{
+   await signer?.close();vi.doUnmock('signet-login');vi.resetModules()
+  }
  })
  it('accepts the actual SDK bunker class with a delayed SDK-local result',async()=>{
   const {BunkerSignerImpl}=await import('../../node_modules/signet-login/dist/signers.js')
