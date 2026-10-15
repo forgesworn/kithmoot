@@ -424,6 +424,15 @@ export function profilePreference(storage: Pick<Storage, 'getItem'>): boolean {
   try { return storage.getItem('kithmoot.profiles.enabled') !== 'false' } catch { return true }
 }
 
+/**
+ * Automatic NIP-05 verification fetches from each claimed address's domain,
+ * which is controlled by whoever published the profile, so it is off unless
+ * the person has asked for it. `app/src/profiles.ts` says why.
+ */
+export function nip05VerifyPreference(storage: Pick<Storage, 'getItem'>): boolean {
+  try { return storage.getItem('kithmoot.nip05.verify') === 'true' } catch { return false }
+}
+
 export class RelaySettingsPanel {
   #scope = 'default'
   #draft: RelayConfig[] = []
