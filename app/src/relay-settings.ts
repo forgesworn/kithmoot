@@ -357,6 +357,13 @@ export class RelayConnections {
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
     })
   }
+  /** Socket activity elsewhere is useful in the defaults screen, but must
+   * never imply authentication or successful writes in the selected scope. */
+  connectedElsewhere(scope: string, url: string): boolean {
+    this.#prune()
+    return [...this.#pools].some(([pool, owner]) => owner.scope !== scope &&
+      pool.health().some(health => health.url === url && health.state === 'connected'))
+  }
   #prune(): void {
     for (const [pool, owner] of this.#pools) {
       if (!pool.closed) continue
@@ -417,6 +424,15 @@ export function profilePreference(storage: Pick<Storage, 'getItem'>): boolean {
   try { return storage.getItem('kithmoot.profiles.enabled') !== 'false' } catch { return true }
 }
 
+/**
+ * Automatic NIP-05 verification fetches from each claimed address's domain,
+ * which is controlled by whoever published the profile, so it is off unless
+ * the person has asked for it. `app/src/profiles.ts` says why.
+ */
+export function nip05VerifyPreference(storage: Pick<Storage, 'getItem'>): boolean {
+  try { return storage.getItem('kithmoot.nip05.verify') === 'true' } catch { return false }
+}
+
 export class RelaySettingsPanel {
   #scope = 'default'
   #draft: RelayConfig[] = []
@@ -470,14 +486,14 @@ export class RelaySettingsPanel {
   }
   private el(id: string): HTMLElement { return this.document.getElementById(id)! }
   private get dialog(): HTMLDialogElement { return this.el('relaySettings') as HTMLDialogElement }
-  open(from: HTMLElement): void {
+  open(from: HTMLElement, preferredScope?: 'default'): void {
     this.#returnFocus = from
     const room = this.opts.room()
     const scope = this.el('relayScope') as HTMLSelectElement
     scope.replaceChildren()
     if (room) scope.add(new Option('This room', room.scope))
     scope.add(new Option('Defaults for new rooms and account sync', 'default'))
-    this.#scope = room?.scope ?? 'default'; scope.value = this.#scope
+    this.#scope = preferredScope ?? room?.scope ?? 'default'; scope.value = this.#scope
     this.#load(); this.dialog.showModal(); scope.focus()
     clearInterval(this.#timer); this.#timer = setInterval(() => this.#health(), 1000)
   }
@@ -524,7 +540,27 @@ export class RelaySettingsPanel {
         this.#message(tick.checked ? 'Marked as a box of your circle. A message to it alone shows as sheltered.' : 'No longer a box of your circle.')
       })
       circle.append(tick, this.document.createTextNode(tick.disabled ? ' Verified box endpoint' : ' Box of my circle'))
-      row.append(url, health, mode, remove, circle)
+      const order = this.document.createElement('div'); order.className = 'relayOrder'
+      const position = this.document.createElement('span'); position.textContent = `Order ${index + 1}`
+      order.append(position)
+      for (const [offset, direction] of [[-1, 'up'], [1, 'down']] as const) {
+        const move = this.document.createElement('button'); move.type = 'button'; move.className = 'quiet'
+        move.textContent = `Move ${direction}`; move.setAttribute('aria-label', `Move ${relay.url} ${direction}`)
+        move.disabled = index + offset < 0 || index + offset >= this.#draft.length
+        move.addEventListener('click', () => {
+          const next = index + offset
+          ;[this.#draft[index], this.#draft[next]] = [this.#draft[next]!, this.#draft[index]!]
+          this.#render()
+          const moved = [...list.querySelectorAll<HTMLElement>('.relayRow')].find(row => row.dataset.url === relay.url)
+          // Keep keyboard focus on the moved row, including at a boundary.
+          const buttons = moved?.querySelectorAll<HTMLButtonElement>('.relayOrder button')
+          const same = buttons?.[offset < 0 ? 0 : 1]
+          ;(same?.disabled ? buttons?.[offset < 0 ? 1 : 0] : same)?.focus()
+          this.#message('Relay order changed. Apply changes to use it.')
+        })
+        order.append(move)
+      }
+      row.append(url, health, order, mode, remove, circle)
       if (this.opts.authenticate) {
         const auth = this.document.createElement('button'); auth.type = 'button'; auth.className = 'quiet relayAuthenticate'
         const permitted = this.connections.authenticationIdentity(this.#scope, relay.url)
@@ -557,7 +593,7 @@ export class RelaySettingsPanel {
     for (const row of this.el('relayList').querySelectorAll<HTMLElement>('.relayRow')) {
       const found = health.find(entry => entry.url === row.dataset.url)
       const text = row.querySelector<HTMLElement>('.relayHealth')!
-      const labels = { connected: 'Connected', connecting: 'Connecting…', disconnected: 'Disconnected', closed: 'Closed', idle: 'Not connected yet' }
+      const labels = { connected: 'Connected', connecting: 'Connecting…', disconnected: 'Disconnected', closed: 'Closed', idle: 'Not in use here' }
       text.textContent = found ? labels[found.state] : 'Not applied yet'
       text.dataset.state = found?.state ?? 'idle'
       if (found?.authentication === 'authenticated') text.textContent += ' · Account authenticated'
@@ -566,6 +602,7 @@ export class RelaySettingsPanel {
       if (found?.lastError) text.textContent += ` · ${found.lastError}`
       // Seen, not inferred: it said OK to one and had nothing when asked.
       if (found?.unreturned?.length) text.textContent += found.unreturned.includes(KINDS.CHAT) ? ' · Does not keep chat: accepted a message, then did not return it' : ' · Accepted an event, then did not return it'
+      if (found && found.state !== 'connected' && this.connections.connectedElsewhere(this.#scope, found.url)) text.textContent += ' · Connected elsewhere in KithMoot'
     }
   }
 }

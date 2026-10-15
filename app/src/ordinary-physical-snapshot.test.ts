@@ -89,3 +89,14 @@ describe('reserved operation marker physical routing', () => {
       expect(() => validate(new Map([[name,bad]]),{kind:'tab'})).toThrow(OrdinaryStateHold)
   })
 })
+
+it('protects the exact NIP-05 preference only in browser custody and holds aliases', () => {
+  const key = 'kithmoot.nip05.verify'
+  expect(route(key, 'browser')).toEqual({family: 'ui', custody: 'protected'})
+  expect(validate(new Map([[key, 'false']]), {kind: 'browser'}).protectedRecords).toBe(1)
+  expect(() => route(key, 'tab')).toThrow(OrdinaryStateHold)
+  for (const name of [key + '.future', a + key, 'kithmoot.nip05.verify:alias']) {
+    expect(selected(name)).toBe(true)
+    expect(() => route(name, 'browser')).toThrow(OrdinaryStateHold)
+  }
+})

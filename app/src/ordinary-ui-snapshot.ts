@@ -3,7 +3,7 @@ import { sanitiseDisplayName } from '../../src/display-name.js'
 import { OrdinaryStateHold, ORDINARY_NAME_UNITS, ordinaryUtf8Length } from './ordinary-state-codec.js'
 
 const booleanKeys = ['kithmoot.mirror-self', 'kithmoot.fish.enabled', 'kithmoot.camera.framing', 'kithmoot.agents-hear',
-  'kithmoot.zen-bell', 'kithmoot.desktop-bell', 'kithmoot.profiles.enabled']
+  'kithmoot.zen-bell', 'kithmoot.desktop-bell', 'kithmoot.profiles.enabled', 'kithmoot.nip05.verify']
 const families = [...booleanKeys, 'kithmoot.name', 'kithmoot.last-nostr-account', 'kithmoot.last-nostr-method',
   'kithmoot.profiles.lastKnownName', 'kithmoot.room-name', 'kithmoot.home.fold', 'kithmoot.send-delay',
   'kithmoot.nudge', 'kithmoot.destruct-heads-up', 'kithmoot.destructed', 'kithmoot:emoji:skinTone',

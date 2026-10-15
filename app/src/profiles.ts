@@ -36,8 +36,18 @@ import { normalizeURL } from 'nostr-tools/utils'
  *
  * The app enables lookups by default, with a persistent switch in profile
  * settings. Disabling closes subscriptions and removes cached profiles and
- * external pictures. NIP-05 checks also contact the address domains with no
- * cookies or referrer. Disabling aborts those checks. It cannot undo a request already sent.
+ * external pictures.
+ *
+ * NIP-05 checks are the exception to every other lookup this book makes:
+ * verifying `name@domain` fetches `https://domain/.well-known/nostr.json`,
+ * and the domain is chosen by the person being looked up. A hostile `nip05`
+ * value therefore makes every room peer's client contact a server the
+ * claimant controls, learning their IP, timing and rough fingerprint - a
+ * de-anonymisation vector aimed back at the room, not just decoration.
+ * So the check is never automatic: claims are held unverified until the
+ * person turns "Verify Nostr addresses" on in settings, which then checks
+ * every claim already held. Turning it back off aborts checks in flight,
+ * and a late answer is ignored. It cannot undo a request already sent.
  *
  * Anything built on top of this - a lookup keyed on participant pubkeys for
  * any other purpose - inherits the same cost and does not add a new one.
@@ -73,10 +83,11 @@ export class ProfileBook {
   #unsubs = new Set<() => void>()
   /** Pubkeys we have asked about, whether or not an answer came back. */
   readonly #asked = new Set<string>()
-  readonly #found = new Map<string, { profile: Profile; createdAt: number }>()
+  readonly #found = new Map<string, { profile: Profile; createdAt: number; nip05Claim?: string }>()
   #checks = new Set<AbortController>()
   #closed = false
   #enabled = true
+  #nip05Automatic = false
 
   constructor(opts: ProfileBookOptions) {
     this.#opts = opts
@@ -93,6 +104,31 @@ export class ProfileBook {
     this.#pool = undefined
     this.#asked.clear()
     this.#found.clear()
+  }
+
+  /**
+   * Whether claimed NIP-05 addresses are verified automatically. Off unless
+   * the person switches it on: the check fetches from the claimed address's
+   * domain (controlled by whoever published the profile), so an attacker in
+   * a room could otherwise make every peer's client call a server they run.
+   * Switching on checks every claim already held; switching back off aborts
+   * checks in flight. Addresses already verified stay verified. See the
+   * module header.
+   */
+  setNip05Automatic(automatic: boolean): void {
+    if (automatic === this.#nip05Automatic) return
+    this.#nip05Automatic = automatic
+    if (this.#closed || !this.#enabled) return
+    if (!automatic) {
+      for (const check of this.#checks) check.abort()
+      this.#checks.clear()
+      return
+    }
+    for (const [pubkey, found] of this.#found) {
+      if (found.nip05Claim !== undefined && found.profile.nip05 === undefined) {
+        void this.#checkAddress(pubkey, found.profile, found.nip05Claim)
+      }
+    }
   }
 
   /** Look up any of these we have not already asked about. Cheap to call
@@ -158,9 +194,9 @@ export class ProfileBook {
       if (!response.ok) return
       const body = await response.json()
       if (body?.names?.[name!] !== pubkey) return
-      // A response for an older profile or a disabled lookup cannot put
-      // stale metadata back on screen.
-      if (controller.signal.aborted || this.#closed || !this.#enabled || this.#found.get(pubkey)?.profile !== profile) return
+      // A response for an older profile, a disabled lookup or verification
+      // switched back off mid-flight cannot put metadata on screen.
+      if (controller.signal.aborted || this.#closed || !this.#enabled || !this.#nip05Automatic || this.#found.get(pubkey)?.profile !== profile) return
       profile.nip05 = value
       this.#opts.onChange()
     } catch { /* An unreachable domain is not a confirmed Nostr address. */ }
@@ -188,9 +224,12 @@ export class ProfileBook {
         name: sanitiseDisplayName(content.display_name) ?? sanitiseDisplayName(content.name),
         picture: safePicture(content.picture),
       }
-      this.#found.set(event.pubkey, { profile, createdAt: event.created_at })
+      // The claim is kept (a settings switch may later verify it); the
+      // fetch it describes runs only when verification is switched on.
+      const claim = typeof content.nip05 === 'string' ? content.nip05 : undefined
+      this.#found.set(event.pubkey, { profile, createdAt: event.created_at, ...(claim !== undefined ? { nip05Claim: claim } : {}) })
       if (!this.#closed) this.#opts.onChange()
-      void this.#checkAddress(event.pubkey, profile, content.nip05)
+      if (this.#nip05Automatic) void this.#checkAddress(event.pubkey, profile, content.nip05)
     } catch {
       // A malformed profile is a missing profile, not a broken room.
     }

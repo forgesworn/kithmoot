@@ -3708,10 +3708,13 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .rosterRow .dmButton { margin-left: auto; font-size: 0.85rem; padding: 0.3rem 0.6rem; min-height: 2.25rem; }
 
 /* Relay controls stay usable on narrow phones without clipping URLs. */
-#relaySettings { width: min(38rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; }
+#relaySettings { width: min(38rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; }
 #relaySettings select, #relaySettings input { max-width: 100%; min-width: 0; }
+#relaySettings button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 #relayScope { width: 100%; }
 .relayList { list-style: none; padding: 0; margin: 1rem 0; }
+.relayOrder { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.relayOrder span { font-size: .85rem; color: var(--muted); }
 .relayRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; padding: .8rem 0; border-bottom: 1px solid var(--border); }
 .relayAuthenticate { grid-column: 1 / -1; justify-self: start; }
 .relayCircle { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; font-size: 1rem; }
@@ -3722,6 +3725,10 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .relayHealth[data-state="disconnected"] { color: #b95040; }
 .relayRoomNote { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
 .relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
+@media (max-width: 36rem) {
+  .relayRow { grid-template-columns: minmax(0, 1fr); }
+  .relayCircle { flex-wrap: wrap; }
+}
 
 #assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }
 #assignmentPanel .sheetBar { position: sticky; top: 0; z-index: 1; background: var(--bg); flex-wrap: wrap; padding: 1rem 0 .75rem; }

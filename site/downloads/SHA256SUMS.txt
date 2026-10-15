@@ -16,3 +16,9 @@ c131a0ce889079672cb254d862622965a8afda408213ca15392f4db1c487d3ec  KithMoot-0.1.7
 37c55006a95affe070b90d7e394268d3a37e5bd0064adc19acbbb63645e7f529  KithMoot-0.1.81-windows-x64.zip
 a18cfd8192a23fb10997daadda82e681be94eaafd1cdaae873dcffc7febd3899  kithmoot_0.1.81_amd64.deb
 717ecb5a75f8afc598e96fa734b60c7ea3ba8b060cda33978667890db2bd4e45  kithmoot_0.1.81_arm64.deb
+29a5b7e56082f2fe0c5471100e44d174a27e2e6b8a358b778e25bfdf0a5e89cc  KithMoot-0.1.82-mac-arm64.zip
+f1df296e88024734cd9a56e41ed5f875fbbedc8bdf88a995620efe28b4a2e1ef  KithMoot-0.1.82-linux-arm64.tar.gz
+ebf614bc65add3c2eaa561ad1bae9233c078f5a5592b30c25b6cddd8c1ea08a3  KithMoot-0.1.82-linux-x64.tar.gz
+43cc764df9e19a414d28dfc92d7d0e7c2c1fc559df38913b4b7039c097acbf1e  KithMoot-0.1.82-windows-x64.zip
+d15417acdbf6a4e2dad72efc01941e91e523e22ea1c190d50742b1b45daf4504  kithmoot_0.1.82_amd64.deb
+33f9ad030f05fb4da4f6c5a7715bcd8817faf2ecb2ee2cdacd83e9915c3cbb4f  kithmoot_0.1.82_arm64.deb

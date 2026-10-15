@@ -54,7 +54,7 @@ add('private', `kithmoot\\.(?:box-discovery|history-recovery)\\.v1\\.${H}\\.${H}
 names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId'])
 names('media', ['kithmoot.callProfile'], ['browser', 'tab'])
 add('routing', `kithmoot\\.(?:relays|circle|room-relays-fixed)\\.v1|kithmoot\\.room-relays\\.v1\\.${H}`)
-names('ui', ['kithmoot.mirror-self', 'kithmoot.fish.enabled', 'kithmoot.camera.framing', 'kithmoot.agents-hear', 'kithmoot.zen-bell', 'kithmoot.desktop-bell', 'kithmoot.profiles.enabled',
+names('ui', ['kithmoot.mirror-self', 'kithmoot.fish.enabled', 'kithmoot.camera.framing', 'kithmoot.agents-hear', 'kithmoot.zen-bell', 'kithmoot.desktop-bell', 'kithmoot.profiles.enabled', 'kithmoot.nip05.verify',
   'kithmoot.name', 'kithmoot.last-nostr-account', 'kithmoot.last-nostr-method', 'kithmoot.profiles.lastKnownName.v1', 'kithmoot.send-delay', 'kithmoot.destructed.v1', 'kithmoot:emoji:skinTone', 'kithmoot:emoji:recents'])
 add('ui', `kithmoot\\.room-name\\.v1\\.${H}|kithmoot\\.(?:nudge|destruct-heads-up)\\.${H}|kithmoot\\.home\\.fold\\.(?:pinned|unread|recent|older|other|ended)`)
 names('ui', ['kithmoot.notice'], ['tab'])

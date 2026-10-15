@@ -430,14 +430,23 @@ test('two agents handle separate cards while a second person edits the shared bo
     const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true}); if (await reminder.isVisible()) await reminder.click()
     await guest.getByRole('button', {name: 'Join board', exact: true}).click()
     await expect(guest.getByRole('link', {name: 'Design task', exact: true})).toBeVisible()
+    // The board borrows the person's existing room admission and writer. It
+    // must not join another installation just to offer these two cards.
+    await ada.page.locator('#boardsClose').click()
+    await ada.page.locator('#roomList').getByRole('button', {name: 'Open Delivery chat', exact: true}).click()
+    if (await ada.page.locator('#join').isVisible()) {await ada.page.locator('#displayName').fill('Ada'); await ada.page.locator('#join').click()}
+    await expect(ada.page.locator('#chatInput')).toBeEditable()
+    await ada.page.locator('#openAssignments').click()
+    await expect.poll(() => keeper.roster().find(person => person.participant === ada.pubkey)?.devices.length).toBe(1)
+    const originalDevices = keeper.roster().find(person => person.participant === ada.pubkey)!.devices
     const boardHash = new URL(owner.url()).hash
     const connect = async (title: string) => {
       await owner.goto(new URL(boardHash, owner.url()).href)
       await owner.getByRole('link', {name: title, exact: true}).click()
-      await owner.getByRole('button', {name: 'Ask an agent', exact: true}).click()
-      const dialog = owner.getByRole('dialog', {name: 'Ask an agent', exact: true})
-      await expect(dialog.getByLabel('Chosen room invitation', {exact: true})).toHaveValue(keeper.url)
-      await dialog.getByRole('button', {name: 'Connect to the chosen room', exact: true}).click()
+      await owner.getByRole('button', {name: 'Assign to agent', exact: true}).click()
+      const dialog = owner.getByRole('dialog', {name: 'Assign to agent', exact: true})
+      await expect(dialog.getByLabel('Chosen room invitation')).toHaveCount(0)
+      await dialog.getByText('Sharing details', {exact: true}).click()
       await expect(dialog.getByRole('heading', {name: 'Room audience', exact: true})).toBeVisible()
       await Promise.all(workers.map((_, i) => advertise(i)))
       const audience = dialog.getByRole('heading', {name: 'Room audience', exact: true}).locator('..')
@@ -445,6 +454,7 @@ test('two agents handle separate cards while a second person edits the shared bo
       // surface until both installations are in its current audience.
       await expect.poll(async () => {
         await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
+        await dialog.getByText('Sharing details', {exact: true}).click()
         return [await audience.getByText(/^Design agent .*installation/).isVisible(), await audience.getByText(/^Release agent .*installation/).isVisible()]
       }).toEqual([true, true])
       return dialog
@@ -454,45 +464,18 @@ test('two agents handle separate cards while a second person edits the shared bo
       const reviewDisclosure = async () => {
         await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
         await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
-        await dialog.getByRole('combobox', {name: /^Agent installation/}).selectOption(`${workers[i]!.participant}/${workers[i]!.device}`)
+        await dialog.getByRole('combobox', {name: /^Assign to/}).selectOption(`${workers[i]!.participant}/${workers[i]!.device}`)
+        await dialog.getByText('Task details', {exact: true}).click()
         await expect(dialog.getByRole('combobox', {name: /^Agent action/}).locator('option[value="card-review"]')).toHaveCount(1)
         await dialog.getByRole('combobox', {name: /^Agent action/}).selectOption('card-review')
         await dialog.getByLabel('Acceptance criteria shared with the room', {exact: true}).fill('Return a description proposal for review')
-        await dialog.getByRole('button', {name: 'Review disclosure', exact: true}).click()
-        return dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).isEnabled()
-      }
-      await expect.poll(reviewDisclosure).toBe(true)
-      const exactDisclosure = await dialog.getByLabel('Exact disclosure preview', {exact: true}).textContent()
-      await dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).click()
-      const offered = dialog.getByText('Room status: offered. Attempt 1.', {exact: true})
-      const saved = dialog.getByRole('button', {name: 'Review saved disclosure again', exact: true})
-      // A presence change can hold either before retaining an offer or before
-      // publishing its saved request. Refresh the actual custody surface and
-      // review the unchanged operation; a retained offer keeps its identity.
-      for (let review = 0; review < 3; review++) {
-        await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
-        if (await offered.isVisible()) break
-        await dialog.getByRole('button', {name: 'Refresh room audience and installations', exact: true}).click()
-        await expect(dialog).not.toHaveAttribute('aria-busy', 'true')
-        await expect.poll(async () => await offered.isVisible() || await saved.isVisible() ||
-          await dialog.getByText('No card disclosure has been saved for this room and installation.', {exact: true}).isVisible()).toBe(true)
-        if (await offered.isVisible()) break
-        if (await saved.isVisible()) {
-          try { await saved.click({timeout:2_000}) }
-          catch (error) { if (await offered.isVisible()) break; throw error }
-          await expect(dialog.getByRole('heading', {name: 'Audience for this saved disclosure', exact: true})).toBeVisible()
-          await expect(dialog.getByLabel('Exact saved disclosure preview', {exact: true})).toHaveText(exactDisclosure!)
-          await dialog.getByRole('button', {name: 'Send this reviewed saved disclosure', exact: true}).click()
-        } else {
-          await expect(dialog.getByText('No card disclosure has been saved for this room and installation.', {exact: true})).toBeVisible()
-          await expect.poll(reviewDisclosure).toBe(true)
-          await expect(dialog.getByLabel('Exact disclosure preview', {exact: true})).toHaveText(exactDisclosure!)
-          await dialog.getByRole('button', {name: 'Send exactly this disclosure', exact: true}).click()
-        }
-      }
-      await expect(offered).toBeVisible()
-      await dialog.getByRole('button', {name: 'Disconnect and close', exact: true}).click()
+        return dialog.getByRole('button', {name: 'Assign to agent', exact: true}).isEnabled()
+      }).toBe(true)
+      await dialog.getByRole('button', {name: 'Assign to agent', exact: true}).click()
+      await expect(dialog.getByText('Room status: offered. Attempt 1.', {exact: true})).toBeVisible()
+      await dialog.getByRole('button', {name: 'Close', exact: true}).click()
       await expect(dialog).toHaveCount(0)
+      expect(keeper.roster().find(person => person.participant === ada.pubkey)!.devices).toEqual(originalDevices)
     }
     await expect.poll(() => logs[0]!.snapshot().assignments.length).toBe(2)
     await expect.poll(() => logs[1]!.snapshot().assignments.length).toBe(2)
@@ -532,7 +515,7 @@ test('two agents handle separate cards while a second person edits the shared bo
       await dialog.getByLabel('Approve description', {exact: true}).check()
       await dialog.getByRole('button', {name: 'Apply selected changes to this card', exact: true}).click()
       await expect(dialog.getByText(/Approved card application saved locally at/)).toBeVisible()
-      await dialog.getByRole('button', {name: 'Disconnect and close', exact: true}).click()
+      await dialog.getByRole('button', {name: 'Close', exact: true}).click()
       await guest.getByRole('link', {name: title, exact: true}).click()
       await expect(guest.getByRole('textbox', {name: 'Description', exact: true})).toHaveValue(`Approved proposal ${i}`)
       await guest.goto(new URL(boardHash, guest.url()).href)

@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.81",
+  "currentRelease": "0.1.82",
   "releases": [
     {
-      "version": "0.1.81",
+      "version": "0.1.82",
       "updateTo": {
-        "version": "0.1.81",
-        "pub_date": "2026-10-14T16:17:04Z",
-        "notes": "Portrait phone cameras have a tall, filled tile and follow live rotation. Microphone recovery keeps the selected headset when it is available.",
-        "name": "0.1.81",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.81/KithMoot-0.1.81-mac-arm64.zip",
-        "sha256": "76bf50957ae2d7676254afaa93aa591749a38c1fec5eadba8ed2089969be6c18",
-        "size": 177648953
+        "version": "0.1.82",
+        "pub_date": "2026-10-14T21:04:28Z",
+        "notes": "Relay status and saved ordering. Signet errors are visible, and a successful sign-in clears a stale reconnect warning.",
+        "name": "0.1.82",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.82/KithMoot-0.1.82-mac-arm64.zip",
+        "sha256": "29a5b7e56082f2fe0c5471100e44d174a27e2e6b8a358b778e25bfdf0a5e89cc",
+        "size": 177649450
       }
     }
   ]

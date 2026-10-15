@@ -236,6 +236,12 @@ export class AssignmentPanel {
     form.closest('details')!.open = draft.open
   }
   #require(): AssignmentLog { if (!this.#log) throw new Error('Assignments are not connected'); return this.#log }
+  /** Share the existing writer with a board view; never open a second log. */
+  logFor(session: RoomSession): AssignmentLog {
+    const log = this.#require()
+    if (log.roomId !== session.roomId || log.participant !== session.participant || !log.snapshot().ready) throw new Error('Wait for this chat’s task history to finish loading')
+    return log
+  }
   async attach(session: RoomSession): Promise<void> {
     this.detach()
     const epoch = this.#epoch

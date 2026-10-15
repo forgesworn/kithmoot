@@ -11,6 +11,7 @@ import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
 import { isCultEmoji } from '../../src/custom-emoji.js'
 import { isOriginalEmoji } from '../../src/original-art.js'
 import { BrowserLink } from './browser-link.js'
+import { boardAgentRoomCurrent, borrowBoardAgentRoom } from './board-agent-room.js'
 import { startBrowserLink } from './browser-link-runtime.js'
 import { BrowserRoomRoutes } from './browser-room-routes.js'
 import { BrowserRoomActivation } from './browser-room-activation.js'
@@ -311,7 +312,7 @@ import {
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
-import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
+import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
@@ -1304,8 +1305,10 @@ async function signInWithNostr(): Promise<void> {
   if (!account.signer.capabilities.canSignEvents) {
     await logout(account)
     throw new Error(
-      'That sign-in can prove who you are but cannot sign anything afterwards, ' +
-        'and a room needs a signature to let this device in. Try an extension or a bunker.',
+      'Your identity was approved, but a signing connection was not established. ' +
+        'KithMoot needs your signer to approve joining rooms and sending private invitations. ' +
+        'If you used My Signet, turn on Bunker in its security settings and keep Signet open, then try again. ' +
+        'You can also connect using a signer QR code, a bunker URI or a browser extension.',
     )
   }
 
@@ -2606,6 +2609,8 @@ const profiles = new ProfileBook({
 
 let profilesEnabled = profilePreference(relayStorage)
 profiles.setEnabled(profilesEnabled)
+let nip05Verify = nip05VerifyPreference(relayStorage)
+profiles.setNip05Automatic(nip05Verify)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
 $('roomProfileSettings').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
 $('lookupProfiles').addEventListener('change', () => {
@@ -2619,6 +2624,13 @@ $('lookupProfiles').addEventListener('change', () => {
     repaintActiveChat()
   }
   renderIdentity()
+})
+
+;($('verifyAddresses') as HTMLInputElement).checked = nip05Verify
+$('verifyAddresses').addEventListener('change', () => {
+  nip05Verify = ($('verifyAddresses') as HTMLInputElement).checked
+  try { localStorage.setItem('kithmoot.nip05.verify', String(nip05Verify)) } catch { /* The switch still applies to this visit. */ }
+  profiles.setNip05Automatic(nip05Verify)
 })
 
 /**
@@ -15177,8 +15189,30 @@ boardsPanel = new BoardsPanel(document, {
   signIn: () => {void signInWithNostr().catch(error => setStatus(describeError(error)))},
   showChat: () => {if (session) {showMobileRoomView('chat'); const drawer = document.getElementById('chatDrawerToggle'); if (drawer?.getAttribute('aria-expanded') === 'false') drawer.click()}},
   roomTasks: from => workspaceWork?.open('work', from),
-  newRoomTask: async () => {if (!session) throw new Error('Join a chat before offering a room task.'); await assignmentPanel.openAssignment()},
   roomInvitation: id => workspaceActivityRooms().find(room => room.roomId === id)?.link,
+  agentRoom: async id => {
+    const account = nostrSession
+    if (!account) throw new Error('Sign in before assigning a card')
+    const linked = workspaceActivityRooms().find(room => room.roomId === id)
+    if (!linked || !boardAgentRoomCurrent(linked, id, linked.link)) throw new Error('This board’s linked chat is no longer available')
+    const selectedLink = linked.link
+    if (session?.roomId !== id) await switchRoom(linked)
+    const selected = session
+    if (nostrSession !== account || !selected || selected.roomId !== id || selected.participant !== account.pubkey) throw new Error('Complete admission in this board’s linked chat before assigning a card')
+    const current = () => {
+      const room = workspaceActivityRooms().find(room => room.roomId === id)
+      return nostrSession === account && session === selected && selected.participant === account.pubkey && boardAgentRoomCurrent(room, id, selectedLink)
+    }
+    // Joining starts the existing journal reader asynchronously. Wait for its
+    // real history, never create a second writer for an embedded view.
+    const deadline = Date.now() + 15_000
+    while (current()) {
+      try {return borrowBoardAgentRoom(selected, assignmentPanel.logFor(selected), current, currentRoomLabel())}
+      catch (error) {if (Date.now() >= deadline) throw error}
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    throw new Error('Your account or this board’s linked chat changed')
+  },
   roomBoards: id => {
     const s = session?.roomId === id ? session : dockedCall?.session.roomId === id ? dockedCall.session : undefined
     return s ? roomBoards.get(s)?.boards ?? [] : []
@@ -15216,6 +15250,7 @@ workspaceWork = new WorkspaceWorkPanel(document, {
   agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
   showMobileNavigation: () => !!nostrSession && workspaceActivityRooms().some(room => room.roomId === currentRoomId()),
   openProjects: from => sharedProjects.open(from),
+  currentRoomTasks: {available: () => !!session, open: async () => {if (!session) throw new Error('Open a chat before viewing its tasks'); await assignmentPanel.openAssignment()}},
   signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
   openOrigin: async (room, target) => {
     const account = nostrSession?.pubkey, generation = identityGeneration
@@ -15407,7 +15442,7 @@ function roomRelaysApplied(entries: RelayConfig[]): void {
   }
 }
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
-$('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'))))
+$('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'), 'default')))
 $('appProfileSettings').addEventListener('click', () => closeAppSettingsFor(() => openProfileSettings($('appProfileSettings'))))
 $('dmRelaySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => void openDmRelaySettings()))
 $('dmRelaySettingsClose').addEventListener('click', () => ($('dmRelaySettings') as HTMLDialogElement).close())
@@ -18328,7 +18363,9 @@ const identityReady = restoreSessionWithExtensionGrace()
     if (!session?.signer.capabilities.canSignEvents) {
       if (!location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
         history.replaceState(null, '', joinLinkBase())
-        return signInWithNostr()
+        // This is an explicit sign-in, not a failed background restore.
+        // Keep its error visible instead of swallowing it below.
+        return signInWithNostr().catch(error => setStatus(describeError(error)))
       }
       return
     }

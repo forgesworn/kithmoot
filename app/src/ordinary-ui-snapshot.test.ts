@@ -48,3 +48,24 @@ it('bounds UTF8 before parse, rejects unknown owner kinds, and leaves textSize f
   expect(()=>validate(new Map(),false,{kind:'account' as 'browser'})).toThrow(OrdinaryStateHold)
   expect(Object.values(validate(new Map([['kithmoot.textSize','large']]),false,{kind:'browser'})).every(v=>v===0)).toBe(true)
 })
+
+it('retains only canonical browser NIP-05 verification choices without enabling network checks', () => {
+  const key = 'kithmoot.nip05.verify'
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {throw Error('No custody fetch')})
+  try {
+    for (const raw of ['true', 'false']) for (const migrated of [false, true]) {
+      const records = new Map([[key, raw]]), before = [...records]
+      expect(validate(records, migrated, {kind: 'browser'}).booleans).toBe(1)
+      expect([...records]).toEqual(before)
+      expect(() => validate(records, migrated, {kind: 'tab'})).toThrow(OrdinaryStateHold)
+    }
+    for (const raw of ['', '1', 'TRUE', ' true', 'false ', 'null', '{}']) {
+      expect(() => validate(new Map([[key, raw]]), false, {kind: 'browser'})).toThrow(OrdinaryStateHold)
+    }
+    for (const name of [key + '.future', 'kithmoot.account.' + 'a'.repeat(64) + '.' + key]) {
+      expect(() => validate(new Map([[name, 'true']]), false, {kind: 'browser'})).toThrow(OrdinaryStateHold)
+    }
+    expect(validate(new Map(), false, {kind: 'browser'}).booleans).toBe(0)
+    expect(fetcher).not.toHaveBeenCalled()
+  } finally {fetcher.mockRestore()}
+})
