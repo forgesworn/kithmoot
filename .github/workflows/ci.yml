@@ -97,7 +97,7 @@ jobs:
       fail-fast: false
       matrix:
         project: [chromium, firefox, webkit]
-        slice: [prepared-startup, member-startup, prepared-extension, complete-extension, clients, startup-guard, startup-built]
+        slice: [prepared-startup, member-startup, prepared-extension, complete-extension, clients, startup-guard, startup-built, private-root]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -133,9 +133,24 @@ jobs:
         run: npm run build
 
       - name: Protected ordinary startup custody
+        if: matrix.slice != 'private-root'
         run: >-
           npx playwright test -c playwright.ordinary.config.ts
           --project=${{ matrix.project }}-ordinary-${{ matrix.slice }}
+          --reporter=line
+
+      # The fixed existing-state root is unmounted. Exercise its actual native
+      # ownership boundaries and retained open tails without weakening the
+      # seven established startup slices or promoting capture to restoration.
+      - name: Private existing-state root and lifetime regressions
+        if: matrix.slice == 'private-root'
+        run: >-
+          npx playwright test -c playwright.ordinary.config.ts
+          --project=${{ matrix.project }}-ordinary-private-existing-root
+          --project=${{ matrix.project }}-ordinary-protected-worker
+          --project=${{ matrix.project }}-ordinary-startup-lifetime
+          --project=${{ matrix.project }}-ordinary-state
+          --project=${{ matrix.project }}-ordinary-tab
           --reporter=line
 
       - name: Keep the traces of anything that failed

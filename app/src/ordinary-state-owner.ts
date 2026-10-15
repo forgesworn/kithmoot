@@ -1,4 +1,6 @@
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
+import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
+  type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
 import { HEADLESS_NIP07_DISCOVERY_BOUNDARY, createNip07SignerWithDiscoveryBoundary, type SignetSession, type SignetSigner, type Nip07DiscoveryBoundary } from 'signet-login'
 import { ORDINARY_SIGNET_KEYS } from './ordinary-signet-snapshot.js'
@@ -29,6 +31,44 @@ export { ORDINARY_DATABASE } from './ordinary-state-layout.js'
 const OWNER_STORE = 'owners'
 export const MAX_ORDINARY_TAB_OWNERS = 64
 const TAB_PURPOSE = /^tab:[0-9a-f]{64}$/
+/** Resource only. No owner, frame, key, selection or current authority escapes. */
+export interface OrdinaryPrivateExistingCaptureResource {
+  readonly completed: Promise<void>
+  stop(): void
+  close(): Promise<void>
+}
+interface PrivateExistingSelection {
+  readonly account: string
+  readonly participant: string
+  readonly invitationId: string
+  readonly roomId: string
+  readonly link: string
+  readonly keep: boolean
+  readonly credentialExpiresAt: number
+  readonly bootstrapCredentialExpiresAt: number
+  readonly proofOperation: string
+  readonly memberLeaseOperation: string | null
+}
+interface PrivateExistingCapture {
+  readonly token: object
+  readonly root: OrdinaryPrivateExistingRoot
+  readonly binding: OrdinaryPrivateExistingRootBinding
+  readonly browser: OrdinaryStateOwner
+  readonly tab: OrdinaryStateOwner
+  readonly purpose: OrdinaryPurpose
+  readonly expiresAt: number
+  readonly rows: readonly [string, string]
+  readonly revisions: readonly [number, number]
+  readonly generations: readonly [string, string]
+  readonly classification: string
+  readonly selection: Readonly<PrivateExistingSelection>
+  consumed: boolean
+}
+const privateExistingCaptures = new WeakMap<object, PrivateExistingCapture>()
+let beginPrivateExistingCapture!: (root: OrdinaryPrivateExistingRoot) => OrdinaryPrivateExistingCaptureResource
+/** The lexical bridge is installed by the class's static block. Callers cannot
+ * replace a public class method to intercept the actual private root. */
+export const beginOrdinaryPrivateExistingCapture = (root: OrdinaryPrivateExistingRoot): OrdinaryPrivateExistingCaptureResource => beginPrivateExistingCapture(root)
 export interface OrdinaryScope {
   readonly name: string
   readonly generation: string
@@ -504,6 +544,176 @@ export class OrdinaryStateOwner {
       this.#check(live)
       return result
     })
+  }
+  static {
+    beginPrivateExistingCapture = root => this.#beginPrivateExistingCapture(root)
+  }
+  /** Fixed restore-only native operation. Its sole selector is the actual
+   * unexported document root, authenticated by the private root WeakMap. */
+  static #beginPrivateExistingCapture(root: OrdinaryPrivateExistingRoot): OrdinaryPrivateExistingCaptureResource {
+    const binding = claimOrdinaryPrivateExistingRoot(root), browser = new OrdinaryStateOwner()
+    const purpose: OrdinaryPurpose = `tab:${binding.marker}`
+    let tab: OrdinaryStateOwner | undefined, context: OperationTransaction | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined, stopped = false, closing: Promise<void> | undefined
+    const stop = () => {
+      if (stopped) return
+      stopped = true
+      privateExistingCaptures.delete(root)
+      if (timer !== undefined) clearTimeout(timer)
+      context?.abort()
+      binding.revoke()
+      browser.#revoke(); if (tab) tab.#revoke()
+    }
+    const cancel = { stop }
+    browser.#resources.add(cancel)
+    const check = () => {
+      if (stopped || !binding.live() || navigator.serviceWorker.controller !== binding.controller) hold()
+      browser.#check(binding.live); if (tab) tab.#check(binding.live)
+    }
+    let operation!: Promise<void>
+    try {
+      check()
+      // Queue the real exclusive WRITE before returning the resource. The
+      // root releases its initial shared WRITE only after this call returns.
+      operation = Promise.resolve(navigator.locks.request(WRITE_LOCK, async () => {
+        check()
+        await binding.assertClientsCurrent(); check()
+        const snapshot = await import('./ordinary-snapshot.js'), proofs = await import('./persistent-admission-proof.js'),
+          lease = await import('./ordinary-member-lease.js'), devices = await import('./device-store.js'),
+          identity = await import('./ordinary-identity-snapshot.js'), rooms = await import('./rooms-store.js')
+        check()
+        let db: IDBDatabase | undefined, b: OrdinaryImage | undefined, t: OrdinaryImage | undefined
+        try {
+          db = await browser.#existingStartupDatabase(binding.live); check(); if (!db) hold()
+          db.onversionchange = () => { stop(); db?.close() }
+          context = operationTransaction(db, 'readonly')
+          const raw = await Promise.all([context.read(() => context!.store.get('browser')),
+            context.read(() => context!.store.get(purpose))])
+          check()
+          const br = row(raw[0]), tr = row(raw[1])
+          if (!br?.frame || !tr?.frame || br.pending || tr.pending) hold()
+          b = await openOrdinaryFrame(br.frame, br.key); check()
+          t = await openOrdinaryFrame(tr.frame, tr.key); check()
+          const now = Date.now()
+          if (b.purpose !== 'browser' || b.expiresAt !== 0 || t.purpose !== purpose ||
+              !Number.isSafeInteger(t.expiresAt) || t.expiresAt <= now || t.expiresAt > now + 12 * 60 * 60 * 1000 ||
+              b.migration?.phase !== 'complete' || t.migration?.phase !== 'complete') hold()
+          // Only authenticated existing metadata may establish the tab owner.
+          // No creating database path, marker allocation or expireTabs occurs.
+          tab = new OrdinaryStateOwner(purpose, t.expiresAt)
+          browser.#generation = b.generation; tab.#generation = t.generation
+          tab.#resources.add(cancel); tab.#track(operation)
+          timer = setTimeout(stop, t.expiresAt - Date.now())
+          const facts = await browser.#classifyOperations(binding.live, context); check()
+          if (facts.owners.some(([, value]) => JSON.parse(value)[1] !== null)) hold()
+          browser.#validateCleanupImage(b, t, tab, facts, snapshot)
+          const bv = view(new Map(b.records), false), tv = view(new Map(t.records), false)
+          const inspected = proofs.inspectPersistentAdmissionProofs(bv.store, tv.store)
+          try {
+            lease.inspectOrdinaryMemberLeases(bv.store, tv.store, inspected)
+            const incoming = parseRoomLink(binding.href)
+            let invitationId: string
+            try {
+              if (incoming.secret || incoming.pairingCode || !incoming.invitation?.persistent) hold()
+              const invitation = await import('../../src/invitation.js'); check()
+              invitationId = invitation.deriveInvitationId(incoming.invitation)
+            } finally { incoming.secret?.fill(0); incoming.invitation?.bearer.fill(0); incoming.pairingCode?.fill(0) }
+            const matches = [...inspected.selected.values()].filter(value => value.proof.binding.invitationId === invitationId)
+            if (matches.length !== 1) hold()
+            const selected = matches[0]!, proof = selected.proof, bound = proof.binding
+            if (proof.version !== 2 || !bound.deviceCustody || bound.account === null ||
+                bound.account !== bound.participant || bound.tab.purpose !== purpose || bound.tab.expiresAt !== tab.expiresAt ||
+                bound.browser.name !== 'invitation:' + bound.account + ':' + invitationId || bound.tab.name !== bound.browser.name) hold()
+            browser.#scope(b, bound.browser); tab.#scope(t, bound.tab)
+            const prefix = proofs.accountPrefix(bound.account), owner = proof.kept.enabled ? b : t, device = bound.deviceCustody
+            if (device.owner !== (proof.kept.enabled ? 'browser' : 'tab') || device.scope.name !== 'room:' + bound.roomId ||
+                device.owner === 'tab' && (device.scope.purpose !== purpose || device.scope.expiresAt !== tab.expiresAt)) hold()
+            ;(proof.kept.enabled ? browser : tab).#scope(owner, device.scope)
+            const metadataRaw = b.records.get(prefix + rooms.ROOM_PREFIX + bound.roomId)
+            if (!metadataRaw) hold()
+            const metadata = JSON.parse(metadataRaw)
+            if (metadata.link !== binding.href || metadata.keep !== proof.kept.enabled || metadata.endedAt !== undefined) hold()
+            // Complete snapshot validation already binds the exact stored link,
+            // invitation capability, room, admission rows and device continuity.
+            const credentialRaw = owner.records.get(prefix + devices.OWN_CREDENTIAL_PREFIX + bound.roomId),
+              sealsRaw = owner.records.get(prefix + devices.OWN_SEAL_PREFIX + bound.roomId),
+              keyRaw = owner.records.get(prefix + devices.DEVICE_PREFIX + bound.roomId)
+            if (!credentialRaw || !sealsRaw || !keyRaw) hold()
+            const credential = JSON.parse(credentialRaw), seals = JSON.parse(sealsRaw) as string[]
+            identity.validateOrdinaryEmbeddedDeviceCredential(credential, bound.roomId)
+            if (JSON.stringify(lease.ordinaryMemberLeaseCredential(proof, credential.id)) !== credentialRaw ||
+                credential.pubkey !== bound.account || credential.tags[1]?.[1] !== bound.device.pubkey) hold()
+            const key = hexToBytes(JSON.parse(keyRaw).sk)
+            try { if (getPublicKey(key) !== bound.device.pubkey) hold() } finally { key.fill(0) }
+            let foundSeal = false
+            for (const encoded of seals) {
+              const secret = hexToBytes(encoded)
+              try { if (getPublicKey(secret) === credential.tags[3]?.[1]) foundSeal = true } finally { secret.fill(0) }
+            }
+            if (!foundSeal) hold()
+            const credentialExpiresAt = Number(credential.tags[2]?.[1]), admissionEndsAt = selected.admission.endsAt
+            const prior = t.records.get(lease.ordinaryMemberLeaseName(bound))
+            let bootstrap = proof, memberLeaseOperation: string | null = null
+            let leaseAuthority: import('./ordinary-member-lease.js').OrdinaryMemberAuthority | undefined
+            if (prior !== undefined) {
+              const current = lease.readOrdinaryMemberLease(prior, JSON.stringify(proof))
+              bootstrap = JSON.parse(current.bootstrapProof); leaseAuthority = current.header.authority
+              memberLeaseOperation = current.header.operation
+              if (bootstrap.binding.operation !== current.header.bootstrap || current.header.expiresAt !== credentialExpiresAt ||
+                  leaseAuthority.tabExpiresAt !== tab.expiresAt || leaseAuthority.admissionEndsAt !== (admissionEndsAt ?? null) ||
+                  leaseAuthority.membershipEndsAt !== null || credentialExpiresAt > lease.ordinaryMemberAuthorityUntil(leaseAuthority)) hold()
+            } else if (seals.length !== 1) hold()
+            const first = lease.ordinaryMemberLeaseCredential(bootstrap, bootstrap.binding.device.credentialIds[0]!)
+            const bootstrapCredentialExpiresAt = Number(first.tags[2]![1]), seconds = Math.floor(Date.now() / 1000)
+            if (!Number.isSafeInteger(bootstrapCredentialExpiresAt) || bootstrapCredentialExpiresAt <= first.created_at ||
+                !Number.isSafeInteger(credentialExpiresAt) || credentialExpiresAt <= credential.created_at ||
+                credential.created_at > seconds || credentialExpiresAt - seconds < 600 ||
+                credentialExpiresAt > Math.floor(tab.expiresAt / 1000) ||
+                admissionEndsAt !== undefined && credentialExpiresAt > admissionEndsAt ||
+                metadata.endsAt !== undefined && credentialExpiresAt > metadata.endsAt) hold()
+            const k = ORDINARY_SIGNET_KEYS, account = b.records.get(k.pubkey), auth = b.records.get(k.authEvent),
+              expiry = b.records.get(k.expiresAt), expiresAt = expiry === undefined ? undefined : Number(expiry)
+            if (account !== bound.account || b.records.get(k.method) !== 'nip07' || !auth ||
+                b.records.has(k.bunkerUri) || b.records.has(k.bunkerClientSk) || b.records.has(k.pendingRedirect) ||
+                b.records.has(k.pendingRelayAuth) || t.records.has(ORDINARY_INITIAL_LOGIN_KEY) ||
+                expiresAt !== undefined && (!Number.isSafeInteger(expiresAt) || String(expiresAt) !== expiry || Date.now() >= expiresAt ||
+                  credentialExpiresAt > Math.floor(expiresAt / 1000)) ||
+                leaseAuthority && (expiresAt ?? null) !== leaseAuthority.foregroundExpiresAt) hold()
+            const authEvent = captureOrdinaryForegroundProof(JSON.parse(auth))
+            if (authEvent.kind !== 21236 || authEvent.pubkey !== account || JSON.stringify(authEvent) !== auth || !verifyEventUncached(authEvent) ||
+                authEvent.tags.filter(tag => tag[0] === 'origin').length !== 1 ||
+                !authEvent.tags.some(tag => tag.length === 2 && tag[0] === 'origin' && tag[1] === binding.origin) ||
+                authEvent.tags.filter(tag => tag[0] === 'app').length !== 1 ||
+                !authEvent.tags.some(tag => tag.length === 2 && tag[0] === 'app' && tag[1] === 'KithMoot')) hold()
+            const selection = Object.freeze({ account: bound.account, participant: bound.participant, invitationId,
+              roomId: bound.roomId, link: metadata.link as string, keep: proof.kept.enabled, credentialExpiresAt,
+              bootstrapCredentialExpiresAt, proofOperation: bound.operation, memberLeaseOperation })
+            await context.step(() => {
+              check()
+              if (privateExistingCaptures.has(root)) hold()
+              privateExistingCaptures.set(root, { token: Object.freeze({}), root, binding, browser, tab: tab!, purpose,
+                expiresAt: tab!.expiresAt, rows: Object.freeze([rowDigest(br), rowDigest(tr)]),
+                revisions: Object.freeze([b!.revision, t!.revision]), generations: Object.freeze([b!.generation, t!.generation]),
+                classification: JSON.stringify(facts), selection, consumed: false })
+            })
+            check()
+          } finally { inspected.close(); bv.close(); tv.close() }
+          context.stop(); await context.ended; check()
+        } catch (error) { context?.abort(); await context?.ended.catch(() => {}); stop(); throw error }
+        finally { context?.stop(); context = undefined; clearImage(b); clearImage(t); db?.close() }
+      }))
+    } catch (error) { stop(); throw error }
+    browser.#track(operation)
+    const completed = operation.catch(error => { stop(); throw error })
+    void completed.catch(() => {})
+    return Object.freeze({ completed, stop, close: () => {
+      if (closing) return closing
+      let resolve!: () => void, reject!: (error: unknown) => void
+      closing = new Promise<void>((yes, no) => { resolve = yes; reject = no })
+      stop()
+      void Promise.all([browser.close(), tab?.close()]).then(() => resolve(), reject)
+      return closing
+    } })
   }
   /** @internal A one-use witness is consumed solely by the captured private
    * startup factory. It grants no ordinary read or arbitrary phase writer. */
@@ -1186,15 +1396,29 @@ export class OrdinaryStateOwner {
     const check=()=>this.#custodyCheck(live,custodyOnly)
     check();let absent=false,refused=false
     const open=indexedDB.open(ORDINARY_DATABASE,1)
-    const db=await new Promise<IDBDatabase|undefined>((yes,no)=>{
-      open.onupgradeneeded=event=>{if(event.oldVersion===0)absent=true;open.transaction!.abort()}
-      open.onblocked=()=>{refused=true;no(new OrdinaryStateHold())}
-      open.onerror=()=>{if(absent)yes(undefined);else no(new OrdinaryStateHold())}
-      open.onsuccess=()=>{const value=open.result;if(refused){value.close();return}
-        try{check();if(value.version!==1||value.objectStoreNames.length!==1||!value.objectStoreNames.contains(OWNER_STORE))hold();yes(value)}
-        catch(error){value.close();no(error)}}
-    });try{check()}catch(error){db?.close();throw error}
-    return db
+    let finish!:()=>void
+    const terminal=this.#track(new Promise<void>(resolve=>{finish=resolve}))
+    try{
+      const db=await new Promise<IDBDatabase|undefined>((yes,no)=>{
+        open.onupgradeneeded=event=>{if(event.oldVersion===0)absent=true;open.transaction!.abort()}
+        open.onblocked=()=>{refused=true;no(new OrdinaryStateHold());this.#revoke()}
+        open.onerror=()=>{try{if(absent&&!refused)yes(undefined);else no(new OrdinaryStateHold())}finally{finish()}}
+        open.onsuccess=()=>{
+          const value=open.result
+          try{
+            if(refused){value.close();return}
+            try{check();if(value.version!==1||value.objectStoreNames.length!==1||!value.objectStoreNames.contains(OWNER_STORE))hold();yes(value)}
+            catch(error){value.close();no(error)}
+          }finally{finish()}
+        }
+      });try{check()}catch(error){db?.close();throw error}
+      return db
+    }finally{
+      // A blocked decision revokes immediately, but the native request has
+      // no cancellation API. Keep its owner and enclosing lock joined until
+      // an error or a closed late success establishes the terminal outcome.
+      await terminal
+    }
   }
   /** Inspect storage before factory construction, new custody or expiry. The
    * one native read is separate from ordinary pair custody: it publishes no
@@ -1646,27 +1870,44 @@ export class OrdinaryStateOwner {
     if (this.#db) return this.#db
     const opened = indexedDB.open(ORDINARY_DATABASE, 1)
     let refused = false
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      opened.onupgradeneeded = event => {
-        if (event.oldVersion !== 0) { opened.transaction!.abort(); return }
-        opened.result.createObjectStore(OWNER_STORE)
-      }
-      opened.onerror = () => reject(opened.error)
-      opened.onblocked = () => { refused = true; reject(new OrdinaryStateHold()) }
-      opened.onsuccess = () => {
-        const value = opened.result
-        if (refused) { value.close(); return }
-        try {
-          this.#custodyCheck(live, reconciling)
-          if (value.version !== 1 || value.objectStoreNames.length !== 1 || !value.objectStoreNames.contains(OWNER_STORE)) hold()
-          resolve(value)
-        } catch (error) { value.close(); reject(error) }
-      }
-    })
-    this.#custodyCheck(live, reconciling)
-    this.#db = db
-    db.onversionchange = () => { this.#revoke(); db.close(); this.#db = undefined }
-    return db
+    let finish!: () => void
+    const terminal = this.#track(new Promise<void>(resolve => { finish = resolve }))
+    const resource = { stop: () => { try { opened.transaction?.abort() } catch { /* The request remains joined. */ } } }
+    this.#resources.add(resource)
+    try {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        opened.onupgradeneeded = event => {
+          try {
+            if (refused || this.#closed || event.oldVersion !== 0) { opened.transaction!.abort(); return }
+            this.#custodyCheck(live, reconciling)
+            opened.result.createObjectStore(OWNER_STORE)
+          } catch (error) {
+            refused = true
+            resource.stop(); reject(error); this.#revoke()
+          }
+        }
+        opened.onerror = () => { try { reject(opened.error) } finally { finish() } }
+        opened.onblocked = () => { refused = true; reject(new OrdinaryStateHold()); this.#revoke() }
+        opened.onsuccess = () => {
+          const value = opened.result
+          try {
+            if (refused) { value.close(); return }
+            try {
+              this.#custodyCheck(live, reconciling)
+              if (value.version !== 1 || value.objectStoreNames.length !== 1 || !value.objectStoreNames.contains(OWNER_STORE)) hold()
+              resolve(value)
+            } catch (error) { value.close(); reject(error) }
+          } finally { finish() }
+        }
+      })
+      try { this.#custodyCheck(live, reconciling) } catch (error) { db.close(); throw error }
+      this.#db = db
+      db.onversionchange = () => { this.#revoke(); db.close(); this.#db = undefined }
+      return db
+    } finally {
+      await terminal
+      this.#resources.delete(resource)
+    }
   }
   async #snapshot(live: () => boolean, reconciling = false, barrier: OrdinaryStateOwner = this): Promise<Snapshot> {
     let db = await this.#database(live, reconciling)

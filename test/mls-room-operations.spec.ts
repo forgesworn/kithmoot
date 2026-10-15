@@ -324,7 +324,9 @@ for (const terminal of [false, true]) for (const conflict of [false, true]) test
 })
 for (const state of ['pending', 'dismissed']) test(`candidate Add admits an unheld device with a ${state} keeper prompt`, async ({ context }) => {
   const { page } = await enrolled(context)
-  await run(page, `M.candidateKeeperHold('${state}'); M.beginCandidateAdd()`)
+  // Finish witnessed keeper setup before the candidate inspects it.
+  expect(await run(page, `M.candidateKeeperHold('${state}')`)).toMatchObject({ state: 'active' })
+  await run(page, 'M.beginCandidateAdd()')
   expect(await run(page, 'M.finishCandidateAdd()')).toBe('active')
   expect(await run(page, 'M.candidateAddSnapshot()')).toMatchObject({ registrations: 1 })
   await run(page, 'M.forgetGuest()')
@@ -475,7 +477,8 @@ test('pending Add prospective different-person device conflicts refuse keeper ap
 })
 test('candidate Add retains the device gate past registration timeout until actual transport settlement', async ({ context }) => {
   const { page } = await enrolled(context)
-  await run(page, "M.candidateKeeperHold('pending'); M.pauseCandidatePackages(); M.beginCandidateAdd(false, 500, false)")
+  expect(await run(page, "M.candidateKeeperHold('pending')")).toMatchObject({ state: 'active' })
+  await run(page, 'M.pauseCandidatePackages(); M.beginCandidateAdd(false, 500, false)')
   await expect.poll(async () => (await run(page, 'M.candidateAddSnapshot()')).registrations).toBe(1)
   const before = await run(page, 'M.read()')
   const holding = page.evaluate(() => (window as any).M.holdKeeperDevice())
@@ -529,7 +532,8 @@ test('candidate Add retains the shared gate through actual witnessed Add settlem
 })
 test('candidate Add invalidated while waiting has no package registration or room mutation', async ({ context }) => {
   const { page } = await enrolled(context)
-  await run(page, "M.candidateKeeperHold('pending'); M.holdKeeperDevice()")
+  expect(await run(page, "M.candidateKeeperHold('pending')")).toMatchObject({ state: 'active' })
+  await run(page, 'M.holdKeeperDevice()')
   const before = await run(page, 'M.read()')
   await run(page, 'M.beginCandidateAdd()')
   await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).pending?.some(lock => lock.name?.startsWith('kithmoot.vmls-grant-install.') && lock.mode === 'shared'))).toBe(true)
