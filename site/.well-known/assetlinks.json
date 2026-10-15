@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "dev.forgesworn.kithmoot",
+      "sha256_cert_fingerprints": [
+        "13:5B:CA:BF:71:52:16:D1:3B:7A:59:6C:6F:89:1C:32:20:A7:F9:08:26:EF:8E:75:93:0D:51:B3:45:06:A2:E9"
+      ]
+    }
+  }
+]

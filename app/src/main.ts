@@ -73,7 +73,7 @@ import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReason } from '../../src/session.js'
-import { ANDROID_DOWNLOAD_URL, appLinkFor, isAndroidUserAgent } from './open-in-app.js'
+import { ANDROID_DOWNLOAD_URL, DESKTOP_DOWNLOAD_URL, appLinkFor, appPlatform } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, draftSubmissionSnapshot, type ConversationDraft } from './drafts.js'
@@ -336,6 +336,19 @@ import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
+import { signinRelays, withSignetRelay } from './signet-relays.js'
+
+const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
+/** Whether this page was opened from an invitation link, read before anything
+ *  rewrites the address: a room the app reloaded into itself, or one created
+ *  here, is not an invitation to hand to an app. */
+const OPENED_FROM_LINK = location.hash.length > 1 && (() => {
+  try { return sessionStorage.getItem(ROOM_SWITCH_KEY) === null } catch { return true }
+})()
+/** Set once this page leaves the invitation it was opened with, by creating
+ *  or switching to another room. Not the room id: an invitation is often
+ *  shown at the door before admission says which room it is. */
+let linkArrivalOver = false
 
 /** This device's unsent messages, kept across a reload for ordinary chat,
  *  and sent as soon as a relay will take them. See pending-sends.ts. */
@@ -1186,6 +1199,15 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
 
 /** signet-login keeps a bunker's URI and client key when a restore fails,
  *  so the same signer can be asked again without pairing afresh. */
+/** A stored remote signer is also asked on Signet's own relay; see signet-relays.ts. */
+function reachStoredSignerOnSignetRelay(): void {
+  try {
+    const uri = localStorage.getItem('signet:login.bunkerUri')
+    const updated = uri && localStorage.getItem('signet:login.method') === 'bunker' ? withSignetRelay(uri) : undefined
+    if (updated) localStorage.setItem('signet:login.bunkerUri', updated)
+  } catch { /* No storage, nothing stored to reach. */ }
+}
+
 function storedBunkerSession(): boolean {
   try {
     return localStorage.getItem('signet:login.method') === 'bunker' && !!localStorage.getItem('signet:login.bunkerUri')
@@ -1199,7 +1221,9 @@ let bunkerRetryDelay = 0
 /** The stored bunker answered as somebody other than the account expected:
  *  asking it again will not change that. */
 let bunkerRetryForeign = false
-const BUNKER_RETRY_MIN_MS = 30_000
+// A phone signer that was asleep at launch usually answers within seconds of
+// waking: the first retry comes soon, then backs off.
+const BUNKER_RETRY_MIN_MS = 5_000
 const BUNKER_RETRY_MAX_MS = 5 * 60_000
 
 /**
@@ -1224,6 +1248,7 @@ function retryStoredBunker(): Promise<boolean> {
   if ((session || joining) && session?.participant !== expectedAccount) return Promise.resolve(false)
   const generation = identityGeneration
   bunkerRetryAt = Date.now()
+  reachStoredSignerOnSignetRelay()
   bunkerRetry = restoreSession()
     .then(async (restored) => {
       if (!restored) return false
@@ -1288,7 +1313,7 @@ async function signInWithNostr(): Promise<void> {
   try {
     await boardsPanel?.reset()
     if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
-    account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
+    account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS),
       // 'nsec' is the dangerous route, kept behind Advanced by the picker:
       // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
       // memory for this page only. It exists for dogfooding and for people
@@ -4387,13 +4412,18 @@ async function startNewRoom(): Promise<void> {
   rememberCurrentRoom()
 }
 
-/** The "Open in the KithMoot app" button: Android browsers only, and only when
- *  the page carries a room to hand over. See open-in-app.ts. */
+/** The "Open in the KithMoot app" button: browsers on Android and on a
+ *  computer the desktop app runs on, never inside the desktop app itself,
+ *  and only for the room an invitation link opened. See open-in-app.ts. */
 function renderOpenInApp(): void {
-  const appLink = isAndroidUserAgent(navigator.userAgent) ? appLinkFor(location.href) : undefined
+  const invited = OPENED_FROM_LINK && !linkArrivalOver
+  const platform = !invited || import.meta.env.VITE_DESKTOP === 'true' ? undefined : appPlatform(navigator.userAgent, navigator.maxTouchPoints)
+  const appLink = platform ? appLinkFor(location.href) : undefined
   $('openInApp').hidden = appLink === undefined
   if (appLink !== undefined) ($('openInAppLink') as HTMLAnchorElement).href = appLink
-  ;($('getAndroidApp') as HTMLAnchorElement).href = ANDROID_DOWNLOAD_URL
+  const get = $('getAndroidApp') as HTMLAnchorElement
+  get.href = platform === 'desktop' ? DESKTOP_DOWNLOAD_URL : ANDROID_DOWNLOAD_URL
+  get.textContent = platform === 'desktop' ? 'Get KithMoot for your computer' : 'Get KithMoot for Android'
 }
 
 function renderDoorBothyRecovery(): void {
@@ -13728,7 +13758,6 @@ function renderWorkspace(): void {
   }
 }
 
-const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
 let roomSwitcherReturn: HTMLElement | undefined
 let previousRoom: KnownRoom | undefined
 let switchDestination: KnownRoom | undefined
@@ -13895,6 +13924,7 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   const identity = identityGeneration
   if (session) previousRoom = navigationRooms().find(room => room.roomId === currentRoomId())
   switchDestination = room
+  linkArrivalOver = true
   captureDraft()
   switchingRoom = true
   armStopOpening()
@@ -15745,6 +15775,7 @@ $('createRoomForm').addEventListener('submit', async event => {
   $('createError').hidden = true
   try {
     await startNewRoom()
+    linkArrivalOver = true
     setStatus('')
     showRoomUi()
     $('identity').scrollIntoView({ block: 'start' })
@@ -18345,6 +18376,7 @@ renderIdentity()
  * was right there. Wait for it, briefly, and restore again.
  */
 async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null> {
+  reachStoredSignerOnSignetRelay()
   const session = await restoreSession()
   if (session?.signer.capabilities.canSignEvents) return session
   let storedMethod: string | null = null

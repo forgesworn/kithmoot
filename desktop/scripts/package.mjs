@@ -24,6 +24,7 @@ const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.4.1', appBundleId: 'dev.forgesworn.kithmoot.desktop',
   appVersion: version, buildVersion: '84', icon, overwrite: true, asar: true,
+  protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
     NSAudioCaptureUsageDescription: 'KithMoot shares system sound when you choose to include audio with your screen share.',
