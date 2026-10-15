@@ -86,7 +86,7 @@
     "nostr-tools": "^2.25.2",
     "opus-decoder": "^0.7.12",
     "qrcode": "^1.5.4",
-    "signet-login": "0.19.1",
+    "signet-login": "0.20.0",
     "spoken-token": "^2.1.0",
     "werift": "^0.24.4",
     "zod": "^4.5.4"
