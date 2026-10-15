@@ -256,11 +256,11 @@ export function ordinaryPairOperationMarkersFor(token: OrdinaryPairCustody, brow
 }
 /** Signing may consume only acknowledged input bytes from a read callback,
  * never a writable projection which has not yet acquired a native receipt. */
+let validateReadPairCustody!: (token: OrdinaryPairCustody) => void
 export function ordinaryPairReadCustodyFor(token:OrdinaryPairCustody,browser:ReadonlyMap<string,string>,tab:ReadonlyMap<string,string>) {
   const captured=pairCustody.get(token)
   if(captured?.kind!=='read')hold()
-  OrdinaryStateOwner.validatePairBinding(token,{browser:{owner:captured.browserOwner,scope:captured.browserScope},
-    tab:{owner:captured.tabOwner,scope:captured.tabScope},live:()=>true})
+  validateReadPairCustody(token)
   return ordinaryPairCustodyFor(token,browser,tab)
 }
 /** Exact native P-image digest only. Raw records or a writable/historical
@@ -523,7 +523,7 @@ export class OrdinaryStateOwner {
     if (pairCustody.get(custody)?.kind !== 'read') hold()
     const captured = { browser: { owner: binding.browser.owner, scope: { ...binding.browser.scope } },
       tab: { owner: binding.tab.owner, scope: { ...binding.tab.scope } }, live: binding.live }
-    OrdinaryStateOwner.validatePairBinding(custody, captured)
+    OrdinaryStateOwner.#validatePairBinding(custody, captured)
     const browser = captured.browser.owner, tab = captured.tab.owner, revoke = callbacks.revoke, join = callbacks.join
     if (typeof revoke !== 'function' || typeof join !== 'function') hold()
     let active = true, timer: ReturnType<typeof setTimeout>
@@ -544,7 +544,7 @@ export class OrdinaryStateOwner {
       else timer = setTimeout(expire, Math.min(2_147_483_647, Math.max(1, tab.expiresAt - Date.now())))
     }
     // Callback getters above may revoke an owner. Recheck before retaining.
-    OrdinaryStateOwner.validatePairBinding(custody, captured)
+    OrdinaryStateOwner.#validatePairBinding(custody, captured)
     browser.#resources.add(resource); tab.#resources.add(resource)
     timer = setTimeout(expire, Math.min(2_147_483_647, Math.max(1, tab.expiresAt - Date.now())))
     return () => { release() }
@@ -579,11 +579,16 @@ export class OrdinaryStateOwner {
    * This synchronous restriction neither starts a read nor exports an image. */
   static validatePairBinding(custody: OrdinaryPairCustody,
     input: Pick<OrdinaryPairMutation<unknown>, 'browser' | 'tab' | 'live'>): void {
+    OrdinaryStateOwner.#validatePairBinding(custody, input)
+  }
+  static #validatePairBinding(custody: OrdinaryPairCustody,
+    input: Pick<OrdinaryPairMutation<unknown>, 'browser' | 'tab' | 'live'>): void {
     const browser=input.browser.owner,tab=input.tab.owner,
       browserScope={...input.browser.scope},tabScope={...input.tab.scope},live=input.live
     const captured=pairCustody.get(custody)
     if(!captured||captured.kind==='historical-cleanup'||captured.browserOwner!==browser||captured.tabOwner!==tab||browser===tab||
-      !(browser instanceof OrdinaryStateOwner)||!(tab instanceof OrdinaryStateOwner)||typeof live!=='function')hold()
+      typeof browser!=='object'||browser===null||!(#closed in browser)||
+      typeof tab!=='object'||tab===null||!(#closed in tab)||typeof live!=='function')hold()
     // Invoke the trusted selector before the final lifetime checks: it may
     // synchronously close an owner while still returning true.
     const selected = live(), now = Date.now()
@@ -608,6 +613,14 @@ export class OrdinaryStateOwner {
     })
   }
   static {
+    // A read-custody token resolves its exact owners here. The fixed helper
+    // must not pass those owners through a replaceable public class method.
+    validateReadPairCustody = token => {
+      const captured = pairCustody.get(token)
+      if (captured?.kind !== 'read') hold()
+      this.#validatePairBinding(token, { browser: { owner: captured.browserOwner, scope: captured.browserScope },
+        tab: { owner: captured.tabOwner, scope: captured.tabScope }, live: () => true })
+    }
     beginPrivateExistingCapture = root => this.#beginPrivateExistingCapture(root)
     beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
   }
@@ -3206,7 +3219,7 @@ export class OrdinaryStateOwner {
     const receipt=renewalSettled.get(settled),enrollment=receipt&&renewalEnrollments.get(receipt.enrollment),captured=pairCustody.get(custody)
     if(!receipt||!enrollment||captured?.kind!=='read'||!captured.rows||!captured.operationMarkers||receipt.target.header.phase!=='settled')hold()
     const {binding}=enrollment.held
-    OrdinaryStateOwner.validatePairBinding(custody,binding)
+    OrdinaryStateOwner.#validatePairBinding(custody,binding)
     const names=ordinaryOperationNames(receipt.target.purpose)
     if(captured.rows.some((row,i)=>!row.frame||row.pending||rowDigest(row)!==receipt.target.rows[i])||
       captured.browserOwner.#operationControlDigests.get(names.control)!==receipt.target.controlDigest)hold()
@@ -3216,7 +3229,7 @@ export class OrdinaryStateOwner {
     if(controls.size!==receipt.classification.controls.length||receipt.classification.controls.some(([name,digest])=>controls.get(name)!==digest))hold()
     const markers=new Map(receipt.classification.markers)
     for(const current of captured.operationMarkers)for(const [name,raw]of current)if(markers.get(name)!==raw)hold()
-    OrdinaryStateOwner.validatePairBinding(custody,binding)
+    OrdinaryStateOwner.#validatePairBinding(custody,binding)
   }
   /** Expiry is not proof that an uncertain intent was absent. Authenticate
    * and promote its exact frame before removing expired custody. The caller
@@ -3502,7 +3515,7 @@ export class OrdinaryStateOwner {
         if (receipt.state !== 'consuming' || captured?.kind !== 'read' || !captured.rows ||
             !sameOrdinaryFrame(captured.rows[0].frame, receipt.frames[0]) ||
             !sameOrdinaryFrame(captured.rows[1].frame, receipt.frames[1])) hold()
-        OrdinaryStateOwner.validatePairBinding(custody, { browser, tab, live })
+        OrdinaryStateOwner.#validatePairBinding(custody, { browser, tab, live })
         receipt.state = 'consumed' // before reentrant application code
         const result = work(b, t, bn, tn, custody)
         if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
@@ -3510,7 +3523,7 @@ export class OrdinaryStateOwner {
           OrdinaryStateOwner.joinPairLifetime(browser.owner, tab.owner, body)
           void body.catch(() => {}); hold()
         }
-        OrdinaryStateOwner.validatePairBinding(custody, { browser, tab, live })
+        OrdinaryStateOwner.#validatePairBinding(custody, { browser, tab, live })
         return result
       } })
       const result = pending.catch(error => { receipt.state = 'refused'; throw error })

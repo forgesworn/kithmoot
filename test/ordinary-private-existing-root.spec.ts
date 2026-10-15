@@ -137,6 +137,10 @@ test.beforeAll(async () => {
              sign: (event: EventTemplate) => actual.#signEvent(event),
              encrypt: (peer: string, text: string) => actual.nip44!.encrypt(peer, text),
              signWithConsumer: (event: EventTemplate, validate: () => unknown) => actual.#signEvent(event, undefined, { live: () => true, validate }),
+             custody: () => actual.#read(() => true, { live: () => true, validate: (browser, tab, custody) => {
+               const b = new Map(browser.keys().map(name => [name, browser.get(name)!])), t = new Map(tab.keys().map(name => [name, tab.get(name)!]))
+               try { ordinaryPairReadCustodyFor(custody, b, t) } finally { b.clear(); t.clear() }
+             } }),
              metadata: () => [Object.isFrozen(actual), Object.hasOwn(actual, 'signEvent'), actual.session.authEvent.kind],
            })
       })`).replace('state = new OrdinaryForegroundSigner(options, captured, scopes[0], scopes[1])',
@@ -1032,6 +1036,25 @@ test('private foreground uses the actual pinned SDK and bypasses replaced public
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
   expect(await page.evaluate('[publicForegroundDispatches,providerFixture.calls,providerFixture.signs,providerFixture.controlNonces,effects.put,effects.socket]')).toEqual([0, 1, 2, 1, 0, 0])
+})
+test('private foreground read custody cannot expose owners through replaced public validation', async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  await page.evaluate(() => {
+    const w = window as any
+    w.publicCustodyDispatches = 0
+    w.__privateOwnerPrototypeForTest.constructor.validatePairBinding = () => {
+      w.publicCustodyDispatches++; throw Error('Replaced native custody validator')
+    }
+  })
+  expect(await page.evaluate(async () => {
+    const w = window as any
+    try { return [await w.__privateForegroundProbe.custody(), w.publicCustodyDispatches] }
+    catch { return ['refused', w.publicCustodyDispatches] }
+  })).toEqual([true, 0])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.signs, effects.put, effects.socket]')).toEqual([1, 0, 0])
 })
 for (const changed of ['sdk', 'native'] as const) test(`private foreground refuses ${changed} replacement before provider signing`, async ({ page }) => {
   await prepareControlStage(page); await startPrivateForeground(page)
