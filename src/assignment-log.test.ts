@@ -37,6 +37,37 @@ async function fixture() {
 }
 
 describe('durable encrypted assignment transport', () => {
+  it('does not publish a board assignment when its source changes during signing', async () => {
+    const f = await fixture()
+    let valid = true
+    const sign = f.identity.signEvent.bind(f.identity)
+    let release!: () => void, entered!: () => void
+    const signing = new Promise<void>(resolve => {entered = resolve})
+    const paused = new Promise<void>(resolve => {release = resolve})
+    vi.spyOn(f.identity, 'signEvent').mockImplementation(async event => {entered(); await paused; return sign(event)})
+    const sending = f.a.submit(undefined, {op: 'create', objective: 'Selected card', criteria: 'Return evidence', owner: f.worker.participant}, 'board_sign_guard', null, () => valid)
+    await signing; valid = false; release()
+    await expect(sending).rejects.toThrow('source changed')
+    expect(f.a.snapshot().pendingSends).toBe(0)
+    expect(f.b.snapshot().assignments).toHaveLength(0)
+  })
+
+  it('retains an unpublished reviewed request after storage drift and requires fresh review to retry it', async () => {
+    const f = await fixture()
+    let valid = true
+    const save = f.aStore.save.bind(f.aStore)
+    vi.spyOn(f.aStore, 'save').mockImplementation(async value => {await save(value); valid = false})
+    const operation = {op: 'create' as const, objective: 'Selected card', criteria: 'Return evidence', owner: f.worker.participant}
+    await expect(f.a.submit(undefined, operation, 'board_save_guard', null, () => valid)).rejects.toThrow('source changed')
+    expect(f.a.snapshot().pendingSends).toBe(1)
+    expect(f.b.snapshot().assignments).toHaveLength(0)
+    await expect(f.a.retry()).rejects.toThrow('Review this saved assignment')
+    vi.restoreAllMocks()
+    const resumed = await f.a.submit(undefined, operation, 'board_save_guard', null, () => true)
+    await vi.waitFor(() => expect(f.b.snapshot().assignments[0]?.id).toBe(resumed.id))
+    expect(f.a.snapshot().pendingSends).toBe(0)
+  })
+
   it('delivers the complete create, claim, result and review journey through authenticated room envelopes', async () => {
     const f = await fixture()
     const created = await f.a.submit(undefined, { op: 'create', objective: 'Private release check', criteria: 'Report exact build', owner: f.worker.participant }, 'create_request_001')

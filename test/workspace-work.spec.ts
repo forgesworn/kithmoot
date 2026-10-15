@@ -124,7 +124,7 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
       await page.locator('#sharedProjectSave').click(); await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
     }
     await enter('Design project', 'Design room')
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'New room task', exact: true}).click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
     await page.getByText('New assignment', { exact: true }).click()
     await expect(page.locator('#assignmentOwner option[value="' + keepers[0]!.participant + '"]')).toHaveCount(1)
     await page.locator('#assignmentOwner').selectOption(keepers[0]!.participant)
@@ -135,7 +135,7 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     const task = logs[0]!.snapshot().assignments[0]!
     await page.locator('#assignmentClose').click()
     await enter('Research project', 'Research room')
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'New room task', exact: true}).click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
     await page.getByText('New assignment', { exact: true }).click()
     await page.locator('#assignmentOwner').selectOption(keepers[2]!.participant)
     await page.locator('#assignmentCreate [name=objective]').fill('Independent research task')

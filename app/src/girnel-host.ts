@@ -1,4 +1,5 @@
 import type { SignetSession } from 'signet-login'
+import type { BoardAgentRoom } from './board-agent-room.js'
 
 export interface GirnelBoard { boardId: string; name: string; cardId?: string }
 export interface GirnelHost {
@@ -11,6 +12,7 @@ export interface GirnelHost {
   onBoard(board: GirnelBoard | null): void
   onBoards(boards: Array<{ boardId: string; name: string; ended: boolean }>): void
   roomInvitation?(): string | undefined
+  agentRoom?(): Promise<BoardAgentRoom>
   roomShare?(): {name: string; publish(board: {boardId: string; name: string}, invitation: string): Promise<void>} | undefined
   onRoomShareReady?(share: (() => void) | null): void
   discuss?(boardId: string, card: { id: string; title: string; description?: string }): void
