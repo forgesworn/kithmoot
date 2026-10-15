@@ -38,6 +38,11 @@ export class FakeRelayServer {
   /** Open every connection and drop it straight away, the way an
    *  overloaded relay behind a proxy that accepts the upgrade does. */
   dropOnOpen = false
+  /** Answer a `REQ` with `CLOSED` and this reason instead of history, the
+   *  way a relay that will not serve a reader does. With `refuseReadKinds`,
+   *  only a request naming one of those kinds. */
+  refuseReads: string | undefined = undefined
+  refuseReadKinds: number[] | undefined = undefined
   /** Every connection attempt this relay has seen, refused or not. */
   attempts = 0
 
@@ -126,6 +131,10 @@ export class FakeRelayServer {
     if (message[0] === 'REQ') {
       const subId = message[1] as string
       const filters = message.slice(2) as Filter[]
+      if (this.refuseReads !== undefined && (!this.refuseReadKinds || filters.some(filter => filter.kinds?.some(kind => this.refuseReadKinds!.includes(kind))))) {
+        socket.deliver(JSON.stringify(['CLOSED', subId, this.refuseReads]))
+        return
+      }
       this.#subscriptions.set(this.#key(socket, subId), { socket, subId, filters })
       for (const event of this.stored) {
         if (matchFilters(filters, event)) socket.deliver(JSON.stringify(['EVENT', subId, event]))

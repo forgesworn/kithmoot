@@ -1,4 +1,4 @@
-import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
+import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, READ_EVIDENCE_RANK, type ReadEvidence, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
 import { KINDS } from '../../src/kinds.js'
 import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
 import { isInvitationRelays } from '../../src/persistent-invitation.js'
@@ -349,9 +349,14 @@ export class RelayConnections {
       const matches = [...this.#pools].filter(([, owner]) => owner.scope === scope).flatMap(([pool]) => pool.health()).filter(health => health.url === relay.url)
       const connected = matches.some(health => health.state === 'connected')
       const lastWrite = matches.filter(health => health.lastPublishedAt).sort((a, b) => b.lastPublishedAt! - a.lastPublishedAt!)[0]
-      const failed = matches.find(health => health.lastError)
+      // Worst evidence first, within this scope only: one pool's accepted
+      // write or answered read must not hide another pool's refusal.
+      const failed = matches.map(health => health.lastError).filter((error): error is string => !!error)
+        .sort((a, b) => errorRank(a) - errorRank(b))[0]
+      const readEvidence = matches.map(health => health.readEvidence).filter((value): value is ReadEvidence => value !== undefined)
+        .sort((a, b) => READ_EVIDENCE_RANK[a] - READ_EVIDENCE_RANK[b])[0]
       const unreturned = [...new Set(matches.flatMap(health => health.unreturned ?? []))]
-      return { ...lastWrite, ...relay, lastError: failed?.lastError, unreturned: unreturned.length ? unreturned : undefined,
+      return { ...lastWrite, ...relay, lastError: failed, ...(readEvidence ? { readEvidence } : {}), unreturned: unreturned.length ? unreturned : undefined,
         authentication: matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
         state: connected ? 'connected' : matches.some(health => health.state === 'connecting') ? 'connecting'
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
@@ -600,9 +605,23 @@ export class RelaySettingsPanel {
       else if (found?.authentication === 'allowed' && found.state === 'connecting') text.textContent = 'Authenticating…'
       if (found?.lastPublishedAt) text.textContent += ` · Last accepted write ${new Date(found.lastPublishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (${found.publishLatencyMs} ms)`
       if (found?.lastError) text.textContent += ` · ${found.lastError}`
+      if (found?.readEvidence) text.textContent += ` · ${READ_LABELS[found.readEvidence]}`
       // Seen, not inferred: it said OK to one and had nothing when asked.
       if (found?.unreturned?.length) text.textContent += found.unreturned.includes(KINDS.CHAT) ? ' · Does not keep chat: accepted a message, then did not return it' : ' · Accepted an event, then did not return it'
       if (found && found.state !== 'connected' && this.connections.connectedElsewhere(this.#scope, found.url)) text.textContent += ' · Connected elsewhere in KithMoot'
     }
   }
+}
+
+const READ_LABELS: Record<ReadEvidence, string> = {
+  confirmed: 'History read confirmed',
+  refused: 'Read refused',
+  'authentication-required': 'Read needs authentication',
+}
+
+/** A refusal or an authentication failure outranks a relay that never
+ *  answered, which outranks anything else. */
+function errorRank(error: string): number {
+  if (/refused|rejected|authentication/i.test(error)) return 0
+  return /timed out|connection failed/i.test(error) ? 1 : 2
 }

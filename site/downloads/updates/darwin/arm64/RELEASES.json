@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.83",
+  "currentRelease": "0.1.84",
   "releases": [
     {
-      "version": "0.1.83",
+      "version": "0.1.84",
       "updateTo": {
-        "version": "0.1.83",
-        "pub_date": "2026-10-15T07:37:26Z",
-        "notes": "Assign board cards to agents through the existing chat. Progress, questions and results stay with the card.",
-        "name": "0.1.83",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.83/KithMoot-0.1.83-mac-arm64.zip",
-        "sha256": "4bb3068370efb4a35f45711d1bd1f9043f8fcf6aa214c9fb3f6d42201b14d700",
-        "size": 177653359
+        "version": "0.1.84",
+        "pub_date": "2026-10-15T10:51:37Z",
+        "notes": "Relay settings show whether each relay answered a read, refused it or wants authentication, and give the reason a write was refused.",
+        "name": "0.1.84",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.84/KithMoot-0.1.84-mac-arm64.zip",
+        "sha256": "9376d594187b440a47b122980cb6acb215f82ced8dc23d3b8c91d030fb9241d0",
+        "size": 177652804
       }
     }
   ]

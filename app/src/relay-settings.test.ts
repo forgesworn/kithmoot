@@ -382,6 +382,27 @@ describe('relay health', () => {
   })
 })
 
+describe('relay read evidence', () => {
+  it('shows a refused read in the scope it happened in, over a read answered there, and nowhere else', async () => {
+    vi.useFakeTimers()
+    resetFakeRelays()
+    const relay = fakeRelay(defaults[0]!)
+    relay.refuseReads = 'restricted: members only'
+    relay.refuseReadKinds = [30078]
+    const connections = new RelayConnections(storage(), defaults)
+    const pool = connections.pool(room)
+    try {
+      pool.subscribe([{ kinds: [1460] }], () => {})
+      await vi.advanceTimersByTimeAsync(10)
+      expect(connections.health(room)[0]?.readEvidence).toBe('confirmed')
+      pool.subscribe([{ kinds: [30078] }], () => {})
+      await vi.advanceTimersByTimeAsync(10)
+      expect(connections.health(room)[0]?.readEvidence).toBe('refused')
+      expect(connections.health('default')[0]?.readEvidence).toBeUndefined()
+    } finally { pool.close(); vi.useRealTimers() }
+  })
+})
+
 describe('pools shared by everyone asking for the same relays', () => {
   // Each feature used to get a pool of its own: signing in alone held three
   // sockets to every default relay, and the room on screen two to each of

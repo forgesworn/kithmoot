@@ -1,5 +1,12 @@
 # Changelog
 
+## Desktop 0.1.84 and Android 0.6.87 — 15 October 2026
+
+- Relay settings say whether each relay answered a read, refused it or wants authentication. A relay's own fault or a dropped connection is not shown as a refusal.
+- A refused write gives its reason, such as rate limiting or authentication, rather than the relay's own words.
+- A refusal stays on show while other reads or writes on the same relay succeed.
+- Android can move relays up or down in Settings, notices a relay that accepts a message and then does not return it, and keeps reading older keeper requests from relays that serve short pages.
+
 ## Desktop 0.1.82 — 14 October 2026
 
 - Show relay activity and let you move relays up or down, keeping the chosen order after reopening.
