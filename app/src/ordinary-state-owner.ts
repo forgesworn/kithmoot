@@ -2183,6 +2183,44 @@ export class OrdinaryStateOwner {
       })
     } finally { await manager.close() }
   }
+  /** Open existing completed custody without initialising missing state. This
+   * read-only startup step grants no role or callback custody; ordinary paired
+   * consumers still authenticate their own fresh full composition. */
+  openExisting(live: () => boolean): Promise<void> {
+    const pending = Promise.resolve().then(async () => {
+      this.#check(live)
+      if (!navigator.locks) hold()
+      return navigator.locks.request(WRITE_LOCK, async () => {
+        this.#check(live)
+        let db: IDBDatabase | undefined, context: OperationTransaction | undefined, image: OrdinaryImage | undefined
+        const resource = { stop: () => context?.abort() }
+        this.#resources.add(resource)
+        try {
+          db = await this.#existingStartupDatabase(live)
+          this.#check(live); if (!db) hold()
+          db.onversionchange = () => { this.#revoke(); db?.close() }
+          context = operationTransaction(db, 'readonly')
+          const classified = await this.#classifyOperations(live, context)
+          const saved = row(await context.read(() => context!.store.get(this.purpose)))
+          this.#check(live)
+          if (!saved?.frame || saved.pending) hold()
+          image = await openOrdinaryFrame(saved.frame, saved.key)
+          this.#check(live)
+          if (image.purpose !== this.purpose || image.expiresAt !== this.expiresAt || image.migration?.phase !== 'complete' ||
+              this.#generation !== undefined && this.#generation !== image.generation) hold()
+          context.stop(); await context.ended; this.#check(live)
+          this.#generation = image.generation
+          this.#operationControlDigests = new Map(classified.controls)
+          this.#operationMarkerValues = new Map(classified.markers)
+          this.#operationControls = new Set(classified.controls.map(([name]) => 'tab:' + name.slice(ORDINARY_OPERATION_CONTROL_PREFIX.length)))
+        } finally {
+          context?.abort(); await context?.ended.catch(() => {}); context?.stop()
+          clearImage(image); db?.close(); this.#resources.delete(resource)
+        }
+      })
+    })
+    return this.#track(pending)
+  }
   /** Initialisation is allowed only after the caller has verified the complete
    * legacy snapshot and old-client handshake. Key and image have one commit. */
   prepare(live: () => boolean, initial: ReadonlyMap<string, string>, migration?: OrdinaryMigration,
