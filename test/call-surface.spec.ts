@@ -174,6 +174,13 @@ for (const phone of [false, true]) {
         await ada!.locator('#chatInput').fill(`Hello ${room.name}`); await ada!.locator('#chatInput').press('Enter')
         await expect(ada!.locator('#chatLog')).toContainText(`Hello ${room.name}`)
         await expect(bo!.locator('#chatLog')).not.toContainText(`Hello ${room.name}`)
+        if (!phone) {
+          // Docked, the call is a strip over the conversation, not a page of
+          // its own: the log must outweigh the gallery, and the composer stay on screen.
+          const log = (await ada!.locator('#chatLog').boundingBox())!, stage = (await ada!.locator('#callStage').boundingBox())!, form = (await ada!.locator('#chatForm').boundingBox())!
+          expect(log.height, `the log gets ${log.height.toFixed(0)}px beside a ${stage.height.toFixed(0)}px gallery`).toBeGreaterThanOrEqual(stage.height)
+          expect(form.y + form.height, 'the composer runs off the bottom of the window').toBeLessThanOrEqual(900)
+        }
         // The old pane state hid the gallery after its collapse delay, while
         // the outer stage and popouts remained present. Test the gallery itself.
         await ada!.waitForTimeout(PANE_COLLAPSE_MS + 100)

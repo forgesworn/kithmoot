@@ -31,11 +31,31 @@ html[data-call-docked] body { max-width: none; }
 html[data-call-docked] main { max-width: none; }
 html[data-call-docked] #workspaceContent > #callSurface { position: sticky; top: 0; flex: 0 0 auto; order: -1; z-index: 20; background: var(--bg); padding-bottom: .4rem; border-bottom: 1px solid var(--border); }
 html[data-call-docked] #callDock { margin: 0; padding: .2rem 0; border: 0; background: none; }
-html[data-call-docked] #callSurface > #callStage { display: flex; flex-direction: column; min-height: 0; max-height: none; height: clamp(160px, 28dvh, 280px); overflow: hidden; }
+html[data-call-docked] #callSurface > #callStage { display: flex; flex-direction: column; min-height: 0; max-height: none; height: clamp(150px, 22dvh, 260px); overflow: hidden; }
 html[data-call-docked] #callStage > #whoIsHere:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; margin: 0; overflow: hidden; }
 html[data-call-docked] #whoIsHere > #room[data-layout] { flex: 1 1 0; min-height: 0; height: auto; }
 html[data-call-docked] #room .participant h3 { font-size: .8rem; }
 html[data-call-docked] #callDockRecordingNotice { font-size: .85rem; color: var(--muted); }
+
+/* Docked in a wide window the call is a strip over the conversation, not a
+   page of its own: at 1327x850 it and the room chrome left the log 160px, and
+   70px once a room showed its channel tabs and agents card. The header's
+   origin repeats the dock's "On a call in {room}", so it stays for assistive
+   technology and is not drawn twice; the gallery toggle takes its place
+   beside the dock's controls. Search and Invite, which Room details carries
+   too, give their row to the log; "Next unread" and "Back to results" keep it.
+   Phone widths have their own rules below. */
+@media (min-width: 701px) and (min-height: 541px), (min-width: 1025px) {
+  html[data-call-docked] #workspaceContent > #callSurface:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: .5rem; }
+  html[data-call-docked] #callSurface > #callDock { grid-column: 1; grid-row: 1; }
+  html[data-call-docked] #callSurface > #callSurfaceHeader { grid-column: 2; grid-row: 1; padding: 0; }
+  html[data-call-docked] #callSurface > #callStage { grid-column: 1 / -1; grid-row: 2; }
+  html[data-call-docked] #callDock .callDockActions { gap: .3rem; }
+  html[data-call-docked] #callDock .callDockActions button { padding-inline: .7rem; }
+  html[data-call-docked] #callSurfaceLogo, html[data-call-docked] #callSurfaceOrigin { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  html[data-call-docked] .conversationTools > :is(#chatSearch, #invitePeople, #inviteQr) { display: none; }
+  html[data-call-docked] .conversationTools:not(:has(> :is(#nextUnread, #backToSearch):not([hidden]))) { display: none; }
+}
 
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   html:not([data-call-docked]) #workspaceContent:has(> #roomArea[data-mobile-view="chat"]) > #callSurface { display: none; }
