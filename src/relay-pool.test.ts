@@ -520,12 +520,66 @@ describe('NostrRelayPool', () => {
     await pool.publish(evt())
     const [first, second] = pool.health()
     expect(first).toMatchObject({ state: 'connected', lastPublishedAt: expect.any(Number), publishLatencyMs: expect.any(Number) })
-    expect(second).toMatchObject({ state: 'connected', lastError: expect.stringContaining('publish') })
+    expect(second).toMatchObject({ state: 'connected', lastError: 'Write refused: not accepted from this account or kind' })
     expect(second!.lastPublishedAt).toBeUndefined()
     a.disconnectAll()
     expect(pool.health()[0]!.state).toBe('disconnected')
     pool.close()
     expect(pool.health().every(relay => relay.state === 'closed')).toBe(true)
+  })
+
+  it('records a read only when the relay itself answered it', async () => {
+    expect(pool.health().every(relay => relay.readEvidence === undefined)).toBe(true)
+    b.refuseReads = 'restricted: members only'
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await settle()
+    const [first, second] = pool.health()
+    expect(first!.readEvidence).toBe('confirmed')
+    expect(second!.readEvidence).toBe('refused')
+  })
+
+  it('does not call a relay fault a refused read', async () => {
+    a.refuseReads = 'error: database unavailable'
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await settle()
+    expect(pool.health()[0]!.readEvidence).toBeUndefined()
+  })
+
+  it('says a relay wants authentication to read, apart from refusing outright', async () => {
+    a.refuseReads = 'auth-required: sign in first'
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await settle()
+    expect(pool.health()[0]!.readEvidence).toBe('authentication-required')
+  })
+
+  it('does not let one subscription\'s answered read hide another\'s refusal on the same relay', async () => {
+    a.refuseReads = 'blocked: not this kind'
+    a.refuseReadKinds = [30078]
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await settle()
+    expect(pool.health()[0]!.readEvidence).toBe('confirmed')
+    const stop = pool.subscribe([{ kinds: [30078] }], () => {})
+    await settle()
+    expect(pool.health()[0]!.readEvidence).toBe('refused')
+    // The refused reader gone, what is left is what the relay said to the rest.
+    stop()
+    expect(pool.health()[0]!.readEvidence).toBe('confirmed')
+  })
+
+  it('leaves a read unknown when the relay never answers it', async () => {
+    vi.useFakeTimers()
+    a.silent = true
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(pool.health()[0]!.readEvidence).toBeUndefined()
+    expect(pool.health()[1]!.readEvidence).toBe('confirmed')
+  })
+
+  it('keeps a relay\'s refusal reason out of health, describing it by kind', async () => {
+    b.rejectPublishes = true
+    await pool.publish(evt())
+    expect(pool.health()[1]!.lastError).toBe('Write refused: not accepted from this account or kind')
+    expect(pool.health()[1]!.lastError).not.toContain('refuses everything')
   })
 
   it('refuses invalid URLs and duplicate permissions without altering current connections', () => {

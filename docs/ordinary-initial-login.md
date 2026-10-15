@@ -62,7 +62,7 @@ does not prove real-wallet behaviour, protected root mounting, consumer release,
 independent anti-rollback continuity or physical acceptance. Guarded session
 restore, the modal, redirects/Amber, initial NIP-46 connection, management and
 transport frames, tab/credential renewal and the remaining root consumers remain
-open. The dependency and lockfile now pin published `signet-login@0.18.2`;
+open. The dependency and lockfile now pin published `signet-login@0.19.1`;
 [SDK provenance](ordinary-sdk-provenance.md) separates that release from the
 earlier development-candidate receipts. Production MLS and DG08 completion
 remain held until their separate gates pass.

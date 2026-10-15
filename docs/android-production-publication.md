@@ -6,6 +6,23 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.87 relay order and delivery evidence — 15 October 2026
+
+Version **0.6.87**, code **110**, moves relays up or down in Settings, notices a
+relay that accepts a stored message and then does not return it, keeps a
+refused read on show, names the reason a write was refused and keeps paging a
+keeper inbox relay that serves short pages.
+
+The production APK is built from Android source
+`8847178872bd403f2444f45962b071f4701be515` (workflow `38717529505`, all jobs
+passed), SHA-256
+`0900ae60cea73bf788233755900d69e6e84b1d1142e8db0afedecd9e1e7a1336`.
+The [candidate receipt](evidence/relay-evidence-release-candidate-2026-10-15.json)
+records the retained production certificate and lineage, the independent
+publication check and the desktop 0.1.84 archive identities. The order row was
+checked on an emulator; behaviour against real relays that silently drop stored
+events has not been observed outside tests.
+
 ## Android 0.6.86 Signet contacts — 14 October 2026
 
 Version **0.6.86**, code **109**, starts or reopens private conversations from an
