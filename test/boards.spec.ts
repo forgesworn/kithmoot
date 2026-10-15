@@ -117,6 +117,10 @@ test('boards created in a chat are discovered on another device and edited toget
     await who.page.locator('#roomList').getByRole('button', {name: 'Open Shared board room', exact: true}).click()
     if (await who.page.locator('#join').isVisible()) {await who.page.locator('#displayName').fill(name); await who.page.locator('#join').click()}
     await expect(who.page.locator('#chatInput')).toBeEditable()
+    // Editability alone also passes under the hidden/inert room while its
+    // join is pending. Wait for the completed switch before toolbar input.
+    await expect(who.page.locator('#roomArea')).toBeVisible()
+    await expect(who.page.locator('#roomArea')).toHaveJSProperty('inert', false)
   }
   try {
     // Keep the second person offline until the board has been created/shared.
@@ -149,6 +153,7 @@ test('boards created in a chat are discovered on another device and edited toget
     await expect.poll(async () => await joinRoom.isVisible() || await room.isVisible()).toBe(true)
     if (await joinRoom.isVisible()) {await bo.page.locator('#displayName').fill('Bo'); await joinRoom.click()}
     await expect(room).toBeVisible()
+    await expect(room).toHaveJSProperty('inert', false)
     await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
     guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     const join = guest.getByRole('button', {name: /^Join (?:board|Room delivery)$/}); if (await join.isVisible()) await join.click()
