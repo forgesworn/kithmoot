@@ -130,10 +130,31 @@ test.beforeAll(async () => {
           'static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding) }',
           `static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding)
            ;(globalThis as any).__privateForegroundClassForTest = this
-           ;(globalThis as any).__openPrivateForegroundClaimForTest = openOrdinaryPrivateForegroundFromOwnerClaim }`).replace(
+           ;(globalThis as any).__openPrivateForegroundClaimForTest = openOrdinaryPrivateForegroundFromOwnerClaim
+           ;(globalThis as any).__privateAuthorityFunctions = Object.freeze({ current: ordinaryPrivateForegroundCurrent,
+             deadline: ordinaryPrivateForegroundDeadline, borrow: borrowOrdinaryPrivateForegroundCredentialSigner,
+             nativeCurrent: ordinaryPrivateMemberNativeCurrent, validate: validateOrdinaryPrivateForegroundCustody }) }`).replace(
           'Object.freeze(actual)\n      })',
           `Object.freeze(actual)
            ;(globalThis as any).__privateForegroundProbe = Object.freeze({
+             tokens: () => Object.freeze({ authority: actual.#privateAuthority!, native: actual.#privateForeground!.native }),
+             current: () => ordinaryPrivateForegroundCurrent(actual.#privateAuthority!, actual.#privateForeground!.native, actual.#participant),
+             deadline: () => actual.#privateForeground!.readForeground(actual.#live, (browser, tab, custody) =>
+               ordinaryPrivateForegroundDeadline(actual.#privateAuthority!, actual.#privateForeground!.native, browser, tab, custody, actual.#participant)),
+             borrowCredential: (consumer: OrdinaryForegroundConsumer) => actual.#privateForeground!.readForeground(actual.#live, (browser, tab, custody) =>
+               borrowOrdinaryPrivateForegroundCredentialSigner(actual.#privateAuthority!, actual.#privateForeground!.native, browser, tab, custody, consumer)),
+             refuseWrongViews: () => actual.#privateForeground!.readForeground(actual.#live, (browser, tab, custody) => {
+               let getters = 0, refused = 0
+               const fake = new Proxy({}, { get() { getters++; throw Error('Forged native view getter') },
+                 getPrototypeOf() { getters++; throw Error('Forged consumer prototype') } }) as DeviceStore
+               const authority = actual.#privateAuthority!, native = actual.#privateForeground!.native
+               for (const [b, t, c] of [[fake, tab, custody], [browser, fake, custody], [browser, tab, Object.freeze({})]] as const) {
+                 try { borrowOrdinaryPrivateForegroundCredentialSigner(authority, native, b, t, c as OrdinaryPairCustody, fake as unknown as OrdinaryForegroundConsumer) }
+                 catch { refused++ }
+               }
+               ;(globalThis as any).__stalePrivateAuthorityRead = { browser, tab, custody }
+               return [refused, getters]
+             }),
              sign: (event: EventTemplate) => actual.#signEvent(event),
              encrypt: (peer: string, text: string) => actual.nip44!.encrypt(peer, text),
              signWithConsumer: (event: EventTemplate, validate: () => unknown) => actual.#signEvent(event, undefined, { live: () => true, validate }),
@@ -747,12 +768,15 @@ for (const mutation of ['provider', 'native'] as const) test(`held ${mutation} m
 // Explicit native-stage instrumentation, not a production authentication UI or
 // member-authority test. The real private driver/action and subsequent member
 // construction remain part of the unpublished vertical under construction.
+const privateControlFixtureSecrets = new WeakMap<Page, Uint8Array>()
 async function prepareControlStage(page: Page, keep = true, proxyProvider = false,
   duplicated?: { family: 'sign' | 'crypto'; timing: 'sequential' | 'microtask' }): Promise<void> {
   const href = await seed(page, keep), account = await page.evaluate<string>('account'),
     secret = Uint8Array.from(await page.evaluate<number[]>('Array.from(participantSk)'))
-  await page.exposeFunction('__controlSign', (event: Parameters<typeof finalizeEvent>[0]) =>
-    JSON.parse(JSON.stringify(finalizeEvent(event, secret))))
+  const registered = privateControlFixtureSecrets.has(page)
+  privateControlFixtureSecrets.set(page, secret)
+  if (!registered) await page.exposeFunction('__controlSign', (event: Parameters<typeof finalizeEvent>[0]) =>
+    JSON.parse(JSON.stringify(finalizeEvent(event, privateControlFixtureSecrets.get(page)!))))
   await install(page); await providerFixture(page, account, false, duplicated?.family === 'crypto')
   await enter(page, href, 'captured-held')
   await page.evaluate(({ proxyProvider, duplicated }) => {
@@ -1174,4 +1198,153 @@ for (const disposition of ['rejected', 'pending'] as const) test(`private foregr
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
   await page.evaluate(() => new Promise<void>(yes => setTimeout(yes, 0)))
   expect(await page.evaluate('validationUnhandled')).toBe(0)
+})
+
+test('private authority tokens refuse forged handles before caller reflection', async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  expect(await page.evaluate(() => {
+    const w = window as any, api = w.__privateAuthorityFunctions, pair = w.__privateForegroundProbe.tokens()
+    let getters = 0, refused = 0
+    const hostile = new Proxy({}, { get() { getters++; throw Error('forged handle getter') },
+      getPrototypeOf() { getters++; throw Error('forged handle prototype') },
+      ownKeys() { getters++; throw Error('forged handle keys') } })
+    for (const fake of [{}, Object.freeze({}), hostile]) {
+      if (api.current(fake, pair.native, w.providerFixture.account) === false) refused++
+      if (api.current(pair.authority, fake, w.providerFixture.account) === false) refused++
+      if (api.nativeCurrent(fake) === false) refused++
+      try { api.deadline(fake, pair.native, hostile, hostile, hostile, w.providerFixture.account) } catch { refused++ }
+      try { api.borrow(pair.authority, fake, hostile, hostile, hostile, hostile) } catch { refused++ }
+      try { api.validate(fake, hostile, hostile, hostile) } catch { refused++ }
+    }
+    return [refused, getters, Object.isFrozen(pair.authority), Object.isFrozen(pair.native),
+      Reflect.ownKeys(pair.authority).length, Reflect.ownKeys(pair.native).length, w.__privateForegroundProbe.current()]
+  })).toEqual([18, 0, true, true, 0, 0, true])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+for (const hostile of [false, true]) test(`private authority credential borrow uses fixed native deadline and guarded SDK, hostile=${hostile}`, async ({ page }) => {
+  await prepareControlStage(page, hostile, hostile); await startPrivateForeground(page)
+  expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  if (hostile) await page.evaluate('providerFixture.proofProxy=true;undefined')
+  await page.evaluate(() => {
+    const w = window as any
+    w.authorityDispatches = 0
+    const replaced = () => { w.authorityDispatches++; throw Error('Replaced public authority method') }
+    const owner = w.__privateOwnerPrototypeForTest.constructor, foreground = w.__privateForegroundClassForTest
+    for (const name of ['validatePairBinding', 'readPairMigrated', 'joinPairLifetime']) owner[name] = replaced
+    for (const name of ['isNativeSigner', 'nativeCurrent', 'nativeDeadline', 'borrowNativeSignEvent']) foreground[name] = replaced
+    for (const name of ['signEvent', 'borrowSignEvent', 'revoke', 'close']) foreground.prototype[name] = replaced
+    Object.defineProperty(owner, Symbol.hasInstance, { value: replaced })
+    Object.defineProperty(foreground, Symbol.hasInstance, { value: replaced })
+  })
+  expect(await page.evaluate('__privateForegroundProbe.current()')).toBe(true)
+  expect(await page.evaluate('__privateForegroundProbe.deadline()')).toBe(null)
+  expect(await page.evaluate(async () => {
+    const w = window as any
+    w.credentialConsumerChecks = 0; w.credentialConsumerGuarded = true
+    const input = { live: () => true, validate: () => {
+      w.credentialConsumerChecks++; w.credentialConsumerGuarded &&= !!w.__foregroundDecision
+    } }
+    const sign = await w.__privateForegroundProbe.borrowCredential(input)
+    input.validate = () => { throw Error('Changed consumer alias') }
+    w.providerFixture.foregroundExpected = true
+    const event = await sign({ kind: 20460, created_at: Math.floor(Date.now() / 1000), content: '', tags: [['d', 'ab'.repeat(32)]] })
+    return [event.kind, event.pubkey === w.providerFixture.account, Object.isFrozen(event), Object.isFrozen(sign),
+      w.authorityDispatches, w.credentialConsumerChecks > 1, w.credentialConsumerGuarded, w.providerFixture.foregroundGuarded,
+      w.providerFixture.providerOutside ?? 0, w.providerFixture.proofOutside ?? 0]
+  })).toEqual([20460, true, true, true, 0, true, true, true, 0, 0])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.signs,effects.put,effects.socket]')).toEqual([2, 0, 0])
+})
+
+test('private authority refuses foreign views and expired read custody before consumer callbacks', async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate('__privateForegroundProbe.refuseWrongViews()')).toEqual([3, 0])
+  expect(await page.evaluate(() => {
+    const w = window as any, pair = w.__privateForegroundProbe.tokens(), stale = w.__stalePrivateAuthorityRead
+    let getters = 0
+    const consumer = new Proxy({}, { get() { getters++; throw Error('stale consumer getter') },
+      getPrototypeOf() { getters++; throw Error('stale consumer prototype') } })
+    try { w.__privateAuthorityFunctions.borrow(pair.authority, pair.native, stale.browser, stale.tab, stale.custody, consumer); return ['accepted', getters] }
+    catch { return ['refused', getters] }
+  })).toEqual(['refused', 0])
+  expect(await page.evaluate('providerFixture.signs')).toBe(1)
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+test('private authority credential borrow refuses another event kind before provider start', async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate(async () => {
+    const w = window as any, sign = await w.__privateForegroundProbe.borrowCredential({ live: () => true, validate: () => {} })
+    try { await sign({ kind: 1, created_at: Math.floor(Date.now() / 1000), content: 'not a credential', tags: [] }); return 'signed' }
+    catch (error) { return (error as Error).name }
+  })).toBe('OrdinaryStateHold')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.signs,effects.put,effects.socket]')).toEqual([1, 0, 0])
+})
+
+test('private authority tokens stay revoked after root close without inspecting stale inputs', async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate(() => {
+    const w = window as any, pair = w.__privateForegroundProbe.tokens(), api = w.__privateAuthorityFunctions
+    let getters = 0, refused = 0
+    const hostile = new Proxy({}, { get() { getters++; throw Error('closed token input') },
+      getPrototypeOf() { getters++; throw Error('closed token prototype') } })
+    try { api.deadline(pair.authority, pair.native, hostile, hostile, hostile, w.providerFixture.account) } catch { refused++ }
+    try { api.borrow(pair.authority, pair.native, hostile, hostile, hostile, hostile) } catch { refused++ }
+    return [api.current(pair.authority, pair.native, w.providerFixture.account), api.nativeCurrent(pair.native), refused, getters]
+  })).toEqual([false, false, 2, 0])
+})
+
+test('private authority handles cannot cross document roots or revive after native replacement', async ({ page }) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate('__privateForegroundProbe.current()')).toBe(true)
+  const opening = page.waitForEvent('popup')
+  await page.evaluate(url => { (window as any).authorityObserver = window.open(url, 'private-authority-observer') }, origin + '/outside/modern')
+  const observer = await opening
+  try {
+    await observer.waitForLoadState('load')
+    await observer.evaluate(() => {
+      sessionStorage.removeItem('kithmoot.ordinary-tab.v1')
+      const w = window as any
+      w.authorityObserverFence = new w.FenceOnly.OrdinaryClientFence()
+    })
+    await page.evaluate(() => {
+      const w = window as any, other = w.authorityObserver
+      other.retainedAuthorityTokens = w.__privateForegroundProbe.tokens()
+      other.retainedAuthorityCurrent = w.__privateAuthorityFunctions.current
+    })
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+    // Replace this test origin's native fixture only after its actual root has
+    // joined and closed. The observer retains the genuine old opaque objects.
+    await page.goto(origin + '/j/setup')
+    await page.evaluate(() => new Promise<void>((yes, no) => {
+      const request = indexedDB.deleteDatabase((window as any).Ordinary.ORDINARY_DATABASE)
+      request.onsuccess = () => yes(); request.onerror = () => no(request.error)
+      request.onblocked = () => no(Error('Old native root did not release its database'))
+    }))
+    await prepareControlStage(page); await startPrivateForeground(page)
+    expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+    expect(await page.evaluate(() => {
+      const w = window as any, other = window.open('', 'private-authority-observer') as any
+      const old = other.retainedAuthorityTokens, current = w.__privateForegroundProbe.tokens(), api = w.__privateAuthorityFunctions
+      let getters = 0, refused = 0
+      const hostile = new Proxy({}, { get() { getters++; throw Error('Cross-root input') } })
+      for (const [authority, native] of [[current.authority, old.native], [old.authority, current.native]]) {
+        try { api.borrow(authority, native, hostile, hostile, hostile, hostile) } catch { refused++ }
+      }
+      return [other.retainedAuthorityCurrent(old.authority, old.native, w.providerFixture.account),
+        api.current(current.authority, old.native, w.providerFixture.account), api.current(old.authority, current.native, w.providerFixture.account),
+        api.current(current.authority, current.native, w.providerFixture.account), refused, getters]
+    })).toEqual([false, false, false, true, 2, 0])
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  } finally { await observer.close() }
 })

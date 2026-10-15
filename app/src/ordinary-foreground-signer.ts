@@ -9,9 +9,37 @@ import { ORDINARY_SIGNET_KEYS as keys } from './ordinary-signet-snapshot.js'
 import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ordinaryPreparedRenewalCustodyFor, type OrdinaryPreparedRenewalCustody } from './ordinary-state-owner.js'
-import { takeOrdinaryPrivateForegroundClaim, type OrdinaryPrivateForegroundClaim } from './ordinary-state-owner.js'
+import { takeOrdinaryPrivateForegroundClaim, ordinaryPrivateMemberNativeCurrent, validateOrdinaryPrivateForegroundCustody,
+  type OrdinaryPrivateForegroundClaim, type OrdinaryPrivateMemberNative } from './ordinary-state-owner.js'
 
 type PrivateForegroundBinding = ReturnType<typeof takeOrdinaryPrivateForegroundClaim>
+declare const privateForegroundAuthorityBrand: unique symbol
+export interface OrdinaryPrivateForegroundAuthority { readonly [privateForegroundAuthorityBrand]: true }
+const privateForegroundAuthorities = new WeakMap<object, Readonly<{
+  native: OrdinaryPrivateMemberNative; signer: OrdinaryForegroundSigner
+}>>()
+let privateForegroundCurrent!: (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
+  participant: string, deadline?: number | null) => boolean
+let privateForegroundDeadline!: (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
+  browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string) => number | null
+let privateForegroundCredentialSigner!: (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
+  browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, consumer: OrdinaryForegroundConsumer) => SignetSigner['signEvent']
+/** Package-internal fixed edges. A token cannot select a different native
+ * owner, disclose the signer, or replace an authenticated read with liveness. */
+export function ordinaryPrivateForegroundCurrent(authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
+  participant: string, deadline?: number | null): boolean {
+  return privateForegroundCurrent(authority, native, participant, deadline)
+}
+export function ordinaryPrivateForegroundDeadline(authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
+  browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string): number | null {
+  return privateForegroundDeadline(authority, native, browser, tab, custody, participant)
+}
+/** Borrow only credential signing. Capturing the additional restriction and
+ * handing out its frozen closure both require the same genuine native read. */
+export function borrowOrdinaryPrivateForegroundCredentialSigner(authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
+  browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, consumer: OrdinaryForegroundConsumer): SignetSigner['signEvent'] {
+  return privateForegroundCredentialSigner(authority, native, browser, tab, custody, consumer)
+}
 export interface OrdinaryPrivateForegroundResource {
   stop(): void
   close(): Promise<void>
@@ -144,6 +172,27 @@ interface Options {
  * or expose NIP-46 management. Protected startup must mount it explicitly. */
 export class OrdinaryForegroundSigner implements SignetSigner {
   static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding) }
+  static {
+    privateForegroundCurrent = (authority, native, participant, deadline) => {
+      const value = privateForegroundAuthorities.get(authority)
+      return value?.native === native && ordinaryPrivateMemberNativeCurrent(native) &&
+        OrdinaryForegroundSigner.#nativeCurrent(value.signer, participant, deadline)
+    }
+    const take = (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative): OrdinaryForegroundSigner => {
+      const value = privateForegroundAuthorities.get(authority)
+      if (!value || value.native !== native || !ordinaryPrivateMemberNativeCurrent(native)) hold()
+      return value.signer
+    }
+    privateForegroundDeadline = (authority, native, browser, tab, custody, participant) =>
+      OrdinaryForegroundSigner.#nativeDeadline(take(authority, native), browser, tab, custody, participant)
+    privateForegroundCredentialSigner = (authority, native, browser, tab, custody, input) => {
+      const signer = take(authority, native)
+      OrdinaryForegroundSigner.#nativeDeadline(signer, browser, tab, custody, signer.#participant)
+      const consumer = signer.#captureConsumer(input)
+      OrdinaryForegroundSigner.#nativeDeadline(signer, browser, tab, custody, signer.#participant)
+      return Object.freeze((event: EventTemplate, external?: SignerEffectBoundary) => signer.#signEvent(event, external, consumer, 20460))
+    }
+  }
   /** Private-field provenance, including refusal of prototype-only forgeries. */
   static isNativeSigner(input:unknown):input is OrdinaryForegroundSigner {
     return typeof input==='object'&&input!==null&&#options in input
@@ -152,7 +201,10 @@ export class OrdinaryForegroundSigner implements SignetSigner {
    * postcheck. It supplies no read custody or signing authority by itself.
    * Private latches are repeated after every selector in #live has returned. */
   static nativeCurrent(signer: OrdinaryForegroundSigner, participant: string, deadline?: number | null): boolean {
-    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#participant !== participant ||
+    return OrdinaryForegroundSigner.#nativeCurrent(signer, participant, deadline)
+  }
+  static #nativeCurrent(signer: OrdinaryForegroundSigner, participant: string, deadline?: number | null): boolean {
+    if (typeof signer !== 'object' || signer === null || !(#options in signer) || signer.#participant !== participant ||
         deadline !== undefined && signer.#sessionExpiresAt !== deadline) return false
     return signer.#live() && !signer.#closed && !signer.#held &&
       (deadline === undefined || signer.#sessionExpiresAt === deadline)
@@ -160,17 +212,23 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   /** Read the exact immutable SDK deadline during another native component's
    * acknowledged pair read. A public session property alone is not provenance. */
   static nativeDeadline(signer: OrdinaryForegroundSigner, browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string): number | null {
-    if (!OrdinaryForegroundSigner.isNativeSigner(signer) || signer.#participant !== participant || signer.#preparedRoot) hold()
+    return OrdinaryForegroundSigner.#nativeDeadline(signer, browser, tab, custody, participant)
+  }
+  static #nativeDeadline(signer: OrdinaryForegroundSigner, browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string): number | null {
+    if (typeof signer !== 'object' || signer === null || !(#options in signer) || signer.#participant !== participant || signer.#preparedRoot) hold()
+    if (signer.#privateForeground) validateOrdinaryPrivateForegroundCustody(signer.#privateForeground.native, custody, browser, tab)
     const b = records(browser), t = records(tab)
     try {
       // Refuse mutation projections and exact-byte substitutions first.
       ordinaryPairReadCustodyFor(custody, b, t)
-      OrdinaryStateOwner.validatePairBinding(custody, {
+      if (signer.#privateForeground) validateOrdinaryPrivateForegroundCustody(signer.#privateForeground.native, custody, browser, tab)
+      else OrdinaryStateOwner.validatePairBinding(custody, {
         browser: { owner: signer.#options.browser, scope: signer.#browserScope },
         tab: { owner: signer.#options.tab, scope: signer.#tabScope }, live: signer.#live,
       })
       signer.#preflight(browser, tab, custody); signer.#check()
       ordinaryPairReadCustodyFor(custody, b, t)
+      if (signer.#privateForeground) validateOrdinaryPrivateForegroundCustody(signer.#privateForeground.native, custody, browser, tab)
       return signer.#sessionExpiresAt
     } finally { b.clear(); t.clear() }
   }
@@ -220,6 +278,7 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   readonly session: Readonly<SignetSession>
   readonly #options: Options
   #privateForeground: PrivateForegroundBinding | undefined
+  #privateAuthority: OrdinaryPrivateForegroundAuthority | undefined
   readonly #raw: SignetSigner
   readonly #sign: SignetSigner['signEvent']
   readonly #crypto: { nip04?: SignetSigner['nip04']; nip44?: SignetSigner['nip44'] }
@@ -408,6 +467,8 @@ export class OrdinaryForegroundSigner implements SignetSigner {
         // A caller cannot select private mode through constructor arguments.
         // Only this fixed private core attaches the spent native claim.
         state.#privateForeground = binding
+        state.#privateAuthority = Object.freeze({}) as OrdinaryPrivateForegroundAuthority
+        privateForegroundAuthorities.set(state.#privateAuthority, Object.freeze({ native: binding.native, signer: state }))
         const actual = state
         // Prototype replacements cannot intercept later private use. The
         // instance and its borrowed SDK stay within this module.
@@ -574,11 +635,12 @@ export class OrdinaryForegroundSigner implements SignetSigner {
   signEvent(input: EventTemplate, external?: SignerEffectBoundary): Promise<NostrEvent> {
     return this.#signEvent(input,external)
   }
-  #signEvent(input: EventTemplate, external?: SignerEffectBoundary, consumer?: OrdinaryForegroundConsumer): Promise<NostrEvent> {
+  #signEvent(input: EventTemplate, external?: SignerEffectBoundary, consumer?: OrdinaryForegroundConsumer, requiredKind?: number): Promise<NostrEvent> {
     let captured: EventTemplate
     return this.#run(() => {
       if (external !== undefined) hold()
       captured = statement(input)
+      if (requiredKind !== undefined && captured.kind !== requiredKind) hold()
       return boundary => this.#sign.call(this.#raw, statement(captured), boundary)
     }, signed => {
       const event = captureOrdinaryForegroundProof(signed)

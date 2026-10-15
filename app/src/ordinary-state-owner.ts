@@ -87,11 +87,41 @@ interface PrivateExistingProvider {
   foreground: OrdinaryPrivateForegroundResource | undefined
 }
 const privateExistingProviders = new WeakMap<object, PrivateExistingProvider>()
+declare const privateMemberNativeBrand: unique symbol
+export interface OrdinaryPrivateMemberNative { readonly [privateMemberNativeBrand]: true }
+/** The native owner retains the actual owners and the immutable predecessor.
+ * A later settled-member handoff must replace the whole epoch in its own
+ * acknowledged synchronous adoption block; no token consumer can assign it. */
+interface PrivateMemberNative {
+  readonly live: () => boolean
+  readonly validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => void
+  readonly epoch: { current: Readonly<{
+    selection: Readonly<PrivateExistingSelection>
+    rows: readonly [string, string]
+    revisions: readonly [number, number]
+    generations: readonly [string, string]
+  }> }
+}
+const privateMemberNatives = new WeakMap<object, PrivateMemberNative>()
+/** Memory liveness only. No provider, SDK, owner or selector is unpacked. */
+export function ordinaryPrivateMemberNativeCurrent(token: OrdinaryPrivateMemberNative): boolean {
+  return privateMemberNatives.get(token)?.live() === true
+}
+/** Fixed foreground scope validation on a genuine current read. Raw owners
+ * resolve only inside the native owner's captured implementation. */
+export function validateOrdinaryPrivateForegroundCustody(token: OrdinaryPrivateMemberNative, custody: OrdinaryPairCustody,
+  browser: DeviceStore, tab: DeviceStore): void {
+  const member = privateMemberNatives.get(token)
+  if (!member || !member.live()) hold()
+  member.validateForeground(custody, browser, tab)
+  if (!member.live()) hold()
+}
 declare const foregroundClaimBrand: unique symbol
 export interface OrdinaryPrivateForegroundClaim { readonly [foregroundClaimBrand]: true }
 /** This binding is unpacked only by the fixed foreground module. No caller
  * receives its root, owners, source or closed native operations. */
 interface PrivateForegroundBinding {
+  readonly native: OrdinaryPrivateMemberNative
   readonly browser: OrdinaryStateOwner
   readonly tab: OrdinaryStateOwner
   readonly source: Readonly<SignetSession>
@@ -1175,7 +1205,23 @@ export class OrdinaryStateOwner {
             return sdkExpiresAt === null || Date.now() < sdkExpiresAt
           } catch { return false }
         }
+        const native = Object.freeze({}) as OrdinaryPrivateMemberNative
+        const member: PrivateMemberNative = Object.freeze({
+          live,
+          epoch: { current: Object.freeze({ selection: capture.selection, rows: capture.rows,
+            revisions: capture.revisions, generations: capture.generations }) },
+          validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => {
+            const read = pairCustody.get(custody)
+            if (!scopes || !live() || read?.kind !== 'read' || read.browserStore !== browser || read.tabStore !== tab) hold()
+            OrdinaryStateOwner.#validatePairBinding(custody, {
+              browser: { owner: capture.browser, scope: scopes[0] },
+              tab: { owner: capture.tab, scope: scopes[1] }, live,
+            })
+          },
+        })
+        privateMemberNatives.set(native, member)
         const binding: PrivateForegroundBinding = Object.freeze({
+          native,
           browser: capture.browser, tab: capture.tab, source, generation: capture.binding.generation,
           live, stop: provider.stop, assertClientsCurrent: capture.binding.assertClientsCurrent,
           captureForegroundScopes: async () => {
@@ -1201,7 +1247,7 @@ export class OrdinaryStateOwner {
                 // through the fixed adoption path before renewal can extend it.
                 const native = pairCustody.get(custody)
                 if (native?.kind !== 'read' || !native.rows ||
-                    native.rows.some((row, index) => rowDigest(row) !== capture.rows[index])) hold()
+                    native.rows.some((row, index) => rowDigest(row) !== member.epoch.current.rows[index])) hold()
                 return work(browser, tab, custody)
               },
             })
