@@ -7,6 +7,11 @@ import { localIdentity } from './identity.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { KINDS } from './kinds.js'
 
+/** The root desk waits a random 0.5 to 2 s before every answer (fold-kit's
+ *  quiet replies). The fresh gate asks again, with a new request, at a third
+ *  and two thirds of its deadline and takes only the newest request's grant,
+ *  so a joiner that expects an answer needs a deadline over 6 s. */
+const DESK_WAIT_MS = 8_000
 const agents: RoomAgent[] = [], stops: Array<() => void> = [], journals: LiveKeeperJournal[] = []
 afterEach(async () => { stops.splice(0).forEach(f => f()); await Promise.all(agents.splice(0).map(a => a.leave())); await Promise.all(journals.splice(0).map(j => j.close())) })
 function fixture() {
@@ -35,7 +40,7 @@ function fixture() {
     }
     const join = async (signal?: AbortSignal) => {
       const a = await RoomAgent.joinLive({ link: root.url, descriptor, name: 'Client', identity, deviceSk, now,
-        transport: factory, signal, announceJitterMs: 0, epochRequestTimeoutMs: 1000 })
+        transport: factory, signal, announceJitterMs: 0, epochRequestTimeoutMs: DESK_WAIT_MS })
       agents.push(a); return a
     }
     return { root, relay, join, stop, factory }
@@ -44,7 +49,7 @@ function fixture() {
     reopen: () => { at += 2; const j = LiveKeeperJournal.open(storage(), now); journals.push(j); return j } }
 }
 
-describe('fresh persistent RoomAgent admission', () => {
+describe('fresh persistent RoomAgent admission', { timeout: 15_000 }, () => {
   it('joins and chats both ways, then repeats with both room endpoints and transport rebuilt', async () => {
     const f = fixture(), first = await f.start(f.journal), client = await first.join()
     expect(client.hosting).toBe(false)
@@ -104,7 +109,7 @@ describe('fresh persistent RoomAgent admission', () => {
     }
     await expect(RoomAgent.joinLive({ link: host.root.url, descriptor: f.descriptor, name: 'Client',
       identity: f.identity, deviceSk: f.deviceSk, now: f.now, transport,
-      announceJitterMs: 0, epochRequestTimeoutMs: 1000 })).rejects.toThrow(/route cleanup failed/)
+      announceJitterMs: 0, epochRequestTimeoutMs: DESK_WAIT_MS })).rejects.toThrow(/route cleanup failed/)
     expect(opened).toBeGreaterThan(1)
     expect(closed.size).toBe(opened)
     expect(subscriptions).toBe(0)

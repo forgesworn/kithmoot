@@ -378,7 +378,7 @@ describe('RoomAgent', () => {
     dave.leave()
     ada.leave()
     keeper.leave()
-  })
+  }, 15_000) // Dave's ask waits out the desk's 0.5 to 2 s reply delay
 
   it('reopens a rekeyed room in the same epoch, still refusing the removed', async () => {
     const relay = new SimRelay({ replay: true })

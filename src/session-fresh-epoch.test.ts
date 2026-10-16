@@ -11,6 +11,12 @@ import type { DeviceCredential } from './types.js'
 import { KINDS } from './kinds.js'
 
 const NOW = 1_800_000_000, now = () => NOW
+/** The root desk waits a random 0.5 to 2 s before every answer (fold-kit's
+ *  quiet replies). The fresh gate asks again, with a new request, at a third
+ *  and two thirds of its deadline and takes only the newest request's grant,
+ *  so every reply has to land inside a third of the deadline: more than 2 s.
+ *  A client with no desk to answer keeps a short deadline. */
+const DESK_WAIT_MS = 8_000
 const agents: RoomAgent[] = [], sessions: RoomSession[] = [], journals: LiveKeeperJournal[] = []
 afterEach(async () => { await Promise.all(sessions.splice(0).map(s => s.leave())); await Promise.all(agents.splice(0).map(a => a.leave())); await Promise.all(journals.splice(0).map(j => j.close())) })
 async function setup(host = true, dropGrants = 0) {
@@ -29,14 +35,14 @@ async function setup(host = true, dropGrants = 0) {
   const create = (extra: Partial<ConstructorParameters<typeof RoomSession>[0]> = {}) => {
     const session = new RoomSession({ transport: new ClientTransport(relay), secret: state.secret, authority: getPublicKey(state.inviterSk),
       identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), name: 'New client', now, announceJitterMs: 0,
-      expectedEpoch: 0, epochSettleMs: 0, requireFreshEpoch: true, epochRequestTimeoutMs: 100, ...extra } as ConstructorParameters<typeof RoomSession>[0])
+      expectedEpoch: 0, epochSettleMs: 0, requireFreshEpoch: true, epochRequestTimeoutMs: host ? DESK_WAIT_MS : 100, ...extra } as ConstructorParameters<typeof RoomSession>[0])
     sessions.push(session); return session
   }
   return { journal, state, relay, root, sent, create }
 }
 const outcome = (p: Promise<void>) => p.then(() => undefined, error => error as Error)
 
-describe('fresh root epoch gate', () => {
+describe('fresh root epoch gate', { timeout: 15_000 }, () => {
   it('retries uncertain retention before any root request without leaving the fresh-epoch session', async () => {
     const f = await setup()
     const inner = localIdentity(generateSecretKey())
@@ -114,7 +120,7 @@ describe('fresh root epoch gate', () => {
   })
 
   it('recovers two lost grants using three fresh requests to the existing root desk', async () => {
-    const f = await setup(true, 2), client = f.create({ epochRequestTimeoutMs: 600 })
+    const f = await setup(true, 2), client = f.create()
     await client.join([], {})
     const requests = f.sent.filter(e => e.kind === KINDS.EPOCH_REQUEST)
     expect(requests).toHaveLength(3)

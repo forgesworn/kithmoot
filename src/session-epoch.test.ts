@@ -234,6 +234,7 @@ describe('room epochs', () => {
     keeper.letIn(daveIdentity.pubkey)
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
+      replyDelayMs: [0, 0], // not a test of the quiet-reply wait: answer at once
       roomId: keeper.roomId,
       authoritySk,
       roomKey: deriveRoom(SECRET).roomKey,
@@ -477,6 +478,7 @@ describe('room epochs', () => {
     relay.published.splice(lost, 1)
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
+      replyDelayMs: [0, 0], // not a test of the quiet-reply wait: answer at once
       roomId: keeper.roomId,
       authoritySk,
       roomKey: deriveRoom(SECRET).roomKey,
@@ -598,6 +600,7 @@ describe('scheduled rekeys and the history window', () => {
     for (let i = relay.published.length - 1; i >= 0; i--) if (relay.published[i]!.kind === KINDS.ROOM_REKEY) relay.published.splice(i, 1)
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
+      replyDelayMs: [0, 0], // not a test of the quiet-reply wait: answer at once
       roomId: keeper.roomId,
       authoritySk,
       roomKey: deriveRoom(SECRET).roomKey,

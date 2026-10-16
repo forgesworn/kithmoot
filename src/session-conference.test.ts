@@ -64,6 +64,7 @@ describe('a conference room session', () => {
     // A rekey, then a member arriving behind it asks the desk for the epoch.
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
+      replyDelayMs: [0, 0], // not a test of the quiet-reply wait: answer at once
       roomId,
       authoritySk,
       roomKey,

@@ -130,6 +130,7 @@ describe('the known-members gate', () => {
     // What a keeper runs, with the gate: nobody but Alice is known.
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
+      replyDelayMs: [0, 0], // not a test of the quiet-reply wait: answer at once
       roomId,
       authoritySk,
       roomKey,
