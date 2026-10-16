@@ -17,6 +17,7 @@ import { RelayConnections } from './relay-settings.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
 import { OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths, ordinaryPairPredecessorSemanticDigestFor, ordinaryPairRenewalByteLengths,
   takeOrdinaryPrivateBootstrapClaim, type OrdinaryPrivateBootstrapClaim,
+  type OrdinaryPrivateCredentialGeneration,
   type OrdinaryScope, type OrdinaryPairCustody, type OrdinaryRenewalSettled } from './ordinary-state-owner.js'
 import { captureOrdinarySnapshotContext, captureOrdinaryProjectedSnapshotContext, validateOrdinarySnapshot } from './ordinary-snapshot.js'
 import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
@@ -47,6 +48,7 @@ import { OrdinaryRelayCarrier, stopOrdinaryPrivateCarrier, closeOrdinaryPrivateC
 import type { OrdinaryPrivateCarrierResource } from './ordinary-relay-carrier.js'
 import type { OrdinaryPrivateMemberSessionResource } from './ordinary-private-member-session.js'
 import type { RetainedNativeSessionCapture } from '../../src/session-native-binding.js'
+import type { OrdinaryPrivateMemberControllerResource } from './ordinary-private-member-controller.js'
 
 const HEX = /^[0-9a-f]{64}$/
 const DEVICE_OWNER = 'kithmoot.device-owner.'
@@ -158,6 +160,42 @@ export function takeOrdinaryPrivateSessionClaim(claim: OrdinaryPrivateSessionCla
   privateSessionClaims.delete(claim); binding.current()
   return binding
 }
+declare const privateControllerClaimBrand: unique symbol
+export interface OrdinaryPrivateMemberControllerClaim { readonly [privateControllerClaimBrand]: true }
+interface PrivateControllerBinding {
+  readonly bootstrap: OrdinaryPrivateBootstrapResource
+  readonly carrier: OrdinaryPrivateCarrierResource
+  readonly generation: OrdinaryPrivateCredentialGeneration
+  readonly protocol: ProtocolExecution
+  readonly live: () => boolean
+  readonly revoke: () => void
+}
+const privateControllerClaims = new WeakMap<object, Readonly<{binding: PrivateControllerBinding; current: () => void}>>()
+/** Fixed controller construction only. The synchronous decision dies with
+ * this claim; the controller receives lifetime plumbing, never a native token. */
+export function takeOrdinaryPrivateMemberControllerClaim(claim: OrdinaryPrivateMemberControllerClaim): PrivateControllerBinding {
+  const value = privateControllerClaims.get(claim)
+  if (!value) hold()
+  privateControllerClaims.delete(claim); value.current()
+  return value.binding
+}
+declare const privateControllerSessionClaimBrand: unique symbol
+export interface OrdinaryPrivateMemberControllerSessionClaim { readonly [privateControllerSessionClaimBrand]: true }
+interface PrivateControllerSessionBinding {
+  readonly controller: OrdinaryPrivateMemberControllerResource
+  readonly bootstrap: OrdinaryPrivateBootstrapResource
+  readonly carrier: OrdinaryPrivateCarrierResource
+  readonly generation: OrdinaryPrivateCredentialGeneration
+  readonly protocol: ProtocolExecution
+  readonly session: OrdinaryPrivateMemberSessionResource
+}
+const privateControllerSessionClaims = new WeakMap<object, Readonly<{binding: PrivateControllerSessionBinding; current: () => void}>>()
+export function takeOrdinaryPrivateMemberControllerSessionClaim(claim: OrdinaryPrivateMemberControllerSessionClaim): PrivateControllerSessionBinding {
+  const value = privateControllerSessionClaims.get(claim)
+  if (!value) hold()
+  privateControllerSessionClaims.delete(claim); value.current()
+  return value.binding
+}
 interface PreparedStartupOptions extends Options {
   /** A genuine currently selected SDK session. Its fields must match the
    * immutable native E session exactly; this never performs fresh login. */
@@ -267,10 +305,13 @@ export class OrdinaryPersistentBootstrap {
   #queryStarting = false
   #queryAbort: AbortController | undefined
   #privateMaterial: OrdinaryPersistentBootstrapResult | undefined
+  #privateResource: OrdinaryPrivateBootstrapResource | undefined
   #privateOpening: Promise<void> | undefined
   #privateCarrier: OrdinaryPrivateCarrierResource | undefined
   #privateSession: OrdinaryPrivateMemberSessionResource | undefined
   #privateSessionModule: typeof import('./ordinary-private-member-session.js') | undefined
+  #privateController: OrdinaryPrivateMemberControllerResource | undefined
+  #privateControllerModule: typeof import('./ordinary-private-member-controller.js') | undefined
   #privateMemberOpening: Promise<void> | undefined
   #privateMemberClaimed = false
   #privateCleanup: Readonly<{pending: Promise<void>; finish: () => void}> | undefined
@@ -328,6 +369,7 @@ export class OrdinaryPersistentBootstrap {
     const completed = new Promise<void>((yes, no) => { resolve = yes; reject = no })
     state.#privateOpening = completed
     const resource = Object.freeze({}) as OrdinaryPrivateBootstrapResource
+    state.#privateResource = resource
     privateBootstrapResources.set(resource, Object.freeze({state, completed}))
     // The owner publishes and retains this resource before its body can run.
     void Promise.resolve().then(async () => {
@@ -988,39 +1030,68 @@ export class OrdinaryPersistentBootstrap {
     this.#privateMemberOpening = outer; native.join(outer); void outer.catch(() => {})
     void Promise.resolve().then(async () => {
       let minted: OrdinaryPrivateSessionClaim | undefined
+      let controllerClaim: OrdinaryPrivateMemberControllerClaim | undefined
+      let controllerSessionClaim: OrdinaryPrivateMemberControllerSessionClaim | undefined
       try {
         await this.#privateOpening
         const material = this.#privateMaterial
         if (!material || !this.#live()) hold()
         const module = await import('./ordinary-private-member-session.js')
         const carrierModule = await import('./ordinary-relay-carrier.js')
+        const controllerModule = await import('./ordinary-private-member-controller.js')
         await this.#checkPrivateMaterial(material)
         const protocol = await this.#borrowProtocolExecution(() => {
+          if (this.#privateController) controllerModule.stopOrdinaryPrivateMemberController(this.#privateController)
           if (this.#privateSession) module.stopOrdinaryPrivateMemberSession(this.#privateSession)
           if (this.#privateCarrier) carrierModule.stopOrdinaryPrivateCarrier(this.#privateCarrier)
         }, () => this.#live())
         const carrier = await this.#openPrivateCarrier(protocol, material)
         await this.#checkPrivateMaterial(material)
+        await protocol.run('member-controller-construction', () => {
+          const bootstrap = this.#privateResource
+          if (!bootstrap || this.#privateController || !this.#live()) hold()
+          const current = protocol.captureConstructionCurrent(), claim = Object.freeze({}) as OrdinaryPrivateMemberControllerClaim
+          controllerClaim = claim
+          privateControllerClaims.set(claim, Object.freeze({current, binding: Object.freeze({bootstrap, carrier,
+            generation: native.credentialGeneration, protocol,
+            live: () => this.#live() && native.live() && this.#privateResource === bootstrap,
+            revoke: () => {try {this.#revoke()} finally {native.revoke()}}})}))
+          const resource = controllerModule.openOrdinaryPrivateMemberControllerFromBootstrapClaim(claim)
+          this.#privateControllerModule = controllerModule; this.#privateController = resource
+          current()
+        })
         await protocol.run('session-construction', () => {
           if (this.#privateSession || this.#privateMaterial !== material || !this.#live() ||
               this.#credentialExpiresAt - Math.floor(Date.now() / 1000) < RESUME_MIN_REMAINING_SECONDS) hold()
+          const controller = this.#privateController, bootstrap = this.#privateResource
+          if (!controller || !bootstrap) hold()
           const current = protocol.captureConstructionCurrent()
           const claim = Object.freeze({}) as OrdinaryPrivateSessionClaim
           minted = claim
           privateSessionClaims.set(claim, Object.freeze({material, protocol, current,
             transport: carrierModule.ordinaryPrivateCarrierTransport(carrier), participant: this.#participant,
             roomId: native.selection.roomId, authority: this.#options.invitation.inviter, credentialTtlSeconds: this.#credentialTtlSeconds,
-            // Joining is held until the complete per-epoch renewal controller
-            // owns scheduling. No stale-resume minting fallback is permitted.
-            schedule: hold, revoke: () => protocol.close()}))
+            // The stable controller edge is pre-armed and holds until the
+            // complete adoption/consent path owns renewal scheduling.
+            schedule: (delay: number) => controllerModule.scheduleOrdinaryPrivateMemberController(controller, delay), revoke: () => protocol.close()}))
           const resource = module.openOrdinaryPrivateMemberSessionFromBootstrapClaim(claim)
           this.#privateSessionModule = module; this.#privateSession = resource
+          current()
+          const attachment = Object.freeze({}) as OrdinaryPrivateMemberControllerSessionClaim
+          controllerSessionClaim = attachment
+          privateControllerSessionClaims.set(attachment, Object.freeze({current, binding: Object.freeze({controller, bootstrap,
+            carrier, generation: native.credentialGeneration, protocol, session: resource})}))
+          controllerModule.attachOrdinaryPrivateMemberControllerSessionFromBootstrapClaim(attachment)
           current()
         })
         await this.#checkPrivateMaterial(material)
       } catch {
         this.#revoke(); await this.#drainAndWipe(); throw new OrdinaryStateHold()
-      } finally { if (minted) privateSessionClaims.delete(minted) }
+      } finally {
+        if (minted) privateSessionClaims.delete(minted)
+        if (controllerClaim) privateControllerClaims.delete(controllerClaim)
+        if (controllerSessionClaim) privateControllerSessionClaims.delete(controllerSessionClaim)
+      }
     }).then(resolve, reject).catch(() => {})
     return outer
   }
@@ -1545,6 +1616,7 @@ export class OrdinaryPersistentBootstrap {
       this.#private.join(pending)
     }
     this.#queryAbort?.abort()
+    if (this.#privateController) this.#privateControllerModule!.stopOrdinaryPrivateMemberController(this.#privateController)
     if (this.#privateSession) this.#privateSessionModule!.stopOrdinaryPrivateMemberSession(this.#privateSession)
     if (this.#privateCarrier) stopOrdinaryPrivateCarrier(this.#privateCarrier)
     for (const protocol of this.#protocols) protocol.close()
@@ -1566,6 +1638,7 @@ export class OrdinaryPersistentBootstrap {
       // A rejected child cannot skip another child's join or retained erasure.
       // Carrier tails finish before the Session erases its owned device keys.
       try { if (this.#privateCarrier) await closeOrdinaryPrivateCarrier(this.#privateCarrier) } catch (error) {failures.push(error)}
+      try { if (this.#privateController) await this.#privateControllerModule!.closeOrdinaryPrivateMemberController(this.#privateController) } catch (error) {failures.push(error)}
       try { if (this.#privateSession) await this.#privateSessionModule!.drainOrdinaryPrivateMemberSession(this.#privateSession) } catch (error) {failures.push(error)}
       wipeOrdinaryPersistentBootstrapResult(this.#privateMaterial); this.#privateMaterial = undefined
       this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)

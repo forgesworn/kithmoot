@@ -58,6 +58,22 @@ interface PrivateExistingSelection {
   readonly proofOperation: string
   readonly memberLeaseOperation: string | null
 }
+/** A member credential generation is neither a RoomSession room epoch nor
+ * an encryption generation. Its identity is the exact adoption boundary. */
+declare const privateCredentialGenerationBrand: unique symbol
+export interface OrdinaryPrivateCredentialGeneration { readonly [privateCredentialGenerationBrand]: true }
+interface PrivateMemberCredentialGeneration {
+  readonly identity: OrdinaryPrivateCredentialGeneration
+  readonly serial: number
+  readonly selection: Readonly<PrivateExistingSelection>
+  readonly rows: readonly [string, string]
+  readonly revisions: readonly [number, number]
+  readonly ownerGenerations: readonly [string, string]
+  readonly classification: string
+  readonly predecessor: string | null
+  readonly operation: string
+  readonly renewal: { claimed: boolean }
+}
 interface PrivateExistingCapture {
   readonly token: object
   readonly root: OrdinaryPrivateExistingRoot
@@ -71,6 +87,10 @@ interface PrivateExistingCapture {
   readonly generations: readonly [string, string]
   readonly classification: string
   readonly selection: Readonly<PrivateExistingSelection>
+  /** The provider floor and actual member refer to this same owner-only cell.
+   * Only the future all-component adoption block may replace its value. */
+  readonly credentialGeneration: { current: Readonly<PrivateMemberCredentialGeneration> }
+  readonly limits: Readonly<{admissionEndsAt: number | null; roomEndsAt: number | null; sdkExpiresAt: number | null}>
   consumed: boolean
 }
 const privateExistingCaptures = new WeakMap<object, PrivateExistingCapture>()
@@ -98,7 +118,7 @@ const privateExistingProviders = new WeakMap<object, PrivateExistingProvider>()
 declare const privateMemberNativeBrand: unique symbol
 export interface OrdinaryPrivateMemberNative { readonly [privateMemberNativeBrand]: true }
 /** The native owner retains the actual owners and the immutable predecessor.
- * A later settled-member handoff must replace the whole epoch in its own
+ * A later settled-member handoff must replace the whole generation in its own
  * acknowledged synchronous adoption block; no token consumer can assign it. */
 interface PrivateMemberNative {
   readonly capture: PrivateExistingCapture
@@ -107,12 +127,7 @@ interface PrivateMemberNative {
   readonly bootstrap: { claimed: boolean }
   readonly live: () => boolean
   readonly validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => void
-  readonly epoch: { current: Readonly<{
-    selection: Readonly<PrivateExistingSelection>
-    rows: readonly [string, string]
-    revisions: readonly [number, number]
-    generations: readonly [string, string]
-  }> }
+  readonly credentialGeneration: PrivateExistingCapture['credentialGeneration']
 }
 const privateMemberNatives = new WeakMap<object, PrivateMemberNative>()
 declare const privateBootstrapClaimBrand: unique symbol
@@ -121,9 +136,11 @@ interface PrivateBootstrapBinding {
   readonly browser: OrdinaryStateOwner
   readonly tab: OrdinaryStateOwner
   readonly selection: Readonly<PrivateExistingSelection>
+  readonly credentialGeneration: OrdinaryPrivateCredentialGeneration
   readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
   readonly websocketImplementation: typeof WebSocket
   live(): boolean
+  revoke(): void
   read<T>(live: () => boolean, work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T): Promise<T>
   join<T>(pending: Promise<T>): Promise<T>
   deadline(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): number | null
@@ -149,6 +166,9 @@ interface PrivateRenewalFactoryState {
   readonly native: OrdinaryPrivateMemberNative
   readonly foreground: OrdinaryPrivateForegroundAuthority
   readonly member: PrivateMemberNative
+  /** A factory never follows a later credential generation, even when all its public
+   * selection fields happen to be identical. Adoption needs a new factory. */
+  readonly generation: Readonly<PrivateMemberCredentialGeneration>
   readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
   readonly foregroundExpiresAt: number | null
   closed: boolean
@@ -304,11 +324,12 @@ export function takeOrdinaryPrivateRenewalFactoryClaim(claim: OrdinaryPrivateRen
 /** Memory-only ownership restriction; never native phase or member authority. */
 export function ordinaryPrivateRenewalFactoryCurrent(factory: OrdinaryPrivateRenewalFactory): boolean {
   const value = privateRenewalFactories.get(factory)
-  return !!value && !value.closed && value.member.live() &&
+  return !!value && !value.closed && value.member.credentialGeneration.current === value.generation && value.member.live() &&
     ordinaryPrivateForegroundCurrent(value.foreground, value.native,
-      value.member.epoch.current.selection.participant, value.foregroundExpiresAt) && !value.closed && value.member.live()
+      value.generation.selection.participant, value.foregroundExpiresAt) && !value.closed && value.member.live() &&
+    value.member.credentialGeneration.current === value.generation
 }
-/** Component cleanup only. No parent close, storage mutation or epoch update. */
+/** Component cleanup only. No parent close, storage mutation or credential-generation update. */
 export function stopOrdinaryPrivateRenewalFactory(factory: OrdinaryPrivateRenewalFactory): void {
   const value = privateRenewalFactories.get(factory)
   if (value) value.closed = true
@@ -1036,10 +1057,19 @@ export class OrdinaryStateOwner {
             await context.step(() => {
               check()
               if (privateExistingCaptures.has(root)) hold()
+              const rows = Object.freeze([rowDigest(br), rowDigest(tr)]) as readonly [string, string]
+              const revisions = Object.freeze([b!.revision, t!.revision]) as readonly [number, number]
+              const generations = Object.freeze([b!.generation, t!.generation]) as readonly [string, string]
+              const classification = JSON.stringify(facts)
+              const generation: Readonly<PrivateMemberCredentialGeneration> = Object.freeze({serial: 0, selection,
+                identity: Object.freeze({}) as OrdinaryPrivateCredentialGeneration,
+                rows, revisions, ownerGenerations: generations, classification, predecessor: null,
+                operation: memberLeaseOperation ?? bound.operation, renewal: {claimed: false}})
               privateExistingCaptures.set(root, { token: Object.freeze({}), root, binding, browser, tab: tab!, purpose,
-                expiresAt: tab!.expiresAt, rows: Object.freeze([rowDigest(br), rowDigest(tr)]),
-                revisions: Object.freeze([b!.revision, t!.revision]), generations: Object.freeze([b!.generation, t!.generation]),
-                classification: JSON.stringify(facts), selection, consumed: false })
+                expiresAt: tab!.expiresAt, rows, revisions, generations, classification, selection,
+                credentialGeneration: {current: generation},
+                limits: Object.freeze({admissionEndsAt: admissionEndsAt ?? null, roomEndsAt: metadata.endsAt ?? null,
+                  sdkExpiresAt: expiresAt ?? null}), consumed: false })
             })
             check()
           } finally { inspected.close(); bv.close(); tv.close() }
@@ -1101,9 +1131,13 @@ export class OrdinaryStateOwner {
       if (stopped || privateExistingCaptures.get(root) !== captured || !binding.live() || stopped ||
           navigator.serviceWorker.controller !== binding.controller) hold()
       browser.#check(binding.live); tab.#check(binding.live)
-      const now = Date.now()
+      const now = Date.now(), generation = captured.credentialGeneration.current
       if (stopped || privateExistingCaptures.get(root) !== captured || !Number.isSafeInteger(now) || now < 0 ||
-          now >= captured.expiresAt || captured.selection.credentialExpiresAt - Math.floor(now / 1000) < 600) hold()
+          !Number.isSafeInteger(generation.serial) || generation.serial < 0 || now >= captured.expiresAt ||
+          generation.selection.credentialExpiresAt - Math.floor(now / 1000) < 600 ||
+          captured.limits.sdkExpiresAt !== null && now >= captured.limits.sdkExpiresAt ||
+          captured.limits.admissionEndsAt !== null && Math.floor(now / 1000) >= captured.limits.admissionEndsAt ||
+          captured.limits.roomEndsAt !== null && Math.floor(now / 1000) >= captured.limits.roomEndsAt) hold()
     }
     const providerFields = (): unknown[] => {
       if (!provider) hold()
@@ -1140,11 +1174,18 @@ export class OrdinaryStateOwner {
     const cancel = { stop }; browser.#resources.add(cancel); tab.#resources.add(cancel)
     const operation = Promise.resolve().then(async () => {
       nativeCheck()
+      const floor = captured.credentialGeneration.current, floorSerial = floor.serial
       const expire = () => {
-        if (stopped) return
+        // A retired timer cannot close or rearm another credential generation.
+        // Adoption owes its own fresh-current timer arm after publication.
+        if (stopped || captured.credentialGeneration.current !== floor ||
+            captured.credentialGeneration.current.serial !== floorSerial) return
         try {
           nativeCheck()
-          const deadline = Math.min(captured.expiresAt, (captured.selection.credentialExpiresAt - 599) * 1000)
+          const deadline = Math.min(captured.expiresAt, (floor.selection.credentialExpiresAt - 599) * 1000,
+            captured.limits.sdkExpiresAt ?? Infinity,
+            captured.limits.admissionEndsAt === null ? Infinity : captured.limits.admissionEndsAt * 1000,
+            captured.limits.roomEndsAt === null ? Infinity : captured.limits.roomEndsAt * 1000)
           expiryTimer = setTimeout(expire, Math.max(1, deadline - Date.now()))
         } catch { stop() }
       }
@@ -1451,8 +1492,7 @@ export class OrdinaryStateOwner {
         const member: PrivateMemberNative = Object.freeze({
           capture, foregroundScopes: () => scopes, renewal: { claimed: false }, bootstrap: { claimed: false },
           live,
-          epoch: { current: Object.freeze({ selection: capture.selection, rows: capture.rows,
-            revisions: capture.revisions, generations: capture.generations }) },
+          credentialGeneration: capture.credentialGeneration,
           validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => {
             const read = pairCustody.get(custody)
             if (!scopes || !live() || read?.kind !== 'read' || read.browserStore !== browser || read.tabStore !== tab) hold()
@@ -1486,11 +1526,11 @@ export class OrdinaryStateOwner {
               tab: { owner: capture.tab, scope: scopes[1] }, live: current,
               work: (browser, tab, _bn, _tn, custody) => {
                 // This construction stage still owns the exact predecessor.
-                // A later acknowledged member epoch must replace this binding
+                // A later acknowledged credential generation must replace this binding
                 // through the fixed adoption path before renewal can extend it.
                 const native = pairCustody.get(custody)
                 if (native?.kind !== 'read' || !native.rows ||
-                    native.rows.some((row, index) => rowDigest(row) !== member.epoch.current.rows[index])) hold()
+                    native.rows.some((row, index) => rowDigest(row) !== member.credentialGeneration.current.rows[index])) hold()
                 return work(browser, tab, custody)
               },
             })
@@ -1530,14 +1570,16 @@ export class OrdinaryStateOwner {
    * promise transitively; its queued body cannot run before registration. */
   static #constructPrivateBootstrap(native: OrdinaryPrivateMemberNative, foreground: OrdinaryPrivateForegroundAuthority): Promise<void> {
     const member = privateMemberNatives.get(native)
-    if (!member || member.bootstrap.claimed || member.renewal.claimed || !member.live() ||
-        !ordinaryPrivateForegroundCurrent(foreground, native, member.epoch.current.selection.participant)) return Promise.reject(new OrdinaryStateHold())
+    const generation = member?.credentialGeneration.current
+    if (!member || !generation || member.bootstrap.claimed || member.renewal.claimed || !member.live() ||
+        !ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant) ||
+        member.credentialGeneration.current !== generation) return Promise.reject(new OrdinaryStateHold())
     member.bootstrap.claimed = true
     const {capture} = member, {browser, tab} = capture, provider = privateExistingProviders.get(capture.root)
     if (!provider || provider.capture !== capture) return Promise.reject(new OrdinaryStateHold())
-    const epoch = member.epoch.current
-    const live = () => member.live() && member.epoch.current === epoch &&
-      ordinaryPrivateForegroundCurrent(foreground, native, epoch.selection.participant) && member.live()
+    const live = () => member.live() && member.credentialGeneration.current === generation &&
+      ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant) && member.live() &&
+      member.credentialGeneration.current === generation
     const check = () => { if (!live()) hold() }
     const clients = async () => { check(); await capture.binding.assertClientsCurrent(); check() }
     let resolve!: () => void, reject!: (error: unknown) => void
@@ -1549,13 +1591,13 @@ export class OrdinaryStateOwner {
         check()
         const module = await import('./ordinary-persistent-bootstrap.js'); check()
         await clients()
-        const name = 'invitation:' + epoch.selection.participant + ':' + epoch.selection.invitationId
+        const name = 'invitation:' + generation.selection.participant + ':' + generation.selection.invitationId
         const bs = await browser.#capture(name, live); check()
         const ts = await tab.#capture(name, live); check()
         const scopes = Object.freeze([bs, ts]) as readonly [OrdinaryScope, OrdinaryScope]
         const validate = (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
           check(); OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, b, t, c)
-          ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, epoch.selection.participant)
+          ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, generation.selection.participant)
           OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, b, t, c); check()
         }
         const read = <T>(selected: () => boolean, work: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => T): Promise<T> => {
@@ -1568,7 +1610,8 @@ export class OrdinaryStateOwner {
           })
           return OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending)
         }
-        const binding: PrivateBootstrapBinding = Object.freeze({browser, tab, selection: epoch.selection, scopes, live, read,
+        const binding: PrivateBootstrapBinding = Object.freeze({browser, tab, selection: generation.selection,
+          credentialGeneration: generation.identity, scopes, live, read, revoke: provider.stop,
           websocketImplementation: capture.binding.websocketImplementation, validate,
           retainResource: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody,
             callbacks: { readonly revoke: () => void; readonly join: () => Promise<void> }) => {
@@ -1577,7 +1620,7 @@ export class OrdinaryStateOwner {
           },
           join: <T>(pending: Promise<T>) => OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending),
           deadline: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
-            validate(b, t, c); return ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, epoch.selection.participant)
+            validate(b, t, c); return ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, generation.selection.participant)
           }})
         await clients()
         await read(live, () => {
@@ -1607,20 +1650,23 @@ export class OrdinaryStateOwner {
   static #preparePrivateRenewalFactory(native: OrdinaryPrivateMemberNative,
     foreground: OrdinaryPrivateForegroundAuthority): Promise<OrdinaryPrivateRenewalFactoryClaim> {
     const member = privateMemberNatives.get(native)
-    if (!member || member.renewal.claimed || member.bootstrap.claimed || !member.live() ||
-        !ordinaryPrivateForegroundCurrent(foreground, native, member.epoch.current.selection.participant)) {
+    const generation = member?.credentialGeneration.current
+    if (!member || !generation || generation.renewal.claimed || member.renewal.claimed || member.bootstrap.claimed || !member.live() ||
+        !ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant) ||
+        member.credentialGeneration.current !== generation) {
       return Promise.reject(new OrdinaryStateHold())
     }
-    member.renewal.claimed = true
+    member.renewal.claimed = true; generation.renewal.claimed = true
     const capture = member.capture, provider = privateExistingProviders.get(capture.root)
     if (!provider || provider.capture !== capture) return Promise.reject(new OrdinaryStateHold())
-    const live = () => member.live() && ordinaryPrivateForegroundCurrent(foreground, native, member.epoch.current.selection.participant) && member.live()
+    const live = () => member.live() && member.credentialGeneration.current === generation &&
+      ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant) && member.live() && member.credentialGeneration.current === generation
     let createdFactory: OrdinaryPrivateRenewalFactory | undefined, createdClaim: OrdinaryPrivateRenewalFactoryClaim | undefined
     const check = () => { if (!live()) hold() }
     const clients = async () => { check(); await capture.binding.assertClientsCurrent(); check() }
     const operation = Promise.resolve().then(async () => {
       await clients(); check()
-      const selection = member.epoch.current.selection, name = 'invitation:' + selection.participant + ':' + selection.invitationId
+      const selection = generation.selection, name = 'invitation:' + selection.participant + ':' + selection.invitationId
       const browserScope = await capture.browser.#capture(name, live); check()
       const tabScope = await capture.tab.#capture(name, live); check()
       await clients(); check()
@@ -1633,7 +1679,7 @@ export class OrdinaryStateOwner {
           OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, browser, tab, custody)
           if (!live()) hold()
           const factory = Object.freeze({}) as OrdinaryPrivateRenewalFactory
-          privateRenewalFactories.set(factory, {native, foreground, member, scopes, foregroundExpiresAt, closed: false})
+          privateRenewalFactories.set(factory, {native, foreground, member, generation, scopes, foregroundExpiresAt, closed: false})
           const claim = Object.freeze({}) as OrdinaryPrivateRenewalFactoryClaim
           privateRenewalFactoryClaims.set(claim, factory)
           createdFactory = factory; createdClaim = claim
@@ -1651,14 +1697,14 @@ export class OrdinaryStateOwner {
     })
     return provider.trackControl(operation)
   }
-  /** Scope and initial epoch authentication only. No caller-supplied store
+  /** Scope and current credential-generation authentication only. No caller-supplied store
    * method is touched until the exact genuine native views have been proved. */
   static #validatePrivateRenewalRead(member: PrivateMemberNative, scopes: readonly [OrdinaryScope, OrdinaryScope],
     browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void {
     const read = pairCustody.get(custody), capture = member.capture, foreground = member.foregroundScopes()
     if (!member.live() || !foreground || read?.kind !== 'read' || read.browserStore !== browser || read.tabStore !== tab ||
         read.browserOwner !== capture.browser || read.tabOwner !== capture.tab || !read.rows ||
-        read.rows.some((value, index) => rowDigest(value) !== member.epoch.current.rows[index])) hold()
+        read.rows.some((value, index) => rowDigest(value) !== member.credentialGeneration.current.rows[index])) hold()
     for (const pair of [scopes, foreground]) OrdinaryStateOwner.#validatePairBinding(custody, {
       browser: {owner: capture.browser, scope: pair[0]}, tab: {owner: capture.tab, scope: pair[1]}, live: member.live,
     })
@@ -1669,7 +1715,7 @@ export class OrdinaryStateOwner {
   }
   /** One fixed owner pipeline. Its sole protocol child is the exact outer
    * promise; inner native/SDK tails are owned transitively and by both owners.
-   * Every phase cohort is separate from the unchanged initial member epoch. */
+   * Every phase cohort is separate from the captured predecessor credential generation. */
   static #runPrivateRenewal(obligation: OrdinaryPrivateRenewalObligation): Promise<OrdinaryPrivateRenewalSettled> {
     let held: ReturnType<typeof takeOrdinaryPrivateRenewalObligation>, value: PrivateRenewalFactoryState
     try {
@@ -1842,7 +1888,7 @@ export class OrdinaryStateOwner {
         try {
           await clients(); await reopen(); check(); context = operationTransaction(db!, mode); op.context = context
           const facts = await browser.#classifyOperations(value.member.live, context); check()
-          if (JSON.stringify(facts) !== value.member.capture.classification) hold()
+          if (JSON.stringify(facts) !== value.generation.classification) hold()
           const raw = await Promise.all([context.read(() => context!.store.get('browser')), context.read(() => context!.store.get(purpose)), context.read(() => context!.store.get(names.control))]); check()
           const br = row(raw[0]), tr = row(raw[1]); if (!br?.frame || !tr?.frame || br.pending || tr.pending) hold()
           b = await openOrdinaryFrame(br.frame, br.key); check(); t = await openOrdinaryFrame(tr.frame, tr.key); check()
@@ -1903,7 +1949,7 @@ export class OrdinaryStateOwner {
           if (packetHash(j) !== packetHash(activeJournal) || j.request !== rawRequest || j.id !== active.header.id || j.sequence !== active.header.sequence) hold()
           const scopes = value.member.foregroundScopes(); if (!scopes) hold()
           for (const pair of [value.scopes, scopes]) { browser.#scope(b, pair[0]); tab.#scope(t, pair[1]) }
-          if (b.generation !== value.member.epoch.current.generations[0] || t.generation !== value.member.epoch.current.generations[1] || t.expiresAt !== tab.expiresAt) hold()
+          if (b.generation !== value.generation.ownerGenerations[0] || t.generation !== value.generation.ownerGenerations[1] || t.expiresAt !== tab.expiresAt) hold()
           await startup.validateOrdinaryRenewalStartupRows(j, [br.frame, tr.frame], [b, t]); phaseCheck(custodyOnly)
           browser.#validateCleanupImage(b, t, tab, facts, modules.snapshot)
           bv = view(new Map(b.records), false); tv = view(new Map(t.records), false)
@@ -2243,13 +2289,14 @@ export class OrdinaryStateOwner {
     return pending
   }
   /** The private factory's complete predecessor/source intent is derived here, with actual
-   * owner/scope/epoch bindings still local to this module. Desired times are
+   * owner/scope/generation bindings still local to this module. Desired times are
    * data only and are captured after genuine native custody has been proved. */
   static #derivePrivateRenewalIntent(value: PrivateRenewalFactoryState, browser: DeviceStore, tab: DeviceStore,
     custody: OrdinaryPairCustody, input: Readonly<{issuedAt: number; expiresAt: number; semanticDigest: string}>,
     modules: Awaited<ReturnType<typeof privateRenewalIntentModules>>): OrdinaryRenewalIntent {
     const {proof: proofs, snapshot, lease, devices, rooms, seal, session} = modules
-    const {member} = value, selection = member.epoch.current.selection, capture = member.capture
+    const {member} = value, selection = value.generation.selection, capture = member.capture
+    if (member.credentialGeneration.current !== value.generation) hold()
     OrdinaryStateOwner.#validatePrivateRenewalRead(member, value.scopes, browser, tab, custody)
     if (!input || Object.getPrototypeOf(input) !== Object.prototype) hold()
     const fields = Object.getOwnPropertyDescriptors(input), names = Reflect.ownKeys(fields)

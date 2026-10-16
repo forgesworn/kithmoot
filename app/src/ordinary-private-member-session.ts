@@ -3,15 +3,18 @@ import { RoomSession, type RoomSessionOptions } from '../../src/session.js'
 import { registerRetainedNativeSessionBinding, type NativeSessionView } from '../../src/session-native-binding.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { takeOrdinaryPrivateSessionClaim, type OrdinaryPrivateSessionClaim } from './ordinary-persistent-bootstrap.js'
+import type { ProtocolExecution } from '../../src/protocol-execution.js'
 
 declare const resourceBrand: unique symbol
 export interface OrdinaryPrivateMemberSessionResource { readonly [resourceBrand]: true }
 interface OwnedSession {
+  readonly protocol: ProtocolExecution
   readonly view: NativeSessionView
   readonly secret: Uint8Array
   readonly device: Uint8Array
   readonly seals: readonly Uint8Array[]
   disposed: boolean
+  controllerClaimed: boolean
   closeResult?: Promise<Readonly<{ok: true} | {ok: false; error: unknown}>>
   closing?: Promise<void>
   draining?: Promise<void>
@@ -45,12 +48,21 @@ export function openOrdinaryPrivateMemberSessionFromBootstrapClaim(claim: Ordina
     new RoomSession(options as unknown as RoomSessionOptions)
     if (!view) throw new OrdinaryStateHold()
     const resource = Object.freeze({}) as OrdinaryPrivateMemberSessionResource
-    sessions.set(resource, {view, secret, device, seals, disposed: false})
+    sessions.set(resource, Object.assign(Object.create(null), {view, secret, device, seals, protocol,
+      disposed: false, controllerClaimed: false, closeResult: undefined, closing: undefined, draining: undefined}))
     return resource
   } catch (error) {
     view?.revoke(); secret?.fill(0); device?.fill(0); for (const key of seals) key.fill(0)
     throw error
   } finally { cancel?.() }
+}
+/** Component ownership only, after the genuine controller attachment claim
+ * was consumed in its current construction decision. No Session or view is
+ * returned; a different protocol or a second attachment is refused. */
+export function retainOrdinaryPrivateMemberSessionForController(resource: OrdinaryPrivateMemberSessionResource, protocol: ProtocolExecution): void {
+  const value = owned(resource)
+  if (value.disposed || value.closing || value.controllerClaimed || value.protocol !== protocol) throw new OrdinaryStateHold()
+  value.controllerClaimed = true
 }
 /** Fixed lexical Session operations only. No instance, view or credential
  * facade escapes to a document caller. Joining still needs its fresh native

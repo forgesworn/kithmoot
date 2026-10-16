@@ -158,24 +158,63 @@ test.beforeAll(async () => {
         let source=await readFile(input.path,'utf8')
         const marker='const binding = takeOrdinaryPrivateSessionClaim(claim)'
         if(source.split(marker).length!==2)throw Error('Private Session claim observer drift')
-        source=source.replace(marker,marker+`; (globalThis as any).__privateMemberClaimForTest=claim`)
-        const retained='sessions.set(resource, {view, secret, device, seals, disposed: false})'
+        source=source.replace(marker,marker+`; (globalThis as any).__privateMemberClaimForTest=claim;
+          ;((globalThis as any).__privateControllerOrder??=[]).push('session')
+          ;(globalThis as any).__privateControllerScheduleForTest=binding.schedule`)
+        const retained='sessions.set(resource, Object.assign(Object.create(null), {view, secret, device, seals, protocol,\n      disposed: false, controllerClaimed: false, closeResult: undefined, closing: undefined, draining: undefined}))'
         if(source.split(retained).length!==2)throw Error('Private Session retained input observer drift')
         source=source.replace(retained,retained+`;
           ;(globalThis as any).__privateSessionInputsWipedForTest=()=>[secret!,device!,...seals].every(key=>key.every(value=>value===0))
           if((globalThis as any).privateMemberCloseFailure||(globalThis as any).privateMemberDisposeFailure||(globalThis as any).privateMemberDisposePaused){
             const actual=view, fixture=globalThis as any, closeError=Error('Explicit private Session close failure')
             fixture.__privateSessionSeenResource=resource;fixture.privateMemberCloseCalls=0;fixture.privateMemberDisposeCalls=0
-            sessions.set(resource,{view:Object.freeze({...actual,close:()=>{fixture.privateMemberCloseCalls++;
+            sessions.set(resource,Object.assign(Object.create(null),{view:Object.freeze({...actual,close:()=>{fixture.privateMemberCloseCalls++;
               if(fixture.privateMemberReentrantDrain){fixture.privateMemberReentrantDrain=undefined;fixture.privateMemberReentrantDrainPromise=drainOrdinaryPrivateMemberSession(resource);void fixture.privateMemberReentrantDrainPromise.catch(()=>{})}
               return fixture.privateMemberCloseFailure?Promise.reject(closeError):actual.close()},
               dispose:()=>{fixture.privateMemberDisposeCalls++;if(fixture.privateMemberDisposePaused||fixture.privateMemberDisposeFailure&&fixture.privateMemberDisposeCalls===1)throw Error('Explicit private Session disposal failure');
-                actual.dispose();fixture.__privateSessionDisposedForTest=true}}),secret,device,seals,disposed:false})
+                actual.dispose();fixture.__privateSessionDisposedForTest=true}}),secret,device,seals,protocol,disposed:false,controllerClaimed:false,closeResult:undefined,closing:undefined,draining:undefined}))
           }
         `)
         return {loader:'ts',contents:source+`
           ;(globalThis as any).__privateMemberClassForTest=RoomSession
           ;(globalThis as any).__privateMemberFunctionsForTest={open:openOrdinaryPrivateMemberSessionFromBootstrapClaim,stop:stopOrdinaryPrivateMemberSession,close:closeOrdinaryPrivateMemberSession,drain:drainOrdinaryPrivateMemberSession}
+        `}
+      })
+      builder.onLoad({filter:/ordinary-private-member-controller\.ts$/},async input=>{
+        let source=await readFile(input.path,'utf8')
+        const take='const binding = takeOrdinaryPrivateMemberControllerClaim(claim)'
+        if(source.split(take).length!==2)throw Error('Private controller construction observer drift')
+        source=source.replace(take,take+`;
+          ;(globalThis as any).__privateControllerClaimForTest=claim
+          ;((globalThis as any).__privateControllerOrder??=[]).push('controller')
+          if((globalThis as any).privateControllerCut==='claim-consumed')window.dispatchEvent(new PageTransitionEvent('pagehide'))
+        `)
+        const put='controllers.set(resource, Object.assign(Object.create(null), {binding, session: undefined, closed: false, closing: undefined}))'
+        if(source.split(put).length!==2)throw Error('Private controller resource observer drift')
+        source=source.replace(put,put+`;
+          ;(globalThis as any).__privateControllerResourceForTest=resource
+          ;(globalThis as any).__privateControllerForTest=()=>{const value=controllers.get(resource)!;return{closed:value.closed,attached:!!value.session,
+            frozen:Object.isFrozen(resource),keys:Reflect.ownKeys(resource).length,generationFrozen:Object.isFrozen(value.binding.generation),generationKeys:Reflect.ownKeys(value.binding.generation).length}}
+          if((globalThis as any).privateControllerCut==='after-resource')window.dispatchEvent(new PageTransitionEvent('pagehide'))
+        `)
+        const attachment='const binding = takeOrdinaryPrivateMemberControllerSessionClaim(claim), value = owned(binding.controller)'
+        if(source.split(attachment).length!==2)throw Error('Private controller attachment observer drift')
+        source=source.replace(attachment,`const original=takeOrdinaryPrivateMemberControllerSessionClaim(claim)
+          ;(globalThis as any).__privateControllerSessionClaimForTest=claim
+          const fault=(globalThis as any).privateControllerAttachmentFault
+          const binding=fault?Object.freeze({...original,[fault]:Object.freeze({})}):original,value=owned(binding.controller)
+          if((globalThis as any).privateControllerCut==='attachment-consumed')window.dispatchEvent(new PageTransitionEvent('pagehide'))
+        `)
+        const attached='value.session = binding.session'
+        if(source.split(attached).length!==2)throw Error('Private controller attached observer drift')
+        source=source.replace(attached,attached+`;
+          ;((globalThis as any).__privateControllerOrder??=[]).push('attached')
+          if((globalThis as any).privateControllerCut==='after-attachment')window.dispatchEvent(new PageTransitionEvent('pagehide'))
+        `)
+        return{loader:'ts',contents:source+`
+          ;(globalThis as any).__privateControllerFunctionsForTest={open:openOrdinaryPrivateMemberControllerFromBootstrapClaim,
+            attach:attachOrdinaryPrivateMemberControllerSessionFromBootstrapClaim,schedule:scheduleOrdinaryPrivateMemberController,
+            stop:stopOrdinaryPrivateMemberController,close:closeOrdinaryPrivateMemberController}
         `}
       })
       builder.onLoad({filter:/ordinary-relay-carrier\.ts$/},async input=>{
@@ -230,6 +269,25 @@ test.beforeAll(async () => {
         const decision='work: (b, t, _bn, _tn, c) => { validate(b, t, c); const answer = work(b, t, c); validate(b, t, c); return answer }'
         if(source.split(decision).length!==2)throw Error('Private bootstrap read observer drift')
         source=source.replace(decision,`work: (b,t,_bn,_tn,c)=>{validate(b,t,c);const f=(globalThis as any),n=(f.privateBootstrapReadCount=(f.privateBootstrapReadCount??0)+1);const answer=work(b,t,c);if(f.privateBootstrapReadCut===n)window.dispatchEvent(new PageTransitionEvent('pagehide'));validate(b,t,c);return answer}`)
+        const floor='expire(); nativeCheck()'
+        if(source.split(floor).length!==2)throw Error('Private credential-generation floor observer drift')
+        source=source.replace(floor,floor+`;
+          // Identity invalidation only: this fixture does not implement or
+          // prove authorised adoption or extension of a credential deadline.
+          ;(globalThis as any).__privateAdvanceCredentialGenerationForTest=()=>{
+            const current=captured.credentialGeneration.current
+            captured.credentialGeneration.current=Object.freeze({...current,serial:current.serial+1,renewal:{claimed:false}})
+          }
+          ;(globalThis as any).__privateGenerationFloorForTest=()=>{
+            const current=captured.credentialGeneration.current
+            return {serial:current.serial,stopped,deadline:current.selection.credentialExpiresAt,
+              frozen:Object.isFrozen(current)&&Object.isFrozen(current.selection)&&Object.isFrozen(current.rows)&&Object.isFrozen(current.revisions)&&Object.isFrozen(current.ownerGenerations),
+              source:current.classification===captured.classification,rows:current.rows.every((v,i)=>v===captured.rows[i]),
+              predecessor:current.predecessor,operation:current.operation===captured.selection.memberLeaseOperation||current.operation===captured.selection.proofOperation,
+              reserved:current.renewal.claimed}
+          }
+          ;(globalThis as any).__privateInitialFloorTimerForTest=expire
+        `)
         const earlyCapacity='  const size = (delta: 1|2|3): readonly [number,number] => {'
         if(source.split(earlyCapacity).length!==2)throw Error('Native intent capacity observer drift')
         source=source.replace(earlyCapacity,earlyCapacity+`
@@ -354,22 +412,24 @@ test.beforeAll(async () => {
              try {
                const raw=await Promise.all([context.read(()=>context.store.get('browser')),context.read(()=>context.store.get(purpose)),context.read(()=>context.store.get(names.control))])
                const br=row(raw[0])!,tr=row(raw[1])!
-               if(raw[2]===undefined){context.stop();await context.ended;return {phase:'absent',result:false,secretCount:0,sequence:0,initialEpochUnchanged:true,changedRows:[rowDigest(br)!==value.member.epoch.current.rows[0],rowDigest(tr)!==value.member.epoch.current.rows[1]]}}
+               if(raw[2]===undefined){context.stop();await context.ended;return {phase:'absent',result:false,secretCount:0,sequence:0,initialGenerationUnchanged:true,changedRows:[rowDigest(br)!==value.member.credentialGeneration.current.rows[0],rowDigest(tr)!==value.member.credentialGeneration.current.rows[1]]}}
                b=await openOrdinaryFrame(br.frame!,br.key);t=await openOrdinaryFrame(tr.frame!,tr.key)
                j=await openOrdinaryOperationControl(raw[2],{browser:{binding:{purpose:b.purpose,keyId:b.keyId,generation:b.generation,expiresAt:b.expiresAt},key:br.key},tab:{binding:{purpose:t.purpose,keyId:t.keyId,generation:t.generation,expiresAt:t.expiresAt},key:tr.key}})
                context.stop();await context.ended
-               return {phase:j.phase,result:!!j.result,secretCount:j.secrets.length,sequence:j.sequence,initialEpochUnchanged:value.member.epoch.current.rows.every((r,i)=>r===value.member.capture.rows[i]),changedRows:[rowDigest(br)!==value.member.epoch.current.rows[0],rowDigest(tr)!==value.member.epoch.current.rows[1]]}
+               return {phase:j.phase,result:!!j.result,secretCount:j.secrets.length,sequence:j.sequence,initialGenerationUnchanged:value.member.credentialGeneration.current.rows.every((r,i)=>r===value.member.capture.rows[i]),changedRows:[rowDigest(br)!==value.member.credentialGeneration.current.rows[0],rowDigest(tr)!==value.member.credentialGeneration.current.rows[1]]}
              } finally {context.stop();db.close();clearImage(b);clearImage(t);wipeOrdinaryOperationJournal(j)}
            }
            const resource = {stop: () => { op.revoked = true; if (!op.custodyOnly) { op.context?.abort(); op.revokeWait?.() } }}`).replace(
-          'privateRenewalFactories.set(factory, {native, foreground, member, scopes, foregroundExpiresAt, closed: false})',
-          `privateRenewalFactories.set(factory, {native, foreground, member,
+          'privateRenewalFactories.set(factory, {native, foreground, member, generation, scopes, foregroundExpiresAt, closed: false})',
+          `privateRenewalFactories.set(factory, {native, foreground, member, generation,
             scopes: (globalThis as any).providerFixture?.renewalScopeFamily === 'signet' ? member.foregroundScopes()! : scopes,
             foregroundExpiresAt, closed: false})`).replace(
           'createdWitness = witness',
           'createdWitness = witness; (globalThis as any).__seenPrivateRenewalWitness = witness').replace(
           'createdFactory = factory; createdClaim = claim',
-          'createdFactory = factory; createdClaim = claim; (globalThis as any).__seenPrivateRenewalClaim = claim').replace(
+          `createdFactory = factory; createdClaim = claim; (globalThis as any).__seenPrivateRenewalClaim = claim
+           ;(globalThis as any).__privateRenewalFactoryCurrentForTest=()=>ordinaryPrivateRenewalFactoryCurrent(factory)
+           if((globalThis as any).privateRenewalGenerationCut==='construction')(globalThis as any).__privateAdvanceCredentialGenerationForTest()` ).replace(
           'beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)',
           `beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
            ;(globalThis as any).__privateOwnerPrototypeForTest = this.prototype
@@ -1547,7 +1607,7 @@ for (const keep of [false, true]) test(`private renewal pipeline acknowledges ac
   expect(await page.evaluate('__privateRenewalResourceForTest().material')).toEqual({provider:false,raw:false,captured:false,request:false,statement:false,canonical:false,digest:false,secret:false,nonces:false})
   expect(await page.evaluate('__privateRenewalAfterSdkFinish')).toEqual({provider:false,raw:false,captured:false,binding:false,canonical:true,digest:true})
   expect(await page.evaluate('__privateRenewalDiskForTest()')).toEqual({phase: 'settled', result: false, secretCount: 0, sequence: 1,
-    initialEpochUnchanged: true, changedRows: [true, true]})
+    initialGenerationUnchanged: true, changedRows: [true, true]})
   expect(await page.evaluate('[providerFixture.signs,effects.put,effects.entropy,effects.key,effects.socket,providerFixture.providerOutside??0,providerFixture.proofOutside??0,providerFixture.foregroundGuarded]'))
     .toEqual([2, 12, 20, 0, 0, 0, 0, true])
   expect(await page.evaluate('__privateRenewForTest(privatePipelineObligation).then(()=>"replayed",error=>error.name)')).toBe('OrdinaryStateHold')
@@ -1573,7 +1633,7 @@ for (const synchronous of [false, true]) test(`private renewal pipeline owns hos
   await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
   expect(await page.evaluate('({outcome:privatePipelineOutcome,reads:hostileRejectionReads,signs:providerFixture.signs,resource:__privateRenewalResourceForTest()})'))
     .toMatchObject({outcome: 'OrdinaryStateHold', reads: 0, signs: 2, resource: {tokens: 0, tails: 0, state: 'failed'}})
-  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-started', result: false, initialEpochUnchanged: true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-started', result: false, initialGenerationUnchanged: true})
   expect(await page.evaluate('[effects.put,effects.entropy,effects.key,effects.socket]')).toEqual([4, 20, 0, 0])
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
@@ -1585,7 +1645,7 @@ test('private renewal pipeline quarantines invalid signature after one proof cap
   await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
   expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,__privateRenewalCaptures,__privateRenewalResourceForTest().tokens,effects.put]'))
     .toEqual(['OrdinaryStateHold', 2, 1, 0, 4])
-  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-started', result: false, initialEpochUnchanged: true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-started', result: false, initialGenerationUnchanged: true})
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
 })
@@ -1612,7 +1672,7 @@ for (const cut of ['start', 'pending', 'proof']) test(`private renewal pipeline 
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
   expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,__privateRenewalCaptures,providerFixture.proofOutside??0,effects.put,effects.entropy]'))
     .toEqual(['OrdinaryStateHold', 2, 1, 0, 5, 20])
-  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-returned', result: true, initialEpochUnchanged: true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-returned', result: true, initialGenerationUnchanged: true})
   expect(await page.evaluate('__privateRenewalResourceForTest()')).toMatchObject({disposed: true, tokens: 0, tails: 0})
 })
 
@@ -1631,7 +1691,7 @@ for (const phase of ['prepared', 'provider-started', 'provider-returned', 'candi
     await page.evaluate('privateRenewalAckFault.release()')
     await page.waitForFunction('privatePipelineDone')
     expect(await page.evaluate('privatePipelineOutcome')).toBe(closing ? 'OrdinaryStateHold' : 'settled')
-    expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: closing ? phase : 'settled', initialEpochUnchanged: true})
+    expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: closing ? phase : 'settled', initialGenerationUnchanged: true})
     expect(await page.evaluate('effects.entropy')).toBe(20)
     expect(await page.evaluate('providerFixture.signs')).toBe(closing && ['prepared', 'provider-started'].includes(phase) ? 1 : 2)
     expect(await page.evaluate('__privateRenewalResourceForTest().tokens')).toBe(closing ? 0 : 1)
@@ -1692,7 +1752,7 @@ test('private renewal pipeline retains exact-prior result custody after waiting 
   await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
   expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,effects.entropy,__privateRenewalCaptures,__privateRenewalResourceForTest().tokens]'))
     .toEqual(['OrdinaryStateHold',2,20,1,0])
-  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-returned',result:true,initialEpochUnchanged:true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-returned',result:true,initialGenerationUnchanged:true})
   expect(await page.evaluate(() => {
     const packets=(window as any).privateRenewalPackets.filter((v:any)=>v.phase==='provider-returned')
     return packets.length===2&&packets[0].packet===packets[1].packet
@@ -1742,7 +1802,7 @@ for (const timing of ['sequential', 'microtask'] as const) test(`private renewal
   await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
   expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,providerFixture.duplicateCallbacks??0,__privateRenewalCaptures,effects.put,effects.entropy,__privateRenewalResourceForTest().tokens]'))
     .toEqual(['OrdinaryStateHold', 2, 0, 1, 5, 20, 0])
-  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-returned',result:true,initialEpochUnchanged:true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-returned',result:true,initialGenerationUnchanged:true})
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
 })
@@ -1796,7 +1856,7 @@ for (const phase of ['prepared','provider-returned']) for (const closing of [fal
   await page.evaluate('__privateRenewalRetryForTest()')
   await page.waitForFunction('privatePipelineDone')
   expect(await page.evaluate('privatePipelineOutcome')).toBe(closing?'OrdinaryStateHold':'settled')
-  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:closing?phase:'settled',initialEpochUnchanged:true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:closing?phase:'settled',initialGenerationUnchanged:true})
   expect(await page.evaluate('effects.entropy')).toBe(20)
   if(!closing)await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
@@ -2068,6 +2128,59 @@ for (const keep of [false, true]) test(`private renewal factory derives owned na
   })).toEqual([true, true, 0, 0, [true, true, true, true, true, true, true, ['factory', 'intent', 'root'], true, true], 1, 0, 0, 0])
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+for (const keep of [false, true]) test(`private credential generation shares the native provider floor and retires its old timer, keep=${keep}`, async ({page}) => {
+  await prepareControlStage(page,keep);await startPrivateForeground(page)
+  expect(await page.evaluate('__privateGenerationFloorForTest()')).toMatchObject({serial:0,stopped:false,frozen:true,source:true,rows:true,predecessor:null,operation:true,reserved:false})
+  expect(await page.evaluate(()=>{
+    const w=window as any, timer=window.setTimeout;let armed=0
+    window.setTimeout=((...args:Parameters<typeof setTimeout>)=>{armed++;return Reflect.apply(timer,window,args)}) as typeof setTimeout
+    try{
+      w.__privateInitialFloorTimerForTest();const initialArms=armed
+      w.__privateAdvanceCredentialGenerationForTest();w.__privateAdvanceCredentialGenerationForTest()
+      w.__privateInitialFloorTimerForTest()
+      return {initialArms,staleArms:armed-initialArms,state:w.__privateGenerationFloorForTest()}
+    }finally{window.setTimeout=timer}
+  })).toMatchObject({initialArms:1,staleArms:0,state:{serial:2,stopped:false,frozen:true,source:true,rows:true,reserved:false}})
+  // This exercises invalidation of an old callback, not live adoption or a
+  // new generation's timer arm. The original signed expiry is unchanged.
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+
+for(const stage of ['construction','claim','opened'] as const)test(`private renewal factory remains bound to its exact credential generation at ${stage}`,async({page})=>{
+  await page.clock.install();await prepareControlStage(page);await startPrivateForeground(page);await page.clock.fastForward(2_000)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  expect(await page.evaluate(async stage=>{
+    const w=window as any,api=w.__privateRenewalRegistryForTest;let refused=0,traps=0,initialCurrent=true
+    if(stage==='construction')w.privateRenewalGenerationCut=stage
+    let claim:any,factory:any,desired:any
+    try{claim=await w.__privateForegroundProbe.prepareRenewalFactory()}catch{refused++}
+    if(stage!=='construction'){
+      if(stage==='opened'){
+        factory=api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)
+        desired=await w.__privateForegroundProbe.renewalDesired()
+      }
+      initialCurrent=w.__privateRenewalFactoryCurrentForTest()
+      w.__privateAdvanceCredentialGenerationForTest();w.__privateAdvanceCredentialGenerationForTest()
+      if(stage==='claim'){
+        for(let i=0;i<2;i++)try{api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)}catch{refused++}
+      }else{
+        const hostile=new Proxy(desired,{get(){traps++;throw Error('Stale desired getter')},getPrototypeOf(){traps++;throw Error('Stale desired prototype')}})
+        const work=w.__privateRenewalWorkForTest.registerPreparedStartup({},async(root:unknown)=>{
+          try{await api.prepareOrdinaryPrivateRenewalObligation(factory,root,hostile)}catch{refused++}
+        })
+        try{await work.start()}finally{work.close();await work.join();api.closeOrdinaryPrivateRenewalFactory(factory)}
+      }
+    }
+    // A new identity does not reset the permanently spent standalone path.
+    try{await w.__privateForegroundProbe.prepareRenewalFactory()}catch{refused++}
+    return {refused,traps,initialCurrent,current:w.__privateRenewalFactoryCurrentForTest()}
+  },stage)).toEqual({refused:stage==='claim'?3:2,traps:0,initialCurrent:true,current:false})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
 })
 
 test('private renewal factory refuses forged claims and handles before caller reflection', async ({page}) => {
@@ -2449,7 +2562,7 @@ for(const fault of ['wrong-key','wrong-algorithm','wrong-tag','reordered'])test(
   await beginPrivateRenewalPipeline(page);await page.waitForFunction('privatePipelineDone')
   expect(await page.evaluate('[privatePipelineOutcome,privateLateSealFaultUsed,privateLateSealNativeCalls,effects.entropy,providerFixture.signs]'))
     .toEqual(['OrdinaryStateHold',true,0,20,2])
-  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'candidate-prepared',initialEpochUnchanged:true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'candidate-prepared',initialGenerationUnchanged:true})
   expect(await page.evaluate('privateRenewalPackets.some(p=>p.phase===\'candidate-committed\'||p.phase===\'settled\')')).toBe(false)
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
@@ -2761,6 +2874,94 @@ async function beginPrivateMemberConstruction(page: Page): Promise<void> {
       (error:Error)=>{w.privateMemberOutcome=error.name}).finally(()=>{w.privateMemberDone=true})
   })
 }
+async function preparePrivateControllerConstruction(page: Page): Promise<void> {
+  await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')
+}
+for(const keep of [false,true])test(`private member controller precedes actual Session and holds pre-armed scheduling, keep=${keep}`,async({page})=>{
+  await prepareControlStage(page,keep,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('[privateMemberOutcome,__privateControllerOrder]')).toEqual(['constructed',['controller','session','attached']])
+  expect(await page.evaluate('__privateControllerForTest()')).toEqual({closed:false,attached:true,frozen:true,keys:0,generationFrozen:true,generationKeys:0})
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  expect(await page.evaluate(()=>{
+    const w=window as any,schedule=w.__privateControllerScheduleForTest,timer=window.setTimeout;let timers=0,refused=0,reflections=0
+    const hostile=new Proxy({},{get(){reflections++;throw Error('Foreign delay')},getPrototypeOf(){reflections++;throw Error('Foreign delay prototype')}})
+    window.setTimeout=((...args:Parameters<typeof setTimeout>)=>{timers++;return Reflect.apply(timer,window,args)}) as typeof setTimeout
+    try{for(const value of [0,NaN,hostile])try{schedule(value)}catch{refused++}}
+    finally{window.setTimeout=timer}
+    return {same:schedule===w.__privateControllerScheduleForTest,timers,refused,reflections}
+  })).toEqual({same:true,timers:0,refused:3,reflections:0})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateControllerForTest()')).toMatchObject({closed:true,attached:false})
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+test('private member controller refuses forged and spent claims without caller reflection',async({page})=>{
+  await preparePrivateControllerConstruction(page);await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  expect(await page.evaluate(async()=>{
+    const w=window as any,api=w.__privateControllerFunctionsForTest;let refused=0,reflections=0
+    const fake=new Proxy({},{get(){reflections++;throw Error('Foreign controller property')},getPrototypeOf(){reflections++;throw Error('Foreign controller prototype')},ownKeys(){reflections++;throw Error('Foreign controller keys')}})
+    for(const action of [()=>api.open(fake),()=>api.open(w.__privateControllerClaimForTest),()=>api.attach(fake),()=>api.attach(w.__privateControllerSessionClaimForTest),()=>api.schedule(fake,fake),()=>api.stop(fake),()=>api.close(fake)]){
+      try{await action()}catch{refused++}
+    }
+    return {refused,reflections}
+  })).toEqual({refused:7,reflections:0})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+for(const field of ['controller','bootstrap','carrier','generation','protocol','session'])test(`private member controller refuses a mismatched ${field} attachment and joins parent erasure`,async({page})=>{
+  await preparePrivateControllerConstruction(page)
+  await page.evaluate(field=>{(window as any).privateControllerAttachmentFault=field},field)
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateControllerForTest()')).toMatchObject({closed:true,attached:false})
+  expect(await page.evaluate('[__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest(),providerFixture.closeCalls]')).toEqual([true,true,1])
+})
+for(const stage of ['claim-consumed','after-resource','attachment-consumed','after-attachment'])test(`private member controller joins pagehide at ${stage}`,async({page})=>{
+  await preparePrivateControllerConstruction(page)
+  await page.evaluate(stage=>{(window as any).privateControllerCut=stage},stage)
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateControllerForTest()')).toMatchObject({closed:true,attached:false})
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+  expect(await page.evaluate('providerFixture.closeCalls')).toBe(1)
+})
+test('private member controller close is shared and revokes the actual parent graph',async({page})=>{
+  await preparePrivateControllerConstruction(page);await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  expect(await page.evaluate(async()=>{
+    const w=window as any,api=w.__privateControllerFunctionsForTest,resource=w.__privateControllerResourceForTest
+    const first=api.close(resource),second=api.close(resource);await first
+    return first===second
+  })).toBe(true)
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateControllerForTest()')).toMatchObject({closed:true,attached:false})
+  expect(await page.evaluate('[__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest(),providerFixture.closeCalls]')).toEqual([true,true,1])
+})
+for(const field of ['draining','closing','closeResult','session'])test(`private member controller and Session cleanup ignore inherited terminal promises in ${field}`,async({page})=>{
+  await preparePrivateControllerConstruction(page);await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  await page.evaluate(field=>{
+    const w=window as any;w.privateCleanupInheritedReads=0;w.privateCleanupInheritedWrites=0
+    Object.defineProperty(Object.prototype,field,{configurable:true,
+      get(){w.privateCleanupInheritedReads++;return Promise.resolve()},set(){w.privateCleanupInheritedWrites++;throw Error('Inherited private cleanup write')}})
+    window.dispatchEvent(new PageTransitionEvent('pagehide'))
+  },field)
+  try{
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+    expect(await page.evaluate('[privateCleanupInheritedReads,privateCleanupInheritedWrites,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([0,0,true,true])
+    expect(await page.evaluate('__privateControllerForTest()')).toMatchObject({closed:true,attached:false})
+  }finally{await page.evaluate(()=>{for(const field of ['draining','closing','closeResult','session'])Reflect.deleteProperty(Object.prototype,field)})}
+})
 for(const keep of [false,true])test(`private member construction uses genuine claims without a participant signer, keep=${keep}`,async({page})=>{
   await prepareControlStage(page,keep,true,undefined,undefined,true);await startPrivateForeground(page)
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
@@ -2881,8 +3082,12 @@ for(const cause of ['pagehide','browser','tab'])for(const closeFails of [false,t
   await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
   expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
   const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
+  try{
   await page.evaluate(cause=>{
     const w=window as any;w.__privateOwnerCloseFixture={entered:[],terminal:[]};w.privateDrainNativeOpens=0;w.privateDrainNativeTransactions=0
+    w.privateCleanupInheritedReads=0;w.privateCleanupInheritedWrites=0
+    for(const field of ['draining','closing','closeResult','session'])Object.defineProperty(Object.prototype,field,{configurable:true,
+      get(){w.privateCleanupInheritedReads++;return Promise.resolve()},set(){w.privateCleanupInheritedWrites++;throw Error('Inherited retry cleanup write')}})
     const open=indexedDB.open.bind(indexedDB),transaction=IDBDatabase.prototype.transaction
     indexedDB.open=((...args:Parameters<IDBFactory['open']>)=>{w.privateDrainNativeOpens++;return open(...args)}) as IDBFactory['open']
     IDBDatabase.prototype.transaction=function(...args:Parameters<IDBDatabase['transaction']>){w.privateDrainNativeTransactions++;return Reflect.apply(transaction,this,args)}
@@ -2915,4 +3120,6 @@ for(const cause of ['pagehide','browser','tab'])for(const closeFails of [false,t
   expect(await page.evaluate('__privateOwnerCloseFixture.terminal')).toEqual(expect.arrayContaining(['browser','tab']))
   expect(await page.evaluate('__privateBootstrapResourceForTest()')).toMatchObject({closed:true,material:false,work:0})
   expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  expect(await page.evaluate('[privateCleanupInheritedReads,privateCleanupInheritedWrites]')).toEqual([0,0])
+  }finally{await page.evaluate(()=>{for(const field of ['draining','closing','closeResult','session'])Reflect.deleteProperty(Object.prototype,field)})}
 })
