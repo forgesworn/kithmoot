@@ -24,14 +24,13 @@ what that means depends on the room:
   Nobody present means the guest gives up after 90 seconds and nobody is
   rung. The service, or anyone who guesses a code, gains nothing beyond
   knocking.
-- **Rooms with an end time** (group rooms with no waiting room): anyone with
+- **Rooms without a waiting room**, with or without an end time: anyone with
   the link gets the room key from the relays, so the service, or a successful
-  guess, can enter the room during its lifetime, and a late Join still starts
-  a call that rings members until the end time. A code changes none of that;
-  it adds only the 40-bit guess budget and a hard expiry. It is no worse than
-  sending the full link, and no better.
+  guess, can enter the room while the code lives, and a late Join still starts
+  a call that rings members. A code adds the 40-bit guess budget and a hard
+  expiry of at most 7 days, so for a room that never ends it exposes less than
+  the full link, which works for as long as the room does.
 
-Rooms that admit anyone with the link and never end keep full links only.
 Chat, calls and files stay end-to-end encrypted from everyone outside the
 room in every case; the service never sees room traffic. Only the room's
 creator can issue a code in phase 1 (the same check as `canEndRoom`), so End
@@ -123,8 +122,8 @@ tokens.
 
 ## Clients
 
-**Eligibility.** A room may offer a code only if it is an Ask room, or it has
-an end time. The control is absent otherwise.
+**Eligibility.** Any room whose creator is on this browser and which has not
+ended may offer a code.
 
 **Create (web/desktop first).** In the invite sheet, **Get a meeting code**
 posts the room's current full link with `expires` = the room's end time or

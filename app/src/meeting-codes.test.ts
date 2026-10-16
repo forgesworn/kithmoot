@@ -39,12 +39,10 @@ describe('meeting code format', () => {
 
 describe('eligibility and expiry', () => {
   const now = 1_800_000_000
-  it('offers a code to an Ask room or a room with an end, and to nothing else', () => {
-    expect(meetingCodeEligible({ ask: true, now })).toBe(true)
-    expect(meetingCodeEligible({ ask: false, endsAt: now + 60, now })).toBe(true)
-    expect(meetingCodeEligible({ ask: true, endsAt: now + 60, now })).toBe(true)
-    expect(meetingCodeEligible({ ask: false, now })).toBe(false)
-    expect(meetingCodeEligible({ ask: false, endsAt: now, now })).toBe(false)
+  it('offers a code to any room that has not ended', () => {
+    expect(meetingCodeEligible({ now })).toBe(true)
+    expect(meetingCodeEligible({ endsAt: now + 60, now })).toBe(true)
+    expect(meetingCodeEligible({ endsAt: now, now })).toBe(false)
   })
   it('never outlives the room, and asks for a minute less than a week at most', () => {
     expect(meetingCodeExpiry(undefined, now)).toBe(now + MEETING_CODE_MAX_SECONDS - 60)
