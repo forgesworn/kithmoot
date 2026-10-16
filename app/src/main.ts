@@ -281,6 +281,8 @@ import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import type { InvitationRequest } from '../../src/invitation.js'
 import { ReadPositionSync } from './read-positions.js'
+import { quietAutoAdmit } from './quiet-admission.js'
+import { hexEquals } from '../../src/hex.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
@@ -2334,14 +2336,44 @@ function stopInvitationHost(): void {
   invitationTransport = undefined
 }
 
+/**
+ * Knock off: let the newcomer in, but only from one device and never at
+ * once - see app/src/quiet-admission.ts. Stops waiting, and declines, if the
+ * room or its link changes underneath it.
+ */
+function quietlyLetIn(request: InvitationRequest, invitation: RoomInvitation, transport: ManagedRelayPool, delegated: boolean): Promise<boolean> {
+  const invitationId = deriveInvitationId(invitation)
+  const stop = new AbortController()
+  const watching = setInterval(() => { if (roomInvitationCapability !== invitation || invitationTransport !== transport) stop.abort() }, 500)
+  return quietAutoAdmit({
+    creator: !delegated,
+    signal: stop.signal,
+    watchAnswers: onAnswer => transport.subscribe(
+      [{ kinds: [KINDS.INVITATION_GRANT], '#d': [invitationId], '#p': [request.device] }],
+      event => {
+        const tags = event.tags
+        if (event.kind !== KINDS.INVITATION_GRANT || tags.find(t => t[0] === 'd')?.[1] !== invitationId || tags.find(t => t[0] === 'p')?.[1] !== request.device) return
+        onAnswer({ verifiedCreator: hexEquals(event.pubkey, invitation.inviter) && verifyEventUncached(event) })
+      },
+    ),
+    watchRetries: (onRetry, onEose) => transport.subscribe(
+      [{ kinds: [KINDS.INVITATION_REQUEST], '#d': [invitationId], '#p': [invitation.inviter] }],
+      event => { if (event.id === request.request) onRetry() },
+      onEose,
+    ),
+  }).finally(() => clearInterval(watching))
+}
+
 function serveCurrentInvitation(): void {
   stopInvitationHost()
   if (roomUsesBothy) return
   const invitation = roomInvitationCapability
   if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk, roomEndsAt, roomDestruct)
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
-  invitationTransport = configuredPool(relays)
+  const transport = invitationTransport = configuredPool(relays)
   const admissionRoom = deriveRoom(roomSecret).roomId
+  // A creator holds the inviter key itself; everyone else holds a chain.
+  const delegated = invitationDelegation.length > 0
   try {
     invitationHost = hostRoomInvitation({
       transport: invitationTransport,
@@ -2356,7 +2388,7 @@ function serveCurrentInvitation(): void {
       admit: async request => {
         if (currentRoomId() !== admissionRoom || (request.participant && contactIsBlocked(request.participant))) return false
         const decidingSession = session
-        const yes = knockOn(admissionRoom) ? await askToLetIn(request) : true
+        const yes = knockOn(admissionRoom) ? await askToLetIn(request) : await quietlyLetIn(request, invitation, transport, delegated)
         // A decision can settle while navigation or contact policy changes.
         // It must never authorise the session opened in another room.
         if (currentRoomId() !== admissionRoom || session !== decidingSession || roomInvitationCapability !== invitation ||
