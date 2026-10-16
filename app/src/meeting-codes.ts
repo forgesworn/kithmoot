@@ -13,8 +13,19 @@
  * The delete token is a host secret. It is kept in this device's store next
  * to the room's other host records, never in a link, a bookmark or anything
  * synced to another member.
+ *
+ * A code may carry a password of four words (docs/meeting-codes.md,
+ * "Password"): the host seals the link under them before the service sees
+ * it, so the service holds only an envelope it cannot open. The host keeps
+ * the words with the code's record; a guest's are never stored.
  */
 import type { DeviceStore } from './device-store.js'
+// The frozen foregather en-v1 word list, copied byte for byte from
+// foregather-kit `crates/foregather-kit/src/en-v1.txt` (MIT, same author):
+// 2,048 lowercase ASCII words, one per line, no trailing newline.
+// SHA-256 0334930ebdfbc76e81ec914515d7567ca85738a6bf3069249d97df951d44661c,
+// pinned with the count in meeting-codes.test.ts. Never edit it here.
+import PASSWORD_WORD_LIST from './meeting-code-words-en-v1.txt?raw'
 
 export const MEETING_CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 export const MEETING_CODE_LENGTH = 8
@@ -90,15 +101,26 @@ export class MeetingCodeNetworkError extends Error {
 }
 
 export interface IssuedMeetingCode { code: string; expires: number; deleteToken: string }
+export interface AllocatedMeetingCode extends IssuedMeetingCode { uploadToken: string }
+/** What a code resolves to: the link itself, or the envelope sealing it. */
+export type ResolvedMeetingCode =
+  | { link: string; expires: number; envelope?: undefined }
+  | { envelope: SealedInvitation; expires: number; link?: undefined }
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>
 
 export interface MeetingCodeClient {
   create(link: string, expires: number): Promise<IssuedMeetingCode>
-  resolve(code: string): Promise<{ link: string; expires: number }>
+  /** A code for a sealed invitation, pending until `upload` sends the envelope. */
+  allocate(expires: number): Promise<AllocatedMeetingCode>
+  upload(code: string, uploadToken: string, envelope: SealedInvitation): Promise<void>
+  resolve(code: string): Promise<ResolvedMeetingCode>
   /** True once the code is gone (deleted, already ended or unknown). */
   remove(code: string, deleteToken: string): Promise<boolean>
 }
+
+const NOT_MADE = 'A meeting code could not be made for this room. Share the link instead.'
+const NOT_UNDERSTOOD = 'The meeting code service gave an answer this app does not understand.'
 
 export function meetingCodeClient({ base = '/codes', fetch: send = globalThis.fetch.bind(globalThis) }: { base?: string; fetch?: Fetch } = {}): MeetingCodeClient {
   const root = base.replace(/\/+$/, '')
@@ -106,19 +128,37 @@ export function meetingCodeClient({ base = '/codes', fetch: send = globalThis.fe
     try { return await send(root + path, { cache: 'no-store', credentials: 'omit', ...init }) }
     catch { throw new MeetingCodeNetworkError() }
   }
+  async function post(body: unknown): Promise<Partial<AllocatedMeetingCode> & { code: string; expires: number; deleteToken: string }> {
+    const response = await call('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    if (response.status === 429) throw new MeetingCodeError(MEETING_CODE_TOO_MANY, 429)
+    // The store or the service-wide daily cap is full.
+    if (response.status === 503) throw new MeetingCodeError(MEETING_CODES_UNAVAILABLE, 503)
+    if (response.status !== 201) throw new MeetingCodeError(NOT_MADE, response.status)
+    const answer = await response.json().catch(() => undefined) as Partial<AllocatedMeetingCode> | undefined
+    const code = typeof answer?.code === 'string' ? parseMeetingCode(answer.code) : undefined
+    if (!code || typeof answer?.deleteToken !== 'string' || !answer.deleteToken || !Number.isSafeInteger(answer.expires)) {
+      throw new MeetingCodeError(NOT_UNDERSTOOD, response.status)
+    }
+    return { ...answer, code, expires: answer.expires!, deleteToken: answer.deleteToken }
+  }
   return {
     async create(link, expires) {
-      const response = await call('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link, expires }) })
+      const answer = await post({ link, expires })
+      return { code: answer.code, expires: answer.expires, deleteToken: answer.deleteToken }
+    },
+    async allocate(expires) {
+      const answer = await post({ sealed: true, expires })
+      if (typeof answer.uploadToken !== 'string' || !answer.uploadToken) throw new MeetingCodeError(NOT_UNDERSTOOD, 201)
+      return { code: answer.code, expires: answer.expires, deleteToken: answer.deleteToken, uploadToken: answer.uploadToken }
+    },
+    async upload(code, uploadToken, envelope) {
+      const response = await call(`/${code}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ envelope }),
+      })
       if (response.status === 429) throw new MeetingCodeError(MEETING_CODE_TOO_MANY, 429)
-      // The store or the service-wide daily cap is full.
-      if (response.status === 503) throw new MeetingCodeError(MEETING_CODES_UNAVAILABLE, 503)
-      if (response.status !== 201) throw new MeetingCodeError('A meeting code could not be made for this room. Share the link instead.', response.status)
-      const body = await response.json().catch(() => undefined) as Partial<IssuedMeetingCode> | undefined
-      const code = typeof body?.code === 'string' ? parseMeetingCode(body.code) : undefined
-      if (!code || typeof body?.deleteToken !== 'string' || !body.deleteToken || !Number.isSafeInteger(body.expires)) {
-        throw new MeetingCodeError('The meeting code service gave an answer this app does not understand.', response.status)
-      }
-      return { code, expires: body.expires!, deleteToken: body.deleteToken }
+      if (response.status !== 204) throw new MeetingCodeError(NOT_MADE, response.status)
     },
     async resolve(value) {
       const code = parseMeetingCode(value)
@@ -128,9 +168,15 @@ export function meetingCodeClient({ base = '/codes', fetch: send = globalThis.fe
       if (response.status === 404) throw new MeetingCodeError(MEETING_CODE_UNKNOWN, 404)
       if (response.status === 429) throw new MeetingCodeError(MEETING_CODE_TOO_MANY, 429)
       if (response.status !== 200) throw new MeetingCodeNetworkError()
-      const body = await response.json().catch(() => undefined) as { link?: unknown; expires?: unknown } | undefined
-      if (typeof body?.link !== 'string' || typeof body.expires !== 'number') throw new MeetingCodeNetworkError()
-      return { link: body.link, expires: body.expires }
+      const body = await response.json().catch(() => undefined) as { link?: unknown; envelope?: unknown; expires?: unknown } | undefined
+      if (!body || !Number.isSafeInteger(body.expires)) throw new MeetingCodeNetworkError()
+      const expires = body.expires as number
+      if (body.envelope !== undefined) {
+        if (body.link !== undefined || !validSealedInvitation(body.envelope)) throw new MeetingCodeNetworkError()
+        return { envelope: body.envelope, expires }
+      }
+      if (typeof body.link !== 'string') throw new MeetingCodeNetworkError()
+      return { link: body.link, expires }
     },
     async remove(code, deleteToken) {
       const response = await call(`/${code}`, { method: 'DELETE', headers: { Authorization: `Bearer ${deleteToken}` } })
@@ -155,6 +201,158 @@ export function returnedJoinFragment(link: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Password: four words that seal the link before the service sees it
+// (docs/meeting-codes.md, "Password", and vectors/meeting-code-password-v1.json).
+// ---------------------------------------------------------------------------
+
+/** The 2,048 words, in index order. */
+export const PASSWORD_WORDS: readonly string[] = Object.freeze(PASSWORD_WORD_LIST.split('\n'))
+const PASSWORD_WORD_SET: ReadonlySet<string> = new Set(PASSWORD_WORDS)
+export const PASSWORD_WORD_COUNT = 4
+export const PASSWORD_ITERATIONS = 600_000
+export const PASSWORD_SALT_BYTES = 16
+export const PASSWORD_NONCE_BYTES = 12
+/** The service's bound on a ciphertext, decoded. */
+export const PASSWORD_MAX_CIPHERTEXT_BYTES = 6 * 1024
+const PASSWORD_MIN_CIPHERTEXT_BYTES = 17
+
+export const MEETING_CODE_WORDS_PROMPT = 'Enter the password words you were given'
+export const MEETING_CODE_WRONG_WORDS = 'Those words do not match. Check them and try again.'
+
+/** The wire form the service stores: base64url without padding. */
+export interface SealedInvitation { v: 1; salt: string; nonce: string; ciphertext: string }
+
+/** Four words, each an independent uniform 11-bit index. 2,048 divides
+ *  65,536, so masking a 16-bit value is exact: no modulo bias. */
+export function generatePasswordWords(fill: (array: Uint16Array) => Uint16Array = array => crypto.getRandomValues(array)): string {
+  const values = fill(new Uint16Array(PASSWORD_WORD_COUNT))
+  return Array.from(values, value => PASSWORD_WORDS[value & 0x7ff]!).join(' ')
+}
+
+/**
+ * The canonical form (four list words, lowercase, single spaces), or
+ * undefined. Accepts any case, surrounding whitespace, and hyphens, commas
+ * or runs of whitespace between words. Every word must be in the list
+ * exactly: nothing is corrected or matched approximately.
+ */
+export function parsePasswordWords(value: string): string | undefined {
+  if (value.length > 256 || !/^[\x00-\x7f]*$/.test(value)) return undefined
+  const text = value.toLowerCase().replace(/^[\s,-]+|[\s,-]+$/g, '')
+  if (!text) return undefined
+  const words = text.split(/[\s,-]+/)
+  if (words.length !== PASSWORD_WORD_COUNT || !words.every(word => PASSWORD_WORD_SET.has(word))) return undefined
+  return words.join(' ')
+}
+
+/** The GCM additional data: the code and expiry the envelope is bound to. */
+export function passwordAdditionalData(code: string, expires: number): string {
+  const canonical = parseMeetingCode(code)
+  if (!canonical || !Number.isSafeInteger(expires)) throw new Error('not a meeting code and expiry')
+  return `kithmoot-meeting-code/v1:${canonical}:${expires}`
+}
+
+function toBase64url(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/** Strict base64url without padding: the one encoding of its bytes, or undefined. */
+function fromBase64url(text: unknown): Uint8Array<ArrayBuffer> | undefined {
+  if (typeof text !== 'string' || !text || !/^[A-Za-z0-9_-]+$/.test(text) || text.length % 4 === 1) return undefined
+  let binary: string
+  try { binary = atob(text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - text.length % 4) % 4)) } catch { return undefined }
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0))
+  return toBase64url(bytes) === text ? bytes : undefined
+}
+
+/** The shape and bounds the service enforces, checked again on arrival. */
+export function validSealedInvitation(value: unknown): value is SealedInvitation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const envelope = value as Record<string, unknown>
+  if (Object.keys(envelope).sort().join(',') !== 'ciphertext,nonce,salt,v' || envelope.v !== 1) return false
+  const ciphertext = fromBase64url(envelope.ciphertext)
+  return fromBase64url(envelope.salt)?.length === PASSWORD_SALT_BYTES
+    && fromBase64url(envelope.nonce)?.length === PASSWORD_NONCE_BYTES
+    && ciphertext !== undefined && ciphertext.length >= PASSWORD_MIN_CIPHERTEXT_BYTES && ciphertext.length <= PASSWORD_MAX_CIPHERTEXT_BYTES
+}
+
+const utf8 = (text: string) => new TextEncoder().encode(text)
+
+async function passwordKey(words: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey('raw', utf8(words), 'PBKDF2', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PASSWORD_ITERATIONS },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+  )
+}
+
+/** Seals a full link under the words, bound to the code and its expiry.
+ *  `salt` and `nonce` are for the fixed vector only; never pass them otherwise. */
+export async function sealInvitation({ link, words, code, expires, salt, nonce }: {
+  link: string; words: string; code: string; expires: number; salt?: Uint8Array<ArrayBuffer>; nonce?: Uint8Array<ArrayBuffer>
+}): Promise<SealedInvitation> {
+  const canonical = parsePasswordWords(words)
+  if (!canonical) throw new Error('not a password')
+  const additionalData = utf8(passwordAdditionalData(code, expires))
+  const s = salt ?? crypto.getRandomValues(new Uint8Array(PASSWORD_SALT_BYTES))
+  const n = nonce ?? crypto.getRandomValues(new Uint8Array(PASSWORD_NONCE_BYTES))
+  if (s.length !== PASSWORD_SALT_BYTES || n.length !== PASSWORD_NONCE_BYTES) throw new Error('bad salt or nonce')
+  const key = await passwordKey(canonical, s)
+  const plaintext = utf8(JSON.stringify({ v: 1, link }))
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: n, additionalData }, key, plaintext))
+  if (ciphertext.length > PASSWORD_MAX_CIPHERTEXT_BYTES) throw new Error('link too long to seal')
+  return { v: 1, salt: toBase64url(s), nonce: toBase64url(n), ciphertext: toBase64url(ciphertext) }
+}
+
+/** The words did not open the envelope (or the envelope was altered). */
+export class WrongPasswordError extends Error {
+  constructor() { super(MEETING_CODE_WRONG_WORDS); this.name = 'WrongPasswordError' }
+}
+
+/** Opens an envelope with the words a guest typed. Returns the link as
+ *  sealed, still to be checked by `returnedJoinFragment`. Any failure, a
+ *  word outside the list included, is a WrongPasswordError. */
+export async function openInvitation({ envelope, words, code, expires }: {
+  envelope: SealedInvitation; words: string; code: string; expires: number
+}): Promise<string> {
+  const canonical = parsePasswordWords(words)
+  if (!canonical || !validSealedInvitation(envelope)) throw new WrongPasswordError()
+  let plaintext: ArrayBuffer
+  try {
+    const key = await passwordKey(canonical, fromBase64url(envelope.salt)!)
+    plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: fromBase64url(envelope.nonce)!, additionalData: utf8(passwordAdditionalData(code, expires)) },
+      key, fromBase64url(envelope.ciphertext)!,
+    )
+  } catch { throw new WrongPasswordError() }
+  let value: unknown
+  try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(plaintext)) } catch { throw new WrongPasswordError() }
+  const body = value as { v?: unknown; link?: unknown } | null
+  if (!body || typeof body !== 'object' || Object.keys(body).sort().join(',') !== 'link,v' || body.v !== 1 || typeof body.link !== 'string') {
+    throw new WrongPasswordError()
+  }
+  return body.link
+}
+
+/**
+ * Allocate, seal and upload: the code is known before sealing because the
+ * envelope is bound to it. Anything that fails after allocation deletes the
+ * pending code, so no code is left behind whose token nobody kept.
+ */
+export async function issueSealedMeetingCode(client: MeetingCodeClient, link: string, expires: number, words = generatePasswordWords()): Promise<IssuedMeetingCode & { words: string }> {
+  const allocated = await client.allocate(expires)
+  try {
+    const envelope = await sealInvitation({ link, words, code: allocated.code, expires: allocated.expires })
+    await client.upload(allocated.code, allocated.uploadToken, envelope)
+  } catch (error) {
+    void client.remove(allocated.code, allocated.deleteToken).catch(() => false)
+    throw error
+  }
+  return { code: allocated.code, expires: allocated.expires, deleteToken: allocated.deleteToken, words: parsePasswordWords(words)! }
+}
+
+// ---------------------------------------------------------------------------
 // The host's records: one per invitation, and a queue of codes still to
 // delete. Both in the device store, beside the invitation owner record.
 // ---------------------------------------------------------------------------
@@ -162,7 +360,11 @@ export function returnedJoinFragment(link: string): string | undefined {
 export const MEETING_CODE_PREFIX = 'kithmoot.meeting-code.v1.'
 export const MEETING_CODE_RETIRE_KEY = 'kithmoot.meeting-code-retire.v1'
 
-export interface StoredMeetingCode extends IssuedMeetingCode { roomId: string }
+export interface StoredMeetingCode extends IssuedMeetingCode {
+  roomId: string
+  /** The password, on the host only, so the invite sheet can show it again. */
+  words?: string
+}
 
 export function storeMeetingCode(store: DeviceStore, invitationId: string, record: StoredMeetingCode): void {
   store.set(MEETING_CODE_PREFIX + invitationId, JSON.stringify(record))
@@ -174,7 +376,13 @@ function readRecord(raw: string | null): StoredMeetingCode | undefined {
     const value = JSON.parse(raw) as Partial<StoredMeetingCode>
     const code = typeof value.code === 'string' ? parseMeetingCode(value.code) : undefined
     if (!code || typeof value.deleteToken !== 'string' || typeof value.roomId !== 'string' || !Number.isSafeInteger(value.expires)) return undefined
-    return { code, deleteToken: value.deleteToken, roomId: value.roomId, expires: value.expires! }
+    const record: StoredMeetingCode = { code, deleteToken: value.deleteToken, roomId: value.roomId, expires: value.expires! }
+    if (value.words !== undefined) {
+      const words = typeof value.words === 'string' ? parsePasswordWords(value.words) : undefined
+      if (!words) return undefined
+      record.words = words
+    }
+    return record
   } catch { return undefined }
 }
 
@@ -196,7 +404,8 @@ export function retireMeetingCodes(store: DeviceStore, match: { invitationId?: s
     if (!hit) continue
     store.remove(key)
     // An expired code needs no client: the service has already ended it.
-    if (record && record.expires > now) retired.push(record)
+    // The delete queue needs no password, so the words go with the record.
+    if (record && record.expires > now) { const { words: _words, ...rest } = record; retired.push(rest) }
   }
   if (retired.length) {
     const queue = pendingRetirements(store, now)

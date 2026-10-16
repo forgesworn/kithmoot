@@ -3165,9 +3165,13 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #joinCode input { flex: 1 1 10rem; min-width: 0; font-family: inherit; text-transform: uppercase; letter-spacing: .08em; }
 #joinCode button { margin: 0; }
 #joinCode .formError { flex: 1 0 100%; margin: 0; }
+#joinCodePassword { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: .5rem; }
+#joinCodePassword[hidden] { display: none; }
+#joinCode #meetingCodeWordsInput { text-transform: none; letter-spacing: normal; }
 .meetingCodeRow { margin: .75rem 0; }
 .meetingCodeValue { margin: .5rem 0; font-size: 1.6rem; font-weight: 600; letter-spacing: .12em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 #meetingCodeLink { width: 100%; box-sizing: border-box; }
+.meetingCodeWords { font-size: 1.25rem; letter-spacing: .02em; }
 #homeSignIn { border: 0; background: transparent; padding: 0; }
 
 .roomsHead { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 1.5rem 0 .75rem; }

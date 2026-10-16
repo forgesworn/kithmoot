@@ -568,6 +568,12 @@
             <form id="joinCodeForm" novalidate>
               <label for="meetingCodeInput">Meeting code</label>
               <input id="meetingCodeInput" type="text" placeholder="ABC-DEF-GH" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
+              <!-- Shown only when the code carries a password. The words are
+                   used to open the invitation here and are never stored. -->
+              <div id="joinCodePassword" hidden>
+                <label for="meetingCodeWordsInput">Enter the password words you were given</label>
+                <input id="meetingCodeWordsInput" type="text" maxlength="256" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
+              </div>
               <button id="joinCodeSubmit" type="submit">Join</button>
               <p id="joinCodeError" class="formError" role="alert" hidden></p>
               <button id="joinCodeRetry" type="button" hidden>Retry</button>
@@ -1290,14 +1296,22 @@
             <button id="shareRoom" type="button" hidden>Share</button>
           </div>
           <p id="inviteStatus" class="note" role="status"></p>
-          <!-- Only for the room's creator, and only for an Ask room or one
-               with an end. The code's delete token stays on this device. -->
+          <!-- Only for the room's creator. The code's delete token, and its
+               password words, stay on this device. -->
           <div id="meetingCodeRow" class="meetingCodeRow" hidden>
+            <div id="meetingCodePasswordRow" class="toggles switchRow">
+              <button id="meetingCodePassword" type="button" class="toggle" data-on="true" aria-pressed="true">Add a password</button>
+              <span id="meetingCodePasswordNote" class="note inline"></span>
+            </div>
             <button id="getMeetingCode" type="button">Get a meeting code</button>
             <div id="meetingCodeShown" hidden>
               <p class="meetingCodeValue"><span class="sr-only">Meeting code: </span><span id="meetingCode"></span></p>
               <label class="sr-only" for="meetingCodeLink">Short link</label>
               <input id="meetingCodeLink" readonly aria-label="Short link to this room" />
+              <div id="meetingCodeWordsRow" hidden>
+                <p class="meetingCodeValue meetingCodeWords"><span class="sr-only">Password words: </span><span id="meetingCodeWords"></span></p>
+                <p class="note">Send these four words separately from the code, for example by phone or in another app.</p>
+              </div>
               <div class="inviteButtons">
                 <button id="copyMeetingCode" type="button">Copy</button>
                 <button id="shareMeetingCode" type="button" hidden>Share</button>
