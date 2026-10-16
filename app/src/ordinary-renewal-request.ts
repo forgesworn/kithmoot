@@ -25,7 +25,9 @@ function hex(raw:unknown):string{if(typeof raw!=='string'||!HEX.test(raw))hold()
 function pair<T>(raw:unknown,read:(raw:unknown)=>T):readonly [T,T]{const v=array(raw,2);if(v.length!==2)hold();return Object.freeze(v.map(read)) as unknown as readonly [T,T]}
 const INTENT=['account','participant','invitationId','roomId','keep','device','credential','proof','bootstrap','predecessor','leaseSequence','epoch','epochId',
   'linkDigest','issuedAt','expiresAt','authority','semanticDigest','sourceRevisions','sourceFrames','previousControlDigest','previousMarkers'] as const
-function intent(raw:unknown):OrdinaryRenewalIntent{
+/** Pure canonical data capture. This supplies neither renewal authority nor
+ * a request reconstruction; settled readers retain only the original intent. */
+export function captureOrdinaryRenewalIntent(raw:unknown):OrdinaryRenewalIntent{
   const v=object(raw,INTENT),a=object(v.authority,['tabExpiresAt','admissionEndsAt','foregroundExpiresAt','membershipEndsAt'])
   const authority=Object.freeze({tabExpiresAt:integer(a.tabExpiresAt),admissionEndsAt:a.admissionEndsAt===null?null:integer(a.admissionEndsAt),
     foregroundExpiresAt:a.foregroundExpiresAt===null?null:integer(a.foregroundExpiresAt),membershipEndsAt:null})
@@ -59,7 +61,7 @@ export interface OrdinaryRenewalRequest{
 function request(raw:unknown):OrdinaryRenewalRequest{
   const v=object(raw,['version','domain','credentialFormat','intent','sources','scopes','fences','previous'])
   if(v.version!==1||v.domain!==DOMAIN||v.credentialFormat!==1)hold()
-  const core=intent(v.intent),sources=pair(v.sources,raw=>{
+  const core=captureOrdinaryRenewalIntent(v.intent),sources=pair(v.sources,raw=>{
     const h=object(raw,['purpose','keyId','generation','revision','expiresAt'])
     if(h.purpose!=='browser'&&(typeof h.purpose!=='string'||h.purpose.length!==68||!/^tab:[0-9a-f]{64}$/.test(h.purpose)))hold()
     return Object.freeze({purpose:h.purpose as OrdinaryPurpose,keyId:hex(h.keyId),generation:hex(h.generation),revision:integer(h.revision),expiresAt:integer(h.expiresAt)})

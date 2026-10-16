@@ -5,8 +5,8 @@ import { createLocalSignerFromNsec,SIGNET_VERIFIED_EVENT_SYMBOL } from 'signet-l
 import { nip19 } from 'nostr-tools'
 import { createDeviceCredential } from '../../src/credential.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
-import { encodeOrdinaryRenewalRequest,type OrdinaryRenewalRequest } from './ordinary-renewal-request.js'
-import { ordinaryRenewalStatement,ordinaryRenewalStatementForPublicSeal,ordinaryRenewalResult,ordinaryRenewalResultForStatement,ORDINARY_RENEWAL_RESULT_BYTES } from './ordinary-renewal-credential.js'
+import { encodeOrdinaryRenewalRequest,readOrdinaryRenewalRequest,type OrdinaryRenewalRequest } from './ordinary-renewal-request.js'
+import { ordinaryRenewalStatement,ordinaryRenewalStatementForPublicSeal,ordinaryRenewalResult,ordinaryRenewalResultForStatement,ordinaryRenewalResultForIntent,ORDINARY_RENEWAL_RESULT_BYTES } from './ordinary-renewal-credential.js'
 const actor=new Uint8Array(32).fill(7),seal=new Uint8Array(32).fill(17),participant=getPublicKey(actor),device=getPublicKey(new Uint8Array(32).fill(9)),tab=('tab:'+'3'.repeat(64)) as `tab:${string}`
 function request(){
  const hex='4'.repeat(64),scope='invitation:'+participant+':'+hex
@@ -19,6 +19,34 @@ function request(){
 }
 async function signed(){return JSON.parse(JSON.stringify(finalizeEvent(JSON.parse(JSON.stringify(await ordinaryRenewalStatement(request(),seal))),actor)))}
 describe('fixed renewal credential data, never signer authority',()=>{
+ it('freshly verifies a settled credential from retained intent and public seal without a request or secret',async()=>{
+  const raw=request(),intent=readOrdinaryRenewalRequest(raw).intent,event=await signed(),before=JSON.stringify(intent)
+  const random=vi.spyOn(crypto,'getRandomValues')
+  try{
+   expect(await ordinaryRenewalResultForIntent(intent,getPublicKey(seal),event)).toBe(await ordinaryRenewalResult(raw,seal,event))
+   expect(random).not.toHaveBeenCalled();expect(JSON.stringify(intent)).toBe(before)
+  }finally{random.mockRestore()}
+ })
+ it.each(['participant','roomId','device','issuedAt','expiresAt'] as const)('rejects a valid signature for different retained intent %s',async field=>{
+  const intent=readOrdinaryRenewalRequest(request()).intent,event=await signed()
+  const changed={...intent,[field]:typeof intent[field]==='number'?(intent[field] as number)+1:'a'.repeat(64)}
+  if(field==='participant')changed.account=changed.participant
+  await expect(ordinaryRenewalResultForIntent(changed,getPublicKey(seal),event)).rejects.toThrow(OrdinaryStateHold)
+ })
+ it('rejects a valid credential for a different public seal',async()=>{
+  await expect(ordinaryRenewalResultForIntent(readOrdinaryRenewalRequest(request()).intent,getPublicKey(new Uint8Array(32).fill(18)),await signed())).rejects.toThrow(OrdinaryStateHold)
+ })
+ it.each([verifiedSymbol,SIGNET_VERIFIED_EVENT_SYMBOL])('never trusts stored verification cache %s in the intent reader',async symbol=>{
+  const event=await signed();event.sig='0'.repeat(128);Object.defineProperty(event,symbol,{value:true})
+  await expect(ordinaryRenewalResultForIntent(readOrdinaryRenewalRequest(request()).intent,getPublicKey(seal),event)).rejects.toThrow(OrdinaryStateHold)
+ })
+ it('captures retained intent without invoking accessors and refuses malformed intent before event reflection',async()=>{
+  const getter=vi.fn(),intent={...readOrdinaryRenewalRequest(request()).intent}
+  Object.defineProperty(intent,'roomId',{enumerable:true,get:getter})
+  const event=new Proxy({}, {getPrototypeOf:getter})
+  await expect(ordinaryRenewalResultForIntent(intent,getPublicKey(seal),event as any)).rejects.toThrow(OrdinaryStateHold)
+  expect(getter).not.toHaveBeenCalled()
+ })
  it('accepts the installed SDK LocalSigner and captures its result synchronously',async()=>{
   const signer=createLocalSignerFromNsec(nip19.nsecEncode(actor)),statement=await ordinaryRenewalStatement(request(),seal)
   try{

@@ -244,6 +244,34 @@ test.beforeAll(async () => {
       })
       builder.onLoad({ filter: /ordinary-state-owner\.ts$/ }, async input => {
         let source = await readFile(input.path, 'utf8')
+        const readStart=source.indexOf('  static #readPrivateSettled('),readEnd=source.indexOf('  static #runPrivateRenewal(',readStart)
+        if(readStart<0||readEnd<0)throw Error('Private S reader observer drift')
+        let reader=source.slice(readStart,readEnd)
+        reader=reader.replace('catch {setup = false; stopPrivateSettledRead(read)}','catch(error) {(globalThis as any).__liveReadSetupFailure=(error as Error)?.stack;setup = false; stopPrivateSettledRead(read)}').replace(
+          '}, () => {read.finished = true; stopPrivateSettledRead(read); reject(new OrdinaryStateHold())}',
+          '}, (error) => {(globalThis as any).__liveReadBodyFailure=(error as Error)?.stack;read.finished = true; stopPrivateSettledRead(read); reject(new OrdinaryStateHold())}')
+        for(const[marker,stage]of [
+          ["import('./ordinary-renewal-credential.js')]); check()",'modules'],
+          ['await clients(); check()','clients'],
+          ['check(); if (!db) hold()','database'],
+          ['b = await openOrdinaryFrame(br.frame, br.key); check()','browser'],
+          ['t = await openOrdinaryFrame(tr.frame, tr.key); check()','tab'],
+          ['tab: {binding: binding(t), key: tr.key}}); check()','control'],
+          ['ordinaryRenewalResultForIntent(intent, publicSeal, successor); check()','credential'],
+          ['context.stop(); await context.ended; check()','terminal'],
+        ] as const){
+          if(!reader.includes(marker))throw Error('Private S reader cut drift '+stage)
+          reader=reader.replace(marker,marker+`; await (globalThis as any).__privateBootstrapPause('settled-${stage}'); check()`)
+        }
+        const foreground='validateOrdinaryPrivateSettledReadForegroundDecision(value.foreground, value.native, decision); nativeCheck()'
+        if(!reader.includes(foreground))throw Error('Private S foreground decision observer drift')
+        reader=reader.replace(foreground,`;(globalThis as any).__liveReadDecisionForTest=decision
+          const restore=(globalThis as any).__enterPrivateRenewalDecision()
+          try{${foreground}}finally{restore()}`)
+        const publication='const token = Object.freeze(Object.create(null)) as OrdinaryPrivateRenewalAdoptionPreparation'
+        if(!reader.includes(publication))throw Error('Private S token publication observer drift')
+        reader=reader.replace(publication,`;(globalThis as any).liveReadBeforeToken?.(); `+publication)
+        source=source.slice(0,readStart)+reader+source.slice(readEnd)
         source = `import * as ControllerGraphForTest from './ordinary-protocol-work.js'\nimport * as ControllerRenewalForTest from './ordinary-private-renewal.js'\n` + source
         source=source.replace('const claim = await value.prepare()', `await (globalThis as any).__privateBootstrapPause('controller-before-factory')
           const claim = await value.prepare()
@@ -257,6 +285,12 @@ test.beforeAll(async () => {
             factory:()=>value.factory,resource:()=>resource,
             state:()=>({closed:value.closed,prepared:!!value.factory,claimed:generation.renewal.claimed,bootstrap:member.bootstrap.claimed,standalone:member.renewal.claimed}),
             prepare:()=>prepareOrdinaryPrivateControllerRenewal(resource),
+            read:(settled:any,selected:any=resource)=>readOrdinaryPrivateControllerRenewalSettled(selected,settled),
+            discard:discardOrdinaryPrivateRenewalAdoptionPreparation,
+            foregroundRead:(token:any)=>validateOrdinaryPrivateSettledReadForegroundDecision(foreground,native,token),
+            readState:()=>({closed:value.settledRead?.closed??null,finished:value.settledRead?.finished??null,
+              material:!!value.settledRead?.images,token:!!value.settledRead?.token,
+              initialGenerationUnchanged:member.credentialGeneration.current===generation}),
             start:(body:any)=>ControllerGraphForTest.startOrdinaryProtocolLifecycle(binding.control,body),
             suspend:(root:any)=>ControllerGraphForTest.suspendOrdinaryProtocolLifecycle(binding.control,root),
             resume:(root:any)=>ControllerGraphForTest.resumeOrdinaryProtocolLifecycle(binding.control,root),
@@ -513,6 +547,7 @@ test.beforeAll(async () => {
           'Object.freeze(actual)\n      })',
           `Object.freeze(actual)
            ;(globalThis as any).__privateForegroundProbe = Object.freeze({
+             busy:()=>actual.#busy,
              loadMember: () => actual.#loadPrivateMember(),
              native: () => actual.#privateForeground!.native, authority: () => actual.#privateAuthority,
              prepareRenewalFactory: () => actual.#privateForeground!.prepareRenewalFactory(actual.#privateAuthority!),
@@ -3219,4 +3254,272 @@ test('private member renewal producer refuses a stale credential generation befo
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
   expect(await page.evaluate('__privateControllerRenewalForTest.state()')).toMatchObject({closed:true,prepared:false})
   expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+
+async function preparePrivateLiveSettledRead(page:Page,keep=false):Promise<void>{
+  await page.clock.install()
+  await prepareControlStage(page,keep,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  await page.clock.fastForward(2_000)
+}
+async function beginPrivateLiveSettledRead(page:Page,mode='read'):Promise<void>{
+  await page.evaluate(async mode=>{
+    const w=window as any,api=w.__privateControllerRenewalForTest,desired=await w.__privateForegroundProbe.renewalDesired()
+    w.liveReadSnapshot=async()=>{
+      const r=indexedDB.open('kithmoot-ordinary-state-v1',1),db=await new Promise<IDBDatabase>((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)})
+      try{return await new Promise<string>((yes,no)=>{const tx=db.transaction('owners'),s=tx.objectStore('owners'),keys=s.getAllKeys(),rows=s.getAll();tx.oncomplete=()=>yes(JSON.stringify(keys.result.map((k,i)=>[k,rows.result[i]]),(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v));tx.onabort=()=>no(tx.error)})}finally{db.close()}
+    }
+    w.allowPrivateRenewalEffects=true;w.providerFixture.foregroundExpected=true;w.providerFixture.renewalProofExpected=true
+    w.liveReadDone=false;w.liveReadRootDone=false
+    w.liveReadPending=api.start(async(root:any)=>{
+      await api.suspend(root);api.verify(root)
+      const obligation=await api.obligation(root,desired)
+      w.liveReadS=await w.__privateRenewForTest(obligation)
+      w.liveReadDiskBefore=await w.liveReadSnapshot()
+      if(w.liveReadBeforeRead)await w.liveReadBeforeRead()
+      w.liveReadBefore={...w.effects,signs:w.providerFixture.signs}
+      w.liveReadBusyBefore=w.__privateForegroundProbe.busy()
+      if(mode==='late'){w.liveReadDone=true;return}
+      try{
+        const selected=mode==='foreign'?new Proxy({},{get(){w.liveReadReflections++;throw Error('Forged producer')},getPrototypeOf(){w.liveReadReflections++;throw Error('Forged producer')}}):undefined
+        w.liveReadReflections=0
+        w.liveReadPreparation=await api.read(w.liveReadS,selected)
+        w.liveReadOutcome='prepared'
+        w.liveReadOpaque=Object.isFrozen(w.liveReadPreparation)&&Object.getPrototypeOf(w.liveReadPreparation)===null&&Reflect.ownKeys(w.liveReadPreparation).length===0
+      }catch(error){w.liveReadOutcome=(error as Error).name}
+      w.liveReadAfterRead?.()
+      if(mode==='transition'){
+        // Test-only graph-mechanics transition, deliberately with no adopt or
+        // application effect. The old native guards still refuse the S rows.
+        // This isolates exact-root disposal from a whole-provider revocation.
+        api.resume(root)
+      }
+      w.liveReadAfter={...w.effects,signs:w.providerFixture.signs}
+      w.liveReadBusyAfter=w.__privateForegroundProbe.busy()
+      w.liveReadDone=true
+      if(mode==='transition'||mode==='return-root')return
+      // S is intentionally unapplied: keep the genuine root open while the
+      // test inspects/discards preparation. Returning suspended would revoke
+      // the graph. This fixture never resumes an unadopted successor.
+      await new Promise<void>(yes=>{w.liveReadReleaseRoot=yes})
+    }).catch((error:Error)=>{w.liveReadOutcome??=error.name;w.liveReadFailure=error.stack}).finally(()=>{w.liveReadDone=true;w.liveReadRootDone=true})
+  },mode)
+}
+for(const keep of [false,true])test(`private live settled reader authenticates the exact successor without adopting G0, keep=${keep}`,async({page})=>{
+  await preparePrivateLiveSettledRead(page,keep);await beginPrivateLiveSettledRead(page);await page.waitForFunction('liveReadDone')
+  if(await page.evaluate('liveReadOutcome')!=='prepared')console.log('Live S reader refusal',await page.evaluate('JSON.stringify({outcome:liveReadOutcome,holds:window.__privateRenewalHolds,failure:window.liveReadFailure,setup:window.__liveReadSetupFailure,body:window.__liveReadBodyFailure})'))
+  expect(await page.evaluate('[liveReadOutcome,liveReadOpaque]')).toEqual(['prepared',true])
+  expect(await page.evaluate('liveReadAfter')).toEqual(await page.evaluate('liveReadBefore'))
+  expect(await page.evaluate('[liveReadBusyBefore,liveReadBusyAfter]')).toEqual([false,false])
+  expect(await page.evaluate('__privateControllerRenewalForTest.readState()')).toEqual({closed:false,finished:true,material:true,token:true,initialGenerationUnchanged:true})
+  expect(await page.evaluate(async()=>{
+    const w=window as any,a=w.__privateControllerRenewalForTest
+    try{await a.read(w.liveReadS);return'unexpected'}catch(error){return(error as Error).name}
+  })).toBe('OrdinaryStateHold')
+  await page.evaluate('__privateControllerRenewalForTest.discard(liveReadPreparation)')
+  expect(await page.evaluate('liveReadSnapshot()')).toBe(await page.evaluate('liveReadDiskBefore'))
+  expect(await page.evaluate(()=>{
+    const w=window as any
+    try{w.__privateControllerRenewalForTest.foregroundRead(w.__liveReadDecisionForTest);return'unexpected'}catch(error){return(error as Error).name}
+  })).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('__privateControllerRenewalForTest.readState()')).toEqual({closed:true,finished:true,material:false,token:false,initialGenerationUnchanged:true})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await page.evaluate('liveReadReleaseRoot()')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+for(const mode of ['late','foreign'])test(`private live settled reader spends S when ${mode} authority is refused`,async({page})=>{
+  await preparePrivateLiveSettledRead(page);await beginPrivateLiveSettledRead(page,mode);await page.waitForFunction(mode==='late'?'liveReadRootDone':'liveReadDone')
+  expect(await page.evaluate(async()=>{
+    const w=window as any,a=w.__privateControllerRenewalForTest,outcomes=[]
+    for(let i=0;i<2;i++){try{await a.read(w.liveReadS);outcomes.push('unexpected')}catch(error){outcomes.push((error as Error).name)}}
+    return outcomes
+  })).toEqual(['OrdinaryStateHold','OrdinaryStateHold'])
+  if(mode==='foreign')expect(await page.evaluate('[liveReadOutcome,liveReadReflections]')).toEqual(['OrdinaryStateHold',0])
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(await page.evaluate('liveReadBefore'))
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'settled',initialGenerationUnchanged:true})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  if(mode!=='late')await page.evaluate('liveReadReleaseRoot()')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+for(const stage of ['modules','clients','database','browser','tab','control','credential','terminal'])test(`private live settled reader joins pagehide at ${stage} before releasing MIGRATION`,async({page})=>{
+  await preparePrivateLiveSettledRead(page)
+  await page.evaluate(stage=>{(window as any).privateBootstrapGate={stage:'settled-'+stage}},stage)
+  await beginPrivateLiveSettledRead(page);await page.waitForFunction('privateBootstrapGate.entered')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.evaluate('liveReadDone')).toBe(false)
+  await page.evaluate('privateBootstrapGate.release()');await page.waitForFunction('liveReadDone')
+  await page.evaluate('liveReadReleaseRoot()')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('liveReadOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('__privateControllerRenewalForTest.readState()')).toMatchObject({closed:true,finished:true,material:false,token:false,initialGenerationUnchanged:true})
+  expect(await page.evaluate('[__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([true,true])
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(await page.evaluate('liveReadBefore'))
+})
+
+for(const fault of ['browser','tab','control','pending','missing-control','extra-owner'])test(`private live settled reader refuses native ${fault} drift without rewriting S`,async({page})=>{
+  await preparePrivateLiveSettledRead(page)
+  await page.evaluate(fault=>{
+    const w=window as any
+    w.liveReadSnapshot=async()=>{
+      const r=indexedDB.open('kithmoot-ordinary-state-v1',1),db=await new Promise<IDBDatabase>((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)})
+      try{return await new Promise<string>((yes,no)=>{const tx=db.transaction('owners'),s=tx.objectStore('owners'),keys=s.getAllKeys(),rows=s.getAll();tx.oncomplete=()=>yes(JSON.stringify(keys.result.map((k,i)=>[k,rows.result[i]]),(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v));tx.onabort=()=>no(tx.error)})}finally{db.close()}
+    }
+    w.liveReadBeforeRead=async()=>{
+      const r=indexedDB.open('kithmoot-ordinary-state-v1',1),db=await new Promise<IDBDatabase>((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)})
+      try{await new Promise<void>((yes,no)=>{
+        const tx=db.transaction('owners','readwrite'),s=tx.objectStore('owners'),purpose='tab:'+'a'.repeat(64),control='journal:tab:'+'a'.repeat(64)
+        const key=fault==='control'||fault==='missing-control'?control:fault==='tab'||fault==='pending'?purpose:'browser',read=s.get(key)
+        read.onsuccess=()=>{
+          const raw=read.result,restore=w.__enterPrivateRenewalDecision()
+          try{
+            if(fault==='missing-control')s.delete(key)
+            else if(fault==='extra-owner')s.put(raw,'unexpected-native-owner')
+            else{if(fault==='pending')raw.pending=structuredClone(raw.frame);else new Uint8Array(fault==='control'?raw.browser.ciphertext:raw.frame.ciphertext)[0]^=1;s.put(raw,key)}
+          }finally{restore()}
+        }
+        tx.oncomplete=()=>yes();tx.onabort=()=>no(tx.error)
+      })}finally{db.close()}
+      w.liveReadDiskBefore=await w.liveReadSnapshot()
+    }
+  },fault)
+  await beginPrivateLiveSettledRead(page);await page.waitForFunction('liveReadDone')
+  expect(await page.evaluate('liveReadOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(await page.evaluate('liveReadBefore'))
+  expect(await page.evaluate('liveReadSnapshot()')).toBe(await page.evaluate('liveReadDiskBefore'))
+  expect(await page.evaluate('__privateControllerRenewalForTest.readState()')).toMatchObject({closed:true,finished:true,material:false,token:false,initialGenerationUnchanged:true})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await page.evaluate('liveReadReleaseRoot()')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+
+test('private live settled reader refuses forged S and foreground decisions without reflection or effects',async({page})=>{
+  await preparePrivateLiveSettledRead(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  expect(await page.evaluate(async()=>{
+    const w=window as any,api=w.__privateControllerRenewalForTest;let reflections=0,refused=0
+    const fake=new Proxy({},{get(){reflections++;throw Error('Forged handle')},getPrototypeOf(){reflections++;throw Error('Forged handle')}})
+    for(const token of [fake,Object.freeze({}),undefined,null]){
+      try{await api.read(token)}catch{refused++}
+      try{api.discard(token)}catch{refused++}
+      try{api.foregroundRead(token)}catch{refused++}
+    }
+    return{reflections,refused}
+  })).toEqual({reflections:0,refused:12})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+
+for(const fault of ['provider','sdk-sign','sdk-capability','sdk-account','credential-floor'])test(`private live settled reader refuses ${fault} drift before preparation`,async({page})=>{
+  await preparePrivateLiveSettledRead(page)
+  await page.evaluate(fault=>{
+    const w=window as any
+    w.liveReadBeforeRead=()=>{
+      const restore=w.__enterPrivateRenewalDecision()
+      try{
+        if(fault==='provider')(window as any).nostr=w.providerFixture.current={}
+        else if(fault==='sdk-sign')w.providerFixture.sdk.signEvent=async()=>{w.liveReadUnexpectedSigns=(w.liveReadUnexpectedSigns??0)+1;throw Error('Replacement signer')}
+        else if(fault==='sdk-capability')w.providerFixture.sdk.capabilities={...w.providerFixture.sdk.capabilities,canSignEvents:false}
+        else if(fault==='sdk-account')w.providerFixture.sdk.pubkey='f'.repeat(64)
+        else{const now=Date.now;Date.now=()=>now()+1_201_000;w.liveReadRestoreClock=()=>{Date.now=now}}
+      }finally{restore()}
+    }
+  },fault)
+  await beginPrivateLiveSettledRead(page);await page.waitForFunction('liveReadDone')
+  expect(await page.evaluate('liveReadOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('window.liveReadUnexpectedSigns??0')).toBe(0)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(await page.evaluate('liveReadBefore'))
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'settled',initialGenerationUnchanged:true})
+  await page.evaluate('window.liveReadRestoreClock?.()')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await page.evaluate('liveReadReleaseRoot()')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+
+test('private live settled reader owns every optional terminal field despite inherited properties',async({page})=>{
+  await preparePrivateLiveSettledRead(page)
+  await page.evaluate(()=>{
+    const w=window as any;w.liveReadInheritedReads=0;w.liveReadInheritedWrites=0
+    w.liveReadBeforeRead=()=>{
+      for(const field of ['settledRead','sourceLease','requestDigest','images','journal','token'])Object.defineProperty(Object.prototype,field,{configurable:true,
+        get(){w.liveReadInheritedReads++;(w.liveReadInheritedTrace??=[]).push([field,new Error().stack]);return true},set(){w.liveReadInheritedWrites++;(w.liveReadInheritedTrace??=[]).push([field,new Error().stack])}})
+    }
+    // Noble uses a normal mutable 'finished' instance field. Poison that
+    // name only after cryptographic verification, at preparation publication,
+    // to test the new owner's terminal cell independently of library denial.
+    w.liveReadBeforeToken=()=>Object.defineProperty(Object.prototype,'finished',{configurable:true,get(){w.liveReadInheritedReads++;return true},set(){w.liveReadInheritedWrites++}})
+  })
+  try{
+    await beginPrivateLiveSettledRead(page);await page.waitForFunction('liveReadDone')
+    if(await page.evaluate('liveReadOutcome')!=='prepared')console.log('Inherited S refusal',await page.evaluate('JSON.stringify({holds:window.__privateRenewalHolds,trace:window.liveReadInheritedTrace})'))
+    expect(await page.evaluate('[liveReadOutcome,liveReadInheritedReads,liveReadInheritedWrites]')).toEqual(['prepared',0,0])
+    await page.evaluate('__privateControllerRenewalForTest.discard(liveReadPreparation)')
+    expect(await page.evaluate('__privateControllerRenewalForTest.readState()')).toMatchObject({closed:true,material:false,token:false})
+  }finally{
+    await page.evaluate(()=>{for(const field of ['settledRead','sourceLease','requestDigest','finished','images','journal','token'])Reflect.deleteProperty(Object.prototype,field)})
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await page.evaluate('liveReadReleaseRoot()')
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  }
+})
+
+for(const mode of ['getter','function'])test(`private live settled reader delivers its exact null-prototype token under inherited then ${mode}`,async({page})=>{
+  await preparePrivateLiveSettledRead(page)
+  await page.evaluate(mode=>{
+    const w=window as any;w.liveReadThenReads=0;w.liveReadThenCalls=0
+    w.liveReadBeforeToken=()=>Object.defineProperty(Object.prototype,'then',{configurable:true,get(){
+      w.liveReadThenReads++
+      return mode==='getter'?undefined:(resolve:(value:object)=>void)=>{w.liveReadThenCalls++;resolve(Object.create(null))}
+    }})
+    w.liveReadAfterRead=()=>Reflect.deleteProperty(Object.prototype,'then')
+  },mode)
+  try{
+    await beginPrivateLiveSettledRead(page);await page.waitForFunction('liveReadDone')
+    expect(await page.evaluate('[liveReadOutcome,liveReadOpaque,liveReadThenReads,liveReadThenCalls]')).toEqual(['prepared',true,0,0])
+    await page.evaluate('__privateControllerRenewalForTest.discard(liveReadPreparation)')
+    expect(await page.evaluate('liveReadSnapshot()')).toBe(await page.evaluate('liveReadDiskBefore'))
+  }finally{
+    await page.evaluate(()=>Reflect.deleteProperty(Object.prototype,'then'))
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await page.evaluate('liveReadReleaseRoot()')
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  }
+})
+
+test('private live settled reader refuses inherited toJSON poisoning without changing durable S',async({page})=>{
+  await preparePrivateLiveSettledRead(page)
+  await page.evaluate(()=>{
+    const w=window as any
+    w.liveReadBeforeRead=()=>Object.defineProperty(Object.prototype,'toJSON',{configurable:true,value:()=> 'same-for-unequal-data'})
+    w.liveReadAfterRead=()=>Reflect.deleteProperty(Object.prototype,'toJSON')
+  })
+  try{
+    await beginPrivateLiveSettledRead(page);await page.waitForFunction('liveReadDone')
+    expect(await page.evaluate('liveReadOutcome')).toBe('OrdinaryStateHold')
+    expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(await page.evaluate('liveReadBefore'))
+    expect(await page.evaluate('liveReadSnapshot()')).toBe(await page.evaluate('liveReadDiskBefore'))
+    expect(await page.evaluate('__privateControllerRenewalForTest.readState()')).toMatchObject({closed:true,material:false,token:false})
+  }finally{
+    await page.evaluate(()=>Reflect.deleteProperty(Object.prototype,'toJSON'))
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await page.evaluate('liveReadReleaseRoot()')
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  }
+})
+
+for(const mode of ['transition','return-root'])test(`private live settled reader erases unconsumed preparation on exact root ${mode}`,async({page})=>{
+  await preparePrivateLiveSettledRead(page);await beginPrivateLiveSettledRead(page,mode);await page.waitForFunction('liveReadRootDone')
+  expect(await page.evaluate('[liveReadOutcome,liveReadOpaque]')).toEqual(['prepared',true])
+  expect(await page.evaluate('__privateControllerRenewalForTest.readState()')).toEqual({closed:true,finished:true,material:false,token:false,initialGenerationUnchanged:true})
+  expect(await page.evaluate('liveReadSnapshot()')).toBe(await page.evaluate('liveReadDiskBefore'))
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(await page.evaluate('liveReadBefore'))
+  if(mode==='transition'){
+    expect(await page.evaluate('__privateControllerForTest().closed')).toBe(false)
+    expect(await page.evaluate('__privateBootstrapResourceForTest().material')).toBe(true)
+    expect(await lockAvailable(page,'migration')).toBe(false)
+  }
+  expect(await page.evaluate(()=>{
+    const w=window as any
+    try{w.__privateControllerRenewalForTest.discard(w.liveReadPreparation);return'unexpected'}catch(error){return(error as Error).name}
+  })).toBe('OrdinaryStateHold')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
 })

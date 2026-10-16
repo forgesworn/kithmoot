@@ -6,6 +6,7 @@ export class OrdinaryProtocolSuspended extends Error {
 }
 const lifecycleRoots = new WeakMap<object, () => void>()
 const lifecyclePromises = new WeakMap<object, (pending: Promise<unknown>) => void>()
+const lifecycleEndObservers = new WeakMap<object, (listener: () => void) => () => void>()
 const preparedStartupFactories = new WeakSet<object>()
 /** Lower-layer ownership check for fixed native lifecycle transitions. The
  * root must be the actual sole quiescent lifecycle root with no children.
@@ -21,6 +22,13 @@ export function verifyOrdinaryLifecyclePromise(scope: ProtocolExecution, pending
   const verify = lifecyclePromises.get(scope)
   if (!verify) throw new OrdinaryProtocolSuspended()
   verify(pending)
+}
+/** Cancellation only, on the exact quiescent root. The listener runs once
+ * synchronously on transition, body completion or graph close. */
+export function observeOrdinaryLifecycleEnd(scope: ProtocolExecution, listener: () => void): () => void {
+  const observe = lifecycleEndObservers.get(scope)
+  if (!observe) throw new OrdinaryProtocolSuspended()
+  return observe(listener)
 }
 /** Graph mechanics only. A genuine resource binds a controller to the exact
  * graph that owns its Session and carrier; it grants no native authority. */
@@ -238,6 +246,20 @@ export class OrdinaryProtocolWork {
     if (lifecycleRoot) {
       lifecycleRoots.set(scope, () => this.#checkQuiescent(scope))
       lifecyclePromises.set(scope, pending => this.#checkLifecyclePromise(scope, pending))
+      lifecycleEndObservers.set(scope, listener => {
+        this.#checkQuiescent(scope)
+        if (this.#notifying || typeof listener !== 'function' || this.#listeners.size >= 256) throw new OrdinaryProtocolSuspended()
+        let active = true
+        const release = () => {active = false; this.#listeners.delete(observe); job.listeners.delete(observe)}
+        const observe = () => {
+          if (!active) return
+          release()
+          const result: unknown = listener()
+          if (result !== undefined) throw new OrdinaryProtocolSuspended()
+        }
+        this.#listeners.add(observe); job.listeners.add(observe)
+        return release
+      })
     }
     this.#jobs++
     if (parent) parent.children.add(job); else this.#roots.add(job)
@@ -250,7 +272,7 @@ export class OrdinaryProtocolWork {
   #complete(job: Job): void {
     // Iterative: a bounded but deep job tree must not overflow the JS stack.
     for (let current: Job | undefined = job; current && !current.terminal && !current.bodyOpen && !current.children.size;) {
-      current.terminal = true; lifecycleRoots.delete(current.scope); lifecyclePromises.delete(current.scope); this.#jobs--
+      current.terminal = true; lifecycleRoots.delete(current.scope); lifecyclePromises.delete(current.scope); lifecycleEndObservers.delete(current.scope); this.#jobs--
       if (current.parent) current.parent.children.delete(current); else this.#roots.delete(current)
       current.finish(); current = current.parent
     }

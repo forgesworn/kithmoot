@@ -1,10 +1,11 @@
 import { ordinaryRenewalContinuationSlots, copyOrdinaryRenewalContinuation, wipeOrdinaryRenewalContinuation, type OrdinaryRenewalContinuationNonce } from './ordinary-private-renewal-continuation.js'
+import { ordinaryOwnedJSON } from './ordinary-owned-json.js'
 import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
   ordinaryPrivateForegroundCurrent, ordinaryPrivateForegroundDeadline,
-  retainOrdinaryPrivateRenewalForeground, signOrdinaryPrivateRenewalAttempt, validateOrdinaryPrivateRenewalForegroundDecision,
+  retainOrdinaryPrivateRenewalForeground, signOrdinaryPrivateRenewalAttempt, validateOrdinaryPrivateRenewalForegroundDecision, validateOrdinaryPrivateSettledReadForegroundDecision,
   type OrdinaryPrivateForegroundAuthority, type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
 import { takeOrdinaryPrivateRenewalObligation, openOrdinaryPrivateRenewalFactoryFromOwnerClaim, closeOrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalObligation } from './ordinary-private-renewal.js'
-import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise, verifyOrdinaryProtocolLifecycle, type OrdinaryProtocolControl } from './ordinary-protocol-work.js'
+import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise, verifyOrdinaryProtocolLifecycle, observeOrdinaryLifecycleEnd, type OrdinaryProtocolControl } from './ordinary-protocol-work.js'
 import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
@@ -178,6 +179,7 @@ interface PrivateControllerRenewal {
   preparing: Promise<void> | undefined
   closing: Promise<void> | undefined
   release: (() => void) | undefined
+  settledRead: PrivateSettledRead | undefined
   closed: boolean
 }
 const privateControllerRenewals = new WeakMap<object, PrivateControllerRenewal>()
@@ -213,6 +215,7 @@ export function prepareOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivat
 export function stopOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivateControllerRenewal): void {
   const value = privateControllerRenewal(resource)
   value.closed = true
+  if (value.settledRead) stopPrivateSettledRead(value.settledRead)
   if (value.factory) closeOrdinaryPrivateRenewalFactory(value.factory)
 }
 export function closeOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivateControllerRenewal): Promise<void> {
@@ -224,6 +227,7 @@ export function closeOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivateC
   stopOrdinaryPrivateControllerRenewal(resource)
   void Promise.resolve().then(async () => {
     if (value.preparing) await Promise.allSettled([value.preparing])
+    if (value.settledRead) await Promise.allSettled([value.settledRead.outer])
     value.factory = undefined; value.release?.(); value.release = undefined
   }).then(resolve, reject).catch(() => {})
   return closing
@@ -261,6 +265,72 @@ declare const privateAttemptBrand: unique symbol
 export interface OrdinaryPrivateRenewalSigningAttempt { readonly [privateAttemptBrand]: true }
 declare const privateDecisionBrand: unique symbol
 export interface OrdinaryPrivateRenewalDecision { readonly [privateDecisionBrand]: true }
+declare const privateSettledReadDecisionBrand: unique symbol
+export interface OrdinaryPrivateSettledReadDecision { readonly [privateSettledReadDecisionBrand]: true }
+declare const privateAdoptionPreparationBrand: unique symbol
+/** Authenticated data preparation only; no current generation or authority. */
+export interface OrdinaryPrivateRenewalAdoptionPreparation { readonly [privateAdoptionPreparationBrand]: true }
+interface PrivateSettledRead {
+  readonly producer: PrivateControllerRenewal
+  readonly phase: PrivateRenewalPhase
+  readonly outer: Promise<OrdinaryPrivateRenewalAdoptionPreparation>
+  context: OperationTransaction | undefined
+  images: readonly [OrdinaryImage, OrdinaryImage] | undefined
+  journal: OrdinaryOperationJournal | undefined
+  token: OrdinaryPrivateRenewalAdoptionPreparation | undefined
+  release: (() => void) | undefined
+  releaseRoot: (() => void) | undefined
+  closed: boolean
+  finished: boolean
+}
+const privateAdoptionPreparations = new WeakMap<object, PrivateSettledRead>()
+const privateSettledReadDecisions = new WeakMap<object, {
+  read: PrivateSettledRead; browser: DeviceStore; tab: DeviceStore; check: () => void
+}>()
+function wipePrivateSettledRead(read: PrivateSettledRead): void {
+  if (read.token) privateAdoptionPreparations.delete(read.token)
+  read.images?.forEach(clearImage); wipeOrdinaryOperationJournal(read.journal)
+  read.images = undefined; read.journal = undefined; read.token = undefined
+  read.releaseRoot?.(); read.releaseRoot = undefined
+  read.release?.(); read.release = undefined
+}
+function stopPrivateSettledRead(read: PrivateSettledRead): void {
+  read.closed = true; read.context?.abort()
+  if (read.finished) wipePrivateSettledRead(read)
+}
+let readPrivateSettled!: (producer: PrivateControllerRenewal, phase: PrivateRenewalPhase) => Promise<OrdinaryPrivateRenewalAdoptionPreparation>
+/** Spend the exact S before reflection, liveness checks or asynchronous work.
+ * Refusal never restores it or alters the durable cold-recovery cohort. */
+export function readOrdinaryPrivateControllerRenewalSettled(resource: OrdinaryPrivateControllerRenewal,
+  settled: OrdinaryPrivateRenewalSettled): Promise<OrdinaryPrivateRenewalAdoptionPreparation> {
+  const phase = privateRenewalSettled.get(settled)
+  if (!phase) return Promise.reject(new OrdinaryStateHold())
+  privateRenewalSettled.delete(settled); phase.operation.tokens.delete(settled)
+  const available = phase.state === 'available'; phase.state = 'claimed'
+  try {
+    if (!available) hold()
+    return readPrivateSettled(privateControllerRenewal(resource), phase)
+  } catch { return Promise.reject(new OrdinaryStateHold()) }
+}
+/** Explicit abandonment erases owned preparation data only. */
+export function discardOrdinaryPrivateRenewalAdoptionPreparation(token: OrdinaryPrivateRenewalAdoptionPreparation): void {
+  const read = privateAdoptionPreparations.get(token)
+  if (!read) hold()
+  privateAdoptionPreparations.delete(token); stopPrivateSettledRead(read)
+}
+/** Consumed only by the fixed foreground read core, during its native step. */
+export function takeOrdinaryPrivateSettledReadDecision(token: OrdinaryPrivateSettledReadDecision,
+  foreground: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative): Readonly<{
+    browser: DeviceStore; tab: DeviceStore; participant: string; deadline: number | null
+  }> {
+  const value = privateSettledReadDecisions.get(token)
+  privateSettledReadDecisions.delete(token)
+  if (!value) hold()
+  const op = value.read.phase.operation
+  if (op.value.foreground !== foreground || op.value.native !== native) hold()
+  value.check()
+  return Object.freeze({browser: value.browser, tab: value.tab, participant: op.intent.participant, deadline: op.value.foregroundExpiresAt})
+}
 interface PrivateRenewalOperation {
   readonly factory: OrdinaryPrivateRenewalFactory
   readonly value: PrivateRenewalFactoryState
@@ -269,6 +339,8 @@ interface PrivateRenewalOperation {
   readonly outer: Promise<OrdinaryPrivateRenewalSettled>
   readonly tails: Set<Promise<unknown>>
   readonly tokens: Set<object>
+  sourceLease: import('./ordinary-member-lease.js').OrdinaryMemberLeaseSource | undefined
+  requestDigest: string | undefined
   revoked: boolean
   disposed: boolean
   custodyOnly: boolean
@@ -1758,7 +1830,7 @@ export class OrdinaryStateOwner {
       prepare: () => OrdinaryStateOwner.#preparePrivateRenewalFactory(native, foreground, {generation, control: binding.control,
         live: () => provider.bootstrap === binding.bootstrap && controllerRenewalLive(privateControllerRenewal(resource))}),
       join: provider.trackControl, revoke: provider.stop,
-      factory: undefined, preparing: undefined, closing: undefined, release: undefined, closed: false}))
+      factory: undefined, preparing: undefined, closing: undefined, release: undefined, settledRead: undefined, closed: false}))
     const value = privateControllerRenewal(resource)
     value.release = OrdinaryStateOwner.#retainPairResource(read.c, {
       browser: {owner: member.capture.browser, scope: scopes[0]}, tab: {owner: member.capture.tab, scope: scopes[1]}, live: member.live,
@@ -1840,6 +1912,155 @@ export class OrdinaryStateOwner {
   static {
     preparePrivateRenewalIntent = (factory, root, desired) => this.#preparePrivateRenewalIntent(factory, root, desired)
     runPrivateRenewal = obligation => this.#runPrivateRenewal(obligation)
+    readPrivateSettled = (producer, phase) => this.#readPrivateSettled(producer, phase)
+  }
+  /** Authenticate only the exact acknowledged S inside its still-open root.
+   * The preparation owns copies, not a live read capability or successor floor. */
+  static #readPrivateSettled(producer: PrivateControllerRenewal, phase: PrivateRenewalPhase): Promise<OrdinaryPrivateRenewalAdoptionPreparation> {
+    const op = phase.operation, value = op.value
+    if (producer.settledRead || !producer.factory || producer.factory !== op.factory || privateRenewalFactories.get(op.factory) !== value ||
+        producer.member !== value.member || producer.generation !== value.generation || producer.binding.control !== value.control ||
+        op.terminal !== 'settled' || op.disposed || op.revoked || phase.cohort.header.phase !== 'settled' ||
+        !controllerRenewalLive(producer) || !ordinaryPrivateRenewalFactoryCurrent(op.factory)) hold()
+    verifyOrdinaryPrivateRenewalLifecycle(op.factory, op.root)
+    const {browser, tab} = value.member.capture, provider = privateExistingProviders.get(value.member.capture.root)
+    if (!provider || provider.capture !== value.member.capture || provider.bootstrap !== producer.binding.bootstrap) hold()
+    let resolve!: (token: OrdinaryPrivateRenewalAdoptionPreparation) => void, reject!: (reason: unknown) => void
+    const outer = new Promise<OrdinaryPrivateRenewalAdoptionPreparation>((yes, no) => {resolve = yes; reject = no})
+    const read: PrivateSettledRead = Object.assign(Object.create(null), {producer, phase, outer, context: undefined,
+      images: undefined, journal: undefined, token: undefined, release: undefined, releaseRoot: undefined, closed: false, finished: false})
+    producer.settledRead = read; void outer.catch(() => {})
+    const cancel = {stop: () => stopPrivateSettledRead(read)}
+    read.release = () => {browser.#resources.delete(cancel); tab.#resources.delete(cancel)}
+    const check = () => {
+      if (read.closed || read.phase !== phase || phase.operation !== op || producer.settledRead !== read ||
+          producer.factory !== op.factory || privateRenewalFactories.get(op.factory) !== value ||
+          producer.generation !== value.generation || value.member.credentialGeneration.current !== value.generation ||
+          op.disposed || op.revoked || op.terminal !== 'settled' || !controllerRenewalLive(producer) ||
+          !ordinaryPrivateRenewalFactoryCurrent(op.factory) || privateExistingProviders.get(value.member.capture.root) !== provider ||
+          provider.bootstrap !== producer.binding.bootstrap) hold()
+      verifyOrdinaryLifecyclePromise(op.root, outer)
+      browser.#check(value.member.live); tab.#check(value.member.live)
+    }
+    let setup = true
+    try {
+      browser.#resources.add(cancel); tab.#resources.add(cancel)
+      browser.#track(outer); tab.#track(outer); provider.trackControl(outer)
+      read.releaseRoot = observeOrdinaryLifecycleEnd(op.root, () => stopPrivateSettledRead(read))
+      op.root.retain(outer); check()
+    } catch {setup = false; stopPrivateSettledRead(read)}
+    void Promise.resolve().then(async () => {
+      let db: IDBDatabase | undefined, context: OperationTransaction | undefined
+      let b: OrdinaryImage | undefined, t: OrdinaryImage | undefined, journal: OrdinaryOperationJournal | undefined
+      let bv: ReturnType<typeof view> | undefined, tv: ReturnType<typeof view> | undefined
+      try {
+        if (!setup) hold()
+        check()
+        const [modules, credential] = await Promise.all([privateRenewalIntentModules(), import('./ordinary-renewal-credential.js')]); check()
+        const clients = async () => {check(); await value.member.capture.binding.assertClientsCurrent(); check()}
+        await clients(); check()
+        if (!navigator.locks) hold()
+        await navigator.locks.request(WRITE_LOCK, async () => {
+          check(); db = await browser.#existingStartupDatabase(value.member.live); check(); if (!db) hold()
+          db.onversionchange = () => {stopPrivateSettledRead(read); browser.#revoke(); tab.#revoke(); db?.close()}
+          context = operationTransaction(db, 'readonly'); read.context = context
+          const facts = await browser.#classifyOperations(value.member.live, context); check()
+          const same = (a: unknown, b: unknown) => ordinaryOwnedJSON(a) === ordinaryOwnedJSON(b)
+          if (!same(facts, phase.facts)) hold()
+          const names = ordinaryOperationNames(tab.purpose), cohort = phase.cohort
+          const rows = await Promise.all([context.read(() => context!.store.get('browser')),
+            context.read(() => context!.store.get(tab.purpose)), context.read(() => context!.store.get(names.control))]); check()
+          const br = row(rows[0]), tr = row(rows[1])
+          if (!br?.frame || !tr?.frame || br.pending || tr.pending || rowDigest(br) !== cohort.rows[0] || rowDigest(tr) !== cohort.rows[1] ||
+              ordinaryOperationControlDigest(rows[2]) !== cohort.controlDigest) hold()
+          b = await openOrdinaryFrame(br.frame, br.key); check(); t = await openOrdinaryFrame(tr.frame, tr.key); check()
+          const binding = (image: OrdinaryImage) => ({purpose: image.purpose, keyId: image.keyId, generation: image.generation, expiresAt: image.expiresAt})
+          journal = await openOrdinaryOperationControl(rows[2], {browser: {binding: binding(b), key: br.key}, tab: {binding: binding(t), key: tr.key}}); check()
+          const packet = encodeOrdinaryOperationJournal(journal)
+          try {if (!same(decodeOrdinaryOperationClassification(packet), cohort.header)) hold()} finally {packet.fill(0)}
+          const j = journal, intent = op.intent, generation = value.generation
+          if (j.version !== 2 || j.tab !== tab.purpose || cohort.purpose !== tab.purpose || j.phase !== 'settled' ||
+              j.request !== '' || j.result !== null || j.secrets.length || j.nonces !== null || !j.continuation || j.continuation.length ||
+              !same(j.source, intent.sourceFrames) || !same(j.sourceRevisions, intent.sourceRevisions) || j.requestDigest !== op.requestDigest ||
+              !same(j.enrolledRevisions, intent.sourceRevisions.map(v => v + 1)) || !j.target ||
+              !same(j.targetRevisions, intent.sourceRevisions.map(v => v + 2)) || !j.resultDigest ||
+              !same(j.ceilings, [intent.authority.tabExpiresAt, intent.authority.admissionEndsAt ?? 0, intent.authority.foregroundExpiresAt ?? 0])) hold()
+          const marker = ordinaryOperationMarker({id: j.id, tab: j.tab, sequence: j.sequence, commitment: ordinaryOperationCommitment(cohort.header)})
+          const foregroundScopes = value.member.foregroundScopes(); if (!foregroundScopes) hold()
+          for (const scopes of [value.scopes, foregroundScopes]) {browser.#scope(b, scopes[0]); tab.#scope(t, scopes[1])}
+          if (!same(j.scopes, [['browser', value.scopes[0].name, b.generation, value.scopes[0].fence],
+              [tab.purpose, value.scopes[1].name, t.generation, value.scopes[1].fence]]) ||
+              b.generation !== generation.ownerGenerations[0] || t.generation !== generation.ownerGenerations[1] || b.expiresAt !== 0 || t.expiresAt !== tab.expiresAt ||
+              b.revision !== intent.sourceRevisions[0] + 3 || t.revision !== intent.sourceRevisions[1] + 3 ||
+              b.records.get(names.marker) !== marker || t.records.get(names.marker) !== marker) hold()
+          browser.#validateCleanupImage(b, t, tab, facts, modules.snapshot); check()
+          bv = view(new Map(b.records), false); tv = view(new Map(t.records), false)
+          const inspected = modules.proof.inspectPersistentAdmissionProofs(bv.store, tv.store)
+          try {
+            const prefix = modules.proof.accountPrefix(intent.participant)
+            const found = inspected.selected.get(prefix + modules.proof.PERSISTENT_TAB_PROOF_V2_PREFIX + intent.invitationId)
+            if (!found) hold()
+            const proof = found.proof, bound = proof.binding
+            if (proof.version !== 2 || bound.account !== intent.account || bound.participant !== intent.participant ||
+                bound.invitationId !== intent.invitationId || bound.roomId !== intent.roomId || proof.kept.enabled !== intent.keep ||
+                bound.device.pubkey !== intent.device || bound.device.epoch !== intent.epoch ||
+                bound.device.epochs.find(v => v.epoch === intent.epoch)?.id !== intent.epochId || bound.device.credentialIds.length !== 1 ||
+                !same(bound.browser, value.scopes[0]) || !same(bound.tab, {...value.scopes[1], purpose: tab.purpose, expiresAt: tab.expiresAt}) ||
+                (found.admission.endsAt ?? null) !== intent.authority.admissionEndsAt) hold()
+            const owner = intent.keep ? bv.store : tv.store
+            const successor = modules.lease.ordinaryMemberLeaseCredential(proof, bound.device.credentialIds[0]!)
+            const raw = owner.get(prefix + modules.devices.OWN_CREDENTIAL_PREFIX + intent.roomId), publicSeal = modules.seal.credentialSeal(successor)
+            if (raw === null || !publicSeal || raw !== ordinaryOwnedJSON(successor) || !bound.device.seals.includes(publicSeal)) hold()
+            const canonical = await credential.ordinaryRenewalResultForIntent(intent, publicSeal, successor); check()
+            const bytes = new TextEncoder().encode(canonical)
+            try {if (raw !== canonical || bytesToHex(sha256(bytes)) !== j.resultDigest) hold()} finally {bytes.fill(0)}
+            const leaseRaw = tv.store.get(modules.lease.ordinaryMemberLeaseName(bound))
+            if (leaseRaw === null) hold()
+            const lease = modules.lease.readOrdinaryMemberLease(leaseRaw, ordinaryOwnedJSON(proof)), h = lease.header, previous = lease.predecessorHeader
+            const predecessor = modules.proof.readPersistentAdmissionProof(lease.predecessorProof)
+            try {
+              if (predecessor.proof.binding.operation !== intent.proof || predecessor.proof.binding.device.credentialIds.length !== 1 ||
+                  predecessor.proof.binding.device.credentialIds[0] !== intent.credential ||
+                  previous.operation !== intent.predecessor || previous.sequence !== intent.leaseSequence || previous.proof !== intent.proof ||
+                  previous.credential !== intent.credential || previous.bootstrap !== intent.bootstrap ||
+                  h.sequence !== intent.leaseSequence + 1 || h.bootstrap !== intent.bootstrap || h.predecessor !== intent.predecessor ||
+                  h.proof !== bound.operation || h.credential !== successor.id || h.seal !== publicSeal ||
+                  h.issuedAt !== intent.issuedAt || h.expiresAt !== intent.expiresAt || !same(h.authority, intent.authority) ||
+                  !op.sourceLease || !same(h.source, op.sourceLease)) hold()
+            } finally {predecessor.admission.secret.fill(0)}
+            const roomRaw = bv.store.get(prefix + modules.rooms.ROOM_PREFIX + intent.roomId)
+            if (roomRaw === null) hold()
+            const room = JSON.parse(roomRaw), linkBytes = new TextEncoder().encode(room.link)
+            try {if (room.link !== generation.selection.link || room.keep !== intent.keep || room.endedAt !== undefined || bytesToHex(sha256(linkBytes)) !== intent.linkDigest) hold()}
+            finally {linkBytes.fill(0)}
+          } finally {inspected.close()}
+          let inDecision = false
+          const nativeCheck = () => {if (!inDecision || read.context !== context) hold(); check()}
+          await context.step(() => {
+            inDecision = true
+            const decision = Object.freeze({}) as OrdinaryPrivateSettledReadDecision
+            try {
+              nativeCheck()
+              privateSettledReadDecisions.set(decision, {read, browser: bv!.store, tab: tv!.store, check: nativeCheck})
+              validateOrdinaryPrivateSettledReadForegroundDecision(value.foreground, value.native, decision); nativeCheck()
+            } finally {inDecision = false; privateSettledReadDecisions.delete(decision)}
+          }); check()
+          context.stop(); await context.ended; check()
+        }); check()
+        await clients(); check()
+        // No await or foreign call separates final liveness from publication.
+        read.images = [b!, t!]; read.journal = journal; b = undefined; t = undefined; journal = undefined
+        const token = Object.freeze(Object.create(null)) as OrdinaryPrivateRenewalAdoptionPreparation
+        read.token = token; privateAdoptionPreparations.set(token, read)
+        return token
+      } finally {
+        context?.abort(); await context?.ended.catch(() => {}); context?.stop(); read.context = undefined
+        bv?.close(); tv?.close(); clearImage(b); clearImage(t); wipeOrdinaryOperationJournal(journal); db?.close()
+      }
+    }).then(token => {
+      try {check(); read.finished = true; resolve(token)} catch {read.finished = true; stopPrivateSettledRead(read); reject(new OrdinaryStateHold())}
+    }, () => {read.finished = true; stopPrivateSettledRead(read); reject(new OrdinaryStateHold())}).catch(() => {})
+    return outer
   }
   /** One fixed owner pipeline. Its sole protocol child is the exact outer
    * promise; inner native/SDK tails are owned transitively and by both owners.
@@ -1856,8 +2077,10 @@ export class OrdinaryStateOwner {
     if (!provider) return Promise.reject(new OrdinaryStateHold())
     let resolve!: (receipt: OrdinaryPrivateRenewalSettled) => void, reject!: (reason: unknown) => void
     const outer = new Promise<OrdinaryPrivateRenewalSettled>((yes, no) => { resolve = yes; reject = no })
-    const op: PrivateRenewalOperation = {factory: held.factory, value, root: held.root, intent: held.intent, outer,
-      tails: new Set(), tokens: new Set(), revoked: false, disposed: false, custodyOnly: false}
+    const op: PrivateRenewalOperation = Object.assign(Object.create(null), {factory: held.factory, value, root: held.root, intent: held.intent, outer,
+      tails: new Set(), tokens: new Set(), revoked: false, disposed: false, custodyOnly: false, sourceLease: undefined, requestDigest: undefined,
+      terminal: undefined, revokeWait: undefined, context: undefined, secret: undefined, nonces: undefined, request: undefined, statement: undefined,
+      attempt: undefined, completion: undefined})
     const resource = {stop: () => { op.revoked = true; if (!op.custodyOnly) { op.context?.abort(); op.revokeWait?.() } }}
     for (const owner of [browser, tab]) {
       let resources = privateRenewalOwnerResources.get(owner)
@@ -2048,6 +2271,9 @@ export class OrdinaryStateOwner {
             const derived = OrdinaryStateOwner.#derivePrivateRenewalIntent(value, bv!.store, tv!.store, custody!,
               {issuedAt: op.intent.issuedAt, expiresAt: op.intent.expiresAt, semanticDigest: op.intent.semanticDigest}, modules)
             if (!equal(derived, op.intent)) hold()
+            const source = modules.lease.ordinaryMemberLeaseSource(bv!.store, tv!.store, custody!)
+            if (op.sourceLease && !equal(source, op.sourceLease)) hold()
+            op.sourceLease = source
             result = work(b!, t!, [br, tr], facts, previous, priorNonces)
             OrdinaryStateOwner.#validatePrivateRenewalRead(value.member, value.scopes, bv!.store, tv!.store, custody!); check()
           })
@@ -2155,6 +2381,7 @@ export class OrdinaryStateOwner {
             rawRequest = request.encodeOrdinaryRenewalRequest({version: 1, domain: 'kithmoot/member-renewal/request/v1', credentialFormat: 1,
               intent: op.intent, sources: [{...binding(b), revision: b.revision}, {...binding(t), revision: t.revision}], scopes, fences, previous})
             op.request = rawRequest
+            op.requestDigest = hash(rawRequest)
             const makeE = (id: string) => [b, t].map((image, i) => {
               const next = copyImage(image); next.records = new Map(next.records); next.fences = new Map(next.fences); next.revision++
               ;(next.records as Map<string, string>).set(names.marker, ordinaryOperationMarker({id, tab: purpose, sequence, commitment: null}))

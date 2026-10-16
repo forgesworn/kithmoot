@@ -6,7 +6,9 @@ import type { EventTemplate, NostrEvent } from 'signet-login'
 import { createDeviceCredential } from '../../src/credential.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
-import { readOrdinaryRenewalRequest } from './ordinary-renewal-request.js'
+import { ordinaryOwnedJSON } from './ordinary-owned-json.js'
+import { readOrdinaryRenewalRequest, captureOrdinaryRenewalIntent } from './ordinary-renewal-request.js'
+import type { OrdinaryRenewalIntent } from './ordinary-renewal-obligation.js'
 import { captureOrdinarySigningStatement, captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
 
 export const ORDINARY_RENEWAL_RESULT_BYTES = 4096
@@ -42,6 +44,11 @@ export async function ordinaryRenewalStatement(request: string, seal: Uint8Array
  * its private seal. Public data inspection grants no signing permission. */
 export async function ordinaryRenewalStatementForPublicSeal(request:string,publicSeal:string):Promise<Required<EventTemplate>>{
   const intent=readOrdinaryRenewalRequest(request).intent
+  return statementForIntent(intent,publicSeal)
+}
+/** The exact retained intent is data only. In particular, this path never
+ * recreates the private request erased after durable settlement. */
+async function statementForIntent(intent:OrdinaryRenewalIntent,publicSeal:string):Promise<Required<EventTemplate>>{
   if(typeof publicSeal!=='string'||!/^[0-9a-f]{64}$/.test(publicSeal))hold()
   const capturedOnly = Object.freeze({})
   let captured: Required<EventTemplate> | undefined
@@ -70,6 +77,17 @@ export async function ordinaryRenewalResult(request: string, seal: Uint8Array, i
  * statement was fixed before provider invocation; this supplies data only. */
 export function ordinaryRenewalResultForStatement(request: string, statement: Required<EventTemplate>, input: NostrEvent): string {
   const intent = readOrdinaryRenewalRequest(request).intent
+  return resultForStatement(intent,statement,input)
+}
+/** Freshly verify a stored successor against its retained intent and public
+ * seal. Native custody, lineage and current authority belong to the caller;
+ * neither these arguments nor the canonical result grant any of them. */
+export async function ordinaryRenewalResultForIntent(inputIntent:OrdinaryRenewalIntent,publicSeal:string,input:NostrEvent):Promise<string>{
+  const intent=captureOrdinaryRenewalIntent(inputIntent)
+  const statement=await statementForIntent(intent,publicSeal)
+  return resultForStatement(intent,statement,input)
+}
+function resultForStatement(intent:OrdinaryRenewalIntent,statement:Required<EventTemplate>,input:NostrEvent):string{
   const fields = ['kind','created_at','tags','content','pubkey','id','sig']
   if (!input || Object.getPrototypeOf(input) !== Object.prototype) hold()
   const names = Object.getOwnPropertyNames(input), symbols = Object.getOwnPropertySymbols(input)
@@ -85,9 +103,9 @@ export function ordinaryRenewalResultForStatement(request: string, statement: Re
   }
   exactTags(Object.getOwnPropertyDescriptor(input, 'tags')!.value, statement.tags)
   const event = captureOrdinaryForegroundProof(input)
-  if (event.pubkey !== intent.participant || JSON.stringify(captureOrdinarySigningStatement(event)) !== JSON.stringify(statement) ||
+  if (event.pubkey !== intent.participant || ordinaryOwnedJSON(captureOrdinarySigningStatement(event)) !== ordinaryOwnedJSON(statement) ||
       !verifyEventUncached(event)) hold()
-  const result = JSON.stringify({ kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content,
+  const result = ordinaryOwnedJSON({ kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content,
     pubkey: event.pubkey, id: event.id, sig: event.sig })
   ordinaryUtf8Length(result, ORDINARY_RENEWAL_RESULT_BYTES)
   return result

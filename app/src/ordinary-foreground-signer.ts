@@ -1,6 +1,7 @@
 import { takeOrdinaryRenewalSigningLifetime,takeOrdinaryRenewalSigningAttempt,validateOrdinaryRenewalSigningLifetime,type OrdinaryRenewalSigningLifetime,type OrdinaryRenewalSigningAttempt } from './ordinary-renewal-signing-bridge.js'
 import type { EventTemplate, NostrEvent, SignetSession, SignetSigner, SignerEffectBoundary, SignerCapabilities } from 'signet-login'
 import { verifyEventUncached } from '../../src/verify.js'
+import { ordinaryOwnedJSON } from './ordinary-owned-json.js'
 import type { DeviceStore } from './device-store.js'
 import { OrdinaryStateHold, ordinaryUtf8Length, ORDINARY_VALUE_BYTES, ORDINARY_VALUE_UNITS } from './ordinary-state-codec.js'
 import { OrdinaryStateOwner, ordinaryPairReadCustodyFor, type OrdinaryScope, type OrdinaryPairCustody } from './ordinary-state-owner.js'
@@ -14,6 +15,7 @@ import { takeOrdinaryPrivateForegroundClaim, ordinaryPrivateMemberNativeCurrent,
 import { takeOrdinaryPrivateRenewalSigningAttempt, retainOrdinaryPrivateRenewalSigningLifetime,
   startOrdinaryPrivateRenewalProvider, finishOrdinaryPrivateRenewalSdkResult, ordinaryPrivateRenewalDecisionFor,
   type OrdinaryPrivateRenewalSigningAttempt, type OrdinaryPrivateRenewalDecision } from './ordinary-state-owner.js'
+import { takeOrdinaryPrivateSettledReadDecision, type OrdinaryPrivateSettledReadDecision } from './ordinary-state-owner.js'
 
 type PrivateForegroundBinding = ReturnType<typeof takeOrdinaryPrivateForegroundClaim>
 declare const privateForegroundAuthorityBrand: unique symbol
@@ -30,11 +32,15 @@ let privateForegroundCredentialSigner!: (authority: OrdinaryPrivateForegroundAut
 let retainPrivateRenewal!: (attempt: OrdinaryPrivateRenewalSigningAttempt) => void
 let signPrivateRenewal!: (attempt: OrdinaryPrivateRenewalSigningAttempt) => Promise<void>
 let validatePrivateRenewal!: (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative, decision: OrdinaryPrivateRenewalDecision) => void
+let validatePrivateSettledRead!: (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative, decision: OrdinaryPrivateSettledReadDecision) => void
 /** Fixed owner-only phase edges. No signer, SDK or callable bag escapes. */
 export const retainOrdinaryPrivateRenewalForeground = (attempt: OrdinaryPrivateRenewalSigningAttempt): void => retainPrivateRenewal(attempt)
 export const signOrdinaryPrivateRenewalAttempt = (attempt: OrdinaryPrivateRenewalSigningAttempt): Promise<void> => signPrivateRenewal(attempt)
 export const validateOrdinaryPrivateRenewalForegroundDecision = (authority: OrdinaryPrivateForegroundAuthority,
   native: OrdinaryPrivateMemberNative, decision: OrdinaryPrivateRenewalDecision): void => validatePrivateRenewal(authority, native, decision)
+/** Read-only S authentication cannot borrow the busy signing decision. */
+export const validateOrdinaryPrivateSettledReadForegroundDecision = (authority: OrdinaryPrivateForegroundAuthority,
+  native: OrdinaryPrivateMemberNative, decision: OrdinaryPrivateSettledReadDecision): void => validatePrivateSettledRead(authority, native, decision)
 /** Package-internal fixed edges. A token cannot select a different native
  * owner, disclose the signer, or replace an authenticated read with liveness. */
 export function ordinaryPrivateForegroundCurrent(authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
@@ -232,6 +238,25 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       const session = SESSION_KEYS.map(name => data.browser.get(keys[name]))
       if (!signer.#expected || session.some((v, i) => v !== signer.#expected![i])) hold()
       signer.#privateForeground.assertForegroundProvider(); signer.#check(); current()
+    }
+    validatePrivateSettledRead = (authority, native, decision) => {
+      // The owner consumes this one-use decision before SDK/provider reflection.
+      const data = takeOrdinaryPrivateSettledReadDecision(decision, authority, native)
+      const value = privateForegroundAuthorities.get(authority)
+      if (!value || value.native !== native) hold()
+      const signer = value.signer
+      if (!signer.#privateForeground || signer.#busy || signer.#participant !== data.participant ||
+          signer.#sessionExpiresAt !== data.deadline) hold()
+      signer.#check(); signer.#privateForeground.assertForegroundProvider()
+      const captured = captureOrdinaryForegroundSession(signer.#privateForeground.source), raw = captured.signer
+      if (raw !== signer.#raw || raw.signEvent !== signer.#sign || captured.pubkey !== signer.#participant ||
+          captured.method !== 'nip07' || ordinaryOwnedJSON(captured.authEvent) !== signer.#proof || !verifyEventUncached(captured.authEvent) ||
+          (captured.expiresAt ?? null) !== data.deadline || raw.providerEffectBoundary !== 1 ||
+          (raw as SignetSigner & {pinnedProviderCalls?: number}).pinnedProviderCalls !== 1 || !raw.capabilities.canSignEvents) hold()
+      const session = SESSION_KEYS.map(name => data.browser.get(keys[name]))
+      if (!signer.#expected || session.some((v, i) => v !== signer.#expected![i])) hold()
+      signer.#privateForeground.assertForegroundProvider(); signer.#check()
+      if (signer.#busy) hold()
     }
   }
   static {

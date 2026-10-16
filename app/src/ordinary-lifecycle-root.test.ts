@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ProtocolTimers } from '../../src/protocol-timers.js'
-import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot } from './ordinary-protocol-work.js'
+import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot, observeOrdinaryLifecycleEnd } from './ordinary-protocol-work.js'
 
 function deferred() {
   let resolve!: () => void
@@ -27,6 +27,26 @@ function fixture(before: (operation: string) => Promise<void> = async () => {}) 
 }
 afterEach(() => vi.useRealTimers())
 describe('private lifecycle ownership (synthetic IO, no native acceptance)', () => {
+  it('cancels an exact quiescent root resource once on transition without closing the graph',async()=>{
+    const f=fixture();let wipes=0
+    await f.work.startRoot(async root=>{
+      expect(()=>observeOrdinaryLifecycleEnd(root,()=>{})).toThrow(OrdinaryProtocolSuspended)
+      await f.work.suspend(root)
+      expect(()=>observeOrdinaryLifecycleEnd({...root},()=>{})).toThrow(OrdinaryProtocolSuspended)
+      observeOrdinaryLifecycleEnd(root,()=>{wipes++})
+      const release=observeOrdinaryLifecycleEnd(root,()=>{throw Error('Unregistered observer')});release();release()
+      expect(wipes).toBe(0);f.work.resume(root);expect(wipes).toBe(1)
+    })
+    await f.work.execution.run('fresh after transition',()=>{})
+    expect(wipes).toBe(1);expect(f.stops()).toBe(0)
+  })
+  it('cancels unconsumed preparation when its root body returns while suspended',async()=>{
+    const f=fixture();let wipes=0
+    await expect(f.work.startRoot(async root=>{
+      await f.work.suspend(root);observeOrdinaryLifecycleEnd(root,()=>{wipes++})
+    })).rejects.toThrow(OrdinaryProtocolSuspended)
+    await f.work.join();expect(wipes).toBe(1);expect(f.stops()).toBe(1)
+  })
   it('runs a timer as the exact sole root, then admits only fresh scopes', async () => {
     vi.useFakeTimers()
     const f = fixture(), timers = new ProtocolTimers(f.work.execution)
