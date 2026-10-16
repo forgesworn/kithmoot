@@ -1336,7 +1336,7 @@ export class RoomSession {
   async #joinWithAdmission(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>, execution = this.#opts.protocol): Promise<void> {
     if (!this.#opts.requireFreshEpoch) return this.#join(tracks, claims, execution)
     const signal = this.#opts.admissionSignal
-    const cancel = () => { void this.leave() }
+    const cancel = () => { void this.#leave() }
     signal?.addEventListener('abort', cancel, { once: true })
     try {
       await this.#join(tracks, claims, execution)
@@ -1345,7 +1345,7 @@ export class RoomSession {
       // No room effects have started: keep an uncertain exact candidate for
       // retry, or allow a replacement after acknowledged expiry. Authority
       // failures after adoption still close everything as before.
-      if (!(error instanceof CredentialRetentionError) || this.#self || this.#left || signal?.aborted) await this.leave()
+      if (!(error instanceof CredentialRetentionError) || this.#self || this.#left || signal?.aborted) await this.#leave()
       throw error
     }
     finally { signal?.removeEventListener('abort', cancel) }
@@ -2010,7 +2010,7 @@ export class RoomSession {
    *  authority's. */
   #catchUp(): Promise<void> {
     if (this.#opts.epochCatchUp === false) {
-      void this.leave().catch(() => {})
+      void this.#leave().catch(() => {})
       throw new Error('epoch catch-up is unavailable for this session')
     }
     if (this.#catchingUp) return this.#catchingUp
@@ -2435,7 +2435,7 @@ export class RoomSession {
       } else await this.#opts.transport.publish(event)
     } catch (err) {
       if (this.#opts.commitRekey) {
-        await this.leave()
+        await this.#leave()
         throw err
       }
       // Not moved, so a retry signs a different rekey for this epoch. If a

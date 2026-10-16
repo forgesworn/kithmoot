@@ -21,6 +21,7 @@ interface OwnedSession {
   closing?: Promise<void>
   draining?: Promise<void>
 }
+type CloseResult = Readonly<{ok: true} | {ok: false; error: unknown}>
 const sessions = new WeakMap<object, OwnedSession>()
 function owned(resource: OrdinaryPrivateMemberSessionResource): OwnedSession {
   const value = sessions.get(resource); if (!value) throw new OrdinaryStateHold(); return value
@@ -63,14 +64,30 @@ export function openOrdinaryPrivateMemberSessionFromBootstrapClaim(claim: Ordina
  * returned; a different protocol or a second attachment is refused. */
 export function retainOrdinaryPrivateMemberSessionForController(resource: OrdinaryPrivateMemberSessionResource, graph: OrdinaryProtocolGraphIdentity): void {
   const value = owned(resource)
-  if (value.disposed || value.closing || value.controllerClaimed || value.graph !== graph) throw new OrdinaryStateHold()
+  if (value.disposed || value.closeResult || value.closing || value.controllerClaimed || value.graph !== graph) throw new OrdinaryStateHold()
   value.controllerClaimed = true
 }
 /** Fixed lexical Session operations only. No instance, view or credential
  * facade escapes to a document caller. Joining still needs its fresh native
  * execution; the resource itself supplies no current membership authority. */
 export function stopOrdinaryPrivateMemberSession(resource: OrdinaryPrivateMemberSessionResource): void {
-  owned(resource).view.revoke()
+  startLexicalClose(owned(resource))
+}
+/** Publish the shared result before native close can synchronously revoke
+ * its parent and visit this component again. Closing aborts a pending join
+ * immediately; secret disposal still belongs to the parent's terminal drain. */
+function startLexicalClose(value: OwnedSession): Promise<CloseResult> {
+  if (value.closeResult) return value.closeResult
+  let resolve!: (result: CloseResult) => void
+  const result = new Promise<CloseResult>(yes => {resolve = yes})
+  value.closeResult = result
+  const success = () => resolve(Object.freeze(Object.assign(Object.create(null), {ok: true as const})))
+  const failure = (error: unknown) => resolve(Object.freeze(Object.assign(Object.create(null), {ok: false as const, error})))
+  try {
+    value.view.revoke()
+    void value.view.close().then(success, failure).catch(failure)
+  } catch (error) {failure(error)}
+  return result
 }
 /** The caller must close its graph/carrier and join outstanding operations
  * before this final erasure. The lexical close runs once. A disposal failure
@@ -79,24 +96,20 @@ export function stopOrdinaryPrivateMemberSession(resource: OrdinaryPrivateMember
 export function closeOrdinaryPrivateMemberSession(resource: OrdinaryPrivateMemberSessionResource): Promise<void> {
   const value = owned(resource)
   if (value.closing) return value.closing
-  value.view.revoke()
-  value.closeResult ??= (async () => {
-    try { await value.view.close(); return Object.freeze({ok: true as const}) }
-    catch (error) { return Object.freeze({ok: false as const, error}) }
-  })()
-  const attempt = (async () => {
-    const closed = await value.closeResult!
+  let resolve!: () => void, reject!: (error: unknown) => void
+  const attempt = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+  value.closing = attempt
+  // Attach before synchronous close can re-enter this component. A later
+  // erasure-only retry preserves the original settled close outcome.
+  void attempt.catch(() => {if (!value.disposed && value.closing === attempt) value.closing = undefined})
+  void startLexicalClose(value).then(closed => {
     let disposalFailed = false, disposalFailure: unknown
     try { value.view.dispose(); value.disposed = true }
     catch (error) {disposalFailed = true; disposalFailure = error}
     finally {value.secret.fill(0); value.device.fill(0); for (const key of value.seals) key.fill(0)}
     if (!closed.ok) throw closed.error
     if (disposalFailed) throw disposalFailure
-  })()
-  value.closing = attempt
-  // Attach before handing out the promise. A subsequent caller may retry
-  // only erasure; the settled close result and its original error survive.
-  void attempt.catch(() => {if (!value.disposed && value.closing === attempt) value.closing = undefined})
+  }).then(resolve, reject).catch(() => {})
   return attempt
 }
 /** Parent-owned terminal cleanup. Uncertain erasure retains custody: only

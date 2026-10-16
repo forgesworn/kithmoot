@@ -165,6 +165,36 @@ describe('retained native Session mechanics without a participant signer', () =>
     expect(f.options.secret.every(value => value === 0)).toBe(true)
   })
 
+  it('uses lexical teardown when a retained fresh-epoch join refuses before network effects', async () => {
+    const f = await fixture()
+    f.construct({...f.options, requireFreshEpoch: true, authority: f.identity.pubkey})
+    const intercepted = vi.spyOn(RoomSession.prototype, 'leave').mockResolvedValue()
+    vi.useFakeTimers(); vi.setSystemTime((f.now + 1201) * 1000)
+    await expect(f.view().join()).rejects.toThrow('no longer current')
+    expect(intercepted).not.toHaveBeenCalled()
+    expect(f.binding.revoke).toHaveBeenCalled()
+    expect(f.transport.publish).not.toHaveBeenCalled()
+    expect(f.transport.subscribe).not.toHaveBeenCalled()
+    f.view().dispose()
+    expect(f.options.secret.every(value => value === 0)).toBe(true)
+  })
+
+  it('lexical close cancels the exact pending retained join without public teardown dispatch', async () => {
+    const f = await fixture()
+    f.construct({...f.options, requireFreshEpoch: true, authority: f.identity.pubkey, epochRequestTimeoutMs: 20_000})
+    const intercepted = vi.spyOn(RoomSession.prototype, 'leave').mockResolvedValue()
+    const joining = f.view().join(), refused = expect(joining).rejects.toThrow()
+    expect(f.view().join()).toBe(joining)
+    await vi.waitFor(() => expect(f.transport.publish).toHaveBeenCalled())
+    await f.view().close()
+    await refused
+    expect(intercepted).not.toHaveBeenCalled()
+    expect(f.binding.schedule).not.toHaveBeenCalled()
+    expect(() => f.view().snapshot()).toThrow('unavailable')
+    f.view().dispose()
+    expect(f.options.secret.every(value => value === 0)).toBe(true)
+  })
+
   it('spends a subclass construction cell before reading options or invoking a callback', async () => {
     const f = await fixture(), input = Object.freeze({...f.options})
     registerRetainedNativeSessionBinding(input, f.binding, f.capture)

@@ -165,10 +165,11 @@ test.beforeAll(async () => {
         if(source.split(retained).length!==2)throw Error('Private Session retained input observer drift')
         source=source.replace(retained,retained+`;
           ;(globalThis as any).__privateSessionInputsWipedForTest=()=>[secret!,device!,...seals].every(key=>key.every(value=>value===0))
-          if((globalThis as any).privateMemberCloseFailure||(globalThis as any).privateMemberDisposeFailure||(globalThis as any).privateMemberDisposePaused){
+          if((globalThis as any).privateMemberCloseFailure||(globalThis as any).privateMemberDisposeFailure||(globalThis as any).privateMemberDisposePaused||(globalThis as any).privateMemberReentrantClose){
             const actual=view, fixture=globalThis as any, closeError=Error('Explicit private Session close failure')
             fixture.__privateSessionSeenResource=resource;fixture.privateMemberCloseCalls=0;fixture.privateMemberDisposeCalls=0
             sessions.set(resource,Object.assign(Object.create(null),{view:Object.freeze({...actual,close:()=>{fixture.privateMemberCloseCalls++;
+              if(fixture.privateMemberReentrantClose){fixture.privateMemberReentrantClose=undefined;fixture.privateMemberReentrantClosePromise=closeOrdinaryPrivateMemberSession(resource);void fixture.privateMemberReentrantClosePromise.catch(()=>{})}
               if(fixture.privateMemberReentrantDrain){fixture.privateMemberReentrantDrain=undefined;fixture.privateMemberReentrantDrainPromise=drainOrdinaryPrivateMemberSession(resource);void fixture.privateMemberReentrantDrainPromise.catch(()=>{})}
               return fixture.privateMemberCloseFailure?Promise.reject(closeError):actual.close()},
               dispose:()=>{fixture.privateMemberDisposeCalls++;if(fixture.privateMemberDisposePaused||fixture.privateMemberDisposeFailure&&fixture.privateMemberDisposeCalls===1)throw Error('Explicit private Session disposal failure');
@@ -3111,6 +3112,22 @@ test('private member cleanup erases retained material after Session close reject
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
   expect(await page.evaluate('[__privateSessionDisposedForTest,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([true,true,true])
   expect(await page.evaluate('__privateCarrierForTest()')).toMatchObject({closed:true,work:0})
+})
+for(const first of ['stop','close'])test(`private member ${first} starts one lexical close before reentrant cleanup`,async({page})=>{
+  await preparePrivateControllerConstruction(page)
+  await page.evaluate(()=>{(window as any).privateMemberReentrantClose=true})
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  expect(await page.evaluate(first=>{
+    const w=window as any,api=w.__privateMemberFunctionsForTest,r=w.__privateSessionSeenResource
+    const started=first==='stop'?api.stop(r):api.close(r)
+    const closing=api.close(r)
+    void closing.catch(()=>{})
+    return{calls:w.privateMemberCloseCalls,shared:closing===api.close(r)&&closing===w.privateMemberReentrantClosePromise,
+      first:first==='stop'?started===undefined:started===closing,notDisposedYet:!w.__privateSessionDisposedForTest}
+  },first)).toEqual({calls:1,shared:true,first:true,notDisposedYet:true})
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[privateMemberCloseCalls,__privateSessionDisposedForTest,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([1,true,true,true])
 })
 test('private member construction and close bypass public owner carrier and Session methods',async({page})=>{
   await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
