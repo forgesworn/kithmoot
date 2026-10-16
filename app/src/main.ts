@@ -107,7 +107,7 @@ import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countd
 import { scrubStore } from './storage-scrub.js'
 import { FOLDABLE, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
-import { MEETING_CODE_UNKNOWN, MeetingCodeError, MeetingCodeNetworkError, displayMeetingCode, drainRetirements, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, parseMeetingCode, retireMeetingCodes, returnedJoinFragment, storeMeetingCode } from './meeting-codes.js'
+import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, openInvitation, parseMeetingCode, parsePasswordWords, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
 import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { arrangeRooms, loadPins, setPinned } from './room-pins.js'
 import { roomProject, setRoomProject } from './room-projects.js'
@@ -1913,7 +1913,14 @@ const meetingCodes = meetingCodeClient({ base: import.meta.env.VITE_MEETING_CODE
  *  failure stays queued for the next open and never blocks the action. */
 function retireMeetingCode(match: { invitationId?: string; roomId?: string }): void {
   try { retireMeetingCodes(deviceStore, match, nowSeconds()) } catch { /* Nothing stored, nothing to delete. */ }
-  void drainRetirements(deviceStore, meetingCodes, nowSeconds()).catch(() => {})
+  drainMeetingCodeRetirements()
+}
+
+/** One drain at a time: End room retires a room's codes more than once on
+ *  its way out, and overlapping drains would each send the same DELETE. */
+let meetingCodeDrain: Promise<void> = Promise.resolve()
+function drainMeetingCodeRetirements(): void {
+  meetingCodeDrain = meetingCodeDrain.then(() => drainRetirements(deviceStore, meetingCodes, nowSeconds())).catch(() => {})
 }
 
 interface StoredAdmission {
@@ -15163,6 +15170,7 @@ function openInviteDialog(qrFirst: boolean): void {
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
   $('inviteStatus').textContent = ''
   $('meetingCodeStatus').textContent = ''
+  meetingCodePasswordTouched = false
   renderInviteEnds()
   renderMeetingCode()
   $('inviteSlot').append($('inviteContent'))
@@ -15799,6 +15807,7 @@ $('toggleKnock').addEventListener('click', () => {
   if (!roomId) return
   setKnock(roomId, $('toggleKnock').dataset.on !== 'true')
   renderKnockChoice()
+  renderMeetingCode()
   // The host loop reads the switch when it starts, so start it again.
   serveCurrentInvitation()
 })
@@ -15893,43 +15902,103 @@ $('openRoomForm').addEventListener('submit', event => {
     $('url').focus()
   }
 })
-/** Join with code, typed or from `/j/?c=<code>`: look the invite link up and
- *  open its door, exactly as a pasted link does. Never joins by itself. */
-async function joinWithCode(value: string): Promise<void> {
-  const input = $('meetingCodeInput') as HTMLInputElement
+/** A code that answered with a sealed invitation, waiting for its words.
+ *  In memory only: neither the envelope nor the words are ever stored. */
+let sealedArrival: { code: string; envelope: SealedInvitation; expires: number } | undefined
+
+function joinCodeFeedback(): { fail: (message: string, offerRetry?: boolean, field?: HTMLInputElement) => void } {
+  const input = $('meetingCodeInput') as HTMLInputElement, words = $('meetingCodeWordsInput') as HTMLInputElement
   const error = $('joinCodeError'), retry = $('joinCodeRetry')
-  const button = $('joinCodeSubmit') as HTMLButtonElement
   error.hidden = true; error.textContent = ''; retry.hidden = true
-  input.removeAttribute('aria-invalid')
-  const fail = (message: string, offerRetry = false) => {
-    error.textContent = message
-    error.hidden = false
-    retry.hidden = !offerRetry
-    if (!offerRetry) { input.setAttribute('aria-invalid', 'true'); input.focus() }
+  input.removeAttribute('aria-invalid'); words.removeAttribute('aria-invalid')
+  return {
+    fail(message, offerRetry = false, field = input) {
+      error.textContent = message
+      error.hidden = false
+      retry.hidden = !offerRetry
+      if (!offerRetry) { field.setAttribute('aria-invalid', 'true'); field.focus() }
+    },
   }
+}
+
+function hideCodePassword(): void {
+  sealedArrival = undefined
+  $('joinCodePassword').hidden = true
+  ;($('meetingCodeWordsInput') as HTMLInputElement).value = ''
+}
+
+/** A link a code gave back, checked as a pasted one is, then its door. */
+async function openReturnedLink(link: string): Promise<void> {
+  const hash = returnedJoinFragment(link)
+  if (!hash) throw new MeetingCodeError(MEETING_CODE_UNKNOWN, 0)
+  parseRoomLink(joinLinkBase() + hash)
+  await openLink(joinLinkBase() + hash)
+}
+
+/** Join with code, typed or from `/j/?c=<code>`: look the invite link up and
+ *  open its door, exactly as a pasted link does. Never joins by itself. A
+ *  code with a password asks for its words first. */
+async function joinWithCode(value: string): Promise<void> {
+  const { fail } = joinCodeFeedback()
+  const button = $('joinCodeSubmit') as HTMLButtonElement
+  hideCodePassword()
   if (!value.trim()) { fail('Type the meeting code you were given.'); return }
-  if (!parseMeetingCode(value)) { fail(MEETING_CODE_UNKNOWN); return }
+  const code = parseMeetingCode(value)
+  if (!code) { fail(MEETING_CODE_UNKNOWN); return }
   button.disabled = true
   try {
-    const { link } = await meetingCodes.resolve(value)
-    const hash = returnedJoinFragment(link)
-    if (!hash) throw new MeetingCodeError(MEETING_CODE_UNKNOWN, 0)
-    parseRoomLink(joinLinkBase() + hash)
-    await openLink(joinLinkBase() + hash)
+    const found = await meetingCodes.resolve(code)
+    if (found.envelope) {
+      sealedArrival = { code, envelope: found.envelope, expires: found.expires }
+      $('joinCodePassword').hidden = false
+      $('meetingCodeWordsInput').focus()
+      return
+    }
+    await openReturnedLink(found.link)
   } catch (err) {
     if (err instanceof MeetingCodeNetworkError) fail('The code could not be looked up. Check your connection, then retry.', true)
     else fail(err instanceof MeetingCodeError ? err.message : MEETING_CODE_UNKNOWN)
   } finally { button.disabled = false }
 }
+
+/** The words for a sealed code: open the envelope here, then the same door
+ *  as a plain code. A wrong word is only ever "do not match": no lockout
+ *  here, since the service's lookup budget already limits tries. */
+async function openCodeWithWords(value: string): Promise<void> {
+  const arrival = sealedArrival
+  if (!arrival) return
+  const field = $('meetingCodeWordsInput') as HTMLInputElement
+  const { fail } = joinCodeFeedback()
+  if (!value.trim()) { fail('Enter the password words you were given.', false, field); return }
+  if (!parsePasswordWords(value)) { fail(MEETING_CODE_WRONG_WORDS, false, field); return }
+  const button = $('joinCodeSubmit') as HTMLButtonElement
+  button.disabled = true
+  try {
+    const link = await openInvitation({ ...arrival, words: value })
+    hideCodePassword()
+    await openReturnedLink(link)
+  } catch (err) {
+    if (err instanceof WrongPasswordError) fail(MEETING_CODE_WRONG_WORDS, false, field)
+    else fail(err instanceof MeetingCodeError ? err.message : MEETING_CODE_UNKNOWN)
+  } finally { button.disabled = false }
+}
 $('joinCodeForm').addEventListener('submit', event => {
   event.preventDefault()
-  void joinWithCode(($('meetingCodeInput') as HTMLInputElement).value)
+  const value = ($('meetingCodeInput') as HTMLInputElement).value
+  if (sealedArrival && parseMeetingCode(value) === sealedArrival.code) void openCodeWithWords(($('meetingCodeWordsInput') as HTMLInputElement).value)
+  else void joinWithCode(value)
 })
 $('joinCodeRetry').addEventListener('click', () => { void joinWithCode(($('meetingCodeInput') as HTMLInputElement).value) })
 $('meetingCodeInput').addEventListener('input', () => {
   $('joinCodeError').hidden = true
   $('joinCodeRetry').hidden = true
   $('meetingCodeInput').removeAttribute('aria-invalid')
+  // Another code needs its own lookup, and its own words.
+  if (sealedArrival && parseMeetingCode(($('meetingCodeInput') as HTMLInputElement).value) !== sealedArrival.code) hideCodePassword()
+})
+$('meetingCodeWordsInput').addEventListener('input', () => {
+  $('joinCodeError').hidden = true
+  $('meetingCodeWordsInput').removeAttribute('aria-invalid')
 })
 $('url').addEventListener('input', () => {
   $('linkError').hidden = true
@@ -16180,15 +16249,33 @@ function meetingCodeOffered(): boolean {
   return meetingCodeEligible({ endsAt: roomEndsAt, now: nowSeconds() })
 }
 
+/** Whether the host has set Add a password by hand since the sheet opened;
+ *  until then it follows the room: on without a waiting room, off with one. */
+let meetingCodePasswordTouched = false
+
+function renderMeetingCodePassword(on: boolean): void {
+  setToggle('meetingCodePassword', on)
+  $('meetingCodePasswordNote').textContent = on
+    ? 'Guests also need four words you send separately. The code service keeps only a copy locked with them.'
+    : 'Anyone with the code gets the invite link, and the code service can read it.'
+}
+
 function renderMeetingCode(): void {
   const offered = meetingCodeOffered()
   $('meetingCodeRow').hidden = !offered
   const record = offered ? loadMeetingCode(deviceStore, deriveInvitationId(roomInvitationCapability!), nowSeconds()) : undefined
   $('meetingCodeShown').hidden = !record
   $('getMeetingCode').hidden = !!record
-  if (!record) return
+  $('meetingCodePasswordRow').hidden = !!record
+  if (!record) {
+    const roomId = currentRoomId()
+    if (offered && roomId && !meetingCodePasswordTouched) renderMeetingCodePassword(!knockOn(roomId))
+    return
+  }
   $('meetingCode').textContent = displayMeetingCode(record.code)
   ;($('meetingCodeLink') as HTMLInputElement).value = meetingCodeLink(record.code)
+  $('meetingCodeWordsRow').hidden = !record.words
+  $('meetingCodeWords').textContent = record.words ?? ''
   $('meetingCodeExpiry').textContent = `This code works until ${formatConferenceEnd(record.expires)}. Ending the room or making a new link stops it sooner.`
   $('shareMeetingCode').hidden = navigator.share === undefined
 }
@@ -16196,7 +16283,12 @@ function renderMeetingCode(): void {
 async function getMeetingCode(): Promise<void> {
   if (!meetingCodeOffered()) throw new Error('Only the browser that started this room can get a meeting code for it.')
   const invitation = roomInvitationCapability!, roomId = currentRoomId()!
-  const issued = await meetingCodes.create(($('shareUrl') as HTMLInputElement).value, meetingCodeExpiry(roomEndsAt, nowSeconds()))
+  const link = ($('shareUrl') as HTMLInputElement).value, expires = meetingCodeExpiry(roomEndsAt, nowSeconds())
+  // With a password the link is sealed here, under words the service never
+  // sees, and the words are kept with the code so this sheet can show them.
+  const issued = $('meetingCodePassword').dataset.on === 'true'
+    ? await issueSealedMeetingCode(meetingCodes, link, expires)
+    : await meetingCodes.create(link, expires)
   try {
     // The link may have been replaced while the service answered.
     if (roomInvitationCapability !== invitation) throw new Error('The room link changed. Get a new code for the new link.')
@@ -16211,10 +16303,17 @@ async function getMeetingCode(): Promise<void> {
 
 async function copyMeetingCode(): Promise<void> {
   const link = ($('meetingCodeLink') as HTMLInputElement).value
-  const text = `Meeting code ${$('meetingCode').textContent}: ${link}`
+  const words = $('meetingCodeWordsRow').hidden ? '' : $('meetingCodeWords').textContent ?? ''
+  // The link and the words on lines of their own, so either can be sent
+  // on its own; the words are meant to travel separately.
+  const text = words
+    ? `Meeting code ${$('meetingCode').textContent}: ${link}\nPassword words: ${words}`
+    : `Meeting code ${$('meetingCode').textContent}: ${link}`
   try {
     await navigator.clipboard.writeText(text)
-    $('meetingCodeStatus').textContent = 'Code and short link copied.'
+    $('meetingCodeStatus').textContent = words
+      ? 'Code, short link and password words copied, on separate lines. Send the words separately from the code.'
+      : 'Code and short link copied.'
   } catch {
     const input = $('meetingCodeLink') as HTMLInputElement
     input.focus(); input.select()
@@ -16302,15 +16401,19 @@ function roomWasClosed(notice: { by?: string; destruct?: true; refused?: true })
 }
 
 $('getMeetingCode').addEventListener('click', async () => {
-  const button = $('getMeetingCode') as HTMLButtonElement
-  button.disabled = true
-  $('meetingCodeStatus').textContent = ''
-  try { await getMeetingCode() }
+  const button = $('getMeetingCode') as HTMLButtonElement, password = $('meetingCodePassword') as HTMLButtonElement
+  button.disabled = true; password.disabled = true
+  $('meetingCodeStatus').textContent = password.dataset.on === 'true' ? 'Locking the invite link with four password words…' : ''
+  try { await getMeetingCode(); $('meetingCodeStatus').textContent = '' }
   catch (err) {
     $('meetingCodeStatus').textContent = err instanceof MeetingCodeNetworkError
       ? 'The meeting code service could not be reached. Check your connection and try again.'
       : describeError(err)
-  } finally { button.disabled = false }
+  } finally { button.disabled = false; password.disabled = false }
+})
+$('meetingCodePassword').addEventListener('click', () => {
+  meetingCodePasswordTouched = true
+  renderMeetingCodePassword($('meetingCodePassword').dataset.on !== 'true')
 })
 $('copyMeetingCode').addEventListener('click', () => { void copyMeetingCode() })
 $('shareMeetingCode').addEventListener('click', async () => {
@@ -18459,7 +18562,7 @@ armStopOpening()
 // wait for a returning account without delaying the first door paint.
 const roomArrival = Promise.resolve().then(roomFromLocation)
 // A meeting code End room, New link or Forget could not delete last time.
-void drainRetirements(deviceStore, meetingCodes, nowSeconds()).catch(() => {})
+drainMeetingCodeRetirements()
 roomArrival
   .finally(disarmStopOpening)
   .then((found) => {

@@ -27,15 +27,38 @@ async function device(browser: Browser, baseURL: string): Promise<BrowserContext
 
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', headers: { 'Cache-Control': 'no-store' }, body: JSON.stringify(body) })
 
-/** A code service answering lookups from a table, recording every request. */
-async function codeService(context: BrowserContext, lookups: Record<string, { status: number; body?: unknown }>): Promise<Request[]> {
+/** Envelopes uploaded to the mocked service, shared between a host's and a
+ *  guest's contexts as the real service's store would be. */
+type Vault = Map<string, { envelope: unknown; expires: number }>
+
+/** A code service answering lookups from a table, recording every request.
+ *  A sealed allocation is pending until its PUT, then answers its envelope. */
+async function codeService(context: BrowserContext, lookups: Record<string, { status: number; body?: unknown }>, vault: Vault = new Map()): Promise<Request[]> {
   const seen: Request[] = []
+  const pending = new Map<string, number>()
   await context.route(/\/codes(\/[^/?#]*)?$/, async route => {
     const request = route.request()
     seen.push(request)
     const code = new URL(request.url()).pathname.split('/')[2]
-    if (request.method() === 'POST') return route.fulfill(json(201, { code: 'K7M2Q9TX', expires: request.postDataJSON().expires, deleteToken: 'delete-token-1' }))
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON()
+      if (body.sealed === true) {
+        pending.set('K7M2Q9TX', body.expires)
+        return route.fulfill(json(201, { code: 'K7M2Q9TX', expires: body.expires, deleteToken: 'delete-token-1', uploadToken: 'upload-token-1' }))
+      }
+      return route.fulfill(json(201, { code: 'K7M2Q9TX', expires: body.expires, deleteToken: 'delete-token-1' }))
+    }
+    if (request.method() === 'PUT') {
+      const expires = code ? pending.get(code) : undefined
+      if (expires === undefined) return route.fulfill(json(404, {}))
+      if (request.headers().authorization !== 'Bearer upload-token-1') return route.fulfill(json(403, {}))
+      pending.delete(code!)
+      vault.set(code!, { envelope: request.postDataJSON().envelope, expires })
+      return route.fulfill({ status: 204, body: '' })
+    }
     if (request.method() === 'DELETE') return route.fulfill({ status: 204, body: '' })
+    const sealed = code ? vault.get(code) : undefined
+    if (sealed) return route.fulfill(json(200, sealed))
     const answer = (code && lookups[code]) || { status: 404, body: {} }
     return route.fulfill(json(answer.status, answer.body ?? {}))
   })
@@ -133,6 +156,8 @@ test('Get a meeting code is offered to the creator of any room, and End room del
     await expect(openPage.locator('#inviteDialog')).toBeVisible()
     await expect(openPage.locator('#copyShare')).toBeVisible()
     await expect(openPage.locator('#getMeetingCode')).toBeVisible()
+    // Without a waiting room, a password is on by default.
+    await expect(openPage.locator('#meetingCodePassword')).toHaveAttribute('data-on', 'true')
 
     // An Ask room is eligible, and stays so when the host lets anyone in.
     const ask = await device(browser, baseURL!); contexts.push(ask)
@@ -141,6 +166,8 @@ test('Get a meeting code is offered to the creator of any room, and End room del
     await startRoom(askPage, baseURL!, page => page.locator('#roomAsk').check())
     await askPage.locator('#invitePeople').click()
     await expect(askPage.locator('#getMeetingCode')).toBeVisible()
+    // Behind a waiting room, a password is off by default.
+    await expect(askPage.locator('#meetingCodePassword')).toHaveAttribute('data-on', 'false')
     // A full service says so, and the full link stays the way in.
     await ask.route('**/codes', route => route.fulfill({ status: 503, body: '' }))
     await askPage.locator('#getMeetingCode').click()
@@ -161,8 +188,12 @@ test('Get a meeting code is offered to the creator of any room, and End room del
     const link = await page.locator('#shareUrl').inputValue()
     await page.locator('#invitePeople').click()
     await expect(page.locator('#getMeetingCode')).toBeVisible()
+    // This one without a password: the service is given the link itself.
+    await page.locator('#meetingCodePassword').click()
+    await expect(page.locator('#meetingCodePassword')).toHaveAttribute('data-on', 'false')
     await page.locator('#getMeetingCode').click()
     await expect(page.locator('#meetingCode')).toHaveText('K7M-2Q9-TX')
+    await expect(page.locator('#meetingCodeWordsRow')).toBeHidden()
     await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
     await expect(page.locator('#meetingCodeExpiry')).toContainText('This code works until')
     await expect(page.locator('#getMeetingCode')).toBeHidden()
@@ -217,4 +248,97 @@ test('New link deletes the old code', async ({ browser, baseURL }) => {
     await expect(page.locator('#meetingCodeRow')).toBeHidden()
     await expect(page.locator('#endRoom')).toBeHidden()
   } finally { await context.close() }
+})
+
+test('a code with a password: the host gets words, the guest needs them to reach the door', async ({ browser, baseURL }) => {
+  const contexts: BrowserContext[] = []
+  try {
+    const vault: Vault = new Map()
+    const host = await device(browser, baseURL!); contexts.push(host)
+    await host.addInitScript(() => {
+      (window as unknown as { copied: string[] }).copied = []
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as unknown as { copied: string[] }).copied.push(text) } } })
+    })
+    const seen = await codeService(host, {}, vault)
+    const page = await host.newPage()
+    await startRoom(page, baseURL!, async () => {})
+    await page.locator('#invitePeople').click()
+    await expect(page.locator('#meetingCodePassword')).toHaveAttribute('data-on', 'true')
+    // The test app serves on localhost; a code's link must name a KithMoot
+    // origin, so the link being sealed is given one, with the same fragment.
+    const local = await page.locator('#shareUrl').inputValue()
+    const link = 'https://kithmoot.forgesworn.dev/j/' + new URL(local).hash
+    await page.locator('#shareUrl').evaluate((input, link) => { (input as HTMLInputElement).value = link }, link)
+    await page.locator('#getMeetingCode').click()
+    await expect(page.locator('#meetingCode')).toHaveText('K7M-2Q9-TX')
+    await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
+    await expect(page.locator('#meetingCodeWordsRow')).toBeVisible()
+    const words = (await page.locator('#meetingCodeWords').textContent())!
+    expect(words).toMatch(/^[a-z]+ [a-z]+ [a-z]+ [a-z]+$/)
+    await expect(page.locator('#meetingCodePasswordRow')).toBeHidden()
+
+    // The service was asked for a pending code, then given only an envelope.
+    const post = seen.find(r => r.method() === 'POST')!
+    expect(Object.keys(post.postDataJSON()).sort()).toEqual(['expires', 'sealed'])
+    expect(post.postDataJSON().sealed).toBe(true)
+    const put = seen.find(r => r.method() === 'PUT')!
+    expect(new URL(put.url()).pathname).toBe('/codes/K7M2Q9TX')
+    expect(await put.headerValue('authorization')).toBe('Bearer upload-token-1')
+    const uploaded = JSON.stringify(put.postDataJSON())
+    expect(Object.keys(put.postDataJSON().envelope).sort()).toEqual(['ciphertext', 'nonce', 'salt', 'v'])
+    expect(uploaded).not.toContain(new URL(link).hash.slice(1, 20))
+    expect(uploaded).not.toContain(words.split(' ')[0])
+    for (const r of seen) expect(r.postData() ?? '').not.toContain(new URL(link).hash.slice(1, 20))
+
+    // Kept with the host's code record, so the sheet shows them again.
+    const stored = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.meeting-code.v1.')).map(k => localStorage.getItem(k)))
+    expect(JSON.parse(stored[0]!)).toMatchObject({ code: 'K7M2Q9TX', words })
+    await page.locator('#inviteClose').click()
+    await page.locator('#invitePeople').click()
+    await expect(page.locator('#meetingCodeWords')).toHaveText(words)
+
+    // Copy puts the link and the words on lines of their own.
+    await page.locator('#copyMeetingCode').click()
+    await expect(page.locator('#meetingCodeStatus')).toContainText('Send the words separately')
+    const copied = await page.evaluate(() => (window as unknown as { copied: string[] }).copied)
+    expect(copied.at(-1)!.split('\n')).toEqual(['Meeting code K7M-2Q9-TX: https://kithmoot.app/c/K7M2Q9TX', `Password words: ${words}`])
+
+    // The guest: the code asks for words, a wrong set is refused, the right
+    // set (typed any accepted way) reaches the door and no further.
+    const guest = await device(browser, baseURL!); contexts.push(guest)
+    const guestSeen = await codeService(guest, {}, vault)
+    const door = await guest.newPage()
+    await door.goto(baseURL!)
+    await expect(door.locator('#home')).toBeVisible()
+    await joinWithCode(door, 'k7m-2q9-tx')
+    await expect(door.locator('#joinCodePassword')).toBeVisible()
+    await expect(door.locator('label[for="meetingCodeWordsInput"]')).toHaveText('Enter the password words you were given')
+    await expect(door.locator('#meetingCodeWordsInput')).toBeFocused()
+    await expect(door.locator('#join')).toBeHidden()
+
+    const wrong = words.split(' ').reverse().join(' ') === words ? 'ability zoo jasmine forget' : words.split(' ').reverse().join(' ')
+    await door.locator('#meetingCodeWordsInput').fill(wrong)
+    await door.locator('#meetingCodeWordsInput').press('Enter')
+    await expect(door.locator('#joinCodeError')).toHaveText('Those words do not match. Check them and try again.')
+    await expect(door.locator('#home')).toBeVisible()
+    await expect(door.locator('#join')).toBeHidden()
+    // A misspelt word is not corrected either.
+    await door.locator('#meetingCodeWordsInput').fill(words.replace(/^./, c => c === 'q' ? 'z' : 'q'))
+    await door.locator('#meetingCodeWordsInput').press('Enter')
+    await expect(door.locator('#joinCodeError')).toHaveText('Those words do not match. Check them and try again.')
+
+    await door.locator('#meetingCodeWordsInput').fill(`  ${words.toUpperCase().replaceAll(' ', '-')} `)
+    await door.locator('#meetingCodeWordsInput').press('Enter')
+    await expect(door.locator('#join')).toBeVisible()
+    expect(new URL(door.url()).hash).toBe(new URL(link).hash)
+    await expect(door.locator('#roomArea')).toBeHidden()
+    await expect(door.locator('#joinMic')).not.toBeChecked()
+    await expect(door.locator('#joinCamera')).not.toBeChecked()
+    // One lookup: the words were tried here, not at the service.
+    expect(guestSeen.map(r => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual(['GET /codes/K7M2Q9TX'])
+    // Nothing of the words is kept on the guest.
+    const kept = await door.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))
+    for (const word of words.split(' ')) expect(kept.toLowerCase()).not.toContain(` ${word} `)
+    expect(kept.toLowerCase()).not.toContain(words)
+  } finally { await Promise.all(contexts.map(context => context.close())) }
 })
