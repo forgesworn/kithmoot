@@ -11,7 +11,7 @@
 //   POST   /codes          {link, expires} -> 201 {code, expires, deleteToken}
 //   GET    /codes/<code>   200 {link, expires} | 410 {state: "ended"} | 404
 //   DELETE /codes/<code>   Authorization: Bearer <deleteToken> -> 204 | 403 | 404
-//   GET    /codes/health   200
+//   GET    /codes/health   200, loopback only: Caddy does not forward it
 //
 // Plain Node with no dependencies and no build step, the same shape as
 // server/turn-credentials.mjs: `node server/meeting-codes.mjs` with
@@ -46,7 +46,11 @@ export const CODE_LENGTH = 8
 export const ALLOWED_ORIGINS = Object.freeze(['https://kithmoot.forgesworn.dev', 'https://kithmoot.app'])
 const LINK_PREFIXES = ALLOWED_ORIGINS.map((origin) => `${origin}/j/`)
 
-export const MAX_RECORDS = 20_000
+export const MAX_LIVE = 20_000
+export const MAX_TOMBSTONES = 200_000
+// Service-wide, on top of the per-address limits: at most this many codes
+// created in any rolling 24 hours, whoever asks.
+export const MAX_CREATED_PER_DAY = 2_000
 export const MAX_BODY_BYTES = 8 * 1024
 export const MAX_LINK_LENGTH = 4096
 export const MAX_LIFETIME_SECONDS = 7 * 24 * 60 * 60
@@ -382,14 +386,20 @@ export function loadConfigFromEnv(env = process.env) {
  * Builds the service. Does not listen; main() or a test decides where.
  *
  * config: storePath (required); now() in milliseconds (default Date.now);
- * log(line) (default stderr); maxRecords (default 20,000); fs and random for
+ * log(line) (default stderr); maxLive (20,000), maxTombstones (200,000) and
+ * maxCreatedPerDay (2,000); fs and random for
  * tests. Every expiry, sweep and rate window reads now(), so a test can move
  * time without sleeping.
  */
 export function createMeetingCodesServer(config) {
   const now = config.now ?? Date.now
   const log = config.log ?? ((line) => process.stderr.write(`${line}\n`))
-  const maxRecords = config.maxRecords ?? MAX_RECORDS
+  const maxLive = config.maxLive ?? MAX_LIVE
+  const maxTombstones = config.maxTombstones ?? MAX_TOMBSTONES
+  const maxCreatedPerDay = config.maxCreatedPerDay ?? MAX_CREATED_PER_DAY
+  // Creation times in the last 24 hours, oldest first. In memory only, so a
+  // restart forgets it; at most maxCreatedPerDay entries.
+  const created = []
   const random = config.random ?? randomBytes
   const store = createStore(config.storePath, { fs: config.fs ?? nodeFs })
   const records = store.load()
@@ -501,9 +511,19 @@ export function createMeetingCodesServer(config) {
     const t = nowSeconds()
     if (!validExpires(body.expires, t)) return send(res, 400, { error: 'invalid expires' })
 
-    // Live and tombstones together: a full store refuses rather than evict a
-    // live code or forget a tombstone early.
-    if (records.size >= maxRecords) return send(res, 503, { error: 'store full' })
+    // Each bound refuses rather than evict a live code or forget a tombstone
+    // early. A live code past its expiry still counts as live until the
+    // sweep turns it into a tombstone.
+    let live = 0
+    for (const r of records.values()) if (r.state === 'live') live++
+    if (live >= maxLive || records.size - live >= maxTombstones) {
+      return send(res, 503, { error: 'store full' })
+    }
+    // 503, not 429: the cap is the service's, not this caller's, and a
+    // client shows 429 as "wait a minute", which would not be true.
+    const dayAgo = now() - DAY
+    while (created.length > 0 && created[0] <= dayAgo) created.shift()
+    if (created.length >= maxCreatedPerDay) return send(res, 503, { error: 'daily creation limit reached' })
 
     let code = null
     for (let i = 0; i < GENERATE_ATTEMPTS && code === null; i++) {
@@ -521,6 +541,7 @@ export function createMeetingCodesServer(config) {
       state: 'live',
     }
     commit((m) => m.set(code, record))
+    created.push(now())
     send(res, 201, { code, expires: record.expires, deleteToken })
   }
 
@@ -582,6 +603,13 @@ export function createMeetingCodesServer(config) {
     res.locals = { route: `${req.method} ${route}` }
 
     if (route === 'other') return send(res, 404, { error: 'not found' })
+    // Health is for `curl http://127.0.0.1:8094/codes/health` on the box.
+    // Caddy does not forward it (deploy/Caddyfile.kithmoot); should that
+    // ever change, anything carrying X-Forwarded-For came through a proxy
+    // and is answered as if the path did not exist.
+    if (route === '/codes/health' && req.headers['x-forwarded-for'] !== undefined) {
+      return send(res, 404, { error: 'not found' })
+    }
     if (!applyCors(req, res)) return send(res, 403, { error: 'origin not allowed' })
 
     if (req.method === 'OPTIONS') {
