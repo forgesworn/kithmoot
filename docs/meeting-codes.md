@@ -78,7 +78,10 @@ bounded to 20,000 live codes and 200,000 tombstones (a tombstone keeps only
 code, expiry, token hash and state, never the link); a full store refuses
 creation rather than evicting anything. A live code past its expiry is
 answered as ended at once; records are swept 30 days after expiry, on a timer
-and at start.
+and at start. The per-address limits below trust the last `X-Forwarded-For`
+hop, which is the visitor's own address only while `kithmoot.forgesworn.dev`
+stays grey-cloud (DNS-only) on Cloudflare; proxying it would put every
+visitor in one shared budget.
 
 Each record: canonical code, the invitation link, `expires` (Unix seconds),
 `deleteTokenHash` (SHA-256 of a 32-byte random token), `state` (`live` or
@@ -98,7 +101,7 @@ credentials or other path; `expires` is a safe integer with
 `now < expires <= now + 7 days`. The service does not parse invitations; the
 client decides eligibility (see below).
 
-Creation is also capped service-wide at 2,000 codes a day. Abuse limits, in memory, keyed by a salted hash of the client address (Caddy's
+Creation is also capped service-wide at 2,000 codes in any rolling 24 hours, answered `503`. Abuse limits, in memory, keyed by a salted hash of the client address (Caddy's
 `X-Forwarded-For`, salt random per process, never written to disk): creation
 10 a minute and 100 a day; lookups 30 a minute; misses (404) 10 a minute and
 50 an hour, after which lookups from that address answer `429` until the
