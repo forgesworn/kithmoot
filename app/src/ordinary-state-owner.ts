@@ -1,5 +1,8 @@
 import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
-  type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
+  ordinaryPrivateForegroundCurrent, ordinaryPrivateForegroundDeadline,
+  type OrdinaryPrivateForegroundAuthority, type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
+import type { OrdinaryPrivateRenewalFactory } from './ordinary-private-renewal.js'
+import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
 import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
@@ -93,6 +96,9 @@ export interface OrdinaryPrivateMemberNative { readonly [privateMemberNativeBran
  * A later settled-member handoff must replace the whole epoch in its own
  * acknowledged synchronous adoption block; no token consumer can assign it. */
 interface PrivateMemberNative {
+  readonly capture: PrivateExistingCapture
+  readonly foregroundScopes: () => readonly [OrdinaryScope, OrdinaryScope] | undefined
+  readonly renewal: { claimed: boolean }
   readonly live: () => boolean
   readonly validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => void
   readonly epoch: { current: Readonly<{
@@ -103,6 +109,71 @@ interface PrivateMemberNative {
   }> }
 }
 const privateMemberNatives = new WeakMap<object, PrivateMemberNative>()
+declare const privateRenewalClaimBrand: unique symbol
+export interface OrdinaryPrivateRenewalFactoryClaim { readonly [privateRenewalClaimBrand]: true }
+declare const privateRenewalWitnessBrand: unique symbol
+export interface OrdinaryPrivateRenewalIntentWitness { readonly [privateRenewalWitnessBrand]: true }
+interface PrivateRenewalFactoryState {
+  readonly native: OrdinaryPrivateMemberNative
+  readonly foreground: OrdinaryPrivateForegroundAuthority
+  readonly member: PrivateMemberNative
+  readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
+  readonly foregroundExpiresAt: number | null
+  closed: boolean
+}
+const privateRenewalFactoryClaims = new WeakMap<object, OrdinaryPrivateRenewalFactory>()
+const privateRenewalFactories = new WeakMap<object, PrivateRenewalFactoryState>()
+const privateRenewalIntentWitnesses = new WeakMap<object, Readonly<{
+  factory: OrdinaryPrivateRenewalFactory; root: ProtocolExecution; intent: OrdinaryRenewalIntent
+}>>()
+async function privateRenewalIntentModules() {
+  const [proof, snapshot, lease, devices, rooms, seal, session] = await Promise.all([
+    import('./persistent-admission-proof.js'), import('./ordinary-snapshot.js'), import('./ordinary-member-lease.js'),
+    import('./device-store.js'), import('./rooms-store.js'), import('../../src/seal.js'), import('../../src/session.js'),
+  ])
+  return {proof, snapshot, lease, devices, rooms, seal, session}
+}
+/** Fixed registry consumer only. The one-use claim is spent before any
+ * liveness check; only opaque component identities leave this owner. */
+export function takeOrdinaryPrivateRenewalFactoryClaim(claim: OrdinaryPrivateRenewalFactoryClaim): Readonly<{
+  factory: OrdinaryPrivateRenewalFactory; native: OrdinaryPrivateMemberNative; foreground: OrdinaryPrivateForegroundAuthority
+}> {
+  const factory = privateRenewalFactoryClaims.get(claim)
+  if (!factory) hold()
+  privateRenewalFactoryClaims.delete(claim)
+  const value = privateRenewalFactories.get(factory)
+  if (!value || !ordinaryPrivateRenewalFactoryCurrent(factory)) hold()
+  return Object.freeze({ factory, native: value.native, foreground: value.foreground })
+}
+/** Memory-only ownership restriction; never native phase or member authority. */
+export function ordinaryPrivateRenewalFactoryCurrent(factory: OrdinaryPrivateRenewalFactory): boolean {
+  const value = privateRenewalFactories.get(factory)
+  return !!value && !value.closed && value.member.live() &&
+    ordinaryPrivateForegroundCurrent(value.foreground, value.native,
+      value.member.epoch.current.selection.participant, value.foregroundExpiresAt) && !value.closed && value.member.live()
+}
+/** Component cleanup only. No parent close, storage mutation or epoch update. */
+export function stopOrdinaryPrivateRenewalFactory(factory: OrdinaryPrivateRenewalFactory): void {
+  const value = privateRenewalFactories.get(factory)
+  if (value) value.closed = true
+}
+let preparePrivateRenewalIntent!: (factory: OrdinaryPrivateRenewalFactory, root: ProtocolExecution,
+  desired: Readonly<{ issuedAt: number; expiresAt: number; semanticDigest: string }>) => Promise<OrdinaryPrivateRenewalIntentWitness>
+export function prepareOrdinaryPrivateRenewalIntent(factory: OrdinaryPrivateRenewalFactory, root: ProtocolExecution,
+  desired: Readonly<{ issuedAt: number; expiresAt: number; semanticDigest: string }>): Promise<OrdinaryPrivateRenewalIntentWitness> {
+  return preparePrivateRenewalIntent(factory, root, desired)
+}
+/** Acknowledged intent witness only. Enrollment must authenticate P again;
+ * neither this take nor a lifecycle root grants any phase or signer. */
+export function takeOrdinaryPrivateRenewalIntent(factory: OrdinaryPrivateRenewalFactory, root: ProtocolExecution,
+  witness: OrdinaryPrivateRenewalIntentWitness): OrdinaryRenewalIntent {
+  const value = privateRenewalIntentWitnesses.get(witness)
+  if (!value) hold()
+  privateRenewalIntentWitnesses.delete(witness)
+  if (value.factory !== factory || value.root !== root || !ordinaryPrivateRenewalFactoryCurrent(factory)) hold()
+  verifyOrdinaryLifecycleRoot(root)
+  return value.intent
+}
 /** Memory liveness only. No provider, SDK, owner or selector is unpacked. */
 export function ordinaryPrivateMemberNativeCurrent(token: OrdinaryPrivateMemberNative): boolean {
   return privateMemberNatives.get(token)?.live() === true
@@ -135,6 +206,7 @@ interface PrivateForegroundBinding {
     work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T) => Promise<T>
   readonly joinForeground: <T>(pending: Promise<T>) => Promise<T>
   readonly assertForegroundProvider: () => void
+  readonly prepareRenewalFactory: (foreground: OrdinaryPrivateForegroundAuthority) => Promise<OrdinaryPrivateRenewalFactoryClaim>
 }
 const privateForegroundClaims = new WeakMap<object, Readonly<{
   provider: PrivateExistingProvider; binding: PrivateForegroundBinding
@@ -588,6 +660,11 @@ export class OrdinaryStateOwner {
    * The encrypted frames never escape; their digests freeze the original P
    * transaction independently of later semantic reconstruction. */
   static captureRenewalPredecessor(custody: OrdinaryPairCustody): Readonly<{
+    frames:readonly [string,string]; controlDigest:string|null; markers:readonly [string|null,string|null]
+  }> {
+    return OrdinaryStateOwner.#captureRenewalPredecessor(custody)
+  }
+  static #captureRenewalPredecessor(custody: OrdinaryPairCustody): Readonly<{
     frames:readonly [string,string]; controlDigest:string|null; markers:readonly [string|null,string|null]
   }> {
     const captured=pairCustody.get(custody)
@@ -1207,6 +1284,7 @@ export class OrdinaryStateOwner {
         }
         const native = Object.freeze({}) as OrdinaryPrivateMemberNative
         const member: PrivateMemberNative = Object.freeze({
+          capture, foregroundScopes: () => scopes, renewal: { claimed: false },
           live,
           epoch: { current: Object.freeze({ selection: capture.selection, rows: capture.rows,
             revisions: capture.revisions, generations: capture.generations }) },
@@ -1254,6 +1332,7 @@ export class OrdinaryStateOwner {
           },
           joinForeground: <T>(pending: Promise<T>) => OrdinaryStateOwner.#joinPairLifetime(capture.browser, capture.tab, pending),
           assertForegroundProvider: provider.assertForegroundProvider,
+          prepareRenewalFactory: (foreground: OrdinaryPrivateForegroundAuthority) => OrdinaryStateOwner.#preparePrivateRenewalFactory(native, foreground),
         })
         let opening: Promise<OrdinaryPrivateForegroundResource> | undefined
         await provider.freshControl(() => {
@@ -1280,6 +1359,209 @@ export class OrdinaryStateOwner {
         throw new OrdinaryStateHold()
       }
     }))
+  }
+  /** Fixed future FG-to-bootstrap continuation. The private FG binding alone
+   * carries this closed edge; no exported caller can choose an owner or scope. */
+  static #preparePrivateRenewalFactory(native: OrdinaryPrivateMemberNative,
+    foreground: OrdinaryPrivateForegroundAuthority): Promise<OrdinaryPrivateRenewalFactoryClaim> {
+    const member = privateMemberNatives.get(native)
+    if (!member || member.renewal.claimed || !member.live() ||
+        !ordinaryPrivateForegroundCurrent(foreground, native, member.epoch.current.selection.participant)) {
+      return Promise.reject(new OrdinaryStateHold())
+    }
+    member.renewal.claimed = true
+    const capture = member.capture, provider = privateExistingProviders.get(capture.root)
+    if (!provider || provider.capture !== capture) return Promise.reject(new OrdinaryStateHold())
+    const live = () => member.live() && ordinaryPrivateForegroundCurrent(foreground, native, member.epoch.current.selection.participant) && member.live()
+    let createdFactory: OrdinaryPrivateRenewalFactory | undefined, createdClaim: OrdinaryPrivateRenewalFactoryClaim | undefined
+    const check = () => { if (!live()) hold() }
+    const clients = async () => { check(); await capture.binding.assertClientsCurrent(); check() }
+    const operation = Promise.resolve().then(async () => {
+      await clients(); check()
+      const selection = member.epoch.current.selection, name = 'invitation:' + selection.participant + ':' + selection.invitationId
+      const browserScope = await capture.browser.#capture(name, live); check()
+      const tabScope = await capture.tab.#capture(name, live); check()
+      await clients(); check()
+      const scopes = Object.freeze([browserScope, tabScope]) as readonly [OrdinaryScope, OrdinaryScope]
+      const claim = await OrdinaryStateOwner.#readPairMigrated({
+        browser: {owner: capture.browser, scope: browserScope}, tab: {owner: capture.tab, scope: tabScope}, live,
+        work: (browser, tab, _bn, _tn, custody) => {
+          OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, browser, tab, custody)
+          const foregroundExpiresAt = ordinaryPrivateForegroundDeadline(foreground, native, browser, tab, custody, selection.participant)
+          OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, browser, tab, custody)
+          if (!live()) hold()
+          const factory = Object.freeze({}) as OrdinaryPrivateRenewalFactory
+          privateRenewalFactories.set(factory, {native, foreground, member, scopes, foregroundExpiresAt, closed: false})
+          const claim = Object.freeze({}) as OrdinaryPrivateRenewalFactoryClaim
+          privateRenewalFactoryClaims.set(claim, factory)
+          createdFactory = factory; createdClaim = claim
+          return claim
+        },
+      })
+      check(); await clients(); check()
+      // This is ownership data only. Future E/P/C/S consumers owe their own
+      // fresh client probes and genuine native decisions before any effect.
+      return claim
+    }).catch(() => {
+      if (createdClaim) privateRenewalFactoryClaims.delete(createdClaim)
+      if (createdFactory) stopOrdinaryPrivateRenewalFactory(createdFactory)
+      throw new OrdinaryStateHold()
+    })
+    return provider.trackControl(operation)
+  }
+  /** Scope and initial epoch authentication only. No caller-supplied store
+   * method is touched until the exact genuine native views have been proved. */
+  static #validatePrivateRenewalRead(member: PrivateMemberNative, scopes: readonly [OrdinaryScope, OrdinaryScope],
+    browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void {
+    const read = pairCustody.get(custody), capture = member.capture, foreground = member.foregroundScopes()
+    if (!member.live() || !foreground || read?.kind !== 'read' || read.browserStore !== browser || read.tabStore !== tab ||
+        read.browserOwner !== capture.browser || read.tabOwner !== capture.tab || !read.rows ||
+        read.rows.some((value, index) => rowDigest(value) !== member.epoch.current.rows[index])) hold()
+    for (const pair of [scopes, foreground]) OrdinaryStateOwner.#validatePairBinding(custody, {
+      browser: {owner: capture.browser, scope: pair[0]}, tab: {owner: capture.tab, scope: pair[1]}, live: member.live,
+    })
+  }
+  static {
+    preparePrivateRenewalIntent = (factory, root, desired) => this.#preparePrivateRenewalIntent(factory, root, desired)
+  }
+  static #preparePrivateRenewalIntent(factory: OrdinaryPrivateRenewalFactory, root: ProtocolExecution,
+    desired: Readonly<{issuedAt: number; expiresAt: number; semanticDigest: string}>): Promise<OrdinaryPrivateRenewalIntentWitness> {
+    const value = privateRenewalFactories.get(factory)
+    if (!value || !ordinaryPrivateRenewalFactoryCurrent(factory)) return Promise.reject(new OrdinaryStateHold())
+    verifyOrdinaryLifecycleRoot(root)
+    const {member} = value, {browser, tab} = member.capture
+    let createdWitness: OrdinaryPrivateRenewalIntentWitness | undefined
+    const pending = Promise.resolve().then(async () => {
+      const live = () => ordinaryPrivateRenewalFactoryCurrent(factory)
+      const check = () => { verifyOrdinaryLifecyclePromise(root, pending); if (!live()) hold() }
+      const clients = async () => { check(); await member.capture.binding.assertClientsCurrent(); check() }
+      check()
+      const modules = await privateRenewalIntentModules(); check()
+      await clients(); check()
+      const witness = await OrdinaryStateOwner.#readPairMigrated({
+        browser: {owner: browser, scope: value.scopes[0]}, tab: {owner: tab, scope: value.scopes[1]}, live,
+        work: (b, t, _bn, _tn, custody) => {
+          check(); OrdinaryStateOwner.#validatePrivateRenewalRead(member, value.scopes, b, t, custody)
+          const intent = OrdinaryStateOwner.#derivePrivateRenewalIntent(value, b, t, custody, desired, modules)
+          OrdinaryStateOwner.#validatePrivateRenewalRead(member, value.scopes, b, t, custody); check()
+          const witness = Object.freeze({}) as OrdinaryPrivateRenewalIntentWitness
+          privateRenewalIntentWitnesses.set(witness, Object.freeze({factory, root, intent}))
+          createdWitness = witness
+          return witness
+        },
+      })
+      check(); await clients(); check()
+      return witness
+    }).catch(() => {
+      if (createdWitness) privateRenewalIntentWitnesses.delete(createdWitness)
+      throw new OrdinaryStateHold()
+    })
+    browser.#track(pending); tab.#track(pending)
+    try { root.retain(pending); verifyOrdinaryLifecyclePromise(root, pending) }
+    catch { void pending.catch(() => {}); return Promise.reject(new OrdinaryStateHold()) }
+    return pending
+  }
+  /** The private factory's complete predecessor/source intent is derived here, with actual
+   * owner/scope/epoch bindings still local to this module. Desired times are
+   * data only and are captured after genuine native custody has been proved. */
+  static #derivePrivateRenewalIntent(value: PrivateRenewalFactoryState, browser: DeviceStore, tab: DeviceStore,
+    custody: OrdinaryPairCustody, input: Readonly<{issuedAt: number; expiresAt: number; semanticDigest: string}>,
+    modules: Awaited<ReturnType<typeof privateRenewalIntentModules>>): OrdinaryRenewalIntent {
+    const {proof: proofs, snapshot, lease, devices, rooms, seal, session} = modules
+    const {member} = value, selection = member.epoch.current.selection, capture = member.capture
+    OrdinaryStateOwner.#validatePrivateRenewalRead(member, value.scopes, browser, tab, custody)
+    if (!input || Object.getPrototypeOf(input) !== Object.prototype) hold()
+    const fields = Object.getOwnPropertyDescriptors(input), names = Reflect.ownKeys(fields)
+    if (names.length !== 3 || names.some(name => !['issuedAt', 'expiresAt', 'semanticDigest'].includes(String(name))) ||
+        names.some(name => !Object.hasOwn(fields[name as string]!, 'value'))) hold()
+    const desired = {issuedAt: fields.issuedAt!.value as number, expiresAt: fields.expiresAt!.value as number,
+      semanticDigest: fields.semanticDigest!.value as string}
+    OrdinaryStateOwner.#validatePrivateRenewalRead(member, value.scopes, browser, tab, custody)
+    const b = new Map(browser.keys().map(name => [name, browser.get(name)!])), t = new Map(tab.keys().map(name => [name, tab.get(name)!]))
+    const checked = proofs.inspectPersistentAdmissionProofs(browser, tab)
+    try {
+      const headers = ordinaryPairReadCustodyFor(custody, b, t)
+      snapshot.validateOrdinarySnapshot(b, t, {browser: true, tab: true}, snapshot.captureOrdinarySnapshotContext(b, t, custody))
+      const prefix = proofs.accountPrefix(selection.participant)
+      const found = checked.selected.get(prefix + proofs.PERSISTENT_TAB_PROOF_V2_PREFIX + selection.invitationId)
+      if (!found) hold()
+      const proof = found.proof, bound = proof.binding
+      if (proof.version !== 2 || bound.account !== selection.account || bound.participant !== selection.participant ||
+          bound.invitationId !== selection.invitationId || bound.roomId !== selection.roomId || proof.kept.enabled !== selection.keep ||
+          bound.operation !== selection.proofOperation || JSON.stringify(bound.browser) !== JSON.stringify(value.scopes[0]) ||
+          JSON.stringify(bound.tab) !== JSON.stringify({...value.scopes[1], purpose: capture.tab.purpose, expiresAt: capture.tab.expiresAt}) ||
+          headers.browser.generation !== bound.browser.generation || headers.tab.generation !== bound.tab.generation) hold()
+      const metadata = browser.get(prefix + rooms.ROOM_PREFIX + bound.roomId)
+      if (metadata === null) hold()
+      const room = JSON.parse(metadata)
+      if (room.link !== selection.link || room.keep !== selection.keep || room.endedAt !== undefined) hold()
+      const foreground = ordinaryPrivateForegroundDeadline(value.foreground, value.native, browser, tab, custody, selection.participant)
+      if (foreground !== value.foregroundExpiresAt) hold()
+      const owner = selection.keep ? browser : tab, raw = owner.get(prefix + devices.OWN_CREDENTIAL_PREFIX + bound.roomId),
+        seals = owner.get(prefix + devices.OWN_SEAL_PREFIX + bound.roomId)
+      if (raw === null || seals === null || bound.device.credentialIds.length !== 1) hold()
+      const credential = lease.ordinaryMemberLeaseCredential(proof, bound.device.credentialIds[0]!)
+      if (JSON.stringify(credential) !== raw || Number(credential.tags[2]![1]) !== selection.credentialExpiresAt) hold()
+      const authority = Object.freeze({tabExpiresAt: capture.tab.expiresAt, admissionEndsAt: found.admission.endsAt ?? null,
+        foregroundExpiresAt: foreground, membershipEndsAt: null})
+      const leaseRaw = tab.get(lease.ordinaryMemberLeaseName(bound)), currentLease = leaseRaw === null ? undefined : lease.readOrdinaryMemberLease(leaseRaw, JSON.stringify(proof))
+      if ((currentLease?.header.operation ?? null) !== selection.memberLeaseOperation) hold()
+      const bootstrap = currentLease ? JSON.parse(currentLease.bootstrapProof) : proof
+      const first = lease.ordinaryMemberLeaseCredential(bootstrap, bootstrap.binding.device.credentialIds[0]!), firstExpiry = Number(first.tags[2]![1])
+      if (firstExpiry !== capture.selection.bootstrapCredentialExpiresAt ||
+          selection.bootstrapCredentialExpiresAt !== capture.selection.bootstrapCredentialExpiresAt) hold()
+      const previous = currentLease?.header ?? lease.makeOrdinaryMemberLeaseHeader({sequence: 0, bootstrap: bound.operation, predecessor: null,
+        proof: bound.operation, credential: credential.id, seal: seal.credentialSeal(credential)!, issuedAt: credential.created_at,
+        expiresAt: Number(credential.tags[2]![1]), authority, source: lease.ordinaryMemberLeaseSource(browser, tab, custody)})
+      if (JSON.stringify(previous.authority) !== JSON.stringify(authority) || previous.credential !== credential.id ||
+          !Number.isSafeInteger(previous.sequence + 1) || !Number.isSafeInteger(desired.issuedAt) || desired.issuedAt <= credential.created_at ||
+          desired.issuedAt > Math.floor(Date.now() / 1000) ||
+          desired.expiresAt !== Math.min(desired.issuedAt + firstExpiry - first.created_at, lease.ordinaryMemberAuthorityUntil(authority)) ||
+          desired.expiresAt <= previous.expiresAt || desired.expiresAt - Math.floor(Date.now() / 1000) < session.RESUME_MIN_REMAINING_SECONDS) hold()
+      // Reserve pruning and exact credential/proof/lease dimensions without
+      // allocating an operation id, seal, AEAD nonce or provider attempt.
+      const retained = JSON.parse(seals) as string[], pruned = retained.length < 128 ? [...retained] : retained.slice(-127)
+      const probeB = new Map(b), probeT = new Map(t)
+      try {
+        (selection.keep ? probeB : probeT).set(prefix + devices.OWN_SEAL_PREFIX + bound.roomId, JSON.stringify(pruned))
+        snapshot.validateOrdinarySnapshot(probeB, probeT, {browser: true, tab: true},
+          snapshot.captureOrdinaryProjectedSnapshotContext(b, t, custody, probeB, probeT))
+        const zero = '0'.repeat(64), candidateCredential = {kind: 20460, created_at: desired.issuedAt, tags: [['d', bound.roomId],
+          ['device', bound.device.pubkey], ['expiration', String(desired.expiresAt)], ['seal', zero]], content: '',
+          pubkey: selection.participant, id: zero, sig: zero + zero}
+        const projectedOwner = selection.keep ? probeB : probeT
+        projectedOwner.set(prefix + devices.OWN_CREDENTIAL_PREFIX + bound.roomId, JSON.stringify(candidateCredential))
+        projectedOwner.set(prefix + devices.OWN_SEAL_PREFIX + bound.roomId, JSON.stringify([...pruned, zero]))
+        const next = {...proof, binding: {...bound, device: {...bound.device, credentialIds: [zero],
+          credentials: [JSON.stringify(candidateCredential)], seals: [zero], recordsHash: zero}, operation: zero}}
+        if (selection.keep) probeB.set(proofs.persistentProofName(next.binding), JSON.stringify(next))
+        probeT.set(proofs.persistentTabProofName(next.binding), proofs.tabProofBytes(next))
+        const projectedLease = JSON.stringify({version: 1, domain: 'kithmoot/member-lease/v1', header: {
+          sequence: previous.sequence + 1, bootstrap: previous.bootstrap, predecessor: previous.operation, proof: zero, credential: zero,
+          seal: zero, issuedAt: desired.issuedAt, expiresAt: desired.expiresAt, authority,
+          source: lease.ordinaryMemberLeaseSource(browser, tab, custody), operation: zero},
+          bootstrapProof: currentLease?.bootstrapProof ?? JSON.stringify(proof), predecessorProof: JSON.stringify(proof), predecessorHeader: previous})
+        probeT.set(lease.ordinaryMemberLeaseName(bound), projectedLease)
+        if (selection.keep) probeB.set(lease.ordinaryMemberLeaseName(bound), projectedLease)
+        ordinaryPairRenewalByteLengths(custody, b, t, {browser: probeB, tab: probeT})
+      } finally { probeB.clear(); probeT.clear() }
+      const semanticDigest = ordinaryPairPredecessorSemanticDigestFor(custody, b, t)
+      if (semanticDigest !== desired.semanticDigest) hold()
+      const predecessor = OrdinaryStateOwner.#captureRenewalPredecessor(custody), epoch = bound.device.epochs.find(v => v.epoch === bound.device.epoch)
+      if (!epoch) hold()
+      OrdinaryStateOwner.#validatePrivateRenewalRead(member, value.scopes, browser, tab, custody)
+      if (ordinaryPrivateForegroundDeadline(value.foreground, value.native, browser, tab, custody, selection.participant) !== foreground) hold()
+      OrdinaryStateOwner.#validatePrivateRenewalRead(member, value.scopes, browser, tab, custody)
+      const linkBytes = new TextEncoder().encode(selection.link)
+      let linkDigest: string
+      try { linkDigest = bytesToHex(sha256(linkBytes)) } finally { linkBytes.fill(0) }
+      return Object.freeze({account: selection.account, participant: selection.participant, invitationId: selection.invitationId,
+        roomId: bound.roomId, keep: selection.keep, device: bound.device.pubkey, credential: credential.id, proof: bound.operation,
+        bootstrap: previous.bootstrap, predecessor: previous.operation, leaseSequence: previous.sequence, epoch: bound.device.epoch,
+        epochId: epoch.id, linkDigest, issuedAt: desired.issuedAt,
+        expiresAt: desired.expiresAt, authority, semanticDigest, sourceRevisions: Object.freeze([headers.browser.revision, headers.tab.revision]) as readonly [number, number],
+        sourceFrames: predecessor.frames, previousControlDigest: predecessor.controlDigest, previousMarkers: predecessor.markers})
+    } finally { b.clear(); t.clear(); checked.close() }
   }
   /** @internal A one-use witness is consumed solely by the captured private
    * startup factory. It grants no ordinary read or arbitrary phase writer. */

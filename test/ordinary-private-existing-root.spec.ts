@@ -2,7 +2,8 @@ import { build, type Plugin } from 'esbuild'
 import { createServer, type Server } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { resolve, relative } from 'node:path'
-import { test, expect, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
+import { test } from './ordinary-native-browser.fixture.js'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { setup } from './ordinary-bootstrap.setup.js'
 import { controls } from './ordinary-member-session.setup.js'
@@ -43,6 +44,19 @@ test.beforeAll(async () => {
              if ((globalThis as any).providerFixture?.cutAssignment === 'after') window.dispatchEvent(new PageTransitionEvent('pagehide'))`).replace(
             '#pagehide = () => { void this.close().catch(() => {}) }',
             '#pagehide = () => { void this.close().catch(error => { (globalThis as any).__rootCloseFailure=error?.message }) }').replace(
+            'assertClientsCurrent: async () => { this.#check(); await this.#worker!.assertCurrent(); this.#check() }',
+            `assertClientsCurrent: async () => {
+              this.#check()
+              const cut = (globalThis as any).privateRenewalClientCut, selected = cut && ++cut.calls === cut.at
+              const pause = async () => {
+                cut.entered = true
+                await new Promise<void>((yes, no) => { cut.release = () => cut.reject ? no(Error('Explicit delayed client probe rejection')) : yes() })
+              }
+              if (selected && cut.before) await pause()
+              await this.#worker!.assertCurrent()
+              if (selected && !cut.before) await pause()
+              this.#check()
+            }`).replace(
             'roots.set(this, { root: this, claimed: false })',
             `roots.set(this, { root: this, claimed: false })
              // Instrument this private stage only; no production action or public API is added.
@@ -93,9 +107,19 @@ test.beforeAll(async () => {
           }
           if (fixture) fixture.sdk = raw
           check()`).replace(
+          'privateRenewalFactories.set(factory, {native, foreground, member, scopes, foregroundExpiresAt, closed: false})',
+          `privateRenewalFactories.set(factory, {native, foreground, member,
+            scopes: (globalThis as any).providerFixture?.renewalScopeFamily === 'signet' ? member.foregroundScopes()! : scopes,
+            foregroundExpiresAt, closed: false})`).replace(
+          'createdWitness = witness',
+          'createdWitness = witness; (globalThis as any).__seenPrivateRenewalWitness = witness').replace(
+          'createdFactory = factory; createdClaim = claim',
+          'createdFactory = factory; createdClaim = claim; (globalThis as any).__seenPrivateRenewalClaim = claim').replace(
           'beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)',
           `beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
            ;(globalThis as any).__privateOwnerPrototypeForTest = this.prototype
+           ;(globalThis as any).__takePrivateRenewalIntentForTest = takeOrdinaryPrivateRenewalIntent
+           ;(globalThis as any).__takePrivateRenewalClaimForTest = takeOrdinaryPrivateRenewalFactoryClaim
            ;(globalThis as any).__privateControlForTest = (root: OrdinaryPrivateExistingRoot) => this.#authenticatePrivateExistingProvider(root)
            ;(globalThis as any).__privateForegroundForTest = (root: OrdinaryPrivateExistingRoot) => this.#beginPrivateExistingForeground(root)`).replace(
           'challenge = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))',
@@ -124,12 +148,21 @@ test.beforeAll(async () => {
       })
       builder.onLoad({ filter: /ordinary-foreground-signer\.ts$/ }, async input => {
         const source = await readFile(input.path, 'utf8')
-        return { loader: 'ts', contents: source.replace(
+        const imports = `import * as PrivateRenewalForTest from './ordinary-private-renewal.js'
+          import { OrdinaryProtocolWork as PrivateRenewalWorkForTest } from './ordinary-protocol-work.js'
+          import { takeOrdinaryRenewalObligation as legacyRenewalTakeForTest } from './ordinary-renewal-obligation.js'
+          import { inspectPersistentAdmissionProofs as inspectRenewalForTest } from './persistent-admission-proof.js'
+          import { ordinaryPairPredecessorSemanticDigestFor as renewalDigestForTest } from './ordinary-state-owner.js'
+        `
+        return { loader: 'ts', contents: (imports + source).replace(
           'const binding = takeOrdinaryPrivateForegroundClaim(claim)',
           'const binding = takeOrdinaryPrivateForegroundClaim(claim); (globalThis as any).__seenPrivateForegroundClaim = claim').replace(
           'static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding) }',
           `static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding)
            ;(globalThis as any).__privateForegroundClassForTest = this
+           ;(globalThis as any).__privateRenewalRegistryForTest = PrivateRenewalForTest
+           ;(globalThis as any).__privateRenewalWorkForTest = PrivateRenewalWorkForTest
+           ;(globalThis as any).__legacyRenewalTakeForTest = legacyRenewalTakeForTest
            ;(globalThis as any).__openPrivateForegroundClaimForTest = openOrdinaryPrivateForegroundFromOwnerClaim
            ;(globalThis as any).__privateAuthorityFunctions = Object.freeze({ current: ordinaryPrivateForegroundCurrent,
              deadline: ordinaryPrivateForegroundDeadline, borrow: borrowOrdinaryPrivateForegroundCredentialSigner,
@@ -137,6 +170,20 @@ test.beforeAll(async () => {
           'Object.freeze(actual)\n      })',
           `Object.freeze(actual)
            ;(globalThis as any).__privateForegroundProbe = Object.freeze({
+             prepareRenewalFactory: () => actual.#privateForeground!.prepareRenewalFactory(actual.#privateAuthority!),
+             renewalDesired: () => actual.#privateForeground!.readForeground(actual.#live, (browser, tab, custody) => {
+               const b = new Map(browser.keys().map(name => [name, browser.get(name)!])), t = new Map(tab.keys().map(name => [name, tab.get(name)!]))
+               const inspected = inspectRenewalForTest(browser, tab)
+               try {
+                 const found = [...inspected.selected.values()].find(value => value.proof.binding.participant === actual.#participant)!
+                 const credential = JSON.parse(found.proof.binding.device.credentials[0]!), now = Math.floor(Date.now() / 1000)
+                 const headers = ordinaryPairReadCustodyFor(custody, b, t)
+                 const foreground = ordinaryPrivateForegroundDeadline(actual.#privateAuthority!, actual.#privateForeground!.native, browser, tab, custody, actual.#participant)
+                 return Object.freeze({ issuedAt: now, expiresAt: Math.min(now + Number(credential.tags[2][1]) - credential.created_at,
+                   Math.floor(headers.tab.expiresAt / 1000), found.admission.endsAt ?? Infinity, foreground === null ? Infinity : Math.floor(foreground / 1000)),
+                   semanticDigest: renewalDigestForTest(custody, b, t) })
+               } finally { inspected.close(); b.clear(); t.clear() }
+             }),
              tokens: () => Object.freeze({ authority: actual.#privateAuthority!, native: actual.#privateForeground!.native }),
              current: () => ordinaryPrivateForegroundCurrent(actual.#privateAuthority!, actual.#privateForeground!.native, actual.#participant),
              deadline: () => actual.#privateForeground!.readForeground(actual.#live, (browser, tab, custody) =>
@@ -1200,6 +1247,110 @@ for (const disposition of ['rejected', 'pending'] as const) test(`private foregr
   expect(await page.evaluate('validationUnhandled')).toBe(0)
 })
 
+for (const keep of [false, true]) test(`private renewal factory derives owned native intent without legacy binding, keep=${keep}`, async ({page}) => {
+  await page.clock.install()
+  await prepareControlStage(page, keep)
+  await startPrivateForeground(page); await page.clock.fastForward(2_000)
+  expect(await page.evaluate(async () => {
+    const w = window as any, api = w.__privateRenewalRegistryForTest
+    const claim = await w.__privateForegroundProbe.prepareRenewalFactory(), factory = api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)
+    let replay = false, interceptions = 0
+    try { api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim) } catch { replay = true }
+    const replaced = () => { interceptions++; throw Error('Replaced public private-renewal path') }
+    for (const name of ['captureRenewalPredecessor', 'validatePairBinding', 'readPairMigrated', 'joinPairLifetime']) w.__privateOwnerPrototypeForTest.constructor[name] = replaced
+    for (const name of ['isNativeSigner', 'nativeCurrent', 'nativeDeadline']) w.__privateForegroundClassForTest[name] = replaced
+    const desired = await w.__privateForegroundProbe.renewalDesired()
+    let result: unknown
+    const work = w.__privateRenewalWorkForTest.registerPreparedStartup({}, async (root: unknown) => {
+      const obligation = await api.prepareOrdinaryPrivateRenewalObligation(factory, root, desired)
+      const held = api.takeOrdinaryPrivateRenewalObligation(obligation)
+      let legacyRefused = false, duplicateRefused = false
+      try { w.__legacyRenewalTakeForTest(obligation) } catch { legacyRefused = true }
+      try { api.takeOrdinaryPrivateRenewalObligation(obligation) } catch { duplicateRefused = true }
+      api.checkOrdinaryPrivateRenewalObligation(obligation)
+      result = [held.factory === factory, held.root === root, held.intent.issuedAt === desired.issuedAt,
+        held.intent.expiresAt === desired.expiresAt, held.intent.semanticDigest === desired.semanticDigest,
+        Object.isFrozen(held), Object.isFrozen(held.intent), Object.keys(held).sort(), legacyRefused, duplicateRefused]
+      api.releaseOrdinaryPrivateRenewalObligation(obligation)
+    })
+    try { await work.start() } finally { work.close(); await work.join(); api.closeOrdinaryPrivateRenewalFactory(factory) }
+    return [replay, Object.isFrozen(factory), Reflect.ownKeys(factory).length, interceptions, result,
+      w.providerFixture.signs, w.effects.put, w.effects.entropy, w.effects.socket]
+  })).toEqual([true, true, 0, 0, [true, true, true, true, true, true, true, ['factory', 'intent', 'root'], true, true], 1, 0, 0, 0])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+test('private renewal factory refuses forged claims and handles before caller reflection', async ({page}) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate(async () => {
+    const w = window as any, api = w.__privateRenewalRegistryForTest
+    let traps = 0, refused = 0
+    const proxy = new Proxy({}, {get() { traps++; throw Error('foreign factory getter') }, ownKeys() { traps++; return [] },
+      getPrototypeOf() { traps++; return Object.prototype }})
+    for (const fake of [{}, Object.freeze({}), proxy]) {
+      try { api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(fake) } catch { refused++ }
+      try { await api.prepareOrdinaryPrivateRenewalObligation(fake, proxy, proxy) } catch { refused++ }
+      try { api.takeOrdinaryPrivateRenewalObligation(fake) } catch { refused++ }
+    }
+    return [refused, traps, w.providerFixture.signs, w.effects.put, w.effects.entropy]
+  })).toEqual([9, 0, 1, 0, 0])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+test('private renewal factory refuses swapped scope families without effects', async ({page}) => {
+  await page.clock.install(); await prepareControlStage(page); await startPrivateForeground(page)
+  await page.clock.fastForward(2_000)
+  expect(await page.evaluate(async () => {
+    const w = window as any, api = w.__privateRenewalRegistryForTest
+    w.providerFixture.renewalScopeFamily = 'signet'
+    const claim = await w.__privateForegroundProbe.prepareRenewalFactory(), factory = api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)
+    const desired = await w.__privateForegroundProbe.renewalDesired()
+    let refused = false
+    const work = w.__privateRenewalWorkForTest.registerPreparedStartup({}, async (root: unknown) => {
+      try { await api.prepareOrdinaryPrivateRenewalObligation(factory, root, desired) } catch { refused = true }
+    })
+    try { await work.start() } finally { work.close(); await work.join(); api.closeOrdinaryPrivateRenewalFactory(factory) }
+    return [refused, w.providerFixture.signs, w.effects.put, w.effects.entropy, w.effects.socket]
+  })).toEqual([true, 1, 0, 0, 0])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+test('private renewal intent refuses accessor data and root replay without reading getters', async ({page}) => {
+  await page.clock.install(); await prepareControlStage(page); await startPrivateForeground(page)
+  await page.clock.fastForward(2_000)
+  expect(await page.evaluate(async () => {
+    const w = window as any, api = w.__privateRenewalRegistryForTest
+    const claim = await w.__privateForegroundProbe.prepareRenewalFactory(), factory = api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)
+    const desired = await w.__privateForegroundProbe.renewalDesired()
+    let refused = 0, getters = 0
+    const hostile = {...desired}
+    Object.defineProperty(hostile, 'issuedAt', {enumerable: true, get() { getters++; return desired.issuedAt }})
+    const work = w.__privateRenewalWorkForTest.registerPreparedStartup({}, async (root: unknown) => {
+      try { await api.prepareOrdinaryPrivateRenewalObligation(factory, root, hostile) } catch { refused++ }
+      try { await api.prepareOrdinaryPrivateRenewalObligation(factory, root, desired) } catch { refused++ }
+    })
+    try { await work.start() } finally { work.close(); await work.join(); api.closeOrdinaryPrivateRenewalFactory(factory) }
+    return [refused, getters, w.providerFixture.signs, w.effects.put, w.effects.entropy]
+  })).toEqual([2, 0, 1, 0, 0])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+test('private renewal claim stays spent after native revocation', async ({page}) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  await page.evaluate(async () => { const w = window as any; w.renewalClaim = await w.__privateForegroundProbe.prepareRenewalFactory() })
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate(() => {
+    const w = window as any; let refused = 0
+    for (let i = 0; i < 2; i++) try { w.__privateRenewalRegistryForTest.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(w.renewalClaim) } catch { refused++ }
+    return [refused, w.providerFixture.signs, w.effects.put, w.effects.entropy]
+  })).toEqual([2, 1, 0, 0])
+})
+
 test('private authority tokens refuse forged handles before caller reflection', async ({ page }) => {
   await prepareControlStage(page); await startPrivateForeground(page)
   expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
@@ -1348,3 +1499,150 @@ test('private authority handles cannot cross document roots or revive after nati
     await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
   } finally { await observer.close() }
 })
+
+test('private renewal factory rechecks a newly arrived unresponsive outside client', async ({page, context}) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  const other = await context.newPage(); await other.goto(origin + '/outside/legacy')
+  try {
+    const outcome = await page.evaluate(async () => {
+      const w = window as any
+      try { await w.__privateForegroundProbe.prepareRenewalFactory(); return 'minted' }
+      catch (error) { return (error as Error).name }
+    })
+    expect(outcome).toBe('OrdinaryStateHold')
+  } finally {
+    await other.close(); await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  }
+})
+
+for (const stage of ['claim', 'intent'] as const) for (const reject of [false, true])
+  test(`private renewal ${stage} retains native locks through a revoked delayed client probe, reject=${reject}`, async ({page}) => {
+    await page.clock.install(); await prepareControlStage(page); await startPrivateForeground(page)
+    await page.clock.fastForward(2_000)
+    await page.evaluate(async ({stage, reject}) => {
+      const w = window as any, api = w.__privateRenewalRegistryForTest
+      if (stage === 'intent') {
+        const claim = await w.__privateForegroundProbe.prepareRenewalFactory()
+        w.delayedRenewalFactory = api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)
+        w.delayedRenewalDesired = await w.__privateForegroundProbe.renewalDesired()
+      }
+      // Claim probe 3 and intent probe 2 follow the actual native read.
+      w.privateRenewalClientCut = {calls: 0, at: stage === 'claim' ? 3 : 2, reject}
+      w.delayedRenewalDone = false; w.delayedRenewalPublished = false
+      const run = async (root?: unknown) => {
+        try {
+          if (stage === 'claim') await w.__privateForegroundProbe.prepareRenewalFactory()
+          else await api.prepareOrdinaryPrivateRenewalObligation(w.delayedRenewalFactory, root, w.delayedRenewalDesired)
+          w.delayedRenewalPublished = true; w.delayedRenewalOutcome = 'published'
+        } catch (error) { w.delayedRenewalOutcome = (error as Error).name }
+        finally { w.delayedRenewalDone = true }
+      }
+      if (stage === 'intent') {
+        w.delayedRenewalWork = w.__privateRenewalWorkForTest.registerPreparedStartup({}, run)
+        w.delayedRenewalPending = w.delayedRenewalWork.start()
+      } else w.delayedRenewalPending = run()
+    }, {stage, reject})
+    await page.waitForFunction('privateRenewalClientCut.entered')
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    expect(await page.evaluate('({done:delayedRenewalDone,published:delayedRenewalPublished})')).toEqual({done: false, published: false})
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+    await page.evaluate(async () => {
+      const w = window as any
+      w.privateRenewalClientCut.release(); await w.delayedRenewalPending
+      if (w.delayedRenewalWork) { w.delayedRenewalWork.close(); await w.delayedRenewalWork.join() }
+      if (w.delayedRenewalFactory) w.__privateRenewalRegistryForTest.closeOrdinaryPrivateRenewalFactory(w.delayedRenewalFactory)
+    })
+    expect(await page.evaluate('({done:delayedRenewalDone,published:delayedRenewalPublished,outcome:delayedRenewalOutcome,signs:providerFixture.signs,put:effects.put,entropy:effects.entropy,socket:effects.socket})'))
+      .toEqual({done: true, published: false, outcome: 'OrdinaryStateHold', signs: 1, put: 0, entropy: 0, socket: 0})
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+    expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+  })
+
+
+test('private renewal intent fences an outside client arriving after factory creation', async ({page, context}) => {
+  await page.clock.install(); await prepareControlStage(page); await startPrivateForeground(page)
+  await page.clock.fastForward(2_000)
+  await page.evaluate(async () => {
+    const w = window as any, api = w.__privateRenewalRegistryForTest
+    w.outsideIntentFactory = api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(await w.__privateForegroundProbe.prepareRenewalFactory())
+    w.outsideIntentDesired = await w.__privateForegroundProbe.renewalDesired()
+  })
+  const other = await context.newPage(); await other.goto(origin + '/outside/legacy')
+  try {
+    expect(await page.evaluate(async () => {
+      const w = window as any, api = w.__privateRenewalRegistryForTest
+      let outcome: string | undefined, published = false
+      const work = w.__privateRenewalWorkForTest.registerPreparedStartup({}, async (root: unknown) => {
+        try { await api.prepareOrdinaryPrivateRenewalObligation(w.outsideIntentFactory, root, w.outsideIntentDesired); published = true }
+        catch (error) { outcome = (error as Error).name }
+      })
+      try { await work.start() } finally { work.close(); await work.join(); api.closeOrdinaryPrivateRenewalFactory(w.outsideIntentFactory) }
+      return [outcome, published, w.__seenPrivateRenewalWitness === undefined, w.providerFixture.signs, w.effects.put, w.effects.entropy, w.effects.socket]
+    })).toEqual(['OrdinaryStateHold', false, true, 1, 0, 0, 0])
+  } finally {
+    await other.close(); await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  }
+})
+
+for (const stage of ['claim', 'intent'] as const)
+  test(`private renewal ${stage} post-read client fence refuses a newly arrived outside client`, async ({page, context}) => {
+    await page.clock.install(); await prepareControlStage(page); await startPrivateForeground(page)
+    await page.clock.fastForward(2_000)
+    await page.evaluate(async stage => {
+      const w = window as any, api = w.__privateRenewalRegistryForTest
+      if (stage === 'intent') {
+        w.lateOutsideFactory = api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(await w.__privateForegroundProbe.prepareRenewalFactory())
+        w.lateOutsideDesired = await w.__privateForegroundProbe.renewalDesired()
+      }
+      // Pause before the real post-read worker enumeration, never after it.
+      w.privateRenewalClientCut = {calls: 0, at: stage === 'claim' ? 3 : 2, before: true}
+      w.lateOutsideDone = false; w.lateOutsidePublished = false
+      const run = async (root?: unknown) => {
+        try {
+          if (stage === 'claim') await w.__privateForegroundProbe.prepareRenewalFactory()
+          else await api.prepareOrdinaryPrivateRenewalObligation(w.lateOutsideFactory, root, w.lateOutsideDesired)
+          w.lateOutsidePublished = true; w.lateOutsideOutcome = 'published'
+        } catch (error) {
+          w.lateOutsideOutcome = (error as Error).name
+          try {
+            if (stage === 'claim') w.__takePrivateRenewalClaimForTest(w.__seenPrivateRenewalClaim)
+            else w.__takePrivateRenewalIntentForTest(w.lateOutsideFactory, root, w.__seenPrivateRenewalWitness)
+            w.lateOutsideTokenOutcome = 'consumed'
+          } catch (error) { w.lateOutsideTokenOutcome = (error as Error).name }
+        } finally { w.lateOutsideDone = true }
+      }
+      if (stage === 'intent') {
+        w.lateOutsideWork = w.__privateRenewalWorkForTest.registerPreparedStartup({}, run)
+        w.lateOutsidePending = w.lateOutsideWork.start()
+      } else w.lateOutsidePending = run()
+    }, stage)
+    await page.waitForFunction('privateRenewalClientCut.entered')
+    expect(await page.evaluate(stage => {
+      const w = window as any
+      return [w.lateOutsideDone, w.lateOutsidePublished, !!(stage === 'claim' ? w.__seenPrivateRenewalClaim : w.__seenPrivateRenewalWitness)]
+    }, stage)).toEqual([false, false, true])
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+    const other = await context.newPage(); await other.goto(origin + '/outside/legacy')
+    try {
+      await page.evaluate(async () => { const w = window as any; w.privateRenewalClientCut.release(); await w.lateOutsidePending })
+      expect(await page.evaluate('({done:lateOutsideDone,published:lateOutsidePublished,outcome:lateOutsideOutcome,token:lateOutsideTokenOutcome,signs:providerFixture.signs,put:effects.put,entropy:effects.entropy,socket:effects.socket})'))
+        .toEqual({done: true, published: false, outcome: 'OrdinaryStateHold', token: 'OrdinaryStateHold', signs: 1, put: 0, entropy: 0, socket: 0})
+      // A failed child probe cannot release the still-live parent lifetime.
+      expect(await lockAvailable(page, 'migration')).toBe(false)
+      expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(false)
+    } finally {
+      await other.close()
+      await page.evaluate(async () => {
+        const w = window as any
+        if (w.lateOutsideWork) { w.lateOutsideWork.close(); await w.lateOutsideWork.join() }
+        if (w.lateOutsideFactory) w.__privateRenewalRegistryForTest.closeOrdinaryPrivateRenewalFactory(w.lateOutsideFactory)
+        window.dispatchEvent(new PageTransitionEvent('pagehide'))
+      })
+      await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+      expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+    }
+  })
