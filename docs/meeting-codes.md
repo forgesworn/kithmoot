@@ -40,7 +40,8 @@ room and New link always hold the delete token.
 ## Hard rules
 
 1. A code's lifetime never exceeds the room's. Its expiry is the room's end
-   time, or at most 7 days for an Ask room, and the service deletes it then.
+   time or 7 days from issue, whichever is sooner; the host can issue a new
+   code when one runs out. The service answers it as ended from then on.
 2. The host's **End room** deletes the code. **New link** deletes the old code
    (a new code can then be issued for the new link).
 3. An expired or deleted code shows **This meeting has ended** (or **This code
@@ -68,13 +69,14 @@ stores and what URLs carry.
 ## Service: `server/meeting-codes.mjs`
 
 Plain Node (22 on the box), no dependencies, the same shape as
-`server/turn-credentials.mjs`: bound to `127.0.0.1:8093`, behind Caddy on
+`server/turn-credentials.mjs`: bound to `127.0.0.1:8094` (8093 is Caddy's loopback Tor front), behind Caddy on
 `kithmoot.forgesworn.dev` at `/codes`, a systemd unit in
 `deploy/meeting-codes.service` and a deploy note in `deploy/README.md`.
 
 Storage is one JSON file written atomically (temp file, fsync, rename),
-bounded to 20,000 records (live plus tombstones); a full store refuses
-creation rather than evicting live codes. A live code past its expiry is
+bounded to 20,000 live codes and 200,000 tombstones (a tombstone keeps only
+code, expiry, token hash and state, never the link); a full store refuses
+creation rather than evicting anything. A live code past its expiry is
 answered as ended at once; records are swept 30 days after expiry, on a timer
 and at start.
 
@@ -87,7 +89,7 @@ Each record: canonical code, the invitation link, `expires` (Unix seconds),
 | `POST /codes` `{link, expires}` | Validate, create, return `201 {code, expires, deleteToken}`. |
 | `GET /codes/<code>` | `200 {link, expires}` for a live code; `410 {state: "ended"}` for a tombstone or an expired code; `404` for an unknown code. |
 | `DELETE /codes/<code>` with `Authorization: Bearer <deleteToken>` | Turn a live code into a tombstone; `204`. Wrong token `403`; unknown `404`; already ended `204`. |
-| `GET /codes/health` | `200`. |
+| `GET /codes/health` | `200`, on loopback only; Caddy does not proxy it. |
 
 Validation on create: body at most 8 KiB JSON; `link` is a string at most
 4,096 characters whose origin is `https://kithmoot.forgesworn.dev` or
@@ -96,13 +98,15 @@ credentials or other path; `expires` is a safe integer with
 `now < expires <= now + 7 days`. The service does not parse invitations; the
 client decides eligibility (see below).
 
-Abuse limits, in memory, keyed by a salted hash of the client address (Caddy's
+Creation is also capped service-wide at 2,000 codes a day. Abuse limits, in memory, keyed by a salted hash of the client address (Caddy's
 `X-Forwarded-For`, salt random per process, never written to disk): creation
 10 a minute and 100 a day; lookups 30 a minute; misses (404) 10 a minute and
 50 an hour, after which lookups from that address answer `429` until the
 window passes. A process-wide ceiling of 200 misses a minute answers `429` to
 every lookup until the minute passes, so a guesser spread over many addresses
-cannot sweep the code space either. Responses carry `Cache-Control: no-store`. CORS allows only the
+cannot sweep the code space either. This is a deliberate trade: someone
+spread over many addresses can make Join with code answer "Too many tries"
+for everyone a minute at a time. Full links are unaffected. Responses carry `Cache-Control: no-store`. CORS allows only the
 two KithMoot origins. Logs record status and route only, never codes, links or
 tokens.
 
@@ -120,9 +124,9 @@ tokens.
 an end time. The control is absent otherwise.
 
 **Create (web/desktop first).** In the invite sheet, **Get a meeting code**
-posts the room's current full link with `expires` = the room's end time, or
-now + 7 days for an Ask room without one (renewable by the host, issuing a
-new code). The returned code, expiry and delete token are kept with the
+posts the room's current full link with `expires` = the room's end time or
+now + 7 days less one minute (for clock skew), whichever is sooner. When it
+runs out the host can issue a new code. The returned code, expiry and delete token are kept with the
 room's creator records, in the same storage as the room's other host
 secrets, never in the link and never synced to guests. The sheet shows the
 code in triples, the short link, Copy and Share, and the expiry in words.
