@@ -3160,6 +3160,14 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #openLink form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 .75rem; }
 #openLink input { flex: 1 1 16rem; min-width: 0; font-family: inherit; }
 #openLink button { margin: 0; }
+#joinCode form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 .75rem; }
+#joinCode label { flex: 1 0 100%; }
+#joinCode input { flex: 1 1 10rem; min-width: 0; font-family: inherit; text-transform: uppercase; letter-spacing: .08em; }
+#joinCode button { margin: 0; }
+#joinCode .formError { flex: 1 0 100%; margin: 0; }
+.meetingCodeRow { margin: .75rem 0; }
+.meetingCodeValue { margin: .5rem 0; font-size: 1.6rem; font-weight: 600; letter-spacing: .12em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#meetingCodeLink { width: 100%; box-sizing: border-box; }
 #homeSignIn { border: 0; background: transparent; padding: 0; }
 
 .roomsHead { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 1.5rem 0 .75rem; }
