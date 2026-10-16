@@ -7,8 +7,10 @@ import { tmpdir } from 'node:os'
 import * as fs from 'node:fs'
 import {
   ALPHABET,
+  ENVELOPE_MAX_CIPHERTEXT_BYTES,
   LIMITS,
   MAX_CREATED_PER_DAY,
+  PENDING_SECONDS,
   MAX_LIVE,
   MAX_TOMBSTONES,
   TOMBSTONE_SECONDS,
@@ -18,6 +20,7 @@ import {
   generateCode,
   loadConfigFromEnv,
   parseCode,
+  validEnvelope,
   validLink,
 } from './meeting-codes.mjs'
 
@@ -324,10 +327,227 @@ describe('validation on create', () => {
   it('refuses other methods and paths', async () => {
     const { request } = await startServer()
     expect((await request('GET', '/codes')).status).toBe(405)
-    expect((await request('PUT', '/codes/ABCDEFGH')).status).toBe(405)
+    expect((await request('PATCH', '/codes/ABCDEFGH')).status).toBe(405)
+    expect((await request('PUT', '/codes')).status).toBe(405)
     expect((await request('GET', '/elsewhere')).status).toBe(404)
     expect((await request('GET', '/codes/ABC/DEF')).status).toBe(404)
     expect((await request('GET', '/codes/ABCDEFGI')).status).toBe(400)
+  })
+})
+
+const b64 = (n, fill = 7) => Buffer.alloc(n, fill).toString('base64url')
+const ENVELOPE = { v: 1, salt: b64(16, 1), nonce: b64(12, 2), ciphertext: b64(64, 3) }
+
+describe('sealed codes', () => {
+  async function allocate(s, expires = T0S + 3600, opts = {}) {
+    const res = await s.create({ sealed: true, expires }, opts)
+    expect(res.status).toBe(201)
+    return res.json()
+  }
+  const put = (s, code, token, body = { envelope: ENVELOPE }, opts = {}) =>
+    s.request('PUT', `/codes/${code}`, { body, headers: token === null ? {} : { authorization: `Bearer ${token}` }, ...opts })
+
+  it('allocates pending, takes the envelope once, then answers it', async () => {
+    const s = await startServer()
+    const issued = await allocate(s)
+    expect(Object.keys(issued).sort()).toEqual(['code', 'deleteToken', 'expires', 'uploadToken'])
+    expect(issued.uploadToken).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(issued.uploadToken).not.toBe(issued.deleteToken)
+    expect(issued.expires).toBe(T0S + 3600)
+
+    // Pending: indistinguishable from a code never issued.
+    const pending = await s.request('GET', `/codes/${issued.code}`)
+    expect(pending.status).toBe(404)
+    expect(await pending.json()).toEqual({ error: 'not found' })
+
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(204)
+    const got = await s.request('GET', `/codes/${issued.code}`)
+    expect(got.status).toBe(200)
+    expect(await got.json()).toEqual({ envelope: ENVELOPE, expires: T0S + 3600 })
+
+    // Once only, whoever asks.
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(409)
+    expect((await put(s, issued.code, 'A'.repeat(43))).status).toBe(409)
+    expect(await (await s.request('GET', `/codes/${issued.code}`)).json()).toEqual({ envelope: ENVELOPE, expires: T0S + 3600 })
+
+    // Deleted like any other code; the envelope goes with it.
+    const auth = { authorization: `Bearer ${issued.deleteToken}` }
+    expect((await s.request('DELETE', `/codes/${issued.code}`, { headers: auth })).status).toBe(204)
+    expect((await s.request('GET', `/codes/${issued.code}`)).status).toBe(410)
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(410)
+    const tomb = JSON.parse(fs.readFileSync(s.config.storePath, 'utf8')).records[0]
+    expect(Object.keys(tomb).sort()).toEqual(['code', 'deleteTokenHash', 'expires', 'state'])
+  })
+
+  it('stores both tokens only as SHA-256, and only the listed fields', async () => {
+    const s = await startServer()
+    const issued = await allocate(s)
+    let stored = fs.readFileSync(s.config.storePath, 'utf8')
+    expect(stored).not.toContain(issued.uploadToken)
+    expect(stored).not.toContain(issued.deleteToken)
+    let record = JSON.parse(stored).records[0]
+    expect(Object.keys(record).sort()).toEqual(['code', 'deleteTokenHash', 'expires', 'pendingUntil', 'state', 'uploadTokenHash'])
+    expect(record.state).toBe('pending')
+    expect(record.pendingUntil).toBe(T0S + PENDING_SECONDS)
+    expect(record.uploadTokenHash).toBe(createHash('sha256').update(issued.uploadToken).digest('hex'))
+
+    await put(s, issued.code, issued.uploadToken)
+    stored = fs.readFileSync(s.config.storePath, 'utf8')
+    record = JSON.parse(stored).records[0]
+    expect(Object.keys(record).sort()).toEqual(['code', 'deleteTokenHash', 'envelope', 'expires', 'state'])
+    expect(record.envelope).toEqual(ENVELOPE)
+    expect(record.state).toBe('live')
+  })
+
+  it('discards a pending code not uploaded within 10 minutes', async () => {
+    const now = clock()
+    const s = await startServer({ now })
+    const late = await allocate(s)
+    const onTime = await allocate(s)
+    now.advance(PENDING_SECONDS * 1000 - 1000)
+    expect((await put(s, onTime.code, onTime.uploadToken)).status).toBe(204)
+    now.advance(1000)
+    // Lapsed: 404 at once, before any sweep, for upload, lookup and delete.
+    expect((await put(s, late.code, late.uploadToken)).status).toBe(404)
+    expect((await s.request('GET', `/codes/${late.code}`)).status).toBe(404)
+    expect((await s.request('DELETE', `/codes/${late.code}`, { headers: { authorization: `Bearer ${late.deleteToken}` } })).status).toBe(404)
+    s.server.sweep()
+    expect(s.server.records.has(late.code)).toBe(false)
+    expect((await s.request('GET', `/codes/${onTime.code}`)).status).toBe(200)
+  })
+
+  it('discards a pending code whose expiry comes before its upload window ends', async () => {
+    const now = clock()
+    const s = await startServer({ now })
+    const issued = await allocate(s, T0S + 60)
+    now.advance(60_000)
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(404)
+  })
+
+  it('refuses a missing or wrong upload token, and the delete token', async () => {
+    const s = await startServer()
+    const issued = await allocate(s)
+    expect((await put(s, issued.code, null)).status).toBe(403)
+    expect((await put(s, issued.code, 'A'.repeat(43))).status).toBe(403)
+    expect((await put(s, issued.code, issued.deleteToken)).status).toBe(403)
+    expect((await put(s, otherCode(issued.code), issued.uploadToken)).status).toBe(404)
+    // Still pending, and still takes the right token.
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(204)
+  })
+
+  it('ends a pending code on DELETE, so its value is not reissued', async () => {
+    const s = await startServer()
+    const issued = await allocate(s)
+    expect((await s.request('DELETE', `/codes/${issued.code}`)).status).toBe(403)
+    expect((await s.request('DELETE', `/codes/${issued.code}`, { headers: { authorization: `Bearer ${issued.deleteToken}` } })).status).toBe(204)
+    expect((await s.request('GET', `/codes/${issued.code}`)).status).toBe(410)
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(410)
+  })
+
+  it.each([
+    ['sealed false', { sealed: false, expires: T0S + 60 }],
+    ['sealed "true"', { sealed: 'true', expires: T0S + 60 }],
+    ['sealed with a link', { sealed: true, link: LINK, expires: T0S + 60 }],
+    ['sealed without expires', { sealed: true }],
+    ['sealed with an extra field', { sealed: true, expires: T0S + 60, x: 1 }],
+    ['sealed past 7 days', { sealed: true, expires: T0S + 7 * 86400 + 1 }],
+  ])('refuses to allocate with %s', async (_name, body) => {
+    const s = await startServer()
+    expect((await s.create(body)).status).toBe(400)
+  })
+
+  const tooLong = b64(ENVELOPE_MAX_CIPHERTEXT_BYTES + 1)
+  it.each([
+    ['not JSON', '{envelope:'],
+    ['an array', '[]'],
+    ['no envelope', {}],
+    ['an extra top-level field', { envelope: ENVELOPE, link: LINK }],
+    ['a link instead', { link: LINK }],
+    ['v 2', { envelope: { ...ENVELOPE, v: 2 } }],
+    ['v "1"', { envelope: { ...ENVELOPE, v: '1' } }],
+    ['an extra envelope field', { envelope: { ...ENVELOPE, aad: 'x' } }],
+    ['a missing nonce', { envelope: { v: 1, salt: ENVELOPE.salt, ciphertext: ENVELOPE.ciphertext } }],
+    ['a 15-byte salt', { envelope: { ...ENVELOPE, salt: b64(15) } }],
+    ['a 17-byte salt', { envelope: { ...ENVELOPE, salt: b64(17) } }],
+    ['an 11-byte nonce', { envelope: { ...ENVELOPE, nonce: b64(11) } }],
+    ['a 13-byte nonce', { envelope: { ...ENVELOPE, nonce: b64(13) } }],
+    ['a 16-byte ciphertext', { envelope: { ...ENVELOPE, ciphertext: b64(16) } }],
+    ['a ciphertext over 6 KiB', { envelope: { ...ENVELOPE, ciphertext: tooLong } }],
+    ['padding', { envelope: { ...ENVELOPE, salt: `${ENVELOPE.salt}==` } }],
+    ['standard base64', { envelope: { ...ENVELOPE, salt: Buffer.alloc(16, 0xfb).toString('base64') } }],
+    ['non-zero trailing bits', { envelope: { ...ENVELOPE, salt: `${ENVELOPE.salt.slice(0, -1)}B` } }],
+    ['whitespace', { envelope: { ...ENVELOPE, ciphertext: `${ENVELOPE.ciphertext.slice(0, 8)} ${ENVELOPE.ciphertext.slice(8)}` } }],
+    ['a number', { envelope: { ...ENVELOPE, nonce: 12 } }],
+  ])('refuses an upload with %s, and stays pending', async (_name, body) => {
+    const s = await startServer()
+    const issued = await allocate(s)
+    expect((await put(s, issued.code, issued.uploadToken, body)).status).toBe(400)
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(204)
+  })
+
+  it('accepts a 17-byte and a 6 KiB ciphertext, and refuses a body over 10 KiB', async () => {
+    expect(validEnvelope({ ...ENVELOPE, ciphertext: b64(17) })).toBe(true)
+    expect(validEnvelope({ ...ENVELOPE, ciphertext: b64(ENVELOPE_MAX_CIPHERTEXT_BYTES) })).toBe(true)
+    expect(validEnvelope({ ...ENVELOPE, ciphertext: b64(ENVELOPE_MAX_CIPHERTEXT_BYTES + 1) })).toBe(false)
+    const s = await startServer()
+    const issued = await allocate(s)
+    const big = { envelope: { ...ENVELOPE, ciphertext: b64(ENVELOPE_MAX_CIPHERTEXT_BYTES) } }
+    expect(JSON.stringify(big).length).toBeGreaterThan(8 * 1024)
+    expect((await put(s, issued.code, issued.uploadToken, big)).status).toBe(204)
+    const other = await allocate(s)
+    const huge = JSON.stringify({ envelope: ENVELOPE, pad: 'x'.repeat(10 * 1024) })
+    expect((await put(s, other.code, other.uploadToken, huge)).status).toBe(413)
+  })
+
+  it('counts a pending lookup and an unknown upload as misses', async () => {
+    const s = await startServer()
+    const plain = await (await s.create()).json()
+    const issued = await allocate(s)
+    for (let i = 0; i < LIMITS.missesPerMinute / 2; i++) {
+      expect((await s.request('GET', `/codes/${issued.code}`)).status).toBe(404)
+      expect((await put(s, unusedCode(i), issued.uploadToken)).status).toBe(404)
+    }
+    expect((await s.request('GET', `/codes/${plain.code}`)).status).toBe(429)
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(429)
+  })
+
+  it('spends the lookup budget on uploads', async () => {
+    const s = await startServer()
+    const issued = await allocate(s)
+    for (let i = 0; i < LIMITS.lookupsPerMinute; i++) expect((await put(s, issued.code, 'A'.repeat(43))).status).toBe(403)
+    expect((await put(s, issued.code, issued.uploadToken)).status).toBe(429)
+  })
+
+  it('counts a pending code against the live bound and the creation limits', async () => {
+    const s = await startServer({ maxLive: 1 })
+    await allocate(s)
+    const full = await s.create({ sealed: true, expires: T0S + 3600 })
+    expect(full.status).toBe(503)
+    expect((await s.create()).status).toBe(503)
+  })
+
+  it('discards a lapsed pending code at start, from what is on disk', async () => {
+    const storePath = tempStore()
+    const now = clock()
+    const first = await startServer({ storePath, now })
+    const issued = await allocate(first)
+    await new Promise((resolve) => first.server.close(resolve))
+    now.advance(PENDING_SECONDS * 1000)
+    const second = await startServer({ storePath, now })
+    expect(second.server.records.size).toBe(0)
+    expect((await put(second, issued.code, issued.uploadToken)).status).toBe(404)
+  })
+
+  it('logs status and route only, never a token or an envelope', async () => {
+    const s = await startServer()
+    const issued = await allocate(s)
+    await put(s, issued.code, issued.uploadToken)
+    await s.request('GET', `/codes/${issued.code}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    for (const line of s.lines) {
+      expect(line).toMatch(/^meeting-codes: \d{3} (GET|POST|PUT) \/codes(\/:code)?$/)
+      for (const secret of [issued.code, issued.uploadToken, issued.deleteToken, ENVELOPE.ciphertext, ENVELOPE.salt]) expect(line).not.toContain(secret)
+    }
   })
 })
 
@@ -623,6 +843,7 @@ describe('HTTP surface', () => {
     expect(post.headers.get('access-control-allow-headers')).toMatch(/Content-Type/)
     const del = await request('OPTIONS', '/codes/ABCDEFGH', { headers: { origin } })
     expect(del.headers.get('access-control-allow-methods')).toContain('DELETE')
+    expect(del.headers.get('access-control-allow-methods')).toContain('PUT')
     expect(del.headers.get('access-control-allow-headers')).toMatch(/Authorization/)
   })
 

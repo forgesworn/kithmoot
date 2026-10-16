@@ -3,13 +3,19 @@
 //
 // A host asks for a short code that stands in for a room's full invitation
 // link; anyone who presents the code gets the link back. The code is short
-// enough to read aloud, so it cannot carry the invitation's key: this
-// service stores the full link and can therefore read it. See the trust
-// model in docs/meeting-codes.md before deploying this; the client offers a
-// code only for rooms where that is acceptable.
+// enough to read aloud, so it cannot carry the invitation's key. Without a
+// password this service stores the full link and can therefore read it.
+// With one (docs/meeting-codes.md, "Password") it stores only an envelope
+// the host sealed under four password words it never sees, bound to the
+// code and expiry. See the trust model there before deploying this.
 //
 //   POST   /codes          {link, expires} -> 201 {code, expires, deleteToken}
-//   GET    /codes/<code>   200 {link, expires} | 410 {state: "ended"} | 404
+//   POST   /codes          {sealed: true, expires}
+//                          -> 201 {code, expires, deleteToken, uploadToken}, pending
+//   PUT    /codes/<code>   Authorization: Bearer <uploadToken>, {envelope}
+//                          -> 204 | 403 | 404 | 409 | 410, once, within 10 minutes
+//   GET    /codes/<code>   200 {link, expires} | 200 {envelope, expires}
+//                          | 410 {state: "ended"} | 404 (unknown or pending)
 //   DELETE /codes/<code>   Authorization: Bearer <deleteToken> -> 204 | 403 | 404
 //   GET    /codes/health   200, loopback only: Caddy does not forward it
 //
@@ -18,8 +24,9 @@
 // MEETING_CODES_STORE set. Unlike that service it imports nothing from
 // dist/, so there is no `npm run build:lib` step before starting it.
 //
-// What it keeps, and only this: one JSON file of records {code, link,
-// expires, deleteTokenHash, state}. No address, account, room name or user
+// What it keeps, and only this: one JSON file of records {code, link or
+// envelope, expires, deleteTokenHash, state}, and for a pending code
+// {uploadTokenHash, pendingUntil} instead of a link. No address, account, room name or user
 // agent is written anywhere. Rate-limit counters live in memory, keyed by a
 // salted hash of the client address whose salt is random per process and
 // never written to disk. Logs carry the status and the route template
@@ -52,6 +59,16 @@ export const MAX_TOMBSTONES = 200_000
 // created in any rolling 24 hours, whoever asks.
 export const MAX_CREATED_PER_DAY = 2_000
 export const MAX_BODY_BYTES = 8 * 1024
+// An envelope's ciphertext is at most 6 KiB decoded, 8,192 base64url
+// characters, so an upload needs a little more room than a create.
+export const MAX_UPLOAD_BODY_BYTES = 10 * 1024
+export const ENVELOPE_SALT_BYTES = 16
+export const ENVELOPE_NONCE_BYTES = 12
+// The smallest ciphertext is one byte and the 16-byte GCM tag.
+export const ENVELOPE_MIN_CIPHERTEXT_BYTES = 17
+export const ENVELOPE_MAX_CIPHERTEXT_BYTES = 6 * 1024
+// A sealed code is pending until its envelope arrives, for at most this long.
+export const PENDING_SECONDS = 10 * 60
 export const MAX_LINK_LENGTH = 4096
 export const MAX_LIFETIME_SECONDS = 7 * 24 * 60 * 60
 export const TOMBSTONE_SECONDS = 30 * 24 * 60 * 60
@@ -145,6 +162,35 @@ export function validLink(link) {
     url.password === '' &&
     url.hash.length > 1
   )
+}
+
+/**
+ * Decodes strict base64url without padding: the alphabet only, and only the
+ * one encoding of its bytes (Node's decoder ignores stray characters and
+ * non-zero trailing bits; re-encoding catches both). Returns the byte
+ * length, or -1.
+ */
+function base64urlLength(value) {
+  if (typeof value !== 'string' || value.length === 0 || !/^[A-Za-z0-9_-]+$/.test(value)) return -1
+  const bytes = Buffer.from(value, 'base64url')
+  return bytes.toString('base64url') === value ? bytes.length : -1
+}
+
+/**
+ * A sealed invitation as the host's client uploads it: exactly
+ * {v: 1, salt, nonce, ciphertext}, base64url without padding, salt 16
+ * bytes, nonce 12 and ciphertext 17 bytes to 6 KiB. The service cannot
+ * open it and does not try.
+ */
+export function validEnvelope(envelope) {
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) return false
+  const keys = Object.keys(envelope).sort()
+  if (keys.join(',') !== 'ciphertext,nonce,salt,v') return false
+  if (envelope.v !== 1) return false
+  if (base64urlLength(envelope.salt) !== ENVELOPE_SALT_BYTES) return false
+  if (base64urlLength(envelope.nonce) !== ENVELOPE_NONCE_BYTES) return false
+  const size = base64urlLength(envelope.ciphertext)
+  return size >= ENVELOPE_MIN_CIPHERTEXT_BYTES && size <= ENVELOPE_MAX_CIPHERTEXT_BYTES
 }
 
 function validExpires(expires, nowSeconds) {
@@ -425,7 +471,8 @@ export function createMeetingCodesServer(config) {
 
   /**
    * Ends every live code past its expiry (dropping the link: an ended code
-   * resolves to nothing, so there is no reason to keep the invitation) and
+   * resolves to nothing, so there is no reason to keep the invitation),
+   * discards every pending code whose envelope did not arrive in time, and
    * removes every record 30 days past its expiry, whatever its state.
    * Runs at start and on a timer.
    */
@@ -434,7 +481,10 @@ export function createMeetingCodesServer(config) {
     let changed = false
     const next = new Map(records)
     for (const [code, r] of next) {
-      if (t > r.expires + TOMBSTONE_SECONDS) {
+      if (pendingLapsed(r, t)) {
+        next.delete(code)
+        changed = true
+      } else if (t > r.expires + TOMBSTONE_SECONDS) {
         next.delete(code)
         changed = true
       } else if (r.state === 'live' && t >= r.expires) {
@@ -452,6 +502,22 @@ export function createMeetingCodesServer(config) {
 
   function isLive(r, t) {
     return r.state === 'live' && t < r.expires
+  }
+
+  /**
+   * A pending code whose envelope never arrived. It was never shown to
+   * anyone (the client shows a sealed code only after its upload), so it is
+   * discarded outright rather than kept as a tombstone, and answers 404
+   * from the moment it lapses, before any sweep.
+   */
+  function pendingLapsed(r, t) {
+    return r.state === 'pending' && (t >= r.pendingUntil || t >= r.expires)
+  }
+
+  /** The record for a code, unless it is absent or a lapsed pending code. */
+  function present(code) {
+    const r = records.get(code)
+    return r && !pendingLapsed(r, nowSeconds()) ? r : undefined
   }
 
   function addrKey(req) {
@@ -474,7 +540,7 @@ export function createMeetingCodesServer(config) {
     windows.add('miss-h', key, HOUR)
   }
 
-  /** Shared by GET and DELETE: both answer differently for a code that exists. */
+  /** Shared by GET, PUT and DELETE: each answers differently for a code that exists. */
   function lookupGate(key) {
     if (missBlocked(key)) return false
     if (windows.count('lookup', key, MINUTE) >= LIMITS.lookupsPerMinute) return false
@@ -504,18 +570,21 @@ export function createMeetingCodesServer(config) {
       return send(res, 400, { error: 'body must be a JSON object' })
     }
     const keys = Object.keys(body)
-    if (keys.length !== 2 || !keys.includes('link') || !keys.includes('expires')) {
-      return send(res, 400, { error: 'body must be exactly {link, expires}' })
+    const sealed = keys.includes('sealed')
+    if (keys.length !== 2 || !keys.includes('expires') || !(sealed || keys.includes('link'))) {
+      return send(res, 400, { error: 'body must be exactly {link, expires} or {sealed: true, expires}' })
     }
-    if (!validLink(body.link)) return send(res, 400, { error: 'invalid link' })
+    if (sealed ? body.sealed !== true : !validLink(body.link)) {
+      return send(res, 400, { error: sealed ? 'sealed must be true' : 'invalid link' })
+    }
     const t = nowSeconds()
     if (!validExpires(body.expires, t)) return send(res, 400, { error: 'invalid expires' })
 
     // Each bound refuses rather than evict a live code or forget a tombstone
     // early. A live code past its expiry still counts as live until the
-    // sweep turns it into a tombstone.
+    // sweep turns it into a tombstone, and a pending code counts as live.
     let live = 0
-    for (const r of records.values()) if (r.state === 'live') live++
+    for (const r of records.values()) if (r.state !== 'ended') live++
     if (live >= maxLive || records.size - live >= maxTombstones) {
       return send(res, 503, { error: 'store full' })
     }
@@ -533,28 +602,91 @@ export function createMeetingCodesServer(config) {
     if (code === null) return send(res, 503, { error: 'could not allocate a code' })
 
     const deleteToken = randomBytes(32).toString('base64url')
-    const record = {
-      code,
-      link: body.link,
-      expires: body.expires,
-      deleteTokenHash: sha256(deleteToken).toString('hex'),
-      state: 'live',
+    const deleteTokenHash = sha256(deleteToken).toString('hex')
+    if (sealed) {
+      // The envelope's additional data names the code, so the host must
+      // know the code before sealing: allocate now, upload once later.
+      const uploadToken = randomBytes(32).toString('base64url')
+      const record = {
+        code,
+        expires: body.expires,
+        deleteTokenHash,
+        uploadTokenHash: sha256(uploadToken).toString('hex'),
+        pendingUntil: t + PENDING_SECONDS,
+        state: 'pending',
+      }
+      commit((m) => m.set(code, record))
+      created.push(now())
+      return send(res, 201, { code, expires: record.expires, deleteToken, uploadToken })
     }
+    const record = { code, link: body.link, expires: body.expires, deleteTokenHash, state: 'live' }
     commit((m) => m.set(code, record))
     created.push(now())
     send(res, 201, { code, expires: record.expires, deleteToken })
+  }
+
+  /**
+   * Stores a pending code's envelope, once. Spends the lookup and miss
+   * budgets as DELETE does: 404 against 403 or 409 would otherwise tell a
+   * guesser for free which codes exist.
+   */
+  async function upload(req, res, key, rawCode) {
+    if (!lookupGate(key)) return send(res, 429, { error: 'too many requests' })
+    const code = parseCode(rawCode)
+    if (code === null) return send(res, 400, { error: 'invalid code' })
+    const r = present(code)
+    if (!r) {
+      recordMiss(key)
+      return send(res, 404, { error: 'not found' })
+    }
+    if (r.state === 'ended') return send(res, 410, { state: 'ended' })
+    if (r.state !== 'pending') return send(res, 409, { error: 'already uploaded' })
+    if (!tokenMatches(bearerToken(req), r.uploadTokenHash)) return send(res, 403, { error: 'forbidden' })
+
+    const raw = await readBody(req, MAX_UPLOAD_BODY_BYTES)
+    if (raw === null) return send(res, 413, { error: 'body too large' })
+    let body
+    try {
+      body = JSON.parse(raw.toString('utf8'))
+    } catch {
+      return send(res, 400, { error: 'body must be JSON' })
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).join(',') !== 'envelope') {
+      return send(res, 400, { error: 'body must be exactly {envelope}' })
+    }
+    if (!validEnvelope(body.envelope)) return send(res, 400, { error: 'invalid envelope' })
+    // The body was read asynchronously: the record may have changed, been
+    // deleted or lapsed meanwhile, and only the pending one is replaced.
+    const current = present(code)
+    if (current !== r) {
+      if (!current) return send(res, 404, { error: 'not found' })
+      return send(res, current.state === 'ended' ? 410 : 409, current.state === 'ended' ? { state: 'ended' } : { error: 'already uploaded' })
+    }
+    const { v, salt, nonce, ciphertext } = body.envelope
+    const record = {
+      code,
+      envelope: { v, salt, nonce, ciphertext },
+      expires: r.expires,
+      deleteTokenHash: r.deleteTokenHash,
+      state: 'live',
+    }
+    commit((m) => m.set(code, record))
+    send(res, 204)
   }
 
   function lookup(req, res, key, rawCode) {
     if (!lookupGate(key)) return send(res, 429, { error: 'too many requests' })
     const code = parseCode(rawCode)
     if (code === null) return send(res, 400, { error: 'invalid code' })
-    const r = records.get(code)
-    if (!r) {
+    const r = present(code)
+    // A pending code has nothing to give yet and answers as unknown, miss
+    // and all, so a lookup cannot tell it from a code never issued.
+    if (!r || r.state === 'pending') {
       recordMiss(key)
       return send(res, 404, { error: 'not found' })
     }
     if (!isLive(r, nowSeconds())) return send(res, 410, { state: 'ended' })
+    if (r.envelope) return send(res, 200, { envelope: r.envelope, expires: r.expires })
     send(res, 200, { link: r.link, expires: r.expires })
   }
 
@@ -564,15 +696,16 @@ export function createMeetingCodesServer(config) {
     if (!lookupGate(key)) return send(res, 429, { error: 'too many requests' })
     const code = parseCode(rawCode)
     if (code === null) return send(res, 400, { error: 'invalid code' })
-    const r = records.get(code)
+    const r = present(code)
     if (!r) {
       recordMiss(key)
       return send(res, 404, { error: 'not found' })
     }
     // The token is checked before the state, so a tombstone answers 204
-    // only to the holder of its token.
+    // only to the holder of its token. A pending code ends like a live one,
+    // so its value is not reissued while the host may still hold it.
     if (!tokenMatches(bearerToken(req), r.deleteTokenHash)) return send(res, 403, { error: 'forbidden' })
-    if (r.state === 'live') commit((m) => m.set(code, tombstone(r)))
+    if (r.state !== 'ended') commit((m) => m.set(code, tombstone(r)))
     send(res, 204)
   }
 
@@ -615,7 +748,7 @@ export function createMeetingCodesServer(config) {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         ...BASE_HEADERS,
-        'access-control-allow-methods': route === '/codes' ? 'POST, OPTIONS' : 'GET, DELETE, OPTIONS',
+        'access-control-allow-methods': route === '/codes' ? 'POST, OPTIONS' : 'GET, PUT, DELETE, OPTIONS',
         'access-control-allow-headers': 'Authorization, Content-Type',
         'access-control-max-age': '600',
       })
@@ -639,6 +772,7 @@ export function createMeetingCodesServer(config) {
       decoded = null
     }
     if (req.method === 'GET') return lookup(req, res, key, decoded)
+    if (req.method === 'PUT') return upload(req, res, key, decoded)
     if (req.method === 'DELETE') return remove(req, res, key, decoded)
     send(res, 405, { error: 'method not allowed' })
   }
