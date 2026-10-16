@@ -110,6 +110,26 @@ kithmoot.forgesworn.dev {
 		reverse_proxy 127.0.0.1:8089
 	}
 
+	# Meeting codes (server/meeting-codes.mjs, installed as
+	# deploy/meeting-codes.service, listening on 127.0.0.1:8094 because
+	# 8093 is the Tor front at the bottom of this file). POST /codes,
+	# GET and DELETE /codes/<code>, and GET /codes/health; the service
+	# answers 404 to anything else under the prefix. See docs/meeting-codes.md
+	# for the trust model: the service stores full invitation links.
+	#
+	# The service's per-address limits trust only the last X-Forwarded-For
+	# entry, the one reverse_proxy appends. That is the visitor's own
+	# address because this host is grey-cloud (no Cloudflare in front) and
+	# no trusted_proxies is configured, so Caddy discards any
+	# X-Forwarded-For the client sent. Putting this host behind a proxy
+	# would turn every visitor into the proxy's address, one shared budget.
+	#
+	# A `handle` block before the catch-all, for the ordering reason given
+	# on /turn above.
+	handle /codes* {
+		reverse_proxy 127.0.0.1:8094
+	}
+
 	# The drop tier of the box this host runs (bothy-node, container
 	# `bothyd-stall`, `BOTHY_DROPS_BIND` published on 127.0.0.1:4848): kind
 	# 1059 gift wraps accepted from anyone into a bounded tier and served by
@@ -288,6 +308,20 @@ kithmoot.app {
 
 	@app path /j /j/*
 	redir @app https://kithmoot.forgesworn.dev{uri} 302
+
+	# Meeting code links, kithmoot.app/c/ABC-DEF-GH: 302 to the app, which
+	# reads `c` from the query and asks the code service (on
+	# kithmoot.forgesworn.dev, above). The app canonicalises and validates;
+	# this only refuses to forward anything that is not code-shaped, so no
+	# path text but alphabet symbols and hyphens reaches the Location
+	# header. Anything else under /c/ falls through to the file server's
+	# 404. no-store, because this host is behind Cloudflare and a cached
+	# redirect would outlive the code. `redir` sorts ahead of `handle` in
+	# Caddy's directive order, so this wins over the handlers below, and
+	# the snippet's `?Cache-Control` sets only when absent.
+	@code path_regexp code ^/c/([0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{3}-?[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{3}-?[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{2})$
+	header @code Cache-Control "no-store"
+	redir @code https://kithmoot.forgesworn.dev/j/?c={re.code.1} 302
 
 	handle /apk/* {
 		root * /var/www/kithmoot
