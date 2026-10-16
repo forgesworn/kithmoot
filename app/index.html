@@ -560,6 +560,19 @@
               <p id="linkError" class="formError" role="alert" hidden></p>
             </form>
           </details>
+          <!-- A meeting code a host read out or sent: it looks up the room's
+               invite link and opens the same door, never the room itself.
+               See docs/meeting-codes.md. -->
+          <details id="joinCode">
+            <summary>Join with code</summary>
+            <form id="joinCodeForm" novalidate>
+              <label for="meetingCodeInput">Meeting code</label>
+              <input id="meetingCodeInput" type="text" placeholder="ABC-DEF-GH" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
+              <button id="joinCodeSubmit" type="submit">Join</button>
+              <p id="joinCodeError" class="formError" role="alert" hidden></p>
+              <button id="joinCodeRetry" type="button" hidden>Retry</button>
+            </form>
+          </details>
           <button id="homeContacts" type="button" class="quiet" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
           <button id="homeSignIn" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
         </div>
@@ -1277,6 +1290,22 @@
             <button id="shareRoom" type="button" hidden>Share</button>
           </div>
           <p id="inviteStatus" class="note" role="status"></p>
+          <!-- Only for the room's creator, and only for an Ask room or one
+               with an end. The code's delete token stays on this device. -->
+          <div id="meetingCodeRow" class="meetingCodeRow" hidden>
+            <button id="getMeetingCode" type="button">Get a meeting code</button>
+            <div id="meetingCodeShown" hidden>
+              <p class="meetingCodeValue"><span class="sr-only">Meeting code: </span><span id="meetingCode"></span></p>
+              <label class="sr-only" for="meetingCodeLink">Short link</label>
+              <input id="meetingCodeLink" readonly aria-label="Short link to this room" />
+              <div class="inviteButtons">
+                <button id="copyMeetingCode" type="button">Copy</button>
+                <button id="shareMeetingCode" type="button" hidden>Share</button>
+              </div>
+              <p id="meetingCodeExpiry" class="note"></p>
+            </div>
+            <p id="meetingCodeStatus" class="note" role="status"></p>
+          </div>
           <p id="invitationAvailability" class="note">
             Leave this tab open. It is what lets the next person in when
             they follow the link.
