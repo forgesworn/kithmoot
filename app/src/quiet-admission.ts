@@ -60,6 +60,14 @@ export const STAND_DOWN_SETTLE_MS = 3_000
  *  the requester has either been let in or given up. */
 export const STAND_DOWN_LISTEN_MS = 15_000
 
+/**
+ * The longest the whole decision may take, however many answers arrive. A
+ * stranger posting a junk grant every few seconds would otherwise keep this
+ * device standing down, and its subscriptions open, for as long as the room
+ * is. Comfortably inside the request's own 90 second life.
+ */
+export const QUIET_ADMISSION_DEADLINE_MS = 60_000
+
 /** Ignore a re-send this soon after subscribing unless the relays have said
  *  they are done replaying: a relay that keeps ephemeral requests hands the
  *  old one back at once, and that is not the requester asking again. */
@@ -103,6 +111,7 @@ export function quietAutoAdmit(deps: QuietAdmissionDeps): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false
     const timers = new Set<unknown>()
+    let deadline: unknown
     let offAnswers: () => void = () => {}
     let offRetries: () => void = () => {}
     const finish = (grant: boolean): void => {
@@ -110,6 +119,7 @@ export function quietAutoAdmit(deps: QuietAdmissionDeps): Promise<boolean> {
       settled = true
       for (const timer of timers) clearTimer(timer)
       timers.clear()
+      if (deadline !== undefined) clearTimer(deadline)
       try { offAnswers() } catch { /* Unsubscribing cannot change the answer. */ }
       try { offRetries() } catch { /* As above. */ }
       deps.signal?.removeEventListener('abort', abort)
@@ -126,6 +136,8 @@ export function quietAutoAdmit(deps: QuietAdmissionDeps): Promise<boolean> {
 
     if (deps.signal?.aborted) { finish(false); return }
     deps.signal?.addEventListener('abort', abort, { once: true })
+    // Outside `timers`, so standing down again never clears it.
+    deadline = setTimer(QUIET_ADMISSION_DEADLINE_MS, () => finish(false))
 
     /** 'waiting' for its own turn; 'stood-down' after another answer;
      *  'retrying' once the requester was seen still asking. */

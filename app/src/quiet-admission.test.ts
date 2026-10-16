@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CREATOR_GRANT_DELAY_MS,
   MEMBER_GRANT_DELAY_MS,
+  QUIET_ADMISSION_DEADLINE_MS,
   STAND_DOWN_LISTEN_MS,
   STAND_DOWN_SETTLE_MS,
   quietAutoAdmit,
@@ -149,6 +150,18 @@ describe('quietAutoAdmit', () => {
     run.controller.abort()
     await run.flush()
     expect(run.outcome).toBe(false)
+    expect(run.clock.timers.size).toBe(0)
+  })
+  it('gives up by the deadline however many unverifiable answers keep arriving', async () => {
+    const run = setup(false)
+    for (let t = 0; t < QUIET_ADMISSION_DEADLINE_MS + 10_000 && run.outcome === undefined; t += 2_000) {
+      run.answer({ verifiedCreator: false })
+      run.clock.advance(2_000)
+      await run.flush()
+    }
+    expect(run.outcome).toBe(false)
+    expect(run.clock.t).toBeLessThanOrEqual(QUIET_ADMISSION_DEADLINE_MS + 2_000)
+    expect(run.open).toEqual({ answers: 0, retries: 0 })
     expect(run.clock.timers.size).toBe(0)
   })
 })
