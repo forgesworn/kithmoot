@@ -20,7 +20,7 @@ for(const name of ['setItem','removeItem','clear'])Storage.prototype[name]=()=>{
 window.__privateBootstrapPause=async stage=>{const cut=window.privateBootstrapGate;if(!cut||cut.stage!==stage||cut.used)return;cut.used=true;cut.entered=true;await new Promise((yes,no)=>{cut.release=()=>cut.reject?no(Error('Explicit bootstrap fixture failure')):yes()})};\nwindow.privateRenewalEntropy=[];window.privateRenewalWrites=[];window.privateRenewalPackets=[];window.privateRenewalEncryptedRows={};window.privateRenewalEncryptedCohorts={};
 window.__enterPrivateRenewalDecision=()=>{const before=[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision];window.__privateRenewalDecision=true;window.__controlDecision=true;window.__foregroundDecision=true;return()=>{[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision]=before}};
 for(const name of ['put','add','delete','clear']){const actual=IDBObjectStore.prototype[name];IDBObjectStore.prototype[name]=function(...args){effects.put++;if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalWrites.push([name,args[1]??null]);privateRenewalPackets.push({phase:window.__privateRenewalWritePhase,key:args[1],packet:JSON.stringify(args[0],(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v)});const result=Reflect.apply(actual,this,args);if(name==='put'&&window.__privateRenewalWritePhase){privateRenewalEncryptedRows[args[1]]=structuredClone(args[0]);if(String(args[1]).startsWith('journal:'))privateRenewalEncryptedCohorts[window.__privateRenewalWritePhase]=structuredClone(privateRenewalEncryptedRows)}const fault=window.privateRenewalAckFault;if(fault&&!fault.used&&fault.phase===window.__privateRenewalWritePhase){fault.used=true;const tx=this.transaction;if(fault.prior){fault.entered=true;tx.abort();if(fault.close)window.dispatchEvent(new PageTransitionEvent('pagehide'))}else{const complete=tx.oncomplete,abort=tx.onabort;tx.oncomplete=event=>{fault.entered=true;fault.release=()=>{fault.delivered=true;if(fault.reject)abort.call(tx,new Event('abort'));else complete.call(tx,event)}}}}return result}throw Error('native write forbidden')}};
-crypto.getRandomValues=value=>{if(curveProbeActive)return nativeProbeRandom(value);effects.entropy++;if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalEntropy.push(value.byteLength);if(value.byteLength===12&&window.privateRenewalNonceCollision){const prior=window.privateRenewalNonceCollision==='existing'?window.__privateRenewalPriorNonces[0]:window.__privateRenewalFirstNonce;if(prior){value.set(Uint8Array.from(prior.match(/../g).map(v=>parseInt(v,16))));return value}}const result=nativeProbeRandom(value);if(value.byteLength===12&&!window.__privateRenewalFirstNonce)window.__privateRenewalFirstNonce=Array.from(value,v=>v.toString(16).padStart(2,'0')).join('');return result}const error=Error('entropy forbidden');privateEntropyCalls.push(error.stack);throw error};
+crypto.getRandomValues=value=>{if(curveProbeActive)return nativeProbeRandom(value);effects.entropy++;if(window.privateMemberConstruction&&window.__controlDecision){(window.privateMemberEntropy??=[]).push(value.byteLength);return nativeProbeRandom(value)};if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalEntropy.push(value.byteLength);if(value.byteLength===12&&window.privateRenewalNonceCollision){const prior=window.privateRenewalNonceCollision==='existing'?window.__privateRenewalPriorNonces[0]:window.__privateRenewalFirstNonce;if(prior){value.set(Uint8Array.from(prior.match(/../g).map(v=>parseInt(v,16))));return value}}const result=nativeProbeRandom(value);if(value.byteLength===12&&!window.__privateRenewalFirstNonce)window.__privateRenewalFirstNonce=Array.from(value,v=>v.toString(16).padStart(2,'0')).join('');return result}const error=Error('entropy forbidden');privateEntropyCalls.push(error.stack);throw error};
 crypto.subtle.generateKey=()=>{effects.key++;throw Error('key allocation forbidden')};`
 const none = { provider: 0, socket: 0, storageWrite: 0, put: 0, entropy: 0, key: 0 }
 
@@ -35,7 +35,11 @@ test.beforeAll(async () => {
       builder.onLoad({ filter: /ordinary-private-existing-root\.ts$/ }, async input => {
         const source = await readFile(input.path, 'utf8'), marker = '}, async () => {\n      this.#stop()'
         if (source.split(marker).length !== 2) throw Error('Private root observation fixture drift')
-        return { loader: 'ts', contents: source.replace(marker,
+        const closeMarker='this.#closing = new Promise<void>((yes, no) => { resolve = yes; reject = no })'
+        if(source.split(closeMarker).length!==2)throw Error('Private root terminal observer drift')
+        const observed=source.replace(closeMarker,closeMarker+`; (globalThis as any).__rootCloseDoneForTest=false;
+          void this.#closing.then(()=>{(globalThis as any).__rootCloseDoneForTest=true},(error)=>{(globalThis as any).__rootCloseFailure=error?.message;(globalThis as any).__rootCloseDoneForTest=true})`)
+        return { loader: 'ts', contents: observed.replace(marker,
           '}, async (error) => { (globalThis as any).__rootFailure=error?.stack; this.#stop()').replace(
             '}, async () => { this.#stop(); await this.close() })',
             '}, async (error) => { (globalThis as any).__providerFailure=error?.stack; this.#stop(); await this.close() })').replace(
@@ -45,7 +49,7 @@ test.beforeAll(async () => {
              this.#provider = provider
              if ((globalThis as any).providerFixture?.cutAssignment === 'after') window.dispatchEvent(new PageTransitionEvent('pagehide'))`).replace(
             '#pagehide = () => { void this.close().catch(() => {}) }',
-            '#pagehide = () => { void this.close().catch(error => { (globalThis as any).__rootCloseFailure=error?.message }) }').replace(
+            '#pagehide = () => { (globalThis as any).__rootCloseDoneForTest=false; void this.close().catch(error => { (globalThis as any).__rootCloseFailure=error?.message }).finally(()=>{(globalThis as any).__rootCloseDoneForTest=true}) }').replace(
             'assertClientsCurrent: async () => { this.#check(); await this.#worker!.assertCurrent(); this.#check() }',
             `assertClientsCurrent: async () => {
               this.#check()
@@ -110,6 +114,12 @@ test.beforeAll(async () => {
           const binding=fault?Object.freeze({...original,selection:selected,scopes}):original
           if(fixture.privateBootstrapCut==='claim-consumed')window.dispatchEvent(new PageTransitionEvent('pagehide'))
         `)
+        const memberFailure='      } catch {\n        this.#revoke(); await this.#drainAndWipe(); throw new OrdinaryStateHold()'
+        if(source.split(memberFailure).length!==2)throw Error('Private member failure observer drift')
+        source=source.replace(memberFailure,'      } catch (error) {\n        ;(globalThis as any).__privateMemberFailureForTest=(error as Error)?.stack\n        this.#revoke(); await this.#drainAndWipe(); throw new OrdinaryStateHold()')
+        const memberMarker='this.#privateSessionModule = module; this.#privateSession = resource'
+        if(source.split(memberMarker).length!==2)throw Error('Private member assignment observer drift')
+        source=source.replace(memberMarker,memberMarker+`; (globalThis as any).__privateMemberConstructedForTest=true; if((globalThis as any).privateMemberCut==='after-session')window.dispatchEvent(new PageTransitionEvent('pagehide'))`)
         const loaded='state.#privateMaterial = material'
         if(source.split(loaded).length!==2)throw Error('Private bootstrap material observer drift')
         source=source.replace(loaded,loaded+`
@@ -131,9 +141,9 @@ test.beforeAll(async () => {
         `)
         const initial='await state.#initialiseExisting(true)'
         source=source.replace(initial,`await (globalThis as any).__privateBootstrapPause('before-load'); `+initial)
-        const closed='    this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)\n  }'
+        const closed='      this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)\n      erased = true\n      if (failures.length) throw failures[0]'
         if(source.split(closed).length!==2)throw Error('Private bootstrap close observer drift')
-        source=source.replace(closed,`    this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)\n    if(this.#private)await (globalThis as any).__privateBootstrapPause('close')\n  }`)
+        source=source.replace(closed,`      this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)\n      erased = true\n      if(this.#private)await (globalThis as any).__privateBootstrapPause('close')\n      if (failures.length) throw failures[0]`)
         return {loader:'ts',contents:`;(globalThis as any).__privateBootstrapModuleEvaluated=((globalThis as any).__privateBootstrapModuleEvaluated??0)+1\n`+source+`
           ;(globalThis as any).__privateBootstrapClassForTest=OrdinaryPersistentBootstrap
           if((globalThis as any).privateBootstrapReplacePublic){
@@ -141,7 +151,45 @@ test.beforeAll(async () => {
             for(const name of ['open','recoverPreparedAtStartup'])Object.defineProperty(OrdinaryPersistentBootstrap,name,{configurable:true,value:fail})
             for(const name of ['load','revoke','close','bootstrap','openMemberSession'])Object.defineProperty(OrdinaryPersistentBootstrap.prototype,name,{configurable:true,value:fail})
           }
-          ;(globalThis as any).__privateBootstrapFunctionsForTest=Object.freeze({open:openOrdinaryPrivateBootstrapFromOwnerClaim,completed:ordinaryPrivateBootstrapCompleted,stop:stopOrdinaryPrivateBootstrap,close:closeOrdinaryPrivateBootstrap})
+          ;(globalThis as any).__privateBootstrapFunctionsForTest=Object.freeze({open:openOrdinaryPrivateBootstrapFromOwnerClaim,completed:ordinaryPrivateBootstrapCompleted,stop:stopOrdinaryPrivateBootstrap,close:closeOrdinaryPrivateBootstrap,constructMember:constructOrdinaryPrivateBootstrapMember})
+        `}
+      })
+      builder.onLoad({filter:/ordinary-private-member-session\.ts$/},async input=>{
+        let source=await readFile(input.path,'utf8')
+        const marker='const binding = takeOrdinaryPrivateSessionClaim(claim)'
+        if(source.split(marker).length!==2)throw Error('Private Session claim observer drift')
+        source=source.replace(marker,marker+`; (globalThis as any).__privateMemberClaimForTest=claim`)
+        const retained='sessions.set(resource, {view, secret, device, seals, disposed: false})'
+        if(source.split(retained).length!==2)throw Error('Private Session retained input observer drift')
+        source=source.replace(retained,retained+`;
+          ;(globalThis as any).__privateSessionInputsWipedForTest=()=>[secret!,device!,...seals].every(key=>key.every(value=>value===0))
+          if((globalThis as any).privateMemberCloseFailure||(globalThis as any).privateMemberDisposeFailure||(globalThis as any).privateMemberDisposePaused){
+            const actual=view, fixture=globalThis as any, closeError=Error('Explicit private Session close failure')
+            fixture.__privateSessionSeenResource=resource;fixture.privateMemberCloseCalls=0;fixture.privateMemberDisposeCalls=0
+            sessions.set(resource,{view:Object.freeze({...actual,close:()=>{fixture.privateMemberCloseCalls++;
+              if(fixture.privateMemberReentrantDrain){fixture.privateMemberReentrantDrain=undefined;fixture.privateMemberReentrantDrainPromise=drainOrdinaryPrivateMemberSession(resource);void fixture.privateMemberReentrantDrainPromise.catch(()=>{})}
+              return fixture.privateMemberCloseFailure?Promise.reject(closeError):actual.close()},
+              dispose:()=>{fixture.privateMemberDisposeCalls++;if(fixture.privateMemberDisposePaused||fixture.privateMemberDisposeFailure&&fixture.privateMemberDisposeCalls===1)throw Error('Explicit private Session disposal failure');
+                actual.dispose();fixture.__privateSessionDisposedForTest=true}}),secret,device,seals,disposed:false})
+          }
+        `)
+        return {loader:'ts',contents:source+`
+          ;(globalThis as any).__privateMemberClassForTest=RoomSession
+          ;(globalThis as any).__privateMemberFunctionsForTest={open:openOrdinaryPrivateMemberSessionFromBootstrapClaim,stop:stopOrdinaryPrivateMemberSession,close:closeOrdinaryPrivateMemberSession,drain:drainOrdinaryPrivateMemberSession}
+        `}
+      })
+      builder.onLoad({filter:/ordinary-relay-carrier\.ts$/},async input=>{
+        let source=await readFile(input.path,'utf8')
+        const marker='privateCarrierResources.set(resource, Object.freeze({state, completed, transport}))'
+        if(source.split(marker).length!==2)throw Error('Private carrier resource observer drift')
+        source=source.replace(marker,marker+`;
+          ;(globalThis as any).__privateCarrierForTest=()=>({closed:state.#closed,private:!!state.#private,work:state.#work.size,pool:!!state.#pool,
+            profile:state.#options.profile,authentication:state.#options.authentication??[],relays:state.#relays,facade:Reflect.ownKeys(transport),frozen:Object.isFrozen(transport),nullPrototype:Object.getPrototypeOf(transport)===null})
+          ;(globalThis as any).__privateCarrierSeenResource=resource
+        `)
+        return {loader:'ts',contents:source+`
+          ;(globalThis as any).__privateCarrierClassForTest=OrdinaryRelayCarrier
+          ;(globalThis as any).__privateCarrierFunctionsForTest={open:openOrdinaryPrivateCarrierFromBootstrapClaim,completed:ordinaryPrivateCarrierCompleted,transport:ordinaryPrivateCarrierTransport,stop:stopOrdinaryPrivateCarrier,close:closeOrdinaryPrivateCarrier}
         `}
       })
       builder.onLoad({filter:/ordinary-prepared-renewal-capacity\.ts$/},async input=>{
@@ -173,7 +221,7 @@ test.beforeAll(async () => {
         source=source.replace(before,"check();await (globalThis as any).__privateBootstrapPause('before-import');check()\n        const module = await import('./ordinary-persistent-bootstrap.js')")
         const bootstrapLatch='member.bootstrap.claimed = true'
         if(source.split(bootstrapLatch).length!==2)throw Error('Private bootstrap latch observer drift')
-        source=source.replace(bootstrapLatch,bootstrapLatch+`; (globalThis as any).__privateBootstrapLatchForTest=()=>Object.freeze({bootstrap:member.bootstrap.claimed,renewal:member.renewal.claimed})`)
+        source=source.replace(bootstrapLatch,bootstrapLatch+`; (globalThis as any).__privateBootstrapLatchForTest=()=>Object.freeze({bootstrap:member.bootstrap.claimed,renewal:member.renewal.claimed}); (globalThis as any).__privateMemberCloseOwnerForTest=(which:string)=>{const owner=which==='browser'?member.capture.browser:member.capture.tab;return owner.#close()}`)
         const beforeClaim='await clients()\n        await read(live, () => {'
         source=source.replace(beforeClaim,"await clients();await (globalThis as any).__privateBootstrapPause('before-claim');check()\n        await read(live, () => {")
         const resource='const resource = module.openOrdinaryPrivateBootstrapFromOwnerClaim(claim)'
@@ -494,9 +542,9 @@ test.beforeEach(async ({ page }) => {
   page.on('console', message => { if (message.type() === 'error') console.error('Private root fixture console:', message.text()) })
 })
 
-async function seed(page: Page, keep = true, visitor = false): Promise<string> {
+async function seed(page: Page, keep = true, visitor = false, signedDestinations = false): Promise<string> {
   await page.goto(origin + '/j/setup')
-  await page.evaluate(`(${setup})(${JSON.stringify({ keep, visitor, noRelays: true })})`)
+  await page.evaluate(`(${setup})(${JSON.stringify({ keep, visitor, noRelays: !signedDestinations })})`)
   return page.evaluate(async () => {
     const w = window as any, o = w.Ordinary
     const result = await w.bootstrap.bootstrap(w.evidence)
@@ -1032,8 +1080,8 @@ for (const mutation of ['provider', 'native'] as const) test(`held ${mutation} m
 // construction remain part of the unpublished vertical under construction.
 const privateControlFixtureSecrets = new WeakMap<Page, Uint8Array>()
 async function prepareControlStage(page: Page, keep = true, proxyProvider = false,
-  duplicated?: { family: 'sign' | 'crypto'; timing: 'sequential' | 'microtask' }, seedFixture?:()=>Promise<void>): Promise<void> {
-  const href = await seed(page, keep)
+  duplicated?: { family: 'sign' | 'crypto'; timing: 'sequential' | 'microtask' }, seedFixture?:()=>Promise<void>, signedDestinations = false): Promise<void> {
+  const href = await seed(page, keep, false, signedDestinations)
   await seedFixture?.()
   const account = await page.evaluate<string>('account'),
     secret = Uint8Array.from(await page.evaluate<number[]>('Array.from(participantSk)'))
@@ -2464,7 +2512,7 @@ for(const keep of [false,true])test(`private bootstrap owned load retains materi
   await prepareControlStage(page,keep,true);await startPrivateForeground(page)
   expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
   expect(await page.evaluate('window.__privateBootstrapModuleEvaluated??0')).toBe(0)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   if(await page.evaluate('privateBootstrapOutcome')!=='loaded')console.log('Private bootstrap hold',await page.evaluate('JSON.stringify({outcome:privateBootstrapOutcome,providerFailure:window.__providerFailure,holds:window.__privateRenewalHolds,entropy:privateEntropyCalls})'))
   expect(await page.evaluate('[privateBootstrapOutcome,privateBootstrapVoid,__privateBootstrapModuleEvaluated]')).toEqual(['loaded',true,1])
@@ -2481,7 +2529,7 @@ for(const keep of [false,true])test(`private bootstrap owned load retains materi
 for(const fault of ['account','participant','invitation','room','operation','keep','link','credential','bootstrap-expiry','browser-scope','tab-scope'])test(`private bootstrap refuses selected binding ${fault} without effects`,async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
   await page.evaluate(fault=>{(window as any).privateBootstrapSelectionFault=fault},fault)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
@@ -2490,7 +2538,7 @@ for(const fault of ['account','participant','invitation','room','operation','kee
 })
 for(const stage of ['before-import','after-import','before-claim','before-load','after-load','close'])for(const reject of [false,true])test(`private bootstrap joins revoked ${stage} tail, reject=${reject}`,async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(({stage,reject})=>{(window as any).privateBootstrapGate={stage,reject}}, {stage,reject})
   await beginPrivateBootstrapLoad(page)
   if(stage==='close'){await page.waitForFunction('privateBootstrapDone');expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')}
@@ -2510,7 +2558,7 @@ for(const stage of ['before-import','after-import','before-claim','before-load',
 })
 for(const stage of ['claim-consumed','after-resource','after-load'])test(`private bootstrap closes after synchronous ${stage} revocation`,async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(stage=>{(window as any).privateBootstrapCut=stage},stage)
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
@@ -2520,7 +2568,7 @@ for(const stage of ['claim-consumed','after-resource','after-load'])test(`privat
 })
 for(const read of [1,2,3,4])test(`private bootstrap refuses revoked native decision ${read}`,async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(read=>{(window as any).privateBootstrapReadCut=read},read)
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
@@ -2576,7 +2624,7 @@ test('private bootstrap second child start cannot replace an owned pending first
 
 for(const first of ['bootstrap','renewal'] as const)test(`private bootstrap and renewal exclude a ${first} start before awaiting`,async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   if(first==='bootstrap'){
     await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'before-import'}})
     await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
@@ -2596,7 +2644,7 @@ for(const first of ['bootstrap','renewal'] as const)test(`private bootstrap and 
 })
 for(const fault of ['device','seal','root','credential','admission'])test(`private bootstrap final native decision refuses changed retained ${fault}`,async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(fault=>{(window as any).privateBootstrapMaterialFault=fault},fault)
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   expect(await page.evaluate('[privateBootstrapOutcome,privateBootstrapMaterialFaultUsed,__privateBootstrapWipedForTest()]')).toEqual(['OrdinaryStateHold',true,true])
@@ -2606,7 +2654,7 @@ for(const fault of ['device','seal','root','credential','admission'])test(`priva
 for(const fault of ['provider','sdk','native','controller','expiry','credential-floor'] as const)test(`private bootstrap refuses ${fault} change after material assignment`,async({page})=>{
   if(fault==='expiry'||fault==='credential-floor')await page.clock.install()
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'after-load'}})
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
   if(fault==='provider')await page.evaluate('window.nostr=providerFixture.current={}')
@@ -2625,7 +2673,7 @@ for(const fault of ['provider','sdk','native','controller','expiry','credential-
 })
 for(const at of [4,6,8,9,10])for(const reject of [false,true])test(`private bootstrap joins revoked current-client probe ${at}, reject=${reject}`,async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(({at,reject})=>{(window as any).privateRenewalClientCut={calls:0,at,reject}},{at,reject})
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateRenewalClientCut.entered')
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
@@ -2640,7 +2688,7 @@ for(const at of [4,6,8,9,10])for(const reject of [false,true])test(`private boot
 })
 test('private bootstrap final native read refuses a newly arrived outside client',async({page,context})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'after-load'}})
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
   const other=await context.newPage();await other.goto(origin+'/outside/legacy')
@@ -2666,7 +2714,7 @@ async function preparePrivateBootstrapSuccessor(page:Page,keep:boolean):Promise<
 }
 for(const keep of [false,true])test(`private bootstrap loads an acknowledged successor with owned seal history, keep=${keep}`,async({page})=>{
   await preparePrivateBootstrapSuccessor(page,keep)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')
   expect(await page.evaluate('__privateBootstrapResourceForTest()')).toMatchObject({material:true,legacy:false,retained:[32,32,32,32,32]})
@@ -2677,7 +2725,7 @@ for(const keep of [false,true])test(`private bootstrap loads an acknowledged suc
 })
 test('private bootstrap final decision refuses reordered successor seal history',async({page})=>{
   await preparePrivateBootstrapSuccessor(page,false)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(()=>{(window as any).privateBootstrapMaterialFault='seal-history'})
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   expect(await page.evaluate('[privateBootstrapOutcome,privateBootstrapMaterialFaultUsed,__privateBootstrapWipedForTest()]')).toEqual(['OrdinaryStateHold',true,true])
@@ -2686,7 +2734,7 @@ test('private bootstrap final decision refuses reordered successor seal history'
 })
 test('private bootstrap failed first start keeps its latch spent and excludes renewal',async({page})=>{
   await prepareControlStage(page,false,true);await startPrivateForeground(page)
-  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
   await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'before-import',reject:true}})
   await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
   await page.evaluate('privateBootstrapGate.release();undefined');await page.waitForFunction('privateBootstrapDone')
@@ -2701,5 +2749,170 @@ test('private bootstrap failed first start keeps its latch spent and excludes re
   })).toEqual(['OrdinaryStateHold','OrdinaryStateHold'])
   expect(await page.evaluate('__privateBootstrapLatchForTest()')).toEqual({bootstrap:true,renewal:false})
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+})
+
+
+async function beginPrivateMemberConstruction(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w=window as any;w.privateMemberDone=false;w.privateMemberConstruction=true
+    w.privateMemberPending=w.__privateBootstrapFunctionsForTest.constructMember(w.__seenPrivateBootstrapResource).then(
+      (value:unknown)=>{w.privateMemberOutcome='constructed';w.privateMemberVoid=value===undefined},
+      (error:Error)=>{w.privateMemberOutcome=error.name}).finally(()=>{w.privateMemberDone=true})
+  })
+}
+for(const keep of [false,true])test(`private member construction uses genuine claims without a participant signer, keep=${keep}`,async({page})=>{
+  await prepareControlStage(page,keep,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  if(await page.evaluate('privateMemberOutcome')!=='constructed')console.log('Private construction refusal',await page.evaluate('JSON.stringify({holds:window.__privateRenewalHolds,entropy:privateEntropyCalls,outcome:privateMemberOutcome,error:window.__privateMemberFailureForTest})'))
+  expect(await page.evaluate('[privateMemberOutcome,privateMemberVoid,__privateMemberConstructedForTest]')).toEqual(['constructed',true,true])
+  expect(await page.evaluate('__privateCarrierForTest()')).toMatchObject({closed:false,private:true,pool:true,profile:'direct',authentication:[],relays:[{url:'wss://signed.example/',read:true,write:true}],facade:['publish','subscribe','close'],frozen:true,nullPrototype:true})
+  const after=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  expect(after).toEqual({...before,entropy:before.entropy+1})
+  expect(await page.evaluate('privateMemberEntropy')).toEqual([4])
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.evaluate(async()=>{try{await(window as any).__privateBootstrapFunctionsForTest.constructMember((window as any).__seenPrivateBootstrapResource);return'unexpected'}catch(error){return(error as Error).name}})).toBe('OrdinaryStateHold')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateCarrierForTest()')).toMatchObject({closed:true,work:0})
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+test('private member construction holds missing signed destinations before SID or sockets',async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  expect(await page.evaluate('window.__privateCarrierForTest===undefined')).toBe(true)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+test('private member claim wrappers refuse copied, proxy and spent claims before reflection or effects',async({page})=>{
+  await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
+  expect(await page.evaluate(async()=>{
+    const w=window as any;let reflections=0,refused=0
+    const fake=new Proxy({}, {get(){reflections++;throw Error('Foreign getter')},ownKeys(){reflections++;throw Error('Foreign keys')},getPrototypeOf(){reflections++;throw Error('Foreign prototype')}})
+    for(const action of [()=>w.__privateMemberFunctionsForTest.open(fake),()=>w.__privateMemberFunctionsForTest.open(w.__privateMemberClaimForTest),()=>w.__privateCarrierFunctionsForTest.open(fake),()=>w.__privateCarrierFunctionsForTest.transport(fake),()=>w.__privateMemberFunctionsForTest.close(fake)]){
+      try{await action()}catch{refused++}
+    }
+    return[reflections,refused]
+  })).toEqual([0,5])
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+test('private member construction cleans up pagehide after Session resource assignment',async({page})=>{
+  await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await page.evaluate(()=>{(window as any).privateMemberCut='after-session'})
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('[privateMemberOutcome,__privateMemberConstructedForTest]')).toEqual(['OrdinaryStateHold',true])
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateCarrierForTest()')).toMatchObject({closed:true,work:0})
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+
+
+test('private member construction ignores inherited epoch-key consumers and optional settings',async({page})=>{
+  await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await page.evaluate(()=>{
+    const w=window as any;w.privateMemberInheritedReads=0;w.privateMemberEpochKeyLeaks=0
+    for(const field of ['forwarderMediaPipeline','rekey','setRelays','epoch','now','sid','assist','owner'])
+      Object.defineProperty(Object.prototype,field,{configurable:true,get(){w.privateMemberInheritedReads++;return{rekey(){w.privateMemberEpochKeyLeaks++;return true}}},
+        set(value){Object.defineProperty(this,field,{value,configurable:true,writable:true,enumerable:true})}})
+  })
+  try{
+    await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+    expect(await page.evaluate('[privateMemberOutcome,privateMemberInheritedReads,privateMemberEpochKeyLeaks]')).toEqual(['constructed',0,0])
+  }finally{
+    await page.evaluate(()=>{for(const field of ['forwarderMediaPipeline','rekey','setRelays','epoch','now','sid','assist','owner'])Reflect.deleteProperty(Object.prototype,field)})
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  }
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+test('private member cleanup erases retained material after Session close rejects',async({page})=>{
+  await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await page.evaluate(()=>{(window as any).privateMemberCloseFailure=true})
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[__privateSessionDisposedForTest,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([true,true,true])
+  expect(await page.evaluate('__privateCarrierForTest()')).toMatchObject({closed:true,work:0})
+})
+test('private member construction and close bypass public owner carrier and Session methods',async({page})=>{
+  await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await page.evaluate(()=>{
+    const w=window as any;w.privateMemberPublicDispatches=0
+    const fail=()=>{w.privateMemberPublicDispatches++;throw Error('Public private-member dispatch')}
+    const owner=w.__privateOwnerPrototypeForTest.constructor,carrier=w.__privateCarrierClassForTest
+    for(const name of ['readPairMigrated','joinPairLifetime','validatePairBinding','retainPairResource'])owner[name]=fail
+    w.__privateOwnerPrototypeForTest.capture=fail
+    for(const name of ['open','prepareSuccessor','checkSuccessor','applySuccessor','resumeSuccessor'])carrier[name]=fail
+    for(const name of ['publish','subscribe','close','joinLifetime','describe','resumeResources'])carrier.prototype[name]=fail
+  })
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('[privateMemberOutcome,privateMemberPublicDispatches]')).toEqual(['constructed',0])
+  await page.evaluate(()=>{
+    const w=window as any,fail=()=>{w.privateMemberPublicDispatches++;throw Error('Public Session cleanup')}
+    for(const name of ['join','leave','disposeProtocolSecrets'])w.__privateMemberClassForTest.prototype[name]=fail
+    window.dispatchEvent(new PageTransitionEvent('pagehide'))
+  })
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[privateMemberPublicDispatches,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([0,true,true])
+})
+
+
+for(const cause of ['pagehide','browser','tab'])for(const closeFails of [false,true])test(`private member parent drain retains native custody through ${cause} erasure retries, closeFails=${closeFails}`,async({page})=>{
+  await prepareControlStage(page,false,true,undefined,undefined,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  await page.evaluate(closeFails=>{const w=window as any;w.privateMemberCloseFailure=closeFails;w.privateMemberDisposePaused=true;w.privateMemberReentrantDrain=true},closeFails)
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  const before=await page.evaluate<Record<string,number>>('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(cause=>{
+    const w=window as any;w.__privateOwnerCloseFixture={entered:[],terminal:[]};w.privateDrainNativeOpens=0;w.privateDrainNativeTransactions=0
+    const open=indexedDB.open.bind(indexedDB),transaction=IDBDatabase.prototype.transaction
+    indexedDB.open=((...args:Parameters<IDBFactory['open']>)=>{w.privateDrainNativeOpens++;return open(...args)}) as IDBFactory['open']
+    IDBDatabase.prototype.transaction=function(...args:Parameters<IDBDatabase['transaction']>){w.privateDrainNativeTransactions++;return Reflect.apply(transaction,this,args)}
+    if(cause==='pagehide')window.dispatchEvent(new PageTransitionEvent('pagehide'))
+    else {
+      w.privateDirectOwnerCloseDone=false
+      void w.__privateMemberCloseOwnerForTest(cause).finally(()=>{w.privateDirectOwnerCloseDone=true}).catch(()=>{})
+    }
+  },cause)
+  await expect.poll(()=>page.evaluate<number>('privateMemberDisposeCalls')).toBeGreaterThanOrEqual(3)
+  expect(await page.evaluate('[privateMemberCloseCalls,__rootCloseDoneForTest,providerFixture.closeCalls??0,__privateOwnerCloseFixture.entered.length,privateDrainNativeOpens,privateDrainNativeTransactions]')).toEqual([1,false,0,0,0,0])
+  if(cause!=='pagehide')expect(await page.evaluate('privateDirectOwnerCloseDone')).toBe(false)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await lockAvailable(page,'lifetime:'+'a'.repeat(64))).toBe(false)
+  expect(await page.evaluate('__privateBootstrapResourceForTest()')).toMatchObject({closed:true,material:true})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  expect(await page.evaluate(()=>{
+    const w=window as any,f=w.__privateMemberFunctionsForTest,r=w.__privateSessionSeenResource
+    const a=f.drain(r),b=f.drain(r);void a.catch(()=>{});void b.catch(()=>{});return a===b&&a===w.privateMemberReentrantDrainPromise
+  })).toBe(true)
+  // A persistent failure observation is not success. Release the explicit
+  // fixture fault so the real root/provider/native chain can reach terminal.
+  await page.evaluate(()=>{(window as any).privateMemberDisposePaused=false})
+  await page.waitForFunction('__rootCloseDoneForTest')
+  if(cause!=='pagehide')await page.waitForFunction('privateDirectOwnerCloseDone')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await lockAvailable(page,'lifetime:'+'a'.repeat(64))).toBe(true)
+  expect(await page.evaluate('window.__rootCloseFailure')).toBe(closeFails?'Explicit private Session close failure':'Explicit private Session disposal failure')
+  expect(await page.evaluate('[privateMemberCloseCalls,__privateSessionDisposedForTest,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest(),providerFixture.closeCalls]')).toEqual([1,true,true,true,1])
+  expect(await page.evaluate('__privateOwnerCloseFixture.terminal')).toEqual(expect.arrayContaining(['browser','tab']))
+  expect(await page.evaluate('__privateBootstrapResourceForTest()')).toMatchObject({closed:true,material:false,work:0})
   expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
 })

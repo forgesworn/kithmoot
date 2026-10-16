@@ -12,6 +12,7 @@ export interface OrdinaryPrivateExistingRootBinding {
   readonly marker: string
   readonly controller: ServiceWorker
   readonly generation: number
+  readonly websocketImplementation: typeof WebSocket
   live(): boolean
   assertClientsCurrent(): Promise<void>
   revoke(): void
@@ -38,6 +39,7 @@ class ExistingRoot {
   readonly #storage = sessionStorage
   readonly #marker = this.#storage.getItem(MARKER)
   readonly #generation = 1
+  readonly #websocketImplementation = WebSocket
   readonly #startup = new OrdinaryLegacyStartupLifetime()
   #worker?: OrdinaryProtectedWorkerLifetime
   #capture?: OrdinaryPrivateExistingCaptureResource
@@ -77,7 +79,7 @@ class ExistingRoot {
     this.#check()
     this.#claimable = false
     return Object.freeze({ href: this.#href, origin: this.#origin, marker: this.#marker,
-      controller: this.#controller, generation: this.#generation,
+      controller: this.#controller, generation: this.#generation, websocketImplementation: this.#websocketImplementation,
       live: () => this.#live(),
       assertClientsCurrent: async () => { this.#check(); await this.#worker!.assertCurrent(); this.#check() },
       revoke: () => { void this.close().catch(() => {}) } })

@@ -11,6 +11,7 @@ import { OrdinaryForegroundSigner, captureOrdinarySigningStatement } from './ord
 import { signOrdinaryVisitorAuthentication } from './ordinary-participant-signing.js'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import type { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
+import { takeOrdinaryPrivateCarrierClaim, type OrdinaryPrivateCarrierClaim } from './ordinary-persistent-bootstrap.js'
 
 export const ORDINARY_RELAY_FRAME_BYTES = 2 * 1024 * 1024
 export const ORDINARY_RELAY_QUEUE_BYTES = 8 * 1024 * 1024
@@ -109,6 +110,28 @@ interface Options {
    * must revoke private protocol work too; it grants no execution authority. */
   readonly onClose?: () => void
 }
+type CarrierOptions = Omit<Options, 'browser' | 'tab' | 'scope'>
+type PrivateCarrierBinding = ReturnType<typeof takeOrdinaryPrivateCarrierClaim>
+declare const privateCarrierResourceBrand: unique symbol
+export interface OrdinaryPrivateCarrierResource { readonly [privateCarrierResourceBrand]: true }
+const privateCarrierPermits = new WeakMap<object, PrivateCarrierBinding>()
+const privateCarrierResources = new WeakMap<object, Readonly<{state: OrdinaryRelayCarrier; completed: Promise<void>; transport: RelayTransport}>>()
+let constructPrivateCarrier!: (binding: PrivateCarrierBinding) => OrdinaryPrivateCarrierResource
+let stopPrivateCarrier!: (resource: OrdinaryPrivateCarrierResource) => void
+let closePrivateCarrier!: (resource: OrdinaryPrivateCarrierResource) => Promise<void>
+/** The fixed bootstrap consumer spends the genuine claim synchronously. */
+export function openOrdinaryPrivateCarrierFromBootstrapClaim(claim: OrdinaryPrivateCarrierClaim): OrdinaryPrivateCarrierResource {
+  const binding = takeOrdinaryPrivateCarrierClaim(claim)
+  return constructPrivateCarrier(binding)
+}
+export function ordinaryPrivateCarrierCompleted(resource: OrdinaryPrivateCarrierResource): Promise<void> {
+  const value = privateCarrierResources.get(resource); if (!value) hold(); return value.completed
+}
+export function ordinaryPrivateCarrierTransport(resource: OrdinaryPrivateCarrierResource): RelayTransport {
+  const value = privateCarrierResources.get(resource); if (!value) hold(); return value.transport
+}
+export const stopOrdinaryPrivateCarrier = (resource: OrdinaryPrivateCarrierResource): void => stopPrivateCarrier(resource)
+export const closeOrdinaryPrivateCarrier = (resource: OrdinaryPrivateCarrierResource): Promise<void> => closePrivateCarrier(resource)
 
 /** A bounded asynchronous carrier for the real NostrRelayPool. Its immutable
  * configuration and acknowledged full source image are held for its lifetime.
@@ -130,8 +153,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     if (!data || data.owner !== owner || owner.#closed || !owner.#paused || owner.#image !== data.previous || owner.#generation !== data.generation ||
         owner.#queuedFrames || owner.#publications.size) hold()
     owner.#options.work!.checkTransition(data.root)
-    OrdinaryStateOwner.validatePairBinding(token, { browser: { owner: owner.#options.browser, scope: owner.#browserScope },
-      tab: { owner: owner.#options.tab, scope: owner.#tabScope }, live: owner.#live })
+    owner.#checkBinding(browser, tab, token)
     const b = records(browser), t = records(tab)
     try {
       const headers = ordinaryPairReadCustodyFor(token, b, t)
@@ -153,9 +175,11 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   static async resumeSuccessor(owner: OrdinaryRelayCarrier, scope: ProtocolExecution): Promise<void> {
     await owner.#read(() => {}, scope)
   }
-  readonly #options: Options
-  readonly #browserScope: OrdinaryScope
-  readonly #tabScope: OrdinaryScope
+  readonly #options: CarrierOptions
+  readonly #legacy: Options | undefined
+  readonly #private: PrivateCarrierBinding | undefined
+  readonly #browserScope: OrdinaryScope | undefined
+  readonly #tabScope: OrdinaryScope | undefined
   readonly #relays: readonly RelayConfig[]
   readonly #work = new Set<Promise<unknown>>()
   readonly #sockets = new Set<{ close(): void }>()
@@ -173,8 +197,77 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   #closed = false
   #queuedBytes = 0
   #queuedFrames = 0
-  private constructor(options: Options, browser: OrdinaryScope, tab: OrdinaryScope, relays: readonly RelayConfig[]) {
-    this.#options = options; this.#browserScope = browser; this.#tabScope = tab; this.#relays = relays
+  #opening: Promise<void> | undefined
+  static {
+    constructPrivateCarrier = binding => this.#constructPrivate(binding)
+    stopPrivateCarrier = resource => {
+      const value = privateCarrierResources.get(resource); if (!value) hold(); value.state.#close()
+    }
+    closePrivateCarrier = async resource => {
+      const value = privateCarrierResources.get(resource); if (!value) hold()
+      value.state.#close(); await value.completed.catch(() => {}); await value.state.#joinLifetime()
+    }
+  }
+  private constructor(construction: {kind: 'legacy'; options: Options; browser: OrdinaryScope; tab: OrdinaryScope; relays: readonly RelayConfig[]} |
+    {kind: 'private'; permit: object}) {
+    if (construction.kind === 'private') {
+      const binding = privateCarrierPermits.get(construction.permit); privateCarrierPermits.delete(construction.permit)
+      if (!binding || !binding.live() || binding.account !== binding.participant || !/^[0-9a-f]{64}$/.test(binding.participant)) hold()
+      // This existing account path is fixed to direct signed destinations.
+      // AUTH is deliberately absent: no participant signing endpoint exists.
+      const relays = normaliseRelayConfig(binding.relays, 'direct')
+      if (!relays.length || relays.length !== binding.relays.length || relays.some((relay, index) =>
+        relay.circle || !relay.read || !relay.write || relay.url !== binding.relays[index])) hold()
+      this.#private = binding; this.#legacy = undefined; this.#browserScope = undefined; this.#tabScope = undefined
+      this.#relays = Object.freeze(relays.map(relay => Object.freeze({...relay})))
+      this.#options = Object.freeze({relays: binding.relays, profile: 'direct', websocketImplementation: binding.websocketImplementation,
+        account: binding.account, participant: binding.participant, work: binding.work,
+        live: binding.live, validate: binding.validate, onClose: binding.revoke})
+      return
+    }
+    this.#private = undefined; this.#legacy = construction.options
+    this.#options = construction.options; this.#browserScope = construction.browser
+    this.#tabScope = construction.tab; this.#relays = construction.relays
+  }
+  #legacyBinding() {
+    if (!this.#legacy || this.#private || !this.#browserScope || !this.#tabScope) hold()
+    return {browser: {owner: this.#legacy.browser, scope: this.#browserScope},
+      tab: {owner: this.#legacy.tab, scope: this.#tabScope}, live: this.#live}
+  }
+  #checkBinding(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void {
+    if (this.#private) this.#private.validate(browser, tab, custody)
+    else OrdinaryStateOwner.validatePairBinding(custody, this.#legacyBinding())
+  }
+  static #constructPrivate(binding: PrivateCarrierBinding): OrdinaryPrivateCarrierResource {
+    const permit = Object.freeze({}); privateCarrierPermits.set(permit, binding)
+    let state: OrdinaryRelayCarrier
+    try { state = new OrdinaryRelayCarrier({kind: 'private', permit}) }
+    finally { privateCarrierPermits.delete(permit) }
+    let resolve!: () => void, reject!: (error: unknown) => void
+    const completed = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+    state.#opening = completed
+    const resource = Object.freeze({}) as OrdinaryPrivateCarrierResource
+    const transport: RelayTransport = Object.freeze(Object.assign(Object.create(null) as RelayTransport, {publish: (event: NostrEvent) => state.#publish(event),
+      subscribe: (filters: Filter[], onEvent: (event: NostrEvent, via?: string) => void, onEose?: () => void) => state.#subscribe(filters, onEvent, onEose),
+      close: () => state.#close()}))
+    privateCarrierResources.set(resource, Object.freeze({state, completed, transport}))
+    // Publication precedes the body. Failure drains inner jobs only: joining
+    // completed here would make this opening wait for itself.
+    void Promise.resolve().then(async () => {
+      try {
+        await state.#read((b, t, c) => {
+          if (!state.#live() || state.#paused) hold()
+          state.#pool = new NostrRelayPool(state.#relays, undefined, {profile: 'direct', websocketImplementation: state.#websocket(),
+            authentication: [], ownBackground: body => state.#track(binding.work.own(async () => {await body()}))})
+          state.#stopSuspension = binding.work.execution.onSuspend?.(paused => {
+            if (paused) state.#suspend(); else state.#resumeRequested = true
+          })
+          state.#releaseResource = binding.retainResource(b, t, c, {revoke: () => state.#close(), join: () => state.#joinLifetime()})
+        })
+      } catch { state.#close(); await state.#joinLifetime(); throw new OrdinaryStateHold() }
+    }).then(resolve, reject).catch(() => {})
+    void completed.catch(() => {})
+    return resource
   }
   static async open(input: Options): Promise<OrdinaryRelayCarrier> {
     let owner: OrdinaryRelayCarrier | undefined
@@ -193,7 +286,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
         grant.url = url; seen.add(url)
       }
       const browser = await options.browser.capture(options.scope, options.live), tab = await options.tab.capture(options.scope, options.live)
-      owner = new OrdinaryRelayCarrier(options, browser, tab, relays)
+      owner = new OrdinaryRelayCarrier({kind: 'legacy', options, browser, tab, relays})
       const state = owner, websocketImplementation = state.#websocket()
       await state.#read((_b, _t, custody) => {
         const authentication: RelayAuthentication[] = grants.map(grant => ({ url: grant.url, identity: {
@@ -208,24 +301,24 @@ export class OrdinaryRelayCarrier implements RelayTransport {
         })
         state.#releaseResource = OrdinaryStateOwner.retainPairResource(custody, {
           browser: { owner: options.browser, scope: browser }, tab: { owner: options.tab, scope: tab }, live: state.#live,
-        }, { revoke: () => state.close(), join: () => state.joinLifetime() })
+        }, { revoke: () => state.#close(), join: () => state.#joinLifetime() })
       })
       return state
-    } catch (error) { owner?.close(); if (owner) await owner.joinLifetime(); throw error }
+    } catch (error) { if (owner) { owner.#close(); await owner.#joinLifetime() }; throw error }
   }
   #live = (): boolean => {
     if (this.#closed) return false
     const current = this.#options.live()
-    return current === true && !this.#closed && Date.now() < this.#options.tab.expiresAt
+    return current === true && !this.#closed && (this.#private !== undefined || Date.now() < this.#legacy!.tab.expiresAt)
   }
   #track<T>(job: Promise<T>): Promise<T> {
-    OrdinaryStateOwner.joinPairLifetime(this.#options.browser, this.#options.tab, job)
+    if (this.#private) this.#private.join(job)
+    else OrdinaryStateOwner.joinPairLifetime(this.#legacy!.browser, this.#legacy!.tab, job)
     this.#work.add(job); void job.finally(() => this.#work.delete(job)).catch(() => {}); return job
   }
   #validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void {
-    const binding = { browser: { owner: this.#options.browser, scope: this.#browserScope },
-      tab: { owner: this.#options.tab, scope: this.#tabScope }, live: this.#live }
-    OrdinaryStateOwner.validatePairBinding(custody, binding)
+    const check = () => this.#checkBinding(browser, tab, custody)
+    check()
     const b = records(browser), t = records(tab)
     try {
       const headers = ordinaryPairReadCustodyFor(custody, b, t)
@@ -234,36 +327,36 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       if (this.#image !== undefined && this.#image !== image) hold()
       if (this.#options.validate(browser, tab, custody) !== undefined) hold()
       // Trusted room checks may synchronously revoke the owner or selection.
-      OrdinaryStateOwner.validatePairBinding(custody, binding)
+      check()
       if (this.#image === undefined) this.#image = image
     } finally { b.clear(); t.clear() }
   }
   #read<T>(effect: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T, scope?: ProtocolExecution): Promise<T> {
     const graph = this.#options.work
     if (graph && !scope) return graph.execution.task!('relay-read', owned => this.#read(effect, owned))
-    const job = OrdinaryStateOwner.readPairMigrated({ browser: { owner: this.#options.browser, scope: this.#browserScope },
-      tab: { owner: this.#options.tab, scope: this.#tabScope }, live: this.#live,
-      work: (b, t, _bn, _tn, custody) => {
+    const work = (b: DeviceStore, t: DeviceStore, custody: OrdinaryPairCustody) => {
         this.#validate(b, t, custody)
         const run = () => { if (this.#resumeRequested) this.#resumeResources(); return effect(b, t, custody) }
         const result = graph ? graph.enter(scope!, 'relay-read', run) : run()
         this.#validate(b, t, custody)
         return result
-      },
-    }).catch(error => { this.close(); throw error })
+      }
+    const pending = this.#private ? this.#private.read(this.#live, work) : OrdinaryStateOwner.readPairMigrated({
+      ...this.#legacyBinding(), work: (b, t, _bn, _tn, c) => work(b, t, c)})
+    const job = pending.catch(error => { this.#close(); throw error })
     return this.#track(job)
   }
   #enqueue(bytes: number, effect: () => void, tail: Promise<void>, ackScope?: ProtocolExecution): Promise<void> {
     try {
       if (this.#closed || this.#queuedFrames + 1 > ORDINARY_RELAY_QUEUE_FRAMES ||
           this.#queuedBytes + bytes > ORDINARY_RELAY_QUEUE_BYTES) hold()
-    } catch { this.close(); return Promise.resolve() }
+    } catch { this.#close(); return Promise.resolve() }
     this.#queuedFrames++; this.#queuedBytes += bytes
     // Register before waiting for the queue tail. An already queued callback
     // must not appear as new work on the far side of a suspension latch.
     const run = async (scope?: ProtocolExecution) => { if (!this.#live()) hold(); await tail; await this.#read(effect, scope) }
     const pending = ackScope?.task ? ackScope.task('old-relay-ack', run) : this.#options.work ? this.#options.work.own(run) : run()
-    const job = pending.catch(() => { this.close() }).finally(() => {
+    const job = pending.catch(() => { this.#close() }).finally(() => {
       this.#queuedFrames--; this.#queuedBytes -= bytes
     })
     return this.#track(job)
@@ -288,7 +381,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       get readyState(): number { return this.#stopped ? 3 : this.#socket?.readyState ?? 0 }
       constructor(url: string) {
         this.url = url
-        if (owner.#paused || !destinations.has(url) || !owner.#live() || owner.#sockets.size >= owner.#relays.length * 4) { owner.close(); hold() }
+        if (owner.#paused || !destinations.has(url) || !owner.#live() || owner.#sockets.size >= owner.#relays.length * 4) { owner.#close(); hold() }
         owner.#sockets.add(this)
         this.#queue(0, () => {
           if (this.#stopped || owner.#paused || this.#socketGeneration !== owner.#generation) return
@@ -325,7 +418,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
                 }
                 this.onmessage?.(new MessageEvent('message', { data }))
               }, ackScope)
-            } catch { owner.close() }
+            } catch { owner.#close() }
           }
           socket.onerror = () => { if (!owner.#paused) this.#queue(0, () => this.onerror?.(new Event('error'))) }
           socket.onclose = () => {
@@ -370,7 +463,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
               if (publication && publication.generation === this.#socketGeneration) publication.sent.add({ socket: this, raw: this.#socket, pending: true })
             }
           })
-        } catch { owner.close() }
+        } catch { owner.#close() }
       }
       #notifyClose(event: CloseEvent): void {
         if (this.#notifiedClose) return
@@ -393,7 +486,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   }
   #authenticate(identity: NonNullable<RelayAuthentication['identity']>, url: string, input: Parameters<NonNullable<RelayAuthentication['identity']>['signEvent']>[0]): Promise<NostrEvent> {
     let canonical: ReturnType<typeof captureOrdinarySigningStatement>
-    try { canonical = captureOrdinarySigningStatement(input) } catch { this.close(); return Promise.reject(new OrdinaryStateHold()) }
+    try { canonical = captureOrdinarySigningStatement(input) } catch { this.#close(); return Promise.reject(new OrdinaryStateHold()) }
     const previous = this.#signing.get(identity) ?? Promise.resolve()
     const run = async (scope?: ProtocolExecution) => {
       await previous
@@ -423,15 +516,16 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       } finally { if (signing) await Promise.allSettled([signing]) }
     }
     const owned = this.#options.work ? this.#options.work.execution.task!('relay-auth', run) : run()
-    const job = owned.catch(error => { if (!this.#paused) this.close(); throw error })
+    const job = owned.catch(error => { if (!this.#paused) this.#close(); throw error })
     this.#signing.set(identity, job)
     void job.finally(() => { if (this.#signing.get(identity) === job) this.#signing.delete(identity) }).catch(() => {})
     return this.#track(job)
   }
-  publish(event: NostrEvent): Promise<void> {
+  publish(event: NostrEvent): Promise<void> { return this.#publish(event) }
+  #publish(event: NostrEvent): Promise<void> {
     let captured: NostrEvent, bytes: number
     try { captured = captureEvent(event); bytes = ordinaryUtf8Length(JSON.stringify(captured), ORDINARY_RELAY_FRAME_BYTES) }
-    catch { this.close(); return Promise.reject(new OrdinaryStateHold()) }
+    catch { this.#close(); return Promise.reject(new OrdinaryStateHold()) }
     const run = async (scope?: ProtocolExecution) => {
       if (this.#paused) throw new Error('Relay publication is suspended.')
       if (this.#publications.has(captured.id)) throw new Error('This exact publication is already pending.')
@@ -461,15 +555,16 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     const pending = this.#options.work ? this.#options.work.execution.task!('relay-publication', run) : run()
     return this.#track(pending.catch(error => { if (this.#closed) hold(); throw error }))
   }
-  subscribe(filters: Filter[], onEvent: (event: NostrEvent, via?: string) => void, onEose?: () => void): () => void {
-    if (!this.#relays.some(relay => relay.read)) { this.close(); return () => {} }
+  subscribe(filters: Filter[], onEvent: (event: NostrEvent, via?: string) => void, onEose?: () => void): () => void { return this.#subscribe(filters, onEvent, onEose) }
+  #subscribe(filters: Filter[], onEvent: (event: NostrEvent, via?: string) => void, onEose?: () => void): () => void {
+    if (!this.#relays.some(relay => relay.read)) { this.#close(); return () => {} }
     let captured: Filter[]
     try { captured = captureFilters(filters) }
-    catch { this.close(); return () => {} }
+    catch { this.#close(); return () => {} }
     const subscription: SubscriptionReceipt = { plan: filterPlan(captured), filters: captured, onEvent, onEose,
       seen: new Set(), bindings: new Map(), active: true, eoseSent: false }
     if (this.#subscriptions.size >= 128 || [...this.#subscriptions].some(value => value.plan === subscription.plan)) {
-      this.close(); return () => {}
+      this.#close(); return () => {}
     }
     this.#subscriptions.add(subscription)
     void this.#read(() => {
@@ -496,7 +591,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
           if (subscription.seen.size > 8192) subscription.seen.delete(subscription.seen.values().next().value!)
           subscription.onEvent(JSON.parse(data), via)
         }) }
-        catch { this.close() }
+        catch { this.#close() }
       }, subscription.onEose ? () => deliver(0, () => {
         // Both the pool and nostr-tools can report timeout/closed readers as
         // EOSE. Only actual guarded EOSE frames for this exact current REQ
@@ -546,9 +641,11 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   /** Internal factory resource wake-up after a guarded graph transition.
    * This method cannot resume the graph or replace its native predicate. */
   resumeResources(): Promise<void> { return this.#read(() => {}) }
-  describe(): RelayConfig[] { return this.#relays.map(relay => ({ ...relay })) }
+  describe(): RelayConfig[] { return this.#describe() }
+  #describe(): RelayConfig[] { return this.#relays.map(relay => ({ ...relay })) }
   get closed(): boolean { return this.#closed }
-  close(): void {
+  close(): void { this.#close() }
+  #close(): void {
     if (this.#closed) return
     this.#closed = true
     this.#stopSuspension?.(); this.#stopSuspension = undefined
@@ -563,6 +660,10 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   /** Includes queued reads, publication receipts and unabortable providers.
    * Revoke with close() before awaiting; do not await inside a pair callback. */
   async joinLifetime(): Promise<void> {
+    await this.#opening?.catch(() => {})
+    await this.#joinLifetime()
+  }
+  async #joinLifetime(): Promise<void> {
     while (this.#work.size) await Promise.allSettled([...this.#work])
     // publish() acknowledges the first relay; the real pool may still own
     // slower fan-out/retry tails. Closing aborts them, but their promises

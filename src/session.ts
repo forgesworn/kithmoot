@@ -2,7 +2,7 @@ import { getPublicKey } from 'nostr-tools/pure'
 import type { ProtocolExecution } from './protocol-execution.js'
 import { captureProtocolData, protocolTask } from './protocol-execution.js'
 import { ProtocolTimers } from './protocol-timers.js'
-import { consumeNativeSessionBinding, nativeChatView, type NativeSessionBinding, type NativeSessionCandidate,
+import { consumeNativeSessionConstruction, nativeChatView, type NativeSessionBinding, type NativeSessionCandidate,
   type NativeSessionPlan, type NativeSessionView } from './session-native-binding.js'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
@@ -529,6 +529,12 @@ const MAX_NEWEST_CREDENTIALS = 1_024
  *  for a little over a month. Past that, an old rekey sealed to a dropped
  *  key is asked for again. */
 const MAX_SEAL_KEYS = 128
+const RETAINED_NATIVE_FIELDS = new Set(['secret', 'deviceSk', 'resume', 'sealKeys', 'transport', 'protocol', 'authority',
+  'memberEpochDesk', 'epochCatchUp', 'onClosed', 'onRemoved', 'onEpochConflict', 'requireFreshEpoch', 'expectedEpoch',
+  'endsAt', 'policy', 'name', 'epochRequestTimeoutMs', 'timing'])
+function retainedRecord<T extends object>(value: T): T {
+  return Object.freeze(Object.assign(Object.create(null), value)) as T
+}
 
 /** The least life a resumed credential must have left to be used at join.
  *  Enough that a member whose clock runs a few minutes ahead does not refuse
@@ -801,38 +807,107 @@ export class RoomSession {
    *  room is closed, so `join()` can say so rather than carry on. */
   #refusedWhileJoining?: EpochRefusal
   readonly #nativeBinding: Readonly<NativeSessionBinding> | undefined
+  readonly #retainedNative: boolean
   #nativeRevoked = false
   #nativeDiscard?: () => void
 
   constructor(opts: RoomSessionOptions) {
-    const native = consumeNativeSessionBinding(opts)
+    const construction = consumeNativeSessionConstruction(opts), native = construction?.binding
     this.#nativeBinding = native
+    const retained = construction?.retained
+    this.#retainedNative = retained !== undefined
     let allocatedRoomKey: Uint8Array | undefined, allocatedEpochKey: Uint8Array | undefined
     try {
     if (native && new.target !== RoomSession) throw new Error('native Session cannot be subclassed')
-    opts.protocol?.check('session-construction')
+    let retainedParticipant: string | undefined
+    // The mode comes solely from the consumed private construction cell.
+    // Retained sessions never read or fabricate a participant signer.
+    if (retained) {
+      retained.current()
+      if (Object.getPrototypeOf(opts) !== Object.prototype && Object.getPrototypeOf(opts) !== null || !Object.isFrozen(opts)) throw new Error('retained native Session requires module-owned options')
+      for (const name of Reflect.ownKeys(opts)) {
+        const value = Object.getOwnPropertyDescriptor(opts, name)!
+        if (typeof name !== 'string' || !RETAINED_NATIVE_FIELDS.has(name) || !Object.hasOwn(value, 'value')) throw new Error('invalid retained native option')
+      }
+      const field = (name: string): unknown => {
+        const value = Object.getOwnPropertyDescriptor(opts, name)
+        if (!value || !Object.hasOwn(value, 'value')) throw new Error('retained native Session requires owned data options')
+        return value.value
+      }
+      const protocol = field('protocol') as ProtocolExecution
+      if (!protocol || protocol !== retained.protocol || typeof protocol.check !== 'function' || field('transport') !== retained.transport ||
+          field('expectedEpoch') !== retained.expectedEpoch) throw new Error('retained native Session requires its exact owned protocol and transport')
+      const transport = retained.transport
+      if (!Object.isFrozen(transport) || Object.getPrototypeOf(transport) !== null ||
+          Reflect.ownKeys(transport).sort().join(',') !== 'close,publish,subscribe' ||
+          ['close', 'publish', 'subscribe'].some(name => {
+            const descriptor = Object.getOwnPropertyDescriptor(transport, name)
+            return !descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'function'
+          })) throw new Error('retained native Session requires its closed transport')
+      const resume = structuredClone(field('resume')) as DeviceCredential, seals = field('sealKeys')
+      if (!Array.isArray(seals) || seals.length < 1 || seals.length > MAX_SEAL_KEYS) throw new Error('invalid retained native seal history')
+      // This internal runtime mode deliberately has no public primary identity.
+      opts = retainedRecord({ ...opts, protocol, resume, sealKeys: seals }) as RoomSessionOptions
+    }
+    if (!retained) opts.protocol?.check('session-construction')
     if (opts.requireFreshEpoch && !opts.authority) throw new Error('fresh epoch admission needs a pinned authority')
     this.#admissionTransport = opts.transport
     if (opts.requireFreshEpoch) {
       const raw = opts.transport
-      opts = { ...opts, transport: {
+      const transport: RelayTransport = {
         publish: event => {
           if (!this.#freshEpochConfirmed || this.#left) return Promise.reject(new Error('room authority has not confirmed admission'))
           return raw.publish(event)
         },
         subscribe: (filters, onEvent, onEose) => raw.subscribe(filters, onEvent, onEose),
         close: () => raw.close(),
-        ...(raw.rekey ? { rekey: (key: Uint8Array) => raw.rekey!(key) } : {}),
-        ...(raw.describe ? { describe: () => raw.describe!() } : {}),
-        ...(raw.setRelays ? { setRelays: (entries: Parameters<NonNullable<RelayTransport['setRelays']>>[0]) => raw.setRelays!(entries) } : {}),
-      } }
+        ...(!retained && raw.rekey ? { rekey: (key: Uint8Array) => raw.rekey!(key) } : {}),
+        ...(!retained && raw.describe ? { describe: () => raw.describe!() } : {}),
+        ...(!retained && raw.setRelays ? { setRelays: (entries: Parameters<NonNullable<RelayTransport['setRelays']>>[0]) => raw.setRelays!(entries) } : {}),
+      }
+      opts = retained ? retainedRecord({...opts, transport: retainedRecord(transport)}) as RoomSessionOptions : {...opts, transport}
     }
     const { roomId, roomKey } = deriveRoom(opts.secret)
     allocatedRoomKey = roomKey
     this.roomId = roomId
     this.#roomKey = roomKey
     this.#opts = opts
-    for (const sk of opts.identity ? opts.sealKeys ?? [] : []) this.#keepSealKey(sk)
+    // Preserve the primary/secondary constructor's existing ordering: its
+    // protocol check precedes identity access. Retained mode never reads it.
+    const identity = retained ? undefined : opts.identity
+    if (!retained && !identity && Object.hasOwn(opts, 'resume')) {
+      throw new Error('retained native Session requires its exact construction cell')
+    }
+    if (retained) {
+      const resume = opts.resume!, now = Math.floor(Date.now() / 1000)
+      const verdict = verifyDeviceCredential(resume, {roomId, now}), seal = credentialSeal(resume)
+      if (!Number.isSafeInteger(now) || now < 0 || !verdict.ok || roomId !== retained.roomId ||
+          verdict.device !== getPublicKey(opts.deviceSk) || verdict.device !== retained.device || verdict.participant !== retained.participant ||
+          JSON.stringify(resume) !== retained.credential ||
+          typeof seal !== 'string' || credentialExpiresAt(resume) - now < RESUME_MIN_REMAINING_SECONDS ||
+          opts.endsAt !== undefined && credentialExpiresAt(resume) > opts.endsAt) throw new Error('invalid retained native credential')
+      const keys = opts.sealKeys!
+      for (let index = 0; index < keys.length; index++) {
+        const value = Object.getOwnPropertyDescriptor(keys, String(index))
+        if (!value || !Object.hasOwn(value, 'value') || !(value.value instanceof Uint8Array) || value.value.length !== 32 ||
+            !(value.value.buffer instanceof ArrayBuffer)) throw new Error('invalid retained native seal history')
+        const copy = new Uint8Array(32); copy.set(value.value)
+        try {
+          const pubkey = getPublicKey(copy)
+          if (this.#sealKeys.has(pubkey)) throw new Error('duplicate retained native seal')
+          this.#sealKeys.set(pubkey, copy)
+        } catch (error) { copy.fill(0); throw error }
+      }
+      if (!this.#sealKeys.has(seal)) throw new Error('missing retained native current seal')
+      if (JSON.stringify([...this.#sealKeys.keys()]) !== JSON.stringify(retained.seals)) throw new Error('retained native seal history changed')
+      for (const tag of resume.tags) Object.freeze(tag)
+      Object.freeze(resume.tags); Object.freeze(resume)
+      opts = retainedRecord({ ...opts, resume, sealKeys: Object.freeze([...this.#sealKeys.values()]) }) as RoomSessionOptions
+      this.#opts = opts; retainedParticipant = verdict.participant
+      retained.current()
+      opts.protocol!.check('session-construction')
+      retained.current()
+    } else for (const sk of identity ? opts.sealKeys ?? [] : []) this.#keepSealKey(sk)
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
     allocatedEpochKey = this.#epoch.key
@@ -851,7 +926,7 @@ export class RoomSession {
     this.#name = sanitiseDisplayName(opts.name)
     this.#assist = opts.assist
 
-    const participant = opts.identity ? normaliseHex(opts.identity.pubkey) : undefined
+    const participant = retainedParticipant ?? (identity ? normaliseHex(identity.pubkey) : undefined)
     if (opts.owner) {
       const proof = normaliseAgentOwnership(opts.owner)
       const agent = participant ?? verifyDeviceCredential(opts.credential!, { roomId, now: this.#now() })
@@ -861,12 +936,12 @@ export class RoomSession {
       this.#owner = proof
     }
 
-    if (opts.identity) {
+    if (this.#retainedNative || identity) {
       // A pubkey handed over by an external signer is a hex string off a
       // boundary like any other - canonicalise it here so every later
       // comparison against a roster entry or a credential is correct by
       // construction. See `hex.ts`'s `normaliseHex`.
-      this.participant = normaliseHex(opts.identity.pubkey)
+      this.participant = retainedParticipant ?? normaliseHex(identity!.pubkey)
       if (opts.protocol?.onSuspend && opts.protocol.task) this.#protocolTimers = new ProtocolTimers(opts.protocol)
       if (native) native.attach(this.#nativeView())
       return
@@ -875,7 +950,7 @@ export class RoomSession {
     // Fail here rather than at join: a credential for the wrong room, the
     // wrong device or a lapsed window is a setup mistake, and the session has
     // no identity to operate under until it is fixed.
-    const verdict = verifyDeviceCredential(opts.credential, { roomId, now: this.#now() })
+    const verdict = verifyDeviceCredential(opts.credential!, { roomId, now: this.#now() })
     if (!verdict.ok) throw new Error(`device credential rejected: ${verdict.reason}`)
     if (verdict.device !== this.device) throw new Error('device credential names a different device')
     this.participant = verdict.participant
@@ -941,6 +1016,7 @@ export class RoomSession {
       for (const [log, view] of data.chats) { if (log !== this.#chat && !data.channels.some(([, value]) => value === log)) throw new Error('native conversation changed'); view.check(data.candidate.predecessor) }
     }
     return Object.freeze({
+      join: () => this.#joinEntry([], {}), close: () => this.#leave(), dispose: () => this.#disposeProtocolSecrets(true),
       snapshot: () => {
         checkLive()
         return Object.freeze({ credential: structuredClone(this.#self!.credential), epoch: this.#epochSecret.epoch,
@@ -970,7 +1046,8 @@ export class RoomSession {
           if (newest.size > MAX_NEWEST_CREDENTIALS) { const first = newest.keys().next().value!; newest.delete(first); seen.delete(first) }
           const data: Prepared = { candidate: Object.freeze({ ...candidate }), credential, self: { ...this.#self!, credential },
             oldSelf: this.#self!, epoch: this.#epoch, opts: this.#opts,
-            nextOpts: { ...this.#opts, resume: credential, sealKeys: [...seals.values()] } as RoomSessionOptions,
+            nextOpts: (this.#retainedNative ? retainedRecord({ ...this.#opts, resume: credential, sealKeys: Object.freeze([...seals.values()]) }) :
+              { ...this.#opts, resume: credential, sealKeys: [...seals.values()] }) as RoomSessionOptions,
             channels, chats, oldSeals: [...this.#sealKeys], seals, newest, seen,
             oldNewest: [...this.#newestCredentials], oldSeen: [...this.#deviceSeen], used: false }
           const plan = Object.freeze({}) as NativeSessionPlan
@@ -1020,6 +1097,7 @@ export class RoomSession {
     devicePubkey: string,
     ttlSeconds = CREDENTIAL_TTL_SECONDS,
   ): Promise<DeviceCredential> {
+    if (this.#retainedNative) throw new Error('retained native credentials belong to the private renewal controller')
     if (normaliseHex(devicePubkey) === this.device && this.#opts.retainCredential) {
       return this.#ownCredential(ttlSeconds)
     }
@@ -1032,6 +1110,7 @@ export class RoomSession {
   }
 
   #mintCredential(devicePubkey: string, ttlSeconds: number, execution = this.#opts.protocol): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
+    if (this.#retainedNative) return Promise.reject(new Error('retained native credentials belong to the private renewal controller'))
     let candidate: { credential: DeviceCredential; sealSk?: Uint8Array } | undefined
     return protocolTask(execution, 'credential-mint', async owned => {
       candidate = await this.#mintOwnedCredential(devicePubkey, ttlSeconds, owned)
@@ -1040,6 +1119,7 @@ export class RoomSession {
   }
 
   async #mintOwnedCredential(devicePubkey: string, ttlSeconds: number, execution: ProtocolExecution | undefined): Promise<{ credential: DeviceCredential; sealSk?: Uint8Array }> {
+    if (this.#retainedNative) throw new Error('retained native credentials belong to the private renewal controller')
     const identity = this.#opts.identity
     if (!identity) throw new Error('this device cannot sign for the participant, so it cannot issue credentials')
     let seal: ReturnType<typeof generateSealKey> | undefined
@@ -1082,6 +1162,7 @@ export class RoomSession {
   /** One exact candidate and one retention attempt at a time. Uncertain
    * outcomes stay private, including after expiry, until acknowledged. */
   #ownCredential(ttlSeconds = this.#credentialTtl(), execution = this.#opts.protocol): Promise<DeviceCredential> {
+    if (this.#retainedNative) return Promise.reject(new Error('retained native credentials belong to the private renewal controller'))
     if (this.#credentialWork) return this.#credentialWork
     const work = protocolTask(execution, 'credential-retention', owned => this.#retainOwnCredential(ttlSeconds, owned))
     this.#credentialWork = work
@@ -1238,6 +1319,9 @@ export class RoomSession {
   }
 
   join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+    return this.#joinEntry(tracks, claims)
+  }
+  #joinEntry(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
     if (this.#joinWork) return this.#joinWork
     if (this.#self) return Promise.reject(new Error('room already joined'))
     const work = protocolTask(this.#opts.protocol, 'session-join', execution => this.#joinWithAdmission(tracks, claims, execution))
@@ -1286,6 +1370,7 @@ export class RoomSession {
     // which is the only endpoint holding the participant key, can mint one,
     // and it reuses the one it minted last time while that is still good.
     const resumed = this.#resumable()
+    if (this.#retainedNative && !resumed) throw new Error('retained native credential is no longer current')
     const credential = this.#credential ?? resumed ?? (await this.#ownCredential(undefined, execution))
     if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || this.#ended()) throw new Error('room admission cancelled')
     if (!this.#credential && !resumed) this.#announceCredential(credential)
@@ -1487,7 +1572,7 @@ export class RoomSession {
       if (this.#evictLapsed()) this.#notify()
     })
     }
-    if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
+    if (this.#retainedNative || this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
     this.#openMemberDesk()
   }
 
@@ -1510,7 +1595,8 @@ export class RoomSession {
   /** The offered `resume` credential, if it is one this device may present
    *  here and now. Never throws: a stale or foreign one just means minting. */
   #resumable(): DeviceCredential | undefined {
-    const resume = this.#opts.identity ? this.#opts.resume : undefined
+    if (this.#retainedNative && this.#nativeRevoked) return undefined
+    const resume = this.#retainedNative || this.#opts.identity ? this.#opts.resume : undefined
     if (!resume) return undefined
     try {
       const now = this.#now()
@@ -2403,6 +2489,7 @@ export class RoomSession {
   }
 
   async #renewOwnedCredential(execution: ProtocolExecution | undefined): Promise<void> {
+    if (this.#retainedNative) throw new Error('retained native credentials belong to the private renewal controller')
     if (this.#left || !this.#self || !this.#opts.identity) return
     try {
       const credential = await this.#ownCredential(undefined, execution)
@@ -3132,7 +3219,7 @@ export class RoomSession {
     if (this.#assignments) return this.#assignments
     const log = new AssignmentLog({
       roomId: this.roomId, roomKey: this.#roomKey, transport: this.#opts.transport,
-      deviceSk: this.#opts.deviceSk, identity: this.#opts.identity,
+      deviceSk: this.#opts.deviceSk, identity: this.#retainedNative ? undefined : this.#opts.identity,
       credential: () => this.#self?.credential, name: this.#name,
       policy: this.#opts.policy, proof: this.#opts.proof, owner: this.#ownerToCarry(),
       now: this.#now, epoch: this.#epochRoot(), storage, expiresAt: this.#opts.endsAt,
@@ -3469,6 +3556,9 @@ export class RoomSession {
    * Everything else here is immediate.
    */
   leave(): Promise<void> {
+    return this.#leave()
+  }
+  #leave(): Promise<void> {
     if (this.#nativeBinding) { this.#nativeRevoked = true; this.#nativeDiscard?.(); this.#nativeBinding.revoke() }
     this.#admissionAbort.abort()
     this.#protocolTimers?.close()
@@ -3543,7 +3633,10 @@ export class RoomSession {
   /** A native embedding calls this only after revocation and joined work,
    * with owned input buffers. No permission check is needed to erase data. */
   disposeProtocolSecrets(): void {
-    if (!this.#opts.protocol || !this.#left || this.#joinWork || this.#credentialWork || this.#retentionWork) throw new Error('join native session cleanup before erasing secrets')
+    this.#disposeProtocolSecrets()
+  }
+  #disposeProtocolSecrets(native = false): void {
+    if (!this.#opts.protocol || !this.#left && !(native && this.#nativeRevoked) || this.#joinWork || this.#credentialWork || this.#retentionWork) throw new Error('join native session cleanup before erasing secrets')
     this.#roomKey.fill(0); this.#epoch.key.fill(0); this.#epochSecret.secret.fill(0)
     for (const key of this.#sealKeys.values()) key.fill(0)
     this.#sealKeys.clear()

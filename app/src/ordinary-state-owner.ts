@@ -122,10 +122,14 @@ interface PrivateBootstrapBinding {
   readonly tab: OrdinaryStateOwner
   readonly selection: Readonly<PrivateExistingSelection>
   readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
+  readonly websocketImplementation: typeof WebSocket
   live(): boolean
   read<T>(live: () => boolean, work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T): Promise<T>
   join<T>(pending: Promise<T>): Promise<T>
   deadline(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): number | null
+  validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void
+  retainResource(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody,
+    callbacks: { readonly revoke: () => void; readonly join: () => Promise<void> }): () => void
 }
 const privateBootstrapClaims = new WeakMap<object, PrivateBootstrapBinding>()
 /** The imported bootstrap wrapper consumes this only inside the owner's
@@ -773,6 +777,11 @@ export class OrdinaryStateOwner {
    * invalidation or the tab deadline revokes synchronously, then joins cleanup.
    * Registration supplies no permission to sign, dial, read or mutate. */
   static retainPairResource(custody: OrdinaryPairCustody,
+    binding: Pick<OrdinaryPairMutation<unknown>, 'browser' | 'tab' | 'live'>,
+    callbacks: { readonly revoke: () => void; readonly join: () => Promise<void> }): () => void {
+    return OrdinaryStateOwner.#retainPairResource(custody, binding, callbacks)
+  }
+  static #retainPairResource(custody: OrdinaryPairCustody,
     binding: Pick<OrdinaryPairMutation<unknown>, 'browser' | 'tab' | 'live'>,
     callbacks: { readonly revoke: () => void; readonly join: () => Promise<void> }): () => void {
     if (pairCustody.get(custody)?.kind !== 'read') hold()
@@ -1560,6 +1569,12 @@ export class OrdinaryStateOwner {
           return OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending)
         }
         const binding: PrivateBootstrapBinding = Object.freeze({browser, tab, selection: epoch.selection, scopes, live, read,
+          websocketImplementation: capture.binding.websocketImplementation, validate,
+          retainResource: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody,
+            callbacks: { readonly revoke: () => void; readonly join: () => Promise<void> }) => {
+            validate(b, t, c)
+            return OrdinaryStateOwner.#retainPairResource(c, {browser: {owner: browser, scope: bs}, tab: {owner: tab, scope: ts}, live}, callbacks)
+          },
           join: <T>(pending: Promise<T>) => OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending),
           deadline: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
             validate(b, t, c); return ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, epoch.selection.participant)
