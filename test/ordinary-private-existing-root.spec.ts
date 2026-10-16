@@ -82,6 +82,17 @@ test.beforeAll(async () => {
                if(fault==='extra')crypto.getRandomValues(new Uint8Array(frame.nonce))
                if(fault==='changed-iv')new Uint8Array(frame.nonce)[0]^=1`)}
       })
+      builder.onLoad({filter:/persistent-admission-proof\.ts$/},async input=>{
+        let source=await readFile(input.path,'utf8')
+        const continuity='if (current.epochs.find(value => value.epoch === bound.device.epoch)?.id !== priorId) hold()'
+        if(source.split(continuity).length!==2)throw Error('Historical epoch continuity observer drift')
+        source=source.replace(continuity,`if (current.epochs.find(value => value.epoch === bound.device.epoch)?.id !== priorId) {
+          if((globalThis as any).privateHistorySemanticFixture)(globalThis as any).privateHistorySemanticRefusal={
+            stage:'historical-epoch-continuity',currentEpoch:current.epoch,proofEpoch:bound.device.epoch,missingHistoricalId:true}
+          hold()
+        }`)
+        return {loader:'ts',contents:source}
+      })
       builder.onLoad({filter:/ordinary-renewal-obligation\.ts$/},async input=>{
         let source=await readFile(input.path,'utf8'),at=source.indexOf('export function registerOrdinaryRenewalFactory(')
         const body=source.indexOf('  if(!factory',at)
@@ -91,6 +102,9 @@ test.beforeAll(async () => {
       })
       builder.onLoad({filter:/ordinary-persistent-bootstrap\.ts$/},async input=>{
         let source=await readFile(input.path,'utf8')
+        const currentEpoch='const epoch = device.epochs.find(value => value.epoch === device.epoch)'
+        if(source.split(currentEpoch).length!==2)throw Error('Join durable current epoch observer drift')
+        source=source.replace(currentEpoch,currentEpoch+`; if((globalThis as any).privateJoinNetworkFixture)(globalThis as any).privateJoinDurableCurrent={epoch:device.epoch,id:epoch?.id}`)
         const sealCheck='const seals = retained.sealStrings.map(value => {\n        const key = hexToBytes(value)\n        try {return getPublicKey(key)} finally {key.fill(0)}\n      })'
         if(source.split(sealCheck).length!==2)throw Error('Private join seal erasure observer drift')
         source=source.replace(sealCheck,`const seals = retained.sealStrings.map(value => {
@@ -169,7 +183,8 @@ test.beforeAll(async () => {
             for(const name of ['open','recoverPreparedAtStartup'])Object.defineProperty(OrdinaryPersistentBootstrap,name,{configurable:true,value:fail})
             for(const name of ['load','revoke','close','bootstrap','openMemberSession'])Object.defineProperty(OrdinaryPersistentBootstrap.prototype,name,{configurable:true,value:fail})
           }
-          ;(globalThis as any).__privateBootstrapFunctionsForTest=Object.freeze({open:openOrdinaryPrivateBootstrapFromOwnerClaim,completed:ordinaryPrivateBootstrapCompleted,stop:stopOrdinaryPrivateBootstrap,close:closeOrdinaryPrivateBootstrap,constructMember:constructOrdinaryPrivateBootstrapMember,joinMember:joinOrdinaryPrivateBootstrapMember})
+          ;(globalThis as any).__privateBootstrapFunctionsForTest=Object.freeze({open:openOrdinaryPrivateBootstrapFromOwnerClaim,completed:ordinaryPrivateBootstrapCompleted,stop:stopOrdinaryPrivateBootstrap,close:closeOrdinaryPrivateBootstrap,constructMember:constructOrdinaryPrivateBootstrapMember,joinMember:joinOrdinaryPrivateBootstrapMember,
+            takeJoin:takeOrdinaryPrivateMemberSessionJoinClaim,hasJoin:(token:object)=>privateSessionJoinClaims.has(token)})
         `}
       })
       builder.onLoad({filter:/ordinary-private-member-session\.ts$/},async input=>{
@@ -183,6 +198,7 @@ test.beforeAll(async () => {
         if(source.split(retained).length!==2)throw Error('Private Session retained input observer drift')
         source=source.replace(retained,retained+`;
           ;(globalThis as any).__privateSessionSeenResource=resource
+          ;(globalThis as any).__privateJoinTupleForTest=()=>{const v=sessions.get(resource)!;return{session:resource,graph:v.graph,generation:v.generation,receipt:v.joinedReceipt}}
           ;(globalThis as any).__privateJoinedSessionForTest=()=>{const v=sessions.get(resource)!;return{state:v.joinState,outer:!!v.joining,native:!!v.nativeJoining,
             receipt:!!v.joinedReceipt,closed:!!v.closeResult,snapshot:v.joinedSnapshot?{credential:v.joinedSnapshot.credential.id,epoch:v.joinedSnapshot.epoch,epochId:v.joinedSnapshot.epochId,seals:v.joinedSnapshot.seals,channels:v.joinedSnapshot.channels}:null}}
           ;(globalThis as any).__privateSessionInputsWipedForTest=()=>[secret!,device!,...seals].every(key=>key.every(value=>value===0))
@@ -201,7 +217,7 @@ test.beforeAll(async () => {
         `)
         const joinTake='const binding = takeOrdinaryPrivateMemberSessionJoinClaim(claim), value = owned(binding.session)'
         if(source.split(joinTake).length!==2)throw Error('Private join claim observer drift')
-        source=source.replace(joinTake,`(globalThis as any).__privateG0JoinCut('before-claim'); `+joinTake+`; (globalThis as any).__privateJoinClaimForTest=claim`)
+        source=source.replace(joinTake,`(globalThis as any).__privateG0JoinCut('before-claim'); (globalThis as any).privateJoinForeignClaimProbe?.(claim); `+joinTake+`; (globalThis as any).__privateJoinClaimForTest=claim`)
         for(const [marker,replacement]of [
           ['try {binding.track(outer); check()}',"try {binding.track(outer); (globalThis as any).__privateG0JoinCut('outer-retained'); check()}"],
           ['await joining; check()',"await joining; (globalThis as any).__privateG0JoinCut('native-joined'); check()"],
@@ -211,12 +227,16 @@ test.beforeAll(async () => {
         const decision="const decision = Object.freeze(Object.create(null)) as OrdinaryPrivateMemberJoinedDecision"
         if(source.split(decision).length!==2)throw Error('Private join decision observer drift')
         source=source.replace(decision,decision+`; ((globalThis as any).privateJoinDecisions??=[]).push(decision)`)
+        const authenticate='  try {\n    const dueAt = authentication.authenticate(decision)'
+        if(source.split(authenticate).length!==2)throw Error('Private foreign decision probe drift')
+        source=source.replace(authenticate,"  ;(globalThis as any).privateJoinForeignDecisionProbe?.(decision)\n"+authenticate)
         const preannouncement="beforeAnnounce: snapshot => {authenticateSnapshot(owned(resource), snapshot, 'private-session-preannouncement')}"
         if(source.split(preannouncement).length!==2)throw Error('Private preannouncement fault fixture drift')
         source=source.replace(preannouncement,`beforeAnnounce: snapshot => {
           const fixture=globalThis as any,fault=fixture.privateJoinSnapshotFault
           fixture.privateJoinPreannouncementObserved={native:!!fixture.__controlDecision,snapshot:structuredClone(snapshot)}
           fixture.__privateG0JoinCut('preannouncement')
+          fixture.privateJoinBeforePreannouncement?.()
           if(fault)snapshot=Object.freeze({...snapshot,...fault==='credential'?{credential:{...snapshot.credential,content:'explicit fixture mismatch'}}:
             fault==='epoch'?{epoch:snapshot.epoch+1}:fault==='epoch-id'?{epochId:'f'.repeat(64)}:
             fault==='seals'?{seals:Object.freeze([])}:fault==='channels'?{channels:Object.freeze(['unpermitted'])}:{}})
@@ -226,7 +246,8 @@ test.beforeAll(async () => {
         return {loader:'ts',contents:source+`
           ;(globalThis as any).__privateMemberClassForTest=RoomSession
           ;(globalThis as any).__privateMemberFunctionsForTest={open:openOrdinaryPrivateMemberSessionFromBootstrapClaim,stop:stopOrdinaryPrivateMemberSession,close:closeOrdinaryPrivateMemberSession,drain:drainOrdinaryPrivateMemberSession,
-            join:joinOrdinaryPrivateMemberSessionFromBootstrapClaim,takeJoined:takeOrdinaryPrivateMemberJoinedDecision}
+            join:joinOrdinaryPrivateMemberSessionFromBootstrapClaim,takeJoined:takeOrdinaryPrivateMemberJoinedDecision,checkReceipt:checkOrdinaryPrivateMemberJoinedReceipt,
+            hasDecision:(token:object)=>joinedDecisions.has(token)}
         `}
       })
       builder.onLoad({filter:/ordinary-private-member-controller\.ts$/},async input=>{
@@ -598,6 +619,7 @@ test.beforeAll(async () => {
           `Object.freeze(actual)
            ;(globalThis as any).__privateForegroundProbe = Object.freeze({
              busy:()=>actual.#busy,
+             revokeForJoinTest:()=>actual.#revoke(),
              loadMember: () => actual.#loadPrivateMember(),
              native: () => actual.#privateForeground!.native, authority: () => actual.#privateAuthority,
              prepareRenewalFactory: () => actual.#privateForeground!.prepareRenewalFactory(actual.#privateAuthority!),
@@ -3593,8 +3615,10 @@ for(const mode of ['transition','return-root'])test(`private live settled reader
 /** Native-stage composition with a synthetic authority/relay. The actual
  * Session, pool/carrier, native stores and crypto run; this is not production
  * consent UI, independent peer delivery or physical network acceptance. */
+interface PrivateG0JoinPeer {roomId: string; credential: Parameters<typeof encodeEpochGrant>[0]['credential']; secret: number[]; authority: number[]}
+const privateG0JoinPeers = new WeakMap<Page, {peer: PrivateG0JoinPeer; mode: string}>()
 async function preparePrivateG0Join(page: Page, keep: boolean, mode = 'grant', pauseDisposal = false): Promise<void> {
-  let peer!: {roomId: string; credential: Parameters<typeof encodeEpochGrant>[0]['credential']; secret: number[]; authority: number[]}
+  let peer!: PrivateG0JoinPeer
   await prepareControlStage(page,keep,true,undefined,async()=>{
     if(mode.startsWith('durable'))await page.evaluate(async()=>{
       const w=window as any,o=w.Ordinary,scope=await w.browserOwner.capture('room:'+w.roomId,w.guard)
@@ -3610,15 +3634,19 @@ async function preparePrivateG0Join(page: Page, keep: boolean, mode = 'grant', p
       finally{w.Ordinary.wipeOrdinaryPersistentBootstrapResult(material)}
     })
   },true)
-  await page.exposeFunction('__privateJoinPeerGrant',(request:{id:string;pubkey:string})=>{
+  const registered=privateG0JoinPeers.has(page)
+  privateG0JoinPeers.set(page,{peer,mode})
+  if(!registered)await page.exposeFunction('__privateJoinPeerGrant',(request:{id:string;pubkey:string})=>{
+    const {peer,mode}=privateG0JoinPeers.get(page)!
     if(mode==='pending')return null
     return encodeEpochGrant({roomId:peer.roomId,authoritySk:Uint8Array.from(peer.authority),device:request.pubkey,request:request.id,
       epoch:mode==='durable-future'?{epoch:2,secret:new Uint8Array(32).fill(62)}:
+        mode==='durable-wrong-id'?{epoch:1,secret:new Uint8Array(32).fill(62)}:
         mode==='nonzero'||mode==='durable'?{epoch:1,secret:new Uint8Array(32).fill(61)}:{epoch:0,secret:Uint8Array.from(peer.secret)},
       credential:peer.credential!,removed:[],now:Math.floor(Date.now()/1000)})
   })
-  await page.evaluate(()=>{
-    const w=window as any;w.privateJoinNetworkFixture=true;w.privateJoinEpochRequested=false;w.privateJoinFrames=[];w.privateJoinSockets=[]
+  await page.evaluate(({roomId,participant})=>{
+    const w=window as any;w.privateJoinFixtureRoom=roomId;w.privateJoinFixturePrefix='kithmoot.account.'+participant+'.';w.privateJoinNetworkFixture=true;w.privateJoinGrantReady=false;w.privateJoinEpochRequested=false;w.privateJoinFrames=[];w.privateJoinSockets=[]
     w.__privateJoinSocket=class {
       readyState=0;onopen:any=null;onmessage:any=null;onclose:any=null;onerror:any=null;requests=new Map<string,any[]>()
       constructor(readonly url:string){w.privateJoinSockets.push(this);queueMicrotask(()=>{if(this.readyState===3)return;this.readyState=1;this.onopen?.({type:'open'})})}
@@ -3635,6 +3663,7 @@ async function preparePrivateG0Join(page: Page, keep: boolean, mode = 'grant', p
             if(frame[1].kind===20468){
               w.privateJoinEpochRequested=true
               const grant=await w.__privateJoinPeerGrant(frame[1]);if(!grant)return
+              if(w.privateJoinPauseGrant){w.privateJoinGrantReady=true;await new Promise<void>(yes=>{w.privateJoinReleaseGrant=yes})}
               for(const socket of w.privateJoinSockets)for(const[id,filters]of socket.requests)
                 if(filters.some((f:any)=>f.kinds?.includes(grant.kind)))socket.message(['EVENT',id,grant])
             }
@@ -3643,7 +3672,7 @@ async function preparePrivateG0Join(page: Page, keep: boolean, mode = 'grant', p
       }
       close(){if(this.readyState===3)return;this.readyState=3;this.onclose?.({type:'close'})}
     }
-  })
+  },{roomId:peer.roomId,participant:peer.credential!.pubkey})
   await startPrivateForeground(page);await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
   expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')
   await page.evaluate(pause=>{(window as any).privateMemberDisposePaused=pause},pauseDisposal)
@@ -3756,4 +3785,237 @@ for(const stage of ['before-claim','outer-retained','preannouncement','owner-aut
   await page.evaluate(()=>{(window as any).privateMemberDisposePaused=false})
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
   expect(await page.evaluate('[__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([true,true])
+})
+
+for(const fault of ['provider','provider-sign','sdk-sign','sdk-capability','sdk-account','sdk-prototype','credential-expiry','foreground','generation-floor'])test(`private G0 join refuses ${fault} change inside preannouncement before member effects`,async({page})=>{
+  await preparePrivateG0Join(page,false)
+  await page.evaluate(fault=>{
+    const w=window as any
+    w.privateJoinBeforePreannouncement=()=>{
+      const unexpected=()=>{w.privateJoinUnexpectedCalls=(w.privateJoinUnexpectedCalls??0)+1;throw Error('Replacement provider/SDK must not run')}
+      if(fault==='provider')Object.defineProperty(window,'nostr',{configurable:true,writable:true,value:{}})
+      else if(fault==='provider-sign')w.providerFixture.current.signEvent=unexpected
+      else if(fault==='sdk-sign')w.providerFixture.sdk.signEvent=unexpected
+      else if(fault==='sdk-capability')w.providerFixture.sdk.capabilities={...w.providerFixture.sdk.capabilities,canSignEvents:false}
+      else if(fault==='sdk-account')w.providerFixture.sdk.pubkey='f'.repeat(64)
+      else if(fault==='sdk-prototype')Object.setPrototypeOf(w.providerFixture.sdk,{signEvent:unexpected})
+      else if(fault==='credential-expiry'){const now=Date.now;Date.now=()=>now()+1_201_000;w.privateJoinRestoreClock=()=>{Date.now=now}}
+      else if(fault==='foreground')w.__privateForegroundProbe.revokeForJoinTest()
+      else w.__privateAdvanceCredentialGenerationForTest()
+      const observed=fault==='provider'?Object.getOwnPropertyDescriptor(window,'nostr')!.value!==w.providerFixture.current:
+        fault==='provider-sign'?w.providerFixture.current.signEvent===unexpected:
+        fault==='sdk-sign'?w.providerFixture.sdk.signEvent===unexpected:
+        fault==='sdk-capability'?w.providerFixture.sdk.capabilities.canSignEvents===false:
+        fault==='sdk-account'?w.providerFixture.sdk.pubkey==='f'.repeat(64):
+        fault==='sdk-prototype'?Object.getPrototypeOf(w.providerFixture.sdk).signEvent===unexpected:
+        fault==='credential-expiry'?!!w.privateJoinRestoreClock:
+        fault==='foreground'?!w.__privateForegroundProbe.current():w.__privateGenerationFloorForTest().serial===1
+      if(!observed)throw Error('Drift fixture did not apply its mutation')
+      w.privateJoinDriftApplied={fault,native:!!w.__controlDecision,observed}
+    }
+  },fault)
+  const before=await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
+  try {
+  await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('privateJoinDriftApplied')).toEqual({fault,native:true,observed:true})
+  expect(await page.evaluate('window.privateJoinUnexpectedCalls??0')).toBe(0)
+  expect(await page.evaluate('privateJoinFrames.filter(v=>v.frame[0]==="EVENT").map(v=>v.frame[1].kind)')).toEqual([20468])
+  expect(await page.evaluate('privateJoinFrames.filter(v=>v.frame[0]==="REQ").flatMap(v=>v.frame.slice(2).flatMap(f=>f.kinds??[])).every(kind=>kind===1462||kind===20469)')).toBe(true)
+  } finally {await page.evaluate('window.privateJoinRestoreClock?.()')}
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[__privateJoinedSessionForTest().receipt,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([false,true,true])
+  expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
+})
+
+test('private G0 join refuses a valid authority epoch with the wrong current ID before presence',async({page})=>{
+  await preparePrivateG0Join(page,true,'durable-wrong-id')
+  const before=await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
+  await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('privateJoinPreannouncementObserved')).toMatchObject({native:true,snapshot:{epoch:1}})
+  expect(await page.evaluate('privateJoinDurableCurrent.epoch')).toBe(1)
+  expect(await page.evaluate('privateJoinDurableCurrent.id!==privateJoinPreannouncementObserved.snapshot.epochId')).toBe(true)
+  expect(await page.evaluate('privateJoinFrames.filter(v=>v.frame[0]==="EVENT").map(v=>v.frame[1].kind)')).toEqual([20468])
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[__privateJoinedSessionForTest().receipt,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([false,true,true])
+  expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
+})
+
+for(const mode of ['missing-current','pruned-proof'] as const)test(`private G0 join refuses authenticated ${mode} disk history mutation during authority wait`,async({page})=>{
+  await preparePrivateG0Join(page,true,'durable')
+  await page.evaluate(()=>{(window as any).privateJoinPauseGrant=true})
+  const before=await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
+  await beginPrivateG0Join(page);await page.waitForFunction('privateJoinGrantReady')
+  await page.evaluate(async mode=>{
+    const w=window as any,path='/j/mutate-native.js',module=await import(path)
+    await module.changeBrowserEpochHistory(w.privateJoinFixtureRoom,w.privateJoinFixturePrefix,mode)
+    w.privateJoinAfterAdversarialWrite={signs:w.providerFixture.signs,put:w.effects.put,storage:w.effects.storageWrite}
+    w.privateJoinReleaseGrant()
+  },mode)
+  await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('providerFixture.historyMutation')).toMatchObject({mode,authenticated:true})
+  expect(await page.evaluate('providerFixture.historyMutationWrites')).toBe(1)
+  expect(await page.evaluate('privateJoinFrames.filter(v=>v.frame[0]==="EVENT").map(v=>v.frame[1].kind)')).toEqual([20468])
+  // This exercises exact native-row drift refusal. It does not claim the
+  // changed frame was accepted by the owner or authorised an epoch rollback.
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[__privateJoinedSessionForTest().receipt,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([false,true,true])
+  expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
+  expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(await page.evaluate('privateJoinAfterAdversarialWrite'))
+})
+
+test('private G0 join refuses an absent nonzero durable epoch after fresh native capture',async({page})=>{
+  await preparePrivateG0Join(page,true,'nonzero')
+  const before=await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
+  await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('privateJoinPreannouncementObserved')).toMatchObject({native:true,snapshot:{epoch:1}})
+  expect(await page.evaluate('privateJoinDurableCurrent.epoch')).toBe(0)
+  expect(await page.evaluate('privateJoinFrames.filter(v=>v.frame[0]==="EVENT").map(v=>v.frame[1].kind)')).toEqual([20468])
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([true,true])
+  expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
+})
+
+test('private G0 join entry refuses authenticated pruned proof history at fresh capture',async({page})=>{
+  const href=await seed(page,true,false,true)
+  await page.evaluate(async()=>{
+    const w=window as any,o=w.Ordinary,scope=await w.browserOwner.capture('room:'+w.roomId,w.guard)
+    await w.browserOwner.mutateMigrated(scope,w.guard,(store:any)=>o.storeKeptRoomEpoch({
+      get:(name:string)=>store.get(w.prefix+name),set:(name:string,value:string)=>store.set(w.prefix+name,value),
+      remove:(name:string)=>store.remove(w.prefix+name),keys:()=>[]},w.roomId,
+      {epoch:{epoch:1,secret:new Uint8Array(32).fill(61)},past:[{epoch:0,secret:w.secret,leftAt:w.now}],removed:[],members:[w.participant]},w.now))
+  })
+  await releaseFixture(page)
+  const account=await page.evaluate<string>('account')
+  expect(await page.evaluate(async()=>{
+    const w=window as any,path='/j/mutate-native.js',module=await import(path)
+    w.providerFixture={nativeRandom:crypto.getRandomValues.bind(crypto),nativePut:IDBObjectStore.prototype.put}
+    await module.changeBrowserEpochHistory(w.roomId,w.prefix,'pruned-proof')
+    return w.providerFixture.historyMutationWrites
+  })).toBe(1)
+  await install(page);await providerFixture(page,account)
+  await page.addInitScript(()=>{(window as any).privateHistorySemanticFixture=true})
+  // No active captured fingerprint exists yet: the fresh native capture
+  // rejects the actual decrypted image's missing historical proof epoch.
+  await enter(page,href,'held')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0,0])
+  expect(await page.evaluate('effects')).toEqual(none)
+  expect(await page.evaluate('window.__privateSessionSeenResource===undefined')).toBe(true)
+  expect(await page.evaluate('privateHistorySemanticRefusal')).toEqual({stage:'historical-epoch-continuity',currentEpoch:1,proofEpoch:0,missingHistoricalId:true})
+})
+
+test('private G0 join genuine claims decisions and receipts cannot cross document session graph or generation',async({page})=>{
+  await preparePrivateG0Join(page,false);await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('joined')
+  const opening=page.waitForEvent('popup')
+  await page.evaluate(url=>{(window as any).privateJoinObserver=window.open(url,'private-join-observer')},origin+'/outside/modern')
+  const observer=await opening
+  try{
+    await observer.waitForLoadState('load')
+    await observer.evaluate(()=>{
+      sessionStorage.removeItem('kithmoot.ordinary-tab.v1')
+      const w=window as any;w.privateJoinObserverFence=new w.FenceOnly.OrdinaryClientFence()
+    })
+    await page.evaluate(()=>{
+      const w=window as any
+      w.privateJoinObserver.retainedJoin={functions:w.__privateMemberFunctionsForTest,tuple:w.__privateJoinTupleForTest(),
+        claim:w.__privateJoinClaimForTest,decisions:w.privateJoinDecisions}
+    })
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+    await page.goto(origin+'/j/setup')
+    await page.evaluate(()=>new Promise<void>((yes,no)=>{
+      const request=indexedDB.deleteDatabase((window as any).Ordinary.ORDINARY_DATABASE)
+      request.onsuccess=()=>yes();request.onerror=()=>no(request.error);request.onblocked=()=>no(Error('Old actual join still owns its database'))
+    }))
+    await preparePrivateG0Join(page,true,'durable')
+    await page.evaluate(()=>{
+      const w=window as any,other=window.open('','private-join-observer') as any
+      w.privateJoinOld=other.retainedJoin;w.privateJoinForeignProbes=[];w.privateJoinForeignProbeBusy=false
+      const probe=(kind:string,token:unknown)=>{
+        // Old realm functions retain their real maps, while their WindowProxy
+        // can resolve this test hook in the new document. Do not re-enter it.
+        if(w.privateJoinForeignProbeBusy)return
+        w.privateJoinForeignProbeBusy=true
+        const before=JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})
+        let outcome='unexpected'
+        try{if(kind==='claim')w.privateJoinOld.functions.join(token);else w.privateJoinOld.functions.takeJoined(token)}catch(error){outcome=(error as Error).name}
+        finally{w.privateJoinForeignProbeBusy=false}
+        w.privateJoinForeignProbes.push({kind,outcome,native:!!w.__controlDecision,
+          unchanged:before===JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})})
+      }
+      w.privateJoinForeignClaimProbe=(token:unknown)=>probe('claim',token)
+      w.privateJoinForeignDecisionProbe=(token:unknown)=>probe('decision',token)
+    })
+    await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+    expect(await page.evaluate('privateJoinOutcome')).toBe('joined')
+    expect(await page.evaluate('privateJoinForeignProbes')).toEqual([
+      {kind:'claim',outcome:'OrdinaryStateHold',native:true,unchanged:true},
+      {kind:'decision',outcome:'OrdinaryStateHold',native:true,unchanged:true},
+      {kind:'decision',outcome:'OrdinaryStateHold',native:true,unchanged:true},
+    ])
+    expect(await page.evaluate(()=>{
+      const w=window as any,api=w.__privateMemberFunctionsForTest,old=w.privateJoinOld,t=w.__privateJoinTupleForTest(),a=old.tuple
+      w.privateJoinCurrentTupleForTest=t
+      delete w.privateJoinForeignClaimProbe;delete w.privateJoinForeignDecisionProbe
+      const before=JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})
+      let reflected=0,refused=0
+      const hostile=new Proxy(Object.create({get then(){reflected++;throw Error('Foreign then getter')}}),{
+        get(){reflected++;throw Error('Foreign getter')},getPrototypeOf(){reflected++;throw Error('Foreign prototype')},ownKeys(){reflected++;throw Error('Foreign keys')}})
+      api.checkReceipt(t.receipt,t.session,t.graph,t.generation)
+      for(const [receipt,session,graph,generation]of [
+        [t.receipt,a.session,t.graph,t.generation],[t.receipt,t.session,a.graph,t.generation],[t.receipt,t.session,t.graph,a.generation],
+        [a.receipt,t.session,t.graph,t.generation],[t.receipt,a.session,a.graph,a.generation],[a.receipt,a.session,a.graph,a.generation],
+        [hostile,t.session,t.graph,t.generation],[t.receipt,hostile,hostile,hostile],
+      ]){try{api.checkReceipt(receipt,session,graph,generation)}catch{refused++}}
+      try{old.functions.checkReceipt(a.receipt,a.session,a.graph,a.generation)}catch{refused++}
+      try{old.functions.checkReceipt(t.receipt,t.session,t.graph,t.generation)}catch{refused++}
+      for(const token of [hostile,old.claim,w.__privateJoinClaimForTest]){try{api.join(token)}catch{refused++}}
+      for(const token of [hostile,...old.decisions,...w.privateJoinDecisions]){try{api.takeJoined(token)}catch{refused++}}
+      api.checkReceipt(t.receipt,t.session,t.graph,t.generation)
+      return{refused,reflected,distinct:[t.session!==a.session,t.graph!==a.graph,t.generation!==a.generation],
+        unchanged:before===JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})}
+    })).toEqual({refused:18,reflected:0,distinct:[true,true,true],unchanged:true})
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+    expect(await page.evaluate(()=>{
+      const w=window as any,t=w.privateJoinCurrentTupleForTest;try{w.__privateMemberFunctionsForTest.checkReceipt(t.receipt,t.session,t.graph,t.generation);return'unexpected'}catch(error){return(error as Error).name}
+    })).toBe('OrdinaryStateHold')
+  }finally{await observer.close()}
+})
+
+for(const kind of ['claim','decision'])for(const cut of ['pagehide','generation-floor'])test(`private G0 join spends an actual unconsumed ${kind} after ${cut} before replay`,async({page})=>{
+  await preparePrivateG0Join(page,false)
+  await page.evaluate(({kind,cut})=>{
+    const w=window as any
+    const probe=(token:object)=>{
+      w.privateJoinUnconsumedToken=token
+      if(cut==='pagehide')window.dispatchEvent(new PageTransitionEvent('pagehide'));else w.__privateAdvanceCredentialGenerationForTest()
+      const api=kind==='claim'?w.__privateBootstrapFunctionsForTest:w.__privateMemberFunctionsForTest
+      let outcome='unexpected'
+      try{if(kind==='claim')api.takeJoin(token);else api.takeJoined(token)}catch(error){outcome=(error as Error).name}
+      w.privateJoinPreconsumption={outcome,native:!!w.__controlDecision,spent:kind==='claim'?!api.hasJoin(token):!api.hasDecision(token)}
+    }
+    if(kind==='claim')w.privateJoinForeignClaimProbe=probe;else w.privateJoinForeignDecisionProbe=probe
+  },{kind,cut})
+  const before=await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
+  await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('OrdinaryStateHold')
+  // A genuine decision checks its closed protocol after spending its cell.
+  // The fixed outer still normalises this refusal to OrdinaryStateHold.
+  expect(await page.evaluate('privateJoinPreconsumption')).toEqual({
+    outcome:kind==='decision'&&cut==='pagehide'?'OrdinaryProtocolSuspended':'OrdinaryStateHold',native:true,spent:true})
+  expect(await page.evaluate('privateJoinFrames.filter(v=>v.frame[0]==="EVENT").map(v=>v.frame[1].kind)')).toEqual(kind==='claim'?[]:[20468])
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[__privateJoinedSessionForTest().receipt,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest()]')).toEqual([false,true,true])
+  expect(await page.evaluate(kind=>{
+    const w=window as any,api=kind==='claim'?w.__privateBootstrapFunctionsForTest:w.__privateMemberFunctionsForTest
+    delete w.privateJoinForeignClaimProbe;delete w.privateJoinForeignDecisionProbe
+    try{if(kind==='claim')api.takeJoin(w.privateJoinUnconsumedToken);else api.takeJoined(w.privateJoinUnconsumedToken);return'unexpected'}catch(error){return(error as Error).name}
+  },kind)).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
 })
