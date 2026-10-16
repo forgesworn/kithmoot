@@ -6,6 +6,15 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.89 signed-out relay choices — 16 October 2026
+Version **0.6.89**, code **112**, keeps relay read and write choices made while
+signed out across a restart, instead of turning every relay read-write and
+dropping unticked ones.
+The production APK is built from Android source
+`56c1ec82` (pull requests #267 and #268, all checks passed), SHA-256
+`5e0a1b559e7ece2121e832bb824936fd96c683c961fa0726abc3861ab536da58`, signed with
+the retained production certificate. Not yet observed on a device.
+
 ## Android 0.6.88 steady call video and compact record control — 15 October 2026
 Version **0.6.88**, code **111**, keeps a call tile's picture through a brief
 gap instead of flashing black, makes Record a red button and puts the
