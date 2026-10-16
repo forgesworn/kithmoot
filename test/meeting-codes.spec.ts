@@ -121,10 +121,10 @@ async function startRoom(page: Page, baseURL: string, setUp: (page: Page) => Pro
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
-test('Get a meeting code is offered only for Ask rooms and rooms with an end, and End room deletes it', async ({ browser, baseURL }) => {
+test('Get a meeting code is offered to the creator of any room, and End room deletes it', async ({ browser, baseURL }) => {
   const contexts: BrowserContext[] = []
   try {
-    // A group room that never ends: full links only.
+    // A group room that never ends gets a code too.
     const open = await device(browser, baseURL!); contexts.push(open)
     await codeService(open, {})
     const openPage = await open.newPage()
@@ -132,9 +132,9 @@ test('Get a meeting code is offered only for Ask rooms and rooms with an end, an
     await openPage.locator('#invitePeople').click()
     await expect(openPage.locator('#inviteDialog')).toBeVisible()
     await expect(openPage.locator('#copyShare')).toBeVisible()
-    await expect(openPage.locator('#getMeetingCode')).toBeHidden()
+    await expect(openPage.locator('#getMeetingCode')).toBeVisible()
 
-    // An Ask room is eligible, until the host lets anyone straight in.
+    // An Ask room is eligible, and stays so when the host lets anyone in.
     const ask = await device(browser, baseURL!); contexts.push(ask)
     await codeService(ask, {})
     const askPage = await ask.newPage()
@@ -148,7 +148,7 @@ test('Get a meeting code is offered only for Ask rooms and rooms with an end, an
     await expect(askPage.locator('#meetingCodeShown')).toBeHidden()
     await askPage.locator('#toggleKnock').click()
     await expect(askPage.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
-    await expect(askPage.locator('#getMeetingCode')).toBeHidden()
+    await expect(askPage.locator('#getMeetingCode')).toBeVisible()
 
     // A room with an end: the code is made for its full link, until its end.
     const dated = await device(browser, baseURL!); contexts.push(dated)

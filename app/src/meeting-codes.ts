@@ -58,12 +58,13 @@ export function meetingCodeLink(code: string): string {
 }
 
 /**
- * Whether a room may offer a code: an Ask room, or one with an end. The
- * caller has already checked that this browser is the room's creator.
+ * Whether a room may offer a code: any room that has not ended. A code
+ * never outlives its room and lasts a week at most, so it exposes no more
+ * than the full link does. The caller has already checked that this
+ * browser is the room's creator.
  */
-export function meetingCodeEligible(room: { endsAt?: number; ask: boolean; now: number }): boolean {
-  if (room.endsAt !== undefined) return room.endsAt > room.now
-  return room.ask
+export function meetingCodeEligible(room: { endsAt?: number; now: number }): boolean {
+  return room.endsAt === undefined || room.endsAt > room.now
 }
 
 /** The `expires` to ask for: the room's end or seven days less a minute,

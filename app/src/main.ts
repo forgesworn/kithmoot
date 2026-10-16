@@ -15736,9 +15736,6 @@ $('toggleKnock').addEventListener('click', () => {
   const roomId = currentRoomId()
   if (!roomId) return
   setKnock(roomId, $('toggleKnock').dataset.on !== 'true')
-  // Letting anyone straight in makes a room with no end ineligible for a code.
-  if (roomInvitationCapability && !meetingCodeOffered()) retireMeetingCode({ invitationId: deriveInvitationId(roomInvitationCapability) })
-  renderMeetingCode()
   renderKnockChoice()
   // The host loop reads the switch when it starts, so start it again.
   serveCurrentInvitation()
@@ -16113,13 +16110,12 @@ function renderEndRoom(): void {
   renderMeetingCode()
 }
 
-/** Get a meeting code: only the room's creator (the End room check), and
- *  only for an Ask room or one with an end. A room anyone with the link
- *  enters, and which never ends, keeps full links only. */
+/** Get a meeting code: only the room's creator (the End room check), for
+ *  any room that has not ended. */
 function meetingCodeOffered(): boolean {
   const roomId = currentRoomId()
   if (!roomId || !roomInvitationCapability || !canEndRoom()) return false
-  return meetingCodeEligible({ endsAt: roomEndsAt, ask: !roomInvitationCapability.persistent && knockOn(roomId), now: nowSeconds() })
+  return meetingCodeEligible({ endsAt: roomEndsAt, now: nowSeconds() })
 }
 
 function renderMeetingCode(): void {
