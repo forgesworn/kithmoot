@@ -1,5 +1,10 @@
 # Changelog
 
+## Desktop 0.1.86 and Android 0.6.89 — 16 October 2026
+
+- A call's answer is matched to the offer it answers, so a late answer can no longer settle a newer camera change and leave video stuck.
+- Android keeps relay read and write choices made while signed out across a restart.
+
 ## Desktop 0.1.85 and Android 0.6.88 — 15 October 2026
 
 - A Signet sign-in stays signed in across restarts. Signet answers on its own relay after pairing, so every sign-in link now names it and an existing sign-in is also asked there; nobody has to pair again.
