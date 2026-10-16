@@ -12,6 +12,7 @@ export interface NativeSessionSnapshot {
   readonly epoch: number
   readonly epochId: string
   readonly seals: readonly string[]
+  readonly channels: readonly string[]
 }
 export interface NativeSessionCandidate {
   readonly credential: DeviceCredential
@@ -39,6 +40,9 @@ export interface NativeSessionBinding {
   attach(view: NativeSessionView): void
   schedule(delay: number): void
   revoke(): void
+  /** Internal retained embedding check, after epoch settlement and before any
+   * roster, descriptor, mesh or presence exposure. Synchronous native read. */
+  beforeAnnounce?(snapshot: NativeSessionSnapshot): void
 }
 /** Owned record from the fixed genuine-claim app wrapper only. This is
  * mechanical constructor plumbing, never a replacement for native custody. */
@@ -87,7 +91,8 @@ export function registerRetainedNativeSessionBinding(options: object, input: Nat
 function register(options: object, input: NativeSessionBinding, retained?: Readonly<RetainedNativeSessionCapture>): () => void {
   const prototype = Object.getPrototypeOf(options)
   if (prototype !== Object.prototype && (!retained || prototype !== null) || entries.has(options) ||
-      Object.getPrototypeOf(input) !== Object.prototype || Reflect.ownKeys(input).sort().join(',') !== 'attach,revoke,schedule') {
+      Object.getPrototypeOf(input) !== Object.prototype ||
+      !['attach,revoke,schedule', 'attach,beforeAnnounce,revoke,schedule'].includes(Reflect.ownKeys(input).sort().join(','))) {
     throw new Error('invalid native Session construction binding')
   }
   const field = (name: keyof NativeSessionBinding) => {
@@ -105,7 +110,8 @@ function register(options: object, input: NativeSessionBinding, retained?: Reado
       }
     }
   }
-  const cell = Object.freeze({ attach: field('attach'), schedule: field('schedule'), revoke: field('revoke') }) as NativeSessionBinding
+  const cell = Object.freeze({ attach: field('attach'), schedule: field('schedule'), revoke: field('revoke'),
+    beforeAnnounce: Object.hasOwn(input, 'beforeAnnounce') ? field('beforeAnnounce') : undefined }) as NativeSessionBinding
   const construction = Object.freeze({binding: cell, retained})
   entries.set(options, construction)
   return () => { if (entries.get(options) === construction) entries.delete(options) }

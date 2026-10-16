@@ -48,6 +48,34 @@ function forbidEntropy() {
 }
 
 describe('retained native Session mechanics without a participant signer', () => {
+  it('runs the retained preannouncement veto on actual public facts before member subscriptions or presence', async () => {
+    // Mechanics only. Genuine owner/native authorisation is browser-tested.
+    const f = await fixture(true)
+    f.binding.beforeAnnounce = snapshot => {
+      expect(snapshot).toMatchObject({credential: {id: f.options.resume.id}, epoch: 0, epochId: f.capture.roomId,
+        seals: f.capture.seals, channels: []})
+      expect(Object.isFrozen(snapshot)).toBe(true)
+      expect(Object.isFrozen(snapshot.channels)).toBe(true)
+      f.protocol.check('private-session-preannouncement')
+      throw Error('Explicit preannouncement refusal')
+    }
+    f.construct()
+    await expect(f.view().join()).rejects.toThrow('Explicit preannouncement refusal')
+    expect(f.transport.subscribe).not.toHaveBeenCalled()
+    expect(f.transport.publish).not.toHaveBeenCalled()
+    expect(f.binding.schedule).not.toHaveBeenCalled()
+  })
+
+  it('refuses a thenable preannouncement handshake before any member network effect', async () => {
+    const f = await fixture()
+    f.binding.beforeAnnounce = () => Promise.reject(Error('Explicit asynchronous veto'))
+    f.construct()
+    await expect(f.view().join()).rejects.toThrow('must complete synchronously')
+    expect(f.transport.subscribe).not.toHaveBeenCalled()
+    expect(f.transport.publish).not.toHaveBeenCalled()
+    expect(f.binding.schedule).not.toHaveBeenCalled()
+  })
+
   it('validates before callbacks, copies material, joins and delegates scheduling to the native binding', async () => {
     const f = await fixture(true), order: string[] = []
     f.current.mockImplementation(() => {order.push('current')})

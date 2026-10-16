@@ -146,6 +146,7 @@ interface PrivateBootstrapBinding {
   revoke(): void
   read<T>(live: () => boolean, work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T): Promise<T>
   join<T>(pending: Promise<T>): Promise<T>
+  trackControl<T>(pending: Promise<T>): Promise<T>
   deadline(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): number | null
   validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void
   retainResource(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody,
@@ -1785,6 +1786,7 @@ export class OrdinaryStateOwner {
             return OrdinaryStateOwner.#retainPairResource(c, {browser: {owner: browser, scope: bs}, tab: {owner: tab, scope: ts}, live}, callbacks)
           },
           join: <T>(pending: Promise<T>) => OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending),
+          trackControl: provider.trackControl,
           deadline: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
             validate(b, t, c); return ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, generation.selection.participant)
           }})

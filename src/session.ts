@@ -1020,7 +1020,7 @@ export class RoomSession {
       snapshot: () => {
         checkLive()
         return Object.freeze({ credential: structuredClone(this.#self!.credential), epoch: this.#epochSecret.epoch,
-          epochId: this.#epoch.id, seals: Object.freeze([...this.#sealKeys.keys()]) })
+          epochId: this.#epoch.id, seals: Object.freeze([...this.#sealKeys.keys()]), channels: Object.freeze([...this.#channels.keys()]) })
       },
       prepare: (candidate: NativeSessionCandidate): NativeSessionPlan => {
         checkLive(); candidate.checkPreparation()
@@ -1408,6 +1408,19 @@ export class RoomSession {
         this.#self = undefined
         throw err
       }
+    }
+
+    if (this.#nativeBinding?.beforeAnnounce) {
+      if (!execution) throw new Error('native preannouncement check requires retained execution')
+      await execution.run('private-session-preannouncement', () => {
+        execution.check('private-session-preannouncement')
+        if (!this.#self || this.#nativeRevoked || this.#left || this.#closed || this.#admissionAbort.signal.aborted ||
+            this.#credentialWork || this.#retentionWork || this.#pendingCredential) throw new Error('native Session is unavailable')
+        this.#nativeBinding!.beforeAnnounce!(Object.freeze({credential: structuredClone(this.#self.credential), epoch: this.#epochSecret.epoch,
+          epochId: this.#epoch.id, seals: Object.freeze([...this.#sealKeys.keys()]), channels: Object.freeze([...this.#channels.keys()])}))
+        execution.check('private-session-preannouncement')
+      })
+      if (this.#nativeRevoked || this.#left || this.#closed || this.#admissionAbort.signal.aborted) throw new Error('room admission cancelled')
     }
 
     this.#unsub = this.#opts.transport.subscribe(

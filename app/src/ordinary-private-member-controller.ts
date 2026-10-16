@@ -2,7 +2,10 @@ import { prepareOrdinaryPrivateControllerRenewal, stopOrdinaryPrivateControllerR
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { takeOrdinaryPrivateMemberControllerClaim, takeOrdinaryPrivateMemberControllerSessionClaim,
   type OrdinaryPrivateMemberControllerClaim, type OrdinaryPrivateMemberControllerSessionClaim } from './ordinary-persistent-bootstrap.js'
-import { retainOrdinaryPrivateMemberSessionForController, type OrdinaryPrivateMemberSessionResource } from './ordinary-private-member-session.js'
+import { retainOrdinaryPrivateMemberSessionForController, checkOrdinaryPrivateMemberSessionJoinOwnership, checkOrdinaryPrivateMemberSessionSchedule,
+  checkOrdinaryPrivateMemberJoinedReceipt, type OrdinaryPrivateMemberSessionResource, type OrdinaryPrivateMemberJoinedReceipt } from './ordinary-private-member-session.js'
+import type { OrdinaryProtocolGraphIdentity } from './ordinary-protocol-work.js'
+import type { OrdinaryPrivateCredentialGeneration } from './ordinary-state-owner.js'
 
 declare const resourceBrand: unique symbol
 export interface OrdinaryPrivateMemberControllerResource { readonly [resourceBrand]: true }
@@ -12,6 +15,10 @@ interface Controller {
   session?: OrdinaryPrivateMemberSessionResource
   renewal?: OrdinaryPrivateControllerRenewal
   preparing?: Promise<void>
+  joining?: Promise<OrdinaryPrivateMemberJoinedReceipt>
+  joined?: OrdinaryPrivateMemberJoinedReceipt
+  scheduleHint?: number
+  dueAt?: number
   closed: boolean
   closing?: Promise<void>
 }
@@ -28,7 +35,8 @@ function owned(resource: OrdinaryPrivateMemberControllerResource): Controller {
 export function openOrdinaryPrivateMemberControllerFromBootstrapClaim(claim: OrdinaryPrivateMemberControllerClaim): OrdinaryPrivateMemberControllerResource {
   const binding = takeOrdinaryPrivateMemberControllerClaim(claim)
   const resource = Object.freeze({}) as OrdinaryPrivateMemberControllerResource
-  controllers.set(resource, Object.assign(Object.create(null), {binding, session: undefined, renewal: undefined, preparing: undefined, closed: false, closing: undefined}))
+  controllers.set(resource, Object.assign(Object.create(null), {binding, session: undefined, renewal: undefined, preparing: undefined,
+    joining: undefined, joined: undefined, scheduleHint: undefined, dueAt: undefined, closed: false, closing: undefined}))
   return resource
 }
 /** Spend the actual one-use attachment before checking any state. Component
@@ -55,17 +63,36 @@ export function prepareOrdinaryPrivateMemberControllerRenewal(resource: Ordinary
   value.preparing = pending
   return pending
 }
-/** Stable lexical Session schedule edge, installed before Session exists.
- * Pre-armed scheduling refuses before reading caller data or creating work.
- * A later fixed adoption path must own activation and every timer lifetime. */
-export function scheduleOrdinaryPrivateMemberController(resource: OrdinaryPrivateMemberControllerResource, _delay: number): void {
-  owned(resource)
-  throw new OrdinaryStateHold()
+/** Retention only, not an alternate join starter or native authority. */
+export function retainOrdinaryPrivateMemberControllerJoin(resource: OrdinaryPrivateMemberControllerResource, session: OrdinaryPrivateMemberSessionResource,
+  graph: OrdinaryProtocolGraphIdentity, generation: OrdinaryPrivateCredentialGeneration, pending: Promise<OrdinaryPrivateMemberJoinedReceipt>): void {
+  const value = owned(resource)
+  if (value.closed || value.joining || value.session !== session || value.binding.graph !== graph || value.binding.generation !== generation || !value.binding.live()) throw new OrdinaryStateHold()
+  checkOrdinaryPrivateMemberSessionJoinOwnership(session, graph, generation, pending)
+  value.joining = pending
+}
+/** This callback records a bounded hint only. The authoritative due time is
+ * derived from the credential in the final authenticated joined decision.
+ * Neither operation starts a timer, root, wallet prompt or network effect. */
+export function scheduleOrdinaryPrivateMemberController(resource: OrdinaryPrivateMemberControllerResource, delay: number): void {
+  const value = owned(resource)
+  if (value.closed || !value.session || !value.joining || value.scheduleHint !== undefined || !value.binding.live() ||
+      typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0 || delay > Number.MAX_SAFE_INTEGER) throw new OrdinaryStateHold()
+  checkOrdinaryPrivateMemberSessionSchedule(value.session, value.binding.graph, value.binding.generation)
+  value.scheduleHint = delay
+}
+export function publishOrdinaryPrivateMemberControllerJoined(resource: OrdinaryPrivateMemberControllerResource, receipt: OrdinaryPrivateMemberJoinedReceipt, dueAt: number): void {
+  const value = owned(resource)
+  if (value.closed || !value.session || !value.joining || value.joined || value.scheduleHint === undefined || !value.binding.live() ||
+      !Number.isSafeInteger(dueAt) || dueAt < 0) throw new OrdinaryStateHold()
+  checkOrdinaryPrivateMemberJoinedReceipt(receipt, value.session, value.binding.graph, value.binding.generation)
+  value.joined = receipt; value.dueAt = dueAt
 }
 export function stopOrdinaryPrivateMemberController(resource: OrdinaryPrivateMemberControllerResource): void {
   const value = owned(resource)
   if (value.closed) return
   value.closed = true
+  value.joined = undefined; value.scheduleHint = undefined; value.dueAt = undefined
   if (value.renewal) stopOrdinaryPrivateControllerRenewal(value.renewal)
   // The fixed bootstrap callback revokes every component. Marking closed
   // first makes the parent's synchronous visit back here idempotent.
@@ -83,6 +110,7 @@ export function closeOrdinaryPrivateMemberController(resource: OrdinaryPrivateMe
   let failure: unknown
   try {stopOrdinaryPrivateMemberController(resource)} catch (error) {failure = error}
   void Promise.resolve().then(async () => {
+    if (value.joining) await Promise.allSettled([value.joining])
     if (value.preparing) await Promise.allSettled([value.preparing])
     if (value.renewal) await closeOrdinaryPrivateControllerRenewal(value.renewal)
     value.session = undefined; value.renewal = undefined

@@ -15,7 +15,7 @@ import { registerNativeSessionBinding, type NativeSessionView, type NativeSessio
 import type { PersistentRoomAdmission } from '../../src/persistent-invitation.js'
 import { RelayConnections } from './relay-settings.js'
 import { OrdinaryStateHold, ordinaryUtf8Length } from './ordinary-state-codec.js'
-import { stopOrdinaryPrivateControllerRenewal, closeOrdinaryPrivateControllerRenewal, OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths, ordinaryPairPredecessorSemanticDigestFor, ordinaryPairRenewalByteLengths,
+import { stopOrdinaryPrivateControllerRenewal, closeOrdinaryPrivateControllerRenewal, verifyOrdinaryPrivateControllerRenewalAttachment, OrdinaryStateOwner, ordinaryPairCustodyFor, ordinaryPairReadCustodyFor, ordinaryPairProjectedByteLengths, ordinaryPairPredecessorSemanticDigestFor, ordinaryPairRenewalByteLengths,
   takeOrdinaryPrivateBootstrapClaim, type OrdinaryPrivateBootstrapClaim,
   type OrdinaryPrivateCredentialGeneration,
   type OrdinaryScope, type OrdinaryPairCustody, type OrdinaryRenewalSettled } from './ordinary-state-owner.js'
@@ -40,13 +40,14 @@ import type { PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/pe
 import { OrdinaryForegroundSigner } from './ordinary-foreground-signer.js'
 import { signOrdinaryVisitorCredential } from './ordinary-participant-signing.js'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
-import { RoomSession, RESUME_MIN_REMAINING_SECONDS, type RoomSessionOptions } from '../../src/session.js'
+import { RoomSession, RESUME_MIN_REMAINING_SECONDS, CREDENTIAL_RENEWAL_FRACTION, type RoomSessionOptions } from '../../src/session.js'
+import { ordinaryOwnedJSON } from './ordinary-owned-json.js'
 import { MAX_POOL_RELAYS, normaliseRelayConfig } from '../../src/relay-pool.js'
 import type { SendOptions, ChatMessage } from '../../src/chat.js'
 import { captureProtocolData } from '../../src/protocol-execution.js'
 import { OrdinaryRelayCarrier, stopOrdinaryPrivateCarrier, closeOrdinaryPrivateCarrier, type OrdinaryCarrierSuccessor } from './ordinary-relay-carrier.js'
 import type { OrdinaryPrivateCarrierResource } from './ordinary-relay-carrier.js'
-import type { OrdinaryPrivateMemberSessionResource } from './ordinary-private-member-session.js'
+import type { OrdinaryPrivateMemberSessionResource, OrdinaryPrivateMemberJoinedDecision, OrdinaryPrivateMemberJoinedReceipt } from './ordinary-private-member-session.js'
 import type { RetainedNativeSessionCapture } from '../../src/session-native-binding.js'
 import type { OrdinaryPrivateMemberControllerResource } from './ordinary-private-member-controller.js'
 
@@ -97,6 +98,7 @@ let constructPrivateBootstrap!: (binding: PrivateBootstrapBinding) => OrdinaryPr
 let stopPrivateBootstrap!: (resource: OrdinaryPrivateBootstrapResource) => void
 let closePrivateBootstrap!: (resource: OrdinaryPrivateBootstrapResource) => Promise<void>
 let constructPrivateMember!: (resource: OrdinaryPrivateBootstrapResource) => Promise<void>
+let joinPrivateMember!: (resource: OrdinaryPrivateBootstrapResource) => Promise<void>
 /** Fixed owner consumer. Claim consumption and resource construction happen
  * synchronously in the owner's actual read; no instance or material escapes. */
 export function openOrdinaryPrivateBootstrapFromOwnerClaim(claim: OrdinaryPrivateBootstrapClaim): OrdinaryPrivateBootstrapResource {
@@ -111,6 +113,9 @@ export const closeOrdinaryPrivateBootstrap = (resource: OrdinaryPrivateBootstrap
 /** Owner-only continuation; production entry remains held until the whole
  * renewal/adoption/UI path has its independent acceptance evidence. */
 export const constructOrdinaryPrivateBootstrapMember = (resource: OrdinaryPrivateBootstrapResource): Promise<void> => constructPrivateMember(resource)
+/** Fixed continuation for a future trusted network action. The protected
+ * production entry remains held until consent and renewal are composed. */
+export const joinOrdinaryPrivateBootstrapMember = (resource: OrdinaryPrivateBootstrapResource): Promise<void> => joinPrivateMember(resource)
 declare const privateCarrierClaimBrand: unique symbol
 export interface OrdinaryPrivateCarrierClaim { readonly [privateCarrierClaimBrand]: true }
 interface PrivateCarrierBinding {
@@ -141,6 +146,7 @@ declare const privateSessionClaimBrand: unique symbol
 export interface OrdinaryPrivateSessionClaim { readonly [privateSessionClaimBrand]: true }
 interface PrivateSessionBinding {
   readonly graph: OrdinaryProtocolGraphIdentity
+  readonly generation: OrdinaryPrivateCredentialGeneration
   readonly material: OrdinaryPersistentBootstrapResult
   readonly transport: RetainedNativeSessionCapture['transport']
   readonly protocol: ProtocolExecution
@@ -160,6 +166,28 @@ export function takeOrdinaryPrivateSessionClaim(claim: OrdinaryPrivateSessionCla
   if (!binding) hold()
   privateSessionClaims.delete(claim); binding.current()
   return binding
+}
+declare const privateSessionJoinClaimBrand: unique symbol
+export interface OrdinaryPrivateMemberSessionJoinClaim { readonly [privateSessionJoinClaimBrand]: true }
+interface PrivateSessionJoinBinding {
+  readonly session: OrdinaryPrivateMemberSessionResource
+  readonly graph: OrdinaryProtocolGraphIdentity
+  readonly generation: OrdinaryPrivateCredentialGeneration
+  readonly current: () => void
+  readonly live: () => boolean
+  readonly track: (pending: Promise<OrdinaryPrivateMemberJoinedReceipt>) => void
+  readonly authenticate: (decision: OrdinaryPrivateMemberJoinedDecision) => number
+  readonly publish: (receipt: OrdinaryPrivateMemberJoinedReceipt, dueAt: number) => void
+  readonly revoke: () => void
+}
+const privateSessionJoinClaims = new WeakMap<object, PrivateSessionJoinBinding>()
+/** Spend before checking the mint's exact native decision. No structural
+ * object, Session registration or bootstrap resource can stand in for it. */
+export function takeOrdinaryPrivateMemberSessionJoinClaim(claim: OrdinaryPrivateMemberSessionJoinClaim): PrivateSessionJoinBinding {
+  const value = privateSessionJoinClaims.get(claim)
+  if (!value) hold()
+  privateSessionJoinClaims.delete(claim); value.current()
+  return value
 }
 declare const privateControllerClaimBrand: unique symbol
 export interface OrdinaryPrivateMemberControllerClaim { readonly [privateControllerClaimBrand]: true }
@@ -273,6 +301,7 @@ interface OrdinaryMemberProtocolExecution extends ProtocolExecution {
   /** Extra consumer on a genuine carrier's exact current read. */
   validate(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): void
   captureConstructionCurrent(): () => void
+  authenticateJoined(decision: OrdinaryPrivateMemberJoinedDecision): number
   enterLifecycle<T>(root: ProtocolExecution, browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody,
     effect: () => T, successor?: OpenedImage): T
   adoptImage(image: OpenedImage): void
@@ -343,6 +372,9 @@ export class OrdinaryPersistentBootstrap {
   #privateControllerModule: typeof import('./ordinary-private-member-controller.js') | undefined
   #privateMemberOpening: Promise<void> | undefined
   #privateMemberClaimed = false
+  #privateMemberProtocol: OrdinaryMemberProtocolExecution | undefined
+  #privateMemberJoinStarted = false
+  #privateMemberJoining: Promise<void> | undefined
   #privateCleanup: Readonly<{pending: Promise<void>; finish: () => void}> | undefined
   static {
     constructPrivateBootstrap = binding => this.#constructPrivate(binding)
@@ -355,6 +387,10 @@ export class OrdinaryPersistentBootstrap {
     constructPrivateMember = resource => {
       const value = privateBootstrapResources.get(resource); if (!value) return Promise.reject(new OrdinaryStateHold())
       return value.state.#constructPrivateMember()
+    }
+    joinPrivateMember = resource => {
+      const value = privateBootstrapResources.get(resource); if (!value) return Promise.reject(new OrdinaryStateHold())
+      return value.state.#joinPrivateMember()
     }
   }
   private constructor(construction: {kind: 'legacy'; options: Options; participant: string; sign: ParticipantIdentity['signEvent']; browser: OrdinaryScope; tab: OrdinaryScope} |
@@ -962,6 +998,13 @@ export class OrdinaryPersistentBootstrap {
           validate(decision.b, decision.t, decision.c)
         }
       },
+      authenticateJoined: decision => {
+        if (!active) hold()
+        validate(active.b, active.t, active.c)
+        const dueAt = owner.#authenticatePrivateJoined(active.b, active.t, active.c, decision, protocol)
+        validate(active.b, active.t, active.c)
+        return dueAt
+      },
       enterLifecycle: (root, b, t, c, effect, successor) => {
         if (successor) {
           checkBinding(b, t, c)
@@ -1076,6 +1119,7 @@ export class OrdinaryPersistentBootstrap {
           if (this.#privateSession) module.stopOrdinaryPrivateMemberSession(this.#privateSession)
           if (this.#privateCarrier) carrierModule.stopOrdinaryPrivateCarrier(this.#privateCarrier)
         }, () => this.#live())
+        this.#privateMemberProtocol = protocol
         const carrier = await this.#openPrivateCarrier(protocol, material)
         await this.#checkPrivateMaterial(material)
         await protocol.run('member-controller-construction', () => {
@@ -1099,7 +1143,7 @@ export class OrdinaryPersistentBootstrap {
           const current = protocol.captureConstructionCurrent()
           const claim = Object.freeze({}) as OrdinaryPrivateSessionClaim
           minted = claim
-          privateSessionClaims.set(claim, Object.freeze({material, protocol, graph: protocol.graph, current,
+          privateSessionClaims.set(claim, Object.freeze({material, protocol, graph: protocol.graph, generation: native.credentialGeneration, current,
             transport: carrierModule.ordinaryPrivateCarrierTransport(carrier), participant: this.#participant,
             roomId: native.selection.roomId, authority: this.#options.invitation.inviter, credentialTtlSeconds: this.#credentialTtlSeconds,
             // The stable controller edge is pre-armed and holds until the
@@ -1137,6 +1181,91 @@ export class OrdinaryPersistentBootstrap {
       }
     }).then(resolve, reject).catch(() => {})
     return outer
+  }
+  #joinPrivateMember(): Promise<void> {
+    const native = this.#private
+    if (!native || this.#privateMemberJoinStarted || !this.#privateMemberClaimed || !this.#live()) return Promise.reject(new OrdinaryStateHold())
+    this.#privateMemberJoinStarted = true
+    let resolve!: () => void, reject!: (error: unknown) => void
+    const outer = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+    this.#privateMemberJoining = outer; void outer.catch(() => {})
+    native.join(outer); native.trackControl(outer)
+    void Promise.resolve().then(async () => {
+      let minted: OrdinaryPrivateMemberSessionJoinClaim | undefined
+      try {
+        await this.#privateMemberOpening
+        const protocol = this.#privateMemberProtocol, session = this.#privateSession, controller = this.#privateController
+        const module = this.#privateSessionModule, controllers = this.#privateControllerModule, material = this.#privateMaterial
+        if (!protocol || !session || !controller || !module || !controllers || !material || !this.#live()) hold()
+        await this.#checkPrivateMaterial(material)
+        let joining: Promise<OrdinaryPrivateMemberJoinedReceipt> | undefined
+        await protocol.run('private-session-join-claim', () => {
+          if (this.#privateSession !== session || this.#privateController !== controller || !this.#privateControllerRenewal) hold()
+          const current = protocol.captureConstructionCurrent(), claim = Object.freeze(Object.create(null)) as OrdinaryPrivateMemberSessionJoinClaim
+          minted = claim
+          const generation = native.credentialGeneration
+          privateSessionJoinClaims.set(claim, Object.freeze({session, graph: protocol.graph, generation, current,
+            live: () => this.#live() && native.live() && this.#privateSession === session && this.#privateController === controller,
+            track: (pending: Promise<OrdinaryPrivateMemberJoinedReceipt>) => {
+              native.join(pending); native.trackControl(pending); this.#track(pending)
+              controllers.retainOrdinaryPrivateMemberControllerJoin(controller, session, protocol.graph, generation, pending)
+            },
+            authenticate: (decision: OrdinaryPrivateMemberJoinedDecision) => protocol.authenticateJoined(decision),
+            publish: (receipt: OrdinaryPrivateMemberJoinedReceipt, dueAt: number) => controllers.publishOrdinaryPrivateMemberControllerJoined(controller, receipt, dueAt),
+            revoke: () => {try {this.#revoke()} finally {native.revoke()}}}))
+          joining = module.joinOrdinaryPrivateMemberSessionFromBootstrapClaim(claim)
+          current()
+        })
+        if (!joining) hold()
+        await joining
+        await this.#checkPrivateMaterial(material)
+      } catch {
+        try {this.#revoke()} finally {native.revoke()}
+        // The parent owns this outer. Its drain runs after rejection, never
+        // from the child which that same parent is waiting to settle.
+        throw new OrdinaryStateHold()
+      } finally {if (minted) privateSessionJoinClaims.delete(minted)}
+    }).then(resolve, reject).catch(() => {})
+    return outer
+  }
+  #authenticatePrivateJoined(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody,
+    decision: OrdinaryPrivateMemberJoinedDecision, protocol: OrdinaryMemberProtocolExecution): number {
+    const module = this.#privateSessionModule, native = this.#private
+    if (!module || !native) hold()
+    const data = module.takeOrdinaryPrivateMemberJoinedDecision(decision)
+    if (data.session !== this.#privateSession || data.graph !== protocol.graph || data.generation !== native.credentialGeneration ||
+        protocol !== this.#privateMemberProtocol || !this.#privateController || !this.#privateCarrier || !this.#privateResource || !this.#privateControllerRenewal) hold()
+    verifyOrdinaryPrivateControllerRenewalAttachment(this.#privateControllerRenewal, {controller: this.#privateController,
+      bootstrap: this.#privateResource, carrier: this.#privateCarrier, session: data.session, generation: data.generation, graph: data.graph})
+    native.validate(browser, tab, custody); this.#preflight(browser, tab, custody)
+    const inspected = inspectPersistentAdmissionProofs(browser, tab)
+    try {
+      const found = inspected.selected.get(accountPrefix(this.#participant) + PERSISTENT_TAB_PROOF_V2_PREFIX + this.#id)
+      if (!found || found.proof.binding.operation !== native.selection.proofOperation) hold()
+      this.#bound(found, browser, tab, custody); this.#lifetime(found.admission)
+      const retained = this.#selectedCredential(browser, tab, custody, found), bound = found.proof.binding, snapshot = data.snapshot
+      // The signed admission proof is historical. Continuity above connects
+      // it to the actual durable device, whose current epoch is read in this
+      // same native decision. Custody does not supply live epoch authority:
+      // the actual Session must independently settle that with the room.
+      const device = persistentAdmissionDeviceInPair(browser, tab, bound.roomId, bound.participant, bound.account,
+        bound.deviceCustody?.owner ?? 'browser')
+      const epoch = device.epochs.find(value => value.epoch === device.epoch)
+      const seals = retained.sealStrings.map(value => {
+        const key = hexToBytes(value)
+        try {return getPublicKey(key)} finally {key.fill(0)}
+      })
+      // Initial G0 join has no adopted channels. Actual channel identities and
+      // their credential handoff remain part of the later adoption contract.
+      if (!epoch || device.pubkey !== bound.device.pubkey || snapshot.epoch !== device.epoch || snapshot.epochId !== epoch.id || snapshot.channels.length !== 0 ||
+          ordinaryOwnedJSON(snapshot.credential) !== ordinaryOwnedJSON(retained.credential) ||
+          ordinaryOwnedJSON(snapshot.seals) !== ordinaryOwnedJSON(seals) ||
+          retained.expiresAt !== native.selection.credentialExpiresAt) hold()
+      const dueAt = (retained.expiresAt - retained.ttlSeconds * (1 - CREDENTIAL_RENEWAL_FRACTION)) * 1000
+      if (!Number.isSafeInteger(dueAt) || dueAt < 0) hold()
+      native.validate(browser, tab, custody)
+      return dueAt
+    } finally {inspected.close()}
   }
   /** Create the genuine library session from acknowledged member material.
    * The executor, buffers, raw session and exact carrier stay private. This
@@ -1670,6 +1799,7 @@ export class OrdinaryPersistentBootstrap {
     this.#revoke()
     await this.#privateOpening?.catch(() => {})
     await this.#privateMemberOpening?.catch(() => {})
+    await this.#privateMemberJoining?.catch(() => {})
     await this.#drainAndWipe()
   }
   async #drainAndWipe(): Promise<void> {
