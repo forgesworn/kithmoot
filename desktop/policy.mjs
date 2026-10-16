@@ -19,10 +19,29 @@ const INVITATION_HOSTS = new Set(['kithmoot.forgesworn.dev', 'kithmoot.app'])
 export function invitationTarget(value) {
   let u
   try { u = new URL(value) } catch { return undefined }
-  if (u.username || u.password || u.hash.length <= 1) return undefined
+  if (u.username || u.password) return undefined
+  const code = meetingCodeTarget(u)
+  if (code) return code
+  if (u.hash.length <= 1) return undefined
   const scheme = u.protocol === 'kithmoot:' && u.host === 'join' && (u.pathname === '' || u.pathname === '/')
   const web = u.protocol === 'https:' && INVITATION_HOSTS.has(u.host) && (u.pathname === '/j' || u.pathname === '/j/')
   return scheme || web ? `${HOME}${u.search}${u.hash}` : undefined
+}
+/** A meeting code's eight symbols (foregather base32-en-v1), plain or in
+ *  triples, as docs/meeting-codes.md parses them. */
+const MEETING_CODE = /^(?:[0-9A-HJKMNP-TV-Z]{8}|[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{2})$/i
+/**
+ * `https://kithmoot.app/c/<code>` and `kithmoot://c/<code>` open the app's
+ * join page with `?c=<code>`, which looks the code up and shows the door.
+ * Nothing else: no other host, path, query or fragment.
+ */
+function meetingCodeTarget(u) {
+  if (u.search || u.hash) return undefined
+  const path = u.protocol === 'https:' && u.host === 'kithmoot.app' && u.pathname.startsWith('/c/') ? u.pathname.slice(3)
+    : u.protocol === 'kithmoot:' && u.host === 'c' && u.pathname.startsWith('/') ? u.pathname.slice(1)
+      : undefined
+  if (path === undefined || !MEETING_CODE.test(path)) return undefined
+  return `${HOME}?c=${path.replaceAll('-', '').toUpperCase()}`
 }
 /**
  * What a `window.open` from inside the app may do.

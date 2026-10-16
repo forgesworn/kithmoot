@@ -17,7 +17,7 @@ They are notes, not legal advice, and they will not fit every deployment.
 This directory is a deploy *kit*, not a deploy. Nothing in it runs on its
 own - you run `deploy/deploy.sh` yourself, by hand, when you mean to.
 
-Six independent things live here:
+Seven independent things live here:
 
 1. **The static PWA** (`Caddyfile.kithmoot`, `deploy.sh`) - serving the app
    from a real domain so people other than you can open it.
@@ -47,6 +47,11 @@ Six independent things live here:
    signed the upload, and nothing else; uploads are open to any key, with a
    cap, a quota and an expiry standing in for the allowlist there is nobody
    to put on.
+
+7. **A meeting code service** (`meeting-codes.service`,
+   `server/meeting-codes.mjs`) - a short code a host can read out in place
+   of a room's full link. It stores the full link, so it can read the
+   invitations it holds. See "Meeting codes" below.
 
 Read the design principle below before touching the TURN half. It's the
 part that's easy to get backwards.
@@ -987,6 +992,65 @@ would stop that too, but a unit should not depend on it.
 `journalctl -u kithmoot-blossom -f` for logs, and
 `curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:8092/upload`
 prints 401 when it is up.
+
+## Meeting codes
+
+`server/meeting-codes.mjs` turns a short code (`ABC-DEF-GH`) into a room's
+full invitation link, so a host can read a code out instead of sending a
+link. It stores those full links, so it can read every invitation it holds:
+read the trust model in `docs/meeting-codes.md` before running one. Plain
+Node, no dependencies, no build step.
+
+**Install.** Create the user, copy the one file and the unit, enable it:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin kithmoot-codes
+sudo install -d /opt/kithmoot-codes/server
+sudo install -m 0644 server/meeting-codes.mjs /opt/kithmoot-codes/server/
+sudo install -m 0644 deploy/meeting-codes.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now meeting-codes
+```
+
+Copy the file again and `sudo systemctl restart meeting-codes` after any
+change to it.
+
+**Environment.** Set in the unit; there is no secret and no
+EnvironmentFile. `MEETING_CODES_STORE` is the JSON store and has no
+default: the service refuses to start without it. The unit points it at
+`/var/lib/kithmoot-codes/codes.json`, inside the `StateDirectory` systemd
+creates mode 0700 for the service user. `PORT` defaults to 8094 (8093 is
+Caddy's loopback Tor front) and `HOST` to `127.0.0.1`. The store holds at
+most 20,000 live codes and 200,000 tombstones (kept 30 days past expiry,
+without the link); when either is full it refuses new codes with 503 and
+evicts nothing. Creation is also capped at 2,000 codes in any rolling 24
+hours across the whole service, also answered 503 (it is the service's
+limit, not the caller's, so not 429). A store that does not parse
+stops the service at start rather than being treated as empty.
+
+**Caddy.** `handle /codes*` on `kithmoot.forgesworn.dev`, proxied to
+`127.0.0.1:8094` except `/codes/health`, which stays on loopback, and on `kithmoot.app` a `/c/<code>` redirect to
+`https://kithmoot.forgesworn.dev/j/?c=<code>`, both already in
+`Caddyfile.kithmoot`. Copy the vhost as described at its top, then
+`sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`
+and `sudo systemctl reload caddy`. The per-address limits trust the last
+`X-Forwarded-For` entry, which is the visitor's address only while
+`kithmoot.forgesworn.dev` stays grey-cloud with no proxy in front.
+
+**Check it.**
+
+```bash
+curl -s http://127.0.0.1:8094/codes/health          # {"ok":true}, on the box only
+curl -s -o /dev/null -w '%{http_code}\n' https://kithmoot.forgesworn.dev/codes/health
+                                                      # 404: not forwarded
+curl -s -o /dev/null -w '%{http_code}\n' https://kithmoot.forgesworn.dev/codes/ABCDEFGH
+                                                      # 404, or 410/200 if it exists
+curl -sI https://kithmoot.app/c/ABC-DEF-GH            # 302, Location ...?c=ABC-DEF-GH, no-store
+journalctl -u meeting-codes -f                        # status and route only
+```
+
+The lookup in the third line spends one of that address's ten misses a
+minute; do not loop it.
 
 ## Logs
 

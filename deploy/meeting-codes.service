@@ -1,0 +1,70 @@
+# systemd unit for server/meeting-codes.mjs - the service that turns a short
+# meeting code into a room's full invitation link (docs/meeting-codes.md,
+# deploy/README.md "Meeting codes").
+#
+# INSTALL (by hand; see deploy/README.md):
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin kithmoot-codes
+#   sudo install -d -o root -g root /opt/kithmoot-codes/server
+#   sudo install -m 0644 server/meeting-codes.mjs /opt/kithmoot-codes/server/
+#   sudo install -m 0644 deploy/meeting-codes.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now meeting-codes
+#
+# The service is one file with no dependencies and no build step: nothing to
+# `npm ci`, and nothing from dist/. Copy it again and restart after any
+# change to server/meeting-codes.mjs.
+#
+# No EnvironmentFile: there is no secret. The delete-token hashes live in
+# the store, and the per-process rate-limit salt is generated at start and
+# never written down. The store is the one file below, inside the
+# StateDirectory systemd creates as /var/lib/kithmoot-codes, mode 0700,
+# owned by kithmoot-codes. It holds full invitation links, which is the
+# point of the service and also why nothing else may read it.
+#
+# Verify: `curl -s http://127.0.0.1:8094/codes/health` prints {"ok":true}
+# (loopback only; Caddy does not forward it, so the public URL is a 404).
+# `journalctl -u meeting-codes -f` for logs: one line per
+# request, status and route only (`meeting-codes: 200 GET /codes/:code`).
+
+[Unit]
+Description=KithMoot meeting code service
+Documentation=file:///opt/kithmoot-codes/server/meeting-codes.mjs
+After=network.target
+
+[Service]
+Type=simple
+User=kithmoot-codes
+Group=kithmoot-codes
+WorkingDirectory=/opt/kithmoot-codes
+StateDirectory=kithmoot-codes
+StateDirectoryMode=0700
+UMask=0077
+Environment=MEETING_CODES_STORE=/var/lib/kithmoot-codes/codes.json
+# 8093 is Caddy's loopback Tor front onto Blossom (deploy/Caddyfile.kithmoot).
+Environment=PORT=8094
+ExecStart=/usr/bin/node server/meeting-codes.mjs
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+# Hardening, as for turn-credentials.service: this process holds every
+# live invitation link and answers unauthenticated traffic proxied in from
+# the public internet. It gets a loopback port, its own tree read-only and
+# its StateDirectory read-write (ProtectSystem=strict exempts it), nothing
+# else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# No MemoryDenyWriteExecute, for the reason given in
+# turn-credentials.service: V8 is a JIT, and with MDWE node crash-loops the
+# first time a function tiers up.
+
+[Install]
+WantedBy=multi-user.target
