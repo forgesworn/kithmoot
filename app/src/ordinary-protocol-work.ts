@@ -22,6 +22,98 @@ export function verifyOrdinaryLifecyclePromise(scope: ProtocolExecution, pending
   if (!verify) throw new OrdinaryProtocolSuspended()
   verify(pending)
 }
+/** Graph mechanics only. A genuine resource binds a controller to the exact
+ * graph that owns its Session and carrier; it grants no native authority. */
+declare const controlBrand: unique symbol
+export interface OrdinaryProtocolControl { readonly [controlBrand]: true }
+interface Control {
+  start(work: (scope: ProtocolExecution) => Promise<void>): Promise<void>
+  suspend(scope: ProtocolExecution, timeoutMs?: number): Promise<void>
+  check(scope: ProtocolExecution): void
+  transition(scope: ProtocolExecution): void
+  resume(scope: ProtocolExecution): void
+  enter<T>(scope: ProtocolExecution, operation: string, effect: () => T): T
+  close(): void
+  join(): Promise<void>
+}
+declare const graphIdentityBrand: unique symbol
+export interface OrdinaryProtocolGraphIdentity { readonly [graphIdentityBrand]: true }
+const graphIdentities = new WeakMap<object, OrdinaryProtocolGraphIdentity>()
+/** Inert identity only. There is deliberately no reverse lookup from it to
+ * an execution, graph object or either kind of control. */
+export function ordinaryProtocolGraphIdentityFor(execution: ProtocolExecution): OrdinaryProtocolGraphIdentity {
+  const identity = graphIdentities.get(execution)
+  if (!identity) throw new OrdinaryProtocolSuspended()
+  return identity
+}
+declare const componentControlBrand: unique symbol
+export interface OrdinaryProtocolComponentControl { readonly [componentControlBrand]: true }
+interface ComponentControl {
+  suspended(): boolean
+  task(operation: string, work: (scope: ProtocolExecution) => Promise<void>): Promise<void>
+  listen(listener: (suspended: boolean) => void): () => void
+  enter<T>(scope: ProtocolExecution, operation: string, effect: () => T): T
+  own(work: (scope: ProtocolExecution) => Promise<void>): Promise<void>
+}
+const componentControls = new WeakMap<object, Readonly<ComponentControl>>()
+const executionComponentControls = new WeakMap<object, OrdinaryProtocolComponentControl>()
+function componentControl(resource: OrdinaryProtocolComponentControl): Readonly<ComponentControl> {
+  const value = componentControls.get(resource)
+  if (!value) throw new OrdinaryProtocolSuspended()
+  return value
+}
+export function ordinaryProtocolComponentControlFor(execution: ProtocolExecution): OrdinaryProtocolComponentControl {
+  const resource = executionComponentControls.get(execution)
+  if (!resource) throw new OrdinaryProtocolSuspended()
+  return resource
+}
+const controls = new WeakMap<object, Readonly<Control>>()
+const executionControls = new WeakMap<object, OrdinaryProtocolControl>()
+function control(resource: OrdinaryProtocolControl): Readonly<Control> {
+  const value = controls.get(resource)
+  if (!value) throw new OrdinaryProtocolSuspended()
+  return value
+}
+/** Fixed component capture. No property or prototype of a supplied value is
+ * read, and copied, proxied and foreign executions cannot select this graph. */
+export function ordinaryProtocolControlFor(execution: ProtocolExecution): OrdinaryProtocolControl {
+  const resource = executionControls.get(execution)
+  if (!resource) throw new OrdinaryProtocolSuspended()
+  return resource
+}
+export function startOrdinaryProtocolLifecycle(resource: OrdinaryProtocolControl, work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+  return control(resource).start(work)
+}
+export function suspendOrdinaryProtocolLifecycle(resource: OrdinaryProtocolControl, scope: ProtocolExecution): Promise<void> {
+  return control(resource).suspend(scope)
+}
+export function verifyOrdinaryProtocolLifecycle(resource: OrdinaryProtocolControl, scope: ProtocolExecution): void {
+  control(resource).check(scope)
+}
+export function verifyOrdinaryProtocolTransition(resource: OrdinaryProtocolControl, scope: ProtocolExecution): void {
+  control(resource).transition(scope)
+}
+export function resumeOrdinaryProtocolLifecycle(resource: OrdinaryProtocolControl, scope: ProtocolExecution): void {
+  control(resource).resume(scope)
+}
+export function enterOrdinaryProtocolLifecycleScope<T>(resource: OrdinaryProtocolControl, scope: ProtocolExecution, operation: string, effect: () => T): T {
+  return control(resource).enter(scope, operation, effect)
+}
+export function enterOrdinaryProtocolScope<T>(resource: OrdinaryProtocolComponentControl, scope: ProtocolExecution, operation: string, effect: () => T): T {
+  return componentControl(resource).enter(scope, operation, effect)
+}
+export function ownOrdinaryProtocolWork(resource: OrdinaryProtocolComponentControl, work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+  return componentControl(resource).own(work)
+}
+export function taskOrdinaryProtocolComponent(resource: OrdinaryProtocolComponentControl, operation: string, work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+  return componentControl(resource).task(operation, work)
+}
+export function ordinaryProtocolComponentSuspended(resource: OrdinaryProtocolComponentControl): boolean { return componentControl(resource).suspended() }
+export function observeOrdinaryProtocolComponent(resource: OrdinaryProtocolComponentControl, listener: (suspended: boolean) => void): () => void {
+  return componentControl(resource).listen(listener)
+}
+export function closeOrdinaryProtocolWork(resource: OrdinaryProtocolControl): void { control(resource).close() }
+export function joinOrdinaryProtocolWork(resource: OrdinaryProtocolControl): Promise<void> { return control(resource).join() }
 interface Job {
   readonly lifecycleRoot: boolean
   readonly resourceOnly: boolean
@@ -59,7 +151,7 @@ export class OrdinaryProtocolWork {
         used = true
         return graph.#preparedStartupBody(body)
       },
-      close: () => graph.close(), join: () => graph.join(),
+      close: () => graph.#close(), join: () => graph.#join(),
     })
   }
   readonly execution: ProtocolExecution
@@ -93,6 +185,30 @@ export class OrdinaryProtocolWork {
       task: <T>(operation: string, work: (scope: ProtocolExecution) => Promise<T>) => this.#task(this.#active, operation, work),
       onSuspend: (listener: (suspended: boolean) => void) => this.#listen(listener),
     })
+    const resource = Object.freeze({}) as OrdinaryProtocolControl
+    controls.set(resource, Object.freeze({
+      start: (work: (scope: ProtocolExecution) => Promise<void>) => this.#startRoot(work),
+      suspend: (scope: ProtocolExecution, timeoutMs?: number) => this.#suspend(scope, timeoutMs),
+      check: (scope: ProtocolExecution) => this.#checkQuiescent(scope),
+      transition: (scope: ProtocolExecution) => this.#checkTransition(scope),
+      resume: (scope: ProtocolExecution) => this.#resume(scope),
+      enter: <T>(scope: ProtocolExecution, operation: string, effect: () => T) => this.#enterScope(scope, operation, effect),
+      close: () => this.#close(), join: () => this.#join(),
+    }))
+    executionControls.set(this.execution, resource)
+    graphIdentities.set(this.execution, Object.freeze({}) as OrdinaryProtocolGraphIdentity)
+    const component = Object.freeze({}) as OrdinaryProtocolComponentControl
+    componentControls.set(component, Object.freeze({
+      suspended: () => this.#phase !== 'open',
+      task: (operation: string, work: (scope: ProtocolExecution) => Promise<void>) => this.#task(this.#active, operation, async scope => {
+        const value = await work(scope)
+        if (value !== undefined) throw new OrdinaryProtocolSuspended()
+      }),
+      listen: (listener: (suspended: boolean) => void) => this.#listen(listener),
+      enter: <T>(scope: ProtocolExecution, operation: string, effect: () => T) => this.#enterScope(scope, operation, effect),
+      own: (work: (scope: ProtocolExecution) => Promise<void>) => this.#own(work),
+    }))
+    executionComponentControls.set(this.execution, component)
   }
   #check(job: Job): void {
     if (this.#phase === 'closed' || job.terminal || !job.bodyOpen || job.generation !== this.#generation) throw new OrdinaryProtocolSuspended()
@@ -120,7 +236,7 @@ export class OrdinaryProtocolWork {
     const job: Job = { lifecycleRoot, resourceOnly, generation: this.#generation, parent, scope, children: new Set(), listeners: new Set(), done, finish, bodyOpen: true, terminal: false, transitioned: false }
     this.#scopes.set(scope, job)
     if (lifecycleRoot) {
-      lifecycleRoots.set(scope, () => this.checkQuiescent(scope))
+      lifecycleRoots.set(scope, () => this.#checkQuiescent(scope))
       lifecyclePromises.set(scope, pending => this.#checkLifecyclePromise(scope, pending))
     }
     this.#jobs++
@@ -143,7 +259,7 @@ export class OrdinaryProtocolWork {
     // A producer owes a terminal transition, including when its callback
     // unexpectedly returns or refuses after acquiring the drain exclusion.
     if (this.#excluded === job && this.#phase !== 'open' && this.#phase !== 'closed') {
-      try { this.close() } catch { /* still finish ownership of its body */ }
+      try { this.#close() } catch { /* still finish ownership of its body */ }
     }
     job.bodyOpen = false
     const wasNotifying = this.#notifying
@@ -157,7 +273,7 @@ export class OrdinaryProtocolWork {
         }
       }
     } catch (error) {
-      try { this.close() } catch { /* the observer refusal remains the cause */ }
+      try { this.#close() } catch { /* the observer refusal remains the cause */ }
       throw error
     } finally { job.listeners.clear(); this.#notifying = wasNotifying; this.#complete(job) }
   }
@@ -174,7 +290,7 @@ export class OrdinaryProtocolWork {
       }
       if (result && typeof (result as unknown as PromiseLike<unknown>).then === 'function') {
         this.#retain(job, Promise.resolve(result))
-        this.close(); throw new OrdinaryProtocolSuspended()
+        this.#close(); throw new OrdinaryProtocolSuspended()
       }
       // Scope changes cannot weaken the native predicate; validation also
       // runs after an application refusal in the embedding's native executor.
@@ -184,14 +300,15 @@ export class OrdinaryProtocolWork {
   }
   #nativeCheck(operation: string): void {
     try { this.#native.check(operation) } catch (error) {
-      try { this.close() } catch { /* native refusal remains the cause */ }
+      try { this.#close() } catch { /* native refusal remains the cause */ }
       throw error
     }
   }
   /** Reuse another trusted component's genuine paired callback. The native
    * check still requires the embedding's current callback token; entering a
    * scope from ordinary JS cannot manufacture that boundary. */
-  enter<T>(scope: ProtocolExecution, operation: string, effect: () => T): T {
+  enter<T>(scope: ProtocolExecution, operation: string, effect: () => T): T { return this.#enterScope(scope, operation, effect) }
+  #enterScope<T>(scope: ProtocolExecution, operation: string, effect: () => T): T {
     const job = this.#scopes.get(scope)
     if (!job) throw new OrdinaryProtocolSuspended()
     return this.#enter(job, operation, effect)
@@ -216,13 +333,13 @@ export class OrdinaryProtocolWork {
       pending = nested ? Promise.resolve(invoke()) : this.#native.run(operation, invoke)
     } catch (error) {
       if (!applicationRefusal || applicationRefusal.error !== error) {
-        try { this.close() } catch { /* original boundary refusal remains */ }
+        try { this.#close() } catch { /* original boundary refusal remains */ }
       }
       return Promise.reject(error)
     }
     return pending.catch(error => {
       if (!applicationRefusal || applicationRefusal.error !== error) {
-        try { this.close() } catch { /* original boundary refusal remains */ }
+        try { this.#close() } catch { /* original boundary refusal remains */ }
       }
       throw error
     })
@@ -231,7 +348,8 @@ export class OrdinaryProtocolWork {
    * first await. This starts NO execution boundary: the body must use run or
    * enter at every effect, and cannot release data. It avoids queueing extra
    * ownership-only reads ahead of incoming network observations. */
-  own(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+  own(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> { return this.#own(work) }
+  #own(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
     let job: Job
     try { job = this.#job(this.#active) } catch (error) { return Promise.reject(error) }
     let body: Promise<void>
@@ -241,7 +359,7 @@ export class OrdinaryProtocolWork {
     } catch (error) { this.#bodyDone(job); return Promise.reject(error) }
     this.#native.retain(body)
     const result = body.then(value => {
-      if (value !== undefined) { this.close(); throw new OrdinaryProtocolSuspended() }
+      if (value !== undefined) { this.#close(); throw new OrdinaryProtocolSuspended() }
     }).finally(() => this.#bodyDone(job))
     this.#promises.set(result, job)
     return this.#native.retain(result)
@@ -272,12 +390,12 @@ export class OrdinaryProtocolWork {
         }, true)
         startedBody = true
         const value = await started.pending
-        if (job === this.#excluded) { this.close(); throw new OrdinaryProtocolSuspended() }
-        if (job.transitioned && value !== undefined) { this.close(); throw new OrdinaryProtocolSuspended() }
+        if (job === this.#excluded) { this.#close(); throw new OrdinaryProtocolSuspended() }
+        if (job.transitioned && value !== undefined) { this.#close(); throw new OrdinaryProtocolSuspended() }
         if (job.transitioned) return value
         return await this.#run(job, operation + '-task-handoff', () => value)
       } catch (error) {
-        if (job === this.#excluded) { try { this.close() } catch { /* original body refusal remains */ } }
+        if (job === this.#excluded) { try { this.#close() } catch { /* original body refusal remains */ } }
         // A refusal after an asynchronous application job may escape only
         // through a fresh successful native boundary. Custody failures have
         // already closed that boundary and must never be reclassified.
@@ -309,7 +427,7 @@ export class OrdinaryProtocolWork {
     // Resource-only child. No executor for it escapes to a continuation.
     void pending.finally(() => this.#bodyDone(job)).catch(() => {})
     try { return this.#native.retain(pending) } catch (error) {
-      try { this.close() } catch { /* original resource refusal remains */ }
+      try { this.#close() } catch { /* original resource refusal remains */ }
       throw error
     }
   }
@@ -329,7 +447,8 @@ export class OrdinaryProtocolWork {
   /** The private factory invokes this at the outer lifecycle entry, never
    * inside another task that will await it. No operation-name inference or
    * ancestor-derived exclusion is involved. The result must stay exact. */
-  startRoot(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+  startRoot(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> { return this.#startRoot(work) }
+  #startRoot(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
     if (this.#active || this.#notifying || [...this.#roots].some(root => root.lifecycleRoot)) return Promise.reject(new OrdinaryProtocolSuspended())
     return this.#task(undefined, 'credential-lifecycle', work, true)
   }
@@ -346,7 +465,7 @@ export class OrdinaryProtocolWork {
       if (!(pending instanceof Promise)) throw new OrdinaryProtocolSuspended()
       void pending.catch(() => {})
     } catch (error) {
-      this.close(); this.#bodyDone(job); return Promise.reject(error)
+      this.#close(); this.#bodyDone(job); return Promise.reject(error)
     }
     const result = pending.then(value => {
       if (value !== undefined) throw new OrdinaryProtocolSuspended()
@@ -357,7 +476,7 @@ export class OrdinaryProtocolWork {
   #retainRoot(pending: Promise<void>): Promise<void> {
     const job = pending instanceof Promise ? this.#promises.get(pending) : undefined
     if (!job?.lifecycleRoot || job.parent) {
-      try { this.close() } finally {
+      try { this.#close() } finally {
         // An invalid wrapper may still await a real unabortable root. Join
         // it as cleanup, without registering another awaiting graph root.
         if (pending instanceof Promise) { this.#native.retain(pending); void pending.catch(() => {}) }
@@ -367,7 +486,8 @@ export class OrdinaryProtocolWork {
     return this.#native.retain(pending)
   }
   /** Structural barrier only; this grants no native callback or effects. */
-  checkQuiescent(scope: ProtocolExecution): void {
+  checkQuiescent(scope: ProtocolExecution): void { this.#checkQuiescent(scope) }
+  #checkQuiescent(scope: ProtocolExecution): void {
     const root = this.#scopes.get(scope)
     if (!root?.lifecycleRoot || root.parent || root !== this.#excluded || this.#phase !== 'quiescent' ||
         this.#roots.size !== 1 || root.children.size) throw new OrdinaryProtocolSuspended()
@@ -383,8 +503,9 @@ export class OrdinaryProtocolWork {
   /** The embedding separately authenticates the successor. Its guard swap
    * and adoption still require this exact root inside the genuine callback,
    * with every child finished. run() would itself create a child. */
-  checkTransition(scope: ProtocolExecution): void {
-    this.checkQuiescent(scope)
+  checkTransition(scope: ProtocolExecution): void { this.#checkTransition(scope) }
+  #checkTransition(scope: ProtocolExecution): void {
+    this.#checkQuiescent(scope)
     const root = this.#scopes.get(scope)!
     if (this.#active !== root) throw new OrdinaryProtocolSuspended()
     this.#nativeCheck('credential-lifecycle-transition')
@@ -404,14 +525,15 @@ export class OrdinaryProtocolWork {
   /** The exact root scope is the sole self-drain exclusion. Operation names
    * and lookalike objects can never manufacture that exclusion. Latch before
    * synchronously disarming listeners, then join the complete old job graph. */
-  suspend(scope: ProtocolExecution, timeoutMs = 30_000): Promise<void> {
+  suspend(scope: ProtocolExecution, timeoutMs = 30_000): Promise<void> { return this.#suspend(scope, timeoutMs) }
+  #suspend(scope: ProtocolExecution, timeoutMs = 30_000): Promise<void> {
     const root = this.#scopes.get(scope)
     if (!root || root.parent || root.children.size || this.#phase !== 'open' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) return Promise.reject(new OrdinaryProtocolSuspended())
     try { this.#check(root) } catch (error) { return Promise.reject(error) }
     this.#phase = 'quiescing'; this.#excluded = root
-    try { this.#notify(true) } catch (error) { this.close(); return Promise.reject(error) }
+    try { this.#notify(true) } catch (error) { this.#close(); return Promise.reject(error) }
     return (async () => {
-      const timer = setTimeout(() => { try { this.close() } catch { /* terminal even if cleanup refuses */ } }, timeoutMs)
+      const timer = setTimeout(() => { try { this.#close() } catch { /* terminal even if cleanup refuses */ } }, timeoutMs)
       try {
         while (true) {
           if (this.#phase === 'closed' || this.#excluded !== root) throw new OrdinaryProtocolSuspended()
@@ -425,16 +547,18 @@ export class OrdinaryProtocolWork {
   /** The caller owes a fresh unchanged native guard (abort) or an acknowledged
    * successor plus complete Session adoption. This method grants no effects.
    * Old scopes die permanently; resumed work must acquire a new root scope. */
-  resume(scope: ProtocolExecution): void {
+  resume(scope: ProtocolExecution): void { this.#resume(scope) }
+  #resume(scope: ProtocolExecution): void {
     const root = this.#scopes.get(scope)
     if (!root || root !== this.#excluded || this.#phase !== 'quiescent' || this.#roots.size !== 1 || root.children.size || this.#active) throw new OrdinaryProtocolSuspended()
     this.#check(root)
-    if (!Number.isSafeInteger(this.#generation + 1)) { this.close(); throw new OrdinaryProtocolSuspended() }
+    if (!Number.isSafeInteger(this.#generation + 1)) { this.#close(); throw new OrdinaryProtocolSuspended() }
     root.transitioned = true
     this.#generation++; this.#excluded = undefined; this.#phase = 'open'
-    try { this.#notify(false) } catch (error) { this.close(); throw error }
+    try { this.#notify(false) } catch (error) { this.#close(); throw error }
   }
-  close(): void {
+  close(): void { this.#close() }
+  #close(): void {
     if (this.#phase === 'closed') return
     this.#phase = 'closed'; this.#excluded = undefined
     this.#signalClosed()
@@ -449,7 +573,8 @@ export class OrdinaryProtocolWork {
     this.#listeners.clear()
     if (failure) throw failure
   }
-  async join(): Promise<void> {
+  join(): Promise<void> { return this.#join() }
+  async #join(): Promise<void> {
     while (this.#roots.size) await Promise.all([...this.#roots].map(job => job.done))
   }
   get suspended(): boolean { return this.#phase !== 'open' }

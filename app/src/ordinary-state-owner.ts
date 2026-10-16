@@ -3,8 +3,8 @@ import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
   ordinaryPrivateForegroundCurrent, ordinaryPrivateForegroundDeadline,
   retainOrdinaryPrivateRenewalForeground, signOrdinaryPrivateRenewalAttempt, validateOrdinaryPrivateRenewalForegroundDecision,
   type OrdinaryPrivateForegroundAuthority, type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
-import { takeOrdinaryPrivateRenewalObligation, type OrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalObligation } from './ordinary-private-renewal.js'
-import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
+import { takeOrdinaryPrivateRenewalObligation, openOrdinaryPrivateRenewalFactoryFromOwnerClaim, closeOrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalObligation } from './ordinary-private-renewal.js'
+import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise, verifyOrdinaryProtocolLifecycle, type OrdinaryProtocolControl } from './ordinary-protocol-work.js'
 import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
@@ -27,7 +27,7 @@ import { takeOrdinaryPreparedSigningObligation, checkOrdinaryRenewalSigningOblig
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { getPublicKey } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
-import type { OrdinaryPrivateBootstrapResource } from './ordinary-persistent-bootstrap.js'
+import type { OrdinaryPrivateMemberControllerRenewalClaim, OrdinaryPrivateBootstrapResource } from './ordinary-persistent-bootstrap.js'
 import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification, openOrdinaryOperationControl,
   wipeOrdinaryOperationJournal, ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, validateOrdinaryOperationControl, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
   type OrdinaryOperationJournal, type OrdinaryOperationClassification, type OrdinaryOperationControl } from './ordinary-operation-codec.js'
@@ -125,6 +125,7 @@ interface PrivateMemberNative {
   readonly foregroundScopes: () => readonly [OrdinaryScope, OrdinaryScope] | undefined
   readonly renewal: { claimed: boolean }
   readonly bootstrap: { claimed: boolean }
+  readonly controller: { claimed: boolean }
   readonly live: () => boolean
   readonly validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => void
   readonly credentialGeneration: PrivateExistingCapture['credentialGeneration']
@@ -137,6 +138,7 @@ interface PrivateBootstrapBinding {
   readonly tab: OrdinaryStateOwner
   readonly selection: Readonly<PrivateExistingSelection>
   readonly credentialGeneration: OrdinaryPrivateCredentialGeneration
+  readonly bindControllerRenewal: (claim: OrdinaryPrivateMemberControllerRenewalClaim) => OrdinaryPrivateControllerRenewal
   readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
   readonly websocketImplementation: typeof WebSocket
   live(): boolean
@@ -162,6 +164,77 @@ declare const privateRenewalClaimBrand: unique symbol
 export interface OrdinaryPrivateRenewalFactoryClaim { readonly [privateRenewalClaimBrand]: true }
 declare const privateRenewalWitnessBrand: unique symbol
 export interface OrdinaryPrivateRenewalIntentWitness { readonly [privateRenewalWitnessBrand]: true }
+declare const privateControllerRenewalBrand: unique symbol
+export interface OrdinaryPrivateControllerRenewal { readonly [privateControllerRenewalBrand]: true }
+interface PrivateControllerRenewal {
+  readonly binding: ReturnType<typeof import('./ordinary-persistent-bootstrap.js').takeOrdinaryPrivateMemberControllerRenewalClaim>
+  readonly member: PrivateMemberNative
+  readonly graphModule: typeof import('./ordinary-persistent-bootstrap.js')
+  readonly generation: Readonly<PrivateMemberCredentialGeneration>
+  readonly prepare: () => Promise<OrdinaryPrivateRenewalFactoryClaim>
+  readonly join: <T>(pending: Promise<T>) => Promise<T>
+  readonly revoke: () => void
+  factory: OrdinaryPrivateRenewalFactory | undefined
+  preparing: Promise<void> | undefined
+  closing: Promise<void> | undefined
+  release: (() => void) | undefined
+  closed: boolean
+}
+const privateControllerRenewals = new WeakMap<object, PrivateControllerRenewal>()
+function privateControllerRenewal(resource: OrdinaryPrivateControllerRenewal): PrivateControllerRenewal {
+  const value = privateControllerRenewals.get(resource)
+  if (!value) hold()
+  return value
+}
+function controllerRenewalLive(value: PrivateControllerRenewal): boolean {
+  try {value.graphModule.checkOrdinaryPrivateMemberGraphReceipt(value.binding.receipt)} catch {return false}
+  return !value.closed && value.member.credentialGeneration.current === value.generation && value.member.live() &&
+    value.member.credentialGeneration.current === value.generation && !value.closed
+}
+/** The native owner keeps the producer's graph and component tuple private.
+ * Preparation registers no lifecycle root, signature, timer or entropy. */
+export function prepareOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivateControllerRenewal): Promise<void> {
+  const value = privateControllerRenewal(resource)
+  if (!controllerRenewalLive(value)) return Promise.reject(new OrdinaryStateHold())
+  if (value.preparing) return value.preparing
+  let resolve!: () => void, reject!: (error: unknown) => void
+  const outer = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+  value.preparing = outer; void outer.catch(() => {})
+  try {value.join(outer)} catch (error) {value.closed = true; try {value.revoke()} finally {reject(error)}; return outer}
+  void Promise.resolve().then(async () => {
+    if (!controllerRenewalLive(value)) hold()
+    const claim = await value.prepare()
+    const factory = openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)
+    value.factory = factory
+    if (!controllerRenewalLive(value)) {closeOrdinaryPrivateRenewalFactory(factory); hold()}
+  }).then(resolve, error => {try {stopOrdinaryPrivateControllerRenewal(resource); value.revoke()} finally {reject(error)}}).catch(() => {})
+  return outer
+}
+export function stopOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivateControllerRenewal): void {
+  const value = privateControllerRenewal(resource)
+  value.closed = true
+  if (value.factory) closeOrdinaryPrivateRenewalFactory(value.factory)
+}
+export function closeOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivateControllerRenewal): Promise<void> {
+  const value = privateControllerRenewal(resource)
+  if (value.closing) return value.closing
+  let resolve!: () => void, reject!: (error: unknown) => void
+  const closing = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+  value.closing = closing; void closing.catch(() => {})
+  stopOrdinaryPrivateControllerRenewal(resource)
+  void Promise.resolve().then(async () => {
+    if (value.preparing) await Promise.allSettled([value.preparing])
+    value.factory = undefined; value.release?.(); value.release = undefined
+  }).then(resolve, reject).catch(() => {})
+  return closing
+}
+/** Exact attachment only, without returning the graph, factory or scopes. */
+export function verifyOrdinaryPrivateControllerRenewalAttachment(resource: OrdinaryPrivateControllerRenewal,
+  binding: Omit<ReturnType<typeof import('./ordinary-persistent-bootstrap.js').takeOrdinaryPrivateMemberControllerRenewalClaim>, 'control' | 'receipt'>): void {
+  const value = privateControllerRenewal(resource), actual = value.binding
+  if (!controllerRenewalLive(value) || actual.controller !== binding.controller || actual.bootstrap !== binding.bootstrap ||
+      actual.carrier !== binding.carrier || actual.session !== binding.session || actual.generation !== binding.generation || actual.graph !== binding.graph) hold()
+}
 interface PrivateRenewalFactoryState {
   readonly native: OrdinaryPrivateMemberNative
   readonly foreground: OrdinaryPrivateForegroundAuthority
@@ -171,8 +244,10 @@ interface PrivateRenewalFactoryState {
   readonly generation: Readonly<PrivateMemberCredentialGeneration>
   readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
   readonly foregroundExpiresAt: number | null
+  readonly control: OrdinaryProtocolControl | undefined
+  readonly controllerLive: (() => boolean) | undefined
   closed: boolean
-  operationStarted?: boolean
+  operationStarted: boolean
 }
 const privateRenewalFactoryClaims = new WeakMap<object, OrdinaryPrivateRenewalFactory>()
 const privateRenewalFactories = new WeakMap<object, PrivateRenewalFactoryState>()
@@ -324,10 +399,19 @@ export function takeOrdinaryPrivateRenewalFactoryClaim(claim: OrdinaryPrivateRen
 /** Memory-only ownership restriction; never native phase or member authority. */
 export function ordinaryPrivateRenewalFactoryCurrent(factory: OrdinaryPrivateRenewalFactory): boolean {
   const value = privateRenewalFactories.get(factory)
-  return !!value && !value.closed && value.member.credentialGeneration.current === value.generation && value.member.live() &&
+  return !!value && !value.closed && (!value.controllerLive || value.controllerLive()) && value.member.credentialGeneration.current === value.generation && value.member.live() &&
     ordinaryPrivateForegroundCurrent(value.foreground, value.native,
       value.generation.selection.participant, value.foregroundExpiresAt) && !value.closed && value.member.live() &&
-    value.member.credentialGeneration.current === value.generation
+    value.member.credentialGeneration.current === value.generation && (!value.controllerLive || value.controllerLive())
+}
+/** Controller factories accept only the actual Session/carrier graph's
+ * quiescent lifecycle root. The standalone legacy-compatible producer keeps
+ * its separate lower-layer root contract. Neither supplies native effects. */
+export function verifyOrdinaryPrivateRenewalLifecycle(factory: OrdinaryPrivateRenewalFactory, root: ProtocolExecution): void {
+  const value = privateRenewalFactories.get(factory)
+  if (!value || !ordinaryPrivateRenewalFactoryCurrent(factory)) hold()
+  if (value.control) verifyOrdinaryProtocolLifecycle(value.control, root)
+  else verifyOrdinaryLifecycleRoot(root)
 }
 /** Component cleanup only. No parent close, storage mutation or credential-generation update. */
 export function stopOrdinaryPrivateRenewalFactory(factory: OrdinaryPrivateRenewalFactory): void {
@@ -1490,7 +1574,7 @@ export class OrdinaryStateOwner {
         }
         const native = Object.freeze({}) as OrdinaryPrivateMemberNative
         const member: PrivateMemberNative = Object.freeze({
-          capture, foregroundScopes: () => scopes, renewal: { claimed: false }, bootstrap: { claimed: false },
+          capture, foregroundScopes: () => scopes, renewal: { claimed: false }, bootstrap: { claimed: false }, controller: { claimed: false },
           live,
           credentialGeneration: capture.credentialGeneration,
           validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => {
@@ -1600,18 +1684,28 @@ export class OrdinaryStateOwner {
           ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, generation.selection.participant)
           OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, b, t, c); check()
         }
+        let activeRead: Readonly<{b: DeviceStore; t: DeviceStore; c: OrdinaryPairCustody}> | undefined
         const read = <T>(selected: () => boolean, work: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => T): Promise<T> => {
           const current = () => live() && selected() === true && live()
           const pending = Promise.resolve().then(async () => {
             await clients(); if (!current()) hold()
             const result = await OrdinaryStateOwner.#readPairMigrated({browser: {owner: browser, scope: bs}, tab: {owner: tab, scope: ts}, live: current,
-              work: (b, t, _bn, _tn, c) => { validate(b, t, c); const answer = work(b, t, c); validate(b, t, c); return answer }})
+              work: (b, t, _bn, _tn, c) => {
+                validate(b, t, c); activeRead = {b, t, c}
+                try {const answer = work(b, t, c); validate(b, t, c); return answer} finally {activeRead = undefined}
+              }})
             if (!current()) hold(); await clients(); if (!current()) hold(); return result
           })
           return OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending)
         }
         const binding: PrivateBootstrapBinding = Object.freeze({browser, tab, selection: generation.selection,
-          credentialGeneration: generation.identity, scopes, live, read, revoke: provider.stop,
+          credentialGeneration: generation.identity,
+          bindControllerRenewal: (claim: OrdinaryPrivateMemberControllerRenewalClaim) => {
+            if (!activeRead) hold()
+            validate(activeRead.b, activeRead.t, activeRead.c)
+            return OrdinaryStateOwner.#bindPrivateControllerRenewal(native, foreground, generation, claim, activeRead, scopes)
+          },
+          scopes, live, read, revoke: provider.stop,
           websocketImplementation: capture.binding.websocketImplementation, validate,
           retainResource: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody,
             callbacks: { readonly revoke: () => void; readonly join: () => Promise<void> }) => {
@@ -1645,22 +1739,55 @@ export class OrdinaryStateOwner {
     }).then(resolve, reject).catch(() => {})
     return outer
   }
+  /** Consume the actual bootstrap D receipt synchronously. Its exact
+   * component tuple is not selectable through a control token or options. */
+  static #bindPrivateControllerRenewal(native: OrdinaryPrivateMemberNative, foreground: OrdinaryPrivateForegroundAuthority,
+    generation: Readonly<PrivateMemberCredentialGeneration>, claim: OrdinaryPrivateMemberControllerRenewalClaim,
+    read: Readonly<{b: DeviceStore; t: DeviceStore; c: OrdinaryPairCustody}>, scopes: readonly [OrdinaryScope, OrdinaryScope]): OrdinaryPrivateControllerRenewal {
+    const member = privateMemberNatives.get(native), provider = member && privateExistingProviders.get(member.capture.root)
+    const graphModule = provider?.bootstrapModule
+    if (!graphModule) hold()
+    const binding = graphModule.takeOrdinaryPrivateMemberControllerRenewalClaim(claim)
+    if (!member || !provider || provider.bootstrap !== binding.bootstrap || binding.generation !== generation.identity ||
+        member.credentialGeneration.current !== generation || !member.bootstrap.claimed || member.renewal.claimed || member.controller.claimed ||
+        generation.renewal.claimed || !member.live() || !ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant)) hold()
+    graphModule.checkOrdinaryPrivateMemberGraphReceipt(binding.receipt)
+    member.controller.claimed = true
+    const resource = Object.freeze({}) as OrdinaryPrivateControllerRenewal
+    privateControllerRenewals.set(resource, Object.assign(Object.create(null), {binding, member, graphModule, generation,
+      prepare: () => OrdinaryStateOwner.#preparePrivateRenewalFactory(native, foreground, {generation, control: binding.control,
+        live: () => provider.bootstrap === binding.bootstrap && controllerRenewalLive(privateControllerRenewal(resource))}),
+      join: provider.trackControl, revoke: provider.stop,
+      factory: undefined, preparing: undefined, closing: undefined, release: undefined, closed: false}))
+    const value = privateControllerRenewal(resource)
+    value.release = OrdinaryStateOwner.#retainPairResource(read.c, {
+      browser: {owner: member.capture.browser, scope: scopes[0]}, tab: {owner: member.capture.tab, scope: scopes[1]}, live: member.live,
+    }, {revoke: () => stopOrdinaryPrivateControllerRenewal(resource), join: () => closeOrdinaryPrivateControllerRenewal(resource)})
+    graphModule.checkOrdinaryPrivateMemberGraphReceipt(binding.receipt)
+    return resource
+  }
   /** Fixed future FG-to-bootstrap continuation. The private FG binding alone
    * carries this closed edge; no exported caller can choose an owner or scope. */
   static #preparePrivateRenewalFactory(native: OrdinaryPrivateMemberNative,
-    foreground: OrdinaryPrivateForegroundAuthority): Promise<OrdinaryPrivateRenewalFactoryClaim> {
+    foreground: OrdinaryPrivateForegroundAuthority,
+    controller?: Readonly<{generation: Readonly<PrivateMemberCredentialGeneration>; control: OrdinaryProtocolControl; live: () => boolean}>): Promise<OrdinaryPrivateRenewalFactoryClaim> {
     const member = privateMemberNatives.get(native)
     const generation = member?.credentialGeneration.current
-    if (!member || !generation || generation.renewal.claimed || member.renewal.claimed || member.bootstrap.claimed || !member.live() ||
+    if (!member || !generation || generation.renewal.claimed || member.renewal.claimed ||
+        (controller ? !member.bootstrap.claimed || controller.generation !== generation || !controller.live() : member.bootstrap.claimed) || !member.live() ||
         !ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant) ||
         member.credentialGeneration.current !== generation) {
       return Promise.reject(new OrdinaryStateHold())
     }
-    member.renewal.claimed = true; generation.renewal.claimed = true
+    // Standalone construction stays lifetime-once and excluded by bootstrap.
+    // The bootstrap-only producer spends this exact generation's reservation;
+    // it never resets either lifetime latch or a predecessor's reservation.
+    if (!controller) member.renewal.claimed = true
+    generation.renewal.claimed = true
     const capture = member.capture, provider = privateExistingProviders.get(capture.root)
     if (!provider || provider.capture !== capture) return Promise.reject(new OrdinaryStateHold())
-    const live = () => member.live() && member.credentialGeneration.current === generation &&
-      ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant) && member.live() && member.credentialGeneration.current === generation
+    const live = () => (!controller || controller.live()) && member.live() && member.credentialGeneration.current === generation &&
+      ordinaryPrivateForegroundCurrent(foreground, native, generation.selection.participant) && member.live() && member.credentialGeneration.current === generation && (!controller || controller.live())
     let createdFactory: OrdinaryPrivateRenewalFactory | undefined, createdClaim: OrdinaryPrivateRenewalFactoryClaim | undefined
     const check = () => { if (!live()) hold() }
     const clients = async () => { check(); await capture.binding.assertClientsCurrent(); check() }
@@ -1679,7 +1806,8 @@ export class OrdinaryStateOwner {
           OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, browser, tab, custody)
           if (!live()) hold()
           const factory = Object.freeze({}) as OrdinaryPrivateRenewalFactory
-          privateRenewalFactories.set(factory, {native, foreground, member, generation, scopes, foregroundExpiresAt, closed: false})
+          privateRenewalFactories.set(factory, Object.assign(Object.create(null), {native, foreground, member, generation, scopes, foregroundExpiresAt,
+            control: controller?.control, controllerLive: controller?.live, closed: false, operationStarted: false}))
           const claim = Object.freeze({}) as OrdinaryPrivateRenewalFactoryClaim
           privateRenewalFactoryClaims.set(claim, factory)
           createdFactory = factory; createdClaim = claim
@@ -2255,7 +2383,7 @@ export class OrdinaryStateOwner {
     desired: Readonly<{issuedAt: number; expiresAt: number; semanticDigest: string}>): Promise<OrdinaryPrivateRenewalIntentWitness> {
     const value = privateRenewalFactories.get(factory)
     if (!value || !ordinaryPrivateRenewalFactoryCurrent(factory)) return Promise.reject(new OrdinaryStateHold())
-    verifyOrdinaryLifecycleRoot(root)
+    verifyOrdinaryPrivateRenewalLifecycle(factory, root)
     const {member} = value, {browser, tab} = member.capture
     let createdWitness: OrdinaryPrivateRenewalIntentWitness | undefined
     const pending = Promise.resolve().then(async () => {

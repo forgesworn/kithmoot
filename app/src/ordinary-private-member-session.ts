@@ -3,12 +3,14 @@ import { RoomSession, type RoomSessionOptions } from '../../src/session.js'
 import { registerRetainedNativeSessionBinding, type NativeSessionView } from '../../src/session-native-binding.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { takeOrdinaryPrivateSessionClaim, type OrdinaryPrivateSessionClaim } from './ordinary-persistent-bootstrap.js'
+import type { OrdinaryProtocolGraphIdentity } from './ordinary-protocol-work.js'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 
 declare const resourceBrand: unique symbol
 export interface OrdinaryPrivateMemberSessionResource { readonly [resourceBrand]: true }
 interface OwnedSession {
   readonly protocol: ProtocolExecution
+  readonly graph: OrdinaryProtocolGraphIdentity
   readonly view: NativeSessionView
   readonly secret: Uint8Array
   readonly device: Uint8Array
@@ -48,7 +50,7 @@ export function openOrdinaryPrivateMemberSessionFromBootstrapClaim(claim: Ordina
     new RoomSession(options as unknown as RoomSessionOptions)
     if (!view) throw new OrdinaryStateHold()
     const resource = Object.freeze({}) as OrdinaryPrivateMemberSessionResource
-    sessions.set(resource, Object.assign(Object.create(null), {view, secret, device, seals, protocol,
+    sessions.set(resource, Object.assign(Object.create(null), {view, secret, device, seals, protocol, graph: binding.graph,
       disposed: false, controllerClaimed: false, closeResult: undefined, closing: undefined, draining: undefined}))
     return resource
   } catch (error) {
@@ -59,9 +61,9 @@ export function openOrdinaryPrivateMemberSessionFromBootstrapClaim(claim: Ordina
 /** Component ownership only, after the genuine controller attachment claim
  * was consumed in its current construction decision. No Session or view is
  * returned; a different protocol or a second attachment is refused. */
-export function retainOrdinaryPrivateMemberSessionForController(resource: OrdinaryPrivateMemberSessionResource, protocol: ProtocolExecution): void {
+export function retainOrdinaryPrivateMemberSessionForController(resource: OrdinaryPrivateMemberSessionResource, graph: OrdinaryProtocolGraphIdentity): void {
   const value = owned(resource)
-  if (value.disposed || value.closing || value.controllerClaimed || value.protocol !== protocol) throw new OrdinaryStateHold()
+  if (value.disposed || value.closing || value.controllerClaimed || value.graph !== graph) throw new OrdinaryStateHold()
   value.controllerClaimed = true
 }
 /** Fixed lexical Session operations only. No instance, view or credential

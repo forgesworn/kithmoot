@@ -5,7 +5,7 @@ import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
 import { takeOrdinaryPrivateRenewalFactoryClaim, ordinaryPrivateRenewalFactoryCurrent,
-  prepareOrdinaryPrivateRenewalIntent, takeOrdinaryPrivateRenewalIntent, stopOrdinaryPrivateRenewalFactory,
+  prepareOrdinaryPrivateRenewalIntent, takeOrdinaryPrivateRenewalIntent, stopOrdinaryPrivateRenewalFactory, verifyOrdinaryPrivateRenewalLifecycle,
   type OrdinaryPrivateMemberNative, type OrdinaryPrivateRenewalFactoryClaim } from './ordinary-state-owner.js'
 import { ordinaryPrivateForegroundCurrent, type OrdinaryPrivateForegroundAuthority } from './ordinary-foreground-signer.js'
 import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
@@ -53,7 +53,7 @@ export async function prepareOrdinaryPrivateRenewalObligation(factory: OrdinaryP
   desired: Readonly<{issuedAt: number; expiresAt: number; semanticDigest: string}>): Promise<OrdinaryPrivateRenewalObligation> {
   const value = factories.get(factory)
   if (!value || value.state.prepared || value.roots.has(root) || !ordinaryPrivateRenewalFactoryCurrent(factory)) hold()
-  verifyOrdinaryLifecycleRoot(root)
+  verifyOrdinaryPrivateRenewalLifecycle(factory, root)
   value.state.prepared = true
   value.roots.add(root)
   const witness = await prepareOrdinaryPrivateRenewalIntent(factory, root, desired)

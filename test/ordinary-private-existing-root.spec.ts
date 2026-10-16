@@ -161,7 +161,7 @@ test.beforeAll(async () => {
         source=source.replace(marker,marker+`; (globalThis as any).__privateMemberClaimForTest=claim;
           ;((globalThis as any).__privateControllerOrder??=[]).push('session')
           ;(globalThis as any).__privateControllerScheduleForTest=binding.schedule`)
-        const retained='sessions.set(resource, Object.assign(Object.create(null), {view, secret, device, seals, protocol,\n      disposed: false, controllerClaimed: false, closeResult: undefined, closing: undefined, draining: undefined}))'
+        const retained='sessions.set(resource, Object.assign(Object.create(null), {view, secret, device, seals, protocol, graph: binding.graph,\n      disposed: false, controllerClaimed: false, closeResult: undefined, closing: undefined, draining: undefined}))'
         if(source.split(retained).length!==2)throw Error('Private Session retained input observer drift')
         source=source.replace(retained,retained+`;
           ;(globalThis as any).__privateSessionInputsWipedForTest=()=>[secret!,device!,...seals].every(key=>key.every(value=>value===0))
@@ -172,7 +172,7 @@ test.beforeAll(async () => {
               if(fixture.privateMemberReentrantDrain){fixture.privateMemberReentrantDrain=undefined;fixture.privateMemberReentrantDrainPromise=drainOrdinaryPrivateMemberSession(resource);void fixture.privateMemberReentrantDrainPromise.catch(()=>{})}
               return fixture.privateMemberCloseFailure?Promise.reject(closeError):actual.close()},
               dispose:()=>{fixture.privateMemberDisposeCalls++;if(fixture.privateMemberDisposePaused||fixture.privateMemberDisposeFailure&&fixture.privateMemberDisposeCalls===1)throw Error('Explicit private Session disposal failure');
-                actual.dispose();fixture.__privateSessionDisposedForTest=true}}),secret,device,seals,protocol,disposed:false,controllerClaimed:false,closeResult:undefined,closing:undefined,draining:undefined}))
+                actual.dispose();fixture.__privateSessionDisposedForTest=true}}),secret,device,seals,protocol,graph:binding.graph,disposed:false,controllerClaimed:false,closeResult:undefined,closing:undefined,draining:undefined}))
           }
         `)
         return {loader:'ts',contents:source+`
@@ -189,10 +189,12 @@ test.beforeAll(async () => {
           ;((globalThis as any).__privateControllerOrder??=[]).push('controller')
           if((globalThis as any).privateControllerCut==='claim-consumed')window.dispatchEvent(new PageTransitionEvent('pagehide'))
         `)
-        const put='controllers.set(resource, Object.assign(Object.create(null), {binding, session: undefined, closed: false, closing: undefined}))'
+        const put='controllers.set(resource, Object.assign(Object.create(null), {binding, session: undefined, renewal: undefined, preparing: undefined, closed: false, closing: undefined}))'
         if(source.split(put).length!==2)throw Error('Private controller resource observer drift')
         source=source.replace(put,put+`;
           ;(globalThis as any).__privateControllerResourceForTest=resource
+          ;(globalThis as any).__privateControllerPreparationForTest=()=>prepareOrdinaryPrivateMemberControllerRenewal(resource)
+          ;(globalThis as any).__privateControllerBindingKeysForTest=()=>Reflect.ownKeys(binding)
           ;(globalThis as any).__privateControllerForTest=()=>{const value=controllers.get(resource)!;return{closed:value.closed,attached:!!value.session,
             frozen:Object.isFrozen(resource),keys:Reflect.ownKeys(resource).length,generationFrozen:Object.isFrozen(value.binding.generation),generationKeys:Reflect.ownKeys(value.binding.generation).length}}
           if((globalThis as any).privateControllerCut==='after-resource')window.dispatchEvent(new PageTransitionEvent('pagehide'))
@@ -219,6 +221,7 @@ test.beforeAll(async () => {
       })
       builder.onLoad({filter:/ordinary-relay-carrier\.ts$/},async input=>{
         let source=await readFile(input.path,'utf8')
+        source=source.replace('const binding = takeOrdinaryPrivateCarrierClaim(claim)', 'const binding = takeOrdinaryPrivateCarrierClaim(claim);(globalThis as any).__privateCarrierBindingKeysForTest=()=>Reflect.ownKeys(binding)')
         const marker='privateCarrierResources.set(resource, Object.freeze({state, completed, transport}))'
         if(source.split(marker).length!==2)throw Error('Private carrier resource observer drift')
         source=source.replace(marker,marker+`;
@@ -241,6 +244,29 @@ test.beforeAll(async () => {
       })
       builder.onLoad({ filter: /ordinary-state-owner\.ts$/ }, async input => {
         let source = await readFile(input.path, 'utf8')
+        source = `import * as ControllerGraphForTest from './ordinary-protocol-work.js'\nimport * as ControllerRenewalForTest from './ordinary-private-renewal.js'\n` + source
+        source=source.replace('const claim = await value.prepare()', `await (globalThis as any).__privateBootstrapPause('controller-before-factory')
+          const claim = await value.prepare()
+          await (globalThis as any).__privateBootstrapPause('controller-before-factory-open')`).replace('value.factory = factory', `value.factory = factory
+          await (globalThis as any).__privateBootstrapPause('controller-after-factory')`)
+        source=source.replace('}).catch(() => {\n      if (createdWitness)', '}).catch((error) => { (globalThis as any).__privateIntentFailureForTest=error?.stack;\n      if (createdWitness)')
+        const producerEnd='graphModule.checkOrdinaryPrivateMemberGraphReceipt(binding.receipt)\n    return resource'
+        if(source.split(producerEnd).length!==2)throw Error('Private producer graph observation drift')
+        source=source.replace(producerEnd,`graphModule.checkOrdinaryPrivateMemberGraphReceipt(binding.receipt)
+          ;(globalThis as any).__privateControllerRenewalForTest={
+            factory:()=>value.factory,resource:()=>resource,
+            state:()=>({closed:value.closed,prepared:!!value.factory,claimed:generation.renewal.claimed,bootstrap:member.bootstrap.claimed,standalone:member.renewal.claimed}),
+            prepare:()=>prepareOrdinaryPrivateControllerRenewal(resource),
+            start:(body:any)=>ControllerGraphForTest.startOrdinaryProtocolLifecycle(binding.control,body),
+            suspend:(root:any)=>ControllerGraphForTest.suspendOrdinaryProtocolLifecycle(binding.control,root),
+            resume:(root:any)=>ControllerGraphForTest.resumeOrdinaryProtocolLifecycle(binding.control,root),
+            verify:(root:any)=>ControllerGraphForTest.verifyOrdinaryProtocolLifecycle(binding.control,root),
+            obligation:(root:any,desired:any)=>ControllerRenewalForTest.prepareOrdinaryPrivateRenewalObligation(value.factory!,root,desired),
+            check:()=>graphModule.checkOrdinaryPrivateMemberGraphReceipt(binding.receipt),
+            release:()=>value.release,
+          }
+          return resource`)
+
         for(const args of ['facts,selected','inverse,facts,selected']){
           const begin='await context.step(()=>{check();const value=work(j!,[br,tr],[b!,t!],'+args+')'
           const at=source.indexOf(begin)
@@ -266,9 +292,9 @@ test.beforeAll(async () => {
         const resource='const resource = module.openOrdinaryPrivateBootstrapFromOwnerClaim(claim)'
         if(source.split(resource).length!==2)throw Error('Private bootstrap assignment observer drift')
         source=source.replace(resource,resource+`; if((globalThis as any).privateBootstrapCut==='after-resource')window.dispatchEvent(new PageTransitionEvent('pagehide'))`)
-        const decision='work: (b, t, _bn, _tn, c) => { validate(b, t, c); const answer = work(b, t, c); validate(b, t, c); return answer }'
+        const decision='try {const answer = work(b, t, c); validate(b, t, c); return answer} finally {activeRead = undefined}'
         if(source.split(decision).length!==2)throw Error('Private bootstrap read observer drift')
-        source=source.replace(decision,`work: (b,t,_bn,_tn,c)=>{validate(b,t,c);const f=(globalThis as any),n=(f.privateBootstrapReadCount=(f.privateBootstrapReadCount??0)+1);const answer=work(b,t,c);if(f.privateBootstrapReadCut===n)window.dispatchEvent(new PageTransitionEvent('pagehide'));validate(b,t,c);return answer}`)
+        source=source.replace(decision,`try {const f=(globalThis as any),n=(f.privateBootstrapReadCount=(f.privateBootstrapReadCount??0)+1);const answer=work(b,t,c);if(f.privateBootstrapReadCut===n)window.dispatchEvent(new PageTransitionEvent('pagehide'));validate(b,t,c);return answer} finally {activeRead = undefined}`)
         const floor='expire(); nativeCheck()'
         if(source.split(floor).length!==2)throw Error('Private credential-generation floor observer drift')
         source=source.replace(floor,floor+`;
@@ -420,10 +446,10 @@ test.beforeAll(async () => {
              } finally {context.stop();db.close();clearImage(b);clearImage(t);wipeOrdinaryOperationJournal(j)}
            }
            const resource = {stop: () => { op.revoked = true; if (!op.custodyOnly) { op.context?.abort(); op.revokeWait?.() } }}`).replace(
-          'privateRenewalFactories.set(factory, {native, foreground, member, generation, scopes, foregroundExpiresAt, closed: false})',
-          `privateRenewalFactories.set(factory, {native, foreground, member, generation,
+          'privateRenewalFactories.set(factory, Object.assign(Object.create(null), {native, foreground, member, generation, scopes, foregroundExpiresAt,',
+          `privateRenewalFactories.set(factory, Object.assign(Object.create(null), {native, foreground, member, generation,
             scopes: (globalThis as any).providerFixture?.renewalScopeFamily === 'signet' ? member.foregroundScopes()! : scopes,
-            foregroundExpiresAt, closed: false})`).replace(
+            foregroundExpiresAt,`).replace(
           'createdWitness = witness',
           'createdWitness = witness; (globalThis as any).__seenPrivateRenewalWitness = witness').replace(
           'createdFactory = factory; createdClaim = claim',
@@ -2916,7 +2942,7 @@ test('private member controller refuses forged and spent claims without caller r
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
 })
-for(const field of ['controller','bootstrap','carrier','generation','protocol','session'])test(`private member controller refuses a mismatched ${field} attachment and joins parent erasure`,async({page})=>{
+for(const field of ['controller','bootstrap','carrier','generation','graph','session','renewal'])test(`private member controller refuses a mismatched ${field} attachment and joins parent erasure`,async({page})=>{
   await preparePrivateControllerConstruction(page)
   await page.evaluate(field=>{(window as any).privateControllerAttachmentFault=field},field)
   await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
@@ -3122,4 +3148,75 @@ for(const cause of ['pagehide','browser','tab'])for(const closeFails of [false,t
   expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
   expect(await page.evaluate('[privateCleanupInheritedReads,privateCleanupInheritedWrites]')).toEqual([0,0])
   }finally{await page.evaluate(()=>{for(const field of ['draining','closing','closeResult','session'])Reflect.deleteProperty(Object.prototype,field)})}
+})
+
+
+test('private member renewal producer reserves the exact generation once without signing or scheduling',async({page})=>{
+  await preparePrivateControllerConstruction(page);await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  expect(await page.evaluate('__privateControllerRenewalForTest.state()')).toEqual({closed:false,prepared:true,claimed:true,bootstrap:true,standalone:false})
+  expect(await page.evaluate('__privateCarrierBindingKeysForTest()')).not.toEqual(expect.arrayContaining(['work']))
+  expect(await page.evaluate('__privateCarrierBindingKeysForTest()')).not.toEqual(expect.arrayContaining(['protocol']))
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  expect(await page.evaluate(async()=>{
+    const w=window as any,a=w.__privateControllerPreparationForTest(),b=w.__privateControllerPreparationForTest()
+    let refused=false;try{await w.__privateForegroundProbe.prepareRenewalFactory()}catch{refused=true}
+    await a;await b
+    const resource=w.__privateControllerRenewalForTest.resource()
+    return {same:a===b,refused,frozen:Object.isFrozen(resource),keys:Reflect.ownKeys(resource).length,bindingKeys:w.__privateControllerBindingKeysForTest()}
+  })).toEqual({same:true,refused:true,frozen:true,keys:0,bindingKeys:['bootstrap','carrier','generation','graph','live','revoke']})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateControllerRenewalForTest.state()')).toMatchObject({closed:true,prepared:false})
+})
+
+test('private member renewal producer refuses a genuine foreign root before reflecting intent then accepts its actual graph root',async({page})=>{
+  await page.clock.install();await preparePrivateControllerConstruction(page);await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('constructed')
+  // Renewal must advance issuedAt and expiry beyond the initial credential.
+  await page.clock.fastForward(2_000)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  expect(await page.evaluate(async()=>{
+    const w=window as any,api=w.__privateControllerRenewalForTest;let reflections=0,refused=0,accepted=false,opaque=false
+    const desired=await w.__privateForegroundProbe.renewalDesired()
+    const hostile=new Proxy({},{get(){reflections++;throw Error('Foreign intent property')},getPrototypeOf(){reflections++;throw Error('Foreign intent prototype')}})
+    const foreign=w.__privateRenewalWorkForTest.registerPreparedStartup({},async(root:any)=>{try{await api.obligation(root,hostile)}catch{refused++}})
+    await foreign.start();await foreign.join()
+    try {await api.start(async(root:any)=>{
+      await api.suspend(root);api.verify(root)
+      const obligation=await api.obligation(root,desired)
+      accepted=true;opaque=Object.isFrozen(obligation)&&Reflect.ownKeys(obligation).length===0
+      api.resume(root)
+    })} catch(error) {return {error:String(error),inner:w.__privateIntentFailureForTest}}
+    return {reflections,refused,accepted,opaque}
+  })).toEqual({reflections:0,refused:1,accepted:true,opaque:true})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+
+for(const stage of ['controller-before-factory','controller-before-factory-open','controller-after-factory'])test(`private member renewal producer retains MIGRATION through pagehide at ${stage}`,async({page})=>{
+  await preparePrivateControllerConstruction(page)
+  await page.evaluate(stage=>{(window as any).privateBootstrapGate={stage,used:false,entered:false}},stage)
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateBootstrapGate.entered')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate('privateBootstrapGate.release()');await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateControllerForTest()')).toMatchObject({closed:true,attached:false})
+  expect(await page.evaluate('__privateControllerRenewalForTest.state()')).toMatchObject({closed:true,prepared:false})
+  expect(await page.evaluate('__privateSessionInputsWipedForTest()')).toBe(true)
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+
+test('private member renewal producer refuses a stale credential generation before publishing its factory',async({page})=>{
+  await preparePrivateControllerConstruction(page)
+  await page.evaluate(()=>{(window as any).privateRenewalGenerationCut='construction'})
+  await beginPrivateMemberConstruction(page);await page.waitForFunction('privateMemberDone')
+  expect(await page.evaluate('privateMemberOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateControllerRenewalForTest.state()')).toMatchObject({closed:true,prepared:false})
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
 })

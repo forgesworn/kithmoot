@@ -10,7 +10,7 @@ import { captureOrdinarySnapshotContext, validateOrdinarySnapshot } from './ordi
 import { OrdinaryForegroundSigner, captureOrdinarySigningStatement } from './ordinary-foreground-signer.js'
 import { signOrdinaryVisitorAuthentication } from './ordinary-participant-signing.js'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
-import type { OrdinaryProtocolWork } from './ordinary-protocol-work.js'
+import { enterOrdinaryProtocolScope, ownOrdinaryProtocolWork, taskOrdinaryProtocolComponent, observeOrdinaryProtocolComponent, ordinaryProtocolComponentSuspended, type OrdinaryProtocolWork } from './ordinary-protocol-work.js'
 import { takeOrdinaryPrivateCarrierClaim, type OrdinaryPrivateCarrierClaim } from './ordinary-persistent-bootstrap.js'
 
 export const ORDINARY_RELAY_FRAME_BYTES = 2 * 1024 * 1024
@@ -221,7 +221,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
       this.#private = binding; this.#legacy = undefined; this.#browserScope = undefined; this.#tabScope = undefined
       this.#relays = Object.freeze(relays.map(relay => Object.freeze({...relay})))
       this.#options = Object.freeze({relays: binding.relays, profile: 'direct', websocketImplementation: binding.websocketImplementation,
-        account: binding.account, participant: binding.participant, work: binding.work,
+        account: binding.account, participant: binding.participant,
         live: binding.live, validate: binding.validate, onClose: binding.revoke})
       return
     }
@@ -258,8 +258,8 @@ export class OrdinaryRelayCarrier implements RelayTransport {
         await state.#read((b, t, c) => {
           if (!state.#live() || state.#paused) hold()
           state.#pool = new NostrRelayPool(state.#relays, undefined, {profile: 'direct', websocketImplementation: state.#websocket(),
-            authentication: [], ownBackground: body => state.#track(binding.work.own(async () => {await body()}))})
-          state.#stopSuspension = binding.work.execution.onSuspend?.(paused => {
+            authentication: [], ownBackground: body => state.#track(ownOrdinaryProtocolWork(binding.control, async () => {await body()}))})
+          state.#stopSuspension = observeOrdinaryProtocolComponent(binding.control, paused => {
             if (paused) state.#suspend(); else state.#resumeRequested = true
           })
           state.#releaseResource = binding.retainResource(b, t, c, {revoke: () => state.#close(), join: () => state.#joinLifetime()})
@@ -333,11 +333,15 @@ export class OrdinaryRelayCarrier implements RelayTransport {
   }
   #read<T>(effect: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T, scope?: ProtocolExecution): Promise<T> {
     const graph = this.#options.work
+    if (this.#private && !scope) {
+      let result: T
+      return taskOrdinaryProtocolComponent(this.#private.control, 'relay-read', async owned => {result = await this.#read(effect, owned)}).then(() => result!)
+    }
     if (graph && !scope) return graph.execution.task!('relay-read', owned => this.#read(effect, owned))
     const work = (b: DeviceStore, t: DeviceStore, custody: OrdinaryPairCustody) => {
         this.#validate(b, t, custody)
         const run = () => { if (this.#resumeRequested) this.#resumeResources(); return effect(b, t, custody) }
-        const result = graph ? graph.enter(scope!, 'relay-read', run) : run()
+        const result = this.#private ? enterOrdinaryProtocolScope(this.#private.control, scope!, 'relay-read', run) : graph ? graph.enter(scope!, 'relay-read', run) : run()
         this.#validate(b, t, custody)
         return result
       }
@@ -355,7 +359,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     // Register before waiting for the queue tail. An already queued callback
     // must not appear as new work on the far side of a suspension latch.
     const run = async (scope?: ProtocolExecution) => { if (!this.#live()) hold(); await tail; await this.#read(effect, scope) }
-    const pending = ackScope?.task ? ackScope.task('old-relay-ack', run) : this.#options.work ? this.#options.work.own(run) : run()
+    const pending = ackScope?.task ? ackScope.task('old-relay-ack', run) : this.#private ? ownOrdinaryProtocolWork(this.#private.control, run) : this.#options.work ? this.#options.work.own(run) : run()
     const job = pending.catch(() => { this.#close() }).finally(() => {
       this.#queuedFrames--; this.#queuedBytes -= bytes
     })
@@ -403,7 +407,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
                 const receipt = this.#ack(frame)
                 claimed = receipt !== undefined
                 if (owner.#paused) {
-                  if (!receipt || owner.#options.work && !receipt.scope) return
+                  if (!receipt || (owner.#private || owner.#options.work) && !receipt.scope) return
                   ackScope = receipt.scope
                 }
               }
@@ -485,6 +489,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     return Socket as unknown as typeof WebSocket
   }
   #authenticate(identity: NonNullable<RelayAuthentication['identity']>, url: string, input: Parameters<NonNullable<RelayAuthentication['identity']>['signEvent']>[0]): Promise<NostrEvent> {
+    if (this.#private) return Promise.reject(new OrdinaryStateHold()) // No private AUTH capability.
     let canonical: ReturnType<typeof captureOrdinarySigningStatement>
     try { canonical = captureOrdinarySigningStatement(input) } catch { this.#close(); return Promise.reject(new OrdinaryStateHold()) }
     const previous = this.#signing.get(identity) ?? Promise.resolve()
@@ -505,7 +510,8 @@ export class OrdinaryRelayCarrier implements RelayTransport {
             signing = OrdinaryForegroundSigner.borrowNativeSignEvent(identity, { live: this.#live,
               validate: (b, t, c) => {
                 this.#validate(b, t, c)
-                if (this.#options.work) this.#options.work.enter(scope!, 'relay-auth-provider', () => {})
+                if (this.#private) enterOrdinaryProtocolScope(this.#private.control, scope!, 'relay-auth-provider', () => {})
+                else if (this.#options.work) this.#options.work.enter(scope!, 'relay-auth-provider', () => {})
               } })(canonical)
           }
           void signing.catch(() => {})
@@ -545,14 +551,14 @@ export class OrdinaryRelayCarrier implements RelayTransport {
           try { while (pool.publishing) await pool.settled() }
           finally { this.#releasePublication(receipt) }
         }
-        fanout = this.#options.work ? this.#options.work.own(drain) : drain()
+        fanout = this.#private ? ownOrdinaryProtocolWork(this.#private.control, drain) : this.#options.work ? this.#options.work.own(drain) : drain()
         this.#track(fanout); void fanout.catch(() => {})
       }, scope)
       await pending
       await this.#read(() => {}, scope)
       } finally { if (!fanout) this.#releasePublication(receipt) }
     }
-    const pending = this.#options.work ? this.#options.work.execution.task!('relay-publication', run) : run()
+    const pending = this.#private ? taskOrdinaryProtocolComponent(this.#private.control, 'relay-publication', run) : this.#options.work ? this.#options.work.execution.task!('relay-publication', run) : run()
     return this.#track(pending.catch(error => { if (this.#closed) hold(); throw error }))
   }
   subscribe(filters: Filter[], onEvent: (event: NostrEvent, via?: string) => void, onEose?: () => void): () => void { return this.#subscribe(filters, onEvent, onEose) }
@@ -630,7 +636,7 @@ export class OrdinaryRelayCarrier implements RelayTransport {
     this.#prunePausedSockets()
   }
   #resumeResources(): void {
-    if (this.#closed || !this.#paused || this.#options.work?.suspended) hold()
+    if (this.#closed || !this.#paused || (this.#private ? ordinaryProtocolComponentSuspended(this.#private.control) : this.#options.work?.suspended)) hold()
     // The caller's native read has just authenticated the exact selected
     // image. Every old raw callback remains fenced by its fixed generation.
     if (!Number.isSafeInteger(this.#generation + 1)) hold()
