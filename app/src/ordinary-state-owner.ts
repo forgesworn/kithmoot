@@ -27,6 +27,7 @@ import { takeOrdinaryPreparedSigningObligation, checkOrdinaryRenewalSigningOblig
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { getPublicKey } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
+import type { OrdinaryPrivateBootstrapResource } from './ordinary-persistent-bootstrap.js'
 import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification, openOrdinaryOperationControl,
   wipeOrdinaryOperationJournal, ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, validateOrdinaryOperationControl, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
   type OrdinaryOperationJournal, type OrdinaryOperationClassification, type OrdinaryOperationControl } from './ordinary-operation-codec.js'
@@ -90,6 +91,8 @@ interface PrivateExistingProvider {
   foregroundStarted: boolean
   foregroundClaimed: boolean
   foreground: OrdinaryPrivateForegroundResource | undefined
+  bootstrap?: OrdinaryPrivateBootstrapResource
+  bootstrapModule?: typeof import('./ordinary-persistent-bootstrap.js')
 }
 const privateExistingProviders = new WeakMap<object, PrivateExistingProvider>()
 declare const privateMemberNativeBrand: unique symbol
@@ -101,6 +104,7 @@ interface PrivateMemberNative {
   readonly capture: PrivateExistingCapture
   readonly foregroundScopes: () => readonly [OrdinaryScope, OrdinaryScope] | undefined
   readonly renewal: { claimed: boolean }
+  readonly bootstrap: { claimed: boolean }
   readonly live: () => boolean
   readonly validateForeground: (custody: OrdinaryPairCustody, browser: DeviceStore, tab: DeviceStore) => void
   readonly epoch: { current: Readonly<{
@@ -111,6 +115,28 @@ interface PrivateMemberNative {
   }> }
 }
 const privateMemberNatives = new WeakMap<object, PrivateMemberNative>()
+declare const privateBootstrapClaimBrand: unique symbol
+export interface OrdinaryPrivateBootstrapClaim { readonly [privateBootstrapClaimBrand]: true }
+interface PrivateBootstrapBinding {
+  readonly browser: OrdinaryStateOwner
+  readonly tab: OrdinaryStateOwner
+  readonly selection: Readonly<PrivateExistingSelection>
+  readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
+  live(): boolean
+  read<T>(live: () => boolean, work: (browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => T): Promise<T>
+  join<T>(pending: Promise<T>): Promise<T>
+  deadline(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): number | null
+}
+const privateBootstrapClaims = new WeakMap<object, PrivateBootstrapBinding>()
+/** The imported bootstrap wrapper consumes this only inside the owner's
+ * genuine read. No document caller receives the claim or its binding. */
+export function takeOrdinaryPrivateBootstrapClaim(claim: OrdinaryPrivateBootstrapClaim): PrivateBootstrapBinding {
+  const binding = privateBootstrapClaims.get(claim)
+  if (!binding) hold()
+  privateBootstrapClaims.delete(claim)
+  if (!binding.live()) hold()
+  return binding
+}
 declare const privateRenewalClaimBrand: unique symbol
 export interface OrdinaryPrivateRenewalFactoryClaim { readonly [privateRenewalClaimBrand]: true }
 declare const privateRenewalWitnessBrand: unique symbol
@@ -333,6 +359,7 @@ interface PrivateForegroundBinding {
   readonly joinForeground: <T>(pending: Promise<T>) => Promise<T>
   readonly assertForegroundProvider: () => void
   readonly prepareRenewalFactory: (foreground: OrdinaryPrivateForegroundAuthority) => Promise<OrdinaryPrivateRenewalFactoryClaim>
+  readonly constructBootstrap: (foreground: OrdinaryPrivateForegroundAuthority) => Promise<void>
 }
 const privateForegroundClaims = new WeakMap<object, Readonly<{
   provider: PrivateExistingProvider; binding: PrivateForegroundBinding
@@ -1097,6 +1124,7 @@ export class OrdinaryStateOwner {
       if (stopped) return
       stopped = true; if (expiryTimer !== undefined) clearTimeout(expiryTimer)
       privateExistingProviders.delete(root); context?.abort()
+      if (retainedProvider?.bootstrap) retainedProvider.bootstrapModule!.stopOrdinaryPrivateBootstrap(retainedProvider.bootstrap)
       retainedProvider?.foreground?.stop()
       binding.revoke(); browser.#revoke(); tab.#revoke()
     }
@@ -1271,7 +1299,9 @@ export class OrdinaryStateOwner {
         while (controlWork.size) await Promise.allSettled([...controlWork])
         // A foreground may have been assigned after revocation while its
         // construction was joining. Always settle it before the borrowed SDK.
-        const results = await Promise.allSettled([retainedProvider?.foreground?.close()])
+        const results = await Promise.allSettled([retainedProvider?.bootstrap &&
+          retainedProvider.bootstrapModule!.closeOrdinaryPrivateBootstrap(retainedProvider.bootstrap)])
+        results.push(...await Promise.allSettled([retainedProvider?.foreground?.close()]))
         results.push(...await Promise.allSettled([closeSource?.()])); source = undefined; closeSource = undefined
         browser.#resources.delete(cancel); tab.#resources.delete(cancel)
         results.push(...await Promise.allSettled([browser.#close(), tab.#close()]))
@@ -1410,7 +1440,7 @@ export class OrdinaryStateOwner {
         }
         const native = Object.freeze({}) as OrdinaryPrivateMemberNative
         const member: PrivateMemberNative = Object.freeze({
-          capture, foregroundScopes: () => scopes, renewal: { claimed: false },
+          capture, foregroundScopes: () => scopes, renewal: { claimed: false }, bootstrap: { claimed: false },
           live,
           epoch: { current: Object.freeze({ selection: capture.selection, rows: capture.rows,
             revisions: capture.revisions, generations: capture.generations }) },
@@ -1459,6 +1489,7 @@ export class OrdinaryStateOwner {
           joinForeground: <T>(pending: Promise<T>) => OrdinaryStateOwner.#joinPairLifetime(capture.browser, capture.tab, pending),
           assertForegroundProvider: provider.assertForegroundProvider,
           prepareRenewalFactory: (foreground: OrdinaryPrivateForegroundAuthority) => OrdinaryStateOwner.#preparePrivateRenewalFactory(native, foreground),
+          constructBootstrap: (foreground: OrdinaryPrivateForegroundAuthority) => OrdinaryStateOwner.#constructPrivateBootstrap(native, foreground),
         })
         let opening: Promise<OrdinaryPrivateForegroundResource> | undefined
         await provider.freshControl(() => {
@@ -1486,12 +1517,82 @@ export class OrdinaryStateOwner {
       }
     }))
   }
+  /** Restore-only child construction. The foreground owns this exact outer
+   * promise transitively; its queued body cannot run before registration. */
+  static #constructPrivateBootstrap(native: OrdinaryPrivateMemberNative, foreground: OrdinaryPrivateForegroundAuthority): Promise<void> {
+    const member = privateMemberNatives.get(native)
+    if (!member || member.bootstrap.claimed || member.renewal.claimed || !member.live() ||
+        !ordinaryPrivateForegroundCurrent(foreground, native, member.epoch.current.selection.participant)) return Promise.reject(new OrdinaryStateHold())
+    member.bootstrap.claimed = true
+    const {capture} = member, {browser, tab} = capture, provider = privateExistingProviders.get(capture.root)
+    if (!provider || provider.capture !== capture) return Promise.reject(new OrdinaryStateHold())
+    const epoch = member.epoch.current
+    const live = () => member.live() && member.epoch.current === epoch &&
+      ordinaryPrivateForegroundCurrent(foreground, native, epoch.selection.participant) && member.live()
+    const check = () => { if (!live()) hold() }
+    const clients = async () => { check(); await capture.binding.assertClientsCurrent(); check() }
+    let resolve!: () => void, reject!: (error: unknown) => void
+    const outer = new Promise<void>((yes, no) => { resolve = yes; reject = no })
+    provider.trackControl(outer); void outer.catch(() => {})
+    void Promise.resolve().then(async () => {
+      let minted: OrdinaryPrivateBootstrapClaim | undefined
+      try {
+        check()
+        const module = await import('./ordinary-persistent-bootstrap.js'); check()
+        await clients()
+        const name = 'invitation:' + epoch.selection.participant + ':' + epoch.selection.invitationId
+        const bs = await browser.#capture(name, live); check()
+        const ts = await tab.#capture(name, live); check()
+        const scopes = Object.freeze([bs, ts]) as readonly [OrdinaryScope, OrdinaryScope]
+        const validate = (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
+          check(); OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, b, t, c)
+          ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, epoch.selection.participant)
+          OrdinaryStateOwner.#validatePrivateRenewalRead(member, scopes, b, t, c); check()
+        }
+        const read = <T>(selected: () => boolean, work: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => T): Promise<T> => {
+          const current = () => live() && selected() === true && live()
+          const pending = Promise.resolve().then(async () => {
+            await clients(); if (!current()) hold()
+            const result = await OrdinaryStateOwner.#readPairMigrated({browser: {owner: browser, scope: bs}, tab: {owner: tab, scope: ts}, live: current,
+              work: (b, t, _bn, _tn, c) => { validate(b, t, c); const answer = work(b, t, c); validate(b, t, c); return answer }})
+            if (!current()) hold(); await clients(); if (!current()) hold(); return result
+          })
+          return OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending)
+        }
+        const binding: PrivateBootstrapBinding = Object.freeze({browser, tab, selection: epoch.selection, scopes, live, read,
+          join: <T>(pending: Promise<T>) => OrdinaryStateOwner.#joinPairLifetime(browser, tab, pending),
+          deadline: (b: DeviceStore, t: DeviceStore, c: OrdinaryPairCustody) => {
+            validate(b, t, c); return ordinaryPrivateForegroundDeadline(foreground, native, b, t, c, epoch.selection.participant)
+          }})
+        await clients()
+        await read(live, () => {
+          if (provider.bootstrap || privateExistingProviders.get(capture.root) !== provider) hold()
+          const claim = Object.freeze({}) as OrdinaryPrivateBootstrapClaim
+          minted = claim; privateBootstrapClaims.set(claim, binding)
+          // Import precedes this D; mint, consume and publish are synchronous.
+          const resource = module.openOrdinaryPrivateBootstrapFromOwnerClaim(claim)
+          provider.bootstrapModule = module; provider.bootstrap = resource
+          const completed = module.ordinaryPrivateBootstrapCompleted(resource)
+          provider.trackControl(completed); check()
+        })
+        check(); if (!provider.bootstrap) hold()
+        await module.ordinaryPrivateBootstrapCompleted(provider.bootstrap); check()
+        await clients(); check()
+      } catch {
+        if (minted) privateBootstrapClaims.delete(minted)
+        provider.stop()
+        if (provider.bootstrap) await Promise.allSettled([provider.bootstrapModule!.closeOrdinaryPrivateBootstrap(provider.bootstrap)])
+        throw new OrdinaryStateHold()
+      }
+    }).then(resolve, reject).catch(() => {})
+    return outer
+  }
   /** Fixed future FG-to-bootstrap continuation. The private FG binding alone
    * carries this closed edge; no exported caller can choose an owner or scope. */
   static #preparePrivateRenewalFactory(native: OrdinaryPrivateMemberNative,
     foreground: OrdinaryPrivateForegroundAuthority): Promise<OrdinaryPrivateRenewalFactoryClaim> {
     const member = privateMemberNatives.get(native)
-    if (!member || member.renewal.claimed || !member.live() ||
+    if (!member || member.renewal.claimed || member.bootstrap.claimed || !member.live() ||
         !ordinaryPrivateForegroundCurrent(foreground, native, member.epoch.current.selection.participant)) {
       return Promise.reject(new OrdinaryStateHold())
     }

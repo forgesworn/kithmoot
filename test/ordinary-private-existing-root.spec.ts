@@ -17,7 +17,7 @@ window.__curveProbeRandom=(random,length)=>{curveInitializationProbes++;curvePro
 Object.defineProperty(window,'nostr',{configurable:true,get(){effects.provider++;if(window.providerFixture)return window.providerFixture.current;throw Error('provider forbidden')}});
 window.WebSocket=class{constructor(){effects.socket++;throw Error('socket forbidden')}};
 for(const name of ['setItem','removeItem','clear'])Storage.prototype[name]=()=>{effects.storageWrite++;throw Error('Storage write forbidden')};
-window.privateRenewalEntropy=[];window.privateRenewalWrites=[];window.privateRenewalPackets=[];window.privateRenewalEncryptedRows={};window.privateRenewalEncryptedCohorts={};
+window.__privateBootstrapPause=async stage=>{const cut=window.privateBootstrapGate;if(!cut||cut.stage!==stage||cut.used)return;cut.used=true;cut.entered=true;await new Promise((yes,no)=>{cut.release=()=>cut.reject?no(Error('Explicit bootstrap fixture failure')):yes()})};\nwindow.privateRenewalEntropy=[];window.privateRenewalWrites=[];window.privateRenewalPackets=[];window.privateRenewalEncryptedRows={};window.privateRenewalEncryptedCohorts={};
 window.__enterPrivateRenewalDecision=()=>{const before=[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision];window.__privateRenewalDecision=true;window.__controlDecision=true;window.__foregroundDecision=true;return()=>{[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision]=before}};
 for(const name of ['put','add','delete','clear']){const actual=IDBObjectStore.prototype[name];IDBObjectStore.prototype[name]=function(...args){effects.put++;if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalWrites.push([name,args[1]??null]);privateRenewalPackets.push({phase:window.__privateRenewalWritePhase,key:args[1],packet:JSON.stringify(args[0],(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v)});const result=Reflect.apply(actual,this,args);if(name==='put'&&window.__privateRenewalWritePhase){privateRenewalEncryptedRows[args[1]]=structuredClone(args[0]);if(String(args[1]).startsWith('journal:'))privateRenewalEncryptedCohorts[window.__privateRenewalWritePhase]=structuredClone(privateRenewalEncryptedRows)}const fault=window.privateRenewalAckFault;if(fault&&!fault.used&&fault.phase===window.__privateRenewalWritePhase){fault.used=true;const tx=this.transaction;if(fault.prior){fault.entered=true;tx.abort();if(fault.close)window.dispatchEvent(new PageTransitionEvent('pagehide'))}else{const complete=tx.oncomplete,abort=tx.onabort;tx.oncomplete=event=>{fault.entered=true;fault.release=()=>{fault.delivered=true;if(fault.reject)abort.call(tx,new Event('abort'));else complete.call(tx,event)}}}}return result}throw Error('native write forbidden')}};
 crypto.getRandomValues=value=>{if(curveProbeActive)return nativeProbeRandom(value);effects.entropy++;if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalEntropy.push(value.byteLength);if(value.byteLength===12&&window.privateRenewalNonceCollision){const prior=window.privateRenewalNonceCollision==='existing'?window.__privateRenewalPriorNonces[0]:window.__privateRenewalFirstNonce;if(prior){value.set(Uint8Array.from(prior.match(/../g).map(v=>parseInt(v,16))));return value}}const result=nativeProbeRandom(value);if(value.byteLength===12&&!window.__privateRenewalFirstNonce)window.__privateRenewalFirstNonce=Array.from(value,v=>v.toString(16).padStart(2,'0')).join('');return result}const error=Error('entropy forbidden');privateEntropyCalls.push(error.stack);throw error};
@@ -76,6 +76,74 @@ test.beforeAll(async () => {
                if(fault==='extra')crypto.getRandomValues(new Uint8Array(frame.nonce))
                if(fault==='changed-iv')new Uint8Array(frame.nonce)[0]^=1`)}
       })
+      builder.onLoad({filter:/ordinary-renewal-obligation\.ts$/},async input=>{
+        let source=await readFile(input.path,'utf8'),at=source.indexOf('export function registerOrdinaryRenewalFactory(')
+        const body=source.indexOf('  if(!factory',at)
+        if(at<0||body<0)throw Error('Legacy factory observer drift')
+        source=source.slice(0,body)+`  if((globalThis as any).privateBootstrapTesting)(globalThis as any).privateBootstrapLegacyFactoryCalls++\n`+source.slice(body)
+        return {loader:'ts',contents:source}
+      })
+      builder.onLoad({filter:/ordinary-persistent-bootstrap\.ts$/},async input=>{
+        let source=await readFile(input.path,'utf8')
+        const marker='privateBootstrapResources.set(resource, Object.freeze({state, completed}))'
+        if(source.split(marker).length!==2)throw Error('Private bootstrap resource observer drift')
+        source=source.replace(marker,marker+`
+          ;(globalThis as any).__privateBootstrapResourceForTest=()=>({closed:state.#closed,opening:!!state.#privateOpening,work:state.#work.size,
+            material:!!state.#privateMaterial,legacy:!!state.#legacy,operation:!!state.#ownedOperation,
+            retained:state.#privateMaterial?[state.#privateMaterial.admission.secret,state.#privateMaterial.deviceKey,state.#privateMaterial.sealKey,...state.#privateMaterial.sealKeys??[]].map(v=>v.length):[]})
+          ;(globalThis as any).__seenPrivateBootstrapResource=resource
+        `)
+        const take='const binding = takeOrdinaryPrivateBootstrapClaim(claim)'
+        if(source.split(take).length!==2)throw Error('Private bootstrap claim observer drift')
+        source=source.replace(take,`const original = takeOrdinaryPrivateBootstrapClaim(claim)
+          ;(globalThis as any).__seenPrivateBootstrapClaim=claim
+          const fixture=(globalThis as any), fault=fixture.privateBootstrapSelectionFault
+          let selected=original.selection, scopes=original.scopes
+          if(fault){
+            const wrong='f'.repeat(64)
+            selected=Object.freeze({...selected,...fault==='account'?{account:wrong}:fault==='participant'?{participant:wrong}:
+              fault==='invitation'?{invitationId:wrong}:fault==='room'?{roomId:wrong}:fault==='operation'?{proofOperation:wrong}:
+              fault==='keep'?{keep:!selected.keep}:fault==='link'?{link:selected.link+'#changed'}:
+              fault==='credential'?{credentialExpiresAt:selected.credentialExpiresAt+1}:fault==='bootstrap-expiry'?{bootstrapCredentialExpiresAt:selected.bootstrapCredentialExpiresAt+1}:{}})
+            if(fault==='browser-scope'||fault==='tab-scope')scopes=original.scopes.map((v,i)=>i===(fault==='browser-scope'?0:1)?Object.freeze({...v,fence:v.fence+1}):v) as unknown as typeof scopes
+          }
+          const binding=fault?Object.freeze({...original,selection:selected,scopes}):original
+          if(fixture.privateBootstrapCut==='claim-consumed')window.dispatchEvent(new PageTransitionEvent('pagehide'))
+        `)
+        const loaded='state.#privateMaterial = material'
+        if(source.split(loaded).length!==2)throw Error('Private bootstrap material observer drift')
+        source=source.replace(loaded,loaded+`
+          const held=[material.admission.secret,material.deviceKey,material.sealKey,...material.sealKeys??[]]
+          ;(globalThis as any).__privateBootstrapWipedForTest=()=>held.every(v=>v.every(b=>b===0))
+          const fault=(globalThis as any).privateBootstrapMaterialFault
+          if(fault){
+            if(fault==='device')material.deviceKey[0]^=1
+            else if(fault==='seal')material.sealKey[0]^=1
+            else if(fault==='root')material.admission.secret[0]^=1
+            else if(fault==='credential')(material.credential as any).content='changed'
+            else if(fault==='admission')(material.admission as any).unexpected=true
+            else if(fault==='seal-history'&&material.sealKeys?.length===2)(material.sealKeys as Uint8Array[]).reverse()
+            else throw Error('Unknown private material fixture fault')
+            ;(globalThis as any).privateBootstrapMaterialFaultUsed=true
+          }
+          await (globalThis as any).__privateBootstrapPause('after-load')
+          if((globalThis as any).privateBootstrapCut==='after-load')window.dispatchEvent(new PageTransitionEvent('pagehide'))
+        `)
+        const initial='await state.#initialiseExisting(true)'
+        source=source.replace(initial,`await (globalThis as any).__privateBootstrapPause('before-load'); `+initial)
+        const closed='    this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)\n  }'
+        if(source.split(closed).length!==2)throw Error('Private bootstrap close observer drift')
+        source=source.replace(closed,`    this.#openedImage = undefined; this.#options.invitation.bearer.fill(0)\n    if(this.#private)await (globalThis as any).__privateBootstrapPause('close')\n  }`)
+        return {loader:'ts',contents:`;(globalThis as any).__privateBootstrapModuleEvaluated=((globalThis as any).__privateBootstrapModuleEvaluated??0)+1\n`+source+`
+          ;(globalThis as any).__privateBootstrapClassForTest=OrdinaryPersistentBootstrap
+          if((globalThis as any).privateBootstrapReplacePublic){
+            const fail=()=>{(globalThis as any).privateBootstrapPublicDispatches++;throw Error('Private bootstrap public dispatch')}
+            for(const name of ['open','recoverPreparedAtStartup'])Object.defineProperty(OrdinaryPersistentBootstrap,name,{configurable:true,value:fail})
+            for(const name of ['load','revoke','close','bootstrap','openMemberSession'])Object.defineProperty(OrdinaryPersistentBootstrap.prototype,name,{configurable:true,value:fail})
+          }
+          ;(globalThis as any).__privateBootstrapFunctionsForTest=Object.freeze({open:openOrdinaryPrivateBootstrapFromOwnerClaim,completed:ordinaryPrivateBootstrapCompleted,stop:stopOrdinaryPrivateBootstrap,close:closeOrdinaryPrivateBootstrap})
+        `}
+      })
       builder.onLoad({filter:/ordinary-prepared-renewal-capacity\.ts$/},async input=>{
         let source=await readFile(input.path,'utf8')
         for(const [marker,stage] of [['    const sizes: [number, number] = [ordinaryImageByteLength','C'],['    if (settlement) {','S']] as const){
@@ -96,6 +164,24 @@ test.beforeAll(async () => {
         }
         source=source.replace("if(stage==='prepare'){check();attempted=true;","if(stage==='prepare'){(globalThis as any).__privateRenewalWritePhase='candidate-prepared';check();attempted=true;").replace("else{const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])}","else{(globalThis as any).__privateRenewalWritePhase='candidate-committed';const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])}")
         if(source.split('for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)\n    this.#db?.close(); this.#db = undefined').length!==2)throw Error('Native owner close observer drift')
+        for(const [marker,stage] of [["const module = await import('./ordinary-persistent-bootstrap.js'); check()",'after-import'],['await clients()\n        await read(live, () => {','before-claim']] as const){
+          if(source.split(marker).length!==2)throw Error('Private bootstrap owner pause drift '+stage)
+          source=source.replace(marker,marker+`\n${stage==='before-claim'?'':`await (globalThis as any).__privateBootstrapPause('${stage}');check()`}`)
+        }
+        const before="check()\n        const module = await import('./ordinary-persistent-bootstrap.js')"
+        if(source.split(before).length!==2)throw Error('Private bootstrap preimport observer drift')
+        source=source.replace(before,"check();await (globalThis as any).__privateBootstrapPause('before-import');check()\n        const module = await import('./ordinary-persistent-bootstrap.js')")
+        const bootstrapLatch='member.bootstrap.claimed = true'
+        if(source.split(bootstrapLatch).length!==2)throw Error('Private bootstrap latch observer drift')
+        source=source.replace(bootstrapLatch,bootstrapLatch+`; (globalThis as any).__privateBootstrapLatchForTest=()=>Object.freeze({bootstrap:member.bootstrap.claimed,renewal:member.renewal.claimed})`)
+        const beforeClaim='await clients()\n        await read(live, () => {'
+        source=source.replace(beforeClaim,"await clients();await (globalThis as any).__privateBootstrapPause('before-claim');check()\n        await read(live, () => {")
+        const resource='const resource = module.openOrdinaryPrivateBootstrapFromOwnerClaim(claim)'
+        if(source.split(resource).length!==2)throw Error('Private bootstrap assignment observer drift')
+        source=source.replace(resource,resource+`; if((globalThis as any).privateBootstrapCut==='after-resource')window.dispatchEvent(new PageTransitionEvent('pagehide'))`)
+        const decision='work: (b, t, _bn, _tn, c) => { validate(b, t, c); const answer = work(b, t, c); validate(b, t, c); return answer }'
+        if(source.split(decision).length!==2)throw Error('Private bootstrap read observer drift')
+        source=source.replace(decision,`work: (b,t,_bn,_tn,c)=>{validate(b,t,c);const f=(globalThis as any),n=(f.privateBootstrapReadCount=(f.privateBootstrapReadCount??0)+1);const answer=work(b,t,c);if(f.privateBootstrapReadCut===n)window.dispatchEvent(new PageTransitionEvent('pagehide'));validate(b,t,c);return answer}`)
         const earlyCapacity='  const size = (delta: 1|2|3): readonly [number,number] => {'
         if(source.split(earlyCapacity).length!==2)throw Error('Native intent capacity observer drift')
         source=source.replace(earlyCapacity,earlyCapacity+`
@@ -293,6 +379,8 @@ test.beforeAll(async () => {
           'Object.freeze(actual)\n      })',
           `Object.freeze(actual)
            ;(globalThis as any).__privateForegroundProbe = Object.freeze({
+             loadMember: () => actual.#loadPrivateMember(),
+             native: () => actual.#privateForeground!.native, authority: () => actual.#privateAuthority,
              prepareRenewalFactory: () => actual.#privateForeground!.prepareRenewalFactory(actual.#privateAuthority!),
              renewalDesired: () => actual.#privateForeground!.readForeground(actual.#live, (browser, tab, custody) => {
                const b = new Map(browser.keys().map(name => [name, browser.get(name)!])), t = new Map(tab.keys().map(name => [name, tab.get(name)!]))
@@ -2361,4 +2449,257 @@ for(const boundary of ['C','S'] as const)test(`private renewal bounded adversari
   expect((await inspectPrivateColdState(page)).operations).toEqual([])
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+
+async function beginPrivateBootstrapLoad(page:Page):Promise<void>{
+  await page.evaluate(()=>{
+    const w=window as any;w.privateBootstrapDone=false;w.privateBootstrapTesting=true;w.privateBootstrapLegacyFactoryCalls=0
+    try{w.privateBootstrapPending=w.__privateForegroundProbe.loadMember().then((value:unknown)=>{
+      w.privateBootstrapOutcome='loaded';w.privateBootstrapVoid=value===undefined
+    },(error:Error)=>{w.privateBootstrapOutcome=error.name}).finally(()=>{w.privateBootstrapDone=true})}
+    catch(error){w.privateBootstrapOutcome=(error as Error).name;w.privateBootstrapDone=true}
+  })
+}
+for(const keep of [false,true])test(`private bootstrap owned load retains material without effects, keep=${keep}`,async({page})=>{
+  await prepareControlStage(page,keep,true);await startPrivateForeground(page)
+  expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+  expect(await page.evaluate('window.__privateBootstrapModuleEvaluated??0')).toBe(0)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  if(await page.evaluate('privateBootstrapOutcome')!=='loaded')console.log('Private bootstrap hold',await page.evaluate('JSON.stringify({outcome:privateBootstrapOutcome,providerFailure:window.__providerFailure,holds:window.__privateRenewalHolds,entropy:privateEntropyCalls})'))
+  expect(await page.evaluate('[privateBootstrapOutcome,privateBootstrapVoid,__privateBootstrapModuleEvaluated]')).toEqual(['loaded',true,1])
+  expect(await page.evaluate('__privateBootstrapResourceForTest()')).toMatchObject({closed:false,material:true,legacy:false,operation:true,retained:[32,32,32]})
+  expect(await page.evaluate('privateBootstrapLegacyFactoryCalls')).toBe(0)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateBootstrapResourceForTest()')).toMatchObject({closed:true,material:false,work:0,retained:[]})
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+
+for(const fault of ['account','participant','invitation','room','operation','keep','link','credential','bootstrap-expiry','browser-scope','tab-scope'])test(`private bootstrap refuses selected binding ${fault} without effects`,async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  await page.evaluate(fault=>{(window as any).privateBootstrapSelectionFault=fault},fault)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  expect(await page.evaluate('privateBootstrapLegacyFactoryCalls')).toBe(0)
+})
+for(const stage of ['before-import','after-import','before-claim','before-load','after-load','close'])for(const reject of [false,true])test(`private bootstrap joins revoked ${stage} tail, reject=${reject}`,async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(({stage,reject})=>{(window as any).privateBootstrapGate={stage,reject}}, {stage,reject})
+  await beginPrivateBootstrapLoad(page)
+  if(stage==='close'){await page.waitForFunction('privateBootstrapDone');expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')}
+  else await page.waitForFunction('privateBootstrapGate.entered')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await page.waitForFunction('privateBootstrapGate.entered')
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await lockAvailable(page,'lifetime:'+'a'.repeat(64))).toBe(false)
+  expect(await page.evaluate('providerFixture.closeCalls??0')).toBe(0)
+  if(stage!=='close')expect(await page.evaluate('privateBootstrapDone')).toBe(false)
+  await page.evaluate('privateBootstrapGate.release();undefined')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe(stage==='close'?'loaded':'OrdinaryStateHold')
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  if(stage==='after-load'||stage==='close')expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+for(const stage of ['claim-consumed','after-resource','after-load'])test(`private bootstrap closes after synchronous ${stage} revocation`,async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(stage=>{(window as any).privateBootstrapCut=stage},stage)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  if(stage==='after-load')expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+for(const read of [1,2,3,4])test(`private bootstrap refuses revoked native decision ${read}`,async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(read=>{(window as any).privateBootstrapReadCut=read},read)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+})
+test('private bootstrap refuses forged and replayed claims and resources without reflection',async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')
+  const result=await page.evaluate(async()=>{
+    const w=window as any,f=w.__privateBootstrapFunctionsForTest;let reflections=0
+    const fake=new Proxy({},{get(){reflections++;throw Error('Untrusted bootstrap reflection')},getPrototypeOf(){reflections++;throw Error('Untrusted bootstrap prototype')}})
+    const result=[]
+    for(const action of [()=>f.open(fake),()=>f.open(w.__seenPrivateBootstrapClaim),()=>f.completed(fake),()=>f.stop(fake),()=>f.close(fake),()=>new w.__privateBootstrapClassForTest({kind:'private',permit:fake})]){
+      try{await action();result.push('unexpected success')}catch(error){result.push((error as Error).name)}
+    }
+    return {result,reflections}
+  })
+  expect(result).toEqual({result:Array(6).fill('OrdinaryStateHold'),reflections:0})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+test('private bootstrap bypasses replaced public bootstrap owner and foreground methods',async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  await page.evaluate(()=>{
+    const w=window as any;w.privateBootstrapReplacePublic=true;w.privateBootstrapPublicDispatches=0
+    const fail=()=>{w.privateBootstrapPublicDispatches++;throw Error('Public native dispatch')}
+    const owner=w.__privateOwnerPrototypeForTest.constructor,fg=w.__privateForegroundClassForTest
+    for(const name of ['readPairMigrated','joinPairLifetime','validatePairBinding'])owner[name]=fail
+    w.__privateOwnerPrototypeForTest.capture=fail
+    for(const name of ['nativeDeadline','nativeCurrent','open'])fg[name]=fail
+    fg.prototype.close=fail
+  })
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('[privateBootstrapOutcome,privateBootstrapPublicDispatches]')).toEqual(['loaded',0])
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('privateBootstrapPublicDispatches')).toBe(0)
+})
+test('private bootstrap second child start cannot replace an owned pending first load',async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'before-load'}})
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
+  expect(await page.evaluate(async()=>{try{await(window as any).__privateForegroundProbe.loadMember();return 'unexpected'}catch(error){return(error as Error).name}})).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('privateBootstrapDone')).toBe(false)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate('privateBootstrapGate.release();undefined')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
+})
+
+for(const first of ['bootstrap','renewal'] as const)test(`private bootstrap and renewal exclude a ${first} start before awaiting`,async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  if(first==='bootstrap'){
+    await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'before-import'}})
+    await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
+    expect(await page.evaluate(async()=>{try{await(window as any).__privateForegroundProbe.prepareRenewalFactory();return 'unexpected'}catch(error){return(error as Error).name}})).toBe('OrdinaryStateHold')
+    expect(await page.evaluate('privateBootstrapDone')).toBe(false)
+    await page.evaluate('privateBootstrapGate.release();undefined');await page.waitForFunction('privateBootstrapDone')
+    expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')
+  }else{
+    await page.evaluate(async()=>{(window as any).privateBootstrapExcludedRenewalClaim=await(window as any).__privateForegroundProbe.prepareRenewalFactory()})
+    await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+    expect(await page.evaluate('[privateBootstrapOutcome,window.__privateBootstrapModuleEvaluated??0]')).toEqual(['OrdinaryStateHold',0])
+  }
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+for(const fault of ['device','seal','root','credential','admission'])test(`private bootstrap final native decision refuses changed retained ${fault}`,async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(fault=>{(window as any).privateBootstrapMaterialFault=fault},fault)
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('[privateBootstrapOutcome,privateBootstrapMaterialFaultUsed,__privateBootstrapWipedForTest()]')).toEqual(['OrdinaryStateHold',true,true])
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+})
+for(const fault of ['provider','sdk','native','controller','expiry','credential-floor'] as const)test(`private bootstrap refuses ${fault} change after material assignment`,async({page})=>{
+  if(fault==='expiry'||fault==='credential-floor')await page.clock.install()
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'after-load'}})
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
+  if(fault==='provider')await page.evaluate('window.nostr=providerFixture.current={}')
+  else if(fault==='sdk')await page.evaluate("providerFixture.sdk.capabilities={...providerFixture.sdk.capabilities}")
+  else if(fault==='native')await page.evaluate("import('/j/mutate-native.js').then(module=>module.advanceBrowserRevision())")
+  else if(fault==='controller'){
+    await page.evaluate(()=>navigator.serviceWorker.register('/j/sw.js?replacement',{scope:'/j/',updateViaCache:'none'}))
+    await page.waitForFunction(()=>document.documentElement.dataset.ordinaryProtectedStartup==='held')
+  }else await page.clock.fastForward(fault==='expiry'?3_601_000:1_201_000)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.evaluate('privateBootstrapDone')).toBe(false)
+  await page.evaluate('privateBootstrapGate.release();undefined');await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('[privateBootstrapOutcome,__privateBootstrapWipedForTest()]')).toEqual(['OrdinaryStateHold',true])
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+})
+for(const at of [4,6,8,9,10])for(const reject of [false,true])test(`private bootstrap joins revoked current-client probe ${at}, reject=${reject}`,async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(({at,reject})=>{(window as any).privateRenewalClientCut={calls:0,at,reject}},{at,reject})
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateRenewalClientCut.entered')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await page.evaluate('privateBootstrapDone')).toBe(false)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await lockAvailable(page,'lifetime:'+'a'.repeat(64))).toBe(false)
+  expect(await page.evaluate('providerFixture.closeCalls??0')).toBe(0)
+  await page.evaluate('privateRenewalClientCut.release();undefined');await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+})
+test('private bootstrap final native read refuses a newly arrived outside client',async({page,context})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'after-load'}})
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
+  const other=await context.newPage();await other.goto(origin+'/outside/legacy')
+  try{
+    await page.evaluate('privateBootstrapGate.release();undefined');await page.waitForFunction('privateBootstrapDone')
+    expect(await page.evaluate('[privateBootstrapOutcome,__privateBootstrapWipedForTest()]')).toEqual(['OrdinaryStateHold',true])
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+    expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  }finally{await other.close()}
+})
+async function preparePrivateBootstrapSuccessor(page:Page,keep:boolean):Promise<void>{
+  await page.clock.install()
+  await prepareControlStage(page,keep,true,undefined,async()=>{
+    await page.evaluate('window.memberEpochTimeoutMs=10000')
+    const existingControls=controls.replace('await bootstrap.bootstrap(evidence)','await bootstrap.load()')
+    if(existingControls===controls)throw Error('Successor fixture setup drift')
+    await page.evaluate(`(${existingControls})()`);await page.evaluate('member.join()')
+    await page.clock.fastForward(901_000)
+    await expect.poll(()=>page.evaluate(`(async()=>{try{const result=await bootstrap.load();try{return result.sealKeys.length}finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(result)}}catch{return 0}})()`)).toBe(2)
+    await page.evaluate('member.close()')
+  })
+  await startPrivateForeground(page);expect(await page.evaluate('privateForegroundOutcome')).toBe('ready')
+}
+for(const keep of [false,true])test(`private bootstrap loads an acknowledged successor with owned seal history, keep=${keep}`,async({page})=>{
+  await preparePrivateBootstrapSuccessor(page,keep)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('privateBootstrapOutcome')).toBe('loaded')
+  expect(await page.evaluate('__privateBootstrapResourceForTest()')).toMatchObject({material:true,legacy:false,retained:[32,32,32,32,32]})
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('__privateBootstrapWipedForTest()')).toBe(true)
+})
+test('private bootstrap final decision refuses reordered successor seal history',async({page})=>{
+  await preparePrivateBootstrapSuccessor(page,false)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(()=>{(window as any).privateBootstrapMaterialFault='seal-history'})
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('[privateBootstrapOutcome,privateBootstrapMaterialFaultUsed,__privateBootstrapWipedForTest()]')).toEqual(['OrdinaryStateHold',true,true])
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
+})
+test('private bootstrap failed first start keeps its latch spent and excludes renewal',async({page})=>{
+  await prepareControlStage(page,false,true);await startPrivateForeground(page)
+  const before=await page.evaluate('({...effects,signs:providerFixture.signs})')
+  await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'before-import',reject:true}})
+  await beginPrivateBootstrapLoad(page);await page.waitForFunction('privateBootstrapGate.entered')
+  await page.evaluate('privateBootstrapGate.release();undefined');await page.waitForFunction('privateBootstrapDone')
+  expect(await page.evaluate('[privateBootstrapOutcome,__privateBootstrapLatchForTest(),window.__privateBootstrapModuleEvaluated??0]'))
+    .toEqual(['OrdinaryStateHold',{bootstrap:true,renewal:false},0])
+  expect(await page.evaluate(async()=>{
+    const probe=(window as any).__privateForegroundProbe,result=[]
+    for(const action of [()=>probe.loadMember(),()=>probe.prepareRenewalFactory()]){
+      try{await action();result.push('unexpected')}catch(error){result.push((error as Error).name)}
+    }
+    return result
+  })).toEqual(['OrdinaryStateHold','OrdinaryStateHold'])
+  expect(await page.evaluate('__privateBootstrapLatchForTest()')).toEqual({bootstrap:true,renewal:false})
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({...effects,signs:providerFixture.signs})')).toEqual(before)
 })

@@ -54,6 +54,7 @@ export function borrowOrdinaryPrivateForegroundCredentialSigner(authority: Ordin
 export interface OrdinaryPrivateForegroundResource {
   stop(): void
   close(): Promise<void>
+  loadMember(): Promise<void>
 }
 let openPrivateForeground!: (binding: PrivateForegroundBinding) => Promise<OrdinaryPrivateForegroundResource>
 /** Only the owner calls this fixed edge. Consume the opaque component claim
@@ -542,12 +543,20 @@ export class OrdinaryForegroundSigner implements SignetSigner {
       if (!state) hold()
       const actual = state
       await actual.#clients(); await actual.#read(() => {}); await actual.#read(() => {}); actual.#check()
-      return Object.freeze({ stop: () => actual.#stop(), close: () => actual.#close() })
+      return Object.freeze({ stop: () => actual.#stop(), close: () => actual.#close(), loadMember: () => actual.#loadPrivateMember() })
     } catch {
       binding.stop()
       if (state) await Promise.allSettled([state.#close()])
       throw new OrdinaryStateHold()
     }
+  }
+  #loadPrivateMember(): Promise<void> {
+    this.#check()
+    if (!this.#privateForeground || !this.#privateAuthority) return Promise.reject(new OrdinaryStateHold())
+    const pending = this.#privateForeground.constructBootstrap(this.#privateAuthority)
+    this.#work.add(pending); this.#privateForeground.joinForeground(pending)
+    void pending.finally(() => this.#work.delete(pending)).catch(() => {})
+    return pending
   }
   /** @internal Inert private startup capture. It supplies no ordinary signer,
    * crypto or read capability. The fixed owner must authenticate E separately. */
