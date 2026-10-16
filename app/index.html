@@ -848,6 +848,15 @@
           </select>
           <p class="note">Time to undo or edit a message after you press Send. Until then it stays on this device and nobody can see it. Saved on this device.</p>
         </div>
+        <!-- Read positions keep unread the same on every device of a signed-in
+             account. On by default; see READ_SHARE_KEY in app/src/main.ts. -->
+        <div id="readShareSettings">
+          <h4>Reading</h4>
+          <div class="toggles switchRow">
+            <button id="toggleReadShare" type="button" class="toggle" data-on="true" aria-pressed="true">Share where I have read up to with my other devices</button>
+          </div>
+          <p id="readShareNote" class="note"></p>
+        </div>
       </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's
