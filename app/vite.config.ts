@@ -1,3 +1,4 @@
+import {boardOpenDiagnosticPlugin} from '../test/board-open-diagnostic-plugin.js'
 import { createReadStream } from 'node:fs'
 import { copyFile, mkdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -165,7 +166,8 @@ export default defineConfig({
     outDir: resolve(here, desktop ? '../desktop/web' : 'dist'),
     emptyOutDir: true,
   },
-  plugins: [girnelAssets(), pinnedWasmPreview(),
+  plugins: [...(process.env.BOARD_OPEN_DIAGNOSTIC === '1' ? [boardOpenDiagnosticPlugin()] : []),
+    girnelAssets(), pinnedWasmPreview(),
     mediapipeRuntime(),
     audioWorklet(),
     // getUserMedia and getDisplayMedia both require a secure context. A
