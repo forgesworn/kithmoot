@@ -206,6 +206,7 @@ describe('epoch requests and grants', () => {
     const removedIdentity = localIdentity(generateSecretKey())
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
+      replyDelayMs: [0, 0], // not a test of the quiet-reply wait: answer at once
       roomId,
       authoritySk,
       roomKey,
@@ -290,6 +291,7 @@ describe('epoch requests and grants', () => {
     const epoch = { epoch: 2, secret: generateEpochSecret() }
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
+      replyDelayMs: [0, 0], // not a test of the quiet-reply wait: answer at once
       roomId,
       authoritySk,
       roomKey,
