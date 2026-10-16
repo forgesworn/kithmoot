@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.85",
+  "currentRelease": "0.1.86",
   "releases": [
     {
-      "version": "0.1.85",
+      "version": "0.1.86",
       "updateTo": {
-        "version": "0.1.85",
-        "pub_date": "2026-10-15T19:58:26Z",
-        "notes": "A Signet sign-in stays signed in across restarts, and clicking a KithMoot invitation opens it in the desktop app.",
-        "name": "0.1.85",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.85/KithMoot-0.1.85-mac-arm64.zip",
-        "sha256": "d9db4f49402476e81d0e8597dfbbcb866ac8d55953981d9ac0fed23a572d8411",
-        "size": 177677878
+        "version": "0.1.86",
+        "pub_date": "2026-10-16T08:59:18Z",
+        "notes": "A late call answer can no longer settle a newer camera change and leave video stuck.",
+        "name": "0.1.86",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.86/KithMoot-0.1.86-mac-arm64.zip",
+        "sha256": "f780b9ac0f9a42195166b150e7c5cdb50bb78fae824c3a02811fe6e6ed32612c",
+        "size": 177677440
       }
     }
   ]
