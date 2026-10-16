@@ -8,7 +8,9 @@ import * as fs from 'node:fs'
 import {
   ALPHABET,
   LIMITS,
-  MAX_RECORDS,
+  MAX_CREATED_PER_DAY,
+  MAX_LIVE,
+  MAX_TOMBSTONES,
   TOMBSTONE_SECONDS,
   addressKey,
   createMeetingCodesServer,
@@ -63,7 +65,7 @@ async function startServer(overrides = {}) {
   const request = (method, path, { body, headers = {}, ip = '203.0.113.1' } = {}) =>
     fetch(`${base}${path}`, {
       method,
-      headers: { 'x-forwarded-for': ip, ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...headers },
+      headers: { ...(ip === null ? {} : { 'x-forwarded-for': ip }), ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...headers },
       body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
     })
   const create = (body = { link: LINK, expires: Math.floor(config.now() / 1000) + 3600 }, opts = {}) =>
@@ -332,7 +334,7 @@ describe('validation on create', () => {
 describe('abuse limits', () => {
   it('limits creation to 10 a minute and 100 a day per address', async () => {
     const now = clock()
-    const { create } = await startServer({ now, maxRecords: 1000 })
+    const { create } = await startServer({ now })
     const mk = () => create({ link: LINK, expires: Math.floor(now() / 1000) + 3600 })
     for (let i = 0; i < LIMITS.createPerMinute; i++) expect((await mk()).status).toBe(201)
     expect((await mk()).status).toBe(429)
@@ -502,36 +504,84 @@ describe('storage', () => {
     expect(message).not.toContain('ABCDEFGH')
   })
 
-  it('bounds the store at 20,000 records by default', () => {
-    expect(MAX_RECORDS).toBe(20_000)
+  it('bounds the store at 20,000 live codes, 200,000 tombstones and 2,000 creations a day by default', () => {
+    expect(MAX_LIVE).toBe(20_000)
+    expect(MAX_TOMBSTONES).toBe(200_000)
+    expect(MAX_CREATED_PER_DAY).toBe(2_000)
   })
 
-  it('refuses creation when full, counting tombstones, and evicts nothing', async () => {
+  it('refuses creation when the live store is full, and evicts nothing', async () => {
     const now = clock()
-    const { create, request, server } = await startServer({ now, maxRecords: 3 })
+    const { create, request, server } = await startServer({ now, maxLive: 3 })
     const made = []
     for (let i = 0; i < 3; i++) made.push(await (await create()).json())
-    await request('DELETE', `/codes/${made[0].code}`, { headers: { authorization: `Bearer ${made[0].deleteToken}` } })
     const full = await create()
     expect(full.status).toBe(503)
     expect(await full.json()).toEqual({ error: 'store full' })
     expect(server.records.size).toBe(3)
-    expect((await request('GET', `/codes/${made[1].code}`)).status).toBe(200)
-    expect((await request('GET', `/codes/${made[0].code}`)).status).toBe(410)
+    for (const { code } of made) expect((await request('GET', `/codes/${code}`)).status).toBe(200)
 
-    // Room appears only when a tombstone ages out.
+    // Ending a code frees a live slot; its tombstone counts separately.
+    await request('DELETE', `/codes/${made[0].code}`, { headers: { authorization: `Bearer ${made[0].deleteToken}` } })
+    expect((await create()).status).toBe(201)
+    expect((await request('GET', `/codes/${made[0].code}`)).status).toBe(410)
+  })
+
+  it('refuses creation when the tombstone store is full, until tombstones age out', async () => {
+    const now = clock()
+    const { create, request, server } = await startServer({ now, maxTombstones: 2 })
+    const end = ({ code, deleteToken }) =>
+      request('DELETE', `/codes/${code}`, { headers: { authorization: `Bearer ${deleteToken}` } })
+    const a = await (await create()).json()
+    const b = await (await create()).json()
+    await end(a)
+    const c = await (await create()).json() // one tombstone: still room
+    expect(c.code).toBeDefined()
+    await end(b)
+    const full = await create()
+    expect(full.status).toBe(503)
+    expect(await full.json()).toEqual({ error: 'store full' })
+
+    expect((await request('GET', `/codes/${c.code}`)).status).toBe(200)
+
     now.advance((3600 + TOMBSTONE_SECONDS + 1) * 1000)
     server.sweep()
+    expect((await create()).status).toBe(201)
+  })
+
+  it('caps creation service-wide at 2,000 a rolling day, answering 503', async () => {
+    const now = clock()
+    const { create } = await startServer({ now, maxCreatedPerDay: 5 })
+    const mk = (i) => create({ link: LINK, expires: Math.floor(now() / 1000) + 3600 }, { ip: `192.0.2.${i}` })
+    for (let i = 0; i < 3; i++) expect((await mk(i)).status).toBe(201)
+    now.advance(12 * 3600_000)
+    for (let i = 3; i < 5; i++) expect((await mk(i)).status).toBe(201)
+    const capped = await mk(9)
+    expect(capped.status).toBe(503)
+    expect(await capped.json()).toEqual({ error: 'daily creation limit reached' })
+    // Rolling: the first three leave the window 24 hours after they were made.
+    now.advance(12 * 3600_000 - 1)
+    expect((await mk(10)).status).toBe(503)
+    now.advance(1)
+    for (let i = 11; i < 14; i++) expect((await mk(i)).status).toBe(201)
+    expect((await mk(14)).status).toBe(503)
+  })
+
+  it('does not count a refused creation against the daily cap', async () => {
+    const { create } = await startServer({ maxCreatedPerDay: 1 })
+    expect((await create({ link: 'https://evil.example/j/#x', expires: T0S + 60 })).status).toBe(400)
     expect((await create()).status).toBe(201)
   })
 })
 
 describe('HTTP surface', () => {
-  it('answers health', async () => {
+  it('answers health on loopback only', async () => {
     const { request } = await startServer()
-    const res = await request('GET', '/codes/health')
+    const res = await request('GET', '/codes/health', { ip: null })
     expect(res.status).toBe(200)
     expect(res.headers.get('cache-control')).toBe('no-store')
+    // Anything that came through a proxy is answered as if the path did not exist.
+    expect((await request('GET', '/codes/health')).status).toBe(404)
   })
 
   it('sends Cache-Control: no-store on every answer', async () => {
