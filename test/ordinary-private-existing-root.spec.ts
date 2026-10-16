@@ -14,6 +14,7 @@ const modules = new Map<string, string>()
 const ROOT_ENTRY = '/j/build/ordinary-private-existing-root.browser-entry.js'
 const probes = `window.effects={provider:0,socket:0,storageWrite:0,put:0,entropy:0,key:0};window.probeNonces=0;window.curveInitializationProbes=0;window.curveProbeActive=false;window.privateEntropyCalls=[];
 const nativeProbeRandom=crypto.getRandomValues.bind(crypto);window.__probeRandom=value=>{probeNonces++;return nativeProbeRandom(value)};
+window.__privateProviderSetupProbe=stage=>{const f=window.privateProviderCommandFixture;if(!f)return;(f.stages??=[]).push(stage);if(f.cut===stage&&!f.cutEntered){f.cutEntered=true;if(f.cutMode==='controller')navigator.serviceWorker.dispatchEvent(new Event('controllerchange'));else if(f.cutMode==='close')void window.__privateRootCloseForTest().catch(()=>{});else window.dispatchEvent(new PageTransitionEvent('pagehide'))}if(f.fail===stage)throw Error('Explicit provider setup failure: '+stage)};
 window.privateG0JoinCutEntered=null;window.__privateG0JoinCut=stage=>{if(window.privateG0JoinCut!==stage||window.privateG0JoinCutEntered)return;window.privateG0JoinCutEntered=stage;window.dispatchEvent(new PageTransitionEvent('pagehide'))};
 window.__curveProbeRandom=(random,length)=>{curveInitializationProbes++;curveProbeActive=true;try{return random(length)}finally{curveProbeActive=false}};
 Object.defineProperty(window,'nostr',{configurable:true,get(){effects.provider++;if(window.providerFixture)return window.providerFixture.current;throw Error('provider forbidden')}});
@@ -35,7 +36,33 @@ test.beforeAll(async () => {
     outdir: '.private-root-test-build', chunkNames: 'chunks/[name]-[hash]', write: false, metafile: true,
     plugins: [...sdkPlugins, { name: 'observe-private-root-failure-only', setup(builder) {
       builder.onLoad({ filter: /ordinary-private-existing-root\.ts$/ }, async input => {
-        const source = await readFile(input.path, 'utf8'), marker = '}, async () => {\n      this.#stop()'
+        let source = await readFile(input.path, 'utf8')
+        const once = (marker: string, replacement: string) => {
+          if (source.split(marker).length !== 2) throw Error('Provider command root observer drift: ' + marker)
+          source = source.replace(marker, replacement)
+        }
+        once('this.#providerWork = command', `this.#providerWork = command
+          const commandFixture = (globalThis as any).privateProviderCommandFixture
+          if (commandFixture) {
+            commandFixture.command = command
+            void command.then(() => {commandFixture.commandState='fulfilled'}, error => {commandFixture.commandState='rejected';commandFixture.commandError=error?.message})
+          }`)
+        once('this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)',
+          `(globalThis as any).__privateProviderSetupProbe('root-before-native')
+           if ((globalThis as any).privateProviderCommandFixture?.wrongRoot) {
+             try { claimOrdinaryPrivateExistingProviderCommand(Object.freeze({}) as OrdinaryPrivateExistingRoot, command) }
+             catch { (globalThis as any).privateProviderCommandFixture.wrongRootRefused=true }
+           }
+           this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)
+           ;(globalThis as any).__privateProviderSetupProbe('root-after-assignment')`)
+        once('await this.#capture.completed\n    this.#check()\n    this.#captureReady = true', `await this.#capture.completed
+          const captureFixture=(globalThis as any).privateProviderCommandFixture
+          if(captureFixture?.early) {captureFixture.captureEntered=true;await new Promise<void>(yes=>{captureFixture.captureRelease=yes})}
+          this.#check()
+          this.#captureReady = true`)
+        for (const kind of ['provider','capture']) once(`this.#stopOne(() => this.#${kind}?.stop())`,
+          `this.#stopOne(() => {const f=(globalThis as any).privateProviderCommandFixture;if(f){(f.rootStops??=[]).push('${kind}');if(f.throwRootStops?.includes('${kind}'))throw Error('Explicit root ${kind} stop failure')}this.#${kind}?.stop()})`)
+        const marker = '}, async () => {\n      this.#stop()'
         if (source.split(marker).length !== 2) throw Error('Private root observation fixture drift')
         const closeMarker='this.#closing = new Promise<void>((yes, no) => { resolve = yes; reject = no })'
         if(source.split(closeMarker).length!==2)throw Error('Private root terminal observer drift')
@@ -45,8 +72,8 @@ test.beforeAll(async () => {
           '}, async (error) => { (globalThis as any).__rootFailure=error?.stack; this.#stop()').replace(
             '}, async () => { this.#stop(); await this.close() })',
             '}, async (error) => { (globalThis as any).__providerFailure=error?.stack; this.#stop(); await this.close() })').replace(
-            'this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot)',
-            `const provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot)
+            'this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)',
+            `const provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)
              if ((globalThis as any).providerFixture?.cutAssignment === 'before') window.dispatchEvent(new PageTransitionEvent('pagehide'))
              this.#provider = provider
              if ((globalThis as any).providerFixture?.cutAssignment === 'after') window.dispatchEvent(new PageTransitionEvent('pagehide'))`).replace(
@@ -69,7 +96,10 @@ test.beforeAll(async () => {
             `roots.set(this, { root: this, claimed: false })
              // Instrument this private stage only; no production action or public API is added.
              ;(globalThis as any).__invokePrivateControlForTest = () => (globalThis as any).__privateControlForTest(this)
-             ;(globalThis as any).__invokePrivateForegroundForTest = () => (globalThis as any).__privateForegroundForTest(this)`) }
+             ;(globalThis as any).__invokePrivateForegroundForTest = () => (globalThis as any).__privateForegroundForTest(this)
+             ;(globalThis as any).__privateRootCloseForTest=()=>this.close()
+             ;(globalThis as any).__privateRestoreProviderNowForTest=()=>this.restoreProvider()
+             ;(globalThis as any).__privateClaimProviderCommandForTest=(command:Promise<void>)=>claimOrdinaryPrivateExistingProviderCommand(this as unknown as OrdinaryPrivateExistingRoot,command)`) }
       })
       builder.onLoad({filter: /ordinary-state-codec\.ts$/}, async input => {
         const source = await readFile(input.path, 'utf8'), marker = "this.name = 'OrdinaryStateHold'"
@@ -381,7 +411,12 @@ test.beforeAll(async () => {
           source=source.slice(0,at)+source.slice(at,end).replace(begin,'await context.step(()=>{const restore=(globalThis as any).__enterPrivateRenewalDecision();try{if(mode===\'readwrite\'&&\''+args+'\'===\'facts,selected\')(globalThis as any).__privateRenewalWritePhase=\'settled\';check();const value=work(j!,[br,tr],[b!,t!],'+args+')')+'result=value}finally{restore()}})'+source.slice(end+'result=value})'.length)
         }
         source=source.replace("if(stage==='prepare'){check();attempted=true;","if(stage==='prepare'){(globalThis as any).__privateRenewalWritePhase='candidate-prepared';check();attempted=true;").replace("else{const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])}","else{(globalThis as any).__privateRenewalWritePhase='candidate-committed';const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])}")
-        if(source.split('for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)\n    this.#db?.close(); this.#db = undefined').length!==2)throw Error('Native owner close observer drift')
+        for (const marker of [
+          'this.#db = undefined\n    if (this.#cleanupFailure) throw this.#cleanupFailure.error',
+          'beginPrivateExistingProvider = (root, command) => this.#beginPrivateExistingProvider(root, command)',
+          'await context.step(() => {\n                check(); if (controlMode',
+          'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n              })',
+        ]) if (source.split(marker).length !== 2) throw Error('Provider command parent observer drift: ' + marker)
         for(const [marker,stage] of [["const module = await import('./ordinary-persistent-bootstrap.js'); check()",'after-import'],['await clients()\n        await read(live, () => {','before-claim']] as const){
           if(source.split(marker).length!==2)throw Error('Private bootstrap owner pause drift '+stage)
           source=source.replace(marker,marker+`\n${stage==='before-claim'?'':`await (globalThis as any).__privateBootstrapPause('${stage}');check()`}`)
@@ -419,6 +454,68 @@ test.beforeAll(async () => {
           }
           ;(globalThis as any).__privateInitialFloorTimerForTest=expire
         `)
+        {
+          const begin=source.indexOf('  static #beginPrivateExistingProvider('), end=source.indexOf('  static #authenticatePrivateExistingProvider(',begin)
+          if(begin<0||end<0)throw Error('Provider command constructor scope drift')
+          let part=source.slice(begin,end)
+          const once=(marker:string,replacement:string)=>{if(part.split(marker).length!==2)throw Error('Provider command native observer drift: '+marker);part=part.replace(marker,replacement)}
+          once('claimOrdinaryPrivateExistingProviderCommand(root, command)', `claimOrdinaryPrivateExistingProviderCommand(root, command)
+            const commandFixture=(globalThis as any).privateProviderCommandFixture
+            if(commandFixture?.replay) {try{claimOrdinaryPrivateExistingProviderCommand(root,command)}catch{commandFixture.replayRefused=true}}`)
+          once('queued = Promise.resolve().then(async () => {', `queued = Promise.resolve().then(async () => {
+            ;(globalThis as any).__privateProviderSetupProbe('operation-entered')`)
+          once('controlWork.add(pending); browser.#track(pending); tab.#track(pending)', `controlWork.add(pending)
+            if(pending===command)(globalThis as any).__privateProviderSetupProbe('command-set')
+            browser.#track(pending)
+            if(pending===command)(globalThis as any).__privateProviderSetupProbe('command-browser')
+            tab.#track(pending)
+            if(pending===command)(globalThis as any).__privateProviderSetupProbe('command-tab')`)
+          for(const [marker,stage] of [
+            ['trackControl(command)','command-retained'],['browser.#track(operation)','operation-browser'],['tab.#track(operation)','operation-tab'],
+            ['captured.consumed = true','capture-consumed'],['browser.#resources.add(cancel)','cancel-browser'],['tab.#resources.add(cancel)','cancel-tab'],
+            ['void queued.catch(() => {})','queue-published'],['browser.#track(queued)','queue-browser'],['tab.#track(queued)','queue-tab'],
+            ['void queued.then(resolveOperation, rejectOperation).catch(() => {})','completion-linked'],
+          ])once(marker,marker+`; (globalThis as any).__privateProviderSetupProbe('${stage}')`)
+          once('    // Construct the complete stop/close resource before consuming capture or', `
+            ;(globalThis as any).__privateProviderCloseForTest=()=>resource.close()
+            ;(globalThis as any).__privateInstallNativeStopFaultForTest=()=>{
+              const f=(globalThis as any).privateProviderCommandFixture
+              if(!f||f.nativeProbeInstalled)return;f.nativeProbeInstalled=true
+              for(const [name,owner]of [['browser',browser],['tab',tab]]as const){
+                owner.#resources.add({stop:()=>{(f.nativeStops??=[]).push(name+'-throw');throw Error('Explicit '+name+' native resource stop failure')}})
+                owner.#resources.add({stop:()=>{(f.nativeStops??=[]).push(name+'-later')}})
+              }
+            }
+            // Construct the complete stop/close resource before consuming capture or`)
+          once('const resource = Object.freeze({ completed: operation, stop, close: () => {', `
+            const fixtureForCompleted=(globalThis as any).privateProviderCommandFixture
+            if(fixtureForCompleted)void operation.then(()=>{fixtureForCompleted.completedState='fulfilled'},error=>{fixtureForCompleted.completedState='rejected';fixtureForCompleted.completedError=error?.message})
+            const resource = Object.freeze({ completed: operation, stop, close: () => {`)
+          once('if (closing) return closing', `if (closing) return closing
+            const f=(globalThis as any).privateProviderCommandFixture;if(f)f.providerCloseStarts=(f.providerCloseStarts??0)+1`)
+          once('try { work() } catch (error) { stopFailure ??= { error } }', `try {
+            const f=(globalThis as any).privateProviderCommandFixture
+            if(f){f.providerStopAttempts=(f.providerStopAttempts??0)+1;if(f.throwProviderStopAt===f.providerStopAttempts)throw Error('Explicit provider stop action failure')}
+            work()
+          } catch (error) { stopFailure ??= { error } }`)
+          once("tab.#resources.add(cancel); (globalThis as any).__privateProviderSetupProbe('cancel-tab')", `tab.#resources.add(cancel); (globalThis as any).__privateProviderSetupProbe('cancel-tab')
+            const nativeFixture=(globalThis as any).privateProviderCommandFixture
+            if(nativeFixture?.throwNativeStops)(globalThis as any).__privateInstallNativeStopFaultForTest()`)
+          source=source.slice(0,begin)+part+source.slice(end)
+          const captureBegin=source.indexOf('  static #beginPrivateExistingCapture('),captureEnd=source.indexOf('  static #beginPrivateExistingProvider(',captureBegin)
+          if(captureBegin<0||captureEnd<0)throw Error('Provider command capture scope drift')
+          let capture=source.slice(captureBegin,captureEnd)
+          const closing='if (closing) return closing'
+          if(capture.split(closing).length!==2)throw Error('Provider command capture close counter drift')
+          capture=capture.replace(closing,closing+`; const f=(globalThis as any).privateProviderCommandFixture;if(f)f.captureCloseStarts=(f.captureCloseStarts??0)+1`)
+          const captureDelivery='joinOrdinaryClose(() => tab ? tab.#close() : undefined)]).then(results => {'
+          if(capture.split(captureDelivery).length!==2)throw Error('Provider command capture close delivery drift')
+          capture=capture.replace(captureDelivery,`joinOrdinaryClose(() => tab ? tab.#close() : undefined)]).then(async results => {
+            const f=(globalThis as any).privateProviderCommandFixture
+            if(f?.captureCloseGate){f.captureCloseEntered=true;await new Promise<void>(yes=>{f.captureCloseRelease=yes});f.captureCloseTerminal=true;if(f.captureCloseReject){reject(Error('Explicit capture close delivery failure'));return}}
+          `)
+          source=source.slice(0,captureBegin)+capture+source.slice(captureEnd)
+        }
         const earlyCapacity='  const size = (delta: 1|2|3): readonly [number,number] => {'
         if(source.split(earlyCapacity).length!==2)throw Error('Native intent capacity observer drift')
         source=source.replace(earlyCapacity,earlyCapacity+`
@@ -463,7 +560,7 @@ test.beforeAll(async () => {
               await actual.close()
               if (fixture.closeMode === 'pending') await new Promise<void>(yes => { fixture.closeRelease = yes })
               fixture.closeTerminal = true
-              if (fixture.closeMode === 'reject') throw Error('Explicit SDK close fixture rejection')
+              if (fixture.closeMode === 'reject' || fixture.closeReject) throw Error('Explicit SDK close fixture rejection')
             } })
             if (fixture.sdkDoubleStart?.family === 'sign') {
               const sign = actual.signEvent
@@ -561,8 +658,8 @@ test.beforeAll(async () => {
           `createdFactory = factory; createdClaim = claim; (globalThis as any).__seenPrivateRenewalClaim = claim
            ;(globalThis as any).__privateRenewalFactoryCurrentForTest=()=>ordinaryPrivateRenewalFactoryCurrent(factory)
            if((globalThis as any).privateRenewalGenerationCut==='construction')(globalThis as any).__privateAdvanceCredentialGenerationForTest()` ).replace(
-          'beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)',
-          `beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
+          'beginPrivateExistingProvider = (root, command) => this.#beginPrivateExistingProvider(root, command)',
+          `beginPrivateExistingProvider = (root, command) => this.#beginPrivateExistingProvider(root, command)
            ;(globalThis as any).__privateOwnerPrototypeForTest = this.prototype
            ;(globalThis as any).__privateColdResourceForTest = (owner:OrdinaryStateOwner) => ({closed:owner.#closed,work:owner.#work.size,waiting:!!owner.#retry})
            ;(globalThis as any).__takePrivateRenewalIntentForTest = takeOrdinaryPrivateRenewalIntent
@@ -572,13 +669,12 @@ test.beforeAll(async () => {
            ;(globalThis as any).__privateForegroundForTest = (root: OrdinaryPrivateExistingRoot) => this.#beginPrivateExistingForeground(root)`).replace(
           'challenge = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))',
           'challenge = bytesToHex((globalThis as any).__controlRandom(new Uint8Array(32)))').replace(
-          'await context.step(() => {\n              check(); if (controlMode',
+          'await context.step(() => {\n                check(); if (controlMode',
           'await context.step(() => { const previous = (globalThis as any).__controlDecision; if (controlMode) (globalThis as any).__controlDecision = true; try {\n              check(); if (controlMode').replace(
-          'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n            })',
+          'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n              })',
           'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n            } finally { (globalThis as any).__controlDecision = previous } })').replace(
-          'for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)\n    this.#db?.close(); this.#db = undefined',
-          `for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)
-           this.#db?.close(); this.#db = undefined
+          'this.#db = undefined\n    if (this.#cleanupFailure) throw this.#cleanupFailure.error',
+          `this.#db = undefined
            const fixture = (globalThis as any).__privateOwnerCloseFixture
            if (fixture) {
              const name = this.purpose === 'browser' ? 'browser' : 'tab'
@@ -586,7 +682,8 @@ test.beforeAll(async () => {
              if (fixture.pending === name) await new Promise<void>(yes => { fixture.release = yes })
              fixture.terminal.push(name)
              if (fixture.reject === name) throw Error('Explicit ' + name + ' native owner close failure')
-           }`).replace('return work(browser, tab, custody)',
+           }
+           if (this.#cleanupFailure) throw this.#cleanupFailure.error`).replace('return work(browser, tab, custody)',
           `const previous = (globalThis as any).__controlDecision
            const previousForeground = (globalThis as any).__foregroundDecision
            ;(globalThis as any).__controlDecision = true
@@ -3908,84 +4005,94 @@ test('private G0 join entry refuses authenticated pruned proof history at fresh 
   expect(await page.evaluate('privateHistorySemanticRefusal')).toEqual({stage:'historical-epoch-continuity',currentEpoch:1,proofEpoch:0,missingHistoricalId:true})
 })
 
-test('private G0 join genuine claims decisions and receipts cannot cross document session graph or generation',async({page})=>{
-  await preparePrivateG0Join(page,false);await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
-  expect(await page.evaluate('privateJoinOutcome')).toBe('joined')
-  const opening=page.waitForEvent('popup')
-  await page.evaluate(url=>{(window as any).privateJoinObserver=window.open(url,'private-join-observer')},origin+'/outside/modern')
-  const observer=await opening
-  try{
-    await observer.waitForLoadState('load')
-    await observer.evaluate(()=>{
-      sessionStorage.removeItem('kithmoot.ordinary-tab.v1')
-      const w=window as any;w.privateJoinObserverFence=new w.FenceOnly.OrdinaryClientFence()
-    })
-    await page.evaluate(()=>{
-      const w=window as any
-      w.privateJoinObserver.retainedJoin={functions:w.__privateMemberFunctionsForTest,tuple:w.__privateJoinTupleForTest(),
-        claim:w.__privateJoinClaimForTest,decisions:w.privateJoinDecisions}
-    })
-    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
-    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
-    await page.goto(origin+'/j/setup')
-    await page.evaluate(()=>new Promise<void>((yes,no)=>{
-      const request=indexedDB.deleteDatabase((window as any).Ordinary.ORDINARY_DATABASE)
-      request.onsuccess=()=>yes();request.onerror=()=>no(request.error);request.onblocked=()=>no(Error('Old actual join still owns its database'))
-    }))
-    await preparePrivateG0Join(page,true,'durable')
-    await page.evaluate(()=>{
-      const w=window as any,other=window.open('','private-join-observer') as any
-      w.privateJoinOld=other.retainedJoin;w.privateJoinForeignProbes=[];w.privateJoinForeignProbeBusy=false
-      const probe=(kind:string,token:unknown)=>{
-        // Old realm functions retain their real maps, while their WindowProxy
-        // can resolve this test hook in the new document. Do not re-enter it.
-        if(w.privateJoinForeignProbeBusy)return
-        w.privateJoinForeignProbeBusy=true
-        const before=JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})
-        let outcome='unexpected'
-        try{if(kind==='claim')w.privateJoinOld.functions.join(token);else w.privateJoinOld.functions.takeJoined(token)}catch(error){outcome=(error as Error).name}
-        finally{w.privateJoinForeignProbeBusy=false}
-        w.privateJoinForeignProbes.push({kind,outcome,native:!!w.__controlDecision,
-          unchanged:before===JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})})
-      }
-      w.privateJoinForeignClaimProbe=(token:unknown)=>probe('claim',token)
-      w.privateJoinForeignDecisionProbe=(token:unknown)=>probe('decision',token)
-    })
-    await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+// The genuine predecessor and current-root journey have separate bounded
+// lifetimes. Each keeps its 30s budget; this is not a combined two-root 30s SLO.
+// The observer retains actual old-realm functions/maps/objects, never clones.
+const privateG0CrossDocumentTest=test.extend<{privateJoinPriorRoot:Page}>({
+  privateJoinPriorRoot:[async({page},use)=>{
+    await preparePrivateG0Join(page,false);await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
     expect(await page.evaluate('privateJoinOutcome')).toBe('joined')
-    expect(await page.evaluate('privateJoinForeignProbes')).toEqual([
-      {kind:'claim',outcome:'OrdinaryStateHold',native:true,unchanged:true},
-      {kind:'decision',outcome:'OrdinaryStateHold',native:true,unchanged:true},
-      {kind:'decision',outcome:'OrdinaryStateHold',native:true,unchanged:true},
-    ])
-    expect(await page.evaluate(()=>{
-      const w=window as any,api=w.__privateMemberFunctionsForTest,old=w.privateJoinOld,t=w.__privateJoinTupleForTest(),a=old.tuple
-      w.privateJoinCurrentTupleForTest=t
-      delete w.privateJoinForeignClaimProbe;delete w.privateJoinForeignDecisionProbe
+    const opening=page.waitForEvent('popup')
+    await page.evaluate(url=>{(window as any).privateJoinObserver=window.open(url,'private-join-observer')},origin+'/outside/modern')
+    const observer=await opening
+    try{
+      await observer.waitForLoadState('load')
+      await observer.evaluate(()=>{
+        sessionStorage.removeItem('kithmoot.ordinary-tab.v1')
+        const w=window as any;w.privateJoinObserverFence=new w.FenceOnly.OrdinaryClientFence()
+      })
+      await page.evaluate(()=>{
+        const w=window as any
+        w.privateJoinObserver.retainedJoin={functions:w.__privateMemberFunctionsForTest,tuple:w.__privateJoinTupleForTest(),
+          claim:w.__privateJoinClaimForTest,decisions:w.privateJoinDecisions}
+      })
+      await use(observer)
+    }finally{await observer.close()}
+  },{timeout:30_000}],
+})
+
+privateG0CrossDocumentTest('private G0 join genuine claims decisions and receipts cannot cross document session graph or generation',async({page,privateJoinPriorRoot})=>{
+  void privateJoinPriorRoot // Keep the exact observer alive through all assertions.
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  await page.goto(origin+'/j/setup')
+  await page.evaluate(()=>new Promise<void>((yes,no)=>{
+    const request=indexedDB.deleteDatabase((window as any).Ordinary.ORDINARY_DATABASE)
+    request.onsuccess=()=>yes();request.onerror=()=>no(request.error);request.onblocked=()=>no(Error('Old actual join still owns its database'))
+  }))
+  await preparePrivateG0Join(page,true,'durable')
+  await page.evaluate(()=>{
+    const w=window as any,other=window.open('','private-join-observer') as any
+    w.privateJoinOld=other.retainedJoin;w.privateJoinForeignProbes=[];w.privateJoinForeignProbeBusy=false
+    const probe=(kind:string,token:unknown)=>{
+      // Old realm functions retain their real maps, while their WindowProxy
+      // can resolve this test hook in the new document. Do not re-enter it.
+      if(w.privateJoinForeignProbeBusy)return
+      w.privateJoinForeignProbeBusy=true
       const before=JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})
-      let reflected=0,refused=0
-      const hostile=new Proxy(Object.create({get then(){reflected++;throw Error('Foreign then getter')}}),{
-        get(){reflected++;throw Error('Foreign getter')},getPrototypeOf(){reflected++;throw Error('Foreign prototype')},ownKeys(){reflected++;throw Error('Foreign keys')}})
-      api.checkReceipt(t.receipt,t.session,t.graph,t.generation)
-      for(const [receipt,session,graph,generation]of [
-        [t.receipt,a.session,t.graph,t.generation],[t.receipt,t.session,a.graph,t.generation],[t.receipt,t.session,t.graph,a.generation],
-        [a.receipt,t.session,t.graph,t.generation],[t.receipt,a.session,a.graph,a.generation],[a.receipt,a.session,a.graph,a.generation],
-        [hostile,t.session,t.graph,t.generation],[t.receipt,hostile,hostile,hostile],
-      ]){try{api.checkReceipt(receipt,session,graph,generation)}catch{refused++}}
-      try{old.functions.checkReceipt(a.receipt,a.session,a.graph,a.generation)}catch{refused++}
-      try{old.functions.checkReceipt(t.receipt,t.session,t.graph,t.generation)}catch{refused++}
-      for(const token of [hostile,old.claim,w.__privateJoinClaimForTest]){try{api.join(token)}catch{refused++}}
-      for(const token of [hostile,...old.decisions,...w.privateJoinDecisions]){try{api.takeJoined(token)}catch{refused++}}
-      api.checkReceipt(t.receipt,t.session,t.graph,t.generation)
-      return{refused,reflected,distinct:[t.session!==a.session,t.graph!==a.graph,t.generation!==a.generation],
-        unchanged:before===JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})}
-    })).toEqual({refused:18,reflected:0,distinct:[true,true,true],unchanged:true})
-    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
-    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
-    expect(await page.evaluate(()=>{
-      const w=window as any,t=w.privateJoinCurrentTupleForTest;try{w.__privateMemberFunctionsForTest.checkReceipt(t.receipt,t.session,t.graph,t.generation);return'unexpected'}catch(error){return(error as Error).name}
-    })).toBe('OrdinaryStateHold')
-  }finally{await observer.close()}
+      let outcome='unexpected'
+      try{if(kind==='claim')w.privateJoinOld.functions.join(token);else w.privateJoinOld.functions.takeJoined(token)}catch(error){outcome=(error as Error).name}
+      finally{w.privateJoinForeignProbeBusy=false}
+      w.privateJoinForeignProbes.push({kind,outcome,native:!!w.__controlDecision,
+        unchanged:before===JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})})
+    }
+    w.privateJoinForeignClaimProbe=(token:unknown)=>probe('claim',token)
+    w.privateJoinForeignDecisionProbe=(token:unknown)=>probe('decision',token)
+  })
+  await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('joined')
+  expect(await page.evaluate('privateJoinForeignProbes')).toEqual([
+    {kind:'claim',outcome:'OrdinaryStateHold',native:true,unchanged:true},
+    {kind:'decision',outcome:'OrdinaryStateHold',native:true,unchanged:true},
+    {kind:'decision',outcome:'OrdinaryStateHold',native:true,unchanged:true},
+  ])
+  expect(await page.evaluate(()=>{
+    const w=window as any,api=w.__privateMemberFunctionsForTest,old=w.privateJoinOld,t=w.__privateJoinTupleForTest(),a=old.tuple
+    w.privateJoinCurrentTupleForTest=t
+    delete w.privateJoinForeignClaimProbe;delete w.privateJoinForeignDecisionProbe
+    const before=JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})
+    let reflected=0,refused=0
+    const hostile=new Proxy(Object.create({get then(){reflected++;throw Error('Foreign then getter')}}),{
+      get(){reflected++;throw Error('Foreign getter')},getPrototypeOf(){reflected++;throw Error('Foreign prototype')},ownKeys(){reflected++;throw Error('Foreign keys')}})
+    api.checkReceipt(t.receipt,t.session,t.graph,t.generation)
+    for(const [receipt,session,graph,generation]of [
+      [t.receipt,a.session,t.graph,t.generation],[t.receipt,t.session,a.graph,t.generation],[t.receipt,t.session,t.graph,a.generation],
+      [a.receipt,t.session,t.graph,t.generation],[t.receipt,a.session,a.graph,a.generation],[a.receipt,a.session,a.graph,a.generation],
+      [hostile,t.session,t.graph,t.generation],[t.receipt,hostile,hostile,hostile],
+    ]){try{api.checkReceipt(receipt,session,graph,generation)}catch{refused++}}
+    try{old.functions.checkReceipt(a.receipt,a.session,a.graph,a.generation)}catch{refused++}
+    try{old.functions.checkReceipt(t.receipt,t.session,t.graph,t.generation)}catch{refused++}
+    for(const token of [hostile,old.claim,w.__privateJoinClaimForTest]){try{api.join(token)}catch{refused++}}
+    for(const token of [hostile,...old.decisions,...w.privateJoinDecisions]){try{api.takeJoined(token)}catch{refused++}}
+    api.checkReceipt(t.receipt,t.session,t.graph,t.generation)
+    return{refused,reflected,distinct:[t.session!==a.session,t.graph!==a.graph,t.generation!==a.generation],
+      unchanged:before===JSON.stringify({...w.effects,signs:w.providerFixture.signs,frames:w.privateJoinFrames.length})}
+  })).toEqual({refused:18,reflected:0,distinct:[true,true,true],unchanged:true})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate(()=>{
+    const w=window as any,t=w.privateJoinCurrentTupleForTest;try{w.__privateMemberFunctionsForTest.checkReceipt(t.receipt,t.session,t.graph,t.generation);return'unexpected'}catch(error){return(error as Error).name}
+  })).toBe('OrdinaryStateHold')
 })
 
 for(const kind of ['claim','decision'])for(const cut of ['pagehide','generation-floor'])test(`private G0 join spends an actual unconsumed ${kind} after ${cut} before replay`,async({page})=>{
@@ -4017,5 +4124,244 @@ for(const kind of ['claim','decision'])for(const cut of ['pagehide','generation-
     delete w.privateJoinForeignClaimProbe;delete w.privateJoinForeignDecisionProbe
     try{if(kind==='claim')api.takeJoin(w.privateJoinUnconsumedToken);else api.takeJoined(w.privateJoinUnconsumedToken);return'unexpected'}catch(error){return(error as Error).name}
   },kind)).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
+})
+
+// Preparatory command/lifetime evidence only. These explicit checkpoint calls
+// do not exercise trusted consent or mount the production private member UI.
+async function prepareProviderCommand(page: Page, fixture: Record<string, unknown> = {}, gated = false): Promise<void> {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account, gated)
+  await enter(page, href, 'captured-held')
+  await page.evaluate(fixture => { (window as any).privateProviderCommandFixture = fixture }, fixture)
+}
+async function beginProviderCommand(page: Page): Promise<void> {
+  await page.evaluate(url => {
+    const w = window as any, fixture = w.privateProviderCommandFixture
+    fixture.openingDone = false
+    w.providerOpening = import(url).then(module => module.restoreOrdinaryPrivateExistingProviderRoot()).then(
+      () => { fixture.openingState = 'fulfilled' }, error => { fixture.openingState = 'rejected'; fixture.openingError = error?.message },
+    ).finally(() => { fixture.openingDone = true })
+  }, ROOT_ENTRY)
+}
+async function closeProviderCommand(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as any, fixture = w.privateProviderCommandFixture
+    try {
+      const first = w.__privateRootCloseForTest(), second = w.__privateRootCloseForTest()
+      fixture.closeSamePromise = first === second
+      void first.then(() => {fixture.closeDone = true; fixture.closeState = 'fulfilled'}, (error: Error) => {
+        fixture.closeDone = true; fixture.closeState = 'rejected'; fixture.closeError = error.message
+      })
+    } catch (error) { fixture.closeThrewSynchronously = (error as Error).message }
+  })
+}
+const providerSetupFailures = ['root-before-native', 'command-set', 'command-browser', 'command-tab', 'command-retained',
+  'operation-browser', 'operation-tab', 'capture-consumed', 'cancel-browser', 'cancel-tab',
+  'queue-published', 'queue-browser', 'queue-tab', 'completion-linked', 'root-after-assignment'] as const
+for (const stage of providerSetupFailures) test(`private provider command drains synchronous setup failure at ${stage}`, async ({page}) => {
+  await prepareProviderCommand(page, {fail: stage})
+  await beginProviderCommand(page)
+  await page.waitForFunction('privateProviderCommandFixture.openingDone')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
+  const fixture = await page.evaluate<any>('privateProviderCommandFixture')
+  expect(fixture.commandState).toBe('rejected')
+  expect(fixture.commandError).toBe('Explicit provider setup failure: ' + stage)
+  if (!['root-before-native'].includes(stage)) {
+    expect(fixture.completedState).toBe('rejected')
+    expect(fixture.completedError).toBe(stage === 'root-after-assignment' ? 'Protected browser storage could not be verified.' : fixture.commandError)
+    expect(fixture.providerCloseStarts).toBe(1)
+  }
+  expect(fixture.captureCloseStarts).toBe(1)
+  expect(await page.evaluate('effects')).toEqual(none)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0, 0])
+})
+for (const mode of ['pagehide','controller','close'] as const) for (const stage of ['command-set','cancel-tab','queue-published','root-after-assignment'] as const) {
+  test(`private provider command ${mode} at ${stage} joins before releasing custody`, async ({page}) => {
+    await prepareProviderCommand(page, {cut: stage, cutMode: mode})
+    await beginProviderCommand(page)
+    await page.waitForFunction('privateProviderCommandFixture.openingDone')
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+    expect(await page.evaluate('privateProviderCommandFixture.cutEntered')).toBe(true)
+    expect(await page.evaluate('privateProviderCommandFixture.commandState')).toBe('rejected')
+    expect(await page.evaluate('privateProviderCommandFixture.providerCloseStarts')).toBe(1)
+    expect(await page.evaluate('effects')).toEqual(none)
+    expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0, 0])
+  })
+}
+test('private provider command refuses foreign and replayed promises without consuming native capture', async ({page}) => {
+  await prepareProviderCommand(page, {replay: true})
+  expect(await page.evaluate(() => {
+    const w = window as any; let refused = 0, getters = 0
+    const hostile = new Proxy({}, {get(){getters++;throw Error('Foreign command getter')}})
+    for (const value of [undefined, {}, Promise.resolve(), new Promise(() => {}), hostile]) {
+      try { w.__privateClaimProviderCommandForTest(value) } catch {refused++}
+    }
+    return {refused, getters}
+  })).toEqual({refused: 5, getters: 0})
+  await beginProviderCommand(page)
+  await page.waitForFunction('privateProviderCommandFixture.openingDone')
+  expect(await page.evaluate('privateProviderCommandFixture.replayRefused')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([1, 0])
+  expect(await page.evaluate(() => {
+    const w = window as any
+    try {w.__privateClaimProviderCommandForTest(w.privateProviderCommandFixture.command);return false} catch {return true}
+  })).toBe(true)
+  await closeProviderCommand(page)
+  await page.waitForFunction('privateProviderCommandFixture.closeDone')
+  expect(await page.evaluate('privateProviderCommandFixture.closeSamePromise')).toBe(true)
+  expect(await lockAvailable(page, 'migration')).toBe(true)
+})
+test('private provider command spends wrong-root registration before any provider effect', async ({page}) => {
+  await prepareProviderCommand(page, {wrongRoot: true})
+  await beginProviderCommand(page)
+  await page.waitForFunction('privateProviderCommandFixture.openingDone')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('privateProviderCommandFixture.wrongRootRefused')).toBe(true)
+  expect(await page.evaluate('effects')).toEqual(none)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0, 0])
+})
+for (const direct of [false,true]) test(`private provider command ${direct ? 'early direct refusal' : 'cold wrapper'} owns capture preparation`, async ({page}) => {
+  const href = await seed(page), account = await page.evaluate<string>('account')
+  await install(page); await providerFixture(page, account)
+  await page.addInitScript(() => { (window as any).privateProviderCommandFixture = {early: true} })
+  await releaseFixture(page); await page.goto(href)
+  await page.waitForFunction('privateProviderCommandFixture.captureEntered')
+  if (direct) await page.evaluate(() => {
+    const w = window as any
+    w.directPending = w.__privateRestoreProviderNowForTest().then(() => {w.directDone = true}, () => {w.directDone = true})
+  })
+  else await beginProviderCommand(page)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0, 0])
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  expect(await page.evaluate('privateProviderCommandFixture.commandState')).toBeUndefined()
+  await page.evaluate('privateProviderCommandFixture.captureRelease();undefined')
+  if (direct) {
+    await page.waitForFunction('directDone')
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+    expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([0, 0])
+  } else {
+    await page.waitForFunction('privateProviderCommandFixture.openingDone')
+    expect(await page.evaluate('[providerFixture.calls,providerFixture.signs]')).toEqual([1, 0])
+    await closeProviderCommand(page)
+    await page.waitForFunction('privateProviderCommandFixture.closeDone')
+    expect(await lockAvailable(page, 'migration')).toBe(true)
+  }
+})
+for (const fault of ['root-provider','root-capture','provider-action','native-resource','all'] as const) {
+  test(`private provider cleanup continues after ${fault} stop failure and retains pending SDK close`, async ({page}) => {
+    const rootStops = fault === 'all' ? ['provider','capture'] : fault.startsWith('root-') ? [fault.slice(5)] : []
+    await prepareProviderCommand(page, {throwRootStops: rootStops,
+      ...(fault === 'provider-action' || fault === 'all' ? {throwProviderStopAt: 4} : {}),
+      throwNativeStops: fault === 'native-resource' || fault === 'all'})
+    await page.evaluate(() => { (window as any).providerFixture.closeMode = 'pending' })
+    await beginProviderCommand(page)
+    await page.waitForFunction('privateProviderCommandFixture.openingDone')
+    await closeProviderCommand(page)
+    await page.waitForFunction('providerFixture.closeCalls===1')
+    expect(await page.evaluate('privateProviderCommandFixture.closeThrewSynchronously')).toBeUndefined()
+    expect(await page.evaluate('privateProviderCommandFixture.closeSamePromise')).toBe(true)
+    expect(await page.evaluate('privateProviderCommandFixture.closeDone')).toBeUndefined()
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await lockAvailable(page, 'lifetime:'+'a'.repeat(64))).toBe(false)
+    const before = await page.evaluate<any>('privateProviderCommandFixture')
+    expect(before.rootStops).toEqual(['provider','capture'])
+    expect(before.providerStopAttempts).toBe(7)
+    if (fault === 'native-resource' || fault === 'all') expect(before.nativeStops).toEqual(['browser-throw','browser-later','tab-throw','tab-later'])
+    await page.evaluate('providerFixture.closeRelease();undefined')
+    await page.waitForFunction('privateProviderCommandFixture.closeDone')
+    expect(await lockAvailable(page, 'migration')).toBe(true)
+    const after = await page.evaluate<any>('privateProviderCommandFixture')
+    expect(after.closeState).toBe('rejected')
+    expect(after.closeError).toBe(fault === 'root-provider' || fault === 'all' ? 'Explicit root provider stop failure' :
+      fault === 'root-capture' ? 'Explicit root capture stop failure' : fault === 'provider-action' ?
+        'Explicit provider stop action failure' : 'Explicit browser native resource stop failure')
+    expect([after.providerCloseStarts, after.captureCloseStarts]).toEqual([1,1])
+    expect(await page.evaluate('[providerFixture.closeCalls,providerFixture.closeTerminal,providerFixture.calls,providerFixture.signs]')).toEqual([1,true,1,0])
+  })
+}
+for (const stage of ['cancel-tab','operation-entered']) test(`private provider cleanup preserves original ${stage} error when stop also fails`, async ({page}) => {
+  await prepareProviderCommand(page, {fail: stage, throwProviderStopAt: 4})
+  await beginProviderCommand(page)
+  await page.waitForFunction('privateProviderCommandFixture.openingDone')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  const fixture = await page.evaluate<any>('privateProviderCommandFixture')
+  expect([fixture.commandState,fixture.completedState]).toEqual(['rejected','rejected'])
+  expect([fixture.commandError,fixture.completedError]).toEqual([
+    'Explicit provider setup failure: '+stage,'Explicit provider setup failure: '+stage])
+  expect(fixture.openingError).toBe('Explicit provider stop action failure')
+  expect(fixture.providerStopAttempts).toBe(7)
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+
+for (const fault of [false,true]) test(`private provider cleanup close reentry shares one actual promise, stopFaults=${fault}`, async ({page}) => {
+  await prepareProviderCommand(page, fault ? {throwRootStops:['provider','capture'],throwProviderStopAt:4,throwNativeStops:true} : {})
+  await page.evaluate(() => { (window as any).providerFixture.closeMode = 'pending' })
+  await beginProviderCommand(page); await page.waitForFunction('privateProviderCommandFixture.openingDone')
+  await page.evaluate(() => {
+    const w=window as any,f=w.privateProviderCommandFixture
+    try {
+      const first=w.__privateProviderCloseForTest(),second=w.__privateProviderCloseForTest()
+      f.providerSamePromise=first===second
+      void first.then(()=>{f.providerCloseDone=true},(error:Error)=>{f.providerCloseDone=true;f.providerCloseError=error.message})
+    } catch(error) {f.providerCloseThrewSynchronously=(error as Error).message}
+  })
+  await closeProviderCommand(page)
+  await page.waitForFunction('providerFixture.closeCalls===1')
+  expect(await page.evaluate('privateProviderCommandFixture.providerCloseThrewSynchronously')).toBeUndefined()
+  expect(await page.evaluate('privateProviderCommandFixture.providerSamePromise')).toBe(true)
+  expect(await page.evaluate('privateProviderCommandFixture.providerCloseDone')).toBeUndefined()
+  expect(await page.evaluate('privateProviderCommandFixture.closeDone')).toBeUndefined()
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate('providerFixture.closeRelease();undefined')
+  await page.waitForFunction('privateProviderCommandFixture.providerCloseDone&&privateProviderCommandFixture.closeDone')
+  expect(await lockAvailable(page,'migration')).toBe(true)
+  const f=await page.evaluate<any>('privateProviderCommandFixture')
+  expect([f.providerCloseStarts,f.captureCloseStarts]).toEqual([1,1])
+  expect(f.providerCloseError).toBe(fault?'Explicit provider stop action failure':undefined)
+  expect(f.closeError).toBe(fault?'Explicit root provider stop failure':undefined)
+  expect(await page.evaluate('providerFixture.closeCalls')).toBe(1)
+})
+for (const first of ['sdk','capture'] as const) test(`private provider cleanup preserves initial resource error order when ${first} settles first`, async ({page}) => {
+  await prepareProviderCommand(page, {captureCloseGate:true,captureCloseReject:true})
+  await page.evaluate(() => {const f=(window as any).providerFixture;f.closeMode='pending';f.closeReject=true})
+  await beginProviderCommand(page);await page.waitForFunction('privateProviderCommandFixture.openingDone')
+  await closeProviderCommand(page)
+  await page.waitForFunction('privateProviderCommandFixture.captureCloseEntered&&providerFixture.closeCalls===1')
+  await page.evaluate(first=>{const w=window as any;if(first==='sdk')w.providerFixture.closeRelease();else w.privateProviderCommandFixture.captureCloseRelease()},first)
+  await page.waitForFunction(first=>first==='sdk'?(window as any).providerFixture.closeTerminal:(window as any).privateProviderCommandFixture.captureCloseTerminal,first)
+  expect(await page.evaluate('privateProviderCommandFixture.closeDone')).toBeUndefined()
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await lockAvailable(page,'lifetime:'+'a'.repeat(64))).toBe(false)
+  await page.evaluate(first=>{const w=window as any;if(first==='sdk')w.privateProviderCommandFixture.captureCloseRelease();else w.providerFixture.closeRelease()},first)
+  await page.waitForFunction('privateProviderCommandFixture.closeDone')
+  expect(await lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('privateProviderCommandFixture.closeError')).toBe('Explicit SDK close fixture rejection')
+  expect(await page.evaluate('[privateProviderCommandFixture.providerCloseStarts,privateProviderCommandFixture.captureCloseStarts,providerFixture.closeCalls]')).toEqual([1,1,1])
+})
+for(const keep of [false,true])test(`private provider cleanup stop failures retain the actual joined Session until erasure, keep=${keep}`,async({page})=>{
+  await preparePrivateG0Join(page,keep,'grant',true)
+  await beginPrivateG0Join(page);await page.waitForFunction('privateJoinDone')
+  expect(await page.evaluate('privateJoinOutcome')).toBe('joined')
+  const before=await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
+  await page.evaluate(()=>{
+    const w=window as any
+    w.privateProviderCommandFixture={throwRootStops:['provider','capture'],throwProviderStopAt:4}
+    w.__privateInstallNativeStopFaultForTest()
+  })
+  await closeProviderCommand(page)
+  await page.waitForFunction('privateMemberDisposeCalls>0')
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await lockAvailable(page,'lifetime:'+'a'.repeat(64))).toBe(false)
+  expect(await page.evaluate('privateProviderCommandFixture.closeDone')).toBeUndefined()
+  expect(await page.evaluate('privateProviderCommandFixture.closeThrewSynchronously')).toBeUndefined()
+  expect(await page.evaluate('providerFixture.closeCalls??0')).toBe(0)
+  await page.evaluate(()=>{(window as any).privateMemberDisposePaused=false})
+  await page.waitForFunction('privateProviderCommandFixture.closeDone')
+  expect(await lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('privateProviderCommandFixture.closeError')).toBe('Explicit root provider stop failure')
+  expect(await page.evaluate('[privateMemberCloseCalls,__privateSessionDisposedForTest,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest(),providerFixture.closeCalls]')).toEqual([1,true,true,true,1])
+  expect(await page.evaluate('privateProviderCommandFixture.nativeStops')).toEqual(['browser-throw','browser-later','tab-throw','tab-later'])
   expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
 })

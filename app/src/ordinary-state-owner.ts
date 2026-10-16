@@ -6,7 +6,7 @@ import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
   type OrdinaryPrivateForegroundAuthority, type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
 import { takeOrdinaryPrivateRenewalObligation, openOrdinaryPrivateRenewalFactoryFromOwnerClaim, closeOrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalObligation } from './ordinary-private-renewal.js'
 import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise, verifyOrdinaryProtocolLifecycle, observeOrdinaryLifecycleEnd, type OrdinaryProtocolControl } from './ordinary-protocol-work.js'
-import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
+import { claimOrdinaryPrivateExistingRoot, claimOrdinaryPrivateExistingProviderCommand, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
 import { HEADLESS_NIP07_DISCOVERY_BOUNDARY, createNip07SignerWithDiscoveryBoundary, createPinnedNip07SignerWithDiscoveryBoundary, createSessionFromSigner,
@@ -41,6 +41,11 @@ export { ORDINARY_DATABASE } from './ordinary-state-layout.js'
 const OWNER_STORE = 'owners'
 export const MAX_ORDINARY_TAB_OWNERS = 64
 const TAB_PURPOSE = /^tab:[0-9a-f]{64}$/
+/** Fixed cleanup invocations start now. A synchronous exception becomes a
+ * joined rejection, so it cannot prevent another resource from closing. */
+function joinOrdinaryClose(close: () => void | Promise<void>): Promise<void> {
+  try { return Promise.resolve(close()) } catch (error) { return Promise.reject(error) }
+}
 /** Resource only. No owner, frame, key, selection or current authority escapes. */
 export interface OrdinaryPrivateExistingCaptureResource {
   readonly completed: Promise<void>
@@ -556,9 +561,9 @@ export function takeOrdinaryPrivateForegroundClaim(claim: OrdinaryPrivateForegro
   value.provider.controlLive()
   return value.binding
 }
-let beginPrivateExistingProvider!: (root: OrdinaryPrivateExistingRoot) => OrdinaryPrivateExistingCaptureResource
+let beginPrivateExistingProvider!: (root: OrdinaryPrivateExistingRoot, command: Promise<void>) => OrdinaryPrivateExistingCaptureResource
 /** Fixed private-root consumer only; no account, owner or provider input. */
-export const beginOrdinaryPrivateExistingProvider = (root: OrdinaryPrivateExistingRoot): OrdinaryPrivateExistingCaptureResource => beginPrivateExistingProvider(root)
+export const beginOrdinaryPrivateExistingProvider = (root: OrdinaryPrivateExistingRoot, command: Promise<void>): OrdinaryPrivateExistingCaptureResource => beginPrivateExistingProvider(root, command)
 
 let beginPrivateExistingCapture!: (root: OrdinaryPrivateExistingRoot) => OrdinaryPrivateExistingCaptureResource
 /** The lexical bridge is installed by the class's static block. Callers cannot
@@ -897,6 +902,7 @@ export class OrdinaryStateOwner {
   #closed = false
   #work = new Set<Promise<unknown>>()
   #resources = new Set<{ stop(): void }>()
+  #cleanupFailure?: { readonly error: unknown }
   #retry?: () => void
   #operationControls = new Set<string>()
   #operationMarkerValues = new Map<string,string>()
@@ -993,8 +999,13 @@ export class OrdinaryStateOwner {
   }
   #revoke(): void {
     this.#closed = true
-    for (const resource of [...this.#resources]) resource.stop()
-    this.#resources.clear()
+    // Remove before invoking: reentrant revoke cannot call this resource
+    // twice, and one failing stop cannot skip another native resource.
+    while (this.#resources.size) {
+      const resource = this.#resources.values().next().value!
+      this.#resources.delete(resource)
+      try { resource.stop() } catch (error) { this.#cleanupFailure ??= { error } }
+    }
   }
   /** Fixed renewal predecessor metadata only, from this actual current read.
    * The encrypted frames never escape; their digests freeze the original P
@@ -1069,7 +1080,7 @@ export class OrdinaryStateOwner {
         tab: { owner: captured.tabOwner, scope: captured.tabScope }, live: () => true })
     }
     beginPrivateExistingCapture = root => this.#beginPrivateExistingCapture(root)
-    beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
+    beginPrivateExistingProvider = (root, command) => this.#beginPrivateExistingProvider(root, command)
   }
   /** Fixed restore-only native operation. Its sole selector is the actual
    * unexported document root, authenticated by the private root WeakMap. */
@@ -1078,14 +1089,19 @@ export class OrdinaryStateOwner {
     const purpose: OrdinaryPurpose = `tab:${binding.marker}`
     let tab: OrdinaryStateOwner | undefined, context: OperationTransaction | undefined
     let timer: ReturnType<typeof setTimeout> | undefined, stopped = false, closing: Promise<void> | undefined
+    let stopFailure: { readonly error: unknown } | undefined
+    const stopOne = (work: () => void) => {
+      try { work() } catch (error) { stopFailure ??= { error } }
+    }
     const stop = () => {
       if (stopped) return
       stopped = true
       privateExistingCaptures.delete(root)
-      if (timer !== undefined) clearTimeout(timer)
-      context?.abort()
-      binding.revoke()
-      browser.#revoke(); if (tab) tab.#revoke()
+      stopOne(() => { if (timer !== undefined) clearTimeout(timer) })
+      stopOne(() => context?.abort())
+      stopOne(() => binding.revoke())
+      stopOne(() => browser.#revoke())
+      stopOne(() => { if (tab) tab.#revoke() })
     }
     const cancel = { stop }
     browser.#resources.add(cancel)
@@ -1245,7 +1261,9 @@ export class OrdinaryStateOwner {
       stop()
       // One rejected owner must not release the root while the other still
       // owns a native terminal tail. The root releases MIGRATION after this.
-      void Promise.allSettled([browser.#close(), tab ? tab.#close() : undefined]).then(results => {
+      void Promise.allSettled([joinOrdinaryClose(() => browser.#close()),
+        joinOrdinaryClose(() => tab ? tab.#close() : undefined)]).then(results => {
+        if (stopFailure) { reject(stopFailure.error); return }
         const failed = results.find(result => result.status === 'rejected')
         if (failed?.status === 'rejected') reject(failed.reason)
         else resolve()
@@ -1256,10 +1274,10 @@ export class OrdinaryStateOwner {
   /** Consume the actual private capture before any asynchronous or external
    * work. The resource retains the SDK privately; it supplies no member/current
    * MLS authority and no raw signer or selection to the document caller. */
-  static #beginPrivateExistingProvider(root: OrdinaryPrivateExistingRoot): OrdinaryPrivateExistingCaptureResource {
+  static #beginPrivateExistingProvider(root: OrdinaryPrivateExistingRoot, command: Promise<void>): OrdinaryPrivateExistingCaptureResource {
+    claimOrdinaryPrivateExistingProviderCommand(root, command)
     const captured = privateExistingCaptures.get(root)
     if (!captured || captured.consumed) hold()
-    captured.consumed = true // Permanent, before getters, imports, callbacks or await.
     const { browser, tab, binding } = captured
     let stopped = false, closing: Promise<void> | undefined, context: OperationTransaction | undefined
     let source: Readonly<SignetSession> | undefined
@@ -1320,203 +1338,244 @@ export class OrdinaryStateOwner {
       nativeCheck()
     }
     const readCheck = () => { if (controlMode) nativeCheck(); else check() }
+    let stopFailure: { readonly error: unknown } | undefined
+    const stopOne = (work: () => void) => {
+      try { work() } catch (error) { stopFailure ??= { error } }
+    }
     const stop = () => {
       if (stopped) return
-      stopped = true; if (expiryTimer !== undefined) clearTimeout(expiryTimer)
-      privateExistingProviders.delete(root); context?.abort()
-      if (retainedProvider?.bootstrap) retainedProvider.bootstrapModule!.stopOrdinaryPrivateBootstrap(retainedProvider.bootstrap)
-      retainedProvider?.foreground?.stop()
-      binding.revoke(); browser.#revoke(); tab.#revoke()
-    }
-    const cancel = { stop }; browser.#resources.add(cancel); tab.#resources.add(cancel)
-    const operation = Promise.resolve().then(async () => {
-      nativeCheck()
-      const floor = captured.credentialGeneration.current, floorSerial = floor.serial
-      const expire = () => {
-        // A retired timer cannot close or rearm another credential generation.
-        // Adoption owes its own fresh-current timer arm after publication.
-        if (stopped || captured.credentialGeneration.current !== floor ||
-            captured.credentialGeneration.current.serial !== floorSerial) return
-        try {
-          nativeCheck()
-          const deadline = Math.min(captured.expiresAt, (floor.selection.credentialExpiresAt - 599) * 1000,
-            captured.limits.sdkExpiresAt ?? Infinity,
-            captured.limits.admissionEndsAt === null ? Infinity : captured.limits.admissionEndsAt * 1000,
-            captured.limits.roomEndsAt === null ? Infinity : captured.limits.roomEndsAt * 1000)
-          expiryTimer = setTimeout(expire, Math.max(1, deadline - Date.now()))
-        } catch { stop() }
-      }
-      expire(); nativeCheck()
-      await binding.assertClientsCurrent(); nativeCheck()
-      if (HEADLESS_NIP07_DISCOVERY_BOUNDARY !== 1) hold()
-      return navigator.locks.request(WRITE_LOCK, async () => {
-        nativeCheck()
-        const snapshot = await import('./ordinary-snapshot.js'); nativeCheck()
-        let db: IDBDatabase | undefined, sdk: Promise<SignetSigner> | undefined, raw: SignetSigner | undefined
-        let providerPending: Promise<unknown> | undefined, used = false
-        let retained: Omit<SignetSession, 'method' | 'signer'> | undefined
-        const fresh = async (start?: () => void) => {
-          let b: OrdinaryImage | undefined, t: OrdinaryImage | undefined
-          try {
-            readCheck(); db?.close(); db = await browser.#existingStartupDatabase(binding.live); readCheck(); if (!db) hold()
-            db.onversionchange = () => { stop(); db?.close() }
-            context = operationTransaction(db, 'readonly')
-            const rows = await Promise.all([context.read(() => context!.store.get('browser')),
-              context.read(() => context!.store.get(captured.purpose))])
-            readCheck(); const br = row(rows[0]), tr = row(rows[1])
-            if (!br?.frame || !tr?.frame || br.pending || tr.pending ||
-                rowDigest(br) !== captured.rows[0] || rowDigest(tr) !== captured.rows[1]) hold()
-            b = await openOrdinaryFrame(br.frame, br.key); readCheck()
-            t = await openOrdinaryFrame(tr.frame, tr.key); readCheck()
-            if (b.purpose !== 'browser' || b.expiresAt !== 0 || t.purpose !== captured.purpose ||
-                t.expiresAt !== captured.expiresAt || b.revision !== captured.revisions[0] || t.revision !== captured.revisions[1] ||
-                b.generation !== captured.generations[0] || t.generation !== captured.generations[1] ||
-                b.migration?.phase !== 'complete' || t.migration?.phase !== 'complete') hold()
-            const facts = await browser.#classifyOperations(binding.live, context); readCheck()
-            if (JSON.stringify(facts) !== captured.classification) hold()
-            browser.#validateCleanupImage(b, t, tab, facts, snapshot)
-            const k = ORDINARY_SIGNET_KEYS, pubkey = b.records.get(k.pubkey), method = b.records.get(k.method),
-              auth = b.records.get(k.authEvent), expiry = b.records.get(k.expiresAt), displayName = b.records.get(k.displayName)
-            if (pubkey !== captured.selection.account || method !== 'nip07' || !auth ||
-                b.records.has(k.bunkerUri) || b.records.has(k.bunkerClientSk) || b.records.has(k.pendingRedirect) ||
-                b.records.has(k.pendingRelayAuth) || t.records.has(ORDINARY_INITIAL_LOGIN_KEY)) hold()
-            const expiresAt = expiry === undefined ? undefined : Number(expiry)
-            if (expiresAt !== undefined && (!Number.isSafeInteger(expiresAt) || String(expiresAt) !== expiry ||
-                captured.selection.credentialExpiresAt > Math.floor(expiresAt / 1000))) hold()
-            const proof = captureOrdinaryForegroundProof(JSON.parse(auth))
-            if (JSON.stringify(proof) !== auth || proof.kind !== 21236 || proof.pubkey !== pubkey || !verifyEventUncached(proof) ||
-                proof.tags.filter(tag => tag[0] === 'origin').length !== 1 ||
-                !proof.tags.some(tag => tag.length === 2 && tag[0] === 'origin' && tag[1] === binding.origin) ||
-                proof.tags.filter(tag => tag[0] === 'app').length !== 1 ||
-                !proof.tags.some(tag => tag.length === 2 && tag[0] === 'app' && tag[1] === 'KithMoot')) hold()
-            if (!retained) retained = Object.freeze({ pubkey, authEvent: { ...proof, kind: 21236 as const },
-              ...(expiresAt === undefined ? {} : { expiresAt }), ...(displayName === undefined ? {} : { displayName }) })
-            await context.step(() => {
-              check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()
-              const now = Date.now(); nativeCheck()
-              if (!Number.isSafeInteger(now) || now < 0 || now >= captured.expiresAt ||
-                  captured.selection.credentialExpiresAt - Math.floor(now / 1000) < 600 ||
-                  expiresAt !== undefined && now >= expiresAt) hold()
-              start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()
-            })
-            context.stop(); await context.ended; readCheck()
-          } finally {
-            context?.abort(); await context?.ended.catch(() => {}); context?.stop(); context = undefined
-            clearImage(b); clearImage(t); db?.close(); db = undefined
-          }
-        }
-        const clients = async () => { readCheck(); await binding.assertClientsCurrent(); readCheck() }
-        try {
-          // Establish actual provider identity only after fresh native custody.
-          await fresh(); nativeCheck()
-          provider = window.nostr; nativeCheck(); if (!provider) hold()
-          fields = Object.freeze(providerFields()); check()
-          const boundary: Nip07DiscoveryBoundary = Object.freeze({ discoveryPreflightBoundary: 1 as const,
-            start: <T>(prepare: () => void, effect: () => Promise<T>): Promise<T> => {
-              if (used) return Promise.reject(new OrdinaryStateHold())
-              used = true
-              return (async () => {
-                await clients(); prepare(); check()
-                let actual: Promise<T> | undefined
-                try {
-                  await fresh(() => {
-                    try { actual = Promise.resolve(effect()) } catch (error) { actual = Promise.reject(error) }
-                    void actual.catch(() => {}); providerPending = actual
-                    browser.#track(actual); tab.#track(actual)
-                  })
-                  if (!actual) hold(); const result = await actual
-                  await clients(); await fresh(); check(); return result
-                } finally { if (actual) await Promise.allSettled([actual]) }
-              })()
-            } })
-          sdk = createPinnedNip07SignerWithDiscoveryBoundary(boundary)
-          browser.#track(sdk); tab.#track(sdk); void sdk.catch(() => {})
-          raw = await sdk; check()
-          if (!used || raw.providerEffectBoundary !== 1 || raw.method !== 'nip07' || raw.pubkey !== captured.selection.account) hold()
-          await clients(); await fresh(); check()
-          source = Object.freeze({ ...retained!, method: 'nip07' as const, signer: raw })
-          const sdkSigner = source.signer
-          const sdkFields = () => {
-            const get = (object: object, key: PropertyKey, optional = false): unknown => {
-              const value = controlMode ? own(object, key, optional) : Reflect.get(object, key)
-              readCheck(); return value
-            }
-            const capabilities = get(sdkSigner, 'capabilities') as object,
-              n04 = get(sdkSigner, 'nip04', true) as object | undefined, n44 = get(sdkSigner, 'nip44', true) as object | undefined
-            return [get(sdkSigner, 'pubkey'), get(sdkSigner, 'method'), get(sdkSigner, 'signEvent'),
-              get(sdkSigner, 'providerEffectBoundary'), get(sdkSigner, 'pinnedProviderCalls'), capabilities,
-              get(capabilities, 'canSignEvents'), get(capabilities, 'hasNip44'), n04, n44,
-              n04 === undefined ? undefined : get(n04, 'encrypt'), n04 === undefined ? undefined : get(n04, 'decrypt'),
-              n44 === undefined ? undefined : get(n44, 'encrypt'), n44 === undefined ? undefined : get(n44, 'decrypt'),
-              Object.getPrototypeOf(sdkSigner)]
-          }
-          const expectedSdk = Object.freeze(sdkFields()), sdkClose = sdkSigner.close
-          check()
-          if (expectedSdk[4] !== 1 || typeof sdkClose !== 'function') hold()
-          closeSource = () => sdkClose.call(sdkSigner)
-          sdkCurrent = () => source?.signer === sdkSigner && sdkFields().every((value, index) => value === expectedSdk[index])
-          retainedProvider = { capture: captured, source,
-            beginControl: () => { controlMode = true; nativeCheck() },
-            controlLive: nativeCheck,
-            freshControl: async start => {
-              // Wallet waits and all reflective provider/proof work are kept
-              // out of the native reader until its final authenticated step.
-              nativeCheck()
-              if (retainedProvider?.foregroundClaimed) hold()
-              await navigator.locks.request(WRITE_LOCK, async () => {
-                if (retainedProvider?.foregroundClaimed) hold()
-                await clients(); await fresh(start); nativeCheck()
-              })
-              nativeCheck()
-            }, constructForeground: async construct => {
-              if (foregroundConstructionStarted || !retainedProvider?.foregroundClaimed) hold()
-              foregroundConstructionStarted = true
-              await navigator.locks.request(WRITE_LOCK, async () => {
-                await clients()
-                await fresh(() => { construct(); nativeCheck() })
-                // Constructor reflection is followed by another complete read.
-                await fresh(); nativeCheck()
-              })
-              nativeCheck()
-            }, assertForegroundProvider: () => {
-              check(); if (!sdkCurrent || !sdkCurrent()) hold()
-            }, trackControl, stop, consumed: false, foregroundStarted: false, foregroundClaimed: false, foreground: undefined }
-          privateExistingProviders.set(root, retainedProvider)
-          raw = undefined
-        } finally {
-          if (sdk) await Promise.allSettled([sdk]); if (providerPending) await Promise.allSettled([providerPending])
-          try { await raw?.close() }
-          finally {
-            context?.abort(); await context?.ended.catch(() => {}); context?.stop(); db?.close()
-            retained = undefined
-          }
-        }
+      stopped = true
+      privateExistingProviders.delete(root)
+      stopOne(() => { if (expiryTimer !== undefined) clearTimeout(expiryTimer) })
+      stopOne(() => context?.abort())
+      stopOne(() => {
+        if (retainedProvider?.bootstrap) retainedProvider.bootstrapModule!.stopOrdinaryPrivateBootstrap(retainedProvider.bootstrap)
       })
-    }).catch(error => { stop(); throw error })
-    browser.#track(operation); tab.#track(operation); void operation.catch(() => {})
-    return Object.freeze({ completed: operation, stop, close: () => {
+      stopOne(() => retainedProvider?.foreground?.stop())
+      stopOne(() => binding.revoke())
+      stopOne(() => browser.#revoke())
+      stopOne(() => tab.#revoke())
+    }
+    const cancel = { stop }
+    let resolveOperation!: () => void, rejectOperation!: (error: unknown) => void
+    const operation = new Promise<void>((yes, no) => { resolveOperation = yes; rejectOperation = no })
+    void operation.catch(() => {})
+    let queued: Promise<void> | undefined
+    const resource = Object.freeze({ completed: operation, stop, close: () => {
       if (closing) return closing
       let resolve!: () => void, reject!: (error: unknown) => void
       closing = new Promise<void>((yes, no) => { resolve = yes; reject = no })
       stop()
       void (async () => {
-        await operation.catch(() => {})
+        await Promise.allSettled([operation, queued])
         // Any later explicit authentication/member work must join before the
         // borrowed raw SDK is closed, even when that work refused or rejected.
-        while (controlWork.size) await Promise.allSettled([...controlWork])
+        while (controlWork.size) {
+          const pending = [...controlWork]
+          await Promise.allSettled(pending)
+          // Also retire terminal retention when synchronous construction
+          // failed before trackControl could install its finaliser.
+          for (const work of pending) controlWork.delete(work)
+        }
         // A foreground may have been assigned after revocation while its
         // construction was joining. Always settle it before the borrowed SDK.
-        const results = await Promise.allSettled([retainedProvider?.bootstrap &&
-          retainedProvider.bootstrapModule!.closeOrdinaryPrivateBootstrap(retainedProvider.bootstrap)])
-        results.push(...await Promise.allSettled([retainedProvider?.foreground?.close()]))
-        results.push(...await Promise.allSettled([closeSource?.()])); source = undefined; closeSource = undefined
+        // First stop failure, bootstrap, foreground, SDK, browser, tab is the
+        // fixed error order. Every close runs before any failure is reported.
+        const results = await Promise.allSettled([joinOrdinaryClose(() => retainedProvider?.bootstrap ?
+          retainedProvider.bootstrapModule!.closeOrdinaryPrivateBootstrap(retainedProvider.bootstrap) : undefined)])
+        results.push(...await Promise.allSettled([joinOrdinaryClose(() => retainedProvider?.foreground?.close())]))
+        results.push(...await Promise.allSettled([joinOrdinaryClose(() => closeSource?.())])); source = undefined; closeSource = undefined
         browser.#resources.delete(cancel); tab.#resources.delete(cancel)
-        results.push(...await Promise.allSettled([browser.#close(), tab.#close()]))
+        results.push(...await Promise.allSettled([joinOrdinaryClose(() => browser.#close()), joinOrdinaryClose(() => tab.#close())]))
+        if (stopFailure) throw stopFailure.error
         const failed = results.find(result => result.status === 'rejected')
         if (failed?.status === 'rejected') throw failed.reason
       })().then(resolve, reject)
       return closing
     } })
+    // Construct the complete stop/close resource before consuming capture or
+    // registering work. Every subsequent synchronous setup failure returns
+    // this same owned failed resource; its close joins any already queued tail.
+    try {
+      trackControl(command)
+      browser.#track(operation)
+      tab.#track(operation)
+      captured.consumed = true // Permanent; command already claimed and owned.
+      browser.#resources.add(cancel)
+      tab.#resources.add(cancel)
+      queued = Promise.resolve().then(async () => {
+        nativeCheck()
+        const floor = captured.credentialGeneration.current, floorSerial = floor.serial
+        const expire = () => {
+          // A retired timer cannot close or rearm another credential generation.
+          // Adoption owes its own fresh-current timer arm after publication.
+          if (stopped || captured.credentialGeneration.current !== floor ||
+              captured.credentialGeneration.current.serial !== floorSerial) return
+          try {
+            nativeCheck()
+            const deadline = Math.min(captured.expiresAt, (floor.selection.credentialExpiresAt - 599) * 1000,
+              captured.limits.sdkExpiresAt ?? Infinity,
+              captured.limits.admissionEndsAt === null ? Infinity : captured.limits.admissionEndsAt * 1000,
+              captured.limits.roomEndsAt === null ? Infinity : captured.limits.roomEndsAt * 1000)
+            expiryTimer = setTimeout(expire, Math.max(1, deadline - Date.now()))
+          } catch { stop() }
+        }
+        expire(); nativeCheck()
+        await binding.assertClientsCurrent(); nativeCheck()
+        if (HEADLESS_NIP07_DISCOVERY_BOUNDARY !== 1) hold()
+        return navigator.locks.request(WRITE_LOCK, async () => {
+          nativeCheck()
+          const snapshot = await import('./ordinary-snapshot.js'); nativeCheck()
+          let db: IDBDatabase | undefined, sdk: Promise<SignetSigner> | undefined, raw: SignetSigner | undefined
+          let providerPending: Promise<unknown> | undefined, used = false
+          let retained: Omit<SignetSession, 'method' | 'signer'> | undefined
+          const fresh = async (start?: () => void) => {
+            let b: OrdinaryImage | undefined, t: OrdinaryImage | undefined
+            try {
+              readCheck(); db?.close(); db = await browser.#existingStartupDatabase(binding.live); readCheck(); if (!db) hold()
+              db.onversionchange = () => { stop(); db?.close() }
+              context = operationTransaction(db, 'readonly')
+              const rows = await Promise.all([context.read(() => context!.store.get('browser')),
+                context.read(() => context!.store.get(captured.purpose))])
+              readCheck(); const br = row(rows[0]), tr = row(rows[1])
+              if (!br?.frame || !tr?.frame || br.pending || tr.pending ||
+                  rowDigest(br) !== captured.rows[0] || rowDigest(tr) !== captured.rows[1]) hold()
+              b = await openOrdinaryFrame(br.frame, br.key); readCheck()
+              t = await openOrdinaryFrame(tr.frame, tr.key); readCheck()
+              if (b.purpose !== 'browser' || b.expiresAt !== 0 || t.purpose !== captured.purpose ||
+                  t.expiresAt !== captured.expiresAt || b.revision !== captured.revisions[0] || t.revision !== captured.revisions[1] ||
+                  b.generation !== captured.generations[0] || t.generation !== captured.generations[1] ||
+                  b.migration?.phase !== 'complete' || t.migration?.phase !== 'complete') hold()
+              const facts = await browser.#classifyOperations(binding.live, context); readCheck()
+              if (JSON.stringify(facts) !== captured.classification) hold()
+              browser.#validateCleanupImage(b, t, tab, facts, snapshot)
+              const k = ORDINARY_SIGNET_KEYS, pubkey = b.records.get(k.pubkey), method = b.records.get(k.method),
+                auth = b.records.get(k.authEvent), expiry = b.records.get(k.expiresAt), displayName = b.records.get(k.displayName)
+              if (pubkey !== captured.selection.account || method !== 'nip07' || !auth ||
+                  b.records.has(k.bunkerUri) || b.records.has(k.bunkerClientSk) || b.records.has(k.pendingRedirect) ||
+                  b.records.has(k.pendingRelayAuth) || t.records.has(ORDINARY_INITIAL_LOGIN_KEY)) hold()
+              const expiresAt = expiry === undefined ? undefined : Number(expiry)
+              if (expiresAt !== undefined && (!Number.isSafeInteger(expiresAt) || String(expiresAt) !== expiry ||
+                  captured.selection.credentialExpiresAt > Math.floor(expiresAt / 1000))) hold()
+              const proof = captureOrdinaryForegroundProof(JSON.parse(auth))
+              if (JSON.stringify(proof) !== auth || proof.kind !== 21236 || proof.pubkey !== pubkey || !verifyEventUncached(proof) ||
+                  proof.tags.filter(tag => tag[0] === 'origin').length !== 1 ||
+                  !proof.tags.some(tag => tag.length === 2 && tag[0] === 'origin' && tag[1] === binding.origin) ||
+                  proof.tags.filter(tag => tag[0] === 'app').length !== 1 ||
+                  !proof.tags.some(tag => tag.length === 2 && tag[0] === 'app' && tag[1] === 'KithMoot')) hold()
+              if (!retained) retained = Object.freeze({ pubkey, authEvent: { ...proof, kind: 21236 as const },
+                ...(expiresAt === undefined ? {} : { expiresAt }), ...(displayName === undefined ? {} : { displayName }) })
+              await context.step(() => {
+                check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()
+                const now = Date.now(); nativeCheck()
+                if (!Number.isSafeInteger(now) || now < 0 || now >= captured.expiresAt ||
+                    captured.selection.credentialExpiresAt - Math.floor(now / 1000) < 600 ||
+                    expiresAt !== undefined && now >= expiresAt) hold()
+                start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()
+              })
+              context.stop(); await context.ended; readCheck()
+            } finally {
+              context?.abort(); await context?.ended.catch(() => {}); context?.stop(); context = undefined
+              clearImage(b); clearImage(t); db?.close(); db = undefined
+            }
+          }
+          const clients = async () => { readCheck(); await binding.assertClientsCurrent(); readCheck() }
+          try {
+            // Establish actual provider identity only after fresh native custody.
+            await fresh(); nativeCheck()
+            provider = window.nostr; nativeCheck(); if (!provider) hold()
+            fields = Object.freeze(providerFields()); check()
+            const boundary: Nip07DiscoveryBoundary = Object.freeze({ discoveryPreflightBoundary: 1 as const,
+              start: <T>(prepare: () => void, effect: () => Promise<T>): Promise<T> => {
+                if (used) return Promise.reject(new OrdinaryStateHold())
+                used = true
+                return (async () => {
+                  await clients(); prepare(); check()
+                  let actual: Promise<T> | undefined
+                  try {
+                    await fresh(() => {
+                      try { actual = Promise.resolve(effect()) } catch (error) { actual = Promise.reject(error) }
+                      void actual.catch(() => {}); providerPending = actual
+                      browser.#track(actual); tab.#track(actual)
+                    })
+                    if (!actual) hold(); const result = await actual
+                    await clients(); await fresh(); check(); return result
+                  } finally { if (actual) await Promise.allSettled([actual]) }
+                })()
+              } })
+            sdk = createPinnedNip07SignerWithDiscoveryBoundary(boundary)
+            browser.#track(sdk); tab.#track(sdk); void sdk.catch(() => {})
+            raw = await sdk; check()
+            if (!used || raw.providerEffectBoundary !== 1 || raw.method !== 'nip07' || raw.pubkey !== captured.selection.account) hold()
+            await clients(); await fresh(); check()
+            source = Object.freeze({ ...retained!, method: 'nip07' as const, signer: raw })
+            const sdkSigner = source.signer
+            const sdkFields = () => {
+              const get = (object: object, key: PropertyKey, optional = false): unknown => {
+                const value = controlMode ? own(object, key, optional) : Reflect.get(object, key)
+                readCheck(); return value
+              }
+              const capabilities = get(sdkSigner, 'capabilities') as object,
+                n04 = get(sdkSigner, 'nip04', true) as object | undefined, n44 = get(sdkSigner, 'nip44', true) as object | undefined
+              return [get(sdkSigner, 'pubkey'), get(sdkSigner, 'method'), get(sdkSigner, 'signEvent'),
+                get(sdkSigner, 'providerEffectBoundary'), get(sdkSigner, 'pinnedProviderCalls'), capabilities,
+                get(capabilities, 'canSignEvents'), get(capabilities, 'hasNip44'), n04, n44,
+                n04 === undefined ? undefined : get(n04, 'encrypt'), n04 === undefined ? undefined : get(n04, 'decrypt'),
+                n44 === undefined ? undefined : get(n44, 'encrypt'), n44 === undefined ? undefined : get(n44, 'decrypt'),
+                Object.getPrototypeOf(sdkSigner)]
+            }
+            const expectedSdk = Object.freeze(sdkFields()), sdkClose = sdkSigner.close
+            check()
+            if (expectedSdk[4] !== 1 || typeof sdkClose !== 'function') hold()
+            closeSource = () => sdkClose.call(sdkSigner)
+            sdkCurrent = () => source?.signer === sdkSigner && sdkFields().every((value, index) => value === expectedSdk[index])
+            retainedProvider = { capture: captured, source,
+              beginControl: () => { controlMode = true; nativeCheck() },
+              controlLive: nativeCheck,
+              freshControl: async start => {
+                // Wallet waits and all reflective provider/proof work are kept
+                // out of the native reader until its final authenticated step.
+                nativeCheck()
+                if (retainedProvider?.foregroundClaimed) hold()
+                await navigator.locks.request(WRITE_LOCK, async () => {
+                  if (retainedProvider?.foregroundClaimed) hold()
+                  await clients(); await fresh(start); nativeCheck()
+                })
+                nativeCheck()
+              }, constructForeground: async construct => {
+                if (foregroundConstructionStarted || !retainedProvider?.foregroundClaimed) hold()
+                foregroundConstructionStarted = true
+                await navigator.locks.request(WRITE_LOCK, async () => {
+                  await clients()
+                  await fresh(() => { construct(); nativeCheck() })
+                  // Constructor reflection is followed by another complete read.
+                  await fresh(); nativeCheck()
+                })
+                nativeCheck()
+              }, assertForegroundProvider: () => {
+                check(); if (!sdkCurrent || !sdkCurrent()) hold()
+              }, trackControl, stop, consumed: false, foregroundStarted: false, foregroundClaimed: false, foreground: undefined }
+            privateExistingProviders.set(root, retainedProvider)
+            raw = undefined
+          } finally {
+            if (sdk) await Promise.allSettled([sdk]); if (providerPending) await Promise.allSettled([providerPending])
+            try { await raw?.close() }
+            finally {
+              context?.abort(); await context?.ended.catch(() => {}); context?.stop(); db?.close()
+              retained = undefined
+            }
+          }
+        })
+      }).catch(error => { stop(); throw error })
+      void queued.catch(() => {})
+      browser.#track(queued)
+      tab.#track(queued)
+      void queued.then(resolveOperation, rejectOperation).catch(() => {})
+    } catch (error) {
+      rejectOperation(error)
+      stop()
+    }
+    return resource
   }
   /** Private construction stage only. It remains unreachable from discovery,
    * restore and public APIs. The full member driver must call it solely after
@@ -5533,7 +5592,12 @@ export class OrdinaryStateOwner {
   async #close(): Promise<void> {
     this.#revoke()
     while (this.#work.size) await Promise.allSettled([...this.#work])
-    for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)
-    this.#db?.close(); this.#db = undefined
+    for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) {
+      try { OrdinaryStateOwner.#disposePrivateRenewal(operation) }
+      catch (error) { this.#cleanupFailure ??= { error } }
+    }
+    try { this.#db?.close() } catch (error) { this.#cleanupFailure ??= { error } }
+    this.#db = undefined
+    if (this.#cleanupFailure) throw this.#cleanupFailure.error
   }
 }

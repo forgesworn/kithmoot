@@ -18,7 +18,22 @@ export interface OrdinaryPrivateExistingRootBinding {
   revoke(): void
 }
 const roots = new WeakMap<object, { root: ExistingRoot; claimed: boolean }>()
+const providerCommands = new WeakMap<object, {root: object; current: () => boolean}>()
+/** Native owner consumer only. Spend the exact root-registered command before
+ * capture consumption. A foreign, substituted or settled promise cannot mint
+ * construction timing or consent. No root binding or owner is returned. */
+export function claimOrdinaryPrivateExistingProviderCommand(root: OrdinaryPrivateExistingRoot, command: Promise<void>): void {
+  const value = providerCommands.get(command)
+  if (!value) hold()
+  providerCommands.delete(command)
+  if (value.root !== root || !value.current()) hold()
+}
 function hold(): never { throw new Error('Protected startup held') }
+/** Invoke each fixed close synchronously, but represent even a synchronous
+ * failure as a joined result so another resource's cleanup cannot be skipped. */
+function joinClose(close: () => void | Promise<void>): Promise<void> {
+  try { return Promise.resolve(close()) } catch (error) { return Promise.reject(error) }
+}
 
 /** Package-private native capture boundary. The actual root never escapes the
  * zero-argument entry below. Presence, a caller URL and a caller owner cannot
@@ -44,7 +59,7 @@ class ExistingRoot {
   #worker?: OrdinaryProtectedWorkerLifetime
   #capture?: OrdinaryPrivateExistingCaptureResource
   #provider?: OrdinaryPrivateExistingCaptureResource
-  #beginProvider?: (root: OrdinaryPrivateExistingRoot) => OrdinaryPrivateExistingCaptureResource
+  #beginProvider?: (root: OrdinaryPrivateExistingRoot, command: Promise<void>) => OrdinaryPrivateExistingCaptureResource
   #providerWork?: Promise<void>
   #providerOpening?: Promise<void>
   #work?: Promise<void>
@@ -53,8 +68,11 @@ class ExistingRoot {
   #lockWork?: Promise<void>
   #releaseTab?: () => void
   #workerClose?: Promise<void>
+  #startupClose?: Promise<void>
+  #stopFailure?: { readonly error: unknown }
   #closed = false
   #claimable = false
+  #captureReady = false
   #startupAcquired = false
   #pagehide = () => { void this.close().catch(() => {}) }
   #changed = () => { void this.close().catch(() => {}) }
@@ -94,7 +112,6 @@ class ExistingRoot {
       this.#notice('captured-held')
     }, async () => {
       this.#stop()
-      this.#notice('held')
       // #work is already terminal here; close cannot join itself.
       await this.close()
     })
@@ -102,16 +119,30 @@ class ExistingRoot {
   }
   restoreProvider(): Promise<void> {
     if (this.#providerOpening) return this.#providerOpening
-    void this.start().catch(() => {})
-    // Join internal capture work, not its close-on-error continuation.
-    this.#providerWork = this.#work!.then(() => {
-      this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot)
-      return this.#provider.completed
-    })
+    // Checkpoint callers must wait for the actual native capture. There is
+    // no queued provider construction hidden behind initial startup work.
+    if (!this.#captureReady || !this.#beginProvider || !this.#live()) {
+      this.#stop()
+      return this.close()
+    }
+    let resolve!: () => void, reject!: (error: unknown) => void
+    const command = new Promise<void>((yes, no) => { resolve = yes; reject = no })
+    // Publish the exact command before native resource creation can revoke or
+    // re-enter this root. The provider retains this same outer on both owners.
+    this.#providerWork = command
+    providerCommands.set(command, {root: this, current: () => this.#providerWork === command && this.#captureReady && this.#live()})
+    void command.finally(() => providerCommands.delete(command)).catch(() => {})
     this.#providerOpening = this.#providerWork.then(async () => {
       if (!this.#live()) { await this.close(); return }
       this.#notice('provider-held')
     }, async () => { this.#stop(); await this.close() })
+    try {
+      this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)
+      // Resource creation may synchronously revoke before assignment. Retain
+      // that late resource and stop it; close joins it before releasing locks.
+      if (this.#closed) this.#provider.stop()
+      void this.#provider.completed.then(resolve, reject)
+    } catch (error) { reject(error) }
     return this.#providerOpening
   }
   async #run(): Promise<void> {
@@ -150,24 +181,36 @@ class ExistingRoot {
     this.#check()
     await this.#capture.completed
     this.#check()
+    this.#captureReady = true
   }
   #notice(state: 'held' | 'captured-held' | 'provider-held'): void {
     document.documentElement.dataset.ordinaryProtectedStartup = state
+  }
+  #stopOne(stop: () => void): void {
+    try { stop() } catch (error) { this.#stopFailure ??= { error } }
   }
   #stop(): void {
     if (this.#closed) return
     this.#closed = true
     this.#claimable = false
-    this.#notice('held')
+    this.#captureReady = false
+    if (this.#providerWork) providerCommands.delete(this.#providerWork)
+    this.#stopOne(() => this.#notice('held'))
     // Before acquire's continuation no native reader or worker was started.
     // Abort a queued acquisition now; once acquired, retain MIGRATION until
     // the ordered close below joins every subsequently owned resource.
-    if (!this.#startupAcquired) void this.#startup.close().catch(() => {})
-    this.#provider?.stop()
-    this.#capture?.stop()
-    this.#workerClose = this.#worker?.close()
-    window.removeEventListener('pagehide', this.#pagehide)
-    navigator.serviceWorker?.removeEventListener('controllerchange', this.#changed)
+    if (!this.#startupAcquired) this.#stopOne(() => {
+      this.#startupClose = this.#startup.close()
+      void this.#startupClose.catch(() => {})
+    })
+    this.#stopOne(() => this.#provider?.stop())
+    this.#stopOne(() => this.#capture?.stop())
+    this.#stopOne(() => {
+      this.#workerClose = this.#worker?.close()
+      void this.#workerClose?.catch(() => {})
+    })
+    this.#stopOne(() => window.removeEventListener('pagehide', this.#pagehide))
+    this.#stopOne(() => navigator.serviceWorker?.removeEventListener('controllerchange', this.#changed))
   }
   close(): Promise<void> {
     if (this.#closing) return this.#closing
@@ -178,8 +221,9 @@ class ExistingRoot {
     this.#stop()
     // Starting close synchronously revokes native transactions. Its join runs
     // alongside the root work so a blocked open retains its real terminal tail.
-    const providerClose = this.#provider?.close()
-    const nativeClose = this.#capture?.close()
+    const initialProvider = this.#provider, initialCapture = this.#capture
+    const providerClose = joinClose(() => initialProvider?.close())
+    const nativeClose = joinClose(() => initialCapture?.close())
     const nativeJoins = Promise.allSettled([providerClose, nativeClose])
     void (async () => {
       await this.#work?.catch(() => {})
@@ -187,11 +231,22 @@ class ExistingRoot {
       // Rejection cannot skip another owned resource. Pending provider work
       // still retains the tab and MIGRATION locks until it has actually joined.
       const results = await nativeJoins
-      this.#releaseTab?.()
+      // A synchronous revocation during provider construction can start close
+      // before #provider is assigned. Join the actual late assignment too.
+      // Failure order is first synchronous stop failure, initial provider,
+      // initial capture, late provider, late capture, tab release, tab join,
+      // worker, startup. Resolution order cannot skip a join or
+      // change which error is reported. The same resource is never reclosed.
+      results.push(...await Promise.allSettled([
+        this.#provider !== initialProvider ? joinClose(() => this.#provider?.close()) : undefined,
+        this.#capture !== initialCapture ? joinClose(() => this.#capture?.close()) : undefined,
+      ]))
+      results.push(...await Promise.allSettled([joinClose(() => this.#releaseTab?.())]))
       this.#releaseTab = undefined
-      await this.#lockWork?.catch(() => {})
+      results.push(...await Promise.allSettled([this.#lockWork]))
       results.push(...await Promise.allSettled([this.#workerClose]))
-      results.push(...await Promise.allSettled([this.#startup.close()])) // MIGRATION last.
+      results.push(...await Promise.allSettled([joinClose(() => this.#startupClose ??= this.#startup.close())])) // MIGRATION last.
+      if (this.#stopFailure) throw this.#stopFailure.error
       const failed = results.find(result => result.status === 'rejected')
       if (failed?.status === 'rejected') throw failed.reason
     })().then(resolve, reject)
@@ -213,6 +268,7 @@ export function prepareOrdinaryPrivateExistingRoot(): Promise<void> {
 /** Unmounted current-provider discovery checkpoint. All native/SDK objects
  * remain private; no member session, carrier or UI is activated. */
 export function restoreOrdinaryPrivateExistingProviderRoot(): Promise<void> {
-  void prepareOrdinaryPrivateExistingRoot().catch(() => {})
-  return actualRoot?.restoreProvider() ?? Promise.resolve()
+  // A cold checkpoint call waits for capture, then invokes construction
+  // synchronously. Capture readiness supplies timing only, never consent.
+  return prepareOrdinaryPrivateExistingRoot().then(() => actualRoot?.restoreProvider())
 }
