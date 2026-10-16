@@ -83,7 +83,9 @@ export const SIGNAL_RETRY_MS = 1_000
  * (amendment A2; retransmitting candidates individually would have burned the
  * budget on its own). The acknowledging direction adds at most one delayed,
  * coalesced `ack` per 200ms burst, and normally none at all because acks
- * piggyback on whatever this side was already sending. So roughly 40
+ * piggyback on whatever this side was already sending; an ack owed for a
+ * duplicate is rarer still, at most one per `PURE_REPLY_WINDOW_MS` per far
+ * device (see `DUPLICATE_ACK_MIN_MS`). So roughly 40
  * simultaneously stuck connections before a device could trip its own budget,
  * against a mesh that opens a couple of dozen at its largest - the same
  * headroom `MAX_OFFER_RETRY_MS` in `src/peer.ts` reasons about, and the same
@@ -103,6 +105,73 @@ export const SIGNAL_RETRY_JITTER = 0.2
  * never expires waiting for it.
  */
 export const ACK_DELAY_MS = 200
+
+/**
+ * The window a duplicate's acknowledgement is sent in: uniformly random
+ * between these two, rather than at once.
+ *
+ * A duplicate used to be acked the instant it arrived, which made every
+ * device a free echo: anybody holding a channel to it could replay an old
+ * signal and time the bare ack that came straight back, learning whether the
+ * device was awake, foregrounded or throttled, from round trip to round trip,
+ * and without it ever doing anything the person would notice. That is the
+ * silent-receipt side channel of the "Careless Whisper" study, and the fix is
+ * the one it recommends: no reply whose timing is a function of the probe.
+ *
+ * The numbers come from the far end's retransmit schedule, which is the same
+ * in this client and the native one (1s, 2s, 4s, 8s, then 8s, each +/-20%).
+ * A duplicate means a retransmission, so the far end has just moved to its
+ * next step and will not ask again for at least 1.6s (2s less 20%). An ack at
+ * most 600ms later lands a full second before that, and 600ms is still inside
+ * the first 1s step - the bound `ACK_DELAY_MS` protects - so a duplicate that
+ * arrives early in the schedule costs no extra retransmission either. The
+ * native client uses the same window, so the two implementations cannot be
+ * told apart by it.
+ */
+export const DUPLICATE_ACK_MIN_MS = 200
+export const DUPLICATE_ACK_MAX_MS = 600
+
+/**
+ * At most one reply to a duplicate or a stale generation - a bare `ack` or a
+ * `sync`, the only things this channel sends that the far end alone decides
+ * the timing of - per far device per this window. Replies owed inside it are
+ * coalesced into one, sent once the window has passed.
+ *
+ * The cost is bounded and was chosen knowingly. When both the ordinary ack
+ * and the duplicate's ack are lost, the far end's next retransmission (1.6 to
+ * 2.4s after the first) can fall inside the window, and its ack then waits
+ * for the window's end; the far end may retransmit once more, at its 4s step,
+ * before that ack lands. Nothing stalls - retransmission is unbounded - and a
+ * double loss is rare. Two seconds matches the native client, and is the
+ * same interval `SYNC_INTERVAL_MS` already held a stale-generation reply to.
+ */
+export const PURE_REPLY_WINDOW_MS = 2_000
+
+/**
+ * One far device's budget for pure replies, shared by every channel to it.
+ *
+ * Per device rather than per channel because a channel is per generation: a
+ * device that could open a fresh generation would otherwise get a fresh
+ * budget with it. `SlotPeer` holds one for the device it talks to.
+ */
+export class PureReplyBudget {
+  readonly #windowMs: number
+  #lastAt: number | undefined
+  constructor(windowMs = PURE_REPLY_WINDOW_MS) {
+    this.#windowMs = windowMs
+  }
+
+  /** How long from `now` before another pure reply may go out. */
+  waitMs(now: number): number {
+    if (this.#lastAt === undefined) return 0
+    return Math.max(0, this.#lastAt + this.#windowMs - now)
+  }
+
+  /** A pure reply went out at `now`. */
+  spend(now: number): void {
+    this.#lastAt = now
+  }
+}
 
 /**
  * How many out-of-order signals are held before the oldest is dropped.
@@ -186,9 +255,16 @@ export interface SignalChannelOptions {
     ackDelayMs?: number
     syncMs?: number
     bufferLimit?: number
+    duplicateAckMinMs?: number
+    duplicateAckMaxMs?: number
+    replyWindowMs?: number
   }
-  /** Where the backoff jitter comes from. Defaults to `Math.random`. */
+  /** Where the backoff jitter, and the jitter on replies to duplicates and
+   *  stale generations, come from. Defaults to `Math.random`. */
   random?: () => number
+  /** The far device's pure-reply budget, shared across its generations.
+   *  Defaults to one of this channel's own. */
+  replyBudget?: PureReplyBudget
   clock?: ChannelClock
 }
 
@@ -226,6 +302,9 @@ export class SignalChannel {
   readonly #ackDelayMs: number
   readonly #syncMs: number
   readonly #bufferLimit: number
+  readonly #duplicateAckMinMs: number
+  readonly #duplicateAckMaxMs: number
+  readonly #replyBudget: PureReplyBudget
 
   #peerConn: string | undefined
   #closed = false
@@ -241,6 +320,10 @@ export class SignalChannel {
   #expected = 1
   readonly #buffer = new Map<number, ChannelSignal>()
   #ackTimer: unknown
+  /** A bare ack owed for a duplicate, jittered and budgeted. */
+  #duplicateAckTimer: unknown
+  /** A `sync` owed to an older generation, jittered and budgeted. */
+  #syncTimer: unknown
   #lastSyncAt: number | undefined
 
   constructor(options: SignalChannelOptions) {
@@ -261,6 +344,9 @@ export class SignalChannel {
     this.#ackDelayMs = timing.ackDelayMs ?? ACK_DELAY_MS
     this.#syncMs = timing.syncMs ?? SYNC_INTERVAL_MS
     this.#bufferLimit = timing.bufferLimit ?? MAX_BUFFERED_SIGNALS
+    this.#duplicateAckMinMs = timing.duplicateAckMinMs ?? DUPLICATE_ACK_MIN_MS
+    this.#duplicateAckMaxMs = Math.max(this.#duplicateAckMinMs, timing.duplicateAckMaxMs ?? DUPLICATE_ACK_MAX_MS)
+    this.#replyBudget = options.replyBudget ?? new PureReplyBudget(timing.replyWindowMs)
     if (options.expectedSeq !== undefined && options.expectedSeq >= 1) this.#expected = options.expectedSeq
   }
 
@@ -385,16 +471,16 @@ export class SignalChannel {
     const first = rangeStart(body, seq)
 
     // A duplicate means our acknowledgement was lost - the far end would not
-    // be asking again otherwise - so the repair is to ack at once rather than
-    // wait out the delay and watch it ask a third time.
+    // be asking again otherwise - so it is owed one. Not at once, though: an
+    // instant reply is an echo anybody can time. See `DUPLICATE_ACK_MIN_MS`.
     if (seq < this.#expected) {
-      this.#sendAckNow()
+      this.#armDuplicateAck()
       return
     }
 
     if (first > this.#expected) {
       if (this.#buffer.has(seq)) {
-        this.#sendAckNow()
+        this.#armDuplicateAck()
         return
       }
       this.#buffer.set(seq, body)
@@ -500,6 +586,10 @@ export class SignalChannel {
     this.#retryTimer = undefined
     this.#clock.clearTimer(this.#ackTimer)
     this.#ackTimer = undefined
+    this.#clock.clearTimer(this.#duplicateAckTimer)
+    this.#duplicateAckTimer = undefined
+    this.#clock.clearTimer(this.#syncTimer)
+    this.#syncTimer = undefined
   }
 
   get closed(): boolean {
@@ -563,6 +653,9 @@ export class SignalChannel {
       stamped.ack = acked
       this.#clock.clearTimer(this.#ackTimer)
       this.#ackTimer = undefined
+      // Whatever a duplicate was owed rides on this instead.
+      this.#clock.clearTimer(this.#duplicateAckTimer)
+      this.#duplicateAckTimer = undefined
     }
     this.#send(stamped)
   }
@@ -582,13 +675,50 @@ export class SignalChannel {
     this.#publish({ type: 'ack' })
   }
 
+  /**
+   * Owe the far end an ack for a duplicate, coalesced and jittered.
+   *
+   * Nothing to do while an ordinary ack is already due: it is cumulative and
+   * leaves within `ACK_DELAY_MS`, so it covers the duplicate too. Otherwise
+   * one timer, however many duplicates arrive, fired at a random point in
+   * the duplicate window and never sooner than the far device's budget
+   * allows - so a flood of replays earns one ack per window, at a time the
+   * replays do not set.
+   */
+  #armDuplicateAck(): void {
+    if (this.#closed || this.ackedThrough <= 0) return
+    if (this.#ackTimer !== undefined || this.#duplicateAckTimer !== undefined) return
+    this.#duplicateAckTimer = this.#clock.setTimer(this.#replyDelayMs(), () => {
+      this.#duplicateAckTimer = undefined
+      if (this.#closed || this.ackedThrough <= 0) return
+      this.#replyBudget.spend(this.#clock.now())
+      this.#publish({ type: 'ack' })
+    })
+  }
+
+  /** A random point in the duplicate window, after whatever the far
+   *  device's budget still has to wait. */
+  #replyDelayMs(): number {
+    const spread = this.#duplicateAckMaxMs - this.#duplicateAckMinMs
+    const jitter = this.#duplicateAckMinMs + Math.floor(this.#random() * (spread + 1))
+    return this.#replyBudget.waitMs(this.#clock.now()) + Math.min(jitter, this.#duplicateAckMaxMs)
+  }
+
   #replySync(): void {
+    if (this.#syncTimer !== undefined) return
     const now = this.#clock.now()
     if (this.#lastSyncAt !== undefined && now - this.#lastSyncAt < this.#syncMs) return
     this.#lastSyncAt = now
-    // No `peerConn`: the connection it is addressed to is precisely the one
-    // that no longer exists.
-    this.#send({ type: 'sync', gen: this.gen, conn: this.conn })
+    // Jittered and budgeted like a duplicate's ack, for the same reason: a
+    // signal stamped with an old generation is just as easy to replay.
+    this.#syncTimer = this.#clock.setTimer(this.#replyDelayMs(), () => {
+      this.#syncTimer = undefined
+      if (this.#closed) return
+      this.#replyBudget.spend(this.#clock.now())
+      // No `peerConn`: the connection it is addressed to is precisely the one
+      // that no longer exists.
+      this.#send({ type: 'sync', gen: this.gen, conn: this.conn })
+    })
   }
 
   #armRetry(): void {

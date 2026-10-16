@@ -4,6 +4,7 @@ import { decideOffer, nextGeneration } from './peer-generation.js'
 import { SlotPair, slotTrack, settle, POLITE, IMPOLITE } from '../test/slot-pair.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import type { SignalBody } from './signal.js'
+import { DUPLICATE_ACK_MAX_MS } from './signal-channel.js'
 
 /**
  * H2: the two ends of a pair disagreeing about which connection they are on.
@@ -33,6 +34,11 @@ describe('generations', () => {
     // limit window.
     await pair.polite.handleSignal(stale({ gen: 1, conn: 'dd'.repeat(8), slots: SLOTS, seq: 1 }))
     await pair.polite.handleSignal(stale({ gen: 1, conn: 'dd'.repeat(8), slots: SLOTS, seq: 2 }))
+    await settle()
+    // The sync is a reply the far end alone decides the timing of, so it
+    // leaves inside the duplicate window rather than at once.
+    expect(pair.since(mark, 'sync')).toHaveLength(0)
+    pair.clock.advance(DUPLICATE_ACK_MAX_MS)
     await settle()
 
     expect(pair.since(mark, 'sync')).toHaveLength(1)
