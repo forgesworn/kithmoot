@@ -33,6 +33,49 @@ Three things hold through every rewrite:
 kithmoot.app/j redirects there. `/j` is short on purpose: invitation and network hints still
 have to fit in a QR code, and every character in the path costs density.
 
+## Use it from code
+
+The library holds the room protocol without a browser: identity, links, rooms,
+epochs and `RoomAgent`, the headless counterpart to a browser's room session.
+It is not published to the npm registry. Its workspace packages are pinned at
+0.2.0, which the registry does not carry, and `@forgesworn/fold-kit` and
+`@forgesworn/signet-contacts` are installed from pinned GitHub commits, so
+an install needs git access to GitHub. Build it from a checkout:
+
+```bash
+git clone https://github.com/forgesworn/kithmoot.git
+cd kithmoot
+npm ci
+npm run build:lib   # writes dist/src/index.js and its declarations
+```
+
+Then join with the link a person was sent. The package entry (`exports` in
+`package.json`) is the same `dist/src/index.js`:
+
+```js
+import { RoomAgent, AGENT_CHANNEL } from './dist/src/index.js'
+
+const agent = await RoomAgent.join({ link: process.argv[2], name: 'Ada' })
+
+agent.chat.onChange((messages) => {
+  const last = messages.at(-1)
+  if (last) console.log(`${last.name ?? last.participant.slice(0, 8)}: ${last.text}`)
+})
+
+await agent.chat.send('hello from a Node process')
+await agent.channel(AGENT_CHANNEL).send('note for the other agents')
+console.log(agent.roster().map((person) => person.name))
+await agent.leave()
+```
+
+The agent says it is one in the roster, and the `agents` channel is readable
+by every person. This agent reads and writes chat only; pass a `factory`
+(`createWeriftFactory` in `src/node/webrtc.ts`) to carry media as well. Use
+`RoomAgent.create` to be the keeper that made a room. For links, use
+`parseRoomLink` and `encodeRoomLink`, which read and write every version;
+`encodeJoinUrl` and `decodeJoinUrl` are for legacy v1 room-secret links only.
+`llms.txt` lists the exports with signatures.
+
 ## The claim
 
 Every incumbent gets identity wrong, Jitsi and Slack included: it is
@@ -59,10 +102,12 @@ Today: groups that stay open with nobody online, channels inside each,
 threads, edits and retractions, mentions on the wire, direct messages, read
 positions that follow you between devices, encrypted files, calls with
 screen share, and agents as attested members, including a scribe that
-writes the minutes. Not yet: a frozen protocol, history beyond thirty days
-and five hundred messages, search beyond what a tab has loaded, and a push
-to a phone in a pocket. Those are next, in that order. `CHANGELOG.md`
-records what has shipped and
+writes the minutes. The existing event numbers are frozen by the
+[M2 protocol draft](docs/protocol.md), which is a project draft rather than
+an accepted NIP, with kind registration still pending. Not yet: history
+beyond thirty days and five hundred messages, search beyond what a tab has
+loaded, and a push to a phone in a pocket. Those are next, in that order.
+`CHANGELOG.md` records what has shipped and
 [what does not work yet](#what-does-not-work-yet) is the honest list.
 
 The [browser and home messaging goals](docs/product-goals.md) cover everyday
@@ -517,7 +562,8 @@ event per room. Everything else already runs on other keys: the device key
 signs the roster and the gift-wrapped signalling, the room key encrypts the
 roster and the chat. So the whole surface an identity has to cover is a
 pubkey and an async `signEvent`, which is
-`ParticipantIdentity` in `src/identity.ts`. A locally generated key and an
+`ParticipantIdentity` in `src/identity.ts` (re-exported from
+`@forgesworn/fold-kit`, where changes land). A locally generated key and an
 external signer both satisfy it, and nothing else in the protocol can tell
 which it has. This protects the participant secret, not every secret in the
 browser: ordinary room device, seal and retained epoch keys and admissions remain
@@ -551,7 +597,8 @@ open; coming back within the twelve hours reuses the last).
   name; the difference is that the key is persistent and has a history.
   It is never labelled "verified", because it is not.
 - **Names are sanitised at both ends.** `sanitiseDisplayName`
-  (`src/display-name.ts`) strips every Unicode "other" character (controls,
+  (`src/display-name.ts`, re-exported from `@forgesworn/fold-kit`, where
+  changes land) strips every Unicode "other" character (controls,
   bidirectional overrides, zero-width padding), collapses whitespace, and
   caps the result at 32 code points. Applied on encode so
   this client never publishes a hostile name, and on decode because no
@@ -667,11 +714,12 @@ one-parameter inverse.
 Stated plainly, before anyone else finds it. The workspace gaps come first,
 because a team is what this is now judged against:
 
-- **The message layer is on the wire and not yet frozen.** Replies and
+- **The message layer is a draft, not an accepted NIP.** Replies and
   threads, edits, retractions, mentions, direct messages and read positions
   are fields of the chat payload, vectored and read by both clients; see
-  `docs/messages.md`. The kinds are still provisional, the legacy
-  name-match for a message with no `mentions` field is still applied, and
+  `docs/messages.md`. The kind numbers are frozen by the M2 draft but not
+  yet registered, the legacy name-match for a message with no `mentions`
+  field is still applied, and
   Android reads every shape but writes only the ones it always did. Threads
   are one level deep on screen: a reply to a reply sits in the same thread
   and says which message it answers.
@@ -717,8 +765,9 @@ because a team is what this is now judged against:
 - **Encrypted media costs an extra encode/decode pass** and interacts badly
   with some hardware codec paths. It is only *needed* once a forwarder is in
   the path; pure mesh is already end-to-end via DTLS-SRTP.
-- **Kind numbers are provisional** (`src/kinds.ts`) and will change once the
-  spec is written.
+- **Kind numbers are frozen, not registered** (`src/kinds.ts`). The M2 draft
+  fixes them and pending registration does not renumber existing rooms;
+  submissions are prepared in `docs/protocol/kind-registration.json`.
 - **No background effects or voice masking on Android yet.** The web app has
   both; the native client does not. The Android client is the one most likely
   to be used somewhere sensitive, so this is the gap that matters most.
@@ -757,6 +806,31 @@ npm run demo       # HTTPS dev server for driving the app by hand, phone include
 npm run build      # production PWA build, to app/dist
 npm run agent -- --help   # kithmoot-agent: be in a room without a browser
 ```
+
+The three bins, in their checkout forms (they import from `dist/`, so run
+`npm run build:lib` first; `npm run agent` and `npm run forwarder` do it for you):
+
+```bash
+# kithmoot-agent: every subcommand but host and attest needs --name
+npm run agent -- create --base https://your-host/j/ --name Keeper --state ./keeper.state
+npm run agent -- join <link> --name Ada
+npm run agent -- mcp <link> --name Ada
+npm run agent -- host <link> --catalogue ./agents
+npm run agent -- scribe <link> --name Scribe --brain none
+npm run agent -- attest --agent <pubkey|npub> --identity ./principal.key
+
+# kithmoot-forwarder: environment only, no flags. It refuses to start without
+# a room id, a relay and exactly one stable key, and never takes a room key.
+KITHMOOT_ROOM_ID=<64 hex room id> NOSTR_RELAYS=wss://relay.example \
+  KITHMOOT_FORWARDER_SK=<64 hex, kept stable> npm run forwarder
+
+# kithmoot-context: mcp or call <tool>, over an existing agent's key
+node bin/kithmoot-context.mjs --help
+```
+
+`kithmoot-agent --help` lists every option and its environment variable.
+Several rooms on one forwarder take a comma-separated `KITHMOOT_ROOM_ID` and
+`KITHMOOT_FORWARDER_ROOT_SK` in place of `KITHMOOT_FORWARDER_SK`.
 
 `npm test` builds the library automatically through its `pretest` script.
 The forwarder and some acceptance fixtures import from `dist/`, which is
@@ -912,4 +986,4 @@ for the first production release.
 
 MIT
 
-The [M2 protocol draft](docs/protocol.md) freezes the existing wire and documents the additive signalling profile, reserved service codecs and compatibility gate. Kind registration and service enforcement remain separate.
+The [M2 protocol draft](docs/protocol.md) freezes the existing event numbers and documents the additive signalling profile, reserved service codecs and compatibility gate. It is a project draft, not an accepted NIP. Kind registration and service enforcement remain separate.

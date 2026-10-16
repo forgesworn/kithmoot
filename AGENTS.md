@@ -65,8 +65,8 @@ vectors/        protocol test vectors
 |------|---------|
 | `src/index.ts` | Public library entry point (protocol, identity, room, agent exports) |
 | `src/agent.ts` | `RoomAgent`, the headless counterpart to a browser's `RoomSession` |
-| `src/identity.ts` | `ParticipantIdentity`: the pubkey + `signEvent` surface an identity satisfies |
-| `src/display-name.ts` | `sanitiseDisplayName`: strips hostile Unicode, caps length |
+| `src/identity.ts` | `ParticipantIdentity`: the pubkey + `signEvent` surface an identity satisfies (re-exported from `@forgesworn/fold-kit`) |
+| `src/display-name.ts` | `sanitiseDisplayName`: strips hostile Unicode, caps length (re-exported from `@forgesworn/fold-kit`) |
 | `docs/decisions.md` | Why the protocol is not built on NIP-29 or Marmot |
 | `docs/agents.md` | Design of agents-as-members and the brain types `kithmoot-agent` supports |
 
