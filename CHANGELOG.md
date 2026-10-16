@@ -1,5 +1,12 @@
 # Changelog
 
+## Desktop 0.1.87 and Android 0.6.90 — 16 October 2026
+
+- Automatic replies no longer give away when a device is in use. A repeated call signal is answered after a short random wait, at most once every two seconds per device, and stale ones the same way.
+- With Ask me before anyone joins switched off, one device answers a room link after a short pause, instead of every device at once.
+- A new setting, Share where I have read up to with my other devices, is on by default. When on, read positions go out in random batches rather than seconds after each message.
+- A room's key desk answers after a short random wait, and refuses a removed member once an hour rather than every time. In a room closing with more than 20 people, some late arrivals see the room stop answering rather than a "closed" notice.
+
 ## Desktop 0.1.86 and Android 0.6.89 — 16 October 2026
 
 - A call's answer is matched to the offer it answers, so a late answer can no longer settle a newer camera change and leave video stuck.
