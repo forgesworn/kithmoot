@@ -1,7 +1,9 @@
+import { ordinaryRenewalContinuationSlots, copyOrdinaryRenewalContinuation, wipeOrdinaryRenewalContinuation, type OrdinaryRenewalContinuationNonce } from './ordinary-private-renewal-continuation.js'
 import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
   ordinaryPrivateForegroundCurrent, ordinaryPrivateForegroundDeadline,
+  retainOrdinaryPrivateRenewalForeground, signOrdinaryPrivateRenewalAttempt, validateOrdinaryPrivateRenewalForegroundDecision,
   type OrdinaryPrivateForegroundAuthority, type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
-import type { OrdinaryPrivateRenewalFactory } from './ordinary-private-renewal.js'
+import { takeOrdinaryPrivateRenewalObligation, type OrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalObligation } from './ordinary-private-renewal.js'
 import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
 import { claimOrdinaryPrivateExistingRoot, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
@@ -26,7 +28,7 @@ import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { getPublicKey } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
 import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification, openOrdinaryOperationControl,
-  ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, validateOrdinaryOperationControl, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
+  wipeOrdinaryOperationJournal, ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, validateOrdinaryOperationControl, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
   type OrdinaryOperationJournal, type OrdinaryOperationClassification, type OrdinaryOperationControl } from './ordinary-operation-codec.js'
 import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
@@ -120,12 +122,136 @@ interface PrivateRenewalFactoryState {
   readonly scopes: readonly [OrdinaryScope, OrdinaryScope]
   readonly foregroundExpiresAt: number | null
   closed: boolean
+  operationStarted?: boolean
 }
 const privateRenewalFactoryClaims = new WeakMap<object, OrdinaryPrivateRenewalFactory>()
 const privateRenewalFactories = new WeakMap<object, PrivateRenewalFactoryState>()
 const privateRenewalIntentWitnesses = new WeakMap<object, Readonly<{
   factory: OrdinaryPrivateRenewalFactory; root: ProtocolExecution; intent: OrdinaryRenewalIntent
 }>>()
+declare const privateSettledBrand: unique symbol
+/** Durable settlement only. This is never a current-member receipt. */
+export interface OrdinaryPrivateRenewalSettled { readonly [privateSettledBrand]: true }
+declare const privateAttemptBrand: unique symbol
+export interface OrdinaryPrivateRenewalSigningAttempt { readonly [privateAttemptBrand]: true }
+declare const privateDecisionBrand: unique symbol
+export interface OrdinaryPrivateRenewalDecision { readonly [privateDecisionBrand]: true }
+interface PrivateRenewalOperation {
+  readonly factory: OrdinaryPrivateRenewalFactory
+  readonly value: PrivateRenewalFactoryState
+  readonly root: ProtocolExecution
+  readonly intent: OrdinaryRenewalIntent
+  readonly outer: Promise<OrdinaryPrivateRenewalSettled>
+  readonly tails: Set<Promise<unknown>>
+  readonly tokens: Set<object>
+  revoked: boolean
+  disposed: boolean
+  custodyOnly: boolean
+  terminal?: 'settled' | 'failed'
+  revokeWait?: () => void
+  context?: OperationTransaction
+  secret?: Uint8Array
+  nonces?: readonly Uint8Array[]
+  request?: string
+  statement?: Required<import('signet-login').EventTemplate>
+  attempt?: OrdinaryPrivateRenewalSigningAttempt
+  completion?: {
+    state: 'prepared' | 'armed' | 'fulfilled' | 'capturing' | 'captured' | 'persisting' | 'done' | 'failed'
+    provider?: Promise<unknown>
+    raw?: unknown
+    canonical?: string
+    digest?: string
+    binding?: Readonly<{
+      operation: PrivateRenewalOperation; root: ProtocolExecution; outer: Promise<OrdinaryPrivateRenewalSettled>
+      cohort: PreparedRenewalTarget; facts: OperationClassification; journalDigest: string
+      request: string; requestDigest: string; statement: Required<import('signet-login').EventTemplate>; statementDigest: string
+    }>
+    captured?: Readonly<{canonical: string; digest: string; provider: Promise<unknown>; raw: unknown}>
+  }
+}
+interface PrivateRenewalContinuation {
+  readonly values: readonly OrdinaryRenewalContinuationNonce[]
+  readonly used: Set<number>
+}
+interface PrivateRenewalPhase {
+  readonly operation: PrivateRenewalOperation
+  state: 'available' | 'claimed'
+  readonly cohort: PreparedRenewalTarget
+  readonly facts: OperationClassification
+}
+const privateRenewalEnrollments = new WeakMap<object, PrivateRenewalPhase>()
+const privateRenewalResults = new WeakMap<object, PrivateRenewalPhase>()
+const privateRenewalCandidates = new WeakMap<object, PrivateRenewalPhase>()
+const privateRenewalCommits = new WeakMap<object, PrivateRenewalPhase>()
+const privateRenewalSettled = new WeakMap<object, PrivateRenewalPhase>()
+const privateRenewalOwnerResources = new WeakMap<OrdinaryStateOwner, Set<PrivateRenewalOperation>>()
+const privateRenewalAttempts = new WeakMap<object, {
+  operation: PrivateRenewalOperation; statement?: Required<import('signet-login').EventTemplate>; claimed: boolean; retained: boolean
+  start?: <T>(provider: () => Promise<T>) => Promise<T>
+}>()
+const privateRenewalDecisions = new WeakMap<object, {
+  operation: PrivateRenewalOperation; browser: DeviceStore; tab: DeviceStore; check: () => void
+}>()
+let runPrivateRenewal!: (obligation: OrdinaryPrivateRenewalObligation) => Promise<OrdinaryPrivateRenewalSettled>
+/** Fixed owner endpoint. No caller chooses a phase, source, signer or writer. */
+export function renewOrdinaryPrivateMember(obligation: OrdinaryPrivateRenewalObligation): Promise<OrdinaryPrivateRenewalSettled> {
+  return runPrivateRenewal(obligation)
+}
+/** Sole consumer is the fixed foreground core. All values are opaque or owned
+ * statement data. No raw owner, SDK, lifecycle root or callback is unpacked. */
+export function takeOrdinaryPrivateRenewalSigningAttempt(token: OrdinaryPrivateRenewalSigningAttempt): Readonly<{
+  foreground: OrdinaryPrivateForegroundAuthority; native: OrdinaryPrivateMemberNative
+  statement: Required<import('signet-login').EventTemplate>; pending: Promise<unknown>
+}> {
+  const value = privateRenewalAttempts.get(token)
+  if (!value || !value.retained || !value.statement || value.claimed || value.operation.disposed || value.operation.revoked) hold()
+  value.claimed = true
+  const op = value.operation
+  verifyOrdinaryLifecyclePromise(op.root, op.outer)
+  return Object.freeze({foreground: op.value.foreground, native: op.value.native, statement: value.statement, pending: op.outer})
+}
+/** Fixed foreground resource reservation before E, without source reflection
+ * or provider permission. The same opaque attempt is completed only after E. */
+export function retainOrdinaryPrivateRenewalSigningLifetime(token: OrdinaryPrivateRenewalSigningAttempt): Readonly<{
+  foreground: OrdinaryPrivateForegroundAuthority; native: OrdinaryPrivateMemberNative; pending: Promise<unknown>
+}> {
+  const value = privateRenewalAttempts.get(token)
+  if (!value || value.retained || value.operation.disposed || value.operation.revoked) hold()
+  value.retained = true
+  const op = value.operation
+  verifyOrdinaryLifecyclePromise(op.root, op.outer)
+  return Object.freeze({foreground: op.value.foreground, native: op.value.native, pending: op.outer})
+}
+/** Only the captured SDK boundary in the private foreground core calls this.
+ * The token remains confined to those two fixed modules. */
+export function startOrdinaryPrivateRenewalProvider<T>(token: OrdinaryPrivateRenewalSigningAttempt, provider: () => Promise<T>): Promise<T> {
+  const value = privateRenewalAttempts.get(token)
+  if (!value?.claimed || !value.start || value.operation.disposed) return Promise.reject(new OrdinaryStateHold())
+  return value.start(provider)
+}
+/** Raw success identity comparison only, after SDK settlement. */
+export function finishOrdinaryPrivateRenewalSdkResult(token: OrdinaryPrivateRenewalSigningAttempt, raw: unknown): void {
+  const value = privateRenewalAttempts.get(token), cell = value?.operation.completion
+  if (!value?.claimed || cell?.state !== 'done' || cell.raw !== raw || !cell.canonical || !cell.digest ||
+      !cell.binding || !cell.captured || cell.binding.operation !== value.operation || cell.binding.root !== value.operation.root ||
+      cell.binding.outer !== value.operation.outer || cell.captured?.provider !== cell.provider || cell.captured?.raw !== raw ||
+      cell.captured.canonical !== cell.canonical || cell.captured.digest !== cell.digest) hold()
+  const bytes = new TextEncoder().encode(cell.canonical)
+  try { if (bytesToHex(sha256(bytes)) !== cell.digest) hold() } finally { bytes.fill(0) }
+  cell.raw = undefined; cell.captured = undefined; cell.binding = undefined; cell.provider = undefined
+}
+/** Fixed foreground-only synchronous witness. It is deleted before its real
+ * native callback returns and cannot manufacture OrdinaryPairCustody. */
+export function ordinaryPrivateRenewalDecisionFor(token: OrdinaryPrivateRenewalDecision,
+  foreground: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative): Readonly<{
+    browser: DeviceStore; tab: DeviceStore; participant: string; deadline: number | null
+  }> {
+  const value = privateRenewalDecisions.get(token)
+  if (!value || value.operation.value.foreground !== foreground || value.operation.value.native !== native) hold()
+  value.check()
+  return Object.freeze({browser: value.browser, tab: value.tab, participant: value.operation.intent.participant,
+    deadline: value.operation.value.foregroundExpiresAt})
+}
 async function privateRenewalIntentModules() {
   const [proof, snapshot, lease, devices, rooms, seal, session] = await Promise.all([
     import('./persistent-admission-proof.js'), import('./ordinary-snapshot.js'), import('./ordinary-member-lease.js'),
@@ -1423,6 +1549,545 @@ export class OrdinaryStateOwner {
   }
   static {
     preparePrivateRenewalIntent = (factory, root, desired) => this.#preparePrivateRenewalIntent(factory, root, desired)
+    runPrivateRenewal = obligation => this.#runPrivateRenewal(obligation)
+  }
+  /** One fixed owner pipeline. Its sole protocol child is the exact outer
+   * promise; inner native/SDK tails are owned transitively and by both owners.
+   * Every phase cohort is separate from the unchanged initial member epoch. */
+  static #runPrivateRenewal(obligation: OrdinaryPrivateRenewalObligation): Promise<OrdinaryPrivateRenewalSettled> {
+    let held: ReturnType<typeof takeOrdinaryPrivateRenewalObligation>, value: PrivateRenewalFactoryState
+    try {
+      held = takeOrdinaryPrivateRenewalObligation(obligation)
+      const found = privateRenewalFactories.get(held.factory)
+      if (!found || found.operationStarted || held.intent.account === null || held.intent.account !== held.intent.participant) hold()
+      value = found; value.operationStarted = true
+    } catch { return Promise.reject(new OrdinaryStateHold()) }
+    const {browser, tab} = value.member.capture, provider = privateExistingProviders.get(value.member.capture.root)
+    if (!provider) return Promise.reject(new OrdinaryStateHold())
+    let resolve!: (receipt: OrdinaryPrivateRenewalSettled) => void, reject!: (reason: unknown) => void
+    const outer = new Promise<OrdinaryPrivateRenewalSettled>((yes, no) => { resolve = yes; reject = no })
+    const op: PrivateRenewalOperation = {factory: held.factory, value, root: held.root, intent: held.intent, outer,
+      tails: new Set(), tokens: new Set(), revoked: false, disposed: false, custodyOnly: false}
+    const resource = {stop: () => { op.revoked = true; if (!op.custodyOnly) { op.context?.abort(); op.revokeWait?.() } }}
+    for (const owner of [browser, tab]) {
+      let resources = privateRenewalOwnerResources.get(owner)
+      if (!resources) privateRenewalOwnerResources.set(owner, resources = new Set())
+      resources.add(op); owner.#resources.add(resource); owner.#track(outer)
+    }
+    provider.trackControl(outer); void outer.catch(() => {})
+    const track = <T>(pending: Promise<T>): Promise<T> => {
+      op.tails.add(pending); provider.trackControl(pending)
+      void pending.finally(() => op.tails.delete(pending)).catch(() => {})
+      return pending
+    }
+    const check = () => {
+      if (op.disposed || op.revoked || !ordinaryPrivateRenewalFactoryCurrent(op.factory)) hold()
+      verifyOrdinaryLifecyclePromise(op.root, outer)
+      browser.#check(value.member.live); tab.#check(value.member.live)
+    }
+    try {
+      held.root.retain(outer); check()
+      const attempt = Object.freeze({}) as OrdinaryPrivateRenewalSigningAttempt
+      op.attempt = attempt; op.tokens.add(attempt)
+      privateRenewalAttempts.set(attempt, {operation: op, claimed: false, retained: false})
+      retainOrdinaryPrivateRenewalForeground(attempt); check()
+    } catch {
+      op.revoked = true
+      // Setup is synchronous, but any already registered work remains owned
+      // through the same iterative terminal drain before releasing handles.
+      void Promise.resolve().then(async () => {
+        while (op.tails.size) await Promise.allSettled([...op.tails])
+        op.terminal = 'failed'; OrdinaryStateOwner.#disposePrivateRenewal(op)
+        browser.#resources.delete(resource); tab.#resources.delete(resource)
+        reject(new OrdinaryStateHold())
+      }).catch(() => { reject(new OrdinaryStateHold()) })
+      return outer
+    }
+    void Promise.resolve().then(async () => {
+      check()
+      const [modules, request, capacity, startup, credential, candidate] = await Promise.all([
+        privateRenewalIntentModules(), import('./ordinary-renewal-request.js'), import('./ordinary-prepared-renewal-capacity.js'),
+        import('./ordinary-renewal-startup.js'), import('./ordinary-renewal-credential.js'), import('./ordinary-renewal-candidate.js'),
+      ]); check()
+      const clients = async () => { check(); await value.member.capture.binding.assertClientsCurrent(); check() }
+      const hash = (raw: string) => { const b = new TextEncoder().encode(raw); try { return bytesToHex(sha256(b)) } finally { b.fill(0) } }
+      const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+      const binding = (image: OrdinaryImage) => ({purpose: image.purpose, keyId: image.keyId, generation: image.generation, expiresAt: image.expiresAt})
+      const header = (journal: OrdinaryOperationJournal) => {
+        const bytes = encodeOrdinaryOperationJournal(journal)
+        try { return decodeOrdinaryOperationClassification(bytes) } finally { bytes.fill(0) }
+      }
+      const packetHash = (journal: OrdinaryOperationJournal) => {
+        const bytes = encodeOrdinaryOperationJournal(journal)
+        try { return bytesToHex(sha256(bytes)) } finally { bytes.fill(0) }
+      }
+      const purpose = tab.purpose as `tab:${string}`, names = ordinaryOperationNames(purpose)
+      const replace = (pairs: readonly (readonly [string, string])[], name: string, raw: string) => Object.freeze(
+        pairs.filter(([n]) => n !== name).concat([[name, raw]]).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(p => Object.freeze(p)))
+      const factsFor = (prior: OperationClassification, target: PreparedRenewalTarget, marker?: string): OperationClassification => Object.freeze({
+        owners: replace(replace(prior.owners, 'browser', target.rows[0]), purpose, target.rows[1]),
+        controls: replace(prior.controls, names.control, target.controlDigest),
+        markers: marker === undefined ? prior.markers : replace(prior.markers, names.marker, marker),
+      })
+      const wait = (revocable = false) => track(new Promise<void>(yes => {
+        let done = false
+        const release = () => {
+          if (done) return
+          done = true
+          if (browser.#retry === release) browser.#retry = undefined
+          if (tab.#retry === release) tab.#retry = undefined
+          if (op.revokeWait === release) op.revokeWait = undefined
+          yes()
+        }
+        browser.#retry = release; tab.#retry = release
+        // Exact-prior live retries become impossible on revocation. Wake only
+        // that wait; mixed acknowledgement and result-custody repair remain
+        // explicitly held until an authenticated disposition is available.
+        if (revocable) { op.revokeWait = release; if (op.revoked) release() }
+      }))
+      const continuationCopies = new Set<readonly OrdinaryRenewalContinuationNonce[]>()
+      const continuationFor = (phase: import('./ordinary-operation-codec.js').OrdinaryOperationPhase): OrdinaryRenewalContinuationNonce[] => {
+        const values = ordinaryRenewalContinuationSlots(phase).map(slot => ({slot, nonce: Uint8Array.from(op.nonces![slot]!)}))
+        continuationCopies.add(values); return values
+      }
+      const usedNonces = new Set<number>()
+      /** One purpose-bound sealer invocation, with every draw and encryption
+       * accounted for. Failed seals spend their slots permanently too. */
+      const fixedCrypto = (slots: readonly number[], keys: readonly CryptoKey[], custodyOnly = false) => {
+        let drawn = 0, encrypted = 0, finished = false, failed = false
+        const provider = {getRandomValues: <T extends ArrayBufferView>(target: T): T => {
+          const slot = slots[drawn], nonce = slot === undefined ? undefined : op.nonces?.[slot]
+          if (finished || failed || drawn !== encrypted || !(target instanceof Uint8Array) || target.length !== 12 ||
+              !nonce || usedNonces.has(slot!)) { failed = true; hold() }
+          drawn++; usedNonces.add(slot!); target.set(nonce); return target
+        }, subtle: {encrypt: async (algorithm: AlgorithmIdentifier | RsaOaepParams | AesCtrParams | AesCbcParams | AesGcmParams, key: CryptoKey, bytes: BufferSource) => {
+          const params = algorithm as AesGcmParams, slot = slots[encrypted], nonce = slot === undefined ? undefined : op.nonces?.[slot]
+          const iv = params?.iv instanceof ArrayBuffer ? new Uint8Array(params.iv) : params?.iv
+          if (finished || failed || drawn !== encrypted + 1 || key !== keys[encrypted] || !nonce ||
+              typeof params !== 'object' || params.name !== 'AES-GCM' || params.tagLength !== 128 ||
+              !(iv instanceof Uint8Array) || iv.length !== 12 || iv.some((v, i) => v !== nonce[i])) { failed = true; hold() }
+          for (;;) {
+            try { const result = await crypto.subtle.encrypt(algorithm, key, bytes); encrypted++; return result }
+            catch { if (!custodyOnly) { failed = true; hold() }; await wait() }
+          }
+        }} as SubtleCrypto} as Crypto
+        return {provider, finish: () => {
+          finished = true
+          if (failed || drawn !== slots.length || encrypted !== slots.length || keys.length !== slots.length) hold()
+        }, fail: () => { failed = true; finished = true }}
+      }
+      const freezeFrame = async (image: OrdinaryImage, key: CryptoKey, slot: number) => {
+        const seal = fixedCrypto([slot], [key])
+        try { const frame = await sealOrdinaryImage(image, key, seal.provider); seal.finish(); return frame }
+        catch { seal.fail(); hold() }
+      }
+      const freezeControl = async (journal: OrdinaryOperationJournal, rows: readonly [Row, Row], images: readonly [OrdinaryImage, OrdinaryImage], slots: readonly number[], custodyOnly = false) => {
+        const keys = {browser: {binding: binding(images[0]), key: rows[0].key}, tab: {binding: binding(images[1]), key: rows[1].key}}
+        const seal = fixedCrypto(slots, [rows[0].key, rows[1].key], custodyOnly)
+        try {
+          const control = await sealOrdinaryOperationControl(journal, keys, seal.provider); seal.finish()
+          const opened = await openOrdinaryOperationControl(control, keys)
+          try { if (packetHash(opened) !== packetHash(journal)) hold() } finally { wipeOrdinaryOperationJournal(opened) }
+          return control
+        } catch { seal.fail(); hold() }
+      }
+      const targetFor = (rows: readonly [Row, Row], control: OrdinaryOperationControl, journal: OrdinaryOperationJournal): PreparedRenewalTarget =>
+        ({purpose, rows: [rowDigest(rows[0]), rowDigest(rows[1])], controlDigest: ordinaryOperationControlDigest(control), header: header(journal)})
+      let db: IDBDatabase | undefined, active: PreparedRenewalTarget | undefined, expected: OperationClassification | undefined
+      let activeJournal: OrdinaryOperationJournal | undefined, rawRequest = ''
+      const reopen = async (custodyOnly = false) => {
+        db?.close(); db = await track(browser.#existingStartupDatabase(custodyOnly ? () => true : value.member.live, custodyOnly))
+        if (!db) hold()
+        const actual = db; actual.onversionchange = () => { resource.stop(); browser.#revoke(); tab.#revoke(); actual.close() }
+      }
+      const phaseCheck = (custodyOnly: boolean) => { if (op.disposed) hold(); if (!custodyOnly) check() }
+      /** Exact whole-cohort acknowledgement. Unknown/mixed is never absence. */
+      const acknowledge = async (priorFacts: OperationClassification, nextFacts: OperationClassification,
+        prior: PreparedRenewalTarget | undefined, next: PreparedRenewalTarget): Promise<'prior' | 'target'> => {
+        for (;;) {
+          let context: OperationTransaction | undefined, observed: 'prior' | 'target' | undefined
+          try {
+            await reopen(true); context = operationTransaction(db!, 'readonly'); op.context = context
+            const facts = await browser.#classifyOperations(() => true, context, true, prior ? [prior, next] : next)
+            context.stop(); await context.ended
+            if (equal(facts, nextFacts)) observed = 'target'
+            else if (equal(facts, priorFacts)) observed = 'prior'
+          } catch { context?.abort(); await context?.ended.catch(() => {}) }
+          finally { context?.stop(); op.context = undefined }
+          if (observed) return observed
+          await wait()
+        }
+      }
+      /** Initial P is actual native custody, never an inverse projection. */
+      const initial = async <T>(mode: IDBTransactionMode, work: (b: OrdinaryImage, t: OrdinaryImage,
+        rows: readonly [Row, Row], facts: OperationClassification, previous: import('./ordinary-renewal-request.js').OrdinaryRenewalRequest['previous'], priorNonces: ReadonlySet<string>) => T): Promise<T> => {
+        let context: OperationTransaction | undefined, b: OrdinaryImage | undefined, t: OrdinaryImage | undefined
+        let custody: OrdinaryPairCustody | undefined, bv: ReturnType<typeof view> | undefined, tv: ReturnType<typeof view> | undefined
+        try {
+          await clients(); await reopen(); check(); context = operationTransaction(db!, mode); op.context = context
+          const facts = await browser.#classifyOperations(value.member.live, context); check()
+          if (JSON.stringify(facts) !== value.member.capture.classification) hold()
+          const raw = await Promise.all([context.read(() => context!.store.get('browser')), context.read(() => context!.store.get(purpose)), context.read(() => context!.store.get(names.control))]); check()
+          const br = row(raw[0]), tr = row(raw[1]); if (!br?.frame || !tr?.frame || br.pending || tr.pending) hold()
+          b = await openOrdinaryFrame(br.frame, br.key); check(); t = await openOrdinaryFrame(tr.frame, tr.key); check()
+          const previous = raw[2] === undefined ? null : {digest: ordinaryOperationControlDigest(raw[2]), header: await openOrdinaryOperationClassification(raw[2],
+            {browser: {binding: binding(b), key: br.key}, tab: {binding: binding(t), key: tr.key}})}
+          check(); if (previous && previous.header.phase !== 'settled') hold()
+          // Classification authenticated all current ciphertexts in this same
+          // transaction. Conservatively exclude their nonces across every key,
+          // including browser-key controls belonging to other tabs.
+          const priorNonces = new Set<string>()
+          for (const [name, digest] of facts.owners) {
+            const saved = row(await context.read(() => context!.store.get(name))); check()
+            if (!saved || rowDigest(saved) !== digest) hold()
+            for (const frame of [saved.frame, saved.pending]) if (frame) priorNonces.add(bytesToHex(new Uint8Array(frame.nonce)))
+          }
+          for (const [name, digest] of facts.controls) {
+            const saved = validateOrdinaryOperationControl(await context.read(() => context!.store.get(name))); check()
+            if (ordinaryOperationControlDigest(saved) !== digest) hold()
+            priorNonces.add(bytesToHex(new Uint8Array(saved.browser.nonce))); priorNonces.add(bytesToHex(new Uint8Array(saved.tab.nonce)))
+          }
+          browser.#operationControlDigests = new Map(facts.controls)
+          bv = view(new Map(b.records), false); tv = view(new Map(t.records), false); custody = Object.freeze({}) as OrdinaryPairCustody
+          pairCustody.set(custody, {kind: 'read', browser: b, tab: t, browserOwner: browser, tabOwner: tab,
+            browserStore: bv.store, tabStore: tv.store, browserScope: value.scopes[0], tabScope: value.scopes[1], rows: [br, tr],
+            operationMarkers: [new Map(facts.markers), new Map([...t.records].filter(([n]) => n.startsWith('kithmoot.operation-journal')))]})
+          let result!: T
+          await context.step(() => {
+            check(); OrdinaryStateOwner.#validatePrivateRenewalRead(value.member, value.scopes, bv!.store, tv!.store, custody!)
+            const derived = OrdinaryStateOwner.#derivePrivateRenewalIntent(value, bv!.store, tv!.store, custody!,
+              {issuedAt: op.intent.issuedAt, expiresAt: op.intent.expiresAt, semanticDigest: op.intent.semanticDigest}, modules)
+            if (!equal(derived, op.intent)) hold()
+            result = work(b!, t!, [br, tr], facts, previous, priorNonces)
+            OrdinaryStateOwner.#validatePrivateRenewalRead(value.member, value.scopes, bv!.store, tv!.store, custody!); check()
+          })
+          context.stop(); await context.ended; check(); await clients(); check(); return result
+        } catch { context?.abort(); await context?.ended.catch(() => {}); hold() }
+        finally { context?.stop(); op.context = undefined; if (custody) pairCustody.delete(custody); bv?.close(); tv?.close(); clearImage(b); clearImage(t) }
+      }
+      /** Post-E reads authenticate real E/C rows. Inverse P remains historical
+       * data; it is never registered as read custody or sent to generic FG. */
+      const phase = async <T>(mode: IDBTransactionMode, custodyOnly: boolean, work: (j: OrdinaryOperationJournal,
+        rows: readonly [Row, Row], images: readonly [OrdinaryImage, OrdinaryImage]) => T): Promise<T> => {
+        let context: OperationTransaction | undefined, b: OrdinaryImage | undefined, t: OrdinaryImage | undefined, j: OrdinaryOperationJournal | undefined
+        let bv: ReturnType<typeof view> | undefined, tv: ReturnType<typeof view> | undefined, decision: OrdinaryPrivateRenewalDecision | undefined, inDecision = false
+        try {
+          phaseCheck(custodyOnly); if (!custodyOnly) await clients()
+          await reopen(custodyOnly); phaseCheck(custodyOnly)
+          if (!active || !expected || !activeJournal) hold()
+          context = operationTransaction(db!, mode); op.context = context
+          const facts = await browser.#classifyOperations(custodyOnly ? () => true : value.member.live, context, custodyOnly, active)
+          phaseCheck(custodyOnly); if (!equal(facts, expected)) hold()
+          const raw = await Promise.all([context.read(() => context!.store.get('browser')), context.read(() => context!.store.get(purpose)), context.read(() => context!.store.get(names.control))])
+          phaseCheck(custodyOnly)
+          const br = row(raw[0]), tr = row(raw[1]); if (!br?.frame || !tr?.frame || br.pending || tr.pending || rowDigest(br) !== active.rows[0] || rowDigest(tr) !== active.rows[1]) hold()
+          b = await openOrdinaryFrame(br.frame, br.key); phaseCheck(custodyOnly); t = await openOrdinaryFrame(tr.frame, tr.key); phaseCheck(custodyOnly)
+          j = await openOrdinaryOperationControl(raw[2], {browser: {binding: binding(b), key: br.key}, tab: {binding: binding(t), key: tr.key}})
+          phaseCheck(custodyOnly)
+          if (packetHash(j) !== packetHash(activeJournal) || j.request !== rawRequest || j.id !== active.header.id || j.sequence !== active.header.sequence) hold()
+          const scopes = value.member.foregroundScopes(); if (!scopes) hold()
+          for (const pair of [value.scopes, scopes]) { browser.#scope(b, pair[0]); tab.#scope(t, pair[1]) }
+          if (b.generation !== value.member.epoch.current.generations[0] || t.generation !== value.member.epoch.current.generations[1] || t.expiresAt !== tab.expiresAt) hold()
+          await startup.validateOrdinaryRenewalStartupRows(j, [br.frame, tr.frame], [b, t]); phaseCheck(custodyOnly)
+          browser.#validateCleanupImage(b, t, tab, facts, modules.snapshot)
+          bv = view(new Map(b.records), false); tv = view(new Map(t.records), false)
+          let result!: T
+          const nativeCheck = () => { if (!inDecision) hold(); phaseCheck(custodyOnly) }
+          await context.step(() => {
+            inDecision = true
+            try {
+              nativeCheck()
+              if (j!.version !== 2 || !j!.continuation || j!.nonces !== null ||
+                  j!.continuation.some(value => !op.nonces?.[value.slot] || value.nonce.some((b, i) => b !== op.nonces![value.slot]![i]))) hold()
+              if (!custodyOnly) {
+                decision = Object.freeze({}) as OrdinaryPrivateRenewalDecision
+                privateRenewalDecisions.set(decision, {operation: op, browser: bv!.store, tab: tv!.store, check: nativeCheck})
+                validateOrdinaryPrivateRenewalForegroundDecision(value.foreground, value.native, decision); nativeCheck()
+              }
+              result = work(j!, [br, tr], [b!, t!]); nativeCheck()
+              if (!custodyOnly) validateOrdinaryPrivateRenewalForegroundDecision(value.foreground, value.native, decision!)
+              nativeCheck()
+            } finally { inDecision = false; if (decision) privateRenewalDecisions.delete(decision) }
+          })
+          context.stop(); await context.ended; phaseCheck(custodyOnly)
+          if (!custodyOnly) await clients()
+          return result
+        } catch { context?.abort(); await context?.ended.catch(() => {}); hold() }
+        finally { context?.stop(); op.context = undefined; bv?.close(); tv?.close(); clearImage(b); clearImage(t); wipeOrdinaryOperationJournal(j) }
+      }
+      /** Freeze each exact control once. A retry reuses its candidate bytes. */
+      const persist = async (journal: OrdinaryOperationJournal, slots: readonly number[], custodyOnly = false,
+        frames?: readonly [OrdinaryFrame, OrdinaryFrame], marker?: string): Promise<void> => {
+        const prep = await phase('readonly', custodyOnly, (_j, rows, images) => ({rows, images: [copyImage(images[0]), copyImage(images[1])] as const}))
+        let control: OrdinaryOperationControl
+        try { control = await freezeControl(journal, prep.rows, prep.images, slots, custodyOnly) } finally { prep.images.forEach(clearImage) }
+        const rows = frames ? [{key: prep.rows[0].key, frame: frames[0]}, {key: prep.rows[1].key, frame: frames[1]}] as const : prep.rows
+        const next = targetFor(rows, control, journal), prior = active!, priorFacts = expected!, nextFacts = factsFor(priorFacts, next, marker)
+        for (;;) {
+          let attempted = false
+          try {
+            await phase('readwrite', custodyOnly, () => {
+              phaseCheck(custodyOnly); attempted = true
+              if (frames) { op.context!.store.put({key: rows[0].key, frame: validateOrdinaryFrame(frames[0])}, 'browser'); phaseCheck(custodyOnly)
+                op.context!.store.put({key: rows[1].key, frame: validateOrdinaryFrame(frames[1])}, purpose); phaseCheck(custodyOnly) }
+              op.context!.store.put(validateOrdinaryOperationControl(control), names.control)
+            })
+          } catch { if (!attempted) hold() }
+          if (await acknowledge(priorFacts, nextFacts, prior, next) === 'target') {
+            for (const slot of slots) op.nonces![slot]!.fill(0)
+            if (journal.phase === 'candidate-committed') { op.nonces![8]!.fill(0); op.nonces![9]!.fill(0); op.secret?.fill(0) }
+            if (journal.phase === 'settled') { op.nonces![14]!.fill(0); op.nonces![15]!.fill(0) }
+            wipeOrdinaryRenewalContinuation(activeJournal?.continuation); active = next; expected = nextFacts; activeJournal = journal; return
+          }
+          // Revoked + exact prior is a terminal owned refusal, never a wait
+          // for a now-impossible live retry. Mixed/unavailable stays retained.
+          phaseCheck(custodyOnly); await wait(!custodyOnly); phaseCheck(custodyOnly)
+        }
+      }
+      const issue = (map: WeakMap<object, PrivateRenewalPhase>) => {
+        const token = Object.freeze({}); op.tokens.add(token)
+        map.set(token, {operation: op, state: 'available', cohort: active!, facts: expected!}); return token
+      }
+      const take = (map: WeakMap<object, PrivateRenewalPhase>, token: object) => {
+        const value = map.get(token)
+        if (!value || value.operation !== op || value.state !== 'available' || value.cohort !== active || value.facts !== expected) hold()
+        value.state = 'claimed'; check()
+      }
+      try {
+        check(); if (!navigator.locks || browser.#retry || tab.#retry) hold()
+        return await navigator.locks.request(WRITE_LOCK, async () => {
+          try {
+          const allocated = await initial('readonly', (b, t, rows, facts, previous, priorNonces) => {
+            const sequence = previous ? previous.header.sequence + 1 : 1
+            const scopes = [['browser', value.scopes[0].name, b.generation, value.scopes[0].fence],
+              [purpose, value.scopes[1].name, t.generation, value.scopes[1].fence]] as const
+            const fences = [b, t].map((image, i) => { const scope = scopes[i]!; return [image.purpose, scope[1], image.fences.has(scope[1]), image.fences.get(scope[1]) ?? null, scope[3]] as const })
+            rawRequest = request.encodeOrdinaryRenewalRequest({version: 1, domain: 'kithmoot/member-renewal/request/v1', credentialFormat: 1,
+              intent: op.intent, sources: [{...binding(b), revision: b.revision}, {...binding(t), revision: t.revision}], scopes, fences, previous})
+            op.request = rawRequest
+            const makeE = (id: string) => [b, t].map((image, i) => {
+              const next = copyImage(image); next.records = new Map(next.records); next.fences = new Map(next.fences); next.revision++
+              ;(next.records as Map<string, string>).set(names.marker, ordinaryOperationMarker({id, tab: purpose, sequence, commitment: null}))
+              ;(next.fences as Map<string, number>).set(scopes[i]![1], scopes[i]![3]); return next
+            }) as [OrdinaryImage, OrdinaryImage]
+            const zero = '0'.repeat(64), probe = makeE(zero)
+            const skeleton: OrdinaryOperationJournal = {version: 2, id: zero, tab: purpose, sequence, phase: 'prepared', source: op.intent.sourceFrames,
+              sourceRevisions: op.intent.sourceRevisions, enrolled: ['1'.repeat(64), '2'.repeat(64)], enrolledRevisions: [b.revision + 1, t.revision + 1], target: null, targetRevisions: null,
+              requestDigest: hash(rawRequest), resultDigest: null, scopes, ceilings: [op.intent.authority.tabExpiresAt, op.intent.authority.admissionEndsAt ?? 0,
+                op.intent.authority.foregroundExpiresAt ?? 0], request: rawRequest, result: null, secrets: [], nonces: null, continuation: []}
+            const dummy = new Uint8Array(32).fill(1), result = 'x'.repeat(credential.ORDINARY_RENEWAL_RESULT_BYTES)
+            try {
+              probe.forEach(ordinaryImageByteLength); capacity.reserveOrdinaryPrivateRenewalImages([b, t], probe, rawRequest)
+              for (const phase of ['prepared', 'provider-started', 'provider-returned', 'candidate-prepared', 'candidate-committed', 'settled'] as const) {
+                const candidate = ['candidate-prepared', 'candidate-committed', 'settled'].includes(phase), returned = ['provider-returned', 'candidate-prepared', 'candidate-committed'].includes(phase),
+                  privateBody = ['prepared', 'provider-started', 'provider-returned', 'candidate-prepared'].includes(phase)
+                const phaseProbe: OrdinaryOperationJournal = {...skeleton, phase, request: phase === 'settled' ? '' : rawRequest,
+                  result: returned ? result : null, resultDigest: phase === 'prepared' || phase === 'provider-started' ? null : hash(result),
+                  secrets: privateBody ? [dummy] : [], nonces: null, continuation: ordinaryRenewalContinuationSlots(phase).map(slot => ({slot, nonce: new Uint8Array(12).fill(slot + 1)})),
+                  target: candidate ? ['3'.repeat(64), '4'.repeat(64)] : null, targetRevisions: candidate ? [b.revision + 2, t.revision + 2] : null}
+                try { const bytes = encodeOrdinaryOperationJournal(phaseProbe); bytes.fill(0) } finally { wipeOrdinaryRenewalContinuation(phaseProbe.continuation) }
+              }
+              // Reserve final S marker and revision widths as well as C.
+              for (const image of probe) { image.revision += 2; (image.records as Map<string, string>).set(names.marker,
+                ordinaryOperationMarker({id: zero, tab: purpose, sequence, commitment: zero})); ordinaryImageByteLength(image) }
+            } finally { probe.forEach(clearImage); dummy.fill(0) }
+            check()
+            const randomBytes = (n: number) => { check(); const bytes = new Uint8Array(n)
+              try { crypto.getRandomValues(bytes); check(); return bytes } catch { bytes.fill(0); hold() } }
+            const idBytes = randomBytes(32); let id: string
+            try { id = bytesToHex(idBytes) } finally { idBytes.fill(0) }
+            op.secret = randomBytes(32); getPublicKey(op.secret); check()
+            const nonces: Uint8Array[] = []; op.nonces = nonces
+            for (let i = 0; i < 18; i++) { const nonce = randomBytes(12); nonces.push(nonce)
+              if (priorNonces.has(bytesToHex(nonce)) || nonces.slice(0, -1).some(other => other.every((v, n) => v === nonce[n]))) hold() }
+            const images = makeE(id)
+            return {rows, images, facts, journal: {...skeleton, id, secrets: [op.secret! as Uint8Array<ArrayBuffer>], continuation: continuationFor('prepared')}, marker: images[0].records.get(names.marker)!}
+          })
+          let ef: readonly [OrdinaryFrame, OrdinaryFrame], control: OrdinaryOperationControl
+          try {
+            const first = await freezeFrame(allocated.images[0], allocated.rows[0].key, 0); check()
+            const second = await freezeFrame(allocated.images[1], allocated.rows[1].key, 1); check(); ef = [first, second]
+            allocated.journal.enrolled = [ordinaryFrameDigest(first), ordinaryFrameDigest(second)]
+            control = await freezeControl(allocated.journal, allocated.rows, allocated.images, [2, 3]); check()
+          } finally { allocated.images.forEach(clearImage) }
+          const eRows = [{key: allocated.rows[0].key, frame: ef[0]}, {key: allocated.rows[1].key, frame: ef[1]}] as const
+          const enrolled = targetFor(eRows, control, allocated.journal), eFacts = factsFor(allocated.facts, enrolled, allocated.marker)
+          for (;;) {
+            let attempted = false
+            try { await initial('readwrite', (_b, _t, rows, facts) => {
+              if (!equal(facts, allocated.facts) || !sameRow(rows[0], allocated.rows[0]) || !sameRow(rows[1], allocated.rows[1])) hold()
+              check(); attempted = true
+              op.context!.store.put({key: rows[0].key, frame: validateOrdinaryFrame(ef[0])}, 'browser'); check()
+              op.context!.store.put({key: rows[1].key, frame: validateOrdinaryFrame(ef[1])}, purpose); check()
+              op.context!.store.put(validateOrdinaryOperationControl(control), names.control); check()
+            }) } catch { if (!attempted) hold() }
+            if (await acknowledge(allocated.facts, eFacts, undefined, enrolled) === 'target') break
+            check(); await wait(true); check()
+          }
+          for (const slot of [0, 1, 2, 3]) op.nonces![slot]!.fill(0)
+          active = enrolled; expected = eFacts; activeJournal = allocated.journal; await clients(); check()
+          const enrollment = issue(privateRenewalEnrollments); take(privateRenewalEnrollments, enrollment)
+          const statement = await credential.ordinaryRenewalStatement(rawRequest, op.secret!); check()
+          op.statement = statement
+          const started: OrdinaryOperationJournal = {...activeJournal, phase: 'provider-started', secrets: [op.secret! as Uint8Array<ArrayBuffer>],
+            nonces: null, continuation: continuationFor('provider-started')}
+          await persist(started, [4, 5]); check()
+          const attempt = op.attempt!, attemptState = privateRenewalAttempts.get(attempt)!
+          attemptState.statement = statement
+          const cell: NonNullable<PrivateRenewalOperation['completion']> = {state: 'prepared'}; op.completion = cell
+          let providerStarted = false, boundaryClosed = false
+          attemptState.start = <T>(invoke: () => Promise<T>): Promise<T> => {
+            if (providerStarted || boundaryClosed || op.disposed || op.revoked) return Promise.reject(new OrdinaryStateHold())
+            providerStarted = true // Permanent before scheduling or foreign code.
+            const run = Promise.resolve().then(async () => {
+              let actual: Promise<T> | undefined
+              try {
+                try { await phase('readonly', false, () => {
+                  if (cell.state !== 'prepared' || actual) hold()
+                  cell.binding = Object.freeze({operation: op, root: op.root, outer, cohort: active!, facts: expected!,
+                    journalDigest: packetHash(started), request: rawRequest, requestDigest: hash(rawRequest),
+                    statement, statementDigest: hash(JSON.stringify(statement))})
+                  cell.state = 'armed'; op.custodyOnly = true
+                  try { actual = Promise.resolve(invoke()) } catch { actual = Promise.reject(new OrdinaryStateHold()) }
+                  cell.provider = actual; track(actual); void actual.catch(() => {})
+                }) } catch { if (!actual) hold(); op.revoked = true }
+                if (!actual || cell.provider !== actual) hold()
+                let raw: T
+                try { raw = await actual } catch { cell.state = 'failed'; hold() }
+                if (cell.state !== 'armed' || cell.provider !== actual) hold()
+                cell.raw = raw; cell.state = 'fulfilled'
+                const completionState = () => cell.state
+                const authenticateCaptured = () => {
+                  try {
+                  const bound = cell.binding, captured = cell.captured
+                  if (!bound || !captured || bound.operation !== op || bound.root !== op.root || bound.outer !== outer ||
+                      bound.cohort !== active || bound.facts !== expected || bound.journalDigest !== packetHash(activeJournal!) ||
+                      bound.request !== rawRequest || bound.request !== op.request || bound.requestDigest !== hash(rawRequest) ||
+                      bound.statement !== statement || bound.statement !== op.statement || bound.statementDigest !== hash(JSON.stringify(statement)) ||
+                      captured.provider !== actual || cell.provider !== actual || captured.raw !== raw || cell.raw !== raw ||
+                      captured.canonical !== cell.canonical || captured.digest !== cell.digest || hash(captured.canonical) !== captured.digest) hold()
+                  // Reauthenticate only detached owned data. The foreign raw
+                  // fulfilment is never reflected for a second time.
+                  if (credential.ordinaryRenewalResultForStatement(bound.request, bound.statement, JSON.parse(captured.canonical)) !== captured.canonical) hold()
+                  } catch { cell.state = 'failed'; hold() }
+                }
+                // No raw metadata has been touched. Dedicated completion D,
+                // using existing native custody, owns the only proof capture.
+                for (;;) {
+                  try {
+                    await phase('readonly', true, () => {
+                      if (cell.provider !== actual || cell.raw !== raw) hold()
+                      // A read-only terminal failure after capture retries
+                      // authentication only. Never reflect a raw proof twice.
+                      if (completionState() === 'captured') { authenticateCaptured(); return }
+                      if (completionState() !== 'fulfilled') hold()
+                      cell.state = 'capturing'
+                      try { cell.canonical = credential.ordinaryRenewalResultForStatement(rawRequest, statement, raw as unknown as import('signet-login').NostrEvent)
+                        cell.digest = hash(cell.canonical)
+                        cell.captured = Object.freeze({canonical: cell.canonical, digest: cell.digest, provider: actual!, raw})
+                        cell.state = 'captured'; authenticateCaptured()
+                      } catch { cell.state = 'failed'; hold() }
+                    })
+                    break
+                  } catch { if (completionState() === 'failed' || completionState() === 'capturing') { cell.state = 'failed'; hold() }; await wait() }
+                }
+                authenticateCaptured()
+                if (!cell.canonical || !cell.digest) hold()
+                cell.state = 'persisting'
+                await persist({...started, phase: 'provider-returned', result: cell.canonical, resultDigest: cell.digest, continuation: continuationFor('provider-returned')}, [6, 7], true)
+                cell.state = 'done'; return raw
+              } catch { if (cell.state !== 'done') cell.state = 'failed'; throw new OrdinaryStateHold() }
+              finally { if (actual) await Promise.allSettled([actual]); op.custodyOnly = false }
+            })
+            return track(run)
+          }
+          try { await track(signOrdinaryPrivateRenewalAttempt(attempt)) } finally { boundaryClosed = true; attemptState.start = undefined }
+          check(); await clients(); check()
+          if (!providerStarted || cell.state !== 'done' || !cell.canonical || !cell.digest) hold()
+          const result = issue(privateRenewalResults); take(privateRenewalResults, result)
+          const projected = await phase('readonly', false, (_j, rows, images) => {
+            const inverse = [copyImage(images[0]), copyImage(images[1])] as const
+            try {
+              request.restoreOrdinaryRenewalPredecessor(inverse[0], inverse[1], rawRequest, {id: active!.header.id, sequence: active!.header.sequence})
+              const copies = candidate.prepareOrdinaryRetainedRenewalCandidate(inverse, rawRequest, cell.canonical!, op.secret!, images)
+              try { browser.#validateCleanupImage(copies[0], copies[1], tab, expected!, modules.snapshot); return {images: copies, rows} }
+              catch { copies.forEach(clearImage); hold() }
+            } finally { inverse.forEach(clearImage) }
+          })
+          let cf: readonly [OrdinaryFrame, OrdinaryFrame]
+          try { const b = await freezeFrame(projected.images[0], projected.rows[0].key, 8); check()
+            const t = await freezeFrame(projected.images[1], projected.rows[1].key, 9); check(); cf = [b, t]
+          } finally { projected.images.forEach(clearImage) }
+          const prepared: OrdinaryOperationJournal = {...activeJournal!, phase: 'candidate-prepared', target: [ordinaryFrameDigest(cf[0]), ordinaryFrameDigest(cf[1])],
+            targetRevisions: [cf[0].revision, cf[1].revision], continuation: continuationFor('candidate-prepared')}
+          await persist(prepared, [10, 11]); check()
+          const preparedToken = issue(privateRenewalCandidates); take(privateRenewalCandidates, preparedToken)
+          const committed: OrdinaryOperationJournal = {...prepared, phase: 'candidate-committed', secrets: [], nonces: null, continuation: continuationFor('candidate-committed')}
+          await persist(committed, [12, 13], false, cf); check()
+          const committedToken = issue(privateRenewalCommits); take(privateRenewalCommits, committedToken)
+          const settled: OrdinaryOperationJournal = {...committed, phase: 'settled', request: '', result: null, continuation: []}
+          const settledMarker = ordinaryOperationMarker({id: settled.id, tab: purpose, sequence: settled.sequence, commitment: ordinaryOperationCommitment(header(settled))})
+          const final = await phase('readonly', false, (_j, rows, images) => ({rows, images: images.map(image => {
+            const copy = copyImage(image); copy.records = new Map(copy.records); (copy.records as Map<string, string>).set(names.marker, settledMarker); copy.revision++
+            ordinaryImageByteLength(copy); return copy
+          }) as [OrdinaryImage, OrdinaryImage]}))
+          let sf: readonly [OrdinaryFrame, OrdinaryFrame]
+          try { const b = await freezeFrame(final.images[0], final.rows[0].key, 14); check()
+            const t = await freezeFrame(final.images[1], final.rows[1].key, 15); check(); sf = [b, t]
+          } finally { final.images.forEach(clearImage) }
+          await persist(settled, [16, 17], false, sf, settledMarker); check(); await clients(); check()
+          if (usedNonces.size !== 18) hold()
+          return issue(privateRenewalSettled) as OrdinaryPrivateRenewalSettled
+          } catch { op.revoked = true; throw new OrdinaryStateHold() }
+          finally {
+            // The WRITE lock belongs to every started tail too, including a
+            // first SDK callback still running after a concurrent refusal.
+            while (op.tails.size) await Promise.allSettled([...op.tails])
+          }
+        })
+      } finally { op.context?.abort(); await op.context?.ended.catch(() => {}); op.context = undefined; db?.close(); continuationCopies.forEach(wipeOrdinaryRenewalContinuation) }
+    }).then(async receipt => {
+      while (op.tails.size) await Promise.allSettled([...op.tails])
+      OrdinaryStateOwner.#invalidatePrivateRenewalTokens(op, receipt)
+      OrdinaryStateOwner.#clearPrivateRenewalMaterial(op); op.terminal = 'settled'; resolve(receipt)
+    }, async () => {
+      op.revoked = true
+      while (op.tails.size) await Promise.allSettled([...op.tails])
+      OrdinaryStateOwner.#invalidatePrivateRenewalTokens(op)
+      OrdinaryStateOwner.#clearPrivateRenewalMaterial(op); op.terminal = 'failed'
+      reject(new OrdinaryStateHold())
+    }).catch(() => { reject(new OrdinaryStateHold()) })
+    return outer
+  }
+  /** No request, statement, provider promise or proof is settlement history.
+   * Clear the old cell as well as its owner pointer after dependent tails join. */
+  static #clearPrivateRenewalMaterial(op: PrivateRenewalOperation): void {
+    op.secret?.fill(0); op.nonces?.forEach(n => n.fill(0))
+    op.secret = undefined; op.nonces = undefined; op.request = undefined; op.statement = undefined; op.attempt = undefined
+    if (op.completion) {
+      op.completion.raw = undefined; op.completion.provider = undefined; op.completion.captured = undefined
+      op.completion.binding = undefined; op.completion.canonical = undefined; op.completion.digest = undefined
+    }
+    op.completion = undefined
+  }
+  /** All transient handles die as soon as terminal tails have joined. Only
+   * successful durable settlement remains until its independent owner closes. */
+  static #invalidatePrivateRenewalTokens(op: PrivateRenewalOperation, retained?: OrdinaryPrivateRenewalSettled): void {
+    for (const token of op.tokens) {
+      if (token === retained) continue
+      privateRenewalAttempts.delete(token); privateRenewalEnrollments.delete(token); privateRenewalResults.delete(token)
+      privateRenewalCandidates.delete(token); privateRenewalCommits.delete(token); privateRenewalSettled.delete(token)
+      op.tokens.delete(token)
+    }
+  }
+  /** Owner-local disposal follows foreground/SDK and all shared work. It never
+   * joins either parent, owner close, or the outer promise it belongs to. */
+  static #disposePrivateRenewal(op: PrivateRenewalOperation): void {
+    if (op.disposed) return
+    op.disposed = true; op.revoked = true
+    OrdinaryStateOwner.#invalidatePrivateRenewalTokens(op)
+    op.tokens.clear(); OrdinaryStateOwner.#clearPrivateRenewalMaterial(op)
+    for (const owner of [op.value.member.capture.browser, op.value.member.capture.tab]) privateRenewalOwnerResources.get(owner)?.delete(op)
   }
   static #preparePrivateRenewalIntent(factory: OrdinaryPrivateRenewalFactory, root: ProtocolExecution,
     desired: Readonly<{issuedAt: number; expiresAt: number; semanticDigest: string}>): Promise<OrdinaryPrivateRenewalIntentWitness> {
@@ -1614,7 +2279,7 @@ export class OrdinaryStateOwner {
             b = await openOrdinaryFrame(br.frame, br.key); check(); t = await openOrdinaryFrame(tr.frame, tr.key); check()
             const header = (image: OrdinaryImage) => ({ purpose: image.purpose, keyId: image.keyId, generation: image.generation, expiresAt: image.expiresAt })
             journal = await openOrdinaryOperationControl(rows[2], { browser: { binding: header(b), key: br.key }, tab: { binding: header(t), key: tr.key } }); check()
-            if (journal.phase !== 'prepared' || journal.tab !== tab.purpose || t.expiresAt !== tab.expiresAt ||
+            if (journal.version !== 1 || journal.phase !== 'prepared' || journal.tab !== tab.purpose || t.expiresAt !== tab.expiresAt ||
                 journal.result !== null || journal.secrets.length || journal.nonces !== null || journal.target !== null) hold()
             await startup.validateOrdinaryRenewalStartupRows(journal, [br.frame, tr.frame], [b, t]); check()
             const request = codec.readOrdinaryRenewalRequest(journal.request), intent = request.intent
@@ -1669,7 +2334,7 @@ export class OrdinaryStateOwner {
             context.stop(); await context.ended; check()
           } finally {
             context?.abort(); await context?.ended.catch(() => {}); context?.stop(); context = undefined
-            journal?.secrets.forEach(secret => secret.fill(0)); clearImage(b); clearImage(t)
+            wipeOrdinaryOperationJournal(journal); clearImage(b); clearImage(t)
           }
         }
         const boundary: Nip07DiscoveryBoundary = Object.freeze({ discoveryPreflightBoundary: 1 as const, start: <T>(prepare: () => void, provider: () => Promise<T>): Promise<T> => {
@@ -1922,7 +2587,7 @@ export class OrdinaryStateOwner {
           b = await openOrdinaryFrame(br.frame, br.key); check(); t = await openOrdinaryFrame(tr.frame, tr.key); check()
           const frameBinding = (image: OrdinaryImage) => ({ purpose: image.purpose, keyId: image.keyId, generation: image.generation, expiresAt: image.expiresAt })
           journal = await openOrdinaryOperationControl(raw[2], { browser: { binding: frameBinding(b), key: br.key }, tab: { binding: frameBinding(t), key: tr.key } }); check()
-          if (journal.phase !== 'prepared' || journal.tab !== tab.purpose || t.expiresAt !== tab.expiresAt ||
+          if (journal.version !== 1 || journal.phase !== 'prepared' || journal.tab !== tab.purpose || t.expiresAt !== tab.expiresAt ||
               journal.result !== null || journal.secrets.length || journal.nonces !== null || journal.target !== null) hold()
           await startup.validateOrdinaryRenewalStartupRows(journal, [br.frame, tr.frame], [b, t]); check()
           const request = requestCodec.readOrdinaryRenewalRequest(journal.request), intent = request.intent
@@ -1982,7 +2647,7 @@ export class OrdinaryStateOwner {
             intent: immutableIntent, browserScope: scope(0), tabScope: scope(1), target, classification: facts, claimed: false, signed: false })
           return witness
         } finally {
-          context?.stop(); await context?.ended.catch(() => {}); journal?.secrets.forEach(secret => secret.fill(0)); clearImage(b); clearImage(t)
+          context?.stop(); await context?.ended.catch(() => {}); wipeOrdinaryOperationJournal(journal); clearImage(b); clearImage(t)
           browser.#resources.delete(cancel); tab.#resources.delete(cancel); db.close()
         }
       })
@@ -2041,7 +2706,7 @@ export class OrdinaryStateOwner {
             j = await openOrdinaryOperationControl(raw[2], { browser: { binding: binding(b), key: br.key }, tab: { binding: binding(t), key: tr.key } }); check()
             if (j.request !== captured.request || j.id !== captured.target.header.id || j.sequence !== captured.target.header.sequence ||
                 j.phase !== active.header.phase || !['prepared', 'provider-started', 'provider-returned'].includes(j.phase) || t.expiresAt !== tab.expiresAt) hold()
-            if (j.phase !== 'prepared' && (!seal || !nonces || j.secrets.length !== 1 || !j.secrets[0]!.every((value, i) => value === seal!.secretKey[i]) ||
+            if (j.version !== 1 || j.phase !== 'prepared' && (!seal || !nonces || j.secrets.length !== 1 || !j.secrets[0]!.every((value, i) => value === seal!.secretKey[i]) ||
                 JSON.stringify(j.nonces) !== JSON.stringify(nonces))) hold()
             await startup.validateOrdinaryRenewalStartupRows(j, [br.frame, tr.frame], [b, t]); check()
             const facts = await browser.#classifyOperations(held.binding.live, context, false, active); check(); if (!equal(facts, expected)) hold()
@@ -2077,7 +2742,7 @@ export class OrdinaryStateOwner {
             context.stop(); await context.ended; completed = true; return value
           } finally {
             if (!completed && mode === 'readwrite') context?.abort()
-            context?.stop(); await context?.ended.catch(() => {}); context = undefined; j?.secrets.forEach(key => key.fill(0)); clearImage(b); clearImage(t)
+            context?.stop(); await context?.ended.catch(() => {}); context = undefined; wipeOrdinaryOperationJournal(j); clearImage(b); clearImage(t)
           }
         }
         const exactControl = async (journal: OrdinaryOperationJournal, rows: readonly [Row, Row], bindings: readonly [ReturnType<typeof binding>, ReturnType<typeof binding>], sourceCrypto: Crypto) => {
@@ -2085,7 +2750,7 @@ export class OrdinaryStateOwner {
           const input = { browser: { binding: bindings[0], key: rows[0].key }, tab: { binding: bindings[1], key: rows[1].key } }
           const control = await sealOrdinaryOperationControl(journal, input, sourceCrypto), opened = await openOrdinaryOperationControl(control, input)
           try { const actual = encodeOrdinaryOperationJournal(opened); try { if (bytesToHex(sha256(actual)) !== digest) hold() } finally { actual.fill(0) } }
-          finally { opened.secrets.forEach(key => key.fill(0)) }
+          finally { wipeOrdinaryOperationJournal(opened) }
           return control
         }
         const classifiedHeader = (journal: OrdinaryOperationJournal) => {
@@ -2311,7 +2976,7 @@ export class OrdinaryStateOwner {
                 targets.push({purpose,rows:[rowDigest(br),rowDigest(tr)],controlDigest:ordinaryOperationControlDigest(raw[2]),header})
               }
               operations.push(Object.freeze({tab:purpose,id:j.id,sequence:j.sequence,phase:j.phase}))
-            }finally{j?.secrets.forEach(secret=>secret.fill(0));clearImage(b);clearImage(t)}
+            }finally{wipeOrdinaryOperationJournal(j);clearImage(b);clearImage(t)}
           }
           // Reuse whole-origin structural authentication without installing
           // these fixed startup targets into any ordinary-owner cache.
@@ -2324,6 +2989,51 @@ export class OrdinaryStateOwner {
     })
     return this.#track(pending)
   }
+  /** Called only by the fixed startup callback in its actual native D.
+   * No decoded continuation or sealing capability leaves this owner. */
+  static #adoptPrivateRenewalContinuation(journal: OrdinaryOperationJournal): PrivateRenewalContinuation {
+    if (journal.version !== 2 || journal.nonces !== null) hold()
+    return {values: copyOrdinaryRenewalContinuation(journal.continuation, journal.phase), used: new Set()}
+  }
+  static #privateContinuationPhase(journal: OrdinaryOperationJournal, phase: import('./ordinary-operation-codec.js').OrdinaryOperationPhase,
+    plan: PrivateRenewalContinuation | undefined): OrdinaryOperationJournal {
+    if (journal.version === 1) return {...journal, phase}
+    if (!plan) hold()
+    const continuation: OrdinaryRenewalContinuationNonce[] = []
+    try {
+      for (const slot of ordinaryRenewalContinuationSlots(phase)) {
+        const value = plan.values.find(v => v.slot === slot)
+        if (!value) hold()
+        continuation.push({slot, nonce: value.nonce.slice()})
+      }
+      return {...journal, phase, continuation}
+    } catch { wipeOrdinaryRenewalContinuation(continuation); hold() }
+  }
+  /** One invocation of a fixed AES-GCM sealer, not a general phase writer.
+   * Slots are permanently spent on draw, including all failed calls. */
+  static #privateContinuationCrypto(plan: PrivateRenewalContinuation, slots: readonly number[], keys: readonly CryptoKey[], check: () => void) {
+    let drawn = 0, encrypted = 0, ended = false, failed = false
+    const refuse: () => never = () => { failed = true; hold() }
+    const provider = {getRandomValues: <T extends ArrayBufferView>(target: T): T => {
+      check()
+      const slot = slots[drawn], value = plan.values.find(v => v.slot === slot)
+      if (ended || failed || drawn !== encrypted || !value || plan.used.has(slot!) || !(target instanceof Uint8Array) || target.length !== 12) refuse()
+      plan.used.add(slot!); drawn++; target.set(value.nonce); check(); return target
+    }, subtle: {encrypt: async (algorithm: AlgorithmIdentifier | RsaOaepParams | AesCtrParams | AesCbcParams | AesGcmParams, key: CryptoKey, bytes: BufferSource) => {
+      check()
+      const params = algorithm as AesGcmParams, slot = slots[encrypted], value = plan.values.find(v => v.slot === slot)
+      const iv = params?.iv instanceof ArrayBuffer ? new Uint8Array(params.iv) : params?.iv
+      if (ended || failed || drawn !== encrypted + 1 || key !== keys[encrypted] || !value ||
+          typeof params !== 'object' || params.name !== 'AES-GCM' || params.tagLength !== 128 ||
+          !(iv instanceof Uint8Array) || iv.length !== 12 || iv.some((b, i) => b !== value.nonce[i])) refuse()
+      try { const ciphertext = await crypto.subtle.encrypt(algorithm, key, bytes); encrypted++; check(); return ciphertext }
+      catch { return refuse() }
+    }} as SubtleCrypto} as Crypto
+    return {provider, finish: () => {
+      ended = true
+      if (failed || drawn !== slots.length || encrypted !== slots.length || keys.length !== slots.length) hold()
+    }, fail: () => { ended = true; failed = true }}
+  }
   /** Fixed startup C->S custody maintenance only. Historical expiry grants
    * no effects; fresh startup-owner liveness controls this neutral projection.
    * No journal, image, writer, signer, current role or adoption token is input. */
@@ -2334,8 +3044,14 @@ export class OrdinaryStateOwner {
       const check=()=>this.#check(live);check();if(this.#retry||!navigator.locks)hold()
       return navigator.locks.request(WRITE_LOCK,async()=>{
         check();const names=ordinaryOperationNames(purpose),equal=(a:OperationClassification,b:OperationClassification)=>JSON.stringify(a)===JSON.stringify(b)
-        let context:OperationTransaction|undefined,db:IDBDatabase|undefined,attempted=false,expected:OperationClassification|undefined
-        const cancel={stop:()=>context?.abort()};this.#resources.add(cancel)
+        let context:OperationTransaction|undefined,db:IDBDatabase|undefined,attempted=false,expected:OperationClassification|undefined,continuation:PrivateRenewalContinuation|undefined
+        let wakePrior:(()=>void)|undefined
+        const waitForRepair=(prior:boolean)=>new Promise<void>(yes=>{
+          let done=false
+          const release=()=>{if(done)return;done=true;if(this.#retry===release)this.#retry=undefined;if(wakePrior===release)wakePrior=undefined;yes()}
+          this.#retry=release;if(prior){wakePrior=release;if(this.#closed)release()}
+        })
+        const cancel={stop:()=>{context?.abort();wakePrior?.()}};this.#resources.add(cancel)
         const reopen=async(custodyOnly=false)=>{
           db?.close();db=await this.#existingStartupDatabase(custodyOnly?()=>true:live,custodyOnly)
           if(!db)hold();const opened=db;opened.onversionchange=()=>{this.#revoke();opened.close()}
@@ -2362,8 +3078,8 @@ export class OrdinaryStateOwner {
             let result!:T
             await context.step(()=>{check();const value=work(j!,[br,tr],[b!,t!],facts,selected)
               if(value&&typeof(value as unknown as PromiseLike<unknown>).then==='function'){void Promise.resolve(value).catch(()=>{});hold()};check();result=value})
-            context.stop();await context.ended;done=true;return result
-          }finally{if(!done&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;j?.secrets.forEach(secret=>secret.fill(0));clearImage(b);clearImage(t)}
+            context.stop();await context.ended;check();done=true;return result
+          }finally{if(!done&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;wipeOrdinaryOperationJournal(j);clearImage(b);clearImage(t)}
         }
         try{
           // Already settled is reported only after a complete fresh ordinary
@@ -2377,10 +3093,11 @@ export class OrdinaryStateOwner {
               if(header.phase==='settled'){await this.#classifyOperations(live,context);context.stop();await context.ended;check();return true}return false
             }finally{context?.stop();await context?.ended.catch(()=>{});context=undefined}
           })()
-          if(disposition)return Object.freeze({status:'already-settled'})
+          check();if(disposition)return Object.freeze({status:'already-settled'})
           const prepared=await withC('readonly',(journal,rows,images,facts,prior)=>{
             expected=facts
-            const settled:OrdinaryOperationJournal={...journal,phase:'settled',request:'',result:null,secrets:[],nonces:null},packet=encodeOrdinaryOperationJournal(settled)
+            if(journal.version===2)continuation=OrdinaryStateOwner.#adoptPrivateRenewalContinuation(journal)
+            const settled:OrdinaryOperationJournal={...OrdinaryStateOwner.#privateContinuationPhase(journal,'settled',continuation),request:'',result:null,secrets:[],nonces:null},packet=encodeOrdinaryOperationJournal(settled)
             let header:OrdinaryOperationClassification;try{header=decodeOrdinaryOperationClassification(packet)}finally{packet.fill(0)}
             const marker=ordinaryOperationMarker({id:journal.id,tab:journal.tab,sequence:journal.sequence,commitment:ordinaryOperationCommitment(header)}),copies=[copyImage(images[0]),copyImage(images[1])] as const
             let success=false
@@ -2390,10 +3107,18 @@ export class OrdinaryStateOwner {
           })
           check()
           const guardedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{check();const result=crypto.getRandomValues(value);check();return result}} as unknown as Crypto
+          const sealFrame=async(index:0|1)=>{
+            const seal=continuation?OrdinaryStateOwner.#privateContinuationCrypto(continuation,[14+index],[prepared.rows[index].key],check):undefined
+            try{const frame=await sealOrdinaryImage(prepared.images[index],prepared.rows[index].key,seal?.provider??guardedCrypto);seal?.finish();check();return frame}
+            catch{seal?.fail();hold()}
+          }
           let sf:OrdinaryFrame,st:OrdinaryFrame
-          try{sf=await sealOrdinaryImage(prepared.images[0],prepared.rows[0].key,guardedCrypto);check();st=await sealOrdinaryImage(prepared.images[1],prepared.rows[1].key,guardedCrypto);check()}
-          finally{prepared.images.forEach(clearImage)}
-          const control=await sealOrdinaryOperationControl(prepared.journal,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+          try{sf=await sealFrame(0);st=await sealFrame(1)}finally{prepared.images.forEach(clearImage)}
+          const seal=continuation?OrdinaryStateOwner.#privateContinuationCrypto(continuation,[16,17],[prepared.rows[0].key,prepared.rows[1].key],check):undefined
+          let control:OrdinaryOperationControl
+          try{control=await sealOrdinaryOperationControl(prepared.journal,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},seal?.provider??guardedCrypto);seal?.finish();check()}
+          catch{seal?.fail();hold()}
+          if(continuation&&continuation.used.size!==4)hold()
           const frames=Object.freeze([sf,st]) as readonly [OrdinaryFrame,OrdinaryFrame],next:PreparedRenewalTarget={purpose,rows:[rowDigest({frame:sf} as Row),rowDigest({frame:st} as Row)],
             controlDigest:ordinaryOperationControlDigest(control),header:prepared.header},target:OperationClassification=Object.freeze({...expected!,
               owners:Object.freeze(expected!.owners.map(([name,digest])=>Object.freeze([name,name==='browser'?next.rows[0]:name===purpose?next.rows[1]:digest] as const))),
@@ -2407,16 +3132,20 @@ export class OrdinaryStateOwner {
             })}catch(error){if(!attempted)throw error}
             let retriedPrior=false
             for(;;){
-              let read:OperationTransaction|undefined,isPrior=false
+              let read:OperationTransaction|undefined,isPrior=false,isTarget=false
               try{await reopen(true);read=operationTransaction(db!,'readonly');const current=await this.#classifyOperations(()=>true,read,true,[prepared.prior,next]);read.stop();await read.ended
-                if(equal(current,target))return Object.freeze({status:'settled'})
+                isTarget=equal(current,target)
                 isPrior=equal(current,expected!)
               }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+              // Custody reconciliation may finish after close, but a known
+              // target cannot report live success. Keep this check outside
+              // the storage-error catch so revocation is never retried.
+              if(isTarget){check();return Object.freeze({status:'settled'})}
               if(isPrior){check();if(retriedPrior)break}
-              await new Promise<void>(yes=>{this.#retry=yes});this.#retry=undefined;retriedPrior=isPrior
+              await waitForRepair(isPrior);retriedPrior=isPrior
             }
           }
-        }finally{context?.abort();await context?.ended.catch(()=>{});context?.stop();db?.close();this.#resources.delete(cancel)}
+        }finally{wipeOrdinaryRenewalContinuation(continuation?.values);context?.abort();await context?.ended.catch(()=>{});context?.stop();db?.close();this.#resources.delete(cancel)}
       })
     })
     return this.#track(pending)
@@ -2432,8 +3161,15 @@ export class OrdinaryStateOwner {
       return navigator.locks.request(WRITE_LOCK,async()=>{
         check();const names=ordinaryOperationNames(purpose),equal=(a:OperationClassification,b:OperationClassification)=>JSON.stringify(a)===JSON.stringify(b)
         let context:OperationTransaction|undefined,db:IDBDatabase|undefined,expected:OperationClassification|undefined,active:PreparedRenewalTarget|undefined,
-          retainedJournal:OrdinaryOperationJournal|undefined,candidateImages:readonly [OrdinaryImage,OrdinaryImage]|undefined
-        const cancel={stop:()=>context?.abort()};this.#resources.add(cancel)
+          continuation:PrivateRenewalContinuation|undefined,retainedJournal:OrdinaryOperationJournal|undefined,candidateImages:readonly [OrdinaryImage,OrdinaryImage]|undefined
+        const continuationCopies=new Set<readonly OrdinaryRenewalContinuationNonce[]>()
+        let wakePrior:(()=>void)|undefined
+        const waitForRepair=(prior:boolean)=>new Promise<void>(yes=>{
+          let done=false
+          const release=()=>{if(done)return;done=true;if(this.#retry===release)this.#retry=undefined;if(wakePrior===release)wakePrior=undefined;yes()}
+          this.#retry=release;if(prior){wakePrior=release;if(this.#closed)release()}
+        })
+        const cancel={stop:()=>{context?.abort();wakePrior?.()}};this.#resources.add(cancel)
         const reopen=async(custodyOnly=false)=>{db?.close();db=await this.#existingStartupDatabase(custodyOnly?()=>true:live,custodyOnly)
           if(!db)hold();const opened=db;opened.onversionchange=()=>{this.#revoke();opened.close()}}
         const binding=(image:Pick<OrdinaryImage,'purpose'|'keyId'|'generation'|'expiresAt'>)=>({purpose:image.purpose,keyId:image.keyId,generation:image.generation,expiresAt:image.expiresAt})
@@ -2466,17 +3202,18 @@ export class OrdinaryStateOwner {
             let result!:T
             await context.step(()=>{check();const value=work(j!,[br,tr],[b!,t!],inverse,facts,selected)
               if(value&&typeof(value as unknown as PromiseLike<unknown>).then==='function'){void Promise.resolve(value).catch(()=>{});hold()};check();result=value})
-            context.stop();await context.ended;done=true;return result
+            context.stop();await context.ended;check();done=true;return result
           }finally{if(!done&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;
-            j?.secrets.forEach(secret=>secret.fill(0));inverse?.forEach(clearImage);clearImage(b);clearImage(t)}
+            wipeOrdinaryOperationJournal(j);inverse?.forEach(clearImage);clearImage(b);clearImage(t)}
         }
         const guardedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{check();const result=crypto.getRandomValues(value);check();return result}} as unknown as Crypto
         try{
           const prepared=await withNative('readonly',(journal,rows,images,inverse,facts,selected)=>{
             expected=facts;active=selected
             if(journal.phase==='settled'||journal.phase==='candidate-committed')return {terminal:journal.phase}
-            if(!inverse||!journal.result||journal.secrets.length!==1||!journal.nonces)hold()
-            retainedJournal={...journal,secrets:journal.secrets.map(secret=>secret.slice())}
+            if(!inverse||!journal.result||journal.secrets.length!==1||journal.version===1&&!journal.nonces)hold()
+            if(journal.version===2)continuation=OrdinaryStateOwner.#adoptPrivateRenewalContinuation(journal)
+            retainedJournal={...journal,secrets:journal.secrets.map(secret=>secret.slice()),...(continuation?{continuation:continuation.values}:{})}
             candidateImages=candidateModule.prepareOrdinaryRetainedRenewalCandidate(inverse,journal.request,journal.result,journal.secrets[0]!,images)
             const historicalTab=new OrdinaryStateOwner(purpose,images[1].expiresAt)
             this.#validateCleanupImage(candidateImages[0],candidateImages[1],historicalTab,facts,snapshot);check()
@@ -2484,20 +3221,26 @@ export class OrdinaryStateOwner {
             // Digest placeholders have the same exact encoded lengths as real
             // digests; choose values distinct from every P/E digest.
             const used=new Set([...journal.source,...journal.enrolled]),placeholder=['0','1','2','3','4'].map(v=>v.repeat(64)).find(v=>!used.has(v))!
-            const reservation:OrdinaryOperationJournal={...retainedJournal,phase:'candidate-prepared',target:[placeholder,placeholder],targetRevisions:[candidateImages[0].revision,candidateImages[1].revision]}
-            headerFor(reservation);headerFor({...reservation,phase:'candidate-committed',secrets:[],nonces:null})
+            const reservation:OrdinaryOperationJournal={...OrdinaryStateOwner.#privateContinuationPhase(retainedJournal,'candidate-prepared',continuation),target:[placeholder,placeholder],targetRevisions:[candidateImages[0].revision,candidateImages[1].revision]}
+            try{headerFor(reservation);const committed={...OrdinaryStateOwner.#privateContinuationPhase(reservation,'candidate-committed',continuation),secrets:[],nonces:null};try{headerFor(committed)}finally{wipeOrdinaryRenewalContinuation(committed.continuation)}}finally{wipeOrdinaryRenewalContinuation(reservation.continuation)}
             return{rows,bindings:[binding(images[0]),binding(images[1])] as const,imageSemanticDigest:ordinaryOperationSemanticDigest(candidateImages[0],candidateImages[1])}
           })
-          if('terminal' in prepared)return Object.freeze({status:prepared.terminal==='settled'?'already-settled':'already-committed'})
-          check();if(!retainedJournal?.nonces||!candidateImages)hold()
-          const freeze=async(image:OrdinaryImage,key:CryptoKey,encoded:string)=>{
+          check();if('terminal' in prepared)return Object.freeze({status:prepared.terminal==='settled'?'already-settled':'already-committed'})
+          check();if(!retainedJournal||retainedJournal.version===1&&!retainedJournal.nonces||!candidateImages)hold()
+          const freeze=async(image:OrdinaryImage,key:CryptoKey,index:0|1)=>{
+            if(continuation){
+              const seal=OrdinaryStateOwner.#privateContinuationCrypto(continuation,[8+index],[key],check)
+              try{const frame=await sealOrdinaryImage(image,key,seal.provider);seal.finish();check();return frame}
+              catch{seal.fail();hold()}finally{clearImage(image)}
+            }
+            const encoded=retainedJournal!.nonces![index]
             const bytes=Uint8Array.from(encoded.match(/../g)!.map(value=>parseInt(value,16)));let used=false
             const fixedCrypto={subtle:crypto.subtle,getRandomValues:<A extends ArrayBufferView>(value:A):A=>{
               check();if(used||!(value instanceof Uint8Array)||value.length!==12)hold();used=true;value.set(bytes);check();return value}} as unknown as Crypto
             try{const frame=await sealOrdinaryImage(image,key,fixedCrypto);check();return frame}finally{bytes.fill(0);clearImage(image)}
           }
-          const cf=await freeze(candidateImages[0],prepared.rows[0].key,retainedJournal.nonces[0]);check()
-          const ct=await freeze(candidateImages[1],prepared.rows[1].key,retainedJournal.nonces[1]);check()
+          const cf=await freeze(candidateImages[0],prepared.rows[0].key,0);check()
+          const ct=await freeze(candidateImages[1],prepared.rows[1].key,1);check()
           // Reopening the actual frozen frames confirms that encryption kept
           // the complete uniquely projected plaintext before phase wrapping.
           let cb:OrdinaryImage|undefined,ctab:OrdinaryImage|undefined
@@ -2507,8 +3250,11 @@ export class OrdinaryStateOwner {
           const frames=Object.freeze([cf,ct]) as readonly [OrdinaryFrame,OrdinaryFrame],digests=[ordinaryFrameDigest(cf),ordinaryFrameDigest(ct)] as const,revisions=[cf.revision,ct.revision] as const
           if(retainedJournal.phase==='candidate-prepared'&&(!retainedJournal.target||!retainedJournal.targetRevisions||
             retainedJournal.target.some((value,i)=>value!==digests[i])||retainedJournal.targetRevisions.some((value,i)=>value!==revisions[i])))hold()
-          const candidatePrepared:OrdinaryOperationJournal={...retainedJournal,phase:'candidate-prepared',target:digests,targetRevisions:revisions}
-          const preparedHeader=headerFor(candidatePrepared),committed:OrdinaryOperationJournal={...candidatePrepared,phase:'candidate-committed',secrets:[],nonces:null},committedHeader=headerFor(committed)
+          const candidatePrepared:OrdinaryOperationJournal={...OrdinaryStateOwner.#privateContinuationPhase(retainedJournal,'candidate-prepared',continuation),target:digests,targetRevisions:revisions}
+          if(candidatePrepared.continuation)continuationCopies.add(candidatePrepared.continuation)
+          const committed:OrdinaryOperationJournal={...OrdinaryStateOwner.#privateContinuationPhase(candidatePrepared,'candidate-committed',continuation),secrets:[],nonces:null}
+          if(committed.continuation)continuationCopies.add(committed.continuation)
+          const preparedHeader=headerFor(candidatePrepared),committedHeader=headerFor(committed)
           /** The only two physical transitions: one prepared control, then
            * the fixed three-row C cohort. No arbitrary writer is exported. */
           const writeFixed=async(stage:'prepare'|'commit',control:OrdinaryOperationControl,header:OrdinaryOperationClassification)=>{
@@ -2531,25 +3277,32 @@ export class OrdinaryStateOwner {
               })}catch(error){if(!attempted)throw error}
               let retriedPrior=false
               for(;;){
-                let read:OperationTransaction|undefined,isPrior=false
+                let read:OperationTransaction|undefined,isPrior=false,isTarget=false
                 try{await reopen(true);read=operationTransaction(db!,'readonly');const current=await this.#classifyOperations(()=>true,read,true,[prior,next]);read.stop();await read.ended
-                  if(equal(current,target)){active=next;expected=target;return}isPrior=equal(current,priorFacts)
+                  isTarget=equal(current,target);isPrior=equal(current,priorFacts)
                 }catch{read?.abort();await read?.ended.catch(()=>{})}finally{read?.stop()}
+                if(isTarget){check();active=next;expected=target;return}
                 if(isPrior){check();if(retriedPrior)break}
-                await new Promise<void>(yes=>{this.#retry=yes});this.#retry=undefined;retriedPrior=isPrior
+                await waitForRepair(isPrior);retriedPrior=isPrior
               }
             }
           }
+          const sealControl=async(journal:OrdinaryOperationJournal,slots:readonly number[])=>{
+            const seal=continuation?OrdinaryStateOwner.#privateContinuationCrypto(continuation,slots,[prepared.rows[0].key,prepared.rows[1].key],check):undefined
+            try{const control=await sealOrdinaryOperationControl(journal,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},seal?.provider??guardedCrypto);seal?.finish();check();return control}
+            catch{seal?.fail();hold()}
+          }
           if(retainedJournal.phase==='provider-returned'){
             await withNative('readonly',()=>undefined);check()
-            const control=await sealOrdinaryOperationControl(candidatePrepared,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+            const control=await sealControl(candidatePrepared,[10,11]);check()
             await writeFixed('prepare',control,preparedHeader);check()
           }
           await withNative('readonly',()=>undefined);check()
-          const control=await sealOrdinaryOperationControl(committed,{browser:{binding:prepared.bindings[0],key:prepared.rows[0].key},tab:{binding:prepared.bindings[1],key:prepared.rows[1].key}},guardedCrypto);check()
+          const control=await sealControl(committed,[12,13]);check()
           await writeFixed('commit',control,committedHeader)
+          if(continuation&&continuation.used.size!==(retainedJournal.phase==='provider-returned'?6:4))hold()
           return Object.freeze({status:'candidate-committed'})
-        }finally{retainedJournal?.secrets.forEach(secret=>secret.fill(0));candidateImages?.forEach(clearImage);
+        }finally{wipeOrdinaryRenewalContinuation(continuation?.values);continuationCopies.forEach(wipeOrdinaryRenewalContinuation);wipeOrdinaryOperationJournal(retainedJournal);candidateImages?.forEach(clearImage);
           context?.abort();await context?.ended.catch(()=>{});context?.stop();db?.close();this.#resources.delete(cancel)}
       })
     })
@@ -3131,7 +3884,7 @@ export class OrdinaryStateOwner {
             const raw=await Promise.all([context.read(()=>context!.store.get('browser')),context.read(()=>context!.store.get(purpose)),context.read(()=>context!.store.get(names.control))])
             const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
             b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
-            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:binding(b),key:br.key},tab:{binding:binding(t),key:tr.key}});check()
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:binding(b),key:br.key},tab:{binding:binding(t),key:tr.key}});check();if(j.version!==1)hold()
             if(j.request!==captured.request||j.id!==captured.target.header.id||j.sequence!==captured.target.header.sequence)hold()
             const eb=copyImage(b),et=copyImage(t)
             try{
@@ -3148,7 +3901,7 @@ export class OrdinaryStateOwner {
                 context.stop();await context.ended;return value
               }finally{pairCustody.delete(custody);bv.close();tv.close()}
             }finally{clearImage(eb);clearImage(et)}
-          }finally{context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);j?.secrets.forEach(k=>k.fill(0))}
+          }finally{context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);wipeOrdinaryOperationJournal(j)}
         }
         /** Freeze one control candidate and reconcile complete native facts.
          * Exact prior retries the same bytes; mixed/unavailable waits explicitly.
@@ -3362,7 +4115,7 @@ export class OrdinaryStateOwner {
             const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
             b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
             const bindings=[binding(b),binding(t)] as const
-            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:bindings[0],key:br.key},tab:{binding:bindings[1],key:tr.key}});check()
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:bindings[0],key:br.key},tab:{binding:bindings[1],key:tr.key}});check();if(j.version!==1)hold()
             if(j.phase!=='candidate-prepared'||j.request!==enrollment.request||j.id!==candidate.target.header.id||j.sequence!==candidate.target.header.sequence||
               !j.target||!j.targetRevisions||j.target.some((digest,i)=>ordinaryFrameDigest(candidate.candidate[i]!)!==digest)||
               j.targetRevisions.some((revision,i)=>candidate.candidate[i]!.revision!==revision))hold()
@@ -3379,7 +4132,7 @@ export class OrdinaryStateOwner {
                 check();value=result})
               context.stop();await context.ended;completed=true;return value
             }finally{pairCustody.delete(custody);bv.close();tv.close()}
-          }finally{if(!completed&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);j?.secrets.forEach(key=>key.fill(0))}
+          }finally{if(!completed&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);wipeOrdinaryOperationJournal(j)}
         }
         try{
           const prepared=await withE('readonly',(journal,rows,bindings)=>({journal:{...journal,phase:'candidate-committed' as const,secrets:[],nonces:null},rows,bindings}))
@@ -3465,7 +4218,7 @@ export class OrdinaryStateOwner {
             const br=row(raw[0]),tr=row(raw[1]);if(!br?.frame||!tr?.frame||br.pending||tr.pending)hold()
             b=await openOrdinaryFrame(br.frame,br.key);check();t=await openOrdinaryFrame(tr.frame,tr.key);check()
             const bindings=[binding(b),binding(t)] as const
-            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:bindings[0],key:br.key},tab:{binding:bindings[1],key:tr.key}});check()
+            j=await openOrdinaryOperationControl(raw[2],{browser:{binding:bindings[0],key:br.key},tab:{binding:bindings[1],key:tr.key}});check();if(j.version!==1)hold()
             if(j.phase!=='candidate-committed'||j.request!==enrollment.request||j.id!==candidate.target.header.id||j.sequence!==candidate.target.header.sequence||
               !j.result||!j.target||!j.targetRevisions||j.target.some((digest,i)=>ordinaryFrameDigest([br,tr][i]!.frame!)!==digest)||
               j.targetRevisions.some((revision,i)=>[br,tr][i]!.frame!.revision!==revision))hold()
@@ -3481,7 +4234,7 @@ export class OrdinaryStateOwner {
                 check();value=result})
               context.stop();await context.ended;completed=true;return value
             }finally{pairCustody.delete(custody);bv.close();tv.close()}
-          }finally{if(!completed&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);j?.secrets.forEach(key=>key.fill(0))}
+          }finally{if(!completed&&mode==='readwrite')context?.abort();context?.stop();await context?.ended.catch(()=>{});context=undefined;clearImage(b);clearImage(t);wipeOrdinaryOperationJournal(j)}
         }
         try{
           const prepared=await withC('readonly',(journal,rows,bindings,images)=>{
@@ -4260,6 +5013,7 @@ export class OrdinaryStateOwner {
   async #close(): Promise<void> {
     this.#revoke()
     while (this.#work.size) await Promise.allSettled([...this.#work])
+    for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)
     this.#db?.close(); this.#db = undefined
   }
 }

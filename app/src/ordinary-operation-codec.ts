@@ -1,3 +1,4 @@
+import { ordinaryRenewalContinuationSlots, copyOrdinaryRenewalContinuation, wipeOrdinaryRenewalContinuation, type OrdinaryRenewalContinuationNonce } from './ordinary-private-renewal-continuation.js'
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { OrdinaryStateHold, ordinaryUtf8Length, validateOrdinaryFrame, validateOrdinaryKey,
@@ -36,7 +37,7 @@ const HEX = /^[0-9a-f]{64}$/, TAB = /^tab:[0-9a-f]{64}$/
 const isTab = (v: unknown): v is `tab:${string}` => typeof v === 'string' && v.length === 68 && TAB.test(v)
 export type OrdinaryOperationPhase = 'prepared' | 'provider-started' | 'provider-returned' | 'candidate-prepared' | 'candidate-committed' | 'settled'
 export interface OrdinaryOperationJournal {
-  readonly version: 1
+  readonly version: 1 | 2
   readonly id: string
   readonly tab: `tab:${string}`
   readonly sequence: number
@@ -57,6 +58,8 @@ export interface OrdinaryOperationJournal {
   readonly result: string | null
   readonly secrets: readonly Uint8Array<ArrayBuffer>[]
   readonly nonces: readonly [string, string] | null
+  /** Version 2 only; never present on redacted classification. */
+  readonly continuation?: readonly OrdinaryRenewalContinuationNonce[]
 }
 export interface OrdinaryOperationBinding {
   readonly purpose: OrdinaryPurpose
@@ -112,16 +115,18 @@ function revisionPair(raw: unknown): [number, number] {
   if (v.length !== 2 || v.some(x => !integer(x))) hold()
   return v as [number, number]
 }
-export interface OrdinaryOperationClassification extends Omit<OrdinaryOperationJournal, 'request' | 'result' | 'secrets' | 'nonces'> {
+export interface OrdinaryOperationClassification extends Omit<OrdinaryOperationJournal, 'request' | 'result' | 'secrets' | 'nonces' | 'continuation'> {
   readonly requestBytes: number
   readonly resultBytes: number | null
   readonly secretCount: number
   readonly hasNonces: boolean
+  readonly continuationCount?: number
 }
 const META = ['version', 'id', 'tab', 'sequence', 'phase', 'source', 'enrolled', 'target', 'sourceRevisions', 'enrolledRevisions', 'targetRevisions', 'scopes', 'ceilings', 'requestDigest', 'resultDigest'] as const
 function classification(raw: unknown): OrdinaryOperationClassification {
-  const v = dataObject(raw, [...META, 'requestBytes', 'resultBytes', 'secretCount', 'hasNonces'])
-  if (v.version !== 1 || !isTab(v.tab) || !integer(v.sequence) || v.sequence === 0 ||
+  const version = raw && typeof raw === 'object' ? Object.getOwnPropertyDescriptor(raw, 'version')?.value : undefined
+  const v = dataObject(raw, [...META, 'requestBytes', 'resultBytes', 'secretCount', 'hasNonces', ...(version === 2 ? ['continuationCount'] : [])])
+  if ((v.version !== 1 && v.version !== 2) || !isTab(v.tab) || !integer(v.sequence) || v.sequence === 0 ||
       !['prepared', 'provider-started', 'provider-returned', 'candidate-prepared', 'candidate-committed', 'settled'].includes(v.phase as string)) hold()
   const scopes = dataArray(v.scopes, 32).map(rawScope => {
     const s = dataArray(rawScope, 4)
@@ -150,9 +155,9 @@ function classification(raw: unknown): OrdinaryOperationClassification {
     if (v.requestBytes || v.resultBytes !== null || v.secretCount || v.hasNonces || target === null) hold()
   } else {
     if (!v.requestBytes) hold()
-    if (phase === 'prepared' && (v.secretCount || v.hasNonces)) hold()
+    if (phase === 'prepared' && v.version === 1 && (v.secretCount || v.hasNonces)) hold()
     if (phase === 'provider-started' || phase === 'provider-returned' || phase === 'candidate-prepared') {
-      if (!v.secretCount || !v.hasNonces) hold()
+      if (!v.secretCount || v.version === 1 && !v.hasNonces) hold()
     }
     if (phase === 'candidate-committed' && (v.secretCount || v.hasNonces)) hold()
     const returned = phase === 'provider-returned' || phase === 'candidate-prepared' || phase === 'candidate-committed'
@@ -162,27 +167,41 @@ function classification(raw: unknown): OrdinaryOperationClassification {
     // The private preview format rejects the earlier combined returned/C shape.
     if (candidate === (target === null)) hold()
   }
-  return { version: 1, id: hash(v.id), tab: v.tab as `tab:${string}`, sequence: v.sequence, phase,
+  if (v.version === 2 && (v.hasNonces || v.continuationCount !== ordinaryRenewalContinuationSlots(phase).length ||
+      v.secretCount !== (['prepared', 'provider-started', 'provider-returned', 'candidate-prepared'].includes(phase) ? 1 : 0))) hold()
+  return { version: v.version, ...(v.version === 2 ? {continuationCount: v.continuationCount as number} : {}), id: hash(v.id), tab: v.tab as `tab:${string}`, sequence: v.sequence, phase,
     source, enrolled, target, sourceRevisions, enrolledRevisions, targetRevisions, requestDigest, resultDigest, scopes, ceilings: ceilings as number[],
     requestBytes: v.requestBytes, resultBytes: v.resultBytes as number | null, secretCount: v.secretCount, hasNonces: v.hasNonces }
 }
 function headerTuple(v: OrdinaryOperationClassification): unknown[] {
-  return [...META.map(k => v[k]), v.requestBytes, v.resultBytes, v.secretCount, v.hasNonces]
+  return [...META.map(k => v[k]), v.requestBytes, v.resultBytes, v.secretCount, v.hasNonces, ...(v.version === 2 ? [v.continuationCount] : [])]
 }
 function packet(bytes: Uint8Array): { header: OrdinaryOperationClassification; offset: number } {
   if (bytes.length < 4 || bytes.length > ORDINARY_OPERATION_BYTES) hold()
   const size = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0)
   if (size > 128 * 1024 || size > bytes.length - 4) hold()
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(4, 4 + size)), v: unknown = JSON.parse(text)
-  if (!Array.isArray(v) || v.length !== META.length + 4) hold()
-  const header = classification(Object.fromEntries([...META, 'requestBytes', 'resultBytes', 'secretCount', 'hasNonces'].map((k, i) => [k, v[i]])))
+  if (!Array.isArray(v) || v.length !== META.length + (v[0] === 2 ? 5 : 4)) hold()
+  const header = classification(Object.fromEntries([...META, 'requestBytes', 'resultBytes', 'secretCount', 'hasNonces', ...(v[0] === 2 ? ['continuationCount'] : [])].map((k, i) => [k, v[i]])))
   if (JSON.stringify(headerTuple(header)) !== text || bytes.length !== 4 + size + header.requestBytes +
-      (header.resultBytes ?? 0) + header.secretCount * 32 + (header.hasNonces ? 24 : 0)) hold()
+      (header.resultBytes ?? 0) + header.secretCount * 32 + (header.hasNonces ? 24 : 0) + (header.continuationCount ?? 0) * 13) hold()
   const offset = 4 + size
   if (header.phase !== 'settled') {
     if (bytesToHex(sha256(bytes.subarray(offset, offset + header.requestBytes))) !== header.requestDigest) hold()
     if (header.resultBytes !== null && bytesToHex(sha256(bytes.subarray(offset + header.requestBytes,
         offset + header.requestBytes + header.resultBytes))) !== header.resultDigest) hold()
+  }
+  if (header.version === 2) {
+    const start = offset + header.requestBytes + (header.resultBytes ?? 0) + header.secretCount * 32
+    const slots = ordinaryRenewalContinuationSlots(header.phase)
+    for (let i = 0; i < slots.length; i++) {
+      if (bytes[start + i * 13] !== slots[i]) hold()
+      for (let j = 0; j < i; j++) {
+        let equal = true
+        for (let n = 1; n <= 12; n++) if (bytes[start + i * 13 + n] !== bytes[start + j * 13 + n]) { equal = false; break }
+        if (equal) hold()
+      }
+    }
   }
   return { header, offset }
 }
@@ -193,9 +212,11 @@ export function decodeOrdinaryOperationClassification(bytes: Uint8Array): Ordina
 export function encodeOrdinaryOperationJournal(raw: OrdinaryOperationJournal): Uint8Array<ArrayBuffer> {
   let request: Uint8Array | undefined, result: Uint8Array | undefined, output: Uint8Array | undefined
   const nonceBytes: Uint8Array[] = [], ownedSecrets: Uint8Array<ArrayBuffer>[] = []
+  let continuation: OrdinaryRenewalContinuationNonce[] | undefined
   let success = false
   try {
-    const v = dataObject(raw, [...META, 'request', 'result', 'secrets', 'nonces'])
+    const version = Object.getOwnPropertyDescriptor(raw, 'version')?.value
+    const v = dataObject(raw, [...META, 'request', 'result', 'secrets', 'nonces', ...(version === 2 ? ['continuation'] : [])])
     if (typeof v.request !== 'string' || v.result !== null && typeof v.result !== 'string') hold()
     const requestBytes = ordinaryUtf8Length(v.request, ORDINARY_OPERATION_DATA_BYTES)
     const resultBytes = v.result === null ? null : ordinaryUtf8Length(v.result as string, ORDINARY_OPERATION_DATA_BYTES)
@@ -203,25 +224,27 @@ export function encodeOrdinaryOperationJournal(raw: OrdinaryOperationJournal): U
     const secrets = ownedSecrets
     const nonces = v.nonces === null ? null : dataArray(v.nonces, 2)
     if (nonces && (nonces.length !== 2 || nonces.some(x => typeof x !== 'string' || !/^[0-9a-f]{24}$/.test(x)))) hold()
+    if (version === 2) continuation = copyOrdinaryRenewalContinuation(v.continuation, v.phase as OrdinaryOperationPhase)
     const header = classification({ ...Object.fromEntries(META.map(k => [k, v[k]])), requestBytes, resultBytes,
-      secretCount: secrets.length, hasNonces: nonces !== null })
+      secretCount: secrets.length, hasNonces: nonces !== null, ...(version === 2 ? {continuationCount: continuation!.length} : {}) })
     const encodedHeader = new TextEncoder().encode(JSON.stringify(headerTuple(header)))
     request = new TextEncoder().encode(v.request); result = v.result === null ? undefined : new TextEncoder().encode(v.result as string)
-    const bytes = output = new Uint8Array(4 + encodedHeader.length + requestBytes + (resultBytes ?? 0) + secrets.length * 32 + (nonces ? 24 : 0))
+    const bytes = output = new Uint8Array(4 + encodedHeader.length + requestBytes + (resultBytes ?? 0) + secrets.length * 32 + (nonces ? 24 : 0) + (continuation?.length ?? 0) * 13)
     if (bytes.length > ORDINARY_OPERATION_BYTES) hold()
     new DataView(bytes.buffer).setUint32(0, encodedHeader.length); bytes.set(encodedHeader, 4)
     let offset = 4 + encodedHeader.length
     for (const part of [request, result, ...secrets as Uint8Array[], ...(nonces ? nonces.map(x => { const n = hexToBytes(x as string); nonceBytes.push(n); return n }) : [])]) {
       if (part) { bytes.set(part, offset); offset += part.length }
     }
+    for (const value of continuation ?? []) { bytes[offset++] = value.slot; bytes.set(value.nonce, offset); offset += 12 }
     packet(bytes)
     success = true
     return bytes
-  } catch { return hold() } finally { request?.fill(0); result?.fill(0); for (const nonce of [...nonceBytes, ...ownedSecrets]) nonce.fill(0); if (!success) output?.fill(0) }
+  } catch { return hold() } finally { request?.fill(0); result?.fill(0); wipeOrdinaryRenewalContinuation(continuation); for (const nonce of [...nonceBytes, ...ownedSecrets]) nonce.fill(0); if (!success) output?.fill(0) }
 }
 /** Private producer decode: returned key bytes are caller-owned and must be wiped. */
 export function decodeOrdinaryOperationJournal(bytes: Uint8Array): OrdinaryOperationJournal {
-  const secrets: Uint8Array<ArrayBuffer>[] = []
+  const secrets: Uint8Array<ArrayBuffer>[] = [], continuation: OrdinaryRenewalContinuationNonce[] = []
   try {
     const { header, offset: start } = packet(bytes)
     let offset = start
@@ -229,9 +252,12 @@ export function decodeOrdinaryOperationJournal(bytes: Uint8Array): OrdinaryOpera
     const request = text(header.requestBytes), result = header.resultBytes === null ? null : text(header.resultBytes)
     for (let i = 0; i < header.secretCount; i++) { secrets.push(Uint8Array.from(bytes.subarray(offset, offset + 32))); offset += 32 }
     const nonces: [string, string] | null = header.hasNonces ? [bytesToHex(bytes.subarray(offset, offset + 12)), bytesToHex(bytes.subarray(offset + 12, offset + 24))] : null
-    const { requestBytes: _r, resultBytes: _s, secretCount: _c, hasNonces: _n, ...meta } = header
-    return { ...meta, request, result, secrets, nonces }
-  } catch { for (const key of secrets) key.fill(0); return hold() }
+    if (header.version === 2) for (let i = 0; i < header.continuationCount!; i++) {
+      continuation.push({slot: bytes[offset]!, nonce: Uint8Array.from(bytes.subarray(offset + 1, offset + 13))}); offset += 13
+    }
+    const { requestBytes: _r, resultBytes: _s, secretCount: _c, hasNonces: _n, continuationCount: _p, ...meta } = header
+    return { ...meta, request, result, secrets, nonces, ...(header.version === 2 ? {continuation} : {}) }
+  } catch { for (const key of secrets) key.fill(0); wipeOrdinaryRenewalContinuation(continuation); return hold() }
 }
 export function ordinaryOperationNames(tab: OrdinaryPurpose): Readonly<{ control: string; marker: string }> {
   if (!isTab(tab)) hold()
@@ -371,3 +397,10 @@ export const openOrdinaryOperationClassification = (raw: unknown, owners: Parame
   openControl(raw, owners, decodeOrdinaryOperationClassification)
 export const openOrdinaryOperationControl = (raw: unknown, owners: Parameters<typeof openControl>[1]): Promise<OrdinaryOperationJournal> =>
   openControl(raw, owners, decodeOrdinaryOperationJournal)
+
+/** Only private decoded bodies carry these arrays. Redacted classification
+ * never copies them, and a decoder consumer must wipe its copies in finally. */
+export function wipeOrdinaryOperationJournal(journal: OrdinaryOperationJournal | undefined): void {
+  journal?.secrets.forEach(v => v.fill(0))
+  wipeOrdinaryRenewalContinuation(journal?.continuation)
+}

@@ -17,8 +17,10 @@ window.__curveProbeRandom=(random,length)=>{curveInitializationProbes++;curvePro
 Object.defineProperty(window,'nostr',{configurable:true,get(){effects.provider++;if(window.providerFixture)return window.providerFixture.current;throw Error('provider forbidden')}});
 window.WebSocket=class{constructor(){effects.socket++;throw Error('socket forbidden')}};
 for(const name of ['setItem','removeItem','clear'])Storage.prototype[name]=()=>{effects.storageWrite++;throw Error('Storage write forbidden')};
-for(const name of ['put','add','delete','clear'])IDBObjectStore.prototype[name]=()=>{effects.put++;throw Error('native write forbidden')};
-crypto.getRandomValues=value=>{if(curveProbeActive)return nativeProbeRandom(value);effects.entropy++;const error=Error('entropy forbidden');privateEntropyCalls.push(error.stack);throw error};
+window.privateRenewalEntropy=[];window.privateRenewalWrites=[];window.privateRenewalPackets=[];window.privateRenewalEncryptedRows={};window.privateRenewalEncryptedCohorts={};
+window.__enterPrivateRenewalDecision=()=>{const before=[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision];window.__privateRenewalDecision=true;window.__controlDecision=true;window.__foregroundDecision=true;return()=>{[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision]=before}};
+for(const name of ['put','add','delete','clear']){const actual=IDBObjectStore.prototype[name];IDBObjectStore.prototype[name]=function(...args){effects.put++;if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalWrites.push([name,args[1]??null]);privateRenewalPackets.push({phase:window.__privateRenewalWritePhase,key:args[1],packet:JSON.stringify(args[0],(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v)});const result=Reflect.apply(actual,this,args);if(name==='put'&&window.__privateRenewalWritePhase){privateRenewalEncryptedRows[args[1]]=structuredClone(args[0]);if(String(args[1]).startsWith('journal:'))privateRenewalEncryptedCohorts[window.__privateRenewalWritePhase]=structuredClone(privateRenewalEncryptedRows)}const fault=window.privateRenewalAckFault;if(fault&&!fault.used&&fault.phase===window.__privateRenewalWritePhase){fault.used=true;const tx=this.transaction;if(fault.prior){fault.entered=true;tx.abort();if(fault.close)window.dispatchEvent(new PageTransitionEvent('pagehide'))}else{const complete=tx.oncomplete,abort=tx.onabort;tx.oncomplete=event=>{fault.entered=true;fault.release=()=>{fault.delivered=true;if(fault.reject)abort.call(tx,new Event('abort'));else complete.call(tx,event)}}}}return result}throw Error('native write forbidden')}};
+crypto.getRandomValues=value=>{if(curveProbeActive)return nativeProbeRandom(value);effects.entropy++;if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalEntropy.push(value.byteLength);if(value.byteLength===12&&window.privateRenewalNonceCollision){const prior=window.privateRenewalNonceCollision==='existing'?window.__privateRenewalPriorNonces[0]:window.__privateRenewalFirstNonce;if(prior){value.set(Uint8Array.from(prior.match(/../g).map(v=>parseInt(v,16))));return value}}const result=nativeProbeRandom(value);if(value.byteLength===12&&!window.__privateRenewalFirstNonce)window.__privateRenewalFirstNonce=Array.from(value,v=>v.toString(16).padStart(2,'0')).join('');return result}const error=Error('entropy forbidden');privateEntropyCalls.push(error.stack);throw error};
 crypto.subtle.generateKey=()=>{effects.key++;throw Error('key allocation forbidden')};`
 const none = { provider: 0, socket: 0, storageWrite: 0, put: 0, entropy: 0, key: 0 }
 
@@ -63,8 +65,64 @@ test.beforeAll(async () => {
              ;(globalThis as any).__invokePrivateControlForTest = () => (globalThis as any).__privateControlForTest(this)
              ;(globalThis as any).__invokePrivateForegroundForTest = () => (globalThis as any).__privateForegroundForTest(this)`) }
       })
+      builder.onLoad({filter: /ordinary-state-codec\.ts$/}, async input => {
+        const source = await readFile(input.path, 'utf8'), marker = "this.name = 'OrdinaryStateHold'"
+        if (source.split(marker).length !== 2) throw Error('Private pipeline owned refusal observer drift')
+        return {loader: 'ts', contents: source.replace(marker, marker + "; if ((globalThis as any).allowPrivateRenewalEffects) ((globalThis as any).__privateRenewalHolds ??= []).push(this.stack)").replace(
+          '    crypto.getRandomValues(new Uint8Array(frame.nonce))',
+          `    const f=(globalThis as any), fault=f.allowPrivateRenewalEffects&&!f.privateRenewalSealFaultUsed?f.privateRenewalSealFault:undefined
+               if(fault)f.privateRenewalSealFaultUsed=true
+               if(fault!=='missing')crypto.getRandomValues(new Uint8Array(frame.nonce))
+               if(fault==='extra')crypto.getRandomValues(new Uint8Array(frame.nonce))
+               if(fault==='changed-iv')new Uint8Array(frame.nonce)[0]^=1`)}
+      })
+      builder.onLoad({filter:/ordinary-prepared-renewal-capacity\.ts$/},async input=>{
+        let source=await readFile(input.path,'utf8')
+        for(const [marker,stage] of [['    const sizes: [number, number] = [ordinaryImageByteLength','C'],['    if (settlement) {','S']] as const){
+          if(source.split(marker).length!==2)throw Error('Native capacity stage observer drift')
+          source=source.replace(marker,`    if((globalThis as any).privateCapacityExpected)(globalThis as any).privateCapacityStage='${stage}'\n`+marker)
+        }
+        return {loader:'ts',contents:source}
+      })
       builder.onLoad({ filter: /ordinary-state-owner\.ts$/ }, async input => {
-        const source = await readFile(input.path, 'utf8'), marker = 'raw = await sdk; check()'
+        let source = await readFile(input.path, 'utf8')
+        for(const args of ['facts,selected','inverse,facts,selected']){
+          const begin='await context.step(()=>{check();const value=work(j!,[br,tr],[b!,t!],'+args+')'
+          const at=source.indexOf(begin)
+          if(at<0)throw Error('Cold recovery native decision fixture drift')
+          const end=source.indexOf('result=value})',at)
+          if(end<0)throw Error('Cold recovery native postcheck fixture drift')
+          source=source.slice(0,at)+source.slice(at,end).replace(begin,'await context.step(()=>{const restore=(globalThis as any).__enterPrivateRenewalDecision();try{if(mode===\'readwrite\'&&\''+args+'\'===\'facts,selected\')(globalThis as any).__privateRenewalWritePhase=\'settled\';check();const value=work(j!,[br,tr],[b!,t!],'+args+')')+'result=value}finally{restore()}})'+source.slice(end+'result=value})'.length)
+        }
+        source=source.replace("if(stage==='prepare'){check();attempted=true;","if(stage==='prepare'){(globalThis as any).__privateRenewalWritePhase='candidate-prepared';check();attempted=true;").replace("else{const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])}","else{(globalThis as any).__privateRenewalWritePhase='candidate-committed';const br={key:rows[0].key,frame:validateOrdinaryFrame(frames[0])},tr={key:rows[1].key,frame:validateOrdinaryFrame(frames[1])}")
+        if(source.split('for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)\n    this.#db?.close(); this.#db = undefined').length!==2)throw Error('Native owner close observer drift')
+        const earlyCapacity='  const size = (delta: 1|2|3): readonly [number,number] => {'
+        if(source.split(earlyCapacity).length!==2)throw Error('Native intent capacity observer drift')
+        source=source.replace(earlyCapacity,earlyCapacity+`
+    if((globalThis as any).privateCapacityExpected)(globalThis as any).privateCapacityStage=delta===1?'E':delta===2?'C':'S'`)
+        const lateSeal='const seal = fixedCrypto(slots, [rows[0].key, rows[1].key], custodyOnly)'
+        if(source.split(lateSeal).length!==2)throw Error('Private late sealer fault fixture drift')
+        source=source.replace(lateSeal,lateSeal+`
+          // Deliberate misuse of the actual closed fixed sealer. No key or
+          // nonce escapes this fixture-instrumented owner function.
+          const observation=(globalThis as any), fault=journal.phase==='candidate-committed'?observation.privateLateSealFault:undefined
+          if(fault&&!observation.privateLateSealFaultUsed){
+            const encrypt=seal.provider.subtle.encrypt.bind(seal.provider.subtle)
+            if(fault==='reordered'){
+              observation.privateLateSealFaultUsed=true
+              await encrypt({name:'AES-GCM',iv:new Uint8Array(12),tagLength:128},rows[0].key,new Uint8Array())
+            }else seal.provider.subtle.encrypt=((algorithm,key,bytes)=>{
+              if(!observation.privateLateSealFaultUsed){
+                observation.privateLateSealFaultUsed=true
+                if(fault==='wrong-key')key=rows[1].key
+                if(fault==='wrong-algorithm')algorithm={...(algorithm as AesGcmParams),name:'AES-CTR'}
+                if(fault==='wrong-tag')algorithm={...(algorithm as AesGcmParams),tagLength:96}
+              }
+              return encrypt(algorithm,key,bytes)
+            }) as SubtleCrypto['encrypt']
+          }
+        `)
+        const marker = 'raw = await sdk; check()'
         if (source.split(marker).length !== 2) throw Error('Private provider SDK close fixture drift')
         // Wrap only this checkpoint's already-created actual SDK signer. Its
         // real close still runs; explicit fault fixtures delay/reject its join.
@@ -107,6 +165,69 @@ test.beforeAll(async () => {
           }
           if (fixture) fixture.sdk = raw
           check()`).replace(
+          'const result = work(browserView.store, tabView.store,\n              Object.freeze([...first.migration.names]), Object.freeze([...second.migration.names]), custody)',
+          `const result = (() => {
+            const previous=(globalThis as any).__controlDecision, foreground=(globalThis as any).__foregroundDecision
+            ;(globalThis as any).__controlDecision=true;(globalThis as any).__foregroundDecision=true
+            try {return work(browserView.store,tabView.store,Object.freeze([...first.migration.names]),Object.freeze([...second.migration.names]),custody)}
+            finally {(globalThis as any).__controlDecision=previous;(globalThis as any).__foregroundDecision=foreground}
+          })()`).replace(
+          'check(); OrdinaryStateOwner.#validatePrivateRenewalRead(value.member, value.scopes, bv!.store, tv!.store, custody!)',
+          'const restore = (globalThis as any).__enterPrivateRenewalDecision(); try { check(); OrdinaryStateOwner.#validatePrivateRenewalRead(value.member, value.scopes, bv!.store, tv!.store, custody!)').replace(
+          'OrdinaryStateOwner.#validatePrivateRenewalRead(value.member, value.scopes, bv!.store, tv!.store, custody!); check()\n          })',
+          'OrdinaryStateOwner.#validatePrivateRenewalRead(value.member, value.scopes, bv!.store, tv!.store, custody!); check() } finally { restore() }\n          })').replace(
+          'inDecision = true\n            try {',
+          'inDecision = true\n            const restore = (globalThis as any).__enterPrivateRenewalDecision()\n            try {').replace(
+          'finally { inDecision = false; if (decision) privateRenewalDecisions.delete(decision) }',
+          'finally { inDecision = false; if (decision) privateRenewalDecisions.delete(decision); restore() }').replace(
+          'phaseCheck(custodyOnly); attempted = true',
+          'phaseCheck(custodyOnly); (globalThis as any).__privateRenewalWritePhase=journal.phase; attempted = true').replace(
+          "check(); attempted = true\n              op.context!.store.put",
+          "check(); (globalThis as any).__privateRenewalWritePhase='prepared'; attempted = true\n              op.context!.store.put").replace(
+          'cell.canonical = credential.ordinaryRenewalResultForStatement',
+          '(globalThis as any).__privateRenewalCaptures=((globalThis as any).__privateRenewalCaptures??0)+1; cell.canonical = credential.ordinaryRenewalResultForStatement').replace(
+          'browser.#operationControlDigests = new Map(facts.controls)\n          bv = view',
+          '(globalThis as any).__privateRenewalPriorNonces=[...priorNonces]; browser.#operationControlDigests = new Map(facts.controls)\n          bv = view').replace(
+          'result = work(j!, [br, tr], [b!, t!]); nativeCheck()',
+          `result = work(j!, [br, tr], [b!, t!]); nativeCheck()
+           const fault=(globalThis as any).privateRenewalCompletionAckFault
+           if(custodyOnly&&op.completion?.state==='captured'&&fault&&!fault.used){
+             fault.used=true;const tx=context!.tx,abort=tx.onabort!
+             tx.oncomplete=()=>{fault.entered=true;fault.release=()=>abort.call(tx,new Event('abort'))}
+           }`).replace(
+          'retainOrdinaryPrivateRenewalForeground(attempt); check()',
+          `if((globalThis as any).privateRenewalRetainFailure==='before')throw new OrdinaryStateHold()
+           retainOrdinaryPrivateRenewalForeground(attempt)
+           if((globalThis as any).privateRenewalRetainFailure==='after')throw new OrdinaryStateHold()
+           check()`).replace(
+          'cell.raw = undefined; cell.captured = undefined; cell.binding = undefined; cell.provider = undefined',
+          `cell.raw = undefined; cell.captured = undefined; cell.binding = undefined; cell.provider = undefined
+           ;(globalThis as any).__privateRenewalAfterSdkFinish={provider:!!cell.provider,raw:cell.raw!==undefined,captured:!!cell.captured,binding:!!cell.binding,canonical:!!cell.canonical,digest:!!cell.digest}`).replace(
+          'const resource = {stop: () => { op.revoked = true; if (!op.custodyOnly) { op.context?.abort(); op.revokeWait?.() } }}',
+          `;(globalThis as any).__privateRenewalResourceForTest = () => ({disposed:op.disposed, revoked:op.revoked, tails:op.tails.size, tokens:op.tokens.size, state:op.completion?.state??op.terminal,holding:!!browser.#retry,resources:privateRenewalOwnerResources.get(browser)?.size??0,material:{provider:!!op.completion?.provider,raw:op.completion?.raw!==undefined,captured:!!op.completion?.captured,request:!!op.request,statement:!!op.statement,canonical:!!op.completion?.canonical,digest:!!op.completion?.digest,secret:!!op.secret,nonces:!!op.nonces}})
+           ;(globalThis as any).__privateRenewalRetryForTest = () => {browser.#retry?.();tab.#retry?.()}
+           ;(globalThis as any).__privateRenewalCorruptCapturedForTest = (field:string) => {
+             const cell=op.completion!
+             if(field==='canonical')cell.canonical=cell.canonical!+' '
+             else if(field==='digest')cell.digest='0'.repeat(64)
+             else if(field==='binding')cell.binding=Object.freeze({...cell.binding!,request:cell.binding!.request+' '})
+           }
+           ;(globalThis as any).__privateRenewalDiskForTest = async () => {
+             const db = await browser.#existingStartupDatabase(()=>true,true)
+             if (!db) throw Error('No actual private renewal database')
+             const context=operationTransaction(db,'readonly'),purpose=tab.purpose,names=ordinaryOperationNames(purpose)
+             let b:OrdinaryImage|undefined,t:OrdinaryImage|undefined,j:OrdinaryOperationJournal|undefined
+             try {
+               const raw=await Promise.all([context.read(()=>context.store.get('browser')),context.read(()=>context.store.get(purpose)),context.read(()=>context.store.get(names.control))])
+               const br=row(raw[0])!,tr=row(raw[1])!
+               if(raw[2]===undefined){context.stop();await context.ended;return {phase:'absent',result:false,secretCount:0,sequence:0,initialEpochUnchanged:true,changedRows:[rowDigest(br)!==value.member.epoch.current.rows[0],rowDigest(tr)!==value.member.epoch.current.rows[1]]}}
+               b=await openOrdinaryFrame(br.frame!,br.key);t=await openOrdinaryFrame(tr.frame!,tr.key)
+               j=await openOrdinaryOperationControl(raw[2],{browser:{binding:{purpose:b.purpose,keyId:b.keyId,generation:b.generation,expiresAt:b.expiresAt},key:br.key},tab:{binding:{purpose:t.purpose,keyId:t.keyId,generation:t.generation,expiresAt:t.expiresAt},key:tr.key}})
+               context.stop();await context.ended
+               return {phase:j.phase,result:!!j.result,secretCount:j.secrets.length,sequence:j.sequence,initialEpochUnchanged:value.member.epoch.current.rows.every((r,i)=>r===value.member.capture.rows[i]),changedRows:[rowDigest(br)!==value.member.epoch.current.rows[0],rowDigest(tr)!==value.member.epoch.current.rows[1]]}
+             } finally {context.stop();db.close();clearImage(b);clearImage(t);wipeOrdinaryOperationJournal(j)}
+           }
+           const resource = {stop: () => { op.revoked = true; if (!op.custodyOnly) { op.context?.abort(); op.revokeWait?.() } }}`).replace(
           'privateRenewalFactories.set(factory, {native, foreground, member, scopes, foregroundExpiresAt, closed: false})',
           `privateRenewalFactories.set(factory, {native, foreground, member,
             scopes: (globalThis as any).providerFixture?.renewalScopeFamily === 'signet' ? member.foregroundScopes()! : scopes,
@@ -118,8 +239,10 @@ test.beforeAll(async () => {
           'beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)',
           `beginPrivateExistingProvider = root => this.#beginPrivateExistingProvider(root)
            ;(globalThis as any).__privateOwnerPrototypeForTest = this.prototype
+           ;(globalThis as any).__privateColdResourceForTest = (owner:OrdinaryStateOwner) => ({closed:owner.#closed,work:owner.#work.size,waiting:!!owner.#retry})
            ;(globalThis as any).__takePrivateRenewalIntentForTest = takeOrdinaryPrivateRenewalIntent
            ;(globalThis as any).__takePrivateRenewalClaimForTest = takeOrdinaryPrivateRenewalFactoryClaim
+           ;(globalThis as any).__privateRenewForTest = renewOrdinaryPrivateMember
            ;(globalThis as any).__privateControlForTest = (root: OrdinaryPrivateExistingRoot) => this.#authenticatePrivateExistingProvider(root)
            ;(globalThis as any).__privateForegroundForTest = (root: OrdinaryPrivateExistingRoot) => this.#beginPrivateExistingForeground(root)`).replace(
           'challenge = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))',
@@ -128,8 +251,8 @@ test.beforeAll(async () => {
           'await context.step(() => { const previous = (globalThis as any).__controlDecision; if (controlMode) (globalThis as any).__controlDecision = true; try {\n              check(); if (controlMode').replace(
           'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n            })',
           'start?.(); check(); if (controlMode && (!sdkCurrent || !sdkCurrent())) hold()\n            } finally { (globalThis as any).__controlDecision = previous } })').replace(
-          'while (this.#work.size) await Promise.allSettled([...this.#work])\n    this.#db?.close(); this.#db = undefined',
-          `while (this.#work.size) await Promise.allSettled([...this.#work])
+          'for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)\n    this.#db?.close(); this.#db = undefined',
+          `for (const operation of [...privateRenewalOwnerResources.get(this) ?? []]) OrdinaryStateOwner.#disposePrivateRenewal(operation)
            this.#db?.close(); this.#db = undefined
            const fixture = (globalThis as any).__privateOwnerCloseFixture
            if (fixture) {
@@ -598,11 +721,14 @@ async function providerFixture(page: Page, account: string, gated = false, withC
         if (fixture.gated) await new Promise<void>(yes => { fixture.release = yes })
         return fixture.account
       },
-      signEvent: async (event: any) => {
+      signEvent: (event: any) => {
+        if (fixture.foregroundExpected && fixture.synchronousFailure) { fixture.signs++; fixture.foregroundStarts=(fixture.foregroundStarts??0)+1; throw fixture.synchronousFailure }
+        return (async () => {
         fixture.signs++
         if (fixture.foregroundExpected) {
           fixture.foregroundStarts = (fixture.foregroundStarts ?? 0) + 1
           fixture.foregroundGuarded = !!w.__foregroundDecision
+          if (fixture.renewalCut === 'start') window.dispatchEvent(new PageTransitionEvent('pagehide'))
           if (fixture.foregroundGated) await new Promise<void>(yes => { fixture.releaseForeground = yes })
           if (fixture.foregroundFailure) throw fixture.foregroundFailure
         }
@@ -622,7 +748,7 @@ async function providerFixture(page: Page, account: string, gated = false, withC
         if (!fixture.proofProxy) return result
         const inspect = () => {
           fixture.proofInspections = (fixture.proofInspections ?? 0) + 1
-          if (!w.__controlDecision) { fixture.proofOutside = (fixture.proofOutside ?? 0) + 1; throw Error('Proof inspection outside native decision') }
+          if (!w.__controlDecision || fixture.renewalProofExpected && !w.__privateRenewalDecision) { fixture.proofOutside = (fixture.proofOutside ?? 0) + 1; throw Error('Proof inspection outside native decision') }
           if (fixture.proofCutsRoot) window.dispatchEvent(new PageTransitionEvent('pagehide'))
         }
         return new Proxy(result, {
@@ -633,6 +759,7 @@ async function providerFixture(page: Page, account: string, gated = false, withC
           ownKeys(target) { inspect(); return Reflect.ownKeys(target) },
           getOwnPropertyDescriptor(target, key) { inspect(); return Reflect.getOwnPropertyDescriptor(target, key) },
         })
+        })()
       },
     }
     if (withCrypto) (provider as any).nip44 = {
@@ -817,8 +944,10 @@ for (const mutation of ['provider', 'native'] as const) test(`held ${mutation} m
 // construction remain part of the unpublished vertical under construction.
 const privateControlFixtureSecrets = new WeakMap<Page, Uint8Array>()
 async function prepareControlStage(page: Page, keep = true, proxyProvider = false,
-  duplicated?: { family: 'sign' | 'crypto'; timing: 'sequential' | 'microtask' }): Promise<void> {
-  const href = await seed(page, keep), account = await page.evaluate<string>('account'),
+  duplicated?: { family: 'sign' | 'crypto'; timing: 'sequential' | 'microtask' }, seedFixture?:()=>Promise<void>): Promise<void> {
+  const href = await seed(page, keep)
+  await seedFixture?.()
+  const account = await page.evaluate<string>('account'),
     secret = Uint8Array.from(await page.evaluate<number[]>('Array.from(participantSk)'))
   const registered = privateControlFixtureSecrets.has(page)
   privateControlFixtureSecrets.set(page, secret)
@@ -1247,6 +1376,530 @@ for (const disposition of ['rejected', 'pending'] as const) test(`private foregr
   expect(await page.evaluate('validationUnhandled')).toBe(0)
 })
 
+async function beginPrivateRenewalPipeline(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const w = window as any, api = w.__privateRenewalRegistryForTest
+    w.privatePipelineDone = false; w.privatePipelineStage = 'claim'
+    let factory: unknown, desired: unknown
+    try {
+      const claim = await w.__privateForegroundProbe.prepareRenewalFactory()
+      w.privatePipelineStage = 'factory'; factory = api.openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim)
+      w.privatePipelineStage = 'desired'; desired = await w.__privateForegroundProbe.renewalDesired()
+    } catch (error) { w.privatePipelineOutcome = 'fixture-'+w.privatePipelineStage+':'+(error as Error).name; w.privatePipelineDone = true; return }
+    w.allowPrivateRenewalEffects = true; w.providerFixture.foregroundExpected = true; w.providerFixture.renewalProofExpected = true
+    w.privatePipelineDone = false
+    const work = w.__privateRenewalWorkForTest.registerPreparedStartup({}, async (root: unknown) => {
+      const obligation = await api.prepareOrdinaryPrivateRenewalObligation(factory, root, desired)
+      w.privatePipelineObligation = obligation
+      try { w.privatePipelineReceipt = await w.__privateRenewForTest(obligation); w.privatePipelineOutcome = 'settled' }
+      catch (error) { w.privatePipelineOutcome = (error as Error).name }
+    })
+    w.privatePipelineWork = work
+    w.privatePipelinePending = work.start().catch((error: Error) => { w.privatePipelineOutcome = error.name })
+      .finally(() => { w.privatePipelineDone = true; work.close() })
+  })
+}
+
+for (const keep of [false, true]) test(`private renewal pipeline acknowledges actual durable S without adopting initial epoch, keep=${keep}`, async ({page}) => {
+  await page.clock.install(); await prepareControlStage(page, keep, true); await startPrivateForeground(page)
+  await page.clock.fastForward(2_000)
+  await page.evaluate('providerFixture.proofProxy=true;undefined')
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  if (await page.evaluate('privatePipelineOutcome') !== 'settled') console.log('Private pipeline refusal observation:', await page.evaluate('JSON.stringify({stage:privatePipelineStage,holds:window.__privateRenewalHolds,resource:window.__privateRenewalResourceForTest?.()})'))
+  expect(await page.evaluate('({outcome:privatePipelineOutcome,stage:privatePipelineStage,resource:window.__privateRenewalResourceForTest?.(),entropy:privateRenewalEntropy,writes:privateRenewalWrites,errors:privateEntropyCalls,outside:providerFixture.providerOutside??0,rootFailure:window.__providerFailure})'))
+    .toMatchObject({outcome: 'settled', resource: {disposed: false, tails: 0, tokens: 1, state: 'settled'}, entropy: [32, 32, ...Array(18).fill(12)], errors: [], outside: 0})
+  expect(await page.evaluate('__privateRenewalResourceForTest().material')).toEqual({provider:false,raw:false,captured:false,request:false,statement:false,canonical:false,digest:false,secret:false,nonces:false})
+  expect(await page.evaluate('__privateRenewalAfterSdkFinish')).toEqual({provider:false,raw:false,captured:false,binding:false,canonical:true,digest:true})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toEqual({phase: 'settled', result: false, secretCount: 0, sequence: 1,
+    initialEpochUnchanged: true, changedRows: [true, true]})
+  expect(await page.evaluate('[providerFixture.signs,effects.put,effects.entropy,effects.key,effects.socket,providerFixture.providerOutside??0,providerFixture.proofOutside??0,providerFixture.foregroundGuarded]'))
+    .toEqual([2, 12, 20, 0, 0, 0, 0, true])
+  expect(await page.evaluate('__privateRenewForTest(privatePipelineObligation).then(()=>"replayed",error=>error.name)')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('Object.isFrozen(privatePipelineReceipt)&&Reflect.ownKeys(privatePipelineReceipt).length===0')).toBe(true)
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('__privateRenewalResourceForTest()')).toMatchObject({disposed: true, tokens: 0, tails: 0})
+})
+
+async function preparePrivateRenewalPipeline(page: Page): Promise<void> {
+  await page.clock.install(); await prepareControlStage(page, false, true); await startPrivateForeground(page)
+  await page.clock.fastForward(2_000)
+}
+
+for (const synchronous of [false, true]) test(`private renewal pipeline owns hostile provider rejection without metadata, synchronous=${synchronous}`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(synchronous => {
+    const w = window as any; w.hostileRejectionReads = 0
+    const trap = () => { w.hostileRejectionReads++; throw Error('Foreign rejection metadata') }
+    const hostile = new Proxy({}, {get: trap, getPrototypeOf: trap, ownKeys: trap, getOwnPropertyDescriptor: trap})
+    w.providerFixture[synchronous ? 'synchronousFailure' : 'foregroundFailure'] = hostile
+  }, synchronous)
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('({outcome:privatePipelineOutcome,reads:hostileRejectionReads,signs:providerFixture.signs,resource:__privateRenewalResourceForTest()})'))
+    .toMatchObject({outcome: 'OrdinaryStateHold', reads: 0, signs: 2, resource: {tokens: 0, tails: 0, state: 'failed'}})
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-started', result: false, initialEpochUnchanged: true})
+  expect(await page.evaluate('[effects.put,effects.entropy,effects.key,effects.socket]')).toEqual([4, 20, 0, 0])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+test('private renewal pipeline quarantines invalid signature after one proof capture', async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate('providerFixture.controlMode="signature";undefined')
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,__privateRenewalCaptures,__privateRenewalResourceForTest().tokens,effects.put]'))
+    .toEqual(['OrdinaryStateHold', 2, 1, 0, 4])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-started', result: false, initialEpochUnchanged: true})
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+for (const cut of ['start', 'pending', 'proof']) test(`private renewal pipeline retains late proof custody after ${cut} revocation`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(cut => {
+    const f = (window as any).providerFixture
+    f.proofProxy = true
+    if (cut === 'proof') f.proofCutsRoot = true
+    else { f.foregroundGated = true; if (cut === 'start') f.renewalCut = 'start' }
+  }, cut)
+  await beginPrivateRenewalPipeline(page)
+  if (cut !== 'proof') {
+    await page.waitForFunction('providerFixture.foregroundStarts===1&&!!providerFixture.releaseForeground')
+    if (cut === 'pending') await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await lockAvailable(page, 'write')).toBe(false)
+    expect(await page.evaluate('privatePipelineDone')).toBe(false)
+    expect(await page.evaluate('providerFixture.closed??0')).toBe(0)
+    await page.evaluate('providerFixture.releaseForeground()')
+  }
+  await page.waitForFunction('privatePipelineDone')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,__privateRenewalCaptures,providerFixture.proofOutside??0,effects.put,effects.entropy]'))
+    .toEqual(['OrdinaryStateHold', 2, 1, 0, 5, 20])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'provider-returned', result: true, initialEpochUnchanged: true})
+  expect(await page.evaluate('__privateRenewalResourceForTest()')).toMatchObject({disposed: true, tokens: 0, tails: 0})
+})
+
+for (const phase of ['prepared', 'provider-started', 'provider-returned', 'candidate-prepared', 'candidate-committed', 'settled']) {
+  for (const closing of [false, true]) test(`private renewal pipeline reconciles committed ${phase} after lost acknowledgement, closing=${closing}`, async ({page}) => {
+    await preparePrivateRenewalPipeline(page)
+    await page.evaluate(phase => { (window as any).privateRenewalAckFault = {phase, reject: true} }, phase)
+    await beginPrivateRenewalPipeline(page)
+    await page.waitForFunction('privateRenewalAckFault.entered')
+    expect(await page.evaluate('privatePipelineDone')).toBe(false)
+    expect(await lockAvailable(page, 'migration')).toBe(false)
+    expect(await lockAvailable(page, 'write')).toBe(false)
+    if (closing) await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    // The native transaction really committed. Only delivery of its success
+    // acknowledgement is replaced by an error; this is not an abort claim.
+    await page.evaluate('privateRenewalAckFault.release()')
+    await page.waitForFunction('privatePipelineDone')
+    expect(await page.evaluate('privatePipelineOutcome')).toBe(closing ? 'OrdinaryStateHold' : 'settled')
+    expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: closing ? phase : 'settled', initialEpochUnchanged: true})
+    expect(await page.evaluate('effects.entropy')).toBe(20)
+    expect(await page.evaluate('providerFixture.signs')).toBe(closing && ['prepared', 'provider-started'].includes(phase) ? 1 : 2)
+    expect(await page.evaluate('__privateRenewalResourceForTest().tokens')).toBe(closing ? 0 : 1)
+    if (!closing) await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  })
+}
+
+for (const phase of ['prepared', 'provider-returned', 'candidate-committed', 'settled']) test(`private renewal pipeline retries exact prior ${phase} with identical ciphertext`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(phase => { (window as any).privateRenewalAckFault = {phase, prior: true} }, phase)
+  await beginPrivateRenewalPipeline(page)
+  await page.waitForFunction('privateRenewalAckFault.entered&&__privateRenewalResourceForTest().holding')
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  expect(await lockAvailable(page, 'write')).toBe(false)
+  expect(await page.evaluate('effects.entropy')).toBe(20)
+  await page.evaluate('__privateRenewalRetryForTest()')
+  await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('privatePipelineOutcome')).toBe('settled')
+  expect(await page.evaluate(phase => {
+    const packets = (window as any).privateRenewalPackets.filter((v: any) => v.phase === phase)
+    const byKey = new Map<string, string[]>()
+    for (const p of packets) byKey.set(p.key, [...byKey.get(p.key) ?? [], p.packet])
+    const values = [...byKey.values()]
+    return values.some(v => v.length === 2) && values.every(v => v.length >= 1 && v.length <= 2 && v.every(packet => packet === v[0]))
+  }, phase)).toBe(true)
+  expect(await page.evaluate('[effects.entropy,providerFixture.signs,__privateRenewalCaptures]')).toEqual([20, 2, 1])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+for (const phase of ['prepared','provider-started','candidate-prepared','candidate-committed','settled']) test(`private renewal pipeline prior wait revocation ${phase} terminates live stage`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(phase => {(window as any).privateRenewalAckFault={phase,prior:true}},phase)
+  await beginPrivateRenewalPipeline(page)
+  await page.waitForFunction('privateRenewalAckFault.entered&&__privateRenewalResourceForTest().holding')
+  expect(await page.evaluate('privatePipelineDone')).toBe(false)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => page.evaluate('privatePipelineDone'),{timeout:2_000}).toBe(true)
+  await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[privatePipelineOutcome,__privateRenewalResourceForTest().tokens]')).toEqual(['OrdinaryStateHold',0])
+  expect(await page.evaluate('providerFixture.signs')).toBe(['prepared','provider-started'].includes(phase)?1:2)
+})
+
+test('private renewal pipeline retains exact-prior result custody after waiting then revocation', async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate('privateRenewalAckFault={phase:"provider-returned",prior:true};undefined')
+  await beginPrivateRenewalPipeline(page)
+  await page.waitForFunction('privateRenewalAckFault.entered&&__privateRenewalResourceForTest().holding')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await page.evaluate('privatePipelineDone')).toBe(false)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await lockAvailable(page,'write')).toBe(false)
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-started',result:false})
+  await page.evaluate('__privateRenewalRetryForTest()')
+  await page.waitForFunction('privatePipelineDone')
+  await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,effects.entropy,__privateRenewalCaptures,__privateRenewalResourceForTest().tokens]'))
+    .toEqual(['OrdinaryStateHold',2,20,1,0])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-returned',result:true,initialEpochUnchanged:true})
+  expect(await page.evaluate(() => {
+    const packets=(window as any).privateRenewalPackets.filter((v:any)=>v.phase==='provider-returned')
+    return packets.length===2&&packets[0].packet===packets[1].packet
+  })).toBe(true)
+})
+
+test('private renewal pipeline terminates revoked exact-prior E without waiting for impossible retry', async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate('privateRenewalAckFault={phase:"prepared",prior:true,close:true};undefined')
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+  expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,__privateRenewalResourceForTest().tokens]')).toEqual(['OrdinaryStateHold', 1, 0])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'absent', changedRows: [false, false]})
+})
+
+for (const corruption of ['none', 'canonical', 'digest', 'binding']) test(`private renewal pipeline reauthenticates detached completion after read acknowledgement loss, corruption=${corruption}`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate('privateRenewalCompletionAckFault={};providerFixture.proofProxy=true;undefined')
+  await beginPrivateRenewalPipeline(page)
+  await page.waitForFunction('privateRenewalCompletionAckFault.entered')
+  const inspections = await page.evaluate<number>('providerFixture.proofInspections')
+  expect(await page.evaluate('__privateRenewalCaptures')).toBe(1)
+  expect(await lockAvailable(page, 'migration')).toBe(false)
+  expect(await lockAvailable(page, 'write')).toBe(false)
+  await page.evaluate(corruption => {
+    const w=window as any
+    if(corruption!=='none')w.__privateRenewalCorruptCapturedForTest(corruption)
+    w.privateRenewalCompletionAckFault.release()
+  }, corruption)
+  await page.waitForFunction('__privateRenewalResourceForTest().holding')
+  await page.evaluate('__privateRenewalRetryForTest()')
+  await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('privatePipelineOutcome')).toBe(corruption === 'none' ? 'settled' : 'OrdinaryStateHold')
+  if (corruption !== 'none') {
+    expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-started',result:false})
+    expect(await page.evaluate('__privateRenewalResourceForTest()')).toMatchObject({tokens:0,tails:0,state:'failed'})
+  }
+  expect(await page.evaluate('[__privateRenewalCaptures,providerFixture.proofInspections,providerFixture.proofOutside??0,providerFixture.signs,effects.entropy]'))
+    .toEqual([1, inspections, 0, 2, 20])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+for (const timing of ['sequential', 'microtask'] as const) test(`private renewal pipeline spends SDK provider boundary before ${timing} duplicate`, async ({page}) => {
+  await page.clock.install(); await prepareControlStage(page, false, true, {family: 'sign', timing}); await startPrivateForeground(page)
+  await page.clock.fastForward(2_000)
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,providerFixture.duplicateCallbacks??0,__privateRenewalCaptures,effects.put,effects.entropy,__privateRenewalResourceForTest().tokens]'))
+    .toEqual(['OrdinaryStateHold', 2, 0, 1, 5, 20, 0])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'provider-returned',result:true,initialEpochUnchanged:true})
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+test('private renewal pipeline uses closed owner and foreground cores despite public method replacement', async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(() => {
+    const w=window as any;w.privatePipelineInterceptions=0
+    const replaced=()=>{w.privatePipelineInterceptions++;throw Error('Replaced public renewal core')}
+    const owner=w.__privateOwnerPrototypeForTest.constructor,fg=w.__privateForegroundClassForTest
+    for(const name of ['captureRenewalPredecessor','validatePairBinding','readPairMigrated','joinPairLifetime'])owner[name]=replaced
+    for(const name of ['isNativeSigner','nativeCurrent','nativeDeadline','borrowNativeSignEvent'])fg[name]=replaced
+    for(const name of ['signEvent','borrowSignEvent'])fg.prototype[name]=replaced
+  })
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('[privatePipelineOutcome,privatePipelineInterceptions,providerFixture.signs,effects.entropy]')).toEqual(['settled',0,2,20])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+for (const phase of ['prepared','provider-returned']) for (const closing of [false,true]) test(`private renewal pipeline retains mixed ${phase} cohort until exact repair, closing=${closing}`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(phase => {(window as any).privateRenewalAckFault={phase,reject:true}},phase)
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privateRenewalAckFault.entered')
+  await page.evaluate(async () => {
+    const w=window as any,key=w.privateRenewalWrites.find((entry:any)=>String(entry[1]).startsWith('journal:'))[1]
+    const opened=indexedDB.open('kithmoot-ordinary-state-v1',1)
+    const db=await new Promise<IDBDatabase>((yes,no)=>{opened.onsuccess=()=>yes(opened.result);opened.onerror=()=>no(opened.error)})
+    const write=(repair:boolean)=>new Promise<void>((yes,no)=>{
+      const tx=db.transaction('owners','readwrite'),store=tx.objectStore('owners'),r=store.get(key)
+      r.onsuccess=()=>{
+        if(!repair){w.privatePipelineOriginalControl=structuredClone(r.result);new Uint8Array(r.result.browser.ciphertext)[0]^=1}
+        Reflect.apply(w.providerFixture.nativePut,store,[repair?w.privatePipelineOriginalControl:r.result,key])
+      }
+      tx.oncomplete=()=>yes();tx.onabort=()=>no(tx.error)
+    })
+    await write(false)
+    w.privatePipelineRepairMixed=async()=>{await write(true);db.close()}
+  })
+  if (closing) await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await page.evaluate('privateRenewalAckFault.release()')
+  await page.waitForFunction('__privateRenewalResourceForTest().holding')
+  expect(await page.evaluate('privatePipelineDone')).toBe(false)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await lockAvailable(page,'write')).toBe(false)
+  const before=await page.evaluate('[effects.put,effects.entropy,providerFixture.signs]')
+  await page.evaluate('__privateRenewalRetryForTest()')
+  await page.waitForFunction('__privateRenewalResourceForTest().holding')
+  expect(await page.evaluate('[effects.put,effects.entropy,providerFixture.signs]')).toEqual(before)
+  await page.evaluate('privatePipelineRepairMixed()')
+  await page.evaluate('__privateRenewalRetryForTest()')
+  await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('privatePipelineOutcome')).toBe(closing?'OrdinaryStateHold':'settled')
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:closing?phase:'settled',initialEpochUnchanged:true})
+  expect(await page.evaluate('effects.entropy')).toBe(20)
+  if(!closing)await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
+})
+
+for (const collision of ['existing', 'new']) test(`private renewal pipeline refuses ${collision} nonce collision before E`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(collision => { (window as any).privateRenewalNonceCollision = collision }, collision)
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('[privatePipelineOutcome,effects.put,providerFixture.signs,__privateRenewalResourceForTest().tokens,privateRenewalEntropy]'))
+    .toEqual(['OrdinaryStateHold', 0, 1, 0, [32, 32, ...Array(collision === 'existing' ? 1 : 2).fill(12)]])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'absent', changedRows: [false, false]})
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+for (const fault of ['missing', 'extra', 'changed-iv']) test(`private renewal pipeline refuses ${fault} sealer nonce use before E`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(fault => { (window as any).privateRenewalSealFault = fault }, fault)
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('[privatePipelineOutcome,effects.put,providerFixture.signs,__privateRenewalResourceForTest().tokens,effects.entropy,privateRenewalSealFaultUsed]'))
+    .toEqual(['OrdinaryStateHold', 0, 1, 0, 20, true])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase: 'absent', changedRows: [false, false]})
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
+async function preparePrivateColdSnapshot(page:Page,phase:string):Promise<void>{
+  await preparePrivateRenewalPipeline(page); await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('privatePipelineOutcome')).toBe('settled')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
+  // Native encrypted snapshots come from one fully acknowledged reference
+  // journey. Fixture restoration is explicit; this does not claim a process
+  // crash or physical power-cut test. Keys never leave native IndexedDB.
+  await page.evaluate(async phase => {
+    const w=window as any,selected=w.privateRenewalEncryptedCohorts[phase],reference=w.privateRenewalEncryptedCohorts.settled
+    const open=(name:string,backup=false)=>new Promise<IDBDatabase>((yes,no)=>{
+      const r=indexedDB.open(name,1);r.onupgradeneeded=()=>{if(backup)r.result.createObjectStore('snapshots')}
+      r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)
+    })
+    const backup=await open('private-renewal-reference-fixture',true),tx=backup.transaction('snapshots','readwrite')
+    Reflect.apply(w.providerFixture.nativePut,tx.objectStore('snapshots'),[{reference,packets:w.privateRenewalPackets,phase},'reference'])
+    await new Promise<void>((yes,no)=>{tx.oncomplete=()=>yes();tx.onabort=()=>no(tx.error)});backup.close()
+    const db=await open('kithmoot-ordinary-state-v1'),restore=db.transaction('owners','readwrite'),store=restore.objectStore('owners')
+    for(const [key,value] of Object.entries(selected))Reflect.apply(w.providerFixture.nativePut,store,[value,key])
+    await new Promise<void>((yes,no)=>{restore.oncomplete=()=>yes();restore.onabort=()=>no(restore.error)});db.close()
+  },phase)
+  await page.reload(); await page.waitForFunction('!!window.__privateOwnerPrototypeForTest')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
+}
+async function beginPrivateColdRecovery(page:Page,phase:string,fault?:{phase:string;prior?:boolean;reject?:boolean}):Promise<void>{
+  await page.evaluate(({phase,fault})=>{
+    const w=window as any
+    w.privateColdOwner=new w.__privateOwnerPrototypeForTest.constructor();w.privateColdLive=true;w.privateColdDone=false;w.privateColdEndpointOutcomes=[]
+    w.privateRenewalAckFault=fault
+    w.privateColdPending=(async()=>{
+    const owner=w.privateColdOwner
+    w.allowPrivateRenewalEffects=true
+    try{
+      const before=await owner.inspectRenewalStartup(()=>w.privateColdLive)
+      let result='held';const refused:string[]=[]
+      if(['prepared','provider-started'].includes(phase))for(const recover of ['recoverRetainedRenewalAtStartup','recoverCommittedRenewalAtStartup']){
+        try{await owner[recover]('tab:'+'a'.repeat(64),()=>w.privateColdLive);refused.push('unexpected success')}catch(error){refused.push((error as Error).name)}
+      }
+      const recover=async(method:string)=>{
+        try{const value=await owner[method]('tab:'+'a'.repeat(64),()=>w.privateColdLive);w.privateColdEndpointOutcomes.push({method,status:value.status})}
+        catch(error){w.privateColdEndpointOutcomes.push({method,error:(error as Error).name});throw error}
+      }
+      if(['provider-returned','candidate-prepared'].includes(phase))await recover('recoverRetainedRenewalAtStartup')
+      if(!['prepared','provider-started'].includes(phase)){await recover('recoverCommittedRenewalAtStartup');result='settled'}
+      const after=await owner.inspectRenewalStartup(()=>w.privateColdLive)
+      const read=(name:string,storeName:string)=>new Promise<any>((yes,no)=>{
+        const r=indexedDB.open(name,1);r.onerror=()=>no(r.error);r.onsuccess=()=>{const db=r.result,tx=db.transaction(storeName),store=tx.objectStore(storeName),keys=store.getAllKeys(),values=store.getAll();tx.oncomplete=()=>{db.close();yes(Object.fromEntries(keys.result.map((k,i)=>[k,values.result[i]])))};tx.onabort=()=>{db.close();no(tx.error)}}
+      })
+      const current=await read('kithmoot-ordinary-state-v1','owners'),reference=(await read('private-renewal-reference-fixture','snapshots')).reference
+      const encoded=(value:any)=>JSON.stringify(value,(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v)
+      const same=Object.entries(reference.reference).every(([key,value])=>encoded(value)===encoded(current[key]))
+      const samePackets=w.privateRenewalPackets.every((value:any)=>reference.packets.some((p:any)=>p.phase===value.phase&&p.key===value.key&&p.packet===value.packet))
+      return {result,before,after,same,samePackets,refused,effects:{...w.effects}}
+    }catch(error){if(!w.privateColdExpectHold)console.log('Cold recovery refusal',JSON.stringify({error:(error as Error).stack,holds:w.__privateRenewalHolds,effects:w.effects,packets:w.privateRenewalPackets.map((p:any)=>[p.phase,p.key])}));throw error}
+    })().then(value=>{w.privateColdObservation=value;w.privateColdOutcome='ok'},error=>{w.privateColdOutcome=error.name})
+      .finally(async()=>{await w.privateColdOwner.close();w.privateColdDone=true})
+  },{phase,fault})
+}
+for (const phase of ['prepared','provider-started','provider-returned','candidate-prepared','candidate-committed','settled']) test(`private renewal pipeline cold document restores acknowledged ${phase} snapshot with fixed ciphertext`, async ({page}) => {
+  await preparePrivateColdSnapshot(page,phase);await beginPrivateColdRecovery(page,phase)
+  await page.waitForFunction('privateColdDone')
+  expect(await page.evaluate('privateColdOutcome')).toBe('ok')
+  const observation=await page.evaluate<{
+    effects:Record<string,number>;before:{operations:{phase:string}[]};after:{operations:{phase:string}[];status:string};
+    result:string;same:boolean;samePackets:boolean;refused:string[]
+  }>('privateColdObservation')
+  expect(observation.effects).toMatchObject({provider:0,entropy:0,key:0,socket:0,storageWrite:0})
+  expect(observation.before.operations[0].phase).toBe(phase)
+  if(['prepared','provider-started'].includes(phase)){
+    expect(observation.result).toBe('held');expect(observation.after.operations[0].phase).toBe(phase);expect(observation.effects.put).toBe(0);expect(observation.refused).toEqual(['OrdinaryStateHold','OrdinaryStateHold'])
+  }else{
+    expect(observation.result).toBe('settled');expect(observation.after.status).toBe('ordinary');expect(observation.same).toBe(true);expect(observation.samePackets).toBe(true)
+  }
+})
+
+async function alterPrivateColdControl(page:Page,repair:boolean):Promise<void>{
+  await page.evaluate(async repair=>{
+    const w=window as any,key=w.privateRenewalPackets.find((p:any)=>p.phase===w.privateRenewalAckFault.phase&&String(p.key).startsWith('journal:')).key
+    const r=indexedDB.open('kithmoot-ordinary-state-v1',1)
+    const db=await new Promise<IDBDatabase>((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)})
+    try{
+      const tx=db.transaction('owners','readwrite'),store=tx.objectStore('owners'),get=store.get(key)
+      get.onsuccess=()=>{
+        if(!repair){w.privateColdOriginalControl=structuredClone(get.result);new Uint8Array(get.result.browser.ciphertext)[0]^=1}
+        Reflect.apply(w.providerFixture.nativePut,store,[repair?w.privateColdOriginalControl:get.result,key])
+      }
+      await new Promise<void>((yes,no)=>{tx.oncomplete=()=>yes();tx.onabort=()=>no(tx.error)})
+    }finally{db.close()}
+  },repair)
+}
+async function inspectPrivateColdState(page:Page):Promise<any>{
+  return page.evaluate(async()=>{
+    const w=window as any,owner=new w.__privateOwnerPrototypeForTest.constructor()
+    try{return await owner.inspectRenewalStartup(()=>true)}finally{await owner.close()}
+  })
+}
+for(const target of ['candidate-prepared','candidate-committed','settled']) for(const fault of ['prior','lost-ack','mixed','unavailable']) for(const closing of [false,true])
+  test(`private renewal pipeline cold owner reconciles ${target} ${fault}, closing=${closing}`,async({page})=>{
+    const initial=target==='settled'?'candidate-committed':'provider-returned'
+    await preparePrivateColdSnapshot(page,initial)
+    await beginPrivateColdRecovery(page,initial,{phase:target,...fault==='prior'?{prior:true}:{reject:true}})
+    await page.waitForFunction('privateRenewalAckFault.entered')
+    if(fault==='prior')await page.waitForFunction('__privateColdResourceForTest(privateColdOwner).waiting')
+    if(fault==='mixed')await alterPrivateColdControl(page,false)
+    if(fault==='unavailable')await page.evaluate(()=>{
+      const w=window as any,open=indexedDB.open.bind(indexedDB);w.privateColdStorageUnavailable=true;w.privateColdUnavailableCalls=0
+      indexedDB.open=((...args:Parameters<IDBFactory['open']>)=>{if(w.privateColdStorageUnavailable){w.privateColdUnavailableCalls++;throw new DOMException('Explicit unavailable-storage fixture','UnknownError')}return open(...args)}) as IDBFactory['open']
+      w.privateColdRestoreStorage=()=>{w.privateColdStorageUnavailable=false;indexedDB.open=open}
+    })
+    expect(await page.evaluate('privateColdDone')).toBe(false)
+    expect(await lockAvailable(page,'write')).toBe(false)
+    if(closing)await page.evaluate(()=>{
+      const w=window as any;w.privateColdExpectHold=true;w.privateColdLive=false
+      w.privateColdClosingDone=false;w.privateColdClosing=w.privateColdOwner.close().finally(()=>{w.privateColdClosingDone=true})
+    })
+    if(fault!=='prior')await page.evaluate('privateRenewalAckFault.release()')
+    if(fault==='mixed'||fault==='unavailable'){
+      await page.waitForFunction('__privateColdResourceForTest(privateColdOwner).waiting')
+      const before=await page.evaluate('[effects.put,effects.entropy,effects.key,effects.provider]')
+      await page.evaluate('privateColdOwner.retryRetention()')
+      await page.waitForFunction('__privateColdResourceForTest(privateColdOwner).waiting')
+      expect(await page.evaluate('privateColdDone')).toBe(false)
+      if(closing)expect(await page.evaluate('privateColdClosingDone')).toBe(false)
+      expect(await lockAvailable(page,'write')).toBe(false)
+      expect(await page.evaluate('[effects.put,effects.entropy,effects.key,effects.provider]')).toEqual(before)
+      if(fault==='mixed')await alterPrivateColdControl(page,true)
+      else {expect(await page.evaluate('privateColdUnavailableCalls')).toBeGreaterThanOrEqual(2);await page.evaluate('privateColdRestoreStorage()')}
+      await page.evaluate('privateColdOwner.retryRetention()')
+    }else if(fault==='prior'&&!closing)await page.evaluate('privateColdOwner.retryRetention()')
+    await page.waitForFunction('privateColdDone')
+    expect(await page.evaluate('privateColdOutcome')).toBe(closing?'OrdinaryStateHold':'ok')
+    if(closing)expect(await page.evaluate('privateColdEndpointOutcomes')).toEqual([{method:initial==='candidate-committed'?'recoverCommittedRenewalAtStartup':'recoverRetainedRenewalAtStartup',error:'OrdinaryStateHold'}])
+    const disposition=await inspectPrivateColdState(page)
+    const expected=closing?(fault==='prior'?(target==='candidate-prepared'?'provider-returned':target==='candidate-committed'?'candidate-prepared':'candidate-committed'):target):'settled'
+    expect(disposition.operations[0].phase).toBe(expected)
+    expect(await page.evaluate('({entropy:effects.entropy,key:effects.key,provider:effects.provider,socket:effects.socket})')).toEqual({entropy:0,key:0,provider:0,socket:0})
+    expect(await lockAvailable(page,'write')).toBe(true)
+    expect(await page.evaluate('__privateColdResourceForTest(privateColdOwner)')).toMatchObject({closed:true,work:0,waiting:false})
+    if(!closing)expect(await page.evaluate('privateColdObservation')).toMatchObject({same:true,samePackets:true})
+  })
+
+for(const fault of ['count','slot-order','duplicate-nonce','truncated','trailing','downgrade']) test(`private renewal pipeline cold rejects authenticated malformed continuation ${fault}`,async({page})=>{
+  await preparePrivateColdSnapshot(page,'provider-returned')
+  const controlBefore=await page.evaluate(async fault=>{
+    const w=window as any,r=indexedDB.open('kithmoot-ordinary-state-v1',1)
+    const db=await new Promise<IDBDatabase>((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)})
+    try{
+      const raw=await new Promise<any>((yes,no)=>{const tx=db.transaction('owners'),s=tx.objectStore('owners'),keys=s.getAllKeys(),values=s.getAll();tx.oncomplete=()=>yes(Object.fromEntries(keys.result.map((k,i)=>[k,values.result[i]])));tx.onabort=()=>no(tx.error)})
+      const purpose='tab:'+'a'.repeat(64),name='journal:tab:'+'a'.repeat(64),control=raw[name]
+      const aad=(row:any)=>new TextEncoder().encode(JSON.stringify(['kithmoot.ordinary-operation.v1',name,row.frame.purpose,row.frame.keyId,row.frame.generation,row.frame.expiresAt]))
+      let bytes=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:control.browser.nonce,additionalData:aad(raw.browser),tagLength:128},raw.browser.key,control.browser.ciphertext))
+      const size=new DataView(bytes.buffer).getUint32(0),header=JSON.parse(new TextDecoder().decode(bytes.subarray(4,4+size)))
+      const start=4+size+header[15]+header[16]+header[17]*32
+      if(fault==='slot-order')bytes[start]++
+      if(fault==='duplicate-nonce')bytes.set(bytes.subarray(start+1,start+13),start+14)
+      if(fault==='truncated'){const changed=bytes.slice(0,-13);bytes.fill(0);bytes=changed}
+      if(fault==='trailing'){const changed=Uint8Array.from([...bytes,0]);bytes.fill(0);bytes=changed}
+      if(fault==='count'||fault==='downgrade'){
+        if(fault==='count')header[19]--;else header[0]=1
+        const encoded=new TextEncoder().encode(JSON.stringify(header)),changed=new Uint8Array(4+encoded.length+bytes.length-4-size)
+        new DataView(changed.buffer).setUint32(0,encoded.length);changed.set(encoded,4);changed.set(bytes.subarray(4+size),4+encoded.length);bytes.fill(0);bytes=changed
+      }
+      // Fixture-only forgery uses new native random nonces, never reuses a
+      // production slot for a changed plaintext, and exposes no keys to Node.
+      const nonces:string[]=[raw.browser.frame.nonce,raw[purpose].frame.nonce,control.browser.nonce,control.tab.nonce].map(v=>JSON.stringify(Array.from(new Uint8Array(v))))
+      for(const [role,row] of [['browser',raw.browser],['tab',raw[purpose]]] as const){
+        const nonce=new Uint8Array(12);w.providerFixture.nativeRandom(nonce)
+        if(nonces.includes(JSON.stringify(Array.from(nonce))))throw Error('Fixture nonce collision')
+        nonces.push(JSON.stringify(Array.from(nonce)))
+        control[role]={nonce:nonce.buffer,ciphertext:await crypto.subtle.encrypt({name:'AES-GCM',iv:nonce,additionalData:aad(row),tagLength:128},row.key,bytes)}
+      }
+      bytes.fill(0)
+      const tx=db.transaction('owners','readwrite');Reflect.apply(w.providerFixture.nativePut,tx.objectStore('owners'),[control,name])
+      await new Promise<void>((yes,no)=>{tx.oncomplete=()=>yes();tx.onabort=()=>no(tx.error)})
+      return JSON.stringify(control,(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v)
+    }finally{db.close()}
+  },fault)
+  await beginPrivateColdRecovery(page,'provider-returned');await page.waitForFunction('privateColdDone')
+  expect(await page.evaluate('privateColdOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('({put:effects.put,entropy:effects.entropy,key:effects.key,provider:effects.provider,socket:effects.socket})')).toEqual({put:0,entropy:0,key:0,provider:0,socket:0})
+  expect(await page.evaluate(async()=>{
+    const r=indexedDB.open('kithmoot-ordinary-state-v1',1),db=await new Promise<IDBDatabase>((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)})
+    try{return await new Promise<string>((yes,no)=>{const tx=db.transaction('owners'),get=tx.objectStore('owners').get('journal:tab:'+'a'.repeat(64));tx.oncomplete=()=>yes(JSON.stringify(get.result,(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v));tx.onabort=()=>no(tx.error)})}finally{db.close()}
+  })).toBe(controlBefore)
+})
+
+for (const at of ['before','after']) test(`private renewal pipeline disposes setup when foreground retention fails ${at} reservation`, async ({page}) => {
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(at => {(window as any).privateRenewalRetainFailure=at},at)
+  await beginPrivateRenewalPipeline(page); await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('[privatePipelineOutcome,providerFixture.signs,effects.put,effects.entropy]')).toEqual(['OrdinaryStateHold',1,0,0])
+  expect(await page.evaluate('__privateRenewalResourceForTest()')).toMatchObject({disposed:true,revoked:true,tokens:0,tails:0,resources:0,state:'failed',
+    material:{provider:false,raw:false,captured:false,request:false,statement:false,canonical:false,digest:false,secret:false,nonces:false}})
+  await page.evaluate(() => {window.dispatchEvent(new PageTransitionEvent('pagehide'));window.dispatchEvent(new PageTransitionEvent('pagehide'))})
+  await expect.poll(() => lockAvailable(page,'migration')).toBe(true)
+})
+
+test('private renewal pipeline rejects forged obligations without metadata or effects', async ({page}) => {
+  await prepareControlStage(page); await startPrivateForeground(page)
+  expect(await page.evaluate(async () => {
+    const w = window as any; let traps = 0, refused = 0
+    const trap = () => { traps++; throw Error('forged private obligation metadata') }
+    for (const fake of [{}, Object.freeze({}), new Proxy({}, {get: trap, getPrototypeOf: trap, ownKeys: trap, getOwnPropertyDescriptor: trap})]) {
+      try { await w.__privateRenewForTest(fake) } catch { refused++ }
+    }
+    return [refused, traps, w.effects.put, w.effects.entropy, w.providerFixture.signs]
+  })).toEqual([3, 0, 0, 0, 1])
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
+})
+
 for (const keep of [false, true]) test(`private renewal factory derives owned native intent without legacy binding, keep=${keep}`, async ({page}) => {
   await page.clock.install()
   await prepareControlStage(page, keep)
@@ -1646,3 +2299,66 @@ for (const stage of ['claim', 'intent'] as const)
       expect(await lockAvailable(page, 'lifetime:' + 'a'.repeat(64))).toBe(true)
     }
   })
+
+for(const fault of ['wrong-key','wrong-algorithm','wrong-tag','reordered'])test(`private renewal bounded adversarial refuses late candidate-committed sealer ${fault}`,async({page})=>{
+  await preparePrivateRenewalPipeline(page)
+  await page.evaluate(fault=>{
+    const w=window as any;w.privateLateSealFault=fault;w.privateLateSealNativeCalls=0
+    const encrypt=crypto.subtle.encrypt.bind(crypto.subtle)
+    crypto.subtle.encrypt=((...args:Parameters<SubtleCrypto['encrypt']>)=>{
+      if(w.privateLateSealFaultUsed)w.privateLateSealNativeCalls++
+      return encrypt(...args)
+    }) as SubtleCrypto['encrypt']
+  },fault)
+  await beginPrivateRenewalPipeline(page);await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('[privatePipelineOutcome,privateLateSealFaultUsed,privateLateSealNativeCalls,effects.entropy,providerFixture.signs]'))
+    .toEqual(['OrdinaryStateHold',true,0,20,2])
+  expect(await page.evaluate('__privateRenewalDiskForTest()')).toMatchObject({phase:'candidate-prepared',initialEpochUnchanged:true})
+  expect(await page.evaluate('privateRenewalPackets.some(p=>p.phase===\'candidate-committed\'||p.phase===\'settled\')')).toBe(false)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+
+for(const boundary of ['C','S'] as const)test(`private renewal bounded adversarial native ${boundary} overflow refuses before effects`,async({page})=>{
+  test.setTimeout(120_000)
+  // First measure an acknowledged reference operation. Then seed a separate
+  // native origin image with ordinary padding before any private root capture.
+  // The actual 32 MiB limit is unchanged; this is no post-authentication patch.
+  await preparePrivateRenewalPipeline(page);await beginPrivateRenewalPipeline(page);await page.waitForFunction('privatePipelineDone')
+  expect(await page.evaluate('privatePipelineOutcome')).toBe('settled')
+  const baseline=await page.evaluate<{C:number;S:number}>(()=>{
+    const w=window as any,c=w.privateRenewalEncryptedCohorts
+    return {C:c['candidate-committed']['tab:'+'a'.repeat(64)].frame.ciphertext.byteLength-16,S:c.settled['tab:'+'a'.repeat(64)].frame.ciphertext.byteLength-16}
+  })
+  expect(baseline.S-baseline.C).toBeGreaterThan(32)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  await page.evaluate(()=>new Promise<void>((yes,no)=>{
+    const r=indexedDB.deleteDatabase('kithmoot-ordinary-state-v1');r.onsuccess=()=>yes();r.onerror=()=>no(r.error);r.onblocked=()=>no(Error('Fixture reset blocked'))
+  }))
+  await prepareControlStage(page,false,true,undefined,async()=>{
+    await page.evaluate(async({baseline,boundary})=>{
+      const w=window as any,o=w.Ordinary,images=await w.images(),image=images[1],before=o.ordinaryImageByteLength(image)
+      const records=new Map<string,string>(image.records),chunk=o.ORDINARY_VALUE_BYTES-1
+      for(let i=0;i<4;i++)records.set('native-capacity-fixture.'+i,i<3?'x'.repeat(chunk):'')
+      const delta=o.ordinaryImageByteLength({...image,records})-before
+      // C overflow is unambiguous; S-only overflow leaves32 bytes of C
+      // headroom. Fixed-width random fields cannot alter this projection.
+      const needed=o.ORDINARY_IMAGE_BYTES+(boundary==='C'?128:-32)-baseline.C-delta
+      if(needed<0||needed>=o.ORDINARY_VALUE_BYTES)throw Error('Native padding fixture outside per-record bound')
+      records.set('native-capacity-fixture.3','x'.repeat(needed))
+      const scope=await w.tabOwner.capture(w.invScopeName,w.guard)
+      await w.tabOwner.mutateMigrated(scope,w.guard,(store:any)=>{for(const [name,value] of records)if(name.startsWith('native-capacity-fixture.'))store.set(name,value)})
+      images.forEach((v:any)=>{v.records.clear();v.fences.clear()});records.clear()
+    },{baseline,boundary})
+  })
+  await startPrivateForeground(page);await page.clock.fastForward(2_000)
+  await page.evaluate(boundary=>{(window as any).privateCapacityExpected=boundary},boundary)
+  await beginPrivateRenewalPipeline(page);await page.waitForFunction('privatePipelineDone')
+  const observed=await page.evaluate('({outcome:privatePipelineOutcome,stage:window.privateCapacityStage??null,entropy:effects.entropy,put:effects.put,signs:providerFixture.signs})')
+  if((observed as any).stage!==boundary)console.log('Native capacity refusal',JSON.stringify({observed,holds:await page.evaluate('window.__privateRenewalHolds??[]')}))
+  expect(observed).toMatchObject({outcome:'OrdinaryStateHold',stage:boundary,entropy:0,put:0,signs:1})
+  expect((await inspectPrivateColdState(page)).operations).toEqual([])
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})

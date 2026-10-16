@@ -19,6 +19,7 @@ interface Factory {
   readonly native: OrdinaryPrivateMemberNative
   readonly foreground: OrdinaryPrivateForegroundAuthority
   readonly roots: WeakSet<object>
+  readonly state: { prepared: boolean }
 }
 interface Obligation {
   readonly factory: OrdinaryPrivateRenewalFactory
@@ -42,7 +43,7 @@ function current(value: Obligation): Factory {
 export function openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim: OrdinaryPrivateRenewalFactoryClaim): OrdinaryPrivateRenewalFactory {
   const value = takeOrdinaryPrivateRenewalFactoryClaim(claim)
   if (factories.has(value.factory)) hold()
-  factories.set(value.factory, Object.freeze({native: value.native, foreground: value.foreground, roots: new WeakSet<object>()}))
+  factories.set(value.factory, Object.freeze({native: value.native, foreground: value.foreground, roots: new WeakSet<object>(), state: {prepared: false}}))
   return value.factory
 }
 /** Ownership registration only. The owner captures and acknowledges exact
@@ -51,8 +52,9 @@ export function openOrdinaryPrivateRenewalFactoryFromOwnerClaim(claim: OrdinaryP
 export async function prepareOrdinaryPrivateRenewalObligation(factory: OrdinaryPrivateRenewalFactory, root: ProtocolExecution,
   desired: Readonly<{issuedAt: number; expiresAt: number; semanticDigest: string}>): Promise<OrdinaryPrivateRenewalObligation> {
   const value = factories.get(factory)
-  if (!value || value.roots.has(root) || !ordinaryPrivateRenewalFactoryCurrent(factory)) hold()
+  if (!value || value.state.prepared || value.roots.has(root) || !ordinaryPrivateRenewalFactoryCurrent(factory)) hold()
   verifyOrdinaryLifecycleRoot(root)
+  value.state.prepared = true
   value.roots.add(root)
   const witness = await prepareOrdinaryPrivateRenewalIntent(factory, root, desired)
   const intent = takeOrdinaryPrivateRenewalIntent(factory, root, witness)

@@ -11,6 +11,9 @@ import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ordinaryPreparedRenewalCustodyFor, type OrdinaryPreparedRenewalCustody } from './ordinary-state-owner.js'
 import { takeOrdinaryPrivateForegroundClaim, ordinaryPrivateMemberNativeCurrent, validateOrdinaryPrivateForegroundCustody,
   type OrdinaryPrivateForegroundClaim, type OrdinaryPrivateMemberNative } from './ordinary-state-owner.js'
+import { takeOrdinaryPrivateRenewalSigningAttempt, retainOrdinaryPrivateRenewalSigningLifetime,
+  startOrdinaryPrivateRenewalProvider, finishOrdinaryPrivateRenewalSdkResult, ordinaryPrivateRenewalDecisionFor,
+  type OrdinaryPrivateRenewalSigningAttempt, type OrdinaryPrivateRenewalDecision } from './ordinary-state-owner.js'
 
 type PrivateForegroundBinding = ReturnType<typeof takeOrdinaryPrivateForegroundClaim>
 declare const privateForegroundAuthorityBrand: unique symbol
@@ -24,6 +27,14 @@ let privateForegroundDeadline!: (authority: OrdinaryPrivateForegroundAuthority, 
   browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, participant: string) => number | null
 let privateForegroundCredentialSigner!: (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
   browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody, consumer: OrdinaryForegroundConsumer) => SignetSigner['signEvent']
+let retainPrivateRenewal!: (attempt: OrdinaryPrivateRenewalSigningAttempt) => void
+let signPrivateRenewal!: (attempt: OrdinaryPrivateRenewalSigningAttempt) => Promise<void>
+let validatePrivateRenewal!: (authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative, decision: OrdinaryPrivateRenewalDecision) => void
+/** Fixed owner-only phase edges. No signer, SDK or callable bag escapes. */
+export const retainOrdinaryPrivateRenewalForeground = (attempt: OrdinaryPrivateRenewalSigningAttempt): void => retainPrivateRenewal(attempt)
+export const signOrdinaryPrivateRenewalAttempt = (attempt: OrdinaryPrivateRenewalSigningAttempt): Promise<void> => signPrivateRenewal(attempt)
+export const validateOrdinaryPrivateRenewalForegroundDecision = (authority: OrdinaryPrivateForegroundAuthority,
+  native: OrdinaryPrivateMemberNative, decision: OrdinaryPrivateRenewalDecision): void => validatePrivateRenewal(authority, native, decision)
 /** Package-internal fixed edges. A token cannot select a different native
  * owner, disclose the signer, or replace an authenticated read with liveness. */
 export function ordinaryPrivateForegroundCurrent(authority: OrdinaryPrivateForegroundAuthority, native: OrdinaryPrivateMemberNative,
@@ -172,6 +183,56 @@ interface Options {
  * or expose NIP-46 management. Protected startup must mount it explicitly. */
 export class OrdinaryForegroundSigner implements SignetSigner {
   static { openPrivateForeground = binding => OrdinaryForegroundSigner.#openPrivateForeground(binding) }
+  static {
+    retainPrivateRenewal = attempt => {
+      const captured = retainOrdinaryPrivateRenewalSigningLifetime(attempt), value = privateForegroundAuthorities.get(captured.foreground)
+      if (!value || value.native !== captured.native) hold()
+      const signer = value.signer
+      if (signer.#busy || signer.#closed || signer.#held || !signer.#privateForeground) hold()
+      signer.#check(); signer.#busy = true; signer.#work.add(captured.pending)
+      void captured.pending.finally(() => { signer.#work.delete(captured.pending); signer.#busy = false }).catch(() => {})
+    }
+    signPrivateRenewal = attempt => {
+      const captured = takeOrdinaryPrivateRenewalSigningAttempt(attempt), value = privateForegroundAuthorities.get(captured.foreground)
+      if (!value || value.native !== captured.native) hold()
+      const signer = value.signer
+      if (!signer.#privateForeground || !signer.#busy || !signer.#work.has(captured.pending)) hold()
+      const driver = Promise.resolve().then(async () => {
+        signer.#check()
+        const boundary: SignerEffectBoundary = Object.freeze({start: <T>(provider: () => Promise<T>) => startOrdinaryPrivateRenewalProvider(attempt, provider)})
+        let sdk: Promise<NostrEvent> | undefined
+        try {
+          // These are previously captured private fields, not SDK reflection.
+          sdk = Promise.resolve(signer.#sign.call(signer.#raw, captured.statement, boundary))
+          signer.#work.add(sdk); signer.#privateForeground!.joinForeground(sdk); void sdk.catch(() => {})
+          const raw = await sdk
+          finishOrdinaryPrivateRenewalSdkResult(attempt, raw) // Identity only.
+        } catch { throw new OrdinaryStateHold() }
+        finally { if (sdk) { await Promise.allSettled([sdk]); signer.#work.delete(sdk) } }
+      })
+      signer.#work.add(driver); signer.#privateForeground.joinForeground(driver)
+      void driver.finally(() => signer.#work.delete(driver)).catch(() => {})
+      return driver
+    }
+    validatePrivateRenewal = (authority, native, decision) => {
+      const value = privateForegroundAuthorities.get(authority)
+      if (!value || value.native !== native) hold()
+      const signer = value.signer
+      const current = () => ordinaryPrivateRenewalDecisionFor(decision, authority, native)
+      const data = current()
+      if (!signer.#privateForeground || !signer.#busy || signer.#participant !== data.participant ||
+          signer.#sessionExpiresAt !== data.deadline) hold()
+      signer.#check(); signer.#privateForeground.assertForegroundProvider()
+      const captured = captureOrdinaryForegroundSession(signer.#privateForeground.source), raw = captured.signer
+      if (raw !== signer.#raw || raw.signEvent !== signer.#sign || captured.pubkey !== signer.#participant ||
+          captured.method !== 'nip07' || JSON.stringify(captured.authEvent) !== signer.#proof ||
+          (captured.expiresAt ?? null) !== data.deadline || raw.providerEffectBoundary !== 1 ||
+          (raw as SignetSigner & {pinnedProviderCalls?: number}).pinnedProviderCalls !== 1 || !raw.capabilities.canSignEvents) hold()
+      const session = SESSION_KEYS.map(name => data.browser.get(keys[name]))
+      if (!signer.#expected || session.some((v, i) => v !== signer.#expected![i])) hold()
+      signer.#privateForeground.assertForegroundProvider(); signer.#check(); current()
+    }
+  }
   static {
     privateForegroundCurrent = (authority, native, participant, deadline) => {
       const value = privateForegroundAuthorities.get(authority)

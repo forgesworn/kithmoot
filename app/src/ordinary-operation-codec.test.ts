@@ -219,3 +219,83 @@ describe('complete predecessor semantic commitment',()=>{
     ;(t.fences as Map<string,number>).set('previously-absent',0);expect(ordinaryOperationSemanticDigest(b,t)).not.toBe(before)
   })
 })
+
+const continuationSlots = {
+  prepared: [4,5,6,7,8,9,10,11,12,13,14,15,16,17],
+  'provider-started': [6,7,8,9,10,11,12,13,14,15,16,17],
+  'provider-returned': [8,9,10,11,12,13,14,15,16,17],
+  'candidate-prepared': [8,9,12,13,14,15,16,17],
+  'candidate-committed': [14,15,16,17], settled: [],
+} as const
+function privateJournal(phase: keyof typeof continuationSlots): OrdinaryOperationJournal {
+  const returned = ['provider-returned','candidate-prepared','candidate-committed'].includes(phase)
+  const candidate = ['candidate-prepared','candidate-committed','settled'].includes(phase)
+  return {...journal(), version: 2, phase,
+    target: candidate ? ['c'.repeat(64),'d'.repeat(64)] : null, targetRevisions: candidate ? [9,5] : null,
+    request: phase === 'settled' ? '' : journal().request, result: returned ? 'exact signed bytes' : null,
+    resultDigest: returned || phase === 'settled' ? digest('exact signed bytes') : null,
+    secrets: ['candidate-committed','settled'].includes(phase) ? [] : [new Uint8Array(32).fill(7)], nonces: null,
+    continuation: continuationSlots[phase].map(slot => ({slot, nonce: new Uint8Array(12).fill(slot + 1)}))}
+}
+describe('private v2 retained nonce packet', () => {
+  it('keeps the canonical v1 prepared bytes equal to an independent Python vector', () => {
+    const bytes = encodeOrdinaryOperationJournal(journal())
+    expect(bytes.length).toBe(832)
+    expect(bytesToHex(sha256(bytes))).toBe('2db2bd63b93ed92c27ef801db51e9d637a298ef993adbcd9ab87acf5530c6948')
+    expect(decodeOrdinaryOperationJournal(bytes)).not.toHaveProperty('continuation')
+    expect(decodeOrdinaryOperationClassification(bytes)).not.toHaveProperty('continuationCount')
+  })
+  it.each(Object.keys(continuationSlots) as (keyof typeof continuationSlots)[])('round-trips exact %s slots and redacts their values', phase => {
+    const input = privateJournal(phase), before = structuredClone(input), bytes = encodeOrdinaryOperationJournal(input)
+    const header = decodeOrdinaryOperationClassification(bytes), opened = decodeOrdinaryOperationJournal(bytes)
+    expect(header).toMatchObject({version:2,hasNonces:false,continuationCount:continuationSlots[phase].length})
+    expect(header).not.toHaveProperty('continuation'); expect(header).not.toHaveProperty('nonces')
+    expect(opened).toEqual(input); expect(input).toEqual(before)
+    expect(encodeOrdinaryOperationJournal(opened)).toEqual(bytes)
+    for (const entry of opened.continuation!) entry.nonce.fill(0)
+    expect(input).toEqual(before)
+  })
+  it.each(['missing','extra','duplicate-slot','reordered','duplicate-nonce','short','view','accessor','symbol','sparse','wrong-phase','legacy-pair','unknown-version','missing-secret','extra-secret'])(
+    'refuses %s without any entropy or invoked byte accessors', fault => {
+      const value: any = privateJournal('provider-returned'), getter = vi.fn(() => new ArrayBuffer(12))
+      if(fault==='missing')value.continuation.pop()
+      if(fault==='extra')value.continuation.push({slot:18,nonce:new Uint8Array(12).fill(19)})
+      if(fault==='duplicate-slot')value.continuation[1].slot=value.continuation[0].slot
+      if(fault==='reordered')value.continuation.reverse()
+      if(fault==='duplicate-nonce')value.continuation[1].nonce=value.continuation[0].nonce.slice()
+      if(fault==='short')value.continuation[0].nonce=new Uint8Array(11)
+      if(fault==='view')value.continuation[0].nonce=new DataView(new ArrayBuffer(12))
+      if(fault==='accessor')Object.defineProperty(value.continuation[0].nonce,'buffer',{get:getter})
+      if(fault==='symbol')value.continuation[0][Symbol('extra')]=true
+      if(fault==='sparse')delete value.continuation[0]
+      if(fault==='wrong-phase')value.phase='candidate-prepared'
+      if(fault==='legacy-pair')value.nonces=['8'.repeat(24),'9'.repeat(24)]
+      if(fault==='unknown-version')value.version=3
+      if(fault==='missing-secret')value.secrets=[]
+      if(fault==='extra-secret')value.secrets.push(new Uint8Array(32).fill(9))
+      const rng=vi.spyOn(crypto,'getRandomValues')
+      try {expect(()=>encodeOrdinaryOperationJournal(value)).toThrow(OrdinaryStateHold);expect(rng).not.toHaveBeenCalled();expect(getter).not.toHaveBeenCalled()}
+      finally{rng.mockRestore()}
+    })
+  it('refuses malformed binary labels, duplicate nonce bytes, missing or trailing data before returning classification', () => {
+    const bytes=encodeOrdinaryOperationJournal(privateJournal('provider-returned'))
+    const size=new DataView(bytes.buffer).getUint32(0), header=decodeOrdinaryOperationClassification(bytes)
+    const start=4+size+header.requestBytes+header.resultBytes!+header.secretCount*32
+    const reordered=bytes.slice(),duplicate=bytes.slice()
+    reordered[start]=9
+    duplicate.set(duplicate.subarray(start+1,start+13),start+14)
+    for(const bad of [reordered,duplicate,bytes.subarray(0,bytes.length-1),Uint8Array.from([...bytes,0])])
+      expect(()=>decodeOrdinaryOperationClassification(bad)).toThrow(OrdinaryStateHold)
+  })
+  it('captures future nonce bytes before await and keeps the v1 envelope and AAD', async () => {
+    const keys=await owners(), input=privateJournal('prepared'), expected=structuredClone(input)
+    const pending=sealOrdinaryOperationControl(input,keys)
+    input.continuation!.forEach(v=>v.nonce.fill(99))
+    const control=await pending
+    expect(control.version).toBe(1)
+    const result=await openOrdinaryOperationControl(control,keys)
+    expect(result).toEqual(expected)
+    expect(await openOrdinaryOperationClassification(control,keys)).toMatchObject({version:2,continuationCount:14})
+    result.continuation!.forEach(v=>v.nonce.fill(0));result.secrets.forEach(v=>v.fill(0))
+  })
+})
