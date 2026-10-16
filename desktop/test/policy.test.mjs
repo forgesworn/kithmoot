@@ -35,6 +35,23 @@ test('an invitation opens the bundled page with its query and fragment unchanged
   assert.equal(invitationTarget('https://kithmoot.app/j#eyJ2Ijoz'), HOME + '#eyJ2Ijoz')
   for (const target of [invitationTarget('kithmoot://join#a'), invitationTarget('https://kithmoot.app/j/#a')]) assert.equal(isAppUrl(target), true)
 })
+test('meeting code links open the join page with the code, and nothing looser', () => {
+  assert.equal(invitationTarget('https://kithmoot.app/c/ABCDEFGH'), HOME + '?c=ABCDEFGH')
+  assert.equal(invitationTarget('https://kithmoot.app/c/ABC-DEF-GH'), HOME + '?c=ABCDEFGH')
+  assert.equal(invitationTarget('https://kithmoot.app/c/abcdefgh'), HOME + '?c=ABCDEFGH')
+  assert.equal(invitationTarget('kithmoot://c/ABCDEFGH'), HOME + '?c=ABCDEFGH')
+  assert.equal(invitationTarget('kithmoot://c/abc-def-gh'), HOME + '?c=ABCDEFGH')
+  assert.equal(isAppUrl(invitationTarget('kithmoot://c/ABCDEFGH')), true)
+  for (const value of ['https://kithmoot.forgesworn.dev/c/ABCDEFGH', 'https://www.kithmoot.app/c/ABCDEFGH', 'http://kithmoot.app/c/ABCDEFGH',
+    'https://kithmoot.app/c/ABCDEFGH#x', 'https://kithmoot.app/c/ABCDEFGH?x=1', 'https://kithmoot.app/c/ABCDEFGH/', 'https://kithmoot.app/c/ABCDEFG',
+    'https://kithmoot.app/c/ABCDEFGHJ', 'https://kithmoot.app/c/ABCDEFGI', 'https://kithmoot.app/c/ABCDEFGL', 'https://kithmoot.app/c/ABCDEFGO',
+    'https://kithmoot.app/c/ABCDEFGU', 'https://kithmoot.app/c/AB-CDEF-GH', 'https://kithmoot.app/c/ABC%20DEF', 'https://kithmoot.app/c/',
+    'https://kithmoot.app/c/ABCDEFGH/x', 'https://kithmoot.app/x/ABCDEFGH', 'https://user@kithmoot.app/c/ABCDEFGH', 'kithmoot://c/ABCDEFGH#x',
+    'kithmoot://c/ABCDEFGH?x=1', 'kithmoot://c/', 'kithmoot://c', 'kithmoot://join/ABCDEFGH', 'kithmoot://user@c/ABCDEFGH', 'kithmoot://c/ABCDEFG',
+    'kithmoot://c/ABCDEFGH%0A']) {
+    assert.equal(invitationTarget(value), undefined, value)
+  }
+})
 test('anything that is not an invitation link is ignored', () => {
   for (const value of ['', '--no-sandbox', '/home/me/file#x', 'kithmoot://join', 'kithmoot://join#', 'kithmoot://signet#x',
     'kithmoot://join/other#x', 'kithmoot://user@join#x', 'https://kithmoot.forgesworn.dev/evil#x', 'https://kithmoot.forgesworn.dev.evil/j/#x',
