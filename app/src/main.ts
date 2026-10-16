@@ -281,6 +281,8 @@ import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import type { InvitationRequest } from '../../src/invitation.js'
 import { ReadPositionSync } from './read-positions.js'
+import { quietAutoAdmit } from './quiet-admission.js'
+import { hexEquals } from '../../src/hex.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
@@ -1508,6 +1510,26 @@ function roomStore() { return bookmarks?.rooms ?? deviceStore }
  */
 let readSync: ReadPositionSync | undefined
 
+/**
+ * "Share where I have read up to with my other devices". On by default, so
+ * unread stays in step across devices as it always has; off, this device
+ * publishes no read positions at all, and still applies the ones its other
+ * devices publish. Per device, because it is about what this one says.
+ */
+const READ_SHARE_KEY = 'kithmoot.read-share.v1'
+
+function readShareOn(): boolean {
+  try { return localStorage.getItem(READ_SHARE_KEY) !== 'false' } catch { return true }
+}
+
+function renderReadShare(): void {
+  const on = readShareOn()
+  setToggle('toggleReadShare', on)
+  $('readShareNote').textContent = on
+    ? 'On: your other devices learn which messages you have read here, in batches up to a minute and a half later, so their unread counts match. Signed-in accounts only.'
+    : 'Off: this device keeps where you have read up to to itself. It still picks up what your other devices share.'
+}
+
 function followReadPositions(roomId: string, roomKey: Uint8Array, expiresAt?: number): void {
   readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } }, expiresAt)
 }
@@ -1607,7 +1629,7 @@ function startRoomBookmarks(account: SignetSession): void {
         if (at === undefined) return
         markRead(roomStore(), roomId, at)
         if (roomsListShown || window.kithmootDesktop) renderRooms()
-      })
+      }, undefined, { sharing: readShareOn })
     : undefined
   // The room this page is in, and every room the list is watching, from
   // wherever this identity had read to on another device.
@@ -2334,14 +2356,44 @@ function stopInvitationHost(): void {
   invitationTransport = undefined
 }
 
+/**
+ * Knock off: let the newcomer in, but only from one device and never at
+ * once - see app/src/quiet-admission.ts. Stops waiting, and declines, if the
+ * room or its link changes underneath it.
+ */
+function quietlyLetIn(request: InvitationRequest, invitation: RoomInvitation, transport: ManagedRelayPool, delegated: boolean): Promise<boolean> {
+  const invitationId = deriveInvitationId(invitation)
+  const stop = new AbortController()
+  const watching = setInterval(() => { if (roomInvitationCapability !== invitation || invitationTransport !== transport) stop.abort() }, 500)
+  return quietAutoAdmit({
+    creator: !delegated,
+    signal: stop.signal,
+    watchAnswers: onAnswer => transport.subscribe(
+      [{ kinds: [KINDS.INVITATION_GRANT], '#d': [invitationId], '#p': [request.device] }],
+      event => {
+        const tags = event.tags
+        if (event.kind !== KINDS.INVITATION_GRANT || tags.find(t => t[0] === 'd')?.[1] !== invitationId || tags.find(t => t[0] === 'p')?.[1] !== request.device) return
+        onAnswer({ verifiedCreator: hexEquals(event.pubkey, invitation.inviter) && verifyEventUncached(event) })
+      },
+    ),
+    watchRetries: (onRetry, onEose) => transport.subscribe(
+      [{ kinds: [KINDS.INVITATION_REQUEST], '#d': [invitationId], '#p': [invitation.inviter] }],
+      event => { if (event.id === request.request) onRetry() },
+      onEose,
+    ),
+  }).finally(() => clearInterval(watching))
+}
+
 function serveCurrentInvitation(): void {
   stopInvitationHost()
   if (roomUsesBothy) return
   const invitation = roomInvitationCapability
   if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk, roomEndsAt, roomDestruct)
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
-  invitationTransport = configuredPool(relays)
+  const transport = invitationTransport = configuredPool(relays)
   const admissionRoom = deriveRoom(roomSecret).roomId
+  // A creator holds the inviter key itself; everyone else holds a chain.
+  const delegated = invitationDelegation.length > 0
   try {
     invitationHost = hostRoomInvitation({
       transport: invitationTransport,
@@ -2356,7 +2408,7 @@ function serveCurrentInvitation(): void {
       admit: async request => {
         if (currentRoomId() !== admissionRoom || (request.participant && contactIsBlocked(request.participant))) return false
         const decidingSession = session
-        const yes = knockOn(admissionRoom) ? await askToLetIn(request) : true
+        const yes = knockOn(admissionRoom) ? await askToLetIn(request) : await quietlyLetIn(request, invitation, transport, delegated)
         // A decision can settle while navigation or contact policy changes.
         // It must never authorise the session opened in another room.
         if (currentRoomId() !== admissionRoom || session !== decidingSession || roomInvitationCapability !== invitation ||
@@ -14022,6 +14074,8 @@ function tearDownCallMedia(): void {
 /** Stop the room completely before any other room can own the controls. */
 async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}): Promise<void> {
   const pendingRoom = currentRoomId()
+  // Leaving is when another device is likeliest to be picked up next.
+  if (pendingRoom) readSync?.hurry(pendingRoom)
   if (pendingRoom) pendingSends.release(pendingRoom)
   if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
   chatScroll.suspend()
@@ -15694,6 +15748,14 @@ $('toggleNotify').addEventListener('click', () => {
 })
 $('notificationScope').addEventListener('change', renderNotificationScopes)
 $('notificationScope').addEventListener('focus', renderNotificationScopes)
+renderReadShare()
+$('toggleReadShare').addEventListener('click', () => {
+  try { localStorage.setItem(READ_SHARE_KEY, String(!readShareOn())) } catch { /* Kept for this visit only. */ }
+  renderReadShare()
+  readSync?.sharingChanged()
+})
+// A hidden tab is not being read, and is often on its way to another device.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') readSync?.hurry() })
 {
   const delay = $('sendDelay') as HTMLSelectElement
   delay.value = String(sendDelaySeconds())

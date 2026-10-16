@@ -354,3 +354,66 @@ test('people with the link ask, and the person in the room lets them in or decli
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'true')
   } finally { await a.close(); await b.close(); await c.close() }
 })
+
+// With asking off, every device holding the link's authority could answer a
+// request, and each used to answer at once: a newcomer could count the
+// grants, and time them, to learn how many member devices were awake. Now the
+// creator answers after a random pause and every other device stands down
+// when it sees the creator's grant. See app/src/quiet-admission.ts.
+test('with asking off, one device lets a newcomer in, and not at once', async ({ browser, baseURL }) => {
+  test.setTimeout(180_000)
+  const { hostContext, guestContext, host, guest } = await askedRoom(browser, baseURL!)
+  const nextContext = await newDeviceContext(browser, baseURL!)
+  const grants: { from: string; at: number }[] = []
+  const requestsSeen = new Map<string, number>()
+  const watch = (context: typeof hostContext, who: string) => context.routeWebSocket(/^wss?:/, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      try {
+        const frame = JSON.parse(String(raw))
+        if (frame[0] === 'EVENT' && frame[1]?.kind === 20467) grants.push({ from: who, at: Date.now() })
+      } catch { /* Not a relay frame. */ }
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => {
+      try {
+        const frame = JSON.parse(String(raw))
+        if (frame[0] === 'EVENT' && frame[2]?.kind === 20466 && !requestsSeen.has(who)) requestsSeen.set(who, Date.now())
+      } catch { /* Not a relay frame. */ }
+      ws.send(raw)
+    })
+  })
+  await watch(hostContext, 'creator')
+  await watch(guestContext, 'member')
+  try {
+    const first = await startAskedRoom(host, guest, baseURL!)
+    const link = guest.url()
+    await first.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await guest.locator('#join').click()
+    await expect(guest.locator('#roomArea')).toBeVisible()
+    for (const page of [host, guest]) {
+      await page.locator('#roomMenu').click()
+      await expect(page.locator('#toggleKnock')).toHaveAttribute('data-on', 'true')
+      await page.locator('#toggleKnock').click()
+      await expect(page.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
+      await page.locator('#roomSheetClose').click()
+    }
+    grants.length = 0
+    requestsSeen.clear()
+
+    const next = await nextContext.newPage()
+    await next.goto(link)
+    await requestAdmission(next)
+    await expect(next.locator('#status')).toContainText('You are on the list')
+    // Past the longest a member device would have waited before answering.
+    await host.waitForTimeout(8_000)
+    expect(grants.map(grant => grant.from)).toEqual(['creator'])
+    const asked = requestsSeen.get('creator')
+    expect(asked).toBeDefined()
+    // Random 0.5 to 2s; a little slack for the socket hop either side.
+    expect(grants[0]!.at - asked!).toBeGreaterThanOrEqual(400)
+    await expect(host.locator('#approvals .approvalCard.knock')).toHaveCount(0)
+    await expect(guest.locator('#approvals .approvalCard.knock')).toHaveCount(0)
+  } finally { await nextContext.close(); await guestContext.close(); await hostContext.close() }
+})
