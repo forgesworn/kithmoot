@@ -400,7 +400,6 @@ jobs:
       - name: Observe the original WebKit shard on the failed source
         run: |
           mkdir -p release/board-native-event-diagnostic
-          npx playwright test --project=webkit --shard=1/2 --list > release/board-native-event-diagnostic/inventory.txt
           npx playwright test --project=webkit --shard=1/2
         env:
           E2E_RELAYS: local
