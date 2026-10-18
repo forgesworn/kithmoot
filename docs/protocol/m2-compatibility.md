@@ -172,3 +172,25 @@ and `ANDROID_SERIAL` set to a disposable emulator with both debug APKs installed
 Its test uses synthetic keys and a local NIP-01 relay; the old keeper receives no
 M2 code or service policy. Android 0.4.1 uses version code 7 and the same debug
 signing certificate as the published 0.4.0 APK. It remains a debug prerelease.
+
+
+### Kind-registry summary review (18 October 2026)
+
+Reviewed the seven tracked entries (21059 and 25050–25055) between registry
+revisions `feed6af805b65401af1f655a22d8ac61b5b39d35` and
+[`2ae5c82dc82e0d1e62dc23f9895e5ef1d4a922de`](https://github.com/nostr-protocol/registry-of-kinds/blob/2ae5c82dc82e0d1e62dc23f9895e5ef1d4a922de/schema.yaml).
+Each entry adds a descriptive `summary`; removing those seven added lines
+reproduces the previously tracked entries byte for byte. Kind numbers, content
+types, required fields and tags are unchanged.
+
+The 21059 summary distinguishes ordinary recipient routing from Concord's
+channel-author convention. KithMoot retains its existing recipient-routed
+signal wrapper (`src/signal.ts`); this review does not adopt Concord's convention
+or change its inner 20462 signalling format. The 25050–25055 summaries describe
+call signalling and add no schema requirements. The NIP-AC correspondence in
+`docs/protocol.md` remains unchanged.
+
+Updated the immutable registry source pin, whole-file hash and tracked-entry
+hash together. Pinned and tracking checks must both pass. This is a source
+compatibility review; it does not establish public-relay, installed-device or
+production acceptance.
