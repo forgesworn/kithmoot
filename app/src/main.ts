@@ -107,6 +107,7 @@ import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countd
 import { scrubStore } from './storage-scrub.js'
 import { FOLDABLE, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
+import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, openInvitation, parseMeetingCode, parsePasswordWords, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
 import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { arrangeRooms, loadPins, setPinned } from './room-pins.js'
 import { roomProject, setRoomProject } from './room-projects.js'
@@ -1901,6 +1902,25 @@ function forgetInvitationOwner(invitation: RoomInvitation): void {
   } catch {
     // An in-memory host can still be retired even when storage is blocked.
   }
+}
+
+// Meeting codes (docs/meeting-codes.md): the code service at /codes, beside
+// /turn on this origin. The code, its expiry and its delete token are kept
+// in the device store with the creator's other records, never in a link.
+const meetingCodes = meetingCodeClient({ base: import.meta.env.VITE_MEETING_CODES_BASE || '/codes' })
+
+/** Delete a link's or a room's code at the service, in the background. A
+ *  failure stays queued for the next open and never blocks the action. */
+function retireMeetingCode(match: { invitationId?: string; roomId?: string }): void {
+  try { retireMeetingCodes(deviceStore, match, nowSeconds()) } catch { /* Nothing stored, nothing to delete. */ }
+  drainMeetingCodeRetirements()
+}
+
+/** One drain at a time: End room retires a room's codes more than once on
+ *  its way out, and overlapping drains would each send the same DELETE. */
+let meetingCodeDrain: Promise<void> = Promise.resolve()
+function drainMeetingCodeRetirements(): void {
+  meetingCodeDrain = meetingCodeDrain.then(() => drainRetirements(deviceStore, meetingCodes, nowSeconds())).catch(() => {})
 }
 
 interface StoredAdmission {
@@ -5397,6 +5417,8 @@ async function rotateRoomInvitation(): Promise<void> {
   }
   stopInvitationHost()
   forgetInvitationOwner(retired)
+  // New link deletes the old code; a new one can be issued for the new link.
+  retireMeetingCode({ invitationId: deriveInvitationId(retired) })
   roomInvitationCapability = created.invitation
   invitationAuthoritySk = created.inviterSk
   invitationDelegation = []
@@ -5411,6 +5433,7 @@ async function rotateRoomInvitation(): Promise<void> {
   if (($('shareQrDetails') as HTMLDetailsElement).open) {
     renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
   }
+  renderMeetingCode()
   setStatus('A fresh link is ready. Current clients will no longer answer the old link. Existing members stay.')
 }
 
@@ -5454,6 +5477,8 @@ async function makeRoomPersistent(): Promise<void> {
   await publishGroupInvitation(invitation, roomSecret, invitationAuthoritySk, relays, { roomRelays: signedRoomRelays() })
   storeInvitationOwner(invitation, roomSecret, invitationAuthoritySk)
   stopInvitationHost()
+  // A room that never ends and asks nobody keeps full links only.
+  retireMeetingCode({ invitationId: deriveInvitationId(roomInvitationCapability) })
   roomInvitationCapability = invitation
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
@@ -14547,6 +14572,7 @@ function forgetLocally(roomId: string): void {
   stopWatching(roomId)
   // The room is not this browser's any more: no more read positions for it.
   readSync?.forget(roomId)
+  retireMeetingCode({ roomId })
   forgetRoomAccess(deviceStore, roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
   forgetOwnCredentials(deviceStore, roomId)
@@ -15143,7 +15169,10 @@ function openInviteDialog(qrFirst: boolean): void {
   if (roomUsesBothy) { setStatus('New invitations are unavailable on this Bothy text route.'); return }
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
   $('inviteStatus').textContent = ''
+  $('meetingCodeStatus').textContent = ''
+  meetingCodePasswordTouched = false
   renderInviteEnds()
+  renderMeetingCode()
   $('inviteSlot').append($('inviteContent'))
   inviteOpener = qrFirst ? $('inviteQr') : $('invitePeople')
   inviteDialog.classList.toggle('qrFirst', qrFirst)
@@ -15778,6 +15807,7 @@ $('toggleKnock').addEventListener('click', () => {
   if (!roomId) return
   setKnock(roomId, $('toggleKnock').dataset.on !== 'true')
   renderKnockChoice()
+  renderMeetingCode()
   // The host loop reads the switch when it starts, so start it again.
   serveCurrentInvitation()
 })
@@ -15871,6 +15901,104 @@ $('openRoomForm').addEventListener('submit', event => {
     $('url').setAttribute('aria-invalid', 'true')
     $('url').focus()
   }
+})
+/** A code that answered with a sealed invitation, waiting for its words.
+ *  In memory only: neither the envelope nor the words are ever stored. */
+let sealedArrival: { code: string; envelope: SealedInvitation; expires: number } | undefined
+
+function joinCodeFeedback(): { fail: (message: string, offerRetry?: boolean, field?: HTMLInputElement) => void } {
+  const input = $('meetingCodeInput') as HTMLInputElement, words = $('meetingCodeWordsInput') as HTMLInputElement
+  const error = $('joinCodeError'), retry = $('joinCodeRetry')
+  error.hidden = true; error.textContent = ''; retry.hidden = true
+  input.removeAttribute('aria-invalid'); words.removeAttribute('aria-invalid')
+  return {
+    fail(message, offerRetry = false, field = input) {
+      error.textContent = message
+      error.hidden = false
+      retry.hidden = !offerRetry
+      if (!offerRetry) { field.setAttribute('aria-invalid', 'true'); field.focus() }
+    },
+  }
+}
+
+function hideCodePassword(): void {
+  sealedArrival = undefined
+  $('joinCodePassword').hidden = true
+  ;($('meetingCodeWordsInput') as HTMLInputElement).value = ''
+}
+
+/** A link a code gave back, checked as a pasted one is, then its door. */
+async function openReturnedLink(link: string): Promise<void> {
+  const hash = returnedJoinFragment(link)
+  if (!hash) throw new MeetingCodeError(MEETING_CODE_UNKNOWN, 0)
+  parseRoomLink(joinLinkBase() + hash)
+  await openLink(joinLinkBase() + hash)
+}
+
+/** Join with code, typed or from `/j/?c=<code>`: look the invite link up and
+ *  open its door, exactly as a pasted link does. Never joins by itself. A
+ *  code with a password asks for its words first. */
+async function joinWithCode(value: string): Promise<void> {
+  const { fail } = joinCodeFeedback()
+  const button = $('joinCodeSubmit') as HTMLButtonElement
+  hideCodePassword()
+  if (!value.trim()) { fail('Type the meeting code you were given.'); return }
+  const code = parseMeetingCode(value)
+  if (!code) { fail(MEETING_CODE_UNKNOWN); return }
+  button.disabled = true
+  try {
+    const found = await meetingCodes.resolve(code)
+    if (found.envelope) {
+      sealedArrival = { code, envelope: found.envelope, expires: found.expires }
+      $('joinCodePassword').hidden = false
+      $('meetingCodeWordsInput').focus()
+      return
+    }
+    await openReturnedLink(found.link)
+  } catch (err) {
+    if (err instanceof MeetingCodeNetworkError) fail('The code could not be looked up. Check your connection, then retry.', true)
+    else fail(err instanceof MeetingCodeError ? err.message : MEETING_CODE_UNKNOWN)
+  } finally { button.disabled = false }
+}
+
+/** The words for a sealed code: open the envelope here, then the same door
+ *  as a plain code. A wrong word is only ever "do not match": no lockout
+ *  here, since the service's lookup budget already limits tries. */
+async function openCodeWithWords(value: string): Promise<void> {
+  const arrival = sealedArrival
+  if (!arrival) return
+  const field = $('meetingCodeWordsInput') as HTMLInputElement
+  const { fail } = joinCodeFeedback()
+  if (!value.trim()) { fail('Enter the password words you were given.', false, field); return }
+  if (!parsePasswordWords(value)) { fail(MEETING_CODE_WRONG_WORDS, false, field); return }
+  const button = $('joinCodeSubmit') as HTMLButtonElement
+  button.disabled = true
+  try {
+    const link = await openInvitation({ ...arrival, words: value })
+    hideCodePassword()
+    await openReturnedLink(link)
+  } catch (err) {
+    if (err instanceof WrongPasswordError) fail(MEETING_CODE_WRONG_WORDS, false, field)
+    else fail(err instanceof MeetingCodeError ? err.message : MEETING_CODE_UNKNOWN)
+  } finally { button.disabled = false }
+}
+$('joinCodeForm').addEventListener('submit', event => {
+  event.preventDefault()
+  const value = ($('meetingCodeInput') as HTMLInputElement).value
+  if (sealedArrival && parseMeetingCode(value) === sealedArrival.code) void openCodeWithWords(($('meetingCodeWordsInput') as HTMLInputElement).value)
+  else void joinWithCode(value)
+})
+$('joinCodeRetry').addEventListener('click', () => { void joinWithCode(($('meetingCodeInput') as HTMLInputElement).value) })
+$('meetingCodeInput').addEventListener('input', () => {
+  $('joinCodeError').hidden = true
+  $('joinCodeRetry').hidden = true
+  $('meetingCodeInput').removeAttribute('aria-invalid')
+  // Another code needs its own lookup, and its own words.
+  if (sealedArrival && parseMeetingCode(($('meetingCodeInput') as HTMLInputElement).value) !== sealedArrival.code) hideCodePassword()
+})
+$('meetingCodeWordsInput').addEventListener('input', () => {
+  $('joinCodeError').hidden = true
+  $('meetingCodeWordsInput').removeAttribute('aria-invalid')
 })
 $('url').addEventListener('input', () => {
   $('linkError').hidden = true
@@ -16110,6 +16238,87 @@ function renderEndRoom(): void {
   $('endRoom').hidden = hidden
   $('endRoomNote').hidden = hidden
   $('selfDestructNow').hidden = hidden
+  renderMeetingCode()
+}
+
+/** Get a meeting code: only the room's creator (the End room check), for
+ *  any room that has not ended. */
+function meetingCodeOffered(): boolean {
+  const roomId = currentRoomId()
+  if (!roomId || !roomInvitationCapability || !canEndRoom()) return false
+  return meetingCodeEligible({ endsAt: roomEndsAt, now: nowSeconds() })
+}
+
+/** Whether the host has set Add a password by hand since the sheet opened;
+ *  until then it follows the room: on without a waiting room, off with one. */
+let meetingCodePasswordTouched = false
+
+function renderMeetingCodePassword(on: boolean): void {
+  setToggle('meetingCodePassword', on)
+  $('meetingCodePasswordNote').textContent = on
+    ? 'Guests also need four words you send separately. The code service keeps only a copy locked with them.'
+    : 'Anyone with the code gets the invite link, and the code service can read it.'
+}
+
+function renderMeetingCode(): void {
+  const offered = meetingCodeOffered()
+  $('meetingCodeRow').hidden = !offered
+  const record = offered ? loadMeetingCode(deviceStore, deriveInvitationId(roomInvitationCapability!), nowSeconds()) : undefined
+  $('meetingCodeShown').hidden = !record
+  $('getMeetingCode').hidden = !!record
+  $('meetingCodePasswordRow').hidden = !!record
+  if (!record) {
+    const roomId = currentRoomId()
+    if (offered && roomId && !meetingCodePasswordTouched) renderMeetingCodePassword(!knockOn(roomId))
+    return
+  }
+  $('meetingCode').textContent = displayMeetingCode(record.code)
+  ;($('meetingCodeLink') as HTMLInputElement).value = meetingCodeLink(record.code)
+  $('meetingCodeWordsRow').hidden = !record.words
+  $('meetingCodeWords').textContent = record.words ?? ''
+  $('meetingCodeExpiry').textContent = `This code works until ${formatConferenceEnd(record.expires)}. Ending the room or making a new link stops it sooner.`
+  $('shareMeetingCode').hidden = navigator.share === undefined
+}
+
+async function getMeetingCode(): Promise<void> {
+  if (!meetingCodeOffered()) throw new Error('Only the browser that started this room can get a meeting code for it.')
+  const invitation = roomInvitationCapability!, roomId = currentRoomId()!
+  const link = ($('shareUrl') as HTMLInputElement).value, expires = meetingCodeExpiry(roomEndsAt, nowSeconds())
+  // With a password the link is sealed here, under words the service never
+  // sees, and the words are kept with the code so this sheet can show them.
+  const issued = $('meetingCodePassword').dataset.on === 'true'
+    ? await issueSealedMeetingCode(meetingCodes, link, expires)
+    : await meetingCodes.create(link, expires)
+  try {
+    // The link may have been replaced while the service answered.
+    if (roomInvitationCapability !== invitation) throw new Error('The room link changed. Get a new code for the new link.')
+    storeMeetingCode(deviceStore, deriveInvitationId(invitation), { ...issued, roomId })
+  } catch (error) {
+    // A code whose delete token cannot be kept must not stay live.
+    void meetingCodes.remove(issued.code, issued.deleteToken).catch(() => {})
+    throw error
+  }
+  renderMeetingCode()
+}
+
+async function copyMeetingCode(): Promise<void> {
+  const link = ($('meetingCodeLink') as HTMLInputElement).value
+  const words = $('meetingCodeWordsRow').hidden ? '' : $('meetingCodeWords').textContent ?? ''
+  // The link and the words on lines of their own, so either can be sent
+  // on its own; the words are meant to travel separately.
+  const text = words
+    ? `Meeting code ${$('meetingCode').textContent}: ${link}\nPassword words: ${words}`
+    : `Meeting code ${$('meetingCode').textContent}: ${link}`
+  try {
+    await navigator.clipboard.writeText(text)
+    $('meetingCodeStatus').textContent = words
+      ? 'Code, short link and password words copied, on separate lines. Send the words separately from the code.'
+      : 'Code and short link copied.'
+  } catch {
+    const input = $('meetingCodeLink') as HTMLInputElement
+    input.focus(); input.select()
+    $('meetingCodeStatus').textContent = 'Automatic copy was unavailable. Select the link and copy it with your keyboard or touch menu.'
+  }
 }
 
 async function endRoomForEveryone(destruct = false): Promise<void> {
@@ -16121,6 +16330,7 @@ async function endRoomForEveryone(destruct = false): Promise<void> {
   } finally {
     closeWhenSettled(retirement)
   }
+  retireMeetingCode({ roomId: s.roomId })
   stopInvitationHost()
   endingRoom = true
   // Self-destruct rides in the closing rekey, inside its encryption; the
@@ -16190,6 +16400,29 @@ function roomWasClosed(notice: { by?: string; destruct?: true; refused?: true })
     : `This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
 }
 
+$('getMeetingCode').addEventListener('click', async () => {
+  const button = $('getMeetingCode') as HTMLButtonElement, password = $('meetingCodePassword') as HTMLButtonElement
+  button.disabled = true; password.disabled = true
+  $('meetingCodeStatus').textContent = password.dataset.on === 'true' ? 'Locking the invite link with four password words…' : ''
+  try { await getMeetingCode(); $('meetingCodeStatus').textContent = '' }
+  catch (err) {
+    $('meetingCodeStatus').textContent = err instanceof MeetingCodeNetworkError
+      ? 'The meeting code service could not be reached. Check your connection and try again.'
+      : describeError(err)
+  } finally { button.disabled = false; password.disabled = false }
+})
+$('meetingCodePassword').addEventListener('click', () => {
+  meetingCodePasswordTouched = true
+  renderMeetingCodePassword($('meetingCodePassword').dataset.on !== 'true')
+})
+$('copyMeetingCode').addEventListener('click', () => { void copyMeetingCode() })
+$('shareMeetingCode').addEventListener('click', async () => {
+  try {
+    await navigator.share({ title: 'KithMoot', text: `Join with meeting code ${$('meetingCode').textContent}`, url: ($('meetingCodeLink') as HTMLInputElement).value })
+  } catch (err) {
+    if (!(err instanceof DOMException && err.name === 'AbortError')) $('meetingCodeStatus').textContent = describeError(err)
+  }
+})
 $('endRoom').addEventListener('click', async () => {
   if (!await confirmRoomAction({
     title: 'End this room for everyone?',
@@ -18328,6 +18561,8 @@ armStopOpening()
 // Defer until identityReady has been initialised below. Admission can then
 // wait for a returning account without delaying the first door paint.
 const roomArrival = Promise.resolve().then(roomFromLocation)
+// A meeting code End room, New link or Forget could not delete last time.
+drainMeetingCodeRetirements()
 roomArrival
   .finally(disarmStopOpening)
   .then((found) => {
@@ -18335,6 +18570,14 @@ roomArrival
       // No link: the front page, with the rooms this device has been in.
       $('setup').hidden = false
       showRoomsList()
+      // kithmoot.app/c/<code> arrives here as ?c=<code>: the same path as
+      // typing it into Join with code, so it reaches the door and no further.
+      const code = new URL(location.href).searchParams.get('c')
+      if (code !== null) {
+        ;($('joinCode') as HTMLDetailsElement).open = true
+        ;($('meetingCodeInput') as HTMLInputElement).value = code
+        void joinWithCode(code)
+      }
     } else {
       showRoomUi()
       renderIdentity()

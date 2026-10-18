@@ -22,6 +22,8 @@ payloads for NIP-44).
 | `verify-seal.test.ts` | Checks `seal-vectors.json` against `src/`'s re-exports of the kit. |
 | `schedule-vectors.json` | Scheduled rekeys (the quiet marker), the authority's grant carrying the history window, and `epochsInWindow`, copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
 | `verify-schedule.test.ts` | Checks `schedule-vectors.json` against `src/`'s re-exports of the kit. |
+| `meeting-code-password-v1.json` | A meeting code password envelope (docs/meeting-codes.md, "Password"): fixed words, salt, nonce, code, expiry and link, with the PBKDF2 key, additional data and plaintext as intermediates. Generated with `node:crypto` by `generate-meeting-code-password.mjs`; never hand-edited. |
+| `meeting-code-password-v1.test.ts` | Checks that `app/src/meeting-codes.ts` (WebCrypto) seals the exact bytes and opens them. |
 
 ## What the vectors pin - and what they don't
 
