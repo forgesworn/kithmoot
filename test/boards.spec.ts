@@ -239,6 +239,8 @@ test('an existing private board keeps its cards and is shared only after the exp
     await who.page.locator('#roomList').getByRole('button', {name: 'Open Existing board room', exact: true}).click()
     if (await who.page.locator('#join').isVisible()) {await who.page.locator('#displayName').fill(name); await who.page.locator('#join').click()}
     await expect(who.page.locator('#chatInput')).toBeEditable()
+    await expect(who.page.locator('#roomArea')).toBeVisible()
+    await expect(who.page.locator('#roomArea')).toHaveJSProperty('inert', false)
   }
   try {
     let owner = await openBoards(ada.page)
@@ -246,6 +248,8 @@ test('an existing private board keeps its cards and is shared only after the exp
     await ada.page.locator('#boardsClose').click()
     await enter(ada, 'Ada')
     await ada.page.locator('#openAssignments').click()
+    await expect(ada.page.locator('#boardsPanel')).toBeVisible()
+    await expect(ada.page.locator('#boardsPanel iframe')).toBeVisible()
     owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await owner.getByRole('link', {name: /^Existing notes/}).click()
     await ada.page.locator('#boardsRoom').selectOption({label: 'Existing board room'}); await ada.page.locator('#boardsAssociate').click()
