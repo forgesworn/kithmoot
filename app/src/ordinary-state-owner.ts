@@ -6,7 +6,9 @@ import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
   type OrdinaryPrivateForegroundAuthority, type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
 import { takeOrdinaryPrivateRenewalObligation, openOrdinaryPrivateRenewalFactoryFromOwnerClaim, closeOrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalObligation } from './ordinary-private-renewal.js'
 import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise, verifyOrdinaryProtocolLifecycle, observeOrdinaryLifecycleEnd, type OrdinaryProtocolControl } from './ordinary-protocol-work.js'
-import { claimOrdinaryPrivateExistingRoot, claimOrdinaryPrivateExistingProviderCommand, type OrdinaryPrivateExistingRoot,
+import { claimOrdinaryPrivateExistingRoot, claimOrdinaryPrivateExistingProviderCommand, claimOrdinaryPrivateMemberIntent,
+  assertOrdinaryPrivateMemberCommand, beginOrdinaryPrivateWalletEffect, endOrdinaryPrivateWalletEffect, discardOrdinaryPrivateWalletEffect,
+  type OrdinaryPrivateWalletTicket, type OrdinaryPrivateMemberIntent, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
 import { captureOrdinaryForegroundProof } from './ordinary-foreground-signer.js'
 import { HEADLESS_NIP07_DISCOVERY_BOUNDARY, createNip07SignerWithDiscoveryBoundary, createPinnedNip07SignerWithDiscoveryBoundary, createSessionFromSigner,
@@ -32,7 +34,7 @@ import type { OrdinaryPrivateMemberControllerRenewalClaim, OrdinaryPrivateBootst
 import { ORDINARY_OPERATION_CONTROL_PREFIX, openOrdinaryOperationClassification, openOrdinaryOperationControl,
   wipeOrdinaryOperationJournal, ordinaryOperationNames, ordinaryOperationMarker, ordinaryOperationCommitment, ordinaryOperationControlDigest, ordinaryFrameDigest, ordinaryOperationSemanticDigest, validateOrdinaryOperationMarker, validateOrdinaryOperationControl, sealOrdinaryOperationControl, encodeOrdinaryOperationJournal, decodeOrdinaryOperationClassification,
   type OrdinaryOperationJournal, type OrdinaryOperationClassification, type OrdinaryOperationControl } from './ordinary-operation-codec.js'
-import { OrdinaryStateHold, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
+import { OrdinaryStateHold, ordinaryUtf8Length, ordinaryImageByteLength, encodeOrdinaryImage, openOrdinaryFrame, sealOrdinaryImage, sameOrdinaryFrame,
   validateOrdinaryFrame, validateOrdinaryKey, type OrdinaryFrame, type OrdinaryImage,
   type OrdinaryPurpose, type OrdinaryMigration } from './ordinary-state-codec.js'
 
@@ -121,6 +123,198 @@ interface PrivateExistingProvider {
   bootstrapModule?: typeof import('./ordinary-persistent-bootstrap.js')
 }
 const privateExistingProviders = new WeakMap<object, PrivateExistingProvider>()
+export type OrdinaryPrivateMemberActionKind = 'unlock-private-member' | 'verify-private-member' | 'connect-private-member'
+declare const privateSelectionPreviewBrand: unique symbol
+export interface OrdinaryPrivateSelectionPreviewReceipt { readonly [privateSelectionPreviewBrand]: true }
+export interface OrdinaryPrivateSelectionRelays {
+  readonly length: number
+  readonly [index: number]: string
+}
+export interface OrdinaryPrivateSelectionDisplay {
+  readonly account: string
+  readonly roomId: string
+  readonly roomLabel: string
+  readonly relays: OrdinaryPrivateSelectionRelays
+  readonly network: 'direct'
+}
+export interface OrdinaryPrivateSelectionPreview {
+  readonly display: OrdinaryPrivateSelectionDisplay
+  readonly receipt: OrdinaryPrivateSelectionPreviewReceipt
+}
+interface PrivateSelectionPreviewWork {
+  readonly root: OrdinaryPrivateExistingRoot
+  readonly capture: PrivateExistingCapture
+  readonly generation: Readonly<PrivateMemberCredentialGeneration>
+  readonly kind: OrdinaryPrivateMemberActionKind
+  readonly revision: number
+  readonly cancel: { readonly stop: () => void }
+  stopped: boolean
+  pending: boolean
+  receipt: OrdinaryPrivateSelectionPreviewReceipt | undefined
+}
+const privateSelectionPreviews = new WeakMap<object, PrivateSelectionPreviewWork>()
+const privateSelectionPreviewSlots = new WeakMap<object, {revision: number; work: PrivateSelectionPreviewWork | undefined}>()
+// Only the future fixed Unlock continuation may publish this exact tuple after
+// foreground, bootstrap and native member construction actually complete.
+const privateTrustedMembers = new WeakMap<object, Readonly<{
+  capture: PrivateExistingCapture
+  generation: Readonly<PrivateMemberCredentialGeneration>
+  provider: PrivateExistingProvider
+  foreground: OrdinaryPrivateForegroundResource
+  bootstrap: OrdinaryPrivateBootstrapResource
+  bootstrapModule: typeof import('./ordinary-persistent-bootstrap.js')
+  connect: {claimed: boolean}
+}>>()
+interface PrivateTrustedUnlock {
+  readonly kind: 'unlock-private-member' | 'verify-private-member'
+  readonly root: OrdinaryPrivateExistingRoot
+  readonly capture: PrivateExistingCapture
+  readonly generation: Readonly<PrivateMemberCredentialGeneration>
+  readonly command: Promise<void>
+  readonly completed: Promise<void>
+  readonly resolve: () => void
+  readonly reject: (error: unknown) => void
+  readonly cancel: {stop(): void}
+  resource: OrdinaryPrivateExistingCaptureResource | undefined
+  finishing: boolean
+  stopped: boolean
+}
+const privateTrustedUnlocks = new WeakMap<object, PrivateTrustedUnlock>()
+const privateTrustedProviders = new WeakMap<object, {
+  readonly capture: PrivateExistingCapture
+  readonly generation: Readonly<PrivateMemberCredentialGeneration>
+  readonly provider: PrivateExistingProvider
+  readonly resource: OrdinaryPrivateExistingCaptureResource
+  proofClaimed: boolean
+}>()
+let reservePrivateTrustedUnlock!: (root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
+  preview: OrdinaryPrivateSelectionPreviewReceipt, command: Promise<void>) => void
+let reservePrivateTrustedProof!: typeof reservePrivateTrustedUnlock
+let finishPrivateTrustedUnlock!: (root: OrdinaryPrivateExistingRoot, command: Promise<void>) => Promise<void>
+let connectPrivateTrustedMember!: (root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
+  preview: OrdinaryPrivateSelectionPreviewReceipt, command: Promise<void>) => Promise<void>
+/** Fixed root-to-owner operations only; no native binding or action data escapes. */
+export const reserveOrdinaryPrivateTrustedUnlock = (root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
+  preview: OrdinaryPrivateSelectionPreviewReceipt, command: Promise<void>): void => reservePrivateTrustedUnlock(root, intent, preview, command)
+export const reserveOrdinaryPrivateTrustedProof = (root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
+  preview: OrdinaryPrivateSelectionPreviewReceipt, command: Promise<void>): void => reservePrivateTrustedProof(root, intent, preview, command)
+export const finishOrdinaryPrivateTrustedUnlock = (root: OrdinaryPrivateExistingRoot, command: Promise<void>): Promise<void> => finishPrivateTrustedUnlock(root, command)
+export const connectOrdinaryPrivateTrustedMember = (root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
+  preview: OrdinaryPrivateSelectionPreviewReceipt, command: Promise<void>): Promise<void> => connectPrivateTrustedMember(root, intent, preview, command)
+function revokePrivateTrustedMember(root: OrdinaryPrivateExistingRoot): void {
+  privateTrustedMembers.delete(root)
+  privateTrustedProviders.delete(root)
+  privateTrustedUnlocks.get(root)?.cancel.stop()
+}
+
+let preparePrivateSelectionPreview!: (root: OrdinaryPrivateExistingRoot, kind: OrdinaryPrivateMemberActionKind) => Promise<OrdinaryPrivateSelectionPreview>
+/** Package-private fixed read; no provider, signer, owner, store or raw link is
+ * returned. The opaque root is created only by the private document entry. */
+export const prepareOrdinaryPrivateSelectionPreview = (root: OrdinaryPrivateExistingRoot,
+  kind: OrdinaryPrivateMemberActionKind): Promise<OrdinaryPrivateSelectionPreview> => preparePrivateSelectionPreview(root, kind)
+export function revokeOrdinaryPrivateSelectionPreview(root: OrdinaryPrivateExistingRoot): void {
+  const slot = privateSelectionPreviewSlots.get(root)
+  try { slot?.work?.cancel.stop() } finally { privateSelectionPreviewSlots.delete(root) }
+}
+
+// Capture the operations used by this data boundary before a preview/view is
+// published. The data comes only from verified native-store JSON; this does
+// not make arbitrary caller objects trustworthy or grant execution authority.
+const privateSelectionApply = Reflect.apply
+const privateSelectionDescriptor = Object.getOwnPropertyDescriptor
+const privateSelectionHasOwn = Object.prototype.hasOwnProperty
+const privateSelectionOwnKeys = Reflect.ownKeys
+const privateSelectionIsArray = Array.isArray
+const privateSelectionSafeInteger = Number.isSafeInteger
+const privateSelectionCreate = Object.create
+const privateSelectionAssign = Object.assign
+const privateSelectionFreeze = Object.freeze
+const privateSelectionDefine = Object.defineProperty
+const privateSelectionSetPrototype = Object.setPrototypeOf
+const privateSelectionParse = JSON.parse
+const privateSelectionStringify = JSON.stringify
+const privateSelectionMapValues = Map.prototype.values
+const privateSelectionFilter = Array.prototype.filter
+const privateSelectionMapIteratorNext = Object.getPrototypeOf(privateSelectionApply(privateSelectionMapValues, new Map(), [])).next
+function privateSelectionCheckAmbient(): void {
+  const unchanged = (object: object, name: PropertyKey, expected: unknown) => {
+    const descriptor = privateSelectionDescriptor(object, name)
+    if (!descriptor || !privateSelectionApply(privateSelectionHasOwn, descriptor, ['value']) || descriptor.value !== expected) hold()
+  }
+  if (privateSelectionDescriptor(Object.prototype, 'toJSON') || privateSelectionDescriptor(Array.prototype, 'toJSON')) hold()
+  unchanged(JSON, 'stringify', privateSelectionStringify)
+  unchanged(Map.prototype, 'values', privateSelectionMapValues)
+  unchanged(Array.prototype, 'filter', privateSelectionFilter)
+}
+
+const PrivateSelectionURL = URL
+const privateSelectionURLGet = (name: string) => {
+  const descriptor = privateSelectionDescriptor(PrivateSelectionURL.prototype, name)
+  if (!descriptor || typeof descriptor.get !== 'function') hold()
+  return descriptor.get
+}
+const privateSelectionURLHref = privateSelectionURLGet('href')
+const privateSelectionURLProtocol = privateSelectionURLGet('protocol')
+const privateSelectionURLHostname = privateSelectionURLGet('hostname')
+const privateSelectionURLUsername = privateSelectionURLGet('username')
+const privateSelectionURLPassword = privateSelectionURLGet('password')
+const privateSelectionURLHash = privateSelectionURLGet('hash')
+const privateSelectionURLPathname = privateSelectionURLGet('pathname')
+const privateSelectionURLSearchParams = privateSelectionURLGet('searchParams')
+const privateSelectionSortQuery = URLSearchParams.prototype.sort
+/** Missing optional data never consults a prototype. Accessors are rejected
+ * without invocation. Only owned verified data reaches this private reader. */
+function privateSelectionDataField(value: unknown, key: string, optional = false): unknown {
+  if (typeof value !== 'object' || value === null) hold()
+  const descriptor = privateSelectionDescriptor(value, key)
+  if (!descriptor && optional) return undefined
+  if (!descriptor || !privateSelectionApply(privateSelectionHasOwn, descriptor, ['value'])) hold()
+  return descriptor.value
+}
+function privateSelectionOwnData(value: unknown, key: string, optional = false): unknown {
+  if (privateSelectionIsArray(value)) hold()
+  return privateSelectionDataField(value, key, optional)
+}
+/** A frozen null-prototype array with bounded own data elements. Neither
+ * array iteration, map, constructor/species nor toJSON participates. */
+function privateSelectionRelayData(value: unknown, maximum: number): OrdinaryPrivateSelectionRelays {
+  if (!privateSelectionIsArray(value)) hold()
+  const length = privateSelectionDataField(value, 'length')
+  if (typeof length !== 'number' || !privateSelectionSafeInteger(length) || length < 1 || length > maximum ||
+      privateSelectionOwnKeys(value).length !== length + 1) hold()
+  const result: string[] = []
+  privateSelectionSetPrototype(result, null)
+  for (let i = 0; i < length; i++) {
+    const destination = privateSelectionDataField(value, '' + i)
+    if (typeof destination !== 'string' || destination.length < 1 || destination.length > 2048) hold()
+    // This is the canonical direct subset already required by the transport:
+    // native URL spelling, no credentials/fragment, no duplicate or trailing
+    // non-root path slash, sorted/re-encoded query, ws only for loopback.
+    let parsed: URL
+    try { parsed = new PrivateSelectionURL(destination) } catch { hold() }
+    const read = (getter: (this: URL) => unknown) => privateSelectionApply(getter, parsed, [])
+    const protocol = read(privateSelectionURLProtocol), hostname = read(privateSelectionURLHostname)
+    if (protocol !== 'wss:' && (protocol !== 'ws:' || hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '[::1]') ||
+        read(privateSelectionURLUsername) !== '' || read(privateSelectionURLPassword) !== '' || read(privateSelectionURLHash) !== '') hold()
+    const path = read(privateSelectionURLPathname)
+    if (typeof path !== 'string' || path.length > 1 && path[path.length - 1] === '/') hold()
+    for (let j = 1; j < path.length; j++) if (path[j] === '/' && path[j - 1] === '/') hold()
+    try { privateSelectionApply(privateSelectionSortQuery, read(privateSelectionURLSearchParams), []) } catch { hold() }
+    if (read(privateSelectionURLHref) !== destination) hold()
+    for (let j = 0; j < i; j++) if (privateSelectionDataField(result, '' + j) === destination) hold()
+    privateSelectionDefine(result, '' + i, {value: destination, enumerable: true, configurable: false, writable: false})
+  }
+  return privateSelectionFreeze(result)
+}
+function privateSelectionSameRelays(left: OrdinaryPrivateSelectionRelays, right: OrdinaryPrivateSelectionRelays): boolean {
+  const length = privateSelectionDataField(left, 'length')
+  if (length !== privateSelectionDataField(right, 'length')) return false
+  for (let i = 0; i < (length as number); i++) {
+    if (privateSelectionDataField(left, '' + i) !== privateSelectionDataField(right, '' + i)) return false
+  }
+  return true
+}
+
 declare const privateMemberNativeBrand: unique symbol
 export interface OrdinaryPrivateMemberNative { readonly [privateMemberNativeBrand]: true }
 /** The native owner retains the actual owners and the immutable predecessor.
@@ -1081,6 +1275,11 @@ export class OrdinaryStateOwner {
     }
     beginPrivateExistingCapture = root => this.#beginPrivateExistingCapture(root)
     beginPrivateExistingProvider = (root, command) => this.#beginPrivateExistingProvider(root, command)
+    preparePrivateSelectionPreview = (root, kind) => this.#preparePrivateSelectionPreview(root, kind)
+    reservePrivateTrustedUnlock = (root, intent, preview, command) => this.#reservePrivateTrustedUnlock(root, intent, preview, command, 'unlock-private-member')
+    reservePrivateTrustedProof = (root, intent, preview, command) => this.#reservePrivateTrustedUnlock(root, intent, preview, command, 'verify-private-member')
+    finishPrivateTrustedUnlock = (root, command) => this.#finishPrivateTrustedUnlock(root, command)
+    connectPrivateTrustedMember = (root, intent, preview, command) => this.#connectPrivateTrustedMember(root, intent, preview, command)
   }
   /** Fixed restore-only native operation. Its sole selector is the actual
    * unexported document root, authenticated by the private root WeakMap. */
@@ -1096,6 +1295,8 @@ export class OrdinaryStateOwner {
     const stop = () => {
       if (stopped) return
       stopped = true
+      stopOne(() => revokePrivateTrustedMember(root))
+      stopOne(() => revokeOrdinaryPrivateSelectionPreview(root))
       privateExistingCaptures.delete(root)
       stopOne(() => { if (timer !== undefined) clearTimeout(timer) })
       stopOne(() => context?.abort())
@@ -1274,6 +1475,340 @@ export class OrdinaryStateOwner {
   /** Consume the actual private capture before any asynchronous or external
    * work. The resource retains the SDK privately; it supplies no member/current
    * MLS authority and no raw signer or selection to the document caller. */
+  static #checkPrivateSelectionPreview(root: OrdinaryPrivateExistingRoot, capture: PrivateExistingCapture,
+    generation: Readonly<PrivateMemberCredentialGeneration>, kind: OrdinaryPrivateMemberActionKind): void {
+    if (privateExistingCaptures.get(root) !== capture || capture.root !== root ||
+        capture.credentialGeneration.current !== generation || !capture.binding.live() ||
+        navigator.serviceWorker.controller !== capture.binding.controller) hold()
+    capture.browser.#check(capture.binding.live); capture.tab.#check(capture.binding.live)
+    if (capture.browser.#cleanupFailure || capture.tab.#cleanupFailure) hold()
+    const now = Date.now(), limits = capture.limits
+    if (!Number.isSafeInteger(now) || now < 0 || now >= capture.expiresAt ||
+        !Number.isSafeInteger(generation.serial) || generation.serial < 0 ||
+        generation.selection.credentialExpiresAt - Math.floor(now / 1000) < 600 ||
+        limits.sdkExpiresAt !== null && now >= limits.sdkExpiresAt ||
+        limits.admissionEndsAt !== null && Math.floor(now / 1000) >= limits.admissionEndsAt ||
+        limits.roomEndsAt !== null && Math.floor(now / 1000) >= limits.roomEndsAt) hold()
+    if (kind === 'unlock-private-member') {
+      if (capture.consumed || privateExistingProviders.has(root) || privateTrustedMembers.has(root) || privateTrustedProviders.has(root)) hold()
+    } else if (kind === 'verify-private-member') {
+      const ready = privateTrustedProviders.get(root), provider = privateExistingProviders.get(root)
+      if (!ready || !provider || ready.proofClaimed || ready.capture !== capture || ready.generation !== generation ||
+          ready.provider !== provider || provider.capture !== capture || provider.consumed || provider.foregroundStarted ||
+          privateTrustedMembers.has(root)) hold()
+      provider.controlLive()
+    } else if (kind === 'connect-private-member') {
+      const member = privateTrustedMembers.get(root), provider = privateExistingProviders.get(root)
+      if (!member || !provider || member.capture !== capture || member.generation !== generation ||
+          member.provider !== provider || provider.capture !== capture || !provider.bootstrap ||
+          !provider.foreground || !provider.bootstrapModule || member.foreground !== provider.foreground ||
+          member.bootstrap !== provider.bootstrap || member.bootstrapModule !== provider.bootstrapModule || member.connect.claimed) hold()
+      provider.controlLive()
+    } else hold()
+    if (privateExistingCaptures.get(root) !== capture || capture.credentialGeneration.current !== generation ||
+        !capture.binding.live()) hold()
+  }
+  /** Read public selection facts from the exact authenticated predecessor.
+   * Publish and retain the outer on both owners before queueing any read work.
+   * A preview is never current membership, consent, or a wallet capability. */
+  static #preparePrivateSelectionPreview(root: OrdinaryPrivateExistingRoot,
+    kind: OrdinaryPrivateMemberActionKind): Promise<OrdinaryPrivateSelectionPreview> {
+    try { privateSelectionCheckAmbient() } catch { return Promise.reject(new OrdinaryStateHold()) }
+    const capture = privateExistingCaptures.get(root)
+    if (!capture) return Promise.reject(new OrdinaryStateHold())
+    const generation = capture.credentialGeneration.current, {browser, tab, binding} = capture
+    let context: OperationTransaction | undefined
+    let work!: PrivateSelectionPreviewWork
+    const previous = privateSelectionPreviewSlots.get(root)
+    if (previous?.work?.pending) return Promise.reject(new OrdinaryStateHold())
+    try { previous?.work?.cancel.stop() } catch { return Promise.reject(new OrdinaryStateHold()) }
+    const revision = (previous?.revision ?? 0) + 1
+    if (!Number.isSafeInteger(revision) || revision < 1) return Promise.reject(new OrdinaryStateHold())
+    const slot: {revision: number; work: PrivateSelectionPreviewWork | undefined} =
+      privateSelectionAssign(privateSelectionCreate(null), {revision, work: undefined})
+    let cleanupError: {readonly error: unknown} | undefined
+    const cleanup = (action: () => void) => {
+      try {action()} catch (error) {
+        cleanupError ??= {error}; browser.#cleanupFailure ??= {error}; tab.#cleanupFailure ??= {error}
+      }
+    }
+    const stop = () => {
+      if (work.stopped) return
+      work.stopped = true
+      // Stop all independent edges even if an injected native abort fails.
+      // Native owner close reports the retained first error after work drains.
+      cleanup(() => context?.abort())
+      cleanup(() => { if (work.receipt) privateSelectionPreviews.delete(work.receipt) })
+      cleanup(() => { if (slot.work === work) slot.work = undefined })
+      cleanup(() => browser.#resources.delete(work.cancel))
+      cleanup(() => tab.#resources.delete(work.cancel))
+      work.receipt = undefined
+    }
+    work = privateSelectionAssign(privateSelectionCreate(null), {root, capture, generation, kind, revision,
+      cancel: privateSelectionFreeze({stop}), stopped: false, pending: true, receipt: undefined})
+    slot.work = work
+    privateSelectionPreviewSlots.set(root, slot)
+    const check = () => {
+      privateSelectionCheckAmbient()
+      if (work.stopped || privateSelectionPreviewSlots.get(root) !== slot || slot.work !== work) hold()
+      OrdinaryStateOwner.#checkPrivateSelectionPreview(root, capture, generation, kind)
+    }
+    const clients = async () => { check(); await binding.assertClientsCurrent(); check() }
+    let resolve!: (value: OrdinaryPrivateSelectionPreview) => void, reject!: (error: unknown) => void
+    const outer = new Promise<OrdinaryPrivateSelectionPreview>((yes, no) => {resolve = yes; reject = no})
+    void outer.catch(() => {})
+    try {
+      browser.#track(outer); tab.#track(outer)
+      browser.#resources.add(work.cancel); tab.#resources.add(work.cancel)
+      check()
+      void Promise.resolve().then(async () => {
+        let display: OrdinaryPrivateSelectionDisplay | undefined
+        try {
+          await clients()
+          const snapshot = await import('./ordinary-snapshot.js'), proofs = await import('./persistent-admission-proof.js'),
+            leases = await import('./ordinary-member-lease.js'), rooms = await import('./rooms-store.js'),
+            relay = await import('../../src/relay-pool.js')
+          check()
+          await navigator.locks.request(WRITE_LOCK, async () => {
+            check(); await clients()
+            let db: IDBDatabase | undefined, b: OrdinaryImage | undefined, t: OrdinaryImage | undefined
+            try {
+              db = await browser.#existingStartupDatabase(binding.live); check(); if (!db) hold()
+              db.onversionchange = () => {stop(); db?.close()}
+              context = operationTransaction(db, 'readonly')
+              const raw = await Promise.all([context.read(() => context!.store.get('browser')),
+                context.read(() => context!.store.get(capture.purpose))])
+              check(); const br = row(raw[0]), tr = row(raw[1])
+              if (!br?.frame || !tr?.frame || br.pending || tr.pending ||
+                  rowDigest(br) !== generation.rows[0] || rowDigest(tr) !== generation.rows[1]) hold()
+              b = await openOrdinaryFrame(br.frame, br.key); check()
+              t = await openOrdinaryFrame(tr.frame, tr.key); check()
+              if (b.purpose !== 'browser' || b.expiresAt !== 0 || t.purpose !== capture.purpose ||
+                  t.expiresAt !== capture.expiresAt || b.revision !== generation.revisions[0] || t.revision !== generation.revisions[1] ||
+                  b.generation !== generation.ownerGenerations[0] || t.generation !== generation.ownerGenerations[1] ||
+                  b.migration?.phase !== 'complete' || t.migration?.phase !== 'complete') hold()
+              const facts = await browser.#classifyOperations(binding.live, context); check()
+              if (ordinaryOwnedJSON(facts) !== generation.classification) hold()
+              browser.#validateCleanupImage(b, t, tab, facts, snapshot)
+              const bv = view(new Map(b.records), false), tv = view(new Map(t.records), false)
+              let inspected: ReturnType<typeof proofs.inspectPersistentAdmissionProofs> | undefined
+              try {
+                inspected = proofs.inspectPersistentAdmissionProofs(bv.store, tv.store)
+                leases.inspectOrdinaryMemberLeases(bv.store, tv.store, inspected)
+                const selection = generation.selection
+                type SelectedProof = typeof inspected.selected extends ReadonlyMap<string, infer Value> ? Value : never
+                let matched: SelectedProof | undefined, matches = 0
+                const iterator = privateSelectionApply(privateSelectionMapValues, inspected.selected, [])
+                for (;;) {
+                  const step = privateSelectionApply(privateSelectionMapIteratorNext, iterator, [])
+                  if (privateSelectionOwnData(step, 'done') === true) break
+                  const value = privateSelectionOwnData(step, 'value') as SelectedProof
+                  if (value.proof.binding.operation === selection.proofOperation) {matched = value; matches++}
+                }
+                if (matches !== 1 || !matched) hold()
+                const selected = matched, bound = selected.proof.binding,
+                  destinations = privateSelectionRelayData(privateSelectionOwnData(selected.admission, 'relays'), relay.MAX_POOL_RELAYS),
+                  signedDestinations = privateSelectionRelayData(selected.proof.selection.relays, relay.MAX_POOL_RELAYS)
+                if (selected.proof.version !== 2 || !bound.deviceCustody || bound.account !== selection.account ||
+                    bound.participant !== selection.participant || bound.roomId !== selection.roomId ||
+                    bound.invitationId !== selection.invitationId || selected.proof.kept.enabled !== selection.keep ||
+                    selected.proof.selection.contributors.relays.length === 0 ||
+                    !privateSelectionSameRelays(destinations, signedDestinations)) hold()
+                for (let index = 0; index < destinations.length; index++) ordinaryUtf8Length(destinations[index]!, 2048)
+                const rawRoom = b.records.get(proofs.accountPrefix(selection.account) + rooms.ROOM_PREFIX + selection.roomId)
+                if (!rawRoom) hold()
+                const metadata: unknown = privateSelectionParse(rawRoom), name = privateSelectionOwnData(metadata, 'name', true)
+                if (privateSelectionOwnData(metadata, 'link') !== selection.link ||
+                    privateSelectionOwnData(metadata, 'keep') !== selection.keep ||
+                    privateSelectionOwnData(metadata, 'endedAt', true) !== undefined ||
+                    name !== undefined && typeof name !== 'string' ||
+                    !/^[0-9a-f]{64}$/.test(selection.account) || !/^[0-9a-f]{64}$/.test(selection.roomId)) hold()
+                const roomLabel = rooms.roomLabel({roomId: selection.roomId, name: name as string | undefined})
+                ordinaryUtf8Length(roomLabel, 256)
+                display = privateSelectionFreeze(privateSelectionAssign(privateSelectionCreate(null), {account: selection.account,
+                  roomId: selection.roomId, roomLabel, relays: destinations, network: 'direct' as const}))
+                check()
+              } finally {cleanup(() => inspected?.close()); cleanup(() => bv.close()); cleanup(() => tv.close())}
+              await context.step(check); context.stop(); await context.ended; check()
+            } finally {
+              const transaction = context; context = undefined
+              cleanup(() => transaction?.abort()); await transaction?.ended.catch(() => {})
+              cleanup(() => transaction?.stop()); cleanup(() => clearImage(b)); cleanup(() => clearImage(t)); cleanup(() => db?.close())
+            }
+          })
+          check(); await clients(); check()
+          if (cleanupError) throw cleanupError.error
+          if (!display) hold()
+          const receipt = privateSelectionFreeze(privateSelectionCreate(null)) as OrdinaryPrivateSelectionPreviewReceipt
+          work.receipt = receipt; work.pending = false
+          privateSelectionPreviews.set(receipt, work)
+          check()
+          return privateSelectionFreeze(privateSelectionAssign(privateSelectionCreate(null), {display, receipt})) as OrdinaryPrivateSelectionPreview
+        } catch (error) {stop(); throw error}
+        finally {work.pending = false}
+      }).then(resolve, reject).catch(() => {})
+    } catch (error) {reject(error); stop(); work.pending = false}
+    return outer
+  }
+  /** Owner-only action consumer. Spend before liveness checks, getters or any
+   * asynchronous work; a wrong root/kind also spends a genuine receipt. */
+  static #takePrivateSelectionPreview(root: OrdinaryPrivateExistingRoot,
+    receipt: OrdinaryPrivateSelectionPreviewReceipt, kind: OrdinaryPrivateMemberActionKind): PrivateSelectionPreviewWork {
+    const work = privateSelectionPreviews.get(receipt)
+    privateSelectionPreviews.delete(receipt)
+    if (!work) hold()
+    const slot = privateSelectionPreviewSlots.get(work.root)
+    if (slot?.work === work) slot.work = undefined
+    work.capture.browser.#resources.delete(work.cancel); work.capture.tab.#resources.delete(work.cancel)
+    const exactReceipt = work.receipt === receipt
+    work.receipt = undefined
+    if (!exactReceipt || work.stopped || work.pending || work.root !== root || work.kind !== kind ||
+        !slot || slot.revision !== work.revision) hold()
+    OrdinaryStateOwner.#checkPrivateSelectionPreview(root, work.capture, work.generation, kind)
+    return work
+  }
+
+  static #reservePrivateTrustedUnlock(root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
+    preview: OrdinaryPrivateSelectionPreviewReceipt, command: Promise<void>, kind: 'unlock-private-member' | 'verify-private-member'): void {
+    claimOrdinaryPrivateMemberIntent(root, intent, preview, kind, command)
+    const capture = privateExistingCaptures.get(root)
+    if (!capture || privateTrustedUnlocks.has(root)) hold()
+    const generation = capture.credentialGeneration.current, {browser, tab} = capture
+    const ready = privateTrustedProviders.get(root)
+    let resolve!: () => void, reject!: (error: unknown) => void, work!: PrivateTrustedUnlock
+    const completed = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+    void completed.catch(() => {})
+    const cancel = Object.freeze({stop: () => {
+      if (work.stopped) return
+      work.stopped = true
+      if (privateTrustedUnlocks.get(root) === work) privateTrustedUnlocks.delete(root)
+      privateTrustedMembers.delete(root)
+      // Also settle an operation whose provider construction never started.
+      // Any actual queued/native tail is retained separately on both owners.
+      reject(new OrdinaryStateHold())
+    }})
+    work = Object.assign(Object.create(null), {kind, root, capture, generation, command, completed,
+      resolve, reject, cancel, resource: kind === 'verify-private-member' ? ready?.resource : undefined, finishing: false, stopped: false})
+    try {
+      browser.#track(command); tab.#track(command)
+      browser.#track(completed); tab.#track(completed)
+      browser.#resources.add(cancel); tab.#resources.add(cancel)
+      privateTrustedUnlocks.set(root, work)
+      // Replacement operation and cancellation are owned before take removes
+      // preview resources. The raw work remains confined to this owner.
+      const selected = OrdinaryStateOwner.#takePrivateSelectionPreview(root, preview, kind)
+      if (selected.capture !== capture || selected.generation !== generation) hold()
+      if (kind === 'verify-private-member') {
+        if (!ready || ready.proofClaimed || ready.capture !== capture || ready.generation !== generation || ready.provider !== privateExistingProviders.get(root)) hold()
+        ready.provider.trackControl(command)
+        ready.proofClaimed = true
+      }
+      assertOrdinaryPrivateMemberCommand(root, command, kind)
+    } catch (error) {
+      cancel.stop(); browser.#resources.delete(cancel); tab.#resources.delete(cancel)
+      throw error
+    }
+  }
+  static #finishPrivateTrustedUnlock(root: OrdinaryPrivateExistingRoot, command: Promise<void>): Promise<void> {
+    const work = privateTrustedUnlocks.get(root)
+    if (!work || work.command !== command || work.stopped || work.finishing) return Promise.reject(new OrdinaryStateHold())
+    work.finishing = true
+    const {capture, generation} = work, {browser, tab} = capture
+    const check = () => {
+      assertOrdinaryPrivateMemberCommand(root, command, work.kind)
+      if (work.stopped || privateTrustedUnlocks.get(root) !== work || privateExistingCaptures.get(root) !== capture ||
+          capture.credentialGeneration.current !== generation || !capture.binding.live()) hold()
+      browser.#check(capture.binding.live); tab.#check(capture.binding.live)
+    }
+    let queued: Promise<void>
+    try {
+      queued = Promise.resolve().then(async () => {
+        check()
+        const resource = work.resource
+        if (!resource) hold()
+        await resource.completed; check()
+        const provider = privateExistingProviders.get(root)
+        if (!provider || provider.capture !== capture || provider.consumed) hold()
+        // Retain the whole finishing operation before proof/foreground work.
+        provider.trackControl(work.completed)
+        const current = () => {check(); if (privateExistingProviders.get(root) !== provider) hold(); provider.controlLive()}
+        current(); await capture.binding.assertClientsCurrent(); current()
+        if (work.kind === 'unlock-private-member') {
+          if (privateTrustedProviders.has(root) || provider.foregroundStarted || provider.consumed) hold()
+          privateTrustedProviders.set(root, Object.assign(Object.create(null), {capture, generation, provider, resource, proofClaimed: false}))
+          return // Discovery ends here; signing requires a fresh native action.
+        }
+        const ready = privateTrustedProviders.get(root)
+        if (!ready || !ready.proofClaimed || ready.provider !== provider || ready.resource !== resource) hold()
+        await OrdinaryStateOwner.#beginPrivateExistingForeground(root); current()
+        const foreground = provider.foreground
+        if (!foreground) hold()
+        await foreground.loadMember(); current()
+        const bootstrap = provider.bootstrap, bootstrapModule = provider.bootstrapModule
+        if (!bootstrap || !bootstrapModule || provider.foreground !== foreground) hold()
+        // loadMember loads bootstrap; it does not construct the native member.
+        // This fixed construction is called once here and never from Connect.
+        await bootstrapModule.constructOrdinaryPrivateBootstrapMember(bootstrap); current()
+        await capture.binding.assertClientsCurrent(); current()
+        if (provider.bootstrap !== bootstrap || provider.bootstrapModule !== bootstrapModule || provider.foreground !== foreground) hold()
+        privateTrustedProviders.delete(root)
+        privateTrustedMembers.set(root, Object.freeze(Object.assign(Object.create(null), {
+          capture, generation, provider, foreground, bootstrap, bootstrapModule, connect: Object.assign(Object.create(null), {claimed: false})})))
+      })
+      void queued.catch(() => {})
+      browser.#track(queued); tab.#track(queued)
+      void queued.then(work.resolve, error => {work.cancel.stop(); work.reject(error)}).finally(() => {
+        if (privateTrustedUnlocks.get(root) === work) privateTrustedUnlocks.delete(root)
+        browser.#resources.delete(work.cancel); tab.#resources.delete(work.cancel)
+      }).catch(() => {})
+    } catch (error) {
+      work.cancel.stop(); work.reject(error)
+      browser.#resources.delete(work.cancel); tab.#resources.delete(work.cancel)
+    }
+    return work.completed
+  }
+  static #connectPrivateTrustedMember(root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
+    preview: OrdinaryPrivateSelectionPreviewReceipt, command: Promise<void>): Promise<void> {
+    claimOrdinaryPrivateMemberIntent(root, intent, preview, 'connect-private-member', command)
+    const member = privateTrustedMembers.get(root)
+    if (!member || member.connect.claimed) return Promise.reject(new OrdinaryStateHold())
+    const {capture, generation, provider, foreground, bootstrap, bootstrapModule} = member, {browser, tab} = capture
+    let resolve!: () => void, reject!: (error: unknown) => void, stopped = false
+    const outer = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+    void outer.catch(() => {})
+    const cancel = Object.freeze({stop: () => {if (stopped) return; stopped = true; privateTrustedMembers.delete(root); reject(new OrdinaryStateHold())}})
+    const check = () => {
+      assertOrdinaryPrivateMemberCommand(root, command, 'connect-private-member')
+      if (stopped || privateTrustedMembers.get(root) !== member || privateExistingCaptures.get(root) !== capture ||
+          capture.credentialGeneration.current !== generation || privateExistingProviders.get(root) !== provider ||
+          provider.capture !== capture || provider.foreground !== foreground || provider.bootstrap !== bootstrap ||
+          provider.bootstrapModule !== bootstrapModule || !capture.binding.live()) hold()
+      browser.#check(capture.binding.live); tab.#check(capture.binding.live); provider.controlLive()
+    }
+    try {
+      browser.#track(command); tab.#track(command); provider.trackControl(command)
+      browser.#track(outer); tab.#track(outer); provider.trackControl(outer)
+      browser.#resources.add(cancel); tab.#resources.add(cancel)
+      const selected = OrdinaryStateOwner.#takePrivateSelectionPreview(root, preview, 'connect-private-member')
+      if (selected.capture !== capture || selected.generation !== generation) hold()
+      member.connect.claimed = true // Permanent before queueing or network effects.
+      check()
+      const queued = Promise.resolve().then(async () => {
+        check(); await capture.binding.assertClientsCurrent(); check()
+        await bootstrapModule.joinOrdinaryPrivateBootstrapMember(bootstrap); check()
+      })
+      void queued.catch(() => {})
+      browser.#track(queued); tab.#track(queued); provider.trackControl(queued)
+      void queued.then(resolve, error => {cancel.stop(); reject(error)}).finally(() => {
+        browser.#resources.delete(cancel); tab.#resources.delete(cancel)
+      }).catch(() => {})
+    } catch (error) {
+      cancel.stop(); reject(error)
+      browser.#resources.delete(cancel); tab.#resources.delete(cancel)
+    }
+    return outer
+  }
+
   static #beginPrivateExistingProvider(root: OrdinaryPrivateExistingRoot, command: Promise<void>): OrdinaryPrivateExistingCaptureResource {
     claimOrdinaryPrivateExistingProviderCommand(root, command)
     const captured = privateExistingCaptures.get(root)
@@ -1346,6 +1881,7 @@ export class OrdinaryStateOwner {
       if (stopped) return
       stopped = true
       privateExistingProviders.delete(root)
+      stopOne(() => revokePrivateTrustedMember(root))
       stopOne(() => { if (expiryTimer !== undefined) clearTimeout(expiryTimer) })
       stopOne(() => context?.abort())
       stopOne(() => {
@@ -1397,6 +1933,12 @@ export class OrdinaryStateOwner {
     // registering work. Every subsequent synchronous setup failure returns
     // this same owned failed resource; its close joins any already queued tail.
     try {
+      const unlock = privateTrustedUnlocks.get(root)
+      if (unlock) {
+        if (unlock.command !== command || unlock.capture !== captured || unlock.stopped || unlock.resource) hold()
+        assertOrdinaryPrivateMemberCommand(root, command, 'unlock-private-member')
+        unlock.resource = resource
+      }
       trackControl(command)
       browser.#track(operation)
       tab.#track(operation)
@@ -1428,6 +1970,7 @@ export class OrdinaryStateOwner {
           const snapshot = await import('./ordinary-snapshot.js'); nativeCheck()
           let db: IDBDatabase | undefined, sdk: Promise<SignetSigner> | undefined, raw: SignetSigner | undefined
           let providerPending: Promise<unknown> | undefined, used = false
+          let walletTicket: OrdinaryPrivateWalletTicket | undefined
           let retained: Omit<SignetSession, 'method' | 'signer'> | undefined
           const fresh = async (start?: () => void) => {
             let b: OrdinaryImage | undefined, t: OrdinaryImage | undefined
@@ -1494,13 +2037,25 @@ export class OrdinaryStateOwner {
                   let actual: Promise<T> | undefined
                   try {
                     await fresh(() => {
-                      try { actual = Promise.resolve(effect()) } catch (error) { actual = Promise.reject(error) }
+                      try {
+                        const unlock = privateTrustedUnlocks.get(root)
+                        if (unlock) walletTicket = beginOrdinaryPrivateWalletEffect(root, unlock.command, 'unlock-private-member')
+                        actual = Promise.resolve(effect())
+                      } catch (error) { actual = Promise.reject(error) }
                       void actual.catch(() => {}); providerPending = actual
                       browser.#track(actual); tab.#track(actual)
                     })
                     if (!actual) hold(); const result = await actual
+                    const unlock = privateTrustedUnlocks.get(root)
+                    if (walletTicket) {
+                      if (!unlock) hold()
+                      await endOrdinaryPrivateWalletEffect(root, unlock.command, walletTicket)
+                    }
                     await clients(); await fresh(); check(); return result
-                  } finally { if (actual) await Promise.allSettled([actual]) }
+                  } finally {
+                    if (actual) await Promise.allSettled([actual])
+                    if (walletTicket) discardOrdinaryPrivateWalletEffect(root, command, walletTicket)
+                  }
                 })()
               } })
             sdk = createPinnedNip07SignerWithDiscoveryBoundary(boundary)
@@ -1614,15 +2169,19 @@ export class OrdinaryStateOwner {
           }
           phase = signing ? 'signing' : 'finalising'
           return provider.trackControl(Promise.resolve().then(async () => {
-            let actual: Promise<T> | undefined
+            let actual: Promise<T> | undefined, walletTicket: OrdinaryPrivateWalletTicket | undefined
             try {
               await fresh(() => {
                 if (phase !== (signing ? 'signing' : 'finalising')) hold()
+                const unlock = privateTrustedUnlocks.get(root)
+                if (signing && unlock) walletTicket = beginOrdinaryPrivateWalletEffect(root, unlock.command, 'verify-private-member')
                 try { actual = Promise.resolve(effect()) } catch (error) { actual = Promise.reject(error) }
                 provider.trackControl(actual); void actual.catch(() => {})
               })
               if (!actual) hold()
               const result = await actual
+              const unlock = privateTrustedUnlocks.get(root)
+              if (walletTicket) {if (!unlock) hold(); await endOrdinaryPrivateWalletEffect(root, unlock.command, walletTicket)}
               let detached: Readonly<SignetAuthEvent> | undefined
               await fresh(() => { detached = proof(result) })
               // Reflective proof capture may execute hostile Proxy traps. A
@@ -1636,7 +2195,13 @@ export class OrdinaryStateOwner {
               }
               return result // Every SDK boundary retains its actual result identity.
             } catch { phase = 'failed'; provider.stop(); throw new OrdinaryStateHold() }
-            finally { if (actual) await Promise.allSettled([actual]) }
+            finally {
+              if (actual) await Promise.allSettled([actual])
+              if (walletTicket) {
+                const unlock = privateTrustedUnlocks.get(root)
+                if (unlock) discardOrdinaryPrivateWalletEffect(root, unlock.command, walletTicket)
+              }
+            }
           }))
         },
       })

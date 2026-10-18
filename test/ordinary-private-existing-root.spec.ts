@@ -41,19 +41,19 @@ test.beforeAll(async () => {
           if (source.split(marker).length !== 2) throw Error('Provider command root observer drift: ' + marker)
           source = source.replace(marker, replacement)
         }
-        once('this.#providerWork = command', `this.#providerWork = command
+        once('\n    this.#providerWork = command', `\n    this.#providerWork = command
           const commandFixture = (globalThis as any).privateProviderCommandFixture
           if (commandFixture) {
             commandFixture.command = command
             void command.then(() => {commandFixture.commandState='fulfilled'}, error => {commandFixture.commandState='rejected';commandFixture.commandError=error?.message})
           }`)
-        once('this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)',
-          `(globalThis as any).__privateProviderSetupProbe('root-before-native')
+        once('\n      this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)',
+          `\n      (globalThis as any).__privateProviderSetupProbe('root-before-native')
            if ((globalThis as any).privateProviderCommandFixture?.wrongRoot) {
              try { claimOrdinaryPrivateExistingProviderCommand(Object.freeze({}) as OrdinaryPrivateExistingRoot, command) }
              catch { (globalThis as any).privateProviderCommandFixture.wrongRootRefused=true }
            }
-           this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)
+      this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)
            ;(globalThis as any).__privateProviderSetupProbe('root-after-assignment')`)
         once('await this.#capture.completed\n    this.#check()\n    this.#captureReady = true', `await this.#capture.completed
           const captureFixture=(globalThis as any).privateProviderCommandFixture
@@ -68,12 +68,12 @@ test.beforeAll(async () => {
         if(source.split(closeMarker).length!==2)throw Error('Private root terminal observer drift')
         const observed=source.replace(closeMarker,closeMarker+`; (globalThis as any).__rootCloseDoneForTest=false;
           void this.#closing.then(()=>{(globalThis as any).__rootCloseDoneForTest=true},(error)=>{(globalThis as any).__rootCloseFailure=error?.message;(globalThis as any).__rootCloseDoneForTest=true})`)
-        return { loader: 'ts', contents: observed.replace(marker,
+        source = observed.replace(marker,
           '}, async (error) => { (globalThis as any).__rootFailure=error?.stack; this.#stop()').replace(
             '}, async () => { this.#stop(); await this.close() })',
             '}, async (error) => { (globalThis as any).__providerFailure=error?.stack; this.#stop(); await this.close() })').replace(
-            'this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)',
-            `const provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)
+            '\n      this.#provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)',
+            `\n      const provider = this.#beginProvider!(this as unknown as OrdinaryPrivateExistingRoot, command)
              if ((globalThis as any).providerFixture?.cutAssignment === 'before') window.dispatchEvent(new PageTransitionEvent('pagehide'))
              this.#provider = provider
              if ((globalThis as any).providerFixture?.cutAssignment === 'after') window.dispatchEvent(new PageTransitionEvent('pagehide'))`).replace(
@@ -98,8 +98,42 @@ test.beforeAll(async () => {
              ;(globalThis as any).__invokePrivateControlForTest = () => (globalThis as any).__privateControlForTest(this)
              ;(globalThis as any).__invokePrivateForegroundForTest = () => (globalThis as any).__privateForegroundForTest(this)
              ;(globalThis as any).__privateRootCloseForTest=()=>this.close()
+             // Privileged preview mechanics only; no production bridge exists.
+             ;(globalThis as any).__draftPreviewForTest=(kind:any)=>(globalThis as any).__draftOwnerPreviewForTest(this,kind)
+             ;(globalThis as any).__draftPreviewTakeForTest=(receipt:any,kind:any)=>(globalThis as any).__draftOwnerPreviewTakeForTest(this,receipt,kind)
+             ;(globalThis as any).__draftPreviewAdvanceForTest=()=>(globalThis as any).__draftOwnerPreviewAdvanceForTest(this)
+             ;(globalThis as any).__draftPreviewRevokeForTest=()=>(globalThis as any).__draftOwnerPreviewRevokeForTest(this)
              ;(globalThis as any).__privateRestoreProviderNowForTest=()=>this.restoreProvider()
-             ;(globalThis as any).__privateClaimProviderCommandForTest=(command:Promise<void>)=>claimOrdinaryPrivateExistingProviderCommand(this as unknown as OrdinaryPrivateExistingRoot,command)`) }
+             ;(globalThis as any).__privateClaimProviderCommandForTest=(command:Promise<void>)=>claimOrdinaryPrivateExistingProviderCommand(this as unknown as OrdinaryPrivateExistingRoot,command)`)
+        {
+        const marker='    this.#trackMember(command)'
+        if(source.split(marker).length!==2)throw Error('Trusted command observation drift')
+        source=source.replace(marker,marker+`; (globalThis as any).__trustedCommandDone=false;
+          void command.then(()=>{(globalThis as any).__trustedCommandOutcome='fulfilled'},error=>{
+            (globalThis as any).__trustedCommandOutcome='rejected';
+            if(error instanceof Error)(globalThis as any).__trustedCommandError=error.stack
+          }).finally(()=>{(globalThis as any).__trustedCommandDone=true})`)
+        const registration='memberIntents.set(intent, action); memberCommands.set(command, action)'
+        if(source.split(registration).length!==2)throw Error('Trusted wallet retry observer drift')
+        source=source.replace(registration,registration+`; (globalThis as any).__trustedWalletRetryForTest=()=>{
+          try{beginOrdinaryPrivateWalletEffect(this as unknown as OrdinaryPrivateExistingRoot,command,view.kind as 'unlock-private-member'|'verify-private-member');return 'unexpected'}catch{return 'held'}
+        }`)
+        const revoke='this.#stopOne(() => this.#nativeMember?.revokeOrdinaryPrivateSelectionPreview(this as unknown as OrdinaryPrivateExistingRoot))'
+        if(source.split(revoke).length!==2)throw Error('Preview revocation cleanup fault hook drift')
+        // Labelled lexical fault after the real fixed revoker; no receipt escapes.
+        source=source.replace(revoke,`this.#stopOne(() => {
+          this.#nativeMember?.revokeOrdinaryPrivateSelectionPreview(this as unknown as OrdinaryPrivateExistingRoot)
+          const f=(globalThis as any).memberCleanupFault
+          if(f?.armed&&f.mode==='preview'&&!f.used){f.used=true;f.removed.push('preview');throw Error('Explicit member cleanup fault: preview')}
+        })`)
+        source+=`\n;(globalThis as any).__trustedRootCloseForTest=()=>actualRoot?.close()`
+        }
+        return {loader:'ts',contents:source}
+      })
+      builder.onLoad({filter:/ordinary-private-existing-root\.browser-entry\.ts$/},async input=>{
+        const source=await readFile(input.path,'utf8')
+        return {loader:'ts',contents:source.replace('void prepareOrdinaryPrivateExistingRoot()',
+          "void ((globalThis as any).privateTrustedMemberFixture ? prepareOrdinaryPrivateMemberRoot() : prepareOrdinaryPrivateExistingRoot())")}
       })
       builder.onLoad({filter: /ordinary-state-codec\.ts$/}, async input => {
         const source = await readFile(input.path, 'utf8'), marker = "this.name = 'OrdinaryStateHold'"
@@ -345,6 +379,27 @@ test.beforeAll(async () => {
       })
       builder.onLoad({ filter: /ordinary-state-owner\.ts$/ }, async input => {
         let source = await readFile(input.path, 'utf8')
+        const previewStart=source.indexOf('  static #preparePrivateSelectionPreview('),previewEnd=source.indexOf('  static #takePrivateSelectionPreview(',previewStart)
+        if(previewStart<0||previewEnd<0)throw Error('Draft preview native region drift')
+        let preview=source.slice(previewStart,previewEnd)
+        const oncePreview=(a:string,b:string)=>{if(preview.split(a).length!==2)throw Error('Draft preview observer drift '+a);preview=preview.replace(a,b)}
+        oncePreview('t = await openOrdinaryFrame(tr.frame, tr.key); check()',"t = await openOrdinaryFrame(tr.frame, tr.key); check();await (globalThis as any).__privateBootstrapPause('preview-tab');check()")
+        oncePreview('cleanup(() => clearImage(b))','cleanup(() => {clearImage(b);(globalThis as any).__draftPreviewBrowserWiped=!!b&&b.records.size===0&&b.fences.size===0&&(!b.migration||(b.migration.sources.size===0&&b.migration.names.length===0));if((globalThis as any).__draftPreviewCleanupFault){(globalThis as any).__draftPreviewCleanupFault=false;throw Error("Explicit preview browser cleanup fault")}})')
+        oncePreview('cleanup(() => clearImage(t))','cleanup(() => {clearImage(t);(globalThis as any).__draftPreviewTabWiped=!!t&&t.records.size===0&&t.fences.size===0&&(!t.migration||(t.migration.sources.size===0&&t.migration.names.length===0))})')
+        source=source.slice(0,previewStart)+preview+source.slice(previewEnd)
+        const previewWire='preparePrivateSelectionPreview = (root, kind) => this.#preparePrivateSelectionPreview(root, kind)'
+        if(source.split(previewWire).length!==2)throw Error('Draft preview bridge drift')
+        source=source.replace(previewWire,previewWire+`; (globalThis as any).__draftOwnerPreviewForTest=(root:OrdinaryPrivateExistingRoot,kind:OrdinaryPrivateMemberActionKind)=>this.#preparePrivateSelectionPreview(root,kind)
+          ;(globalThis as any).__draftOwnerPreviewTakeForTest=(root:OrdinaryPrivateExistingRoot,receipt:OrdinaryPrivateSelectionPreviewReceipt,kind:OrdinaryPrivateMemberActionKind)=>{this.#takePrivateSelectionPreview(root,receipt,kind)}
+          ;(globalThis as any).__draftPreviewTakeRootForTest=(globalThis as any).__draftOwnerPreviewTakeForTest
+          ;(globalThis as any).__draftPreviewHasForTest=(receipt:OrdinaryPrivateSelectionPreviewReceipt)=>privateSelectionPreviews.has(receipt)
+          ;(globalThis as any).__draftOwnDataForTest=privateSelectionOwnData
+          ;(globalThis as any).__draftRelayDataForTest=(value:unknown)=>privateSelectionRelayData(value,16)
+          ;(globalThis as any).__draftSameRelaysForTest=privateSelectionSameRelays
+          ;(globalThis as any).__draftOwnerPreviewRevokeForTest=revokeOrdinaryPrivateSelectionPreview
+          ;(globalThis as any).__draftPreviewRecordsForTest=(receipt:OrdinaryPrivateSelectionPreviewReceipt)=>{const work=privateSelectionPreviews.get(receipt)!;const slot=privateSelectionPreviewSlots.get(work.root)!;return{workNull:Object.getPrototypeOf(work)===null,slotNull:Object.getPrototypeOf(slot)===null,ownReceipt:Object.prototype.hasOwnProperty.call(work,'receipt'),ownWork:Object.prototype.hasOwnProperty.call(slot,'work')}}
+          ;(globalThis as any).__draftOwnerPreviewAdvanceForTest=(root:OrdinaryPrivateExistingRoot)=>{const c=privateExistingCaptures.get(root)!;const g=c.credentialGeneration.current;c.credentialGeneration.current=Object.freeze({...g,serial:g.serial+1,identity:Object.freeze({}) as OrdinaryPrivateCredentialGeneration})}`)
+
         const readStart=source.indexOf('  static #readPrivateSettled('),readEnd=source.indexOf('  static #runPrivateRenewal(',readStart)
         if(readStart<0||readEnd<0)throw Error('Private S reader observer drift')
         let reader=source.slice(readStart,readEnd)
@@ -493,9 +548,21 @@ test.beforeAll(async () => {
             const resource = Object.freeze({ completed: operation, stop, close: () => {`)
           once('if (closing) return closing', `if (closing) return closing
             const f=(globalThis as any).privateProviderCommandFixture;if(f)f.providerCloseStarts=(f.providerCloseStarts??0)+1`)
+          // Name each actual cleanup role so adding a new lifetime cannot
+          // silently move an old fault to a different cleanup operation.
+          once('const stopOne = (work: () => void) => {','const stopOne = (work: () => void, stage: string) => {')
+          for(const [marker,stage]of [
+            ['stopOne(() => revokePrivateTrustedMember(root))','trusted-member'],
+            ['stopOne(() => { if (expiryTimer !== undefined) clearTimeout(expiryTimer) })','expiry'],
+            ['stopOne(() => context?.abort())','native-context'],
+            ['stopOne(() => {\n        if (retainedProvider?.bootstrap) retainedProvider.bootstrapModule!.stopOrdinaryPrivateBootstrap(retainedProvider.bootstrap)\n      })','bootstrap'],
+            ['stopOne(() => retainedProvider?.foreground?.stop())','foreground'],
+            ['stopOne(() => binding.revoke())','root'],
+            ['stopOne(() => browser.#revoke())','browser-owner'],['stopOne(() => tab.#revoke())','tab-owner'],
+          ])once(marker,marker.slice(0,-1)+`, '${stage}')`)
           once('try { work() } catch (error) { stopFailure ??= { error } }', `try {
             const f=(globalThis as any).privateProviderCommandFixture
-            if(f){f.providerStopAttempts=(f.providerStopAttempts??0)+1;if(f.throwProviderStopAt===f.providerStopAttempts)throw Error('Explicit provider stop action failure')}
+            if(f){f.providerStopAttempts=(f.providerStopAttempts??0)+1;(f.providerStopActions??=[]).push(stage);if(f.throwProviderStopAction===stage)throw Error('Explicit provider stop action failure')}
             work()
           } catch (error) { stopFailure ??= { error } }`)
           once("tab.#resources.add(cancel); (globalThis as any).__privateProviderSetupProbe('cancel-tab')", `tab.#resources.add(cancel); (globalThis as any).__privateProviderSetupProbe('cancel-tab')
@@ -516,6 +583,19 @@ test.beforeAll(async () => {
           `)
           source=source.slice(0,captureBegin)+capture+source.slice(captureEnd)
         }
+        const revoker='  privateTrustedMembers.delete(root)\n  privateTrustedProviders.delete(root)\n  privateTrustedUnlocks.get(root)?.cancel.stop()'
+        if(source.split(revoker).length!==2)throw Error('Trusted member revoker cancellation observer drift')
+        // Labelled lexical fault after real mandatory map deletion AND the
+        // actual pending command cancellation; never a pre-work stop bypass.
+        source=source.replace(revoker,`  const f=(globalThis as any).privateProviderCommandFixture
+          const selected=f?.throwTrustedMemberRevocation&&!f.trustedMemberRevokerFaultUsed
+          if(selected)f.trustedRevocationBefore={member:privateTrustedMembers.has(root),provider:privateTrustedProviders.has(root),pending:privateTrustedUnlocks.has(root)}
+          privateTrustedMembers.delete(root)
+          privateTrustedProviders.delete(root)
+          const pending=privateTrustedUnlocks.get(root)
+          pending?.cancel.stop()
+          if(selected){f.trustedMemberRevokerFaultUsed=true;f.trustedRevocationAfter={member:privateTrustedMembers.has(root),provider:privateTrustedProviders.has(root),pendingStopped:pending?.stopped===true};throw Error('Explicit trusted member revoker cancellation failure')}
+        `)
         const earlyCapacity='  const size = (delta: 1|2|3): readonly [number,number] => {'
         if(source.split(earlyCapacity).length!==2)throw Error('Native intent capacity observer drift')
         source=source.replace(earlyCapacity,earlyCapacity+`
@@ -542,6 +622,9 @@ test.beforeAll(async () => {
             }) as SubtleCrypto['encrypt']
           }
         `)
+        const sdkStart='sdk = createPinnedNip07SignerWithDiscoveryBoundary(boundary)'
+        if(source.split(sdkStart).length!==2)throw Error('Trusted SDK outcome observation drift')
+        source=source.replace(sdkStart,sdkStart+`; void sdk.then(()=>{(globalThis as any).__trustedSdkOutcomeForTest='fulfilled'},()=>{(globalThis as any).__trustedSdkOutcomeForTest='rejected'})`)
         const marker = 'raw = await sdk; check()'
         if (source.split(marker).length !== 2) throw Error('Private provider SDK close fixture drift')
         // Wrap only this checkpoint's already-created actual SDK signer. Its
@@ -771,7 +854,7 @@ test.beforeAll(async () => {
         // real native entropy. All private ID/key entropy remains forbidden.
         return { loader: 'ts', contents: source.replace(marker, '(globalThis as any).__probeRandom(new Uint8Array(32))') }
       })
-      builder.onLoad({ filter: /@noble[/\\]curves[/\\]abstract[/\\]curve\.js$/ }, async input => {
+      builder.onLoad({ filter: /(?:@noble[/\\]curves|noble-curves-2\.4\.0[/\\]package)[/\\]abstract[/\\]curve\.js$/ }, async input => {
         const source = await readFile(input.path, 'utf8'), marker = 'const probe = randomBytes(length);'
         // Other installed Noble versions lack this optional capability probe.
         // Observe only its exact implementation, regardless of npm hoisting.
@@ -1142,12 +1225,18 @@ async function providerFixture(page: Page, account: string, gated = false, withC
       nativeRandom: crypto.getRandomValues.bind(crypto), nativePut: IDBObjectStore.prototype.put }
     w.__controlRandom = (value: Uint8Array) => { fixture.controlNonces++; fixture.controlNonceBytes = value.byteLength; return fixture.nativeRandom(value) }
     const provider = {
-      getPublicKey: async () => {
+      getPublicKey: () => {
         fixture.calls++; fixture.started = true
+        if(fixture.discoveryOutcome==='throw')throw Error('Explicit synchronous discovery failure')
+        return (async()=>{
+        if(fixture.openPopup)w.privateSignerPopup=window.open('about:blank','signer-test-popup','popup,width=360,height=360')
         if (fixture.gated) await new Promise<void>(yes => { fixture.release = yes })
+        if(fixture.discoveryOutcome==='reject')throw Error('Explicit rejected discovery')
         return fixture.account
+        })()
       },
       signEvent: (event: any) => {
+        if(fixture.controlOutcome==='throw'){fixture.signs++;fixture.signingStarted=true;throw Error('Explicit synchronous proof failure')}
         if (fixture.foregroundExpected && fixture.synchronousFailure) { fixture.signs++; fixture.foregroundStarts=(fixture.foregroundStarts??0)+1; throw fixture.synchronousFailure }
         return (async () => {
         fixture.signs++
@@ -1159,7 +1248,7 @@ async function providerFixture(page: Page, account: string, gated = false, withC
           if (fixture.foregroundFailure) throw fixture.foregroundFailure
         }
         if (!fixture.controlMode) throw Error('Signing is outside provider discovery')
-        fixture.signingStarted = true; fixture.statement = structuredClone(event)
+        fixture.signingStarted = true; fixture.statement = structuredClone(event);if(fixture.controlOutcome==='reject')throw Error('Explicit rejected proof')
         if (fixture.controlFailure) throw fixture.controlFailure
         if (fixture.controlGated) await new Promise<void>(yes => { fixture.releaseControl = yes })
         if (fixture.controlMode === 'transient') throw Error('Request failed: explicit transient provider fixture')
@@ -4253,7 +4342,7 @@ for (const fault of ['root-provider','root-capture','provider-action','native-re
   test(`private provider cleanup continues after ${fault} stop failure and retains pending SDK close`, async ({page}) => {
     const rootStops = fault === 'all' ? ['provider','capture'] : fault.startsWith('root-') ? [fault.slice(5)] : []
     await prepareProviderCommand(page, {throwRootStops: rootStops,
-      ...(fault === 'provider-action' || fault === 'all' ? {throwProviderStopAt: 4} : {}),
+      ...(fault === 'provider-action' || fault === 'all' ? {throwProviderStopAction:'foreground'} : {}),
       throwNativeStops: fault === 'native-resource' || fault === 'all'})
     await page.evaluate(() => { (window as any).providerFixture.closeMode = 'pending' })
     await beginProviderCommand(page)
@@ -4267,7 +4356,7 @@ for (const fault of ['root-provider','root-capture','provider-action','native-re
     expect(await lockAvailable(page, 'lifetime:'+'a'.repeat(64))).toBe(false)
     const before = await page.evaluate<any>('privateProviderCommandFixture')
     expect(before.rootStops).toEqual(['provider','capture'])
-    expect(before.providerStopAttempts).toBe(7)
+    expect(before.providerStopActions).toEqual(['trusted-member','expiry','native-context','bootstrap','foreground','root','browser-owner','tab-owner'])
     if (fault === 'native-resource' || fault === 'all') expect(before.nativeStops).toEqual(['browser-throw','browser-later','tab-throw','tab-later'])
     await page.evaluate('providerFixture.closeRelease();undefined')
     await page.waitForFunction('privateProviderCommandFixture.closeDone')
@@ -4282,7 +4371,7 @@ for (const fault of ['root-provider','root-capture','provider-action','native-re
   })
 }
 for (const stage of ['cancel-tab','operation-entered']) test(`private provider cleanup preserves original ${stage} error when stop also fails`, async ({page}) => {
-  await prepareProviderCommand(page, {fail: stage, throwProviderStopAt: 4})
+  await prepareProviderCommand(page, {fail: stage, throwProviderStopAction:'foreground'})
   await beginProviderCommand(page)
   await page.waitForFunction('privateProviderCommandFixture.openingDone')
   await expect.poll(() => lockAvailable(page, 'migration')).toBe(true)
@@ -4291,12 +4380,12 @@ for (const stage of ['cancel-tab','operation-entered']) test(`private provider c
   expect([fixture.commandError,fixture.completedError]).toEqual([
     'Explicit provider setup failure: '+stage,'Explicit provider setup failure: '+stage])
   expect(fixture.openingError).toBe('Explicit provider stop action failure')
-  expect(fixture.providerStopAttempts).toBe(7)
+  expect(fixture.providerStopActions).toEqual(['trusted-member','expiry','native-context','bootstrap','foreground','root','browser-owner','tab-owner'])
   expect(await page.evaluate('effects')).toEqual(none)
 })
 
 for (const fault of [false,true]) test(`private provider cleanup close reentry shares one actual promise, stopFaults=${fault}`, async ({page}) => {
-  await prepareProviderCommand(page, fault ? {throwRootStops:['provider','capture'],throwProviderStopAt:4,throwNativeStops:true} : {})
+  await prepareProviderCommand(page, fault ? {throwRootStops:['provider','capture'],throwProviderStopAction:'foreground',throwNativeStops:true} : {})
   await page.evaluate(() => { (window as any).providerFixture.closeMode = 'pending' })
   await beginProviderCommand(page); await page.waitForFunction('privateProviderCommandFixture.openingDone')
   await page.evaluate(() => {
@@ -4347,7 +4436,7 @@ for(const keep of [false,true])test(`private provider cleanup stop failures reta
   const before=await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
   await page.evaluate(()=>{
     const w=window as any
-    w.privateProviderCommandFixture={throwRootStops:['provider','capture'],throwProviderStopAt:4}
+    w.privateProviderCommandFixture={throwRootStops:['provider','capture'],throwProviderStopAction:'foreground'}
     w.__privateInstallNativeStopFaultForTest()
   })
   await closeProviderCommand(page)
@@ -4364,4 +4453,571 @@ for(const keep of [false,true])test(`private provider cleanup stop failures reta
   expect(await page.evaluate('[privateMemberCloseCalls,__privateSessionDisposedForTest,__privateSessionInputsWipedForTest(),__privateBootstrapWipedForTest(),providerFixture.closeCalls]')).toEqual([1,true,true,true,1])
   expect(await page.evaluate('privateProviderCommandFixture.nativeStops')).toEqual(['browser-throw','browser-later','tab-throw','tab-later'])
   expect(await page.evaluate('({signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
+})
+
+
+// Actual native owner preview mechanics. These privileged test hooks do not implement a
+// trusted UI action, current membership, Unlock, Connect or production mounting.
+async function prepareDraftSelectionPreview(page: Page, keep = true, signed = true): Promise<{account:string;roomId:string}> {
+  const href = await seed(page, keep, false, signed)
+  const expected = await page.evaluate<{account:string;roomId:string}>('({account,roomId})')
+  await install(page); await enter(page, href, 'captured-held')
+  return expected
+}
+async function beginDraftSelectionPreview(page: Page, kind = 'unlock-private-member'): Promise<void> {
+  await page.evaluate(kind => {
+    const w = window as any; w.draftPreviewDone = false
+    w.draftPreviewPending = w.__draftPreviewForTest(kind).then((value:any) => {
+      w.draftPreview = value; w.draftPreviewOutcome = 'preview'
+    }, (error:Error) => {w.draftPreviewOutcome = error.name; w.draftPreviewError = error.message})
+      .finally(() => {w.draftPreviewDone = true})
+  }, kind)
+}
+for (const keep of [false,true]) test(`draft selection preview reads authenticated signed destinations without provider effects, keep=${keep}`,async({page})=>{
+  const expected = await prepareDraftSelectionPreview(page,keep)
+  await beginDraftSelectionPreview(page); await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('({outcome:draftPreviewOutcome,error:window.draftPreviewError})')).toEqual({outcome:'preview',error:undefined})
+  expect(await page.evaluate(()=>{
+    const w=window as any,p=w.draftPreview,d=p.display
+    return{display:d,keys:Reflect.ownKeys(d),shape:[Object.getPrototypeOf(p)===null,Object.isFrozen(p),Object.getPrototypeOf(d)===null,Object.isFrozen(d),Object.isFrozen(d.relays),Object.getPrototypeOf(p.receipt)===null,Object.isFrozen(p.receipt),Reflect.ownKeys(p.receipt).length],available:w.__draftPreviewHasForTest(p.receipt)}
+  })).toEqual({display:{...expected,roomLabel:'Fresh group',relays:['wss://signed.example/'],network:'direct'},keys:['account','roomId','roomLabel','relays','network'],shape:[true,true,true,true,true,true,true,0],available:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('window.__draftPreviewHasForTest(draftPreview.receipt)')).toBe(false)
+})
+test('draft selection preview refuses unsigned or fallback relay destinations before discovery',async({page})=>{
+  await prepareDraftSelectionPreview(page,true,false);await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('draftPreviewOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('effects')).toEqual(none)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+test('draft selection preview refuses forged receipts without reflection then consumes its exact receipt once',async({page})=>{
+  await prepareDraftSelectionPreview(page);await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate(()=>{
+    const w=window as any;let reflected=0,refused=0
+    const fake=new Proxy({},{get(){reflected++;throw Error('Foreign preview getter')},getPrototypeOf(){reflected++;throw Error('Foreign preview prototype')}})
+    for(const receipt of [{},fake])try{w.__draftPreviewTakeForTest(receipt,'unlock-private-member')}catch{refused++}
+    const available=w.__draftPreviewHasForTest(w.draftPreview.receipt)
+    const value=w.__draftPreviewTakeForTest(w.draftPreview.receipt,'unlock-private-member')
+    try{w.__draftPreviewTakeForTest(w.draftPreview.receipt,'unlock-private-member')}catch{refused++}
+    return{reflected,refused,available,void:value===undefined,spent:!w.__draftPreviewHasForTest(w.draftPreview.receipt)}
+  })).toEqual({reflected:0,refused:3,available:true,void:true,spent:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview spends a genuine receipt on wrong kind before replay',async({page})=>{
+  await prepareDraftSelectionPreview(page);await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate(()=>{const w=window as any;let refused=0
+    for(const kind of ['connect-private-member','unlock-private-member'])try{w.__draftPreviewTakeForTest(w.draftPreview.receipt,kind)}catch{refused++}
+    return{refused,spent:!w.__draftPreviewHasForTest(w.draftPreview.receipt)}
+  })).toEqual({refused:2,spent:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview spends a genuine receipt on foreign root without reflecting it',async({page})=>{
+  await prepareDraftSelectionPreview(page);await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate(()=>{const w=window as any;let reflected=0,refused=0
+    const root=new Proxy({},{get(){reflected++;throw Error('Foreign root getter')},getPrototypeOf(){reflected++;throw Error('Foreign root prototype')}})
+    try{w.__draftPreviewTakeRootForTest(root,w.draftPreview.receipt,'unlock-private-member')}catch{refused++}
+    try{w.__draftPreviewTakeForTest(w.draftPreview.receipt,'unlock-private-member')}catch{refused++}
+    return{reflected,refused,spent:!w.__draftPreviewHasForTest(w.draftPreview.receipt)}
+  })).toEqual({reflected:0,refused:2,spent:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview cannot supply Connect before actual trusted member construction',async({page})=>{
+  await prepareDraftSelectionPreview(page);await beginDraftSelectionPreview(page,'connect-private-member');await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('draftPreviewOutcome')).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview rejects its receipt after privileged generation-cell drift',async({page})=>{
+  await prepareDraftSelectionPreview(page);await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate(()=>{const w=window as any;w.__draftPreviewAdvanceForTest()
+    try{w.__draftPreviewTakeForTest(w.draftPreview.receipt,'unlock-private-member');return'unexpected'}catch(error){return(error as Error).name}
+  })).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview pagehide joins its pending authenticated read before MIGRATION release',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'preview-tab'}})
+  await beginDraftSelectionPreview(page);await page.waitForFunction('privateBootstrapGate.entered')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.evaluate('draftPreviewDone')).toBe(false)
+  await page.evaluate(()=>(window as any).privateBootstrapGate.release())
+  await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('draftPreviewOutcome')).toBe('OrdinaryStateHold')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('effects')).toEqual(none)
+  expect(await page.evaluate('({browser:window.__draftPreviewBrowserWiped,tab:window.__draftPreviewTabWiped})')).toEqual({browser:true,tab:true})
+})
+
+// Decoder probes below exercise the actual private data reader using privileged
+// hooks. Accessor-shaped objects cannot originate from JSON.parse; they are
+// mechanics probes, separate from the real encrypted-store preview cases.
+test('draft selection preview optional metadata ignores inherited getters, decoder mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{
+    const w=window as any;let reads=0
+    const names=['name','endedAt'],saved=names.map(key=>Object.getOwnPropertyDescriptor(Object.prototype,key))
+    try{
+      for(const key of names)Object.defineProperty(Object.prototype,key,{configurable:true,get(){reads++;throw Error('Inherited metadata getter')}})
+      const metadata=JSON.parse('{"link":"owned","keep":false}')
+      const missing=names.map(key=>w.__draftOwnDataForTest(metadata,key,true)===undefined)
+      const owned=w.__draftOwnDataForTest(JSON.parse('{"name":"Own label"}'),'name',true)
+      return{reads,missing,owned}
+    }finally{for(let i=0;i<names.length;i++){if(saved[i])Object.defineProperty(Object.prototype,names[i],saved[i]!);else delete(Object.prototype as any)[names[i]]}}
+  })).toEqual({reads:0,missing:[true,true],owned:'Own label'})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview refuses missing required and accessor fields without getter calls, decoder mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{
+    const w=window as any;let reads=0,refused=0
+    const inherited=Object.create({get link(){reads++;throw Error('Inherited required getter')}})
+    const accessor=Object.create(null)
+    Object.defineProperty(accessor,'name',{get(){reads++;throw Error('Own metadata getter')}})
+    Object.defineProperty(accessor,'relays',{get(){reads++;throw Error('Own admission getter')}})
+    for(const[value,key,optional]of [[inherited,'link',false],[accessor,'name',true],[accessor,'relays',false]]as const){
+      try{w.__draftOwnDataForTest(value,key,optional)}catch(error){if((error as Error).name==='OrdinaryStateHold')refused++;else throw error}
+    }
+    return{reads,refused}
+  })).toEqual({reads:0,refused:3})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview refuses malformed metadata containers, decoder mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{const w=window as any;let refused=0
+    for(const value of [null,undefined,'text',false,7,[]])try{w.__draftOwnDataForTest(value,'name',true)}catch(error){if((error as Error).name==='OrdinaryStateHold')refused++;else throw error}
+    return refused
+  })).toBe(6)
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview native read ignores inherited work and receipt accessors',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  await page.evaluate(()=>{
+    const w=window as any;w.draftPrototypeCalls=0;w.draftPrototypeSaved=['work','receipt'].map(key=>Object.getOwnPropertyDescriptor(Object.prototype,key))
+    for(const key of ['work','receipt'])Object.defineProperty(Object.prototype,key,{configurable:true,get(){w.draftPrototypeCalls++;throw Error('Inherited '+key+' getter')},set(){w.draftPrototypeCalls++;throw Error('Inherited '+key+' setter')}})
+  })
+  try{
+    await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+    expect(await page.evaluate('({outcome:draftPreviewOutcome,calls:draftPrototypeCalls})')).toEqual({outcome:'preview',calls:0})
+    expect(await page.evaluate('window.__draftPreviewRecordsForTest(draftPreview.receipt)')).toEqual({workNull:true,slotNull:true,ownReceipt:true,ownWork:true})
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+    await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+    expect(await page.evaluate('({calls:draftPrototypeCalls,available:window.__draftPreviewHasForTest(draftPreview.receipt)})')).toEqual({calls:0,available:false})
+  }finally{
+    await page.evaluate(()=>{const w=window as any;for(const[i,key]of ['work','receipt'].entries()){const d=w.draftPrototypeSaved[i];if(d)Object.defineProperty(Object.prototype,key,d);else delete(Object.prototype as any)[key]}})
+  }
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview refuses a concurrent preparation without disturbing the pending read',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  await page.evaluate(()=>{(window as any).privateBootstrapGate={stage:'preview-tab'}})
+  await beginDraftSelectionPreview(page);await page.waitForFunction('privateBootstrapGate.entered')
+  expect(await page.evaluate(async()=>{const w=window as any;try{await w.__draftPreviewForTest('unlock-private-member');return'unexpected'}catch(error){return(error as Error).name}})).toBe('OrdinaryStateHold')
+  expect(await page.evaluate('draftPreviewDone')).toBe(false)
+  await page.evaluate(()=>(window as any).privateBootstrapGate.release());await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('({outcome:draftPreviewOutcome,available:window.__draftPreviewHasForTest(draftPreview.receipt)})')).toEqual({outcome:'preview',available:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview replacement revokes the prior receipt before publishing its successor',async({page})=>{
+  await prepareDraftSelectionPreview(page);await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  await page.evaluate('window.draftFirstPreview=draftPreview')
+  await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate(()=>{const w=window as any;let refused=0
+    const first=w.draftFirstPreview.receipt,next=w.draftPreview.receipt
+    const available=[w.__draftPreviewHasForTest(first),w.__draftPreviewHasForTest(next)]
+    try{w.__draftPreviewTakeForTest(first,'unlock-private-member')}catch{refused++}
+    const result=w.__draftPreviewTakeForTest(next,'unlock-private-member')
+    return{distinct:first!==next,available,refused,void:result===undefined,spent:!w.__draftPreviewHasForTest(next)}
+  })).toEqual({distinct:true,available:[false,true],refused:1,void:true,spent:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview cleanup fault still wipes both images and drains MIGRATION',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  await page.evaluate('window.__draftPreviewCleanupFault=true')
+  await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('({outcome:draftPreviewOutcome,fault:window.__draftPreviewCleanupFault, browser:window.__draftPreviewBrowserWiped,tab:window.__draftPreviewTabWiped})')).toEqual({outcome:'OrdinaryStateHold',fault:false,browser:true,tab:true})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview fixed root revoke spends the published receipt without provider effects',async({page})=>{
+  await prepareDraftSelectionPreview(page);await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate(()=>{const w=window as any;w.__draftPreviewRevokeForTest();let refused=0
+    try{w.__draftPreviewTakeForTest(w.draftPreview.receipt,'unlock-private-member')}catch{refused++}
+    return{refused,available:w.__draftPreviewHasForTest(w.draftPreview.receipt)}
+  })).toEqual({refused:1,available:false})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+
+// Further data-boundary mechanics, separate from protected native read proof.
+test('draft selection preview relay copy matches the direct transport canonical subset, mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{const w=window as any,values=['wss://relay.example/','wss://relay.example/path?a=1&b=2','ws://localhost:8080/','ws://127.0.0.1/','ws://[::1]/']
+    const copied=w.__draftRelayDataForTest(values)
+    return{values:copied,same:w.__draftSameRelaysForTest(copied,w.__draftRelayDataForTest(values)),frozen:Object.isFrozen(copied),nullPrototype:Object.getPrototypeOf(copied)===null}
+  })).toEqual({values:['wss://relay.example/','wss://relay.example/path?a=1&b=2','ws://localhost:8080/','ws://127.0.0.1/','ws://[::1]/'],same:true,frozen:true,nullPrototype:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview relay copy rejects holes accessors and extra fields without getter calls, mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{const w=window as any;let getters=0,refused=0
+    const sparse=new Array(1),accessor=['wss://safe.example/'],extra=['wss://safe.example/']
+    Object.defineProperty(accessor,'0',{get(){getters++;throw Error('Own relay accessor')}})
+    Object.defineProperty(extra,'extra',{value:true})
+    const arrays=[sparse,accessor,extra,[],['wss://safe.example/','wss://safe.example/']]
+    const saved=Object.getOwnPropertyDescriptor(Array.prototype,'0')
+    try{Object.defineProperty(Array.prototype,'0',{configurable:true,get(){getters++;throw Error('Inherited relay element')}})
+      for(let i=0;i<arrays.length;i++)try{w.__draftRelayDataForTest(arrays[i])}catch{refused++}
+    }finally{if(saved)Object.defineProperty(Array.prototype,'0',saved);else delete(Array.prototype as any)[0]}
+    return{getters,refused}
+  })).toEqual({getters:0,refused:5})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview relay copy refuses unsafe or noncanonical destinations, mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{const w=window as any;let refused=0
+    const invalid=['ws://public.example/','https://relay.example/','wss://user:password@relay.example/','wss://relay.example/#fragment',' wss://relay.example/','wss://relay.example','wss://RELAY.example/','wss://relay.example//path','wss://relay.example/path/','wss://relay.example/?b=2&a=1','wss://relay.example/?a=%20']
+    for(let i=0;i<invalid.length;i++)try{w.__draftRelayDataForTest([invalid[i]])}catch{refused++}
+    return{refused,total:invalid.length}
+  })).toEqual({refused:11,total:11})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview relay and metadata readers retain captured intrinsics, mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{const w=window as any;let calls=0
+    const own=Object.getOwnPropertyDescriptor,define=Object.defineProperty,saved=[
+      [Object,'getOwnPropertyDescriptor'],[Object.prototype,'hasOwnProperty'],[Array,'isArray'],[Array.prototype,'map'],[Array.prototype,Symbol.iterator],
+      [JSON,'stringify'],[window,'URL'],[URLSearchParams.prototype,'sort'],[Object,'freeze'],[Object,'defineProperty'],[Object,'setPrototypeOf']
+    ].map(([object,key])=>({object:object as object,key:key as PropertyKey,descriptor:own(object as object,key as PropertyKey)!}))
+    const values=['wss://safe.example/path?a=1&b=2'],metadata=JSON.parse('{"link":"owned","keep":false}')
+    let copied:any,missing=false,same=false
+    const poison=()=>{calls++;throw Error('Ambient intrinsic used')}
+    try{
+      for(let i=0;i<saved.length;i++)define(saved[i].object,saved[i].key,{configurable:true,writable:true,value:poison})
+      copied=w.__draftRelayDataForTest(values);missing=w.__draftOwnDataForTest(metadata,'name',true)===undefined
+      same=w.__draftSameRelaysForTest(copied,w.__draftRelayDataForTest(values))
+    }finally{for(let i=saved.length-1;i>=0;i--)define(saved[i].object,saved[i].key,saved[i].descriptor)}
+    return{calls,copied,missing,same}
+  })).toEqual({calls:0,copied:['wss://safe.example/path?a=1&b=2'],missing:true,same:true})
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+
+test('draft selection preview refuses replaced ambient validator helpers before native reading without invoking them',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(async()=>{const w=window as any;let calls=0,refused=0
+    const get=Object.getOwnPropertyDescriptor,define=Object.defineProperty
+    const fields:[[object,PropertyKey],[object,PropertyKey],[object,PropertyKey]]=[[JSON,'stringify'],[Map.prototype,'values'],[Array.prototype,'filter']]
+    for(let i=0;i<fields.length;i++){
+      const[object,key]=fields[i],saved=get(object,key)!
+      try{
+        define(object,key,{configurable:true,get(){calls++;throw Error('Ambient validator helper getter')}})
+        try{await w.__draftPreviewForTest('unlock-private-member')}catch(error){if((error as Error).name==='OrdinaryStateHold')refused++;else throw error}
+      }finally{define(object,key,saved)}
+    }
+    return{calls,refused}
+  })).toEqual({calls:0,refused:3})
+  await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('draftPreviewOutcome')).toBe('preview')
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+test('draft selection preview malformed URL decoder produces only owned Hold outcomes, mechanics',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(()=>{const w=window as any;let refused=0
+    for(const value of ['not a URL','wss://[invalid/','wss://'])try{w.__draftRelayDataForTest([value])}catch(error){if((error as Error).name==='OrdinaryStateHold')refused++;else throw error}
+    return refused
+  })).toBe(3)
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+
+test('draft selection preview refuses inherited toJSON before any protected read or serializer callback',async({page})=>{
+  await prepareDraftSelectionPreview(page)
+  expect(await page.evaluate(async()=>{const w=window as any;let calls=0,refused=0
+    const define=Object.defineProperty,get=Object.getOwnPropertyDescriptor,prototypes=[Object.prototype,Array.prototype]
+    for(let i=0;i<prototypes.length;i++){
+      const prototype=prototypes[i],saved=get(prototype,'toJSON')
+      try{
+        define(prototype,'toJSON',{configurable:true,get(){calls++;throw Error('Inherited serializer getter')}})
+        try{await w.__draftPreviewForTest('unlock-private-member')}catch(error){if((error as Error).name==='OrdinaryStateHold')refused++;else throw error}
+      }finally{if(saved)define(prototype,'toJSON',saved);else delete(prototype as any).toJSON}
+    }
+    return{calls,refused}
+  })).toEqual({calls:0,refused:2})
+  await beginDraftSelectionPreview(page);await page.waitForFunction('draftPreviewDone')
+  expect(await page.evaluate('draftPreviewOutcome')).toBe('preview')
+  expect(await page.evaluate('effects')).toEqual(none)
+})
+
+async function prepareTrustedMemberUI(page: Page, keep = true, gated = false, network = false): Promise<void> {
+  const href=await seed(page,keep,false,true),account=await page.evaluate<string>('account'),secret=Uint8Array.from(await page.evaluate<number[]>('Array.from(participantSk)'))
+  await page.exposeFunction('__controlSign',(event:Parameters<typeof finalizeEvent>[0])=>JSON.parse(JSON.stringify(finalizeEvent(event,secret))))
+  const peer:PrivateG0JoinPeer|undefined=network?await page.evaluate(async()=>{const w=window as any,material=await w.bootstrap.load()
+    if(!material)throw Error('Missing native fixture peer')
+    try{return{roomId:w.roomId,credential:material.credential,secret:Array.from(material.admission.secret)as number[],authority:Array.from(w.inviterSk)as number[]}}
+    finally{w.Ordinary.wipeOrdinaryPersistentBootstrapResult(material)}
+  }):undefined
+  await install(page);await providerFixture(page,account,gated)
+  await page.addInitScript(()=>{(window as any).privateTrustedMemberFixture=true})
+  await releaseFixture(page);await page.goto(href)
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='unlock-ready'")
+  await page.evaluate(()=>{const w=window as any;w.providerFixture.closeMode='success';w.providerFixture.controlMode='success';w.privateMemberConstruction=true
+    Object.defineProperty(window,'nostr',{configurable:true,writable:true,value:w.providerFixture.current})})
+  if(peer)await installTrustedMemberPeer(page,peer)
+}
+for(const mode of ['pointer','Enter','Space']as const)test(`trusted member native Unlock constructs the member once without network, ${mode}`,async({page})=>{
+  await prepareTrustedMemberUI(page)
+  const button=page.locator('[data-private-member-action="unlock-private-member"]')
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put,effects.entropy]')).toEqual([0,0,0,0,0])
+  await expect(page.locator('[data-private-member-view]')).toContainText('wss://signed.example/')
+  if(mode==='pointer')await button.click();else{await button.focus();await page.keyboard.press(mode)}
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='verify-ready'||document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket]')).toEqual([1,0,0])
+  const verify=page.locator('[data-private-member-action="verify-private-member"]')
+  await page.evaluate(()=>{(document.querySelector('[data-private-member-action="verify-private-member"]') as HTMLButtonElement).click()})
+  expect(await page.evaluate('providerFixture.signs')).toBe(0)
+  if(mode==='pointer')await verify.click();else{await verify.focus();await page.keyboard.press(mode)}
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='connect-ready'||document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  const observed=await page.evaluate('({state:document.documentElement.dataset.ordinaryProtectedStartup,outcome:window.__trustedCommandOutcome,error:window.__trustedCommandError,calls:providerFixture.calls,signs:providerFixture.signs,effects,constructed:window.__privateMemberConstructedForTest,order:window.__privateControllerOrder})')
+  expect(observed,JSON.stringify(observed)).toMatchObject({state:'connect-ready',outcome:'fulfilled',calls:1,signs:1,constructed:true,order:['controller','session','attached'],effects:{socket:0,put:0,storageWrite:0,key:0}})
+  await expect(page.locator('[data-private-member-action="connect-private-member"]')).toBeEnabled()
+  await expect(button).toHaveCount(0)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+test('trusted member synthetic clicks and keyboard events cannot request a wallet',async({page})=>{
+  await prepareTrustedMemberUI(page)
+  await page.evaluate(()=>{const button=document.querySelector('[data-private-member-action]') as HTMLButtonElement
+    button.click();button.dispatchEvent(new MouseEvent('click',{bubbles:true}));button.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})
+  expect(await page.evaluate('({state:document.documentElement.dataset.ordinaryProtectedStartup,calls:providerFixture.calls,signs:providerFixture.signs,effects})')).toMatchObject({state:'unlock-ready',calls:0,signs:0,effects:none})
+  await expect(page.locator('[data-private-member-action="unlock-private-member"]')).toBeEnabled()
+})
+
+
+async function installTrustedMemberPeer(page:Page,peer:PrivateG0JoinPeer):Promise<void>{
+  await page.exposeFunction('__privateJoinPeerGrant',(request:{id:string;pubkey:string})=>encodeEpochGrant({roomId:peer.roomId,authoritySk:Uint8Array.from(peer.authority),device:request.pubkey,request:request.id,
+    epoch:{epoch:0,secret:Uint8Array.from(peer.secret)},credential:peer.credential!,removed:[],now:Math.floor(Date.now()/1000)}))
+  await page.evaluate(({roomId,participant})=>{
+    const w=window as any;w.privateJoinFixtureRoom=roomId;w.privateJoinFixturePrefix='kithmoot.account.'+participant+'.';w.privateJoinNetworkFixture=true;w.privateJoinGrantReady=false;w.privateJoinEpochRequested=false;w.privateJoinFrames=[];w.privateJoinSockets=[]
+    w.__privateJoinSocket=class {
+      readyState=0;onopen:any=null;onmessage:any=null;onclose:any=null;onerror:any=null;requests=new Map<string,any[]>()
+      constructor(readonly url:string){w.privateJoinSockets.push(this);queueMicrotask(()=>{if(this.readyState===3)return;this.readyState=1;this.onopen?.({type:'open'})})}
+      message(frame:unknown[]){if(this.readyState!==3)this.onmessage?.({data:JSON.stringify(frame)})}
+      send(raw:string){
+        if(!w.__controlDecision)throw Error('Join socket send outside native decision')
+        const frame=JSON.parse(raw);w.privateJoinFrames.push({frame,native:!!w.__controlDecision,url:this.url})
+        if(frame[0]==='REQ')this.requests.set(frame[1],frame.slice(2))
+        if(frame[0]==='CLOSE')this.requests.delete(frame[1])
+        queueMicrotask(async()=>{
+          if(frame[0]==='REQ')this.message(['EOSE',frame[1]])
+          if(frame[0]==='EVENT'){
+            this.message(['OK',frame[1].id,true,'accepted'])
+            if(frame[1].kind===20468){
+              w.privateJoinEpochRequested=true
+              const grant=await w.__privateJoinPeerGrant(frame[1]);if(!grant)return
+              if(w.privateJoinPauseGrant){w.privateJoinGrantReady=true;await new Promise<void>(yes=>{w.privateJoinReleaseGrant=yes})}
+              for(const socket of w.privateJoinSockets)for(const[id,filters]of socket.requests)
+                if(filters.some((f:any)=>f.kinds?.includes(grant.kind)))socket.message(['EVENT',id,grant])
+            }
+          }
+        })
+      }
+      close(){if(this.readyState===3)return;this.readyState=3;this.onclose?.({type:'close'})}
+    }
+  },{roomId:peer.roomId,participant:peer.credential!.pubkey})
+}
+for(const {keep,mode} of [{keep:false,mode:'pointer'},{keep:true,mode:'pointer'},{keep:true,mode:'Enter'},{keep:true,mode:'Space'}])test(`trusted member Connect joins the retained member only after a fresh native action, keep=${keep}, ${mode}`,async({page})=>{
+  await prepareTrustedMemberUI(page,keep,false,true)
+  await page.locator('[data-private-member-action="unlock-private-member"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='verify-ready'||document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  expect(await page.evaluate('document.documentElement.dataset.ordinaryProtectedStartup')).toBe('verify-ready')
+  await page.locator('[data-private-member-action="verify-private-member"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='connect-ready'||document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  expect(await page.evaluate('document.documentElement.dataset.ordinaryProtectedStartup')).toBe('connect-ready')
+  const before=await page.evaluate('({calls:providerFixture.calls,signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')
+  await page.evaluate(()=>{const button=document.querySelector('[data-private-member-action="connect-private-member"]')as HTMLButtonElement;button.click();button.dispatchEvent(new MouseEvent('click',{bubbles:true}))})
+  expect(await page.evaluate('effects.socket')).toBe(0)
+  const connect=page.locator('[data-private-member-action="connect-private-member"]');if(mode==='pointer')await connect.click();else{await connect.focus();await page.keyboard.press(mode)}
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='member-joined'||document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  const result=await page.evaluate('({state:document.documentElement.dataset.ordinaryProtectedStartup,outcome:window.__trustedCommandOutcome,error:window.__trustedCommandError,joinError:window.__privateJoinFailureForTest,effects,frames:window.privateJoinFrames})')
+  expect(result,JSON.stringify(result)).toMatchObject({state:'member-joined',outcome:'fulfilled',effects:{socket:1,put:0,storageWrite:0,key:0}})
+  expect(await page.evaluate('({calls:providerFixture.calls,signs:providerFixture.signs,put:effects.put,storage:effects.storageWrite})')).toEqual(before)
+  expect(await page.evaluate('__privateJoinedSessionForTest()')).toMatchObject({state:'joined',outer:true,native:true,receipt:true,closed:false,snapshot:{epoch:0,channels:[]}})
+  expect(await page.evaluate('privateJoinFrames.every((value)=>value.native&&value.url==="wss://signed.example/")')).toBe(true)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('privateJoinSockets.every((socket)=>socket.readyState===3)')).toBe(true)
+})
+test('trusted member pagehide joins pending account discovery before releasing MIGRATION',async({page})=>{
+  await prepareTrustedMemberUI(page,true,true)
+  await page.locator('[data-private-member-action]').click();await page.waitForFunction('providerFixture.started')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.locator('[data-private-member-view]').count()).toBe(0)
+  await page.evaluate('providerFixture.release();undefined')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({calls:providerFixture.calls,signs:providerFixture.signs,sockets:effects.socket,put:effects.put})')).toEqual({calls:1,signs:0,sockets:0,put:0})
+})
+test('trusted member pagehide joins pending account proof without constructing or connecting the member',async({page})=>{
+  await prepareTrustedMemberUI(page)
+  await page.evaluate('providerFixture.controlGated=true')
+  await page.locator('[data-private-member-action="unlock-private-member"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='verify-ready'")
+  await page.locator('[data-private-member-action="verify-private-member"]').click();await page.waitForFunction('providerFixture.signingStarted')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate('providerFixture.releaseControl();undefined')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('({calls:providerFixture.calls,signs:providerFixture.signs,sockets:effects.socket,put:effects.put,constructed:!!window.__privateMemberConstructedForTest})')).toEqual({calls:1,signs:1,sockets:0,put:0,constructed:false})
+})
+test('trusted member later native input retires pending discovery instead of renewing its authority',async({page})=>{
+  await prepareTrustedMemberUI(page,true,true)
+  await page.evaluate(()=>{const button=document.createElement('button');button.type='button';button.id='laterInput';button.textContent='Other action';document.body.append(button)})
+  await page.locator('[data-private-member-action]').click();await page.waitForFunction('providerFixture.started')
+  await page.locator('#laterInput').click()
+  expect(await page.locator('[data-private-member-view]').count()).toBe(0)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate('providerFixture.release();undefined')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put]')).toEqual([1,0,0,0])
+})
+test('trusted member altered displayed destinations refuse before any wallet request',async({page})=>{
+  await prepareTrustedMemberUI(page)
+  await page.locator('[data-private-member-view] p').filter({hasText:'Direct relay destinations:'}).evaluate(node=>{node.textContent='Direct relay destinations: wss://substituted.example/'})
+  await page.locator('[data-private-member-action]').click()
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put]')).toEqual([0,0,0,0])
+})
+
+test('trusted member pending wallet ticket refuses forged focus after blur and drains on pagehide',async({page})=>{
+  await prepareTrustedMemberUI(page,true,true)
+  await page.locator('[data-private-member-action]').click();await page.waitForFunction('providerFixture.started')
+  expect(await page.evaluate('window.__trustedWalletRetryForTest()')).toBe('held')
+  await page.evaluate(()=>window.dispatchEvent(new FocusEvent('blur')))
+  expect(await page.locator('[data-private-member-view]').count()).toBe(1)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate('providerFixture.release();undefined')
+  await page.evaluate(()=>new Promise<void>(yes=>setTimeout(yes,100)))
+  await page.evaluate(()=>window.dispatchEvent(new FocusEvent('focus')))
+  await page.evaluate(()=>new Promise<void>(yes=>setTimeout(yes,100)))
+  expect(await page.locator('[data-private-member-action="verify-private-member"]').count()).toBe(0)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket]')).toEqual([1,0,0])
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('window.__trustedWalletRetryForTest()')).toBe('held')
+})
+
+/** Labelled fault injection wraps the actual native methods before root capture.
+ * It never returns an intent, provider, receipt or owner to the test. */
+async function installTrustedMemberCleanupFault(page:Page):Promise<void>{
+  await page.addInitScript(()=>{
+    const w=window as any
+    w.memberCleanupFault={armed:false,used:false,mode:'',removed:[]}
+    const disabled=Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype,'disabled')!
+    Object.defineProperty(HTMLButtonElement.prototype,'disabled',{...disabled,set(value){
+      Reflect.apply(disabled.set!,this,[value]);const f=w.memberCleanupFault
+      if(f.armed&&f.mode==='disable'&&this.hasAttribute('data-private-member-action')){f.removed.push('disable');if(!f.used){f.used=true;throw Error('Explicit member cleanup fault: disable')}}
+    }})
+    const remove=EventTarget.prototype.removeEventListener,detach=Node.prototype.removeChild
+    EventTarget.prototype.removeEventListener=function(type,listener,options){
+      const f=w.memberCleanupFault
+      const owned=this instanceof HTMLButtonElement&&this.hasAttribute('data-private-member-action')
+      const label=this===window?'window':this===document?'document':owned?'button':'other'
+      const result=Reflect.apply(remove,this,[type,listener,options])
+      if(f.armed){
+        f.removed.push(label+':'+type)
+        const match=f.mode==='wallet-focus'?label==='window'&&type==='focus':f.mode==='watch'?label==='window'&&type==='pointerdown':f.mode==='button'?owned&&type==='click':false
+        if(match&&!f.used){f.used=true;throw Error('Explicit member cleanup fault: '+f.mode)}
+      }
+      return result
+    }
+    Node.prototype.removeChild=function<T extends Node>(child:T):T{
+      const owned=child instanceof HTMLElement&&child.hasAttribute('data-private-member-view')
+      const result=Reflect.apply(detach,this,[child])as T,f=w.memberCleanupFault
+      if(f.armed&&owned){f.removed.push('node');if(f.mode==='node'&&!f.used){f.used=true;throw Error('Explicit member cleanup fault: node')}}
+      return result
+    }
+  })
+}
+async function advanceTrustedMemberToProof(page:Page):Promise<void>{
+  await page.locator('[data-private-member-action="unlock-private-member"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='verify-ready'")
+}
+for(const phase of ['unlock','verify']as const)for(const fault of ['wallet-focus','watch','button','node','disable','preview']as const)
+test(`trusted member cleanup ${fault} failure during ${phase} refuses next publication and drains all owners`,async({page})=>{
+  await installTrustedMemberCleanupFault(page);await prepareTrustedMemberUI(page,true,fault==='disable'&&phase==='unlock')
+  if(phase==='verify')await advanceTrustedMemberToProof(page)
+  if(fault==='disable'&&phase==='verify')await page.evaluate('providerFixture.controlGated=true')
+  await page.evaluate(mode=>{const f=(window as any).memberCleanupFault;f.mode=mode;f.armed=mode!=='disable'},fault)
+  await page.locator('[data-private-member-action="'+(phase==='unlock'?'unlock-private-member':'verify-private-member')+'"]').click()
+  if(fault==='disable'){
+    await page.waitForFunction(phase=>phase==='unlock'?(window as any).providerFixture.started:(window as any).providerFixture.signingStarted,phase)
+    await page.evaluate(phase=>{const w=window as any;w.memberCleanupFault.armed=true;if(phase==='unlock')w.providerFixture.release();else w.providerFixture.releaseControl()},phase)
+  }
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate(async()=>{try{await(window as any).__trustedRootCloseForTest();return'fulfilled'}catch(error){return(error as Error).message}})).toBe('Explicit member cleanup fault: '+fault)
+  expect(await page.locator('[data-private-member-view]').count()).toBe(0)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put,effects.storageWrite,providerFixture.closeCalls]')).toEqual([1,phase==='unlock'?0:1,0,0,0,phase==='unlock'&&fault==='wallet-focus'?undefined:1])
+  expect(await page.evaluate('__trustedSdkOutcomeForTest')).toBe(phase==='unlock'&&fault==='wallet-focus'?'rejected':'fulfilled')
+  const f=await page.evaluate<any>('memberCleanupFault');expect(f.used).toBe(true)
+  if(fault==='watch')expect(f.removed).toEqual(expect.arrayContaining(['window:pointerdown','window:mousedown','window:touchend','window:keydown','window:click','window:blur','window:pagehide','document:visibilitychange','button:click','node']))
+})
+
+for(const phase of ['unlock','verify']as const)for(const outcome of ['throw','reject']as const)
+test(`trusted member ${phase} provider ${outcome} spends its ticket and drains without next action`,async({page})=>{
+  await prepareTrustedMemberUI(page);if(phase==='verify')await advanceTrustedMemberToProof(page)
+  await page.evaluate(({phase,outcome})=>{const f=(window as any).providerFixture;if(phase==='unlock')f.discoveryOutcome=outcome;else f.controlOutcome=outcome},{phase,outcome})
+  await page.locator('[data-private-member-action="'+(phase==='unlock'?'unlock-private-member':'verify-private-member')+'"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('window.__trustedWalletRetryForTest()')).toBe('held')
+  expect(await page.locator('[data-private-member-view]').count()).toBe(0)
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put,effects.storageWrite]')).toEqual([1,phase==='unlock'?0:1,0,0,0])
+  expect(await page.evaluate('__trustedSdkOutcomeForTest')).toBe(phase==='unlock'?'rejected':'fulfilled')
+})
+for(const phase of ['unlock','verify']as const)for(const cut of ['controller','native-input']as const)
+test(`trusted member ${phase} ${cut} revokes its pending ticket and joins actual provider before lock release`,async({page})=>{
+  await prepareTrustedMemberUI(page,true,phase==='unlock');if(phase==='verify'){await advanceTrustedMemberToProof(page);await page.evaluate('providerFixture.controlGated=true')}
+  if(cut==='native-input')await page.evaluate(()=>{const button=document.createElement('button');button.type='button';button.id='laterInput';button.textContent='Other action';document.body.append(button)})
+  await page.locator('[data-private-member-action="'+(phase==='unlock'?'unlock-private-member':'verify-private-member')+'"]').click()
+  await page.waitForFunction(phase=>phase==='unlock'?(window as any).providerFixture.started:(window as any).providerFixture.signingStarted,phase)
+  expect(await page.evaluate('window.__trustedWalletRetryForTest()')).toBe('held')
+  if(cut==='native-input')await page.locator('#laterInput').click();else await page.evaluate(()=>navigator.serviceWorker.dispatchEvent(new Event('controllerchange')))
+  expect(await page.locator('[data-private-member-view]').count()).toBe(0)
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  await page.evaluate(phase=>{const f=(window as any).providerFixture;if(phase==='unlock')f.release();else f.releaseControl()},phase)
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('window.__trustedWalletRetryForTest()')).toBe('held')
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put,effects.storageWrite]')).toEqual([1,phase==='unlock'?0:1,0,0,0])
+})
+
+test('private provider cleanup trusted member revoker cancellation failure clears authority and joins pending proof and SDK close',async({page})=>{
+  await prepareTrustedMemberUI(page);await advanceTrustedMemberToProof(page)
+  await page.evaluate(()=>{const w=window as any;w.providerFixture.controlGated=true;w.providerFixture.closeMode='pending';w.privateProviderCommandFixture={};w.__retiredTrustedButtonForTest=document.querySelector('[data-private-member-action]')})
+  await page.locator('[data-private-member-action="verify-private-member"]').click();await page.waitForFunction('providerFixture.signingStarted')
+  await page.evaluate(()=>{const w=window as any,f=w.privateProviderCommandFixture;f.throwTrustedMemberRevocation=true
+    const a=w.__trustedRootCloseForTest(),b=w.__trustedRootCloseForTest();f.closeSame=a===b
+    void a.then(()=>{f.closeState='fulfilled';f.closeDone=true},(error:Error)=>{f.closeState='rejected';f.closeError=error.message;f.closeDone=true})})
+  const before=await page.evaluate<any>('privateProviderCommandFixture')
+  expect(before.closeSame).toBe(true)
+  expect(before.trustedRevocationBefore).toEqual({member:false,provider:true,pending:true})
+  expect(before.trustedRevocationAfter).toEqual({member:false,provider:false,pendingStopped:true})
+  expect(before.providerStopActions).toEqual(['trusted-member','expiry','native-context','bootstrap','foreground','root','browser-owner','tab-owner'])
+  expect(before.closeDone).toBeUndefined()
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.locator('[data-private-member-view]').count()).toBe(0)
+  expect(await page.evaluate('providerFixture.closeCalls??0')).toBe(0)
+  await page.evaluate('__retiredTrustedButtonForTest.click();undefined')
+  expect(await page.evaluate('window.__trustedWalletRetryForTest()')).toBe('held')
+  expect(await page.evaluate('window.__privateRestoreProviderNowForTest().then(()=>"unexpected",()=>"held")')).toBe('held')
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put,effects.storageWrite,!!window.__privateMemberConstructedForTest]')).toEqual([1,1,0,0,0,false])
+  await page.evaluate('providerFixture.releaseControl();undefined');await page.waitForFunction('providerFixture.closeCalls===1')
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.evaluate('privateProviderCommandFixture.closeDone')).toBeUndefined()
+  await page.evaluate('providerFixture.closeRelease();undefined');await page.waitForFunction('privateProviderCommandFixture.closeDone')
+  expect(await lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('[privateProviderCommandFixture.closeState,privateProviderCommandFixture.closeError,providerFixture.closeCalls,providerFixture.closeTerminal]')).toEqual(['rejected','Explicit trusted member revoker cancellation failure',1,true])
+  expect(await page.evaluate('[providerFixture.calls,providerFixture.signs,effects.socket,effects.put,effects.storageWrite,!!window.__privateMemberConstructedForTest]')).toEqual([1,1,0,0,0,false])
 })
