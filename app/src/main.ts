@@ -5777,6 +5777,7 @@ function renderFacePrivacyState(state?: FacePrivacyState): void {
   notice.hidden = !camera || mode === 'off'
   notice.textContent = current?.message ?? ''
   notice.classList.toggle('broken', mode === 'mask' && current?.covered === true)
+  renderEffectFailureNotice()
 }
 
 /**
@@ -5794,7 +5795,7 @@ function renderFacePrivacyState(state?: FacePrivacyState): void {
 function renderEffectFailureNotice(): void {
   const outer = $('effectDegradedNotice')
   const action = camera?.lastAction
-  const failing = !!camera?.untrustworthy && (action === 'cover' || action === 'blur-all')
+  const failing = camera?.facePrivacyState.mode === 'off' && !!camera.untrustworthy && (action === 'cover' || action === 'blur-all')
   if (!failing) {
     outer.hidden = true
     outer.textContent = ''
@@ -5803,8 +5804,8 @@ function renderEffectFailureNotice(): void {
   outer.hidden = false
   outer.textContent =
     camera!.mode === 'replace'
-      ? 'Background effect has stopped working. Others see only your backdrop, not you. Turn the effect off to show your camera, or wait while it retries.'
-      : 'Background effect has stopped working. Others see a full blur, not you. Turn the effect off to show your camera, or wait while it retries.'
+      ? 'Others see only your backdrop, not you. Background cut-outs are unavailable.'
+      : 'Others see a full blur, not you. Background cut-outs are unavailable.'
 }
 
 function renderVoiceState(state: MicState): void {

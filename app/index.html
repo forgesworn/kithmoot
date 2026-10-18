@@ -93,6 +93,10 @@
           <span id="callStripText" class="callStripText">Nobody is on a call.</span>
           <button id="callStripAction" type="button" class="primary">Start call</button>
         </div>
+        <div id="cameraPrivacyNotices">
+          <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
+          <p id="facePrivacyNotice" class="indicator" role="status" hidden></p>
+        </div>
         <!-- The call. Absent until there is one, the way a phone shows call
              controls only during a call. Revealed by the Call button above,
              and kept open for as long as anything of yours is live. -->
@@ -138,13 +142,6 @@
             <p id="micIndicator" class="indicator"></p>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>
-            <!-- The background effect has failed and is covering or blurring
-                 the whole frame while it retries. Shown here, next to the
-                 self-view, rather than only inside the collapsed "Hide what
-                 is behind you" details - see `renderEffectState` in
-                 app/src/main.ts. -->
-            <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
-            <p id="facePrivacyNotice" class="indicator" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box
                  left unticked. The share still works; it is simply quiet. -->

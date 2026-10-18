@@ -1980,6 +1980,26 @@ button.primary:hover:not(:disabled) {
   margin: 0.4rem 0;
 }
 
+/* Keep camera visibility explicit above the picture without expanding the
+   call's button row or pushing touch targets below a phone's viewport. */
+#cameraPrivacyNotices {
+  display: none;
+  order: -1;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+#cameraPrivacyNotices:has(> :not([hidden])) {
+  display: grid;
+  gap: .25rem;
+  margin: .25rem 0;
+}
+#cameraPrivacyNotices > .indicator {
+  margin: 0;
+  padding: .35rem .6rem;
+  font-size: .85rem;
+  line-height: 1.35;
+}
+
 .note.warn {
   border-left: 2px solid var(--accent-dim);
   padding-left: 0.6rem;

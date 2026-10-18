@@ -127,6 +127,7 @@ test('avatar can be chosen before capture and stays covered across camera restar
       return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3)
     })).toEqual([16, 24, 32])
     await expect(page.locator('#facePrivacyNotice')).toContainText('whole camera picture is replaced')
+    await expect(page.locator('#effectDegradedNotice')).toBeHidden()
     await page.locator('#toggleCamera').click()
     await expect(page.locator('.media.mine video')).toHaveCount(0)
   }
