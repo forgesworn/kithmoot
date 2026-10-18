@@ -1,7 +1,9 @@
 # Face privacy and owned camera AI
 
-Desktop 0.1.88 and Android 0.6.91 candidate, 18 October 2026.
-Physical acceptance remains open.
+Desktop 0.1.88 and Android 0.6.91 released, 18 October 2026.
+The [publication receipt](evidence/camera-privacy-0.1.88-0.6.91-2026-10-18.json)
+records the signed packages, CI and public download checks. Physical acceptance
+and real-camera AI qualification remain open.
 
 The target is an MIT, first-party learned vision library for automatic
 multiple-face detection and foreground matting, retaining people, hands and
@@ -27,7 +29,7 @@ or segmenter. Android also avoids camera texture readback on this path.
 Screen sharing is a separate track.
 
 The Google MediaPipe dependency, background weights and asset build wiring
-are removed from this branch. Consequently, person cut-outs and automatic
+are removed in these releases. Consequently, person cut-outs and automatic
 framing are unavailable here. Desktop blur uses its whole-picture fallback;
 a chosen backdrop replaces the whole picture on both clients. Controls explain
 this change. Automatic masking and matting remain disabled.

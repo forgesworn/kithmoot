@@ -6,6 +6,25 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.91 opaque camera avatar — 18 October 2026
+
+Version **0.6.91**, code **114**, remembers Avatar before camera capture and
+replaces the whole outgoing picture with original MIT mask artwork. The camera
+stays on locally; screen sharing is separate. Automatic face masks, person
+cut-outs and automatic framing remain unavailable pending qualified owned
+models and runtime integration. The third-party camera vision SDK and Google
+background weights have been removed.
+
+The production APK is built from Android source
+`8ecde8cc59ca9999208b5d812fbab2e3620c5d6c`, merged by pull request #272 at
+`5459c381ba28fa4cdd018bea155b08a6b6ca0afe`, SHA-256
+`d77aac33d19886245f36ee8e240800216ed8dc1d56f8ec590c4820e2de1ff907`.
+It retains the production certificate, V3-only signing and reviewed lineage.
+The [publication receipt](evidence/camera-privacy-0.1.88-0.6.91-2026-10-18.json)
+records the 17-job source and main CI checks, exact GitHub/website/Zapstore APK,
+signed feeds and public hashes. Synthetic device checks passed; physical
+camera/call, real-face inference and battery/thermal acceptance remain open.
+
 ## Android 0.6.90 quieter automatic replies — 18 October 2026
 
 Version **0.6.90**, code **113**, delays duplicate and stale call signals,
