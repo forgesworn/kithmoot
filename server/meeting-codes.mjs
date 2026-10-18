@@ -39,11 +39,10 @@ import { dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as nodeFs from 'node:fs'
 
-// 127.0.0.1:8093 in the spec is already taken: deploy/Caddyfile.kithmoot
-// binds Caddy's loopback Tor front onto Blossom to 127.0.0.1:8093. 8094 is
-// the next free port on the box (8089 TURN credentials, 8092 Blossom, 8093
-// that front, 4848 the drop tier).
-const DEFAULT_PORT = 8094
+// The box is shared: 8089 is TURN credentials, 8092 Blossom, 8093 Caddy's
+// loopback Tor front onto Blossom, 4848 the drop tier, and other tenants
+// hold 8094 to 8100. 8114 is free and named by nothing else there.
+const DEFAULT_PORT = 8114
 const DEFAULT_HOST = '127.0.0.1' // behind Caddy on the same box, see deploy/Caddyfile.kithmoot
 
 /** foregather `foregather-access/base32-en-v1/1`, in value order 0-31. Frozen. */
@@ -736,7 +735,7 @@ export function createMeetingCodesServer(config) {
     res.locals = { route: `${req.method} ${route}` }
 
     if (route === 'other') return send(res, 404, { error: 'not found' })
-    // Health is for `curl http://127.0.0.1:8094/codes/health` on the box.
+    // Health is for `curl http://127.0.0.1:8114/codes/health` on the box.
     // Caddy does not forward it (deploy/Caddyfile.kithmoot); should that
     // ever change, anything carrying X-Forwarded-For came through a proxy
     // and is answered as if the path did not exist.

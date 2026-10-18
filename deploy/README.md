@@ -1019,8 +1019,8 @@ change to it.
 EnvironmentFile. `MEETING_CODES_STORE` is the JSON store and has no
 default: the service refuses to start without it. The unit points it at
 `/var/lib/kithmoot-codes/codes.json`, inside the `StateDirectory` systemd
-creates mode 0700 for the service user. `PORT` defaults to 8094 (8093 is
-Caddy's loopback Tor front) and `HOST` to `127.0.0.1`. The store holds at
+creates mode 0700 for the service user. `PORT` defaults to 8114 (8093 is
+Caddy's loopback Tor front and other tenants hold 8094 to 8100) and `HOST` to `127.0.0.1`. The store holds at
 most 20,000 live codes and 200,000 tombstones (kept 30 days past expiry,
 without the link); when either is full it refuses new codes with 503 and
 evicts nothing. Creation is also capped at 2,000 codes in any rolling 24
@@ -1029,7 +1029,7 @@ limit, not the caller's, so not 429). A store that does not parse
 stops the service at start rather than being treated as empty.
 
 **Caddy.** `handle /codes*` on `kithmoot.forgesworn.dev`, proxied to
-`127.0.0.1:8094` except `/codes/health`, which stays on loopback, and on `kithmoot.app` a `/c/<code>` redirect to
+`127.0.0.1:8114` except `/codes/health`, which stays on loopback, and on `kithmoot.app` a `/c/<code>` redirect to
 `https://kithmoot.forgesworn.dev/j/?c=<code>`, both already in
 `Caddyfile.kithmoot`. Copy the vhost as described at its top, then
 `sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`
@@ -1040,7 +1040,7 @@ and `sudo systemctl reload caddy`. The per-address limits trust the last
 **Check it.**
 
 ```bash
-curl -s http://127.0.0.1:8094/codes/health          # {"ok":true}, on the box only
+curl -s http://127.0.0.1:8114/codes/health          # {"ok":true}, on the box only
 curl -s -o /dev/null -w '%{http_code}\n' https://kithmoot.forgesworn.dev/codes/health
                                                       # 404: not forwarded
 curl -s -o /dev/null -w '%{http_code}\n' https://kithmoot.forgesworn.dev/codes/ABCDEFGH

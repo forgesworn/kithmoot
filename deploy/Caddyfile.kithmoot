@@ -111,15 +111,16 @@ kithmoot.forgesworn.dev {
 	}
 
 	# Meeting codes (server/meeting-codes.mjs, installed as
-	# deploy/meeting-codes.service, listening on 127.0.0.1:8094 because
-	# 8093 is the Tor front at the bottom of this file). POST /codes and
+	# deploy/meeting-codes.service, listening on 127.0.0.1:8114 because
+	# 8093 is the Tor front at the bottom of this file and other tenants
+	# on the box hold 8094 to 8100). POST /codes and
 	# GET, PUT and DELETE /codes/<code>; the service answers 404 to anything
 	# else under the prefix. See docs/meeting-codes.md for the trust model:
 	# the service stores full invitation links, or for a code with a
 	# password an envelope it cannot open without the words.
 	#
 	# /codes/health is not forwarded, as /healthz is not for /turn: it is
-	# for `curl http://127.0.0.1:8094/codes/health` on the box. Here it
+	# for `curl http://127.0.0.1:8114/codes/health` on the box. Here it
 	# falls through to the file server's 404 (and the service answers 404 to
 	# a health check carrying X-Forwarded-For, should it ever arrive).
 	#
@@ -137,7 +138,7 @@ kithmoot.forgesworn.dev {
 		not path /codes/health
 	}
 	handle @codes {
-		reverse_proxy 127.0.0.1:8094
+		reverse_proxy 127.0.0.1:8114
 	}
 
 	# The drop tier of the box this host runs (bothy-node, container

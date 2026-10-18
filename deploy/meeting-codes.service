@@ -20,7 +20,7 @@
 # owned by kithmoot-codes. It holds full invitation links, which is the
 # point of the service and also why nothing else may read it.
 #
-# Verify: `curl -s http://127.0.0.1:8094/codes/health` prints {"ok":true}
+# Verify: `curl -s http://127.0.0.1:8114/codes/health` prints {"ok":true}
 # (loopback only; Caddy does not forward it, so the public URL is a 404).
 # `journalctl -u meeting-codes -f` for logs: one line per
 # request, status and route only (`meeting-codes: 200 GET /codes/:code`).
@@ -40,7 +40,7 @@ StateDirectoryMode=0700
 UMask=0077
 Environment=MEETING_CODES_STORE=/var/lib/kithmoot-codes/codes.json
 # 8093 is Caddy's loopback Tor front onto Blossom (deploy/Caddyfile.kithmoot).
-Environment=PORT=8094
+Environment=PORT=8114
 ExecStart=/usr/bin/node server/meeting-codes.mjs
 Restart=always
 RestartSec=2

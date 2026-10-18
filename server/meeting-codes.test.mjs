@@ -169,11 +169,11 @@ describe('configuration', () => {
     expect(() => loadConfigFromEnv({ MEETING_CODES_STORE: 'codes.json' })).toThrow(/absolute/)
   })
 
-  it('defaults to loopback on 8094', () => {
+  it('defaults to loopback on 8114', () => {
     expect(loadConfigFromEnv({ MEETING_CODES_STORE: '/x/codes.json' })).toEqual({
       storePath: '/x/codes.json',
       host: '127.0.0.1',
-      port: 8094,
+      port: 8114,
     })
   })
 
