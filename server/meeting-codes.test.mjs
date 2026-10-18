@@ -869,3 +869,21 @@ describe('HTTP surface', () => {
     }
   })
 })
+
+describe('the kithmoot.app /c/ redirect (deploy/Caddyfile.kithmoot)', () => {
+  const caddy = fs.readFileSync(join(here, '..', 'deploy', 'Caddyfile.kithmoot'), 'utf8')
+  const redirects = caddy.split('\n').map((line) => line.trim()).filter((line) => /^redir @code\s/.test(line))
+
+  // A link may carry its password words in the fragment (docs/meeting-codes.md,
+  // "Password"). A browser keeps the fragment it was given through a redirect
+  // only when the Location has none of its own, so this one must stay without.
+  it('sets no fragment in Location, so the words in the link reach the join page', () => {
+    expect(redirects).toEqual(['redir @code https://kithmoot.forgesworn.dev/j/?c={re.code.1} 302'])
+    for (const line of redirects) expect(line).not.toContain('#')
+  })
+
+  it('matches a path only, never a fragment, and never caches', () => {
+    expect(caddy).toMatch(/@code path_regexp code \^\/c\/[^\n#]*\$\n/)
+    expect(caddy).toContain('header @code Cache-Control "no-store"')
+  })
+})
