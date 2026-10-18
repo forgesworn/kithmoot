@@ -1991,11 +1991,11 @@ button.primary:hover:not(:disabled) {
 #cameraPrivacyNotices:has(> :not([hidden])) {
   display: grid;
   gap: .25rem;
-  margin: .25rem 0;
+  margin: .1rem 0;
 }
 #cameraPrivacyNotices > .indicator {
   margin: 0;
-  padding: .35rem .6rem;
+  padding: .15rem .6rem;
   font-size: .85rem;
   line-height: 1.35;
 }
