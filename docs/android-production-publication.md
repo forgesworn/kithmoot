@@ -6,6 +6,18 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.90 quieter automatic replies — 18 October 2026
+
+Version **0.6.90**, code **113**, delays duplicate and stale call signals,
+epoch recovery answers and refusals, and fresh keeper admission answers by a
+short random time within per-device and global budgets, so they no longer
+show a watcher within milliseconds that the phone is awake.
+
+The production APK is built from Android source
+`8677ce92` (pull requests #270 and #271, all checks passed), SHA-256
+`13479461f8d0b414a16b56bc4926ca7033ccfb794a02b9958e7645f8ebf4b8cf`, signed with
+the retained production certificate. Not yet observed on a device.
+
 ## Android 0.6.89 signed-out relay choices — 16 October 2026
 Version **0.6.89**, code **112**, keeps relay read and write choices made while
 signed out across a restart, instead of turning every relay read-write and
