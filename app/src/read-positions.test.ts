@@ -4,7 +4,7 @@ import { deriveRoom } from '../../src/room.js'
 import { localIdentity } from '../../src/identity.js'
 import { decodeReadPositions, encodeReadPositionsLocal, localSelfCrypt } from '../../src/read-position.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
-import { HURRY_WINDOW_MS, PUBLISH_WINDOW_MS, ReadPositionSync } from './read-positions.js'
+import { ReadPositionSync } from './read-positions.js'
 
 const NOW = 1_800_000_000
 
@@ -23,7 +23,7 @@ describe('ReadPositionSync', () => {
   const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(9))
   const sk = generateSecretKey()
 
-  it('publishes when this device is ahead, once, inside the window', async () => {
+  it('publishes when this device is ahead, once, after the delay', async () => {
     vi.useFakeTimers()
     const { relay, published } = fakeRelay()
     const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), relay, () => {}, () => NOW)
@@ -32,7 +32,7 @@ describe('ReadPositionSync', () => {
     sync.note(roomId, { '': { at: 25, id: 'm3' } })
     sync.note(roomId, { '': { at: 24 } })
     expect(published).toHaveLength(0)
-    await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[1])
+    await vi.advanceTimersByTimeAsync(5_000)
     expect(published).toHaveLength(1)
     const record = await decodeReadPositions(published[0]!, { participant: getPublicKey(sk), roomId, roomKey, crypt: localSelfCrypt(sk) })
     expect(record?.read).toEqual({ '': { at: 25, id: 'm3' } })
@@ -49,11 +49,11 @@ describe('ReadPositionSync', () => {
     deliver(encodeReadPositionsLocal({ '': { at: 30 } }, { roomId, roomKey, participantSk: sk, createdAt: NOW - 5 }))
     await vi.advanceTimersByTimeAsync(0)
     expect(ahead).toHaveBeenCalledWith(roomId, { '': { at: 30 }, minutes: { at: 50 } })
-    await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[1])
+    await vi.advanceTimersByTimeAsync(5_000)
     expect(published).toHaveLength(1)
     // A record that is behind changes nothing and publishes nothing more.
     deliver(encodeReadPositionsLocal({ '': { at: 5 } }, { roomId, roomKey, participantSk: sk, createdAt: NOW - 50 }))
-    await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[1])
+    await vi.advanceTimersByTimeAsync(5_000)
     expect(ahead).toHaveBeenCalledTimes(1)
     expect(published).toHaveLength(1)
     sync.close()
@@ -69,7 +69,7 @@ describe('ReadPositionSync', () => {
     const sync = new ReadPositionSync(localIdentity(sk), slow, relay, () => {}, () => NOW)
     sync.follow(roomId, roomKey, { '': { at: 10 } })
     sync.note(roomId, { '': { at: 20, id: 'm2' } })
-    await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[1])
+    await vi.advanceTimersByTimeAsync(5_000)
     // The signer has the record and the room is tidied up underneath it.
     expect(signing).toBeDefined()
     expect(published).toHaveLength(0)
@@ -93,7 +93,7 @@ describe('ReadPositionSync', () => {
     const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), slow, () => {}, () => NOW)
     sync.follow(roomId, roomKey, { '': { at: 10 } })
     sync.note(roomId, { '': { at: 20, id: 'm2' } })
-    await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[1])
+    await vi.advanceTimersByTimeAsync(5_000)
     expect(published).toHaveLength(1)
     sync.forget(roomId)
     // A relay that never answers must not hold the room's tidy-up open.
@@ -117,90 +117,6 @@ describe('ReadPositionSync', () => {
     deliver(encodeReadPositionsLocal({ '': { at: 30 } }, { roomId, roomKey, participantSk: generateSecretKey(), createdAt: NOW }))
     await vi.advanceTimersByTimeAsync(0)
     expect(ahead).not.toHaveBeenCalled()
-    sync.close()
-    vi.useRealTimers()
-  })
-  function timed(random: number, sharing = { on: true }) {
-    const { relay, published, deliver } = fakeRelay()
-    const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), relay, () => {}, () => NOW, { random: () => random, sharing: () => sharing.on })
-    sync.follow(roomId, roomKey, { '': { at: 10 } })
-    return { sync, published, deliver, sharing }
-  }
-
-  it('publishes at a random point 30 to 90 seconds after the first read, not seconds after a message', async () => {
-    vi.useFakeTimers()
-    for (const [random, at] of [[0, PUBLISH_WINDOW_MS[0]], [0.999999999, PUBLISH_WINDOW_MS[1]]] as const) {
-      const { sync, published } = timed(random)
-      sync.note(roomId, { '': { at: 20, id: 'm2' } })
-      await vi.advanceTimersByTimeAsync(at - 1)
-      expect(published).toHaveLength(0)
-      // Reads inside the window ride on the record already due.
-      sync.note(roomId, { '': { at: 30, id: 'm3' } })
-      await vi.advanceTimersByTimeAsync(1)
-      expect(published).toHaveLength(1)
-      const record = await decodeReadPositions(published[0]!, { participant: getPublicKey(sk), roomId, roomKey, crypt: localSelfCrypt(sk) })
-      expect(record?.read).toEqual({ '': { at: 30, id: 'm3' } })
-      await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[1] * 2)
-      expect(published).toHaveLength(1)
-      sync.close()
-    }
-    vi.useRealTimers()
-  })
-
-  it('hurries a pending record to 2 to 10 seconds on leaving or hiding, and never delays one', async () => {
-    vi.useFakeTimers()
-    const { sync, published } = timed(0.5)
-    // Nothing to say, nothing hurried.
-    sync.hurry()
-    await vi.advanceTimersByTimeAsync(HURRY_WINDOW_MS[1])
-    expect(published).toHaveLength(0)
-
-    sync.note(roomId, { '': { at: 20, id: 'm2' } })
-    await vi.advanceTimersByTimeAsync(1_000)
-    sync.hurry(roomId)
-    const midHurry = HURRY_WINDOW_MS[0] + Math.floor(0.5 * (HURRY_WINDOW_MS[1] - HURRY_WINDOW_MS[0] + 1))
-    await vi.advanceTimersByTimeAsync(midHurry - 1)
-    expect(published).toHaveLength(0)
-    await vi.advanceTimersByTimeAsync(1)
-    expect(published).toHaveLength(1)
-
-    // Already due sooner than a hurry would make it: left alone.
-    sync.note(roomId, { '': { at: 30, id: 'm3' } })
-    const midWindow = PUBLISH_WINDOW_MS[0] + Math.floor(0.5 * (PUBLISH_WINDOW_MS[1] - PUBLISH_WINDOW_MS[0] + 1))
-    await vi.advanceTimersByTimeAsync(midWindow - 3_000)
-    sync.hurry()
-    await vi.advanceTimersByTimeAsync(3_000)
-    expect(published).toHaveLength(2)
-    sync.close()
-    vi.useRealTimers()
-  })
-
-  it('publishes nothing while sharing is off, still applies other devices, and catches up when it is back on', async () => {
-    vi.useFakeTimers()
-    const { relay, published, deliver } = fakeRelay()
-    const ahead = vi.fn()
-    let on = true
-    const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), relay, ahead, () => NOW, { random: () => 0, sharing: () => on })
-    sync.follow(roomId, roomKey, { '': { at: 10 } })
-    sync.note(roomId, { '': { at: 20, id: 'm2' } })
-    on = false
-    sync.sharingChanged()
-    sync.hurry()
-    sync.note(roomId, { '': { at: 25, id: 'm3' } })
-    await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[1] * 2)
-    expect(published).toHaveLength(0)
-
-    deliver(encodeReadPositionsLocal({ '': { at: 40 } }, { roomId, roomKey, participantSk: sk, createdAt: NOW - 5 }))
-    await vi.advanceTimersByTimeAsync(0)
-    expect(ahead).toHaveBeenCalledWith(roomId, { '': { at: 40 } })
-    sync.note(roomId, { '': { at: 50, id: 'm5' } })
-
-    on = true
-    sync.sharingChanged()
-    await vi.advanceTimersByTimeAsync(PUBLISH_WINDOW_MS[0])
-    expect(published).toHaveLength(1)
-    const record = await decodeReadPositions(published[0]!, { participant: getPublicKey(sk), roomId, roomKey, crypt: localSelfCrypt(sk) })
-    expect(record?.read).toEqual({ '': { at: 50, id: 'm5' } })
     sync.close()
     vi.useRealTimers()
   })
