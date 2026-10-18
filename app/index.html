@@ -144,6 +144,7 @@
                  is behind you" details - see `renderEffectState` in
                  app/src/main.ts. -->
             <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
+            <p id="facePrivacyNotice" class="indicator" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box
                  left unticked. The share still works; it is simply quiet. -->
@@ -210,6 +211,15 @@
             </details>
 
             <div id="effects">
+              <details id="facePrivacyEffects">
+                <summary>Hide your face <span id="facePrivacyMode" class="chip">off</span></summary>
+                <div class="segmented" id="facePrivacyModes" role="radiogroup" aria-label="Hide your face">
+                  <button type="button" class="seg" role="radio" data-privacy="off" aria-checked="true">Off</button>
+                  <button type="button" class="seg" role="radio" data-privacy="mask" aria-checked="false" disabled>Tracked mask unavailable</button>
+                  <button type="button" class="seg" role="radio" data-privacy="avatar" aria-checked="false">Avatar</button>
+                </div>
+                <p class="note">Avatar replaces the whole camera picture. Automatic face masking is being developed. The camera stays on locally. Your voice and shared screen can still identify you.</p>
+              </details>
               <details id="cameraEffects" hidden>
                 <summary>Hide what is behind you <span id="effectMode" class="chip">blur</span></summary>
                 <div class="segmented" id="effectModes" role="radiogroup" aria-label="Background">
@@ -239,12 +249,8 @@
                 </div>
                 <p id="effectStatus" class="indicator"></p>
                 <p class="note">
-                  Blur is on the first time you turn the camera on. It is the
-                  computer's best guess at where you stop and your room starts,
-                  so edges, dim light and quick movement all let bits of the room
-                  through for a moment at a time. It uses battery, and on a slow
-                  machine it costs you smooth video. It makes your room harder to
-                  see. It is not a promise that nobody can see it.
+                  Background cut-outs are unavailable in this build. Blur covers the
+                  whole picture; a chosen backdrop replaces the whole picture.
                 </p>
               </details>
 

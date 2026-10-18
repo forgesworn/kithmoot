@@ -1,5 +1,4 @@
 import { createReadStream } from 'node:fs'
-import { copyFile, mkdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build as esbuild } from 'esbuild'
@@ -31,54 +30,6 @@ function pinnedWasmPreview(): Plugin {
       createReadStream(join(here, 'public', path.slice(BASE.length))).pipe(res)
     })
   } }
-}
-
-/**
- * The MediaPipe WASM runtime, served from our own origin.
- *
- * Every MediaPipe example points `FilesetResolver` at Google's CDN. In an
- * app whose whole claim is that no operator can see you, that would mean
- * enabling background blur announces your IP address and the fact that you
- * are about to join a call to a third party. So the runtime is copied out of
- * `node_modules` at build time and served from here instead.
- *
- * Copied in `writeBundle` rather than emitted through rollup: it is 11.7MB
- * and there is no reason to route that through the bundler's memory, and
- * landing it after the service worker has been generated keeps it out of the
- * precache, which is the other thing nobody wants 11.7MB of.
- */
-function mediapipeRuntime(): Plugin {
-  // Both variants. FilesetResolver probes for WASM SIMD and asks for the
-  // `nosimd` pair when the probe fails - a browser without SIMD, or a
-  // Content-Security-Policy that blocks the probe's little compile. Shipping
-  // only the SIMD pair turned that into a 404 and a dead segmenter in
-  // production, which is how it went unnoticed: the effect fell back to
-  // passthrough exactly as designed, and nothing red runs in CI against the
-  // deployed origin.
-  const files = [
-    'vision_wasm_internal.js',
-    'vision_wasm_internal.wasm',
-    'vision_wasm_nosimd_internal.js',
-    'vision_wasm_nosimd_internal.wasm',
-  ]
-  const from = resolve(here, '../node_modules/@mediapipe/tasks-vision/wasm')
-  return {
-    name: 'kithmoot-mediapipe-runtime',
-    apply: () => true,
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const name = req.url?.split('?')[0]?.replace(`${BASE}mediapipe/`, '')
-        if (!req.url?.startsWith(`${BASE}mediapipe/`) || !name || !files.includes(name)) return next()
-        res.setHeader('content-type', name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript')
-        createReadStream(join(from, name)).pipe(res)
-      })
-    },
-    async writeBundle(options) {
-      const out = join(options.dir ?? resolve(here, 'dist'), 'mediapipe')
-      await mkdir(out, { recursive: true })
-      for (const name of files) await copyFile(join(from, name), join(out, name))
-    },
-  }
 }
 
 /**
@@ -166,7 +117,6 @@ export default defineConfig({
     emptyOutDir: true,
   },
   plugins: [girnelAssets(), pinnedWasmPreview(),
-    mediapipeRuntime(),
     audioWorklet(),
     // getUserMedia and getDisplayMedia both require a secure context. A
     // phone reaching the laptop over its LAN IP is not one without this -
@@ -175,16 +125,10 @@ export default defineConfig({
     VitePWA({
       disable: desktop,
       registerType: 'prompt',
-      // The MediaPipe runtime is 11.7MB of WASM plus 155KB of glue, and it
-      // is fetched only if somebody turns an effect on. Precaching it would
-      // make every first visit pay, in the background, for a feature most
-      // visits never use - which is the exact thing the lazy load exists to
-      // avoid. Both halves are excluded together, because precaching one
-      // half of a pair that is useless apart is the worst of both.
       workbox: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         globPatterns: ['**/*.{js,wasm,css,html}', 'girnel/assets/*.svg'],
-        globIgnores: ['**/mediapipe/**', '**/link-web/**', '**/vmls-wasm/**', '**/vision_bundle-*.js', 'notify-sw.js', 'ordinary-state-sw.js'],
+        globIgnores: ['**/link-web/**', '**/vmls-wasm/**', 'notify-sw.js', 'ordinary-state-sw.js'],
         // A click on a notification shown through the registration arrives
         // in the worker, not the page. The handler is a plain script in
         // app/public, imported into the generated worker rather than

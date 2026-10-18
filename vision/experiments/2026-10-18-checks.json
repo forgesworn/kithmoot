@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-18",
+  "scope": "Local development evidence; not real-camera or release qualification.",
+  "qualified": false,
+  "python_unit_tests": 6,
+  "rust_unit_tests": 7,
+  "browser_renderer_tests": 6,
+  "typescript_unit_tests": 97,
+  "typescript_typecheck": "passed",
+  "android_release_no_telemetry_guard": "passed",
+  "android_lint": "cancelled under resource pressure; remains open",
+  "android_device_acceptance": false,
+  "camera_worker_and_jni_integration": false,
+  "models": {
+    "dense-v1": {
+      "native_and_wasm_reference_parity": "passed",
+      "reference_and_temporal_flag_cases": 4,
+      "native_max_absolute_error": 1.430511474609375e-06,
+      "wasm_max_absolute_error_upper_bound": 3e-06,
+      "weights_sha256": "a6e13c0b0796670a31d6a9e91b3f7d3be45c407c177cfd59d98e96bffecaae43",
+      "synthetic_inputs_only": true
+    },
+    "mobile-v2": {
+      "native_and_wasm_reference_parity": "passed",
+      "reference_and_temporal_flag_cases": 4,
+      "native_max_absolute_error": 1.430511474609375e-06,
+      "wasm_max_absolute_error_upper_bound": 3e-06,
+      "weights_sha256": "2096f947aef8d65fe4dec6ce2ae47c1b304974ecac157166842396c20fa63ad7",
+      "synthetic_inputs_only": true
+    }
+  },
+  "cross_builds": {
+    "aarch64_macos": "built and executed",
+    "wasm32_simd128": "built and executed in Node; no host imports",
+    "aarch64_android_api26": "cross-built; not executed on device",
+    "x86_64_linux": "type-checked; execution is a CI gate"
+  },
+  "android_unit_tests": 31,
+  "android_app_compilation": "passed",
+  "android_instrumentation_compilation": "passed",
+  "android_instrumentation_execution": "not rerun after final changes; device acceptance remains open"
+}

@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-18",
+  "architecture": "kithmoot-camera-vision-experimental-v2",
+  "host": "Apple M1",
+  "host_load": "Uncontrolled shared development machine; engine timings exclude camera/compositing. No device qualification.",
+  "weights_sha256": "2096f947aef8d65fe4dec6ce2ae47c1b304974ecac157166842396c20fa63ad7",
+  "qualified": false,
+  "native": [
+    {
+      "tasks": "faces",
+      "frames": 50,
+      "width": 160,
+      "height": 96,
+      "mean_ms": 8.40575176,
+      "p50_ms": 7.522709,
+      "p95_ms": 14.198209,
+      "workspace_bytes": 8436480,
+      "weights_bytes": 79904,
+      "qualified": false
+    },
+    {
+      "tasks": "matte",
+      "frames": 50,
+      "width": 160,
+      "height": 96,
+      "mean_ms": 36.387196659999994,
+      "p50_ms": 22.494459000000003,
+      "p95_ms": 148.307625,
+      "workspace_bytes": 8436480,
+      "weights_bytes": 79904,
+      "qualified": false
+    },
+    {
+      "tasks": "both",
+      "frames": 50,
+      "width": 160,
+      "height": 96,
+      "mean_ms": 29.391794140000002,
+      "p50_ms": 25.849,
+      "p95_ms": 55.156416,
+      "workspace_bytes": 8436480,
+      "weights_bytes": 79904,
+      "qualified": false
+    }
+  ],
+  "wasm": [
+    {
+      "engine": "Node WASM SIMD",
+      "tasks": "faces",
+      "frames": 50,
+      "width": 160,
+      "height": 96,
+      "mean_ms": 7.501969960000006,
+      "p50_ms": 6.224415999999962,
+      "p95_ms": 16.531417000000005,
+      "workspace_bytes": 8436480,
+      "wasm_bytes": 48256,
+      "qualified": false
+    },
+    {
+      "engine": "Node WASM SIMD",
+      "tasks": "matte",
+      "frames": 50,
+      "width": 160,
+      "height": 96,
+      "mean_ms": 80.99410579999996,
+      "p50_ms": 37.16291699999999,
+      "p95_ms": 336.529125,
+      "workspace_bytes": 8436480,
+      "wasm_bytes": 48256,
+      "qualified": false
+    },
+    {
+      "engine": "Node WASM SIMD",
+      "tasks": "both",
+      "frames": 50,
+      "width": 160,
+      "height": 96,
+      "mean_ms": 31.624927479999915,
+      "p50_ms": 22.82054100000005,
+      "p95_ms": 85.09587499999998,
+      "workspace_bytes": 8436480,
+      "wasm_bytes": 48256,
+      "qualified": false
+    }
+  ],
+  "source_sha256": {
+    "runtime/src/simd.rs": "a0ad6d32cc469348e681a01da38b4098b673b9cc0d673779fdbb7cb2f88f3b99",
+    "runtime/src/lib.rs": "45fe4cbe98fbcdc40cf4d748a400d9f206214488e80dfd29f867258443b7f845",
+    "runtime/src/faces.rs": "0dadf88350a782035614b378911492c003ab5748afab6e0ff8cc9970fcab699c",
+    "runtime/src/ffi.rs": "7146d2f4e2e0c4efc62404e88b2309434221c0217f84c978b94c54ba03e9c1b3",
+    "runtime/src/kernels.rs": "bd54e508f0f00a8337331f7519c9e7c7f2b6237b4be852365d1b69d91f765546",
+    "web/runtime.mjs": "f8296f3881c23268a25337b633ecfee342a11416ad434332642543da4b1f0636",
+    "runtime/Cargo.toml": "c122e1220e8859cac7b6faad4e1e488eec7ee14c1e619d04902e2506179fd75a",
+    "runtime/Cargo.lock": "a0853357a62fdf416ab2d7ee02500da8ae1ed3c950f364be9be1a5e5e1cd99b7"
+  },
+  "wasm_sha256": "4c801af8a1ae1a65cd995f94938b07f612e7ac345a6d8e03d4cafb9dd3d71520",
+  "builds": {
+    "macos_aarch64": true,
+    "wasm32_simd128": true,
+    "android_aarch64_api26": true,
+    "android_device_execution": false
+  }
+}

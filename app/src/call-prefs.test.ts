@@ -7,7 +7,18 @@ import {
   loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId,
   loadVoicePreset, storeBackgroundId, storeBlurStrength, storeCameraDeviceId, storeEffectMode,
   storeMicDeviceId, storeVoicePreset,
+  loadFacePrivacyMode, storeFacePrivacyMode,
 } from './call-prefs.js'
+
+test('face concealment survives the next call independently of the background choice', () => {
+  const store = memoryDeviceStore()
+  expect(loadFacePrivacyMode(store)).toBe('off')
+  for (const mode of ['mask', 'avatar', 'off'] as const) {
+    storeFacePrivacyMode(store, mode)
+    storeEffectMode(store, 'off')
+    expect(loadFacePrivacyMode(store)).toBe(mode)
+  }
+})
 
 test('nothing stored yet reads back as undefined', () => {
   const store = memoryDeviceStore()

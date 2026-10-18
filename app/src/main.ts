@@ -308,10 +308,13 @@ import {
 } from '../../src/video-effects.js'
 import { DEFAULT_VOICE_PRESET, type VoicePreset } from '../../src/voice-effects.js'
 import { BACKGROUNDS, CameraPipeline, type BackgroundChoice } from './video-pipeline.js'
+import { facePrivacyMode } from '../../src/face-privacy.js'
+import type { FacePrivacyState } from './face-privacy.js'
 import { MicPipeline, type MicState } from './voice-pipeline.js'
 import {
   loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId, loadVoicePreset,
   storeBackgroundId, storeBlurStrength, storeCameraDeviceId, storeEffectMode, storeMicDeviceId, storeVoicePreset,
+  loadFacePrivacyMode, storeFacePrivacyMode,
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
@@ -5646,6 +5649,8 @@ async function toggleCamera(): Promise<void> {
   } else {
     const pipeline = new CameraPipeline({
       mode: savedEffectMode,
+      facePrivacy: savedFacePrivacyMode,
+      onFacePrivacyChange: state => { if (generation === callGeneration) renderFacePrivacyState(state) },
       strength: savedBlurStrength,
       framing: framingEnabled,
       onStateChange: state => { if (generation === callGeneration) renderEffectState(state) },
@@ -5761,6 +5766,17 @@ function renderEffectState(state: VideoEffectState): void {
   }
 
   renderEffectFailureNotice()
+}
+
+function renderFacePrivacyState(state?: FacePrivacyState): void {
+  const current = state ?? camera?.facePrivacyState
+  const mode = current?.mode ?? savedFacePrivacyMode
+  $('facePrivacyMode').textContent = mode
+  markSegmented('facePrivacyModes', 'privacy', mode)
+  const notice = $('facePrivacyNotice')
+  notice.hidden = !camera || mode === 'off'
+  notice.textContent = current?.message ?? ''
+  notice.classList.toggle('broken', mode === 'mask' && current?.covered === true)
 }
 
 /**
@@ -6436,6 +6452,7 @@ function updateUi(): void {
   // off has to be visible without hunting for it, and the paragraph saying
   // what neither effect can do is worth as much as the buttons above it.
   revealEffects('cameraEffects', !!camera)
+  renderFacePrivacyState()
   revealEffects('voiceEffects', true)
   ;($('voicePreview') as HTMLButtonElement).disabled = !mic || mic.state.blocked
   if (camera) renderBackgroundChoices()
@@ -16541,6 +16558,15 @@ $('effectModes').addEventListener('click', (event) => {
   setEffectMode(mode).catch((err) => setStatus(describeError(err)))
 })
 
+$('facePrivacyModes').addEventListener('click', (event) => {
+  const value = (event.target as HTMLElement).closest('button')?.dataset.privacy
+  if (!value) return
+  savedFacePrivacyMode = facePrivacyMode(value)
+  storeFacePrivacyMode(deviceStore, savedFacePrivacyMode)
+  camera?.setFacePrivacyMode(savedFacePrivacyMode)
+  renderFacePrivacyState()
+})
+
 $('blurStrength').addEventListener('input', (event) => {
   const strength = Number((event.target as HTMLInputElement).value) / 100
   camera?.setStrength(strength)
@@ -18522,6 +18548,7 @@ $('chatInput').addEventListener('input', showPasteSize)
 // to stay one line to change.
 const savedEffectMode = loadEffectMode(deviceStore) ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off')
 const savedBlurStrength = loadBlurStrength(deviceStore) ?? DEFAULT_BLUR_STRENGTH
+let savedFacePrivacyMode = loadFacePrivacyMode(deviceStore)
 let savedVoicePreset = loadVoicePreset(deviceStore) ?? DEFAULT_VOICE_PRESET
 const savedBackgroundId = loadBackgroundId(deviceStore)
 if (savedBackgroundId && BACKGROUNDS.some((b) => b.id === savedBackgroundId)) backgroundId = savedBackgroundId
@@ -18530,6 +18557,7 @@ markSegmented('effectModes', 'mode', savedEffectMode)
 markSegmented('voicePresets', 'preset', savedVoicePreset)
 $('effectMode').textContent = savedEffectMode
 $('voiceMode').textContent = savedVoicePreset
+renderFacePrivacyState()
 
 // What kind of visit this is, said before the relays are asked.
 //

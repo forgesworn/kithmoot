@@ -7,8 +7,10 @@ import {
   type VideoEffectState,
 } from '../../src/video-effects.js'
 import { ReefBackground, type FishSprite } from '../../src/reef-scene.js'
-import { createSegmenter } from './mediapipe-segmenter.js'
+import { OwnedCameraVision } from './owned-camera-vision.js'
 import { AutoFramer, personBox } from './auto-frame.js'
+import { FacePrivacy, type FacePrivacyState } from './face-privacy.js'
+import type { FacePrivacyMode } from '../../src/face-privacy.js'
 
 /**
  * The camera, with the effect wired into it.
@@ -164,6 +166,8 @@ function loadBackgroundImage(choice: BackgroundChoice): Promise<HTMLImageElement
 }
 
 export interface CameraPipelineOptions {
+  facePrivacy?: FacePrivacyMode
+  onFacePrivacyChange?: (state: FacePrivacyState) => void
   onStateChange?: (state: VideoEffectState) => void
   /** The camera device went away: unplugged, or taken by something else.
    *  Reported on the *source* track rather than the published one, because
@@ -206,6 +210,8 @@ export class CameraPipeline {
   /** What the effect paints: the whole frame, already safe to send. */
   readonly #stage: HTMLCanvasElement
   readonly #effect: VideoEffect
+  readonly #facePrivacy: FacePrivacy
+  readonly #vision = new OwnedCameraVision()
   readonly #framer = new AutoFramer()
   #framing: boolean
   readonly #onStateChange?: (state: VideoEffectState) => void
@@ -250,6 +256,8 @@ export class CameraPipeline {
     if (!ctx) throw new Error('the camera canvas has no 2D context')
     this.#canvasCtx = ctx
     this.#stage = document.createElement('canvas')
+    this.#facePrivacy = new FacePrivacy(this.#stage, opts.onFacePrivacyChange, async () => this.#vision.detector())
+    this.#facePrivacy.setMode(opts.facePrivacy ?? 'off')
     this.#framing = opts.framing ?? true
 
     this.#effect = new VideoEffect({
@@ -260,11 +268,7 @@ export class CameraPipeline {
         canvas.height = height
         return canvas
       },
-      loadSegmenter: () =>
-        createSegmenter({
-          wasmPath: `${import.meta.env.BASE_URL}mediapipe`,
-          modelPath: `${import.meta.env.BASE_URL}models/selfie_segmenter.tflite`,
-        }),
+      loadSegmenter: async () => this.#vision.segmenter(),
       mode: opts.mode ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off'),
       strength: opts.strength ?? DEFAULT_BLUR_STRENGTH,
       onStateChange: (state) => this.#onStateChange?.(state),
@@ -368,6 +372,7 @@ export class CameraPipeline {
    * the old camera stopped and the new one opened.
    */
   async useCamera(opts: { deviceId?: string; facingMode?: 'user' | 'environment' }): Promise<void> {
+    this.#vision.reset()
     this.#effect.invalidateSource()
     if (opts.facingMode) this.#facingMode = opts.facingMode
     this.#deviceId = opts.deviceId
@@ -413,6 +418,21 @@ export class CameraPipeline {
 
   setMode(mode: EffectMode): void {
     this.#effect.setMode(mode)
+  }
+
+  get facePrivacyState(): FacePrivacyState { return this.#facePrivacy.state }
+
+
+  setFacePrivacyMode(mode: FacePrivacyMode): void {
+    this.#facePrivacy.setMode(mode)
+    // Clear the published canvas synchronously, before the next camera
+    // callback or any asynchronous model work can arrive.
+    if (mode !== 'off') {
+      this.#stage.width = this.#canvas.width
+      this.#stage.height = this.#canvas.height
+      this.#facePrivacy.cover()
+      this.#frame(this.#canvas.width, this.#canvas.height)
+    }
   }
 
   /** Keep the person centred, or send the whole frame. */
@@ -513,6 +533,8 @@ export class CameraPipeline {
     this.#watchdog = null
     this.#cancelSchedule()
     this.#effect.close()
+    this.#facePrivacy.close()
+    this.#vision.reset()
     for (const t of this.#stream?.getTracks() ?? []) t.stop()
     for (const t of this.#outputStream?.getTracks() ?? []) t.stop()
     this.#stream = null
@@ -595,7 +617,7 @@ export class CameraPipeline {
     if (this.#stage.width !== width || this.#stage.height !== height) return
     if (this.#canvas.width !== width) this.#canvas.width = width
     if (this.#canvas.height !== height) this.#canvas.height = height
-    const crop = this.#framing ? this.#framer.next(personBox(this.#effect.personMask)) : { x: 0, y: 0, width: 1, height: 1 }
+    const crop = this.#framing && this.#facePrivacy.mode === 'off' ? this.#framer.next(personBox(this.#effect.personMask)) : { x: 0, y: 0, width: 1, height: 1 }
     this.#canvasCtx.drawImage(this.#stage, crop.x * width, crop.y * height, crop.width * width, crop.height * height, 0, 0, width, height)
   }
 
@@ -609,12 +631,23 @@ export class CameraPipeline {
 
   #draw(): void {
     if (!this.#running) return
-    const width = this.#video.videoWidth
-    const height = this.#video.videoHeight
-    if (width === 0 || height === 0) return
+    const width = this.#video.videoWidth || this.#canvas.width
+    const height = this.#video.videoHeight || this.#canvas.height
+    if (this.#video.videoWidth === 0 || this.#video.videoHeight === 0) {
+      if (this.#facePrivacy.mode !== 'off') {
+        this.#stage.width = width
+        this.#stage.height = height
+        this.#facePrivacy.cover()
+        this.#frame(width, height)
+      }
+      return
+    }
 
     const startedAt = performance.now()
-    const action = this.#effect.renderFrame(this.#video, width, height, startedAt)
+    let action: FrameAction = 'cover'
+    this.#facePrivacy.render(this.#video, width, height, startedAt, () => {
+      action = this.#effect.renderFrame(this.#video, width, height, startedAt)
+    })
     this.#frame(width, height)
     const cost = performance.now() - startedAt
 

@@ -1,0 +1,16 @@
+[package]
+name = "kithmoot-vision"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Portable first-party inference for KithMoot's experimental camera model"
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

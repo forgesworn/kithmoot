@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-18",
+  "purpose": "Mobile architecture learning plumbing only; not real-camera qualification.",
+  "training": {
+    "architecture": "kithmoot-camera-vision-experimental-v2",
+    "status": "experimental",
+    "qualified": false,
+    "licence": "MIT",
+    "pretrained_weights": null,
+    "seed": 18,
+    "torch": "2.10.0",
+    "device": "mps",
+    "steps": 250,
+    "parameters": 19974,
+    "manifest_sha256": "cf11bae6df3a1f0f0324ac2b973f89bfc34832176ee2738d07b4fa17232b9ec9",
+    "weights_sha256": "faab15d715c8f57879d5e9f2a256a1e3348a1f75fd741514ca9b4622dce1d39d",
+    "first_training_loss": 4.735898494720459,
+    "last_training_loss": 1.5887490510940552,
+    "validation_loss": 2.238901694615682,
+    "real_camera_acceptance": false,
+    "synthetic_only": true
+  },
+  "held_out": {
+    "status": "experimental",
+    "qualified": false,
+    "weights_sha256": "faab15d715c8f57879d5e9f2a256a1e3348a1f75fd741514ca9b4622dce1d39d",
+    "test_manifest_sha256": "cf11bae6df3a1f0f0324ac2b973f89bfc34832176ee2738d07b4fa17232b9ec9",
+    "synthetic_only": true,
+    "evaluation": "single frames; no ground-truth temporal input",
+    "without_setup": {
+      "frames": 12,
+      "faces": 18,
+      "matched_faces_iou_0_5": 0,
+      "face_recall": 0.0,
+      "false_positive_faces": 1,
+      "unusable_detection_frames": 11,
+      "mean_foreground_iou": 0.25,
+      "held_object_pixels": 8707,
+      "held_object_recall": 0.0,
+      "real_camera_acceptance": false
+    },
+    "with_optional_reference": {
+      "frames": 12,
+      "faces": 18,
+      "matched_faces_iou_0_5": 0,
+      "face_recall": 0.0,
+      "false_positive_faces": 1,
+      "unusable_detection_frames": 11,
+      "mean_foreground_iou": 0.25,
+      "held_object_pixels": 8707,
+      "held_object_recall": 0.0,
+      "real_camera_acceptance": false
+    },
+    "real_camera_acceptance": false
+  },
+  "qualified": false
+}
