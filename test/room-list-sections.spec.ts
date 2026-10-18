@@ -86,7 +86,9 @@ test('a long list is in sections, and Older folds away and stays folded', async 
     await expect(page.locator('#roomList .roomRow')).toHaveCount(12)
 
     await page.getByRole('button', { name: 'Older' }).click()
-    await expect(page.getByRole('button', { name: 'Older · 5', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    const older = page.locator('#roomList .sectionFold[data-section="older"]')
+    await expect(older).toHaveText('Older · 5')
+    await expect(older).toHaveAttribute('aria-expanded', 'false')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(7)
     await expect(row(page, 'Room 12')).toHaveCount(0)
   } finally { await page.context().close() }
