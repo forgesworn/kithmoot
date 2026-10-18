@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '23 8 * * 1'
   workflow_dispatch:
+    inputs:
+      native_lock_release_diagnostic:
+        description: Check native cross-page release ordering with a fixed bounded probe
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -17,3 +22,37 @@ jobs:
         with:
           node-version: 24
       - run: node scripts/check-protocol-upstream.mjs
+
+  native-lock-release-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.native_lock_release_diagnostic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Record the isolated native probe identity
+        run: npx playwright test -c playwright.native-lock-release-order.config.ts --project=${{ matrix.engine }} --list --reporter=json > native-release-inventory.json
+      - name: Run the fixed native probe once
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/native-release-report.json
+        run: npx playwright test -c playwright.native-lock-release-order.config.ts --project=${{ matrix.engine }} --workers=1 --retries=0 --repeat-each=1 --max-failures=1 --reporter=list,json
+      - name: Retain bounded native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-lock-release-${{ matrix.engine }}
+          path: |
+            native-release-inventory.json
+            test-results/
+          if-no-files-found: error
+          retention-days: 7
