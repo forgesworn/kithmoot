@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '23 8 * * 1'
   workflow_dispatch:
+    inputs:
+      link_release_diagnostic:
+        description: Observe the exact WebKit Link handover without changing its assertions
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -17,3 +22,36 @@ jobs:
         with:
           node-version: 24
       - run: node scripts/check-protocol-upstream.mjs
+
+
+  link-release-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.link_release_diagnostic
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install --with-deps webkit
+      - name: Retain the original vault prelude
+        run: npm run test:vault -- --project=webkit
+      - name: Record the exact four Link and room identities
+        run: npx playwright test -c playwright.link.config.ts --project=webkit --workers=2 --list --reporter=json > link-release-inventory.json
+      - name: Run the instrumented four-case gate once
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/link-release-report.json
+        run: npx playwright test -c playwright.link.config.ts --project=webkit --workers=2 --retries=0 --repeat-each=1 --max-failures=1 --reporter=list,json
+      - name: Retain bounded diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: webkit-link-release-diagnostic
+          path: |
+            link-release-inventory.json
+            test-results/
+          if-no-files-found: error
+          retention-days: 7
