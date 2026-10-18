@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.87",
+  "currentRelease": "0.1.88",
   "releases": [
     {
-      "version": "0.1.87",
+      "version": "0.1.88",
       "updateTo": {
-        "version": "0.1.87",
-        "pub_date": "2026-10-18T15:09:06Z",
-        "notes": "Meeting codes: share a short code instead of a full link. Automatic replies no longer give away when a device is in use.",
-        "name": "0.1.87",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.87/KithMoot-0.1.87-mac-arm64.zip",
-        "sha256": "717fadfbcd2c63ecc8d363b47bcb2b91a37df8d06130c4b5d82725d0b0bc0913",
-        "size": 177693663
+        "version": "0.1.88",
+        "pub_date": "2026-10-18T21:30:00Z",
+        "notes": "Choose Avatar before starting the camera to replace the whole picture with original mask artwork. Automatic face masks, framing and person cut-outs remain unavailable.",
+        "name": "0.1.88",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.88/KithMoot-0.1.88-mac-arm64.zip",
+        "sha256": "952a17fd42cc993f0816838100471079e2ffe84324d2a9660eea52bab4067d55",
+        "size": 170800750
       }
     }
   ]

@@ -1,20 +1,12 @@
 // Fails the build if a known third-party telemetry endpoint has made it
 // into the built app.
 //
-// `@mediapipe/tasks-vision` >=1.0.1-rc has an ungated usage logger: creating
-// any task constructs it, and it POSTs protobuf to
-// https://odml.pa.googleapis.com/v1/log every 60s and on close(), with an
-// `x-goog-api-key` header baked into the wasm. That is exactly the kind of
-// call a room reaching a third party the app never asked to trust - the
-// same failure mode the MediaPipe runtime is already served from our own
-// origin to avoid (see app/vite.config.ts). The dependency is pinned to an
-// exact version proven clean of it, but a bump - by hand or by a careless
-// `npm update` - would silently reintroduce it, so the build checks the
-// output rather than trusting the pin.
+// The old MediaPipe stack is removed. Keep checking the built bytes for
+// its usage logger and camera-model assets so it cannot return silently.
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const FORBIDDEN = ['odml.pa.googleapis.com', 'x-goog-api-key', '_mediapipeLoggerGetEncodedApiKey']
+const FORBIDDEN = ['odml.pa.googleapis.com', 'x-goog-api-key', '_mediapipeLoggerGetEncodedApiKey', '@mediapipe/tasks-vision', 'selfie_segmenter.tflite', 'blaze_face_short_range.tflite']
 
 const dir = process.argv[2]
 if (!dir) throw new Error('Usage: check-no-telemetry.mjs <built-output-dir>')
@@ -50,7 +42,7 @@ if (hits.length > 0) {
     '\nThis app promises that turning on a camera effect never phones home. ' +
       'A dependency bump likely reintroduced the MediaPipe usage logger - see ' +
       'docs/decisions.md and scripts/check-no-telemetry.mjs for the history. ' +
-      'Pin @mediapipe/tasks-vision to a version proven clean of these strings.',
+      'Remove the reintroduced camera SDK or telemetry rather than pinning it.',
   )
   process.exit(1)
 }

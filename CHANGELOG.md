@@ -1,5 +1,10 @@
 # Changelog
 
+## Desktop 0.1.88 and Android 0.6.91 — 18 October 2026
+
+- Add an original full-picture masked avatar, remembered before capture starts. Prepare face-mask compositing and a separate MIT neural vision training library. Automatic face masking remains unavailable pending qualified weights.
+- Remove MediaPipe camera effects and bundled Google background weights. Until the owned model is ready, blur covers the whole picture and a backdrop replaces the whole picture; person cut-outs and automatic framing are unavailable in this branch.
+
 ## Desktop 0.1.87 and Android 0.6.90 — 18 October 2026
 
 - Meeting codes: the creator of a room they can end can get a short code such as ABC-DEF-GH and a link kithmoot.app/c/ABC-DEF-GH, optionally with a password of four words. Join with code is on the home screen, and the desktop app opens code links. Without a password the code service can read the invitation it holds; with one it holds only an encrypted copy. Android does not yet join by code.

@@ -1,0 +1,9 @@
+__pycache__/
+*.egg-info/
+.venv/
+data/
+runs/
+*.pt
+*.pt2
+*.onnx
+*.kvm

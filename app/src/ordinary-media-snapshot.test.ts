@@ -14,7 +14,7 @@ it.each(MEDIA_MODES)('retains actual %s writer bytes without media, clock or aut
     expect(Object.values(result).every(v => Number.isSafeInteger(v) && v >= 0)).toBe(true)
     expect(validate(f.records, true, { kind: f.kind })).toEqual(result)
     expect([...f.records]).toEqual(before); expect(clock).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled()
-    if (mode === 'all') expect(Object.values(result)).toEqual([1, 1, 1, 1, 1, 1, 1])
+    if (mode === 'all') expect(Object.values(result)).toEqual([1, 1, 1, 1, 1, 1, 1, 0])
     else expect(Object.values(result).reduce((a, b) => a + b)).toBe(1)
   } finally { clock.mockRestore(); fetcher.mockRestore() }
 })
@@ -25,6 +25,16 @@ it.each(MEDIA_FAULTS)('holds %s intact in raw and completed browser images', fau
 })
 it('refuses browser media choices in a tab owner', () => {
   expect(() => validate(mediaFixture().records, false, { kind: 'tab' })).toThrow(OrdinaryStateHold)
+})
+it.each(['off', 'mask', 'avatar'])('retains %s face privacy across protected startup', mode => {
+  const records = new Map([['kithmoot.call.facePrivacy', mode]])
+  expect(validate(records, false, { kind: 'browser' }).facePrivacyModes).toBe(1)
+  expect(validate(records, true, { kind: 'browser' }).facePrivacyModes).toBe(1)
+  expect(() => validate(records, false, { kind: 'tab' })).toThrow(OrdinaryStateHold)
+  expect(records.get('kithmoot.call.facePrivacy')).toBe(mode)
+})
+it('holds unknown face privacy values for recovery', () => {
+  expect(() => validate(new Map([['kithmoot.call.facePrivacy', 'unknown']]), false, { kind: 'browser' })).toThrow(OrdinaryStateHold)
 })
 it('refuses unknown owner kinds even for an empty snapshot', () => {
   expect(() => validate(new Map(), false, { kind: 'other' as 'browser' })).toThrow(OrdinaryStateHold)

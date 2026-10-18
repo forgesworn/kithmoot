@@ -228,7 +228,7 @@ html[data-call-first] #deviceControls #callWho {
 
 /* The lines above the row, top to bottom. Each is the whole width and
    wraps as text does: never an ellipsis, never past the edge. */
-html[data-call-first] #deviceControls > :is(#mediaRecoveryNote, #effectDegradedNotice, #screenAudioNote, #redactionNote) {
+html[data-call-first] #deviceControls > :is(#mediaRecoveryNote, #screenAudioNote, #redactionNote) {
   order: -4;
   flex: 1 0 100%;
   margin: 0;

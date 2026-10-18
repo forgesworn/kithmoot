@@ -16,10 +16,10 @@ function reserved(name: string): boolean {
  * composite and real browser/tab owners are still required before startup. */
 export function validateOrdinaryMediaSnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
   options: { kind: 'browser' | 'tab' }): Readonly<{ effectModes: number; backgrounds: number; blurStrengths: number;
-    voicePresets: number; cameraChoices: number; microphoneChoices: number; callProfiles: number }> {
+    voicePresets: number; cameraChoices: number; microphoneChoices: number; callProfiles: number; facePrivacyModes: number }> {
   if (!['browser', 'tab'].includes(options.kind)) hold()
   const counts = { effectModes: 0, backgrounds: 0, blurStrengths: 0, voicePresets: 0,
-    cameraChoices: 0, microphoneChoices: 0, callProfiles: 0 }
+    cameraChoices: 0, microphoneChoices: 0, callProfiles: 0, facePrivacyModes: 0 }
   for (const [name, raw] of records) {
     if (name.startsWith('kithmoot.account.') && (name.includes('.' + CALL + '.') || name.endsWith('.' + CALL)
       || name.includes('.' + PROFILE + '.') || name.endsWith('.' + PROFILE))) hold()
@@ -35,6 +35,8 @@ export function validateOrdinaryMediaSnapshot(records: ReadonlyMap<string, strin
     }
     if (options.kind !== 'browser') hold()
     switch (name) {
+      case CALL + '.facePrivacy':
+        if (!['off', 'mask', 'avatar'].includes(raw)) hold(); counts.facePrivacyModes++; break
       case CALL + '.effectMode':
         if (!modes.includes(raw)) hold(); counts.effectModes++; break
       case CALL + '.background':

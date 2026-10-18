@@ -21,6 +21,17 @@
 import type { EffectMode } from '../../src/video-effects.js'
 import type { VoicePreset } from '../../src/voice-effects.js'
 import type { DeviceStore } from './device-store.js'
+import { facePrivacyMode, type FacePrivacyMode } from '../../src/face-privacy.js'
+
+const FACE_PRIVACY_KEY = 'kithmoot.call.facePrivacy'
+
+export function loadFacePrivacyMode(store: DeviceStore): FacePrivacyMode {
+  return facePrivacyMode(readString(store, FACE_PRIVACY_KEY))
+}
+
+export function storeFacePrivacyMode(store: DeviceStore, mode: FacePrivacyMode): void {
+  writeString(store, FACE_PRIVACY_KEY, mode)
+}
 
 const EFFECT_MODE_KEY = 'kithmoot.call.effectMode'
 const BACKGROUND_KEY = 'kithmoot.call.background'

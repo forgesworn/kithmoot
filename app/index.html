@@ -93,6 +93,10 @@
           <span id="callStripText" class="callStripText">Nobody is on a call.</span>
           <button id="callStripAction" type="button" class="primary">Start call</button>
         </div>
+        <div id="cameraPrivacyNotices">
+          <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
+          <p id="facePrivacyNotice" class="indicator" role="status" hidden></p>
+        </div>
         <!-- The call. Absent until there is one, the way a phone shows call
              controls only during a call. Revealed by the Call button above,
              and kept open for as long as anything of yours is live. -->
@@ -138,12 +142,6 @@
             <p id="micIndicator" class="indicator"></p>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>
-            <!-- The background effect has failed and is covering or blurring
-                 the whole frame while it retries. Shown here, next to the
-                 self-view, rather than only inside the collapsed "Hide what
-                 is behind you" details - see `renderEffectState` in
-                 app/src/main.ts. -->
-            <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box
                  left unticked. The share still works; it is simply quiet. -->
@@ -210,6 +208,15 @@
             </details>
 
             <div id="effects">
+              <details id="facePrivacyEffects">
+                <summary>Hide your face <span id="facePrivacyMode" class="chip">off</span></summary>
+                <div class="segmented" id="facePrivacyModes" role="radiogroup" aria-label="Hide your face">
+                  <button type="button" class="seg" role="radio" data-privacy="off" aria-checked="true">Off</button>
+                  <button type="button" class="seg" role="radio" data-privacy="mask" aria-checked="false" disabled>Tracked mask unavailable</button>
+                  <button type="button" class="seg" role="radio" data-privacy="avatar" aria-checked="false">Avatar</button>
+                </div>
+                <p class="note">Avatar replaces the whole camera picture. Automatic face masking is being developed. The camera stays on locally. Your voice and shared screen can still identify you.</p>
+              </details>
               <details id="cameraEffects" hidden>
                 <summary>Hide what is behind you <span id="effectMode" class="chip">blur</span></summary>
                 <div class="segmented" id="effectModes" role="radiogroup" aria-label="Background">
@@ -218,14 +225,14 @@
                   <button type="button" class="seg" role="radio" data-mode="replace">Replace</button>
                 </div>
                 <div class="effectRow" id="strengthRow">
-                  <label for="blurStrength">Strength</label>
-                  <input id="blurStrength" type="range" min="0" max="100" step="1" value="60" />
+                  <label for="blurStrength">Strength (full blur only)</label>
+                  <input id="blurStrength" type="range" min="0" max="100" step="1" value="60" disabled />
                 </div>
                 <div class="segmented" id="backgroundChoices" role="radiogroup" aria-label="Picture" hidden></div>
                 <div class="effectRow" id="framingRow">
-                  <label for="framingToggle" title="Zooms in a little and follows you, so you stay in the middle of the picture everybody sees">
-                    <input id="framingToggle" type="checkbox" />
-                    Keep me in the middle of the picture
+                  <label for="framingToggle" title="Automatic framing is unavailable in this build">
+                    <input id="framingToggle" type="checkbox" disabled />
+                    Automatic framing unavailable
                   </label>
                 </div>
                 <div class="effectRow" id="fishRow" hidden>
@@ -239,12 +246,8 @@
                 </div>
                 <p id="effectStatus" class="indicator"></p>
                 <p class="note">
-                  Blur is on the first time you turn the camera on. It is the
-                  computer's best guess at where you stop and your room starts,
-                  so edges, dim light and quick movement all let bits of the room
-                  through for a moment at a time. It uses battery, and on a slow
-                  machine it costs you smooth video. It makes your room harder to
-                  see. It is not a promise that nobody can see it.
+                  Background cut-outs are unavailable in this build. Blur covers the
+                  whole picture; a chosen backdrop replaces the whole picture.
                 </p>
               </details>
 
