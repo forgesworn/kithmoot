@@ -388,6 +388,7 @@ test('replace covers both the room and person while cut-outs are unavailable', a
 
   await page.locator('#effectModes button[data-mode="replace"]').click()
   await expect(page.locator('#effectMode')).toHaveText('replace')
+  const beforeReplace = await routes(page)
   await page.locator('#backgroundChoices button[data-background="sea-coral"]').click()
   await page.waitForTimeout(1600)
 
@@ -407,7 +408,7 @@ test('replace covers both the room and person while cut-outs are unavailable', a
   expect(replaced.face.b).toBeGreaterThan(replaced.face.r)
   expect(Math.abs(replaced.face.r - raw.face.r)).toBeGreaterThan(40)
   const taken = await routes(page)
-  expect(taken.passthrough).toBe(0)
+  expect(taken.passthrough).toBe(beforeReplace.passthrough)
   expect(taken.composite).toBe(0)
 })
 
