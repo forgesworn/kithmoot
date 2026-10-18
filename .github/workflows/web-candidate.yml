@@ -7,6 +7,15 @@ on:
         description: Exact reviewed source commit (40 lowercase hex characters)
         required: true
         type: string
+      public_browser_check:
+        description: Run read-only browser checks against the published PWA
+        required: false
+        default: false
+        type: boolean
+      publication_tag:
+        description: Exact published release timestamp (YYYYMMDDTHHMMSSZ)
+        required: false
+        type: string
   # A change to this producer builds the frozen PR BASE, never unreviewed app
   # changes on its head. Retargeting the producer PR to main builds that main.
   pull_request:
@@ -18,6 +27,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name == 'pull_request' || !inputs.public_browser_check
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -114,3 +124,52 @@ jobs:
         if: always()
         shell: bash
         run: rm -rf -- .web-candidate-build-tmp
+
+
+  public-browser-verification:
+    if: github.event_name == 'workflow_dispatch' && inputs.public_browser_check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      PUBLICATION_TAG: ${{ inputs.publication_tag }}
+      TMPDIR: ${{ github.workspace }}/release/public-browser-job-tmp
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/release/public-browser-cache
+    steps:
+      - name: Require exact reviewed publication identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PUBLICATION_TAG" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Run the six isolated public browser assertions once
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TMPDIR"
+          npm ci
+          npx playwright install --with-deps chromium firefox webkit
+          mkdir -p "release/public-browser-verification/$PUBLICATION_TAG"
+          git rev-parse HEAD > "release/public-browser-verification/$PUBLICATION_TAG/validation-source.txt"
+          printf '%s\n' "$SOURCE_SHA" > "release/public-browser-verification/$PUBLICATION_TAG/expected-publication-source.txt"
+          node scripts/verify-public-pwa-browser.mjs "$PUBLICATION_TAG"
+          git diff --exit-code
+      - name: Retain public browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-pwa-browser-${{ inputs.publication_tag }}
+          path: release/public-browser-verification/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove owned browser scratch
+        if: always()
+        shell: bash
+        run: rm -rf -- release/public-browser-job-tmp release/public-browser-cache
