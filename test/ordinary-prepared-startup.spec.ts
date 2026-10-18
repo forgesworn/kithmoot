@@ -1,4 +1,5 @@
 import {build} from 'esbuild'
+import {instrumentPreparedStartup,instrumentPreparedStartupOwner,installPreparedStartupDiagnostic,snapshotPreparedStartupDiagnostic} from './ordinary-prepared-startup-diagnostic.js'
 import {readFile,mkdir,mkdtemp,rm} from 'node:fs/promises'
 import {dirname} from 'node:path'
 import {test,expect,chromium,firefox,webkit,type Page} from '@playwright/test'
@@ -7,12 +8,14 @@ import {generateSecretKey, getPublicKey, finalizeEvent} from 'nostr-tools/pure'
 import {controls} from './ordinary-member-session.setup.js'
 const ORIGIN='https://ordinary-renewal-startup.invalid'
 let bundle=''
+const beforeReload=new WeakMap<Page,unknown>()
+const OBSERVED_TITLE='fresh prepared startup signs once only after started ACK, visitor=false, keep=false, priorLease=true'
 test.beforeAll(async()=>{
   bundle=(await build({entryPoints:['test/ordinary-renewal-enrollment.browser-entry.ts'],bundle:true,write:false,format:'iife',globalName:'Ordinary',platform:'browser',target:'es2022',
     plugins:[{name:'actual-private-renewal-startup-cut',setup(builder){builder.onLoad({filter:/ordinary-persistent-bootstrap\.ts$/},async input=>{
       const source=await readFile(input.path,'utf8'),marker='            const selected = source\n'
       if(source.split(marker).length!==2)throw Error('startup private factory fixture drift')
-      return {loader:'ts',contents:source.replace(marker,`            const observer=globalThis as any
+      return {loader:'ts',contents:instrumentPreparedStartup(source.replace(marker,`            const observer=globalThis as any
             if(observer.skipStartupCuts>0){observer.skipStartupCuts--}else{
             const outcome=await OrdinaryStateOwner.enrollMemberRenewal(obligation!)
             if(outcome.status!=='enrolled')throw Error('startup fixture did not enroll')
@@ -33,8 +36,8 @@ test.beforeAll(async()=>{
             await new Promise<void>(resolve=>observer.releaseStartupCut=resolve)
             protocol!.close();return
             }
-`+marker)}
-    });builder.onLoad({filter:/ordinary-renewal-candidate\.ts$/},async input=>{
+`+marker))}
+    });builder.onLoad({filter:/ordinary-state-owner\.ts$/},async input=>({loader:'ts',contents:instrumentPreparedStartupOwner(await readFile(input.path,'utf8'))}));builder.onLoad({filter:/ordinary-renewal-candidate\.ts$/},async input=>{
       const source=await readFile(input.path,'utf8'),marker='        if(intent.keep)b.set(persistentProofName(verified.proof.binding),proofRaw)'
       if(source.split(marker).length!==2)throw Error('historical lineage comparison fixture drift')
       const candidateMarker='  return candidate\n'
@@ -117,6 +120,9 @@ async function preparedRestart(page:Page,visitor:boolean,keep:boolean,priorLease
   await page.evaluate(`(${controls})()`);await page.evaluate('join()')
   if(priorLease){
     await page.evaluate("window.skipStartupCuts=1;window.requestedStage='prepared'")
+    // Observation starts before the clock schedules renewal. Nothing is awaited
+    // between the original clock advance and the unchanged five-second poll.
+    if(!visitor&&!keep)await page.evaluate(installPreparedStartupDiagnostic)
     await page.clock.fastForward(901000)
     await expect.poll(()=>page.evaluate('(async()=>{try{const result=await bootstrap.load();try{return result.sealKeys.length}finally{Ordinary.wipeOrdinaryPersistentBootstrapResult(result)}}catch{return 0}})()')).toBe(2)
     await page.evaluate("member.send('first generation')")
@@ -124,6 +130,7 @@ async function preparedRestart(page:Page,visitor:boolean,keep:boolean,priorLease
   await page.evaluate("window.requestedStage='prepared'");await page.clock.fastForward(901000);await page.waitForFunction("window.actualStage==='prepared'")
   const captured=await page.evaluate<any>(`({account,participant,keep,link:url,inviter:invitation.inviter,bearer:Array.from(invitation.bearer),credentialExpiresAt,tabPurpose,tabExpiry,
     time:Date.now(),auth:account===null?null:JSON.stringify(sourceSession.authEvent),method:account===null?null:sourceSession.method})`)
+  if(priorLease&&!visitor&&!keep)beforeReload.set(page,await page.evaluate(snapshotPreparedStartupDiagnostic))
   await page.reload();await page.clock.install({time:new Date(captured.time)})
   await page.evaluate(async value=>{
     const o=(window as any).Ordinary,w=window as any
@@ -338,3 +345,14 @@ for(const cut of [1,3]){
     expect(await page.evaluate('preparedPhase()')).toBe('prepared')
   })
 }
+
+// Keep the original failure and deadline. Emit only bounded state; never recover,
+// release a cut, wait for renewal completion, retry or close a root here.
+test.afterEach(async({page},testInfo)=>{
+  if(testInfo.title!==OBSERVED_TITLE)return
+  let terminal:unknown=null
+  try{terminal=await page.evaluate(snapshotPreparedStartupDiagnostic)}catch{terminal={unavailable:true}}
+  const record={diagnostic:'prepared-startup-original-poll-observability-v1',status:testInfo.status,beforeReload:beforeReload.get(page)??null,terminal}
+  console.log('PREPARED_STARTUP_POLL_STATE '+JSON.stringify(record))
+  await testInfo.attach('prepared-startup-redacted-state',{body:JSON.stringify(record),contentType:'application/json'})
+})
