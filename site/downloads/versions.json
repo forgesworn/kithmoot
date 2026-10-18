@@ -10,8 +10,8 @@
           "kind": "app",
           "filename": "KithMoot-0.1.88-mac-arm64.zip",
           "url": "/apk/desktop/0.1.88/KithMoot-0.1.88-mac-arm64.zip",
-          "bytes": 170800442,
-          "sha256": "eb2fae159ef44d3d4100026efb03d8cc3ddf8ca5187fd136e3d7ee09768bc7a3"
+          "bytes": 170800750,
+          "sha256": "952a17fd42cc993f0816838100471079e2ffe84324d2a9660eea52bab4067d55"
         },
         {
           "os": "windows",
@@ -19,8 +19,8 @@
           "kind": "portable",
           "filename": "KithMoot-0.1.88-windows-x64.zip",
           "url": "/apk/desktop/0.1.88/KithMoot-0.1.88-windows-x64.zip",
-          "bytes": 199390684,
-          "sha256": "757cb6838f3929921ca21a39770fc516239cf3a205ea03ef31e8a88e0e143ed4"
+          "bytes": 199391394,
+          "sha256": "7572604c6e602431badb6099e789a3b10d3b16b382f68e996c04ee81a35a94da"
         },
         {
           "os": "linux",
@@ -28,8 +28,8 @@
           "kind": "deb",
           "filename": "kithmoot_0.1.88_arm64.deb",
           "url": "/apk/desktop/0.1.88/kithmoot_0.1.88_arm64.deb",
-          "bytes": 124389800,
-          "sha256": "61f85bfb34e93a5de7389067de52bc003d6cd0b5d45a233153d61f94e22f5447"
+          "bytes": 124393736,
+          "sha256": "5b1ac7919ebb0349089a29d698c715c700a2b44d354d713f79be9abd4cfdd18d"
         },
         {
           "os": "linux",
@@ -37,8 +37,8 @@
           "kind": "deb",
           "filename": "kithmoot_0.1.88_amd64.deb",
           "url": "/apk/desktop/0.1.88/kithmoot_0.1.88_amd64.deb",
-          "bytes": 129372324,
-          "sha256": "1697c65c65e80216edf8f2c211d48d04650b7c62c820728d9e3ec529b4ebc9ba"
+          "bytes": 129372116,
+          "sha256": "fde494c43c1b65222543bdbc4f8a784465cc752cc364816d72ea7241135fc53b"
         },
         {
           "os": "linux",
@@ -46,8 +46,8 @@
           "kind": "tarball",
           "filename": "KithMoot-0.1.88-linux-arm64.tar.gz",
           "url": "/apk/desktop/0.1.88/KithMoot-0.1.88-linux-arm64.tar.gz",
-          "bytes": 165092487,
-          "sha256": "6f752d65ab04354cadbbdbeb66176f2a8387be48aa58945601e267587aa0e11c"
+          "bytes": 165090547,
+          "sha256": "6303a1e2d11a760f135c4780769896296749613f3b031b0642b369399ddc3de8"
         },
         {
           "os": "linux",
@@ -55,8 +55,8 @@
           "kind": "tarball",
           "filename": "KithMoot-0.1.88-linux-x64.tar.gz",
           "url": "/apk/desktop/0.1.88/KithMoot-0.1.88-linux-x64.tar.gz",
-          "bytes": 163971109,
-          "sha256": "44cbb482cbdf71f4e5b0bc936063daa1dd5ffcd0d1cfee3ceb130b61e189bfe5"
+          "bytes": 163969454,
+          "sha256": "2ef0878d10a6a363c6799cbb1b607c43246de58864c9b49d76192e54aca1060f"
         }
       ]
     },
