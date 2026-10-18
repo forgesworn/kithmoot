@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '23 8 * * 1'
   workflow_dispatch:
+    inputs:
+      private_renewal_validation:
+        description: Run the unaccepted private renewal component validation
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -17,3 +22,91 @@ jobs:
         with:
           node-version: 24
       - run: node scripts/check-protocol-upstream.mjs
+
+  # Non-main validation only. The established CI workflow and its gates are
+  # unchanged; this job validates an explicitly frozen unaccepted source tree.
+  private-renewal-native:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_validation
+    name: private renewal native (${{ matrix.engine }}, ${{ matrix.shard }}/2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+        shard: [1, 2]
+    env:
+      ORDINARY_RENEWAL_SHARD: '${{ matrix.shard }}'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify exact installed validation dependencies
+        run: node scripts/verify-private-renewal-locked-dependencies.mjs > locked-dependencies.json
+      - name: Build library
+        run: npm run build:lib
+      - name: Install selected browser
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Retain and verify the exact fixed title selection
+        run: |
+          npx playwright test -c playwright.private-renewal-validation.config.ts --project=${{ matrix.engine }}-sdk020 --list --reporter=json > private-renewal-inventory.json
+          node scripts/verify-private-renewal-validation-inventory.mjs private-renewal-inventory.json ${{ matrix.engine }} ${{ matrix.shard }}
+      - name: Run the fixed native component selection once
+        run: npx playwright test -c playwright.private-renewal-validation.config.ts --project=${{ matrix.engine }}-sdk020 --max-failures=1 --trace=retain-on-failure
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: private-renewal-native-${{ matrix.engine }}-${{ matrix.shard }}
+          path: |
+            locked-dependencies.json
+            private-renewal-inventory.json
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  private-renewal-support:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_validation
+    name: private renewal units and types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify exact installed validation dependencies
+        run: node scripts/verify-private-renewal-locked-dependencies.mjs > locked-dependencies.json
+      - name: Build library
+        run: npm run build:lib
+      - name: Run the unchanged focused units
+        run: |
+          node node_modules/vitest/vitest.mjs run src/session-retained-native.test.ts src/session-native-binding.test.ts src/session-retention.test.ts src/session-fresh-epoch.test.ts src/session.test.ts src/session-seal.test.ts src/session-member-epoch.test.ts app/src/ordinary-operation-codec.test.ts app/src/ordinary-prepared-renewal-capacity.test.ts app/src/ordinary-renewal-request.test.ts app/src/ordinary-renewal-credential.test.ts app/src/ordinary-member-startup.test.ts app/src/ordinary-protocol-work.test.ts app/src/ordinary-lifecycle-root.test.ts app/src/ordinary-owned-json.test.ts > private-renewal-unit-results.log 2>&1
+          cat private-renewal-unit-results.log
+      - name: App noEmit
+        run: node node_modules/typescript/bin/tsc --noEmit -p app/tsconfig.json > private-renewal-app-noemit.log 2>&1
+      - name: Library noEmit
+        run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json > private-renewal-library-noemit.log 2>&1
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: private-renewal-support
+          path: |
+            locked-dependencies.json
+            private-renewal-unit-results.log
+            private-renewal-app-noemit.log
+            private-renewal-library-noemit.log
+          if-no-files-found: ignore
+          retention-days: 7

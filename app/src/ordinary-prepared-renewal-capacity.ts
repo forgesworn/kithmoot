@@ -1,7 +1,7 @@
 /** @internal Fixed symbolic C size reservation. No custody, permission,
  * signature, random value, key, writer or construction callback is produced. */
 import { ordinaryImageByteLength, OrdinaryStateHold, type OrdinaryImage } from './ordinary-state-codec.js'
-import { ordinaryOperationNames } from './ordinary-operation-codec.js'
+import { ordinaryOperationNames, ordinaryOperationMarker } from './ordinary-operation-codec.js'
 import { readOrdinaryRenewalRequest } from './ordinary-renewal-request.js'
 import { inspectPersistentAdmissionProofs, accountPrefix, PERSISTENT_TAB_PROOF_V2_PREFIX,
   persistentProofName, persistentTabProofName, tabProofBytes } from './persistent-admission-proof.js'
@@ -12,6 +12,14 @@ import { credentialSeal } from '../../src/seal.js'
 function hold(): never { throw new OrdinaryStateHold() }
 const view = (records: ReadonlyMap<string, string>): DeviceStore => ({ keys: () => [...records.keys()], get: name => records.get(name) ?? null, set: hold, remove: hold })
 export function reserveOrdinaryPreparedRenewalImages(predecessor: readonly [OrdinaryImage, OrdinaryImage], enrolled: readonly [OrdinaryImage, OrdinaryImage], raw: string): readonly [number, number] {
+  return reserveImages(predecessor, enrolled, raw, false)
+}
+/** Fixed private pipeline reservation includes the larger settled marker on
+ * the projected C images before any phase entropy or signing can start. */
+export function reserveOrdinaryPrivateRenewalImages(predecessor: readonly [OrdinaryImage, OrdinaryImage], enrolled: readonly [OrdinaryImage, OrdinaryImage], raw: string): readonly [number, number] {
+  return reserveImages(predecessor, enrolled, raw, true)
+}
+function reserveImages(predecessor: readonly [OrdinaryImage, OrdinaryImage], enrolled: readonly [OrdinaryImage, OrdinaryImage], raw: string, settlement: boolean): readonly [number, number] {
   const intent = readOrdinaryRenewalRequest(raw).intent, prefix = accountPrefix(intent.participant)
   const sourceB = predecessor[0].records, sourceT = predecessor[1].records, checked = inspectPersistentAdmissionProofs(view(sourceB), view(sourceT))
   const b = new Map(sourceB), t = new Map(sourceT)
@@ -47,7 +55,16 @@ export function reserveOrdinaryPreparedRenewalImages(predecessor: readonly [Ordi
     for (const [records, image] of [[b, enrolled[0]], [t, enrolled[1]]] as const) {
       const value = image.records.get(marker); if (value === undefined) hold(); records.set(marker, value)
     }
-    return Object.freeze([ordinaryImageByteLength({ ...enrolled[0], revision: enrolled[0].revision + 1, records: b }),
-      ordinaryImageByteLength({ ...enrolled[1], revision: enrolled[1].revision + 1, records: t })])
+    const sizes: [number, number] = [ordinaryImageByteLength({ ...enrolled[0], revision: enrolled[0].revision + 1, records: b }),
+      ordinaryImageByteLength({ ...enrolled[1], revision: enrolled[1].revision + 1, records: t })]
+    if (settlement) {
+      const request = readOrdinaryRenewalRequest(raw), sequence = request.previous ? request.previous.header.sequence + 1 : 1
+      const settled = ordinaryOperationMarker({id: zero, tab: enrolled[1].purpose as `tab:${string}`, sequence, commitment: zero})
+      for (const [i, records] of [b, t].entries()) {
+        records.set(marker, settled)
+        sizes[i] = Math.max(sizes[i]!, ordinaryImageByteLength({...enrolled[i]!, revision: enrolled[i]!.revision + 2, records}))
+      }
+    }
+    return Object.freeze(sizes)
   } finally { checked.close(); b.clear(); t.clear() }
 }

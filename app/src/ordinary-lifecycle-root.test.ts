@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ProtocolTimers } from '../../src/protocol-timers.js'
-import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot } from './ordinary-protocol-work.js'
+import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot, observeOrdinaryLifecycleEnd } from './ordinary-protocol-work.js'
 
 function deferred() {
   let resolve!: () => void
@@ -27,6 +27,26 @@ function fixture(before: (operation: string) => Promise<void> = async () => {}) 
 }
 afterEach(() => vi.useRealTimers())
 describe('private lifecycle ownership (synthetic IO, no native acceptance)', () => {
+  it('cancels an exact quiescent root resource once on transition without closing the graph',async()=>{
+    const f=fixture();let wipes=0
+    await f.work.startRoot(async root=>{
+      expect(()=>observeOrdinaryLifecycleEnd(root,()=>{})).toThrow(OrdinaryProtocolSuspended)
+      await f.work.suspend(root)
+      expect(()=>observeOrdinaryLifecycleEnd({...root},()=>{})).toThrow(OrdinaryProtocolSuspended)
+      observeOrdinaryLifecycleEnd(root,()=>{wipes++})
+      const release=observeOrdinaryLifecycleEnd(root,()=>{throw Error('Unregistered observer')});release();release()
+      expect(wipes).toBe(0);f.work.resume(root);expect(wipes).toBe(1)
+    })
+    await f.work.execution.run('fresh after transition',()=>{})
+    expect(wipes).toBe(1);expect(f.stops()).toBe(0)
+  })
+  it('cancels unconsumed preparation when its root body returns while suspended',async()=>{
+    const f=fixture();let wipes=0
+    await expect(f.work.startRoot(async root=>{
+      await f.work.suspend(root);observeOrdinaryLifecycleEnd(root,()=>{wipes++})
+    })).rejects.toThrow(OrdinaryProtocolSuspended)
+    await f.work.join();expect(wipes).toBe(1);expect(f.stops()).toBe(1)
+  })
   it('runs a timer as the exact sole root, then admits only fresh scopes', async () => {
     vi.useFakeTimers()
     const f = fixture(), timers = new ProtocolTimers(f.work.execution)
@@ -158,4 +178,84 @@ describe('lower-layer lifecycle ownership verification (synthetic IO only)', () 
     expect(() => verifyOrdinaryLifecycleRoot(fake as ProtocolExecution)).toThrow(OrdinaryProtocolSuspended)
     expect(getter).not.toHaveBeenCalled()
   })
+})
+
+describe('fixed actual-graph controller mechanics (synthetic IO only)', () => {
+  it('binds exact executions and refuses forged controls without property access', async () => {
+    const api = await import('./ordinary-protocol-work.js'), f = fixture()
+    const control = api.ordinaryProtocolControlFor(f.work.execution)
+    expect(Object.isFrozen(control)).toBe(true); expect(Reflect.ownKeys(control)).toEqual([])
+    let reflections = 0
+    const fake = new Proxy({}, {get() {reflections++; throw Error('foreign property')}, getPrototypeOf() {reflections++; throw Error('foreign prototype')}})
+    for (const value of [fake, {...f.work.execution}, new Proxy(f.work.execution, {})])
+      expect(() => api.ordinaryProtocolControlFor(value as ProtocolExecution)).toThrow(OrdinaryProtocolSuspended)
+    expect(() => api.verifyOrdinaryProtocolLifecycle(fake as typeof control, fake as ProtocolExecution)).toThrow(OrdinaryProtocolSuspended)
+    const component = api.ordinaryProtocolComponentControlFor(f.work.execution)
+    expect(() => api.verifyOrdinaryProtocolLifecycle(component as unknown as typeof control, fake as ProtocolExecution)).toThrow(OrdinaryProtocolSuspended)
+    expect(reflections).toBe(0)
+  })
+  it('refuses other genuine graphs and prepared-startup roots before selecting caller data', async () => {
+    const api = await import('./ordinary-protocol-work.js'), f = fixture(), other = fixture()
+    const control = api.ordinaryProtocolControlFor(f.work.execution)
+    await other.work.startRoot(async root => {
+      await other.work.suspend(root); verifyOrdinaryLifecycleRoot(root)
+      expect(() => api.verifyOrdinaryProtocolLifecycle(control, root)).toThrow(OrdinaryProtocolSuspended)
+      other.work.resume(root)
+    })
+    const startup = OrdinaryProtocolWork.registerPreparedStartup({}, async root => {
+      verifyOrdinaryLifecycleRoot(root)
+      expect(() => api.verifyOrdinaryProtocolLifecycle(control, root)).toThrow(OrdinaryProtocolSuspended)
+    })
+    await startup.start(); await startup.join(); await other.work.join(); await f.work.join()
+    expect(f.reads).toEqual([]); expect(f.stops()).toBe(0)
+  })
+  it('uses private cores through two fresh roots despite replaced public methods and still drains close', async () => {
+    const api = await import('./ordinary-protocol-work.js'), f = fixture()
+    const control = api.ordinaryProtocolControlFor(f.work.execution), roots: ProtocolExecution[] = []
+    const methods = ['enter','own','startRoot','suspend','checkQuiescent','checkTransition','resume','close','join'] as const
+    const replacements = methods.map(name => vi.spyOn(OrdinaryProtocolWork.prototype, name).mockImplementation((() => {throw Error('replaceable public method')}) as never))
+    try {
+      for (let i = 0; i < 2; i++) await api.startOrdinaryProtocolLifecycle(control, async root => {
+        roots.push(root); await api.suspendOrdinaryProtocolLifecycle(control, root)
+        api.verifyOrdinaryProtocolLifecycle(control, root); verifyOrdinaryLifecycleRoot(root)
+        await f.native.run('fixed transition', () => api.enterOrdinaryProtocolLifecycleScope(control, root, 'transition', () => api.verifyOrdinaryProtocolTransition(control, root)))
+        api.resumeOrdinaryProtocolLifecycle(control, root)
+      })
+      expect(roots[0]).not.toBe(roots[1])
+      for (const root of roots) expect(() => api.verifyOrdinaryProtocolLifecycle(control, root)).toThrow(OrdinaryProtocolSuspended)
+      const held = deferred(), entered = deferred()
+      const owned = api.ownOrdinaryProtocolWork(api.ordinaryProtocolComponentControlFor(f.work.execution), async () => {entered.resolve(); await held.promise})
+      await entered.promise; api.closeOrdinaryProtocolWork(control)
+      let joined = false; const joining = api.joinOrdinaryProtocolWork(control).then(() => {joined = true})
+      await tick(); expect(joined).toBe(false); held.resolve(); await owned; await joining
+      expect(f.stops()).toBe(1)
+      for (const replacement of replacements) expect(replacement).not.toHaveBeenCalled()
+    } finally { for (const replacement of replacements) replacement.mockRestore() }
+  })
+})
+
+
+it('component controls and their child scopes cannot recover lifecycle controls or inert graph identities', async () => {
+  const api = await import('./ordinary-protocol-work.js'), f = fixture()
+  const component = api.ordinaryProtocolComponentControlFor(f.work.execution)
+  const identity = api.ordinaryProtocolGraphIdentityFor(f.work.execution)
+  expect(Object.isFrozen(identity)).toBe(true);expect(Reflect.ownKeys(identity)).toEqual([])
+  expect(() => api.ordinaryProtocolControlFor(identity as unknown as ProtocolExecution)).toThrow(OrdinaryProtocolSuspended)
+  let starts = 0
+  expect(() => api.startOrdinaryProtocolLifecycle(component as unknown as ReturnType<typeof api.ordinaryProtocolControlFor>, async () => {starts++})).toThrow(OrdinaryProtocolSuspended)
+  await api.taskOrdinaryProtocolComponent(component, 'component', async scope => {
+    expect(() => api.ordinaryProtocolControlFor(scope)).toThrow(OrdinaryProtocolSuspended)
+    expect(() => api.ordinaryProtocolGraphIdentityFor(scope)).toThrow(OrdinaryProtocolSuspended)
+    await scope.run('fresh component effect', () => {f.reads.push('component effect')})
+  })
+  expect(starts).toBe(0);await f.work.join()
+})
+
+
+it('component tasks refuse a returned execution instead of releasing it', async () => {
+  const api = await import('./ordinary-protocol-work.js'), f = fixture()
+  const component = api.ordinaryProtocolComponentControlFor(f.work.execution)
+  const leak = (async (scope: ProtocolExecution) => scope) as unknown as (scope: ProtocolExecution) => Promise<void>
+  await expect(api.taskOrdinaryProtocolComponent(component, 'refuse execution result', leak)).rejects.toThrow(OrdinaryProtocolSuspended)
+  await f.work.join();expect(f.stops()).toBe(0)
 })

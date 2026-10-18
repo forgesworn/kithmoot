@@ -71,7 +71,7 @@ export class OrdinaryMemberStartup {
           options.foreground.session.signer !== options.identity) || options.account === null && options.foreground !== undefined) hold()
       await state.#track(() => state.#open())
       state.#check(); return state
-    } catch (error) { state.#stop(); await state.close(); throw error }
+    } catch (error) { state.#stop(); await state.close().catch(() => {}); throw error }
   }
   async #open(): Promise<void> {
     this.#check()
@@ -145,8 +145,14 @@ export class OrdinaryMemberStartup {
     this.#closed = true; this.#stop()
     this.#closing = (async () => {
       while (this.#work.size) await Promise.allSettled([...this.#work])
-      await this.#bootstrap?.close(); await this.#foreground?.close()
+      // The foreground must outlive every bootstrap tail, including a rejected
+      // close. A bootstrap failure cannot skip the remaining owned resource.
+      const errors: unknown[] = []
+      try { await this.#bootstrap?.close() } catch (error) { errors.push(error) }
+      try { await this.#foreground?.close() } catch (error) { errors.push(error) }
       this.#bootstrap = undefined; this.#foreground = undefined
+      if (errors.length === 1) throw errors[0]
+      if (errors.length > 1) throw new AggregateError(errors, 'Ordinary member startup close failed')
     })()
     return this.#closing
   }

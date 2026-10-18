@@ -77,7 +77,10 @@ export async function validateOrdinaryRenewalStartupRows(journal:OrdinaryOperati
     try{restoreOrdinaryRenewalPredecessor(inverse[0],inverse[1],journal.request,{id:journal.id,sequence:journal.sequence});predecessorRole(inverse,intent)}
     finally{inverse.forEach(clear)}
   }
-  if(journal.phase==='prepared')return
+  if(journal.phase==='prepared'){
+    if(journal.version===2){try{getPublicKey(journal.secrets[0]!)}catch{return hold()}}
+    return
+  }
   if(!committed&&journal.secrets.length!==1)hold()
   if(journal.phase==='provider-started'){
     try{getPublicKey(journal.secrets[0]!)}catch{return hold()};return
