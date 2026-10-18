@@ -3,6 +3,10 @@ name: CI
 on:
   workflow_dispatch:
     inputs:
+      prepared_startup_diagnostic:
+        description: Run one exact Firefox prepared-startup diagnostic with original budgets
+        type: boolean
+        default: false
       prior_lease_diagnostic:
         description: Run repeated Firefox and cold WebKit diagnostics alongside all acceptance gates
         type: boolean
@@ -159,6 +163,37 @@ jobs:
         with:
           name: playwright-traces-ordinary-startup-${{ matrix.project }}-${{ matrix.slice }}
           path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Diagnostic-only branch evidence; all normal acceptance jobs still run.
+  prepared-startup-exact-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.prepared_startup_diagnostic
+    name: diagnostic exact Firefox prepared startup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build library
+        run: npm run build:lib
+      - name: Install Firefox
+        run: npx playwright install --with-deps firefox
+      - name: One exact prepared-startup diagnostic (no acceptance credit)
+        run: npx playwright test -c playwright.ordinary-prepared-startup-diagnostic.config.ts
+      - name: Retain bounded diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: diagnostic-exact-firefox-prepared-startup
+          path: test-results/prepared-startup-exact-diagnostic/
           if-no-files-found: ignore
           retention-days: 7
 
