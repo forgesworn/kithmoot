@@ -439,7 +439,7 @@ test('two agents handle separate cards while a second person edits the shared bo
   try {
     await ada.page.evaluate(({pubkey, room}) => localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room)), {pubkey: ada.pubkey, room: {roomId: keeper.roomId, name: 'Delivery chat', link: keeper.url, openedAt: 1, readAt: 0}})
     await ada.page.reload()
-    const owner = await openBoards(ada.page); await createBoard(owner, 'Team delivery')
+    let owner = await openBoards(ada.page); await createBoard(owner, 'Team delivery')
     await ada.page.locator('#boardsRoom').selectOption({label: 'Delivery chat'}); await ada.page.locator('#boardsAssociate').click()
     for (const title of ['Design task', 'Release task']) await addCard(owner, title)
     await owner.getByRole('button', {name: 'Invite people', exact: true}).click()
@@ -451,7 +451,7 @@ test('two agents handle separate cards while a second person edits the shared bo
     await openBoards(bo.page); await bo.page.getByRole('button', {name: 'Open board link', exact: true}).click()
     await bo.page.getByLabel('Board invitation or card link', {exact: true}).fill(link)
     await bo.page.getByRole('button', {name: 'Open this board link', exact: true}).click()
-    const guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    let guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await expect(guest.locator('#app')).not.toContainText('Opening board…')
     const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true}); if (await reminder.isVisible()) await reminder.click()
     await guest.getByRole('button', {name: 'Join board', exact: true}).click()
@@ -465,9 +465,50 @@ test('two agents handle separate cards while a second person edits the shared bo
     await ada.page.locator('#openAssignments').click()
     await expect.poll(() => keeper.roster().find(person => person.participant === ada.pubkey)?.devices.length).toBe(1)
     const originalDevices = keeper.roster().find(person => person.participant === ada.pubkey)!.devices
-    const boardHash = new URL(owner.url()).hash
+    const boardHash = new URL(owner.url()).hash, boardId = boardHash.split('/')[2]!
+    // Return through the host's saved-board control. Reloading an embedded
+    // document bypasses its move/custody handoff and can retire that view.
+    const returnToBoard = async (page: Page): Promise<Frame> => {
+      const panel = page.locator('#boardsPanel')
+      if (!await panel.isVisible()) {
+        const roomBoards = page.locator('#openAssignments')
+        const open = await roomBoards.isVisible() ? roomBoards : page.locator('#homeWork')
+        await expect(open).toHaveAttribute('aria-controls', 'boardsPanel')
+        await open.click()
+      }
+      await expect(panel).toBeVisible()
+      await expect(panel.locator('iframe')).toBeVisible()
+      const currentFrame = async (): Promise<Frame | undefined> => {
+        const handles = await panel.locator('iframe').elementHandles()
+        try {return handles.length === 1 ? await handles[0]!.contentFrame() ?? undefined : undefined}
+        finally {await Promise.all(handles.map(handle => handle.dispose()))}
+      }
+      // A distinct route proves the asynchronous host handoff has completed;
+      // an old frame already on this board cannot satisfy that transition.
+      await panel.getByRole('button', {name: 'Choose another board', exact: true}).click()
+      await expect.poll(async () => {
+        const frame = await currentFrame()
+        return frame && !frame.isDetached() ? new URL(frame.url()).hash : undefined
+      }).toBe('#/')
+      const saved = panel.locator(`#boardsSaved button[data-board-id="${boardId}"]`)
+      await expect(saved).toBeVisible()
+      await saved.click()
+      let selected: Frame | undefined
+      await expect.poll(async () => {
+        const frame = await currentFrame()
+        if (!frame || frame.isDetached() || new URL(frame.url()).hash !== boardHash) return false
+        try {
+          if (!await frame.getByRole('link', {name: 'Design task', exact: true}).isVisible()) return false
+        } catch (error) {if (frame.isDetached()) return false; throw error}
+        selected = frame
+        return true
+      }).toBe(true)
+      await expect(panel).toBeVisible()
+      await expect(panel.locator('iframe')).toBeVisible()
+      return selected!
+    }
     const connect = async (title: string) => {
-      await owner.goto(new URL(boardHash, owner.url()).href)
+      owner = await returnToBoard(ada.page)
       await owner.getByRole('link', {name: title, exact: true}).click()
       await owner.getByRole('button', {name: 'Assign to agent', exact: true}).click()
       const dialog = owner.getByRole('dialog', {name: 'Assign to agent', exact: true})
@@ -509,7 +550,7 @@ test('two agents handle separate cards while a second person edits the shared bo
     await Promise.all(logs.map((log, i) => log.submit(tasks[i]!.id, {op: 'claim', executor: `board-agent-executor-${i}`, next: 'Review the selected card'}, `board-agent-claim-${i}`)))
     expect(logs.map((log, i) => log.snapshot().assignments.find(task => task.id === tasks[i]!.id)?.status)).toEqual(['running', 'running'])
     await addCard(guest, 'Bo edits while agents work')
-    await owner.goto(new URL(boardHash, owner.url()).href)
+    owner = await returnToBoard(ada.page)
     await expect(owner.getByRole('link', {name: 'Bo edits while agents work', exact: true})).toBeVisible()
     await Promise.all(logs.map((log, i) => log.submit(tasks[i]!.id, {op: 'result', executor: `board-agent-executor-${i}`, summary: 'Card reviewed', evidence: JSON.stringify({format: 'girnel-card-proposal', version: 1, change: {description: `Approved proposal ${i}`}})}, `board-agent-result-${i}`)))
     for (const [i, title] of ['Design task', 'Release task'].entries()) {
@@ -544,7 +585,7 @@ test('two agents handle separate cards while a second person edits the shared bo
       await dialog.getByRole('button', {name: 'Close', exact: true}).click()
       await guest.getByRole('link', {name: title, exact: true}).click()
       await expect(guest.getByRole('textbox', {name: 'Description', exact: true})).toHaveValue(`Approved proposal ${i}`)
-      await guest.goto(new URL(boardHash, guest.url()).href)
+      guest = await returnToBoard(bo.page)
     }
   } finally {
     stops.forEach(stop => stop()); logs.forEach(log => log.close())
