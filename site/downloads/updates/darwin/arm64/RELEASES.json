@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.86",
+  "currentRelease": "0.1.87",
   "releases": [
     {
-      "version": "0.1.86",
+      "version": "0.1.87",
       "updateTo": {
-        "version": "0.1.86",
-        "pub_date": "2026-10-16T08:59:18Z",
-        "notes": "A late call answer can no longer settle a newer camera change and leave video stuck.",
-        "name": "0.1.86",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.86/KithMoot-0.1.86-mac-arm64.zip",
-        "sha256": "f780b9ac0f9a42195166b150e7c5cdb50bb78fae824c3a02811fe6e6ed32612c",
-        "size": 177677440
+        "version": "0.1.87",
+        "pub_date": "2026-10-18T15:09:06Z",
+        "notes": "Meeting codes: share a short code instead of a full link. Automatic replies no longer give away when a device is in use.",
+        "name": "0.1.87",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.87/KithMoot-0.1.87-mac-arm64.zip",
+        "sha256": "717fadfbcd2c63ecc8d363b47bcb2b91a37df8d06130c4b5d82725d0b0bc0913",
+        "size": 177693663
       }
     }
   ]
