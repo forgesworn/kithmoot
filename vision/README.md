@@ -25,6 +25,19 @@ weights. Tracked masking remains unavailable; Avatar is independent of ML.
 
 ## Run locally
 
+For live camera/file previews, face boxes, background effects, reviewed
+personal captures and a complete local training/test loop, use the
+[Local Camera Lab](lab/README.md). From the repository root:
+
+```sh
+npm run vision:lab -- --prepare
+```
+
+The lab uses the Rust/WASM engine in a worker. Its procedural default weights
+are explicitly unqualified for real faces; personal models can be loaded
+without enabling them in calls. Android can exercise the same lab through a
+loopback USB forward in its browser; native JNI integration remains open.
+
 Python 3.11+; dependencies are in `pyproject.toml`. The development machine
 already has PyTorch 2.10.0, NumPy and Pillow. On a fresh machine install into
 a virtual environment. Dependency installation requires network access;
@@ -68,7 +81,7 @@ and rights-review file by SHA-256. A row contains:
 | `synthetic` | Whether the imagery is generated |
 | `rights` | Licence, permission declarations and hashed review evidence |
 
-The generated smoke manifest is a complete format example. `rights` requires
+The generated smoke manifest is a complete format example. For general training, `rights` requires
 `licence`, `training`, `commercial`, `mit_weights`, `evidence` and
 `evidence_sha256`. Real footage also requires reviewed `subject_permission`.
 The initial allow-list is `PROJECT-OWNED`, `CC0-1.0` and `MIT`. This is a
@@ -77,11 +90,18 @@ Research-only, non-commercial, unknown and other unreviewed material is refused.
 Declarations cannot prove ownership: a person must review the actual terms
 and permissions before setting them.
 
-People, scenes, sequences and identical RGB images cannot cross held-out
-splits. Adjacent frames from one clip are not independent validation.
+For general training, people, scenes, sequences and identical RGB images cannot
+cross held-out splits. Adjacent frames from one clip are not independent validation.
 Personal captures cannot enter general training. `data/`, `runs/` and model
 weight formats are ignored by Git; keep private footage and permissions there
 and out of Git.
+
+The lab importer writes `PERSONAL-LOCAL` manifests. `--personal` explicitly
+selects private training with reviewed local permission and no commercial or
+public-weight grant. Same-person/room context is allowed across independent
+takes, with sequence and identical-image leakage still refused. Evaluation
+records that narrower held-out policy; private checkpoints/exports retain
+`public_release_allowed: false` and `qualified: false`.
 
 ## Learning someone's room
 
@@ -95,7 +115,8 @@ make image subtraction an unreliable ground-truth label. Base training needs
 reviewed face boxes and foreground mattes. Later, a qualified base model could
 produce confidence-filtered pseudo-labels for local adaptation, excluding
 uncertain pixels and checking held objects before accepting the adapter.
-That automatic labelling and capture UI are **not implemented yet**.
+The Camera Lab provides reviewed frame/label capture and private experiments.
+Automatic labelling and an in-app adaptation product flow remain open.
 
 `MatteAdapter` and `adapt_step` implement a neural residual trained against
 reviewed local matte labels. Base weights and face predictions stay unchanged.
@@ -146,8 +167,9 @@ possible intellectual-property right:
    foreground IoU and held-object recall. Neither can mark a model qualified.
    Add boundary quality, temporal flicker and demographic/lighting slices;
    a good aggregate score cannot hide a failing slice.
-3. The Rust engine, weight export, C ABI and WASM host are implemented. Complete
-   the camera Worker/JNI/native adapters, orientation and source-epoch fencing,
+3. The Rust engine, weight export, C ABI, WASM host and local lab camera Worker
+   are implemented. Complete the production camera Worker/JNI/native adapters,
+   orientation and source-epoch fencing,
    real browser/device benchmarks and final runtime qualification. No network
    or vendor-model fallback.
 4. Measure actual latency, memory, battery and heat. Verify remote calls and

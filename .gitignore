@@ -15,6 +15,9 @@ ASSIST-REPORT.md
 *.bundle
 *.apk
 
+# Private camera-lab exports, including accidental copies outside vision/data.
+kithmoot-vision-*.json
+
 # Generated desktop bundles
 desktop/out/
 desktop/web/

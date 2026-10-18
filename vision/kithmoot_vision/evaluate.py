@@ -61,12 +61,16 @@ def evaluate_mode(model: CameraVision, frames: Frames, *, use_reference: bool) -
 def evaluate(weights: Path, manifest: Path) -> dict:
     torch.set_num_threads(2)
     card = json.loads((weights.parent / "model-card.json").read_text())
+    if card["weights_sha256"] != digest(weights):
+        raise ValueError("Checkpoint provenance mismatch")
     model = model_for(card["architecture"]).eval()
     model.load_state_dict(torch.load(weights, map_location="cpu", weights_only=True))
-    frames = Frames(manifest, "test")
+    frames = Frames(manifest, "test", personal=card.get("scope") == "personal")
     if not len(frames):
         raise ValueError("Held-out test data required")
     return {"status": "experimental", "qualified": False,
+            "scope": card.get("scope", "general"),
+            "held_out_policy": card.get("held_out_policy", "independent subjects, scenes and takes"),
             "weights_sha256": digest(weights), "test_manifest_sha256": digest(manifest),
             "synthetic_only": all(row.get("synthetic", False) for row in frames.rows),
             "evaluation": "single frames; no ground-truth temporal input",

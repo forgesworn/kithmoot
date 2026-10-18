@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
     parser.add_argument("--seed", type=int, default=18)
     parser.add_argument("--architecture", choices=("v1", "mobile-v2"), default="mobile-v2")
+    parser.add_argument("--personal", action="store_true", help="Train a private local experiment; never general/public weights")
     args = parser.parse_args()
     if args.steps < 1 or not 1 <= args.batch_size <= 32:
         parser.error("Use at least one step and a batch size between 1 and 32")
@@ -28,10 +29,10 @@ def main() -> None:
         parser.error("Output directory already exists; do not overwrite an experiment")
     torch.manual_seed(args.seed)
     torch.set_num_threads(2)
-    dataset = Frames(args.manifest, "train")
-    validation = Frames(args.manifest, "validation")
+    dataset = Frames(args.manifest, "train", personal=args.personal)
+    validation = Frames(args.manifest, "validation", personal=args.personal)
     if not len(dataset) or not len(validation):
-        parser.error("Separate training and validation scenes/people are required")
+        parser.error("Independent training and validation data are required")
     model = (MobileCameraVision() if args.architecture == "mobile-v2" else CameraVision()).to(args.device)
     optimiser = torch.optim.AdamW(model.parameters(), lr=0.001)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
@@ -66,7 +67,11 @@ def main() -> None:
     weights = args.output / "experimental.pt"
     torch.save(model.cpu().state_dict(), weights)
     card = {"architecture": model.architecture, "status": "experimental", "qualified": False,
-            "licence": "MIT", "pretrained_weights": None, "seed": args.seed,
+            "licence": "PRIVATE-PERSONAL" if args.personal else "MIT",
+            "scope": "personal" if args.personal else "general",
+            "public_release_allowed": not args.personal,
+            "held_out_policy": "independent takes; same personal context" if args.personal else "independent subjects, scenes and takes",
+            "pretrained_weights": None, "seed": args.seed,
             "torch": torch.__version__, "device": args.device, "steps": args.steps,
             "parameters": sum(p.numel() for p in model.parameters()),
             "manifest_sha256": digest(args.manifest), "weights_sha256": digest(weights),

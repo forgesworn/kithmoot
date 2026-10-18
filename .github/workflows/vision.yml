@@ -48,3 +48,18 @@ jobs:
             ../.vision-venv/bin/python scripts/check-portability.py runtime/target/release/libkithmoot_vision.so "$RUNNER_TEMP/kithmoot-vision/$architecture/experimental.pt" "$RUNNER_TEMP/kithmoot-vision/parity-$architecture.json"
             node scripts/check-wasm.mjs runtime/target/wasm32-unknown-unknown/release/kithmoot_vision.wasm "$RUNNER_TEMP/kithmoot-vision/parity-$architecture.json"
           done
+      - name: Check local lab frame ownership and model provenance
+        run: node --test vision/lab/core.test.mjs
+      - name: Install browser lab test dependencies
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Exercise the real WASM camera lab and private training round-trip
+        working-directory: vision
+        env:
+          VISION_PYTHON: ${{ github.workspace }}/.vision-venv/bin/python
+          VISION_LAB_MODEL: ${{ runner.temp }}/kithmoot-vision/mobile-v2
+          VISION_LAB_DATA: ${{ runner.temp }}/kithmoot-vision/data
+        run: |
+          ../.vision-venv/bin/python -m kithmoot_vision.export "$RUNNER_TEMP/kithmoot-vision/mobile-v2/experimental.pt" "$RUNNER_TEMP/kithmoot-vision/mobile-v2/experimental.kvm"
+          node --test lab/browser.test.mjs
