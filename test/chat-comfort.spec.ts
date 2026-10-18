@@ -260,7 +260,12 @@ test('holding an older message opens emoji choices without losing the reading po
     const original = writer.chat.messages().find(message => message.text.startsWith('Workshop note 5:'))!
     const row = page.locator(`#chatLog [data-message-id="${original.id}"]`)
     const bubble = row.locator('.bubble')
-    await bubble.scrollIntoViewIfNeeded()
+    // Initial history can render again while WebKit waits for stability.
+    // Resolve the current bubble before starting the gesture being tested.
+    await expect(async () => {
+      await bubble.scrollIntoViewIfNeeded({ timeout: 1_000 })
+      await expect(bubble).toBeInViewport({ timeout: 1_000 })
+    }).toPass({ timeout: 5_000 })
     const position = () => row.evaluate(el => el.getBoundingClientRect().top - document.getElementById('chatLog')!.getBoundingClientRect().top)
     const before = await position()
     const bounds = (await bubble.boundingBox())!

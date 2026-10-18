@@ -218,7 +218,12 @@ test('card colour saves when the colour label is clicked and survives reopening'
     await expect(frame.locator('.detail-note')).toHaveAttribute('data-paper', 'blue')
     await frame.getByRole('textbox', {name: 'Title', exact: true}).fill('Purple card renamed')
     const purple = frame.locator('fieldset').filter({has: frame.getByText('Note colour', {exact: true})}).getByText('Purple', {exact: true})
-    await purple.scrollIntoViewIfNeeded()
+    // Editing the title can replace the label during WebKit's scroll check.
+    // Settle only the setup; the delayed click must still exercise blur/save.
+    await expect(async () => {
+      await purple.scrollIntoViewIfNeeded({ timeout: 1_000 })
+      await expect(purple).toBeInViewport({ timeout: 1_000 })
+    }).toPass({ timeout: 5_000 })
     // The title's blur saves while the pointer is still activating the label.
     await purple.click({delay: 200})
     await expect(frame.locator('.detail-note')).toHaveAttribute('data-paper', 'purple')
