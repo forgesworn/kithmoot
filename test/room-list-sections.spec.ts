@@ -80,12 +80,17 @@ test('a long list is in sections, and Older folds away and stays folded', async 
     // reloading, then wait for signed history to return before folding it.
     await page.mouse.move(0, 0)
     await page.reload()
+    await expect(page.locator('#roomList .roomPreview', { hasText: 'Signed history' })).toHaveCount(12)
     await expect(page.locator('#roomList .roomSection', { hasText: 'Other rooms' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Older$/ })).toHaveAttribute('aria-expanded', 'true')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(12)
 
     await page.getByRole('button', { name: 'Older' }).click()
+    const older = page.locator('#roomList .sectionFold[data-section="older"]')
+    await expect(older).toHaveText('Older · 5')
+    await expect(older).toHaveAttribute('aria-expanded', 'false')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(7)
+    await expect(row(page, 'Room 12')).toHaveCount(0)
   } finally { await page.context().close() }
 })
 
