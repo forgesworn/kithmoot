@@ -305,6 +305,7 @@ test('full-picture fallback explains its fixed strength and disables adjustment'
   await settle(page)
 
   await expect(page.locator('#blurStrength')).toBeDisabled()
+  await expect(page.locator('#framingToggle')).toBeDisabled()
   await expect(page.locator('#cameraEffects')).toContainText('Blur covers the whole picture')
   expect((await routes(page)).passthrough).toBe(0)
 })
