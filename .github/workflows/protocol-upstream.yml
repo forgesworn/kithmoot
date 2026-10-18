@@ -4,8 +4,8 @@ on:
     - cron: '23 8 * * 1'
   workflow_dispatch:
     inputs:
-      private_renewal_validation:
-        description: Run the unaccepted private renewal component validation
+      private_renewal_completion:
+        description: Complete the two job-budget-cancelled native cohorts
         type: boolean
         default: false
 permissions:
@@ -24,17 +24,18 @@ jobs:
       - run: node scripts/check-protocol-upstream.mjs
 
   # Non-main validation only. The established CI workflow and its gates are
-  # unchanged; this job validates an explicitly frozen unaccepted source tree.
-  private-renewal-native:
-    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_validation
-    name: private renewal native (${{ matrix.engine }}, ${{ matrix.shard }}/2)
+  # unchanged; only the two cancelled cohorts are split into fixed133-case
+  # slices. Original completed cohorts retain their separate frozen evidence.
+  private-renewal-completion-native:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_completion
+    name: private renewal completion (${{ matrix.engine }}, ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        engine: [chromium, firefox, webkit]
-        shard: [1, 2]
+        engine: [chromium, firefox]
+        shard: [3, 4]
     env:
       ORDINARY_RENEWAL_SHARD: '${{ matrix.shard }}'
     steps:
@@ -63,7 +64,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: private-renewal-native-${{ matrix.engine }}-${{ matrix.shard }}
+          name: private-renewal-completion-native-${{ matrix.engine }}-${{ matrix.shard }}
           path: |
             locked-dependencies.json
             private-renewal-inventory.json
@@ -71,9 +72,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  private-renewal-support:
-    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_validation
-    name: private renewal units and types
+  private-renewal-completion-support:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_completion
+    name: private renewal completion units and types
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -102,7 +103,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: private-renewal-support
+          name: private-renewal-completion-support
           path: |
             locked-dependencies.json
             private-renewal-unit-results.log
