@@ -30,10 +30,10 @@
     "name": "kind-registry",
     "repository": "nostr-protocol/registry-of-kinds",
     "path": "schema.yaml",
-    "revision": "feed6af805b65401af1f655a22d8ac61b5b39d35",
-    "sha256": "88b471c3d567e1deea4b0365e32480e27e9f137fc1064d85bd4bc5536606044a",
+    "revision": "2ae5c82dc82e0d1e62dc23f9895e5ef1d4a922de",
+    "sha256": "560821b6dff52a4faf7b736aeca958011a0f7a3070aae7da717e47ba79e21445",
     "trackingUrl": "https://raw.githubusercontent.com/nostr-protocol/registry-of-kinds/master/schema.yaml",
-    "sourceUrl": "https://raw.githubusercontent.com/nostr-protocol/registry-of-kinds/feed6af805b65401af1f655a22d8ac61b5b39d35/schema.yaml",
+    "sourceUrl": "https://raw.githubusercontent.com/nostr-protocol/registry-of-kinds/2ae5c82dc82e0d1e62dc23f9895e5ef1d4a922de/schema.yaml",
     "kinds": [
       21059,
       25050,
@@ -43,6 +43,6 @@
       25054,
       25055
     ],
-    "trackedSha256": "fde5d0f84b18f7645c0bd5a9b1e41dc09a9d7bc7b77be8c5a2fe1644ab784dcf"
+    "trackedSha256": "631f7eab0f8acf76433c6dd0b1900e8b3abbfe5b1dab6b0c80f80cc836236504"
   }
 ]
