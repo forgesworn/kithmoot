@@ -8,7 +8,6 @@ import type { RoleResolver } from './peer-slots.js'
 import { wrapSignal, unwrapSignalEvent, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import type { ScreenAnnotation, SignalBody } from './signal.js'
 import { SignalGuard } from './signal-guard.js'
-import { PureReplyBudget } from './signal-channel.js'
 import { KINDS } from './kinds.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { ParticipantView } from './session.js'
@@ -550,10 +549,6 @@ export class Mesh {
    * part of `SlotPeer`.
    */
   readonly #controllers = new Map<string, PairController>()
-  /** Each far device's budget for replies to duplicates and stale
-   *  generations, kept across rebuilt peers. Bounded like the guard's
-   *  tables; an evicted device starts a fresh budget, which is one reply. */
-  readonly #replyBudgets = new Map<string, PureReplyBudget>()
   /** Another page session of this device is speaking for it. See
    *  `standDown`. */
   #quiet = false
@@ -1836,7 +1831,6 @@ export class Mesh {
       context: { tier, remoteDevice: endpoint },
       iceRestart: this.#opts.iceRestart,
       trackRole: this.#opts.trackRole,
-      replyBudget: this.#replyBudgetFor(endpoint),
       onSignal: (body) => {
         // The tier rides on the offer already - `SlotPeer` knows which rung
         // its connection was built on, and adopts the far end's when it
@@ -1863,20 +1857,6 @@ export class Mesh {
     })
     controller.attach(peer)
     return peer
-  }
-
-  #replyBudgetFor(endpoint: string): PureReplyBudget {
-    let budget = this.#replyBudgets.get(endpoint)
-    if (budget === undefined) {
-      budget = new PureReplyBudget()
-      this.#replyBudgets.set(endpoint, budget)
-      while (this.#replyBudgets.size > 256) {
-        const oldest = this.#replyBudgets.keys().next().value
-        if (oldest === undefined) break
-        this.#replyBudgets.delete(oldest)
-      }
-    }
-    return budget
   }
 
   /**

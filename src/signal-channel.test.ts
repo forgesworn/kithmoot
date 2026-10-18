@@ -2,11 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   SignalChannel,
   ACK_DELAY_MS,
-  DUPLICATE_ACK_MAX_MS,
-  DUPLICATE_ACK_MIN_MS,
   MAX_BUFFERED_SIGNALS,
-  PURE_REPLY_WINDOW_MS,
-  PureReplyBudget,
   SIGNAL_RETRY_JITTER,
   type ChannelClock,
   type ChannelSignal,
@@ -345,149 +341,18 @@ describe('SignalChannel receiver', () => {
     expect(wire.ofType('ack')).toHaveLength(0)
   })
 
-  it('delivers a duplicate once and owes it an ack, sent inside the duplicate window rather than at once', () => {
-    for (const [random, at] of [[() => 0, DUPLICATE_ACK_MIN_MS], [() => 0.5, 400], [() => 0.9999, DUPLICATE_ACK_MAX_MS]] as [() => number, number][]) {
-      const { channel, wire, delivered, clock } = harness({ random })
+  it('delivers a duplicate once and acknowledges it at once, because our ack was lost', () => {
+    const { channel, wire, delivered, clock } = harness()
 
-      channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-      clock.advance(ACK_DELAY_MS)
-      wire.clear()
-
-      channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-
-      expect(delivered).toHaveLength(1)
-      // Nothing straight back: an instant reply is an echo a prober can time.
-      expect(wire.sent).toHaveLength(0)
-      clock.advance(at - 1)
-      expect(wire.sent).toHaveLength(0)
-      clock.advance(1)
-      expect(wire.ofType('ack')).toHaveLength(1)
-      expect(wire.last).toMatchObject({ ack: 1 })
-    }
-  })
-
-  it('coalesces a burst of duplicates into one ack', () => {
-    const { channel, wire, clock } = harness()
     channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    channel.receive(from({ type: 'ice', seq: 2, candidate: 'c2' }))
     clock.advance(ACK_DELAY_MS)
     wire.clear()
 
-    for (let i = 0; i < 20; i++) {
-      channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-      channel.receive(from({ type: 'ice', seq: 2, candidate: 'c2' }))
-      clock.advance(10)
-    }
-    clock.advance(DUPLICATE_ACK_MAX_MS)
+    channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
 
+    expect(delivered).toHaveLength(1)
     expect(wire.ofType('ack')).toHaveLength(1)
-    expect(wire.last).toMatchObject({ ack: 2 })
-  })
-
-  it('answers replayed duplicates at most once per reply window, at times the replays do not set', () => {
-    const { channel, wire, clock } = harness({ random: () => 0 })
-    channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    clock.advance(ACK_DELAY_MS)
-    wire.clear()
-
-    // A prober replaying the same signal every 50ms for ten seconds.
-    const acks: number[] = []
-    for (let t = 0; t < 10_000; t += 50) {
-      channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-      const before = wire.sent.length
-      clock.advance(50)
-      if (wire.sent.length > before) acks.push(clock.now())
-    }
-
-    // Two hundred probes, five replies: one per window.
-    expect(acks.length).toBeLessThanOrEqual(10_000 / PURE_REPLY_WINDOW_MS)
-    for (let i = 1; i < acks.length; i++) expect(acks[i]! - acks[i - 1]!).toBeGreaterThanOrEqual(PURE_REPLY_WINDOW_MS)
-  })
-
-  it('shares the budget between channels to the same device', () => {
-    const budget = new PureReplyBudget()
-    const clock = new FakeClock()
-    const wire = new FakeTransport()
-    const make = (gen: number) => new SignalChannel({ gen, conn: LOCAL_CONN, send: wire.send, deliver: () => {}, clock, random: () => 0, replyBudget: budget })
-    const one = make(4)
-    const two = make(5)
-    one.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    two.receive(from({ type: 'offer', gen: 5, seq: 1, sdp: 'o1' }))
-    clock.advance(ACK_DELAY_MS)
-    wire.clear()
-
-    one.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    clock.advance(DUPLICATE_ACK_MAX_MS)
-    two.receive(from({ type: 'offer', gen: 5, seq: 1, sdp: 'o1' }))
-    clock.advance(DUPLICATE_ACK_MAX_MS)
-    // The second generation's reply waits out the window the first opened.
-    expect(wire.ofType('ack')).toHaveLength(1)
-    clock.advance(PURE_REPLY_WINDOW_MS)
-    expect(wire.ofType('ack')).toHaveLength(2)
-  })
-
-  it('lets the ack a duplicate is owed ride on anything this side sends first', () => {
-    const { channel, wire, clock } = harness()
-    channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    clock.advance(ACK_DELAY_MS)
-    wire.clear()
-
-    channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    channel.send({ type: 'answer', sdp: 'a1', re: 1 })
-    clock.advance(DUPLICATE_ACK_MAX_MS)
-
-    expect(wire.sent.map((b) => b.type)).toEqual(['answer'])
     expect(wire.last).toMatchObject({ ack: 1 })
-  })
-
-  it('leaves the ordinary ack for fresh signals on its own timer, budget or no budget', () => {
-    const { channel, wire, clock } = harness({ random: () => 0 })
-    channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    clock.advance(ACK_DELAY_MS)
-    channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
-    clock.advance(DUPLICATE_ACK_MIN_MS)
-    wire.clear()
-
-    // A fresh candidate inside the reply window is acked as it always was:
-    // throttling these would slow every negotiation's trickle.
-    channel.receive(from({ type: 'ice', seq: 2, candidate: 'c2' }))
-    clock.advance(ACK_DELAY_MS)
-    expect(wire.ofType('ack')).toHaveLength(1)
-    expect(wire.last).toMatchObject({ ack: 2 })
-  })
-
-  it('acks a lost-ack retransmission before the sender asks again, at either end of every jitter', () => {
-    // Both ends real, the receiver's ordinary ack lost, the wire otherwise
-    // perfect. The sender's second retransmission is 2s +/-20% after its
-    // first; the duplicate's ack must beat it whatever the draws were.
-    for (const senderRandom of [0, 1]) {
-      for (const receiverRandom of [0, 0.9999]) {
-        const clock = new FakeClock()
-        let dropNextAck = true
-        let offers = 0
-        let receiver!: SignalChannel
-        const sender = new SignalChannel({
-          gen: 4, conn: REMOTE_CONN, clock, random: () => senderRandom,
-          send: (body) => { if (body.type === 'offer') offers++; receiver.receive(body) },
-          deliver: () => {},
-        })
-        receiver = new SignalChannel({
-          gen: 4, conn: LOCAL_CONN, clock, random: () => receiverRandom,
-          send: (body) => {
-            if (body.type === 'ack' && dropNextAck) { dropNextAck = false; return }
-            sender.receive(body)
-          },
-          deliver: () => {},
-        })
-        sender.send({ type: 'offer', sdp: 'o1' })
-        clock.advance(30_000)
-
-        expect(sender.queueDepth).toBe(0)
-        // The original and exactly one retransmission: the duplicate's ack
-        // landed before the next step.
-        expect(offers).toBe(2)
-      }
-    }
   })
 
   it('buffers out of order and releases in order', () => {
@@ -567,19 +432,15 @@ describe('SignalChannel receiver', () => {
     channel.receive(from({ type: 'offer', gen: 2, seq: 1, sdp: 'older' }))
 
     expect(delivered).toHaveLength(0)
-    // Not at once: a stale generation is as easy to replay as a duplicate.
-    expect(wire.ofType('sync')).toHaveLength(0)
-    clock.advance(DUPLICATE_ACK_MAX_MS)
     expect(wire.ofType('sync')).toHaveLength(1)
     expect(wire.last).toMatchObject({ type: 'sync', gen: 4, conn: LOCAL_CONN })
 
-    clock.advance(1_999 - DUPLICATE_ACK_MAX_MS)
+    clock.advance(1_999)
     channel.receive(from({ type: 'offer', gen: 3, seq: 1, sdp: 'old' }))
-    clock.advance(DUPLICATE_ACK_MAX_MS)
     expect(wire.ofType('sync')).toHaveLength(1)
 
+    clock.advance(2)
     channel.receive(from({ type: 'offer', gen: 3, seq: 1, sdp: 'old' }))
-    clock.advance(PURE_REPLY_WINDOW_MS + DUPLICATE_ACK_MAX_MS)
     expect(wire.ofType('sync')).toHaveLength(2)
   })
 

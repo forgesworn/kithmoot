@@ -27,7 +27,7 @@
  */
 
 import { normaliseHex } from './hex.js'
-import { PureReplyBudget, SignalChannel } from './signal-channel.js'
+import { SignalChannel } from './signal-channel.js'
 import type { ChannelClock, ChannelSignal } from './signal-channel.js'
 import {
   ICE_RESTART_GRACE_MS,
@@ -124,18 +124,8 @@ export interface SlotPeerOptions {
     ackDelayMs?: number
     syncMs?: number
     bufferLimit?: number
-    duplicateAckMinMs?: number
-    duplicateAckMaxMs?: number
-    replyWindowMs?: number
   }
   random?: () => number
-  /**
-   * How many replies to duplicates and stale generations the far device is
-   * owed, shared by every generation of this pair - see `PureReplyBudget`.
-   * The mesh keeps one per device so a rebuilt peer does not start afresh;
-   * omitted, this peer keeps its own.
-   */
-  replyBudget?: PureReplyBudget
   clock?: ChannelClock
   /** Test seam: where connection ids come from. */
   connectionId?: () => string
@@ -146,7 +136,6 @@ export class SlotPeer implements NegotiatingPeer {
 
   readonly #opts: SlotPeerOptions
   readonly #clock: ChannelClock
-  readonly #replyBudget: PureReplyBudget
   readonly #newConnectionId: () => string
   readonly #graceMs: number
   readonly #timeoutMs: number
@@ -200,7 +189,6 @@ export class SlotPeer implements NegotiatingPeer {
 
   constructor(opts: SlotPeerOptions) {
     this.#opts = opts
-    this.#replyBudget = opts.replyBudget ?? new PureReplyBudget(opts.signalRetry?.replyWindowMs)
     this.#clock = opts.clock ?? REAL_CLOCK
     this.#newConnectionId = opts.connectionId ?? randomConnectionId
     this.#graceMs = opts.iceRestart?.graceMs ?? ICE_RESTART_GRACE_MS
@@ -419,7 +407,6 @@ export class SlotPeer implements NegotiatingPeer {
       },
       timing: this.#opts.signalRetry,
       random: this.#opts.random,
-      replyBudget: this.#replyBudget,
       clock: this.#clock,
     })
   }
