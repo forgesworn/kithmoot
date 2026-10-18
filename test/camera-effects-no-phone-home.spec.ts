@@ -9,18 +9,10 @@ import { openRoomUrl, pinToTestRelays, TEST_RELAY_HTTP, TEST_RELAY_WS } from './
 /**
  * A camera effect must never phone home.
  *
- * `@mediapipe/tasks-vision` >=1.0.1-rc carries an ungated usage logger: every
- * `ImageSegmenter` it creates POSTs protobuf to
- * `https://odml.pa.googleapis.com/v1/log` every 60s and on `close()`. Proven
- * with a real headless browser, our shipped wasm and our shipped model - one
- * 136-byte POST on close, unblocked by our CSP. The dependency is pinned to
- * an exact version proven clean of it (docs/decisions.md), and
- * scripts/check-no-telemetry.mjs fails the build if the marker strings ever
- * make it into the built app again. This is the third layer: a real browser,
- * a real segmenter run, watching every request the page makes while an
- * effect is on and off again, so a future dependency bump that reintroduces
- * the logger - or anything else that decides to call home - fails a test
- * that actually ran the feature rather than only grepped for it.
+ * The old third-party camera SDK and weights have been removed. Until the
+ * owned foreground model qualifies, the shipped blur covers the whole frame.
+ * Exercise that actual path and teardown while watching all requests: adding
+ * a camera SDK or model download must never silently add a remote endpoint.
  */
 
 const sceneDir = join(tmpdir(), 'kithmoot-phone-home')
@@ -110,17 +102,15 @@ test('background blur never makes a request outside the app and the local relay'
   await settle(page)
   await expect(page.locator('#effectMode')).toHaveText('blur')
 
-  // Give the segmenter real running time - long enough to cross MediaPipe's
-  // own 30s stats interval and 60s upload interval, so a logger that only
-  // fires on a timer has every chance to fire during the test.
+  // Confirm the fallback processes frames, rather than passing because no
+  // camera effect actually ran.
   await page.waitForTimeout(3_000)
   const running = await frameRoutes(page)
   expect(running.composite + running.blurAll).toBeGreaterThan(0)
 
   await page.locator('#effectModes button[data-mode="off"]').click()
   await expect(page.locator('#effectMode')).toHaveText('off')
-  // The logger's other trigger is close(): give the segmenter's teardown a
-  // moment to run and, if it were going to, to fire.
+  // Include effect teardown in request observation.
   await page.waitForTimeout(1_000)
 
   expect(stray, `requests outside the app and the local relay: ${stray.join(', ')}`).toEqual([])

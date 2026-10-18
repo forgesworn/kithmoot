@@ -39,7 +39,7 @@ writeFileSync(scenePath, writeScene(640, 480, 12))
 
 // Nothing here waits on a relay, so the 180s in playwright.config.ts - which
 // exists for real relay weather - is three minutes of nothing when something
-// is wrong. The slow part is fetching 11.7MB of WASM once.
+// is wrong. No camera model is downloaded in this build.
 test.setTimeout(90_000)
 
 test.use({
@@ -295,24 +295,17 @@ test('blur is on by default and genuinely blurs the room', async ({ page }) => {
   expect(raw.background).toBeGreaterThan(50)
   expect(blurred.background).toBeLessThan(raw.background * 0.35)
 
-  // And it is a background blur, not a blur: with the effect off, the face
-  // and the wall are both sharp; with it on, only the wall should have gone.
-  expect(blurred.face / blurred.background).toBeGreaterThan(raw.face / raw.background)
+  // With no qualified foreground model, the face must be blurred too.
+  expect(blurred.face).toBeLessThan(raw.face * 0.35)
 })
 
-test('the strength control changes how much blur there is', async ({ page }) => {
+test('full-picture fallback explains its fixed strength and disables adjustment', async ({ page }) => {
   await openCamera(page)
   await settle(page)
 
-  await page.locator('#blurStrength').fill('0')
-  await page.waitForTimeout(1200)
-  const weak = await measure(page)
-
-  await page.locator('#blurStrength').fill('100')
-  await page.waitForTimeout(1200)
-  const strong = await measure(page)
-
-  expect(strong.background).toBeLessThan(weak.background)
+  await expect(page.locator('#blurStrength')).toBeDisabled()
+  await expect(page.locator('#cameraEffects')).toContainText('Blur covers the whole picture')
+  expect((await routes(page)).passthrough).toBe(0)
 })
 
 test('a camera swap never publishes an unblurred frame', async ({ page }) => {
@@ -367,7 +360,7 @@ test('a camera swap never publishes an unblurred frame', async ({ page }) => {
   const after = await routes(page)
   // The whole point: not one frame took the raw route across four swaps.
   expect(after.passthrough).toBe(0)
-  expect(after.composite).toBeGreaterThan(before.composite)
+  expect(after.blurAll).toBeGreaterThan(before.blurAll)
 
   // And the published track is the same object it was before the swap, so
   // nothing renegotiated and there was no window to leak through.
@@ -382,7 +375,7 @@ test('a camera swap never publishes an unblurred frame', async ({ page }) => {
   expect(sharpness.background).toBeLessThan(60)
 })
 
-test('replace swaps the room for the sea and leaves the person alone', async ({ page }) => {
+test('replace covers both the room and person while cut-outs are unavailable', async ({ page }) => {
   await openCamera(page)
   await settle(page)
 
@@ -410,15 +403,12 @@ test('replace swaps the room for the sea and leaves the person alone', async ({ 
     raw.background.b - raw.background.r + 30,
   )
 
-  // The person is not: the face is still the face, warm where the sea is
-  // cold, and the eyes and mouth are still hard-edged rather than smeared
-  // or replaced along with everything else.
-  expect(replaced.face.r).toBeGreaterThan(replaced.face.b)
-  expect(Math.abs(replaced.face.r - raw.face.r)).toBeLessThan(40)
-  expect(replacedSharp.face).toBeGreaterThan(rawSharp.face * 0.4)
-  // And the person is a long way from the sea behind them, which is the
-  // thing a broken mask destroys first.
-  expect(replaced.face.r - replaced.background.r).toBeGreaterThan(30)
+  // No person cut-out: the warm synthetic face is covered by the blue sea.
+  expect(replaced.face.b).toBeGreaterThan(replaced.face.r)
+  expect(Math.abs(replaced.face.r - raw.face.r)).toBeGreaterThan(40)
+  const taken = await routes(page)
+  expect(taken.passthrough).toBe(0)
+  expect(taken.composite).toBe(0)
 })
 
 test('the sea moves, and a still picture does not', async ({ page }) => {
@@ -456,10 +446,7 @@ test('the sea moves, and a still picture does not', async ({ page }) => {
   await expect(page.locator('#fishRow')).toBeHidden()
 })
 
-test('a segmenter that will not load fails closed to a blur and says so outside the folded panel', async ({ page }) => {
-  // The model never arrives, so the segmenter never loads and the effect
-  // degrades - the exact failure this whole feature exists to survive.
-  await page.route('**/models/*.tflite', (route) => route.abort())
+test('the unavailable owned segmenter uses a full blur and says so outside the folded panel', async ({ page }) => {
   await openCamera(page)
   await settle(page)
 

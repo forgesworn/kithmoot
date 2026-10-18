@@ -1,6 +1,7 @@
 # Face privacy and owned camera AI
 
-Local draft, 18 October 2026. This branch has not been released.
+Desktop 0.1.88 and Android 0.6.91 candidate, 18 October 2026.
+Physical acceptance remains open.
 
 The target is an MIT, first-party learned vision library for automatic
 multiple-face detection and foreground matting, retaining people, hands and

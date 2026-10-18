@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Desktop 0.1.88 and Android 0.6.91 — 18 October 2026
 
 - Add an original full-picture masked avatar, remembered before capture starts. Prepare face-mask compositing and a separate MIT neural vision training library. Automatic face masking remains unavailable pending qualified weights.
 - Remove MediaPipe camera effects and bundled Google background weights. Until the owned model is ready, blur covers the whole picture and a backdrop replaces the whole picture; person cut-outs and automatic framing are unavailable in this branch.
