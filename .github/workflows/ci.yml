@@ -302,7 +302,7 @@ jobs:
     # Retain the reviewed acceptance job budgets after moving regressions
     # into their own complete per-browser gate. Every Playwright test keeps
     # its existing timeout, assertions and zero retries.
-    timeout-minutes: ${{ (matrix.name == 'chromium rest' || matrix.name == 'chromium desktop' || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
+    timeout-minutes: ${{ (matrix.name == 'chromium rest' || startsWith(matrix.name, 'chromium desktop ') || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -322,7 +322,9 @@ jobs:
           # The installed desktop window's layout and call specs, against the
           # VITE_DESKTOP build the config already serves on the next port. Not
           # run here before October 2026, and two of them sat red for a week.
-          - { name: chromium desktop, project: chromium-desktop, browsers: chromium }
+          # Keep the full desktop suite within the existing per-job budget.
+          - { name: chromium desktop 1 of 2, project: chromium-desktop, shard: 1/2, browsers: chromium }
+          - { name: chromium desktop 2 of 2, project: chromium-desktop, shard: 2/2, browsers: chromium }
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
