@@ -15,7 +15,7 @@ meet the automatic AI requirement.
 
 ## Current application behaviour
 
-| Choice | Outgoing picture in this draft |
+| Choice | Outgoing picture in this release |
 |---|---|
 | Off | Camera, subject to the selected background effect |
 | Tracked mask | Unavailable until an owned model is qualified; a previously saved mask choice covers the whole picture |
@@ -30,7 +30,7 @@ The Google MediaPipe dependency, background weights and asset build wiring
 are removed from this branch. Consequently, person cut-outs and automatic
 framing are unavailable here. Desktop blur uses its whole-picture fallback;
 a chosen backdrop replaces the whole picture on both clients. Controls explain
-this change. Do not release this branch as working automatic masking/matting.
+this change. Automatic masking and matting remain disabled.
 
 ## Publication boundary
 

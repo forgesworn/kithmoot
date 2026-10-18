@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-18",
+  "phase": "verified release candidate; publication pending",
+  "versions": {
+    "desktop": "0.1.88",
+    "android": "0.6.91",
+    "androidVersionCode": 114
+  },
+  "source": {
+    "desktopBuildCommit": "5b83320351866df4339be5568764c7606ad82bb2",
+    "desktopBuildTree": "19730cfd05c429cd9e47e45e5083314c5db7fd14",
+    "androidBuildCommit": "8ecde8cc59ca9999208b5d812fbab2e3620c5d6c",
+    "androidBuildTree": "eb5fae8c1a3d8a1309744358baad05eda6544b53"
+  },
+  "scope": {
+    "originalMitAvatar": true,
+    "automaticFaceMaskingEnabled": false,
+    "foregroundMattingEnabled": false,
+    "qualifiedRealCameraWeights": false,
+    "rustRuntimeConnectedToCameraApps": false,
+    "localTrainingProductFlow": false,
+    "googleCameraSdkRemoved": true,
+    "screenSharingSeparate": true,
+    "cameraSensorRemainsOnLocally": true
+  },
+  "desktopFiles": [
+    {
+      "filename": "KithMoot-0.1.88-mac-arm64.zip",
+      "version": "0.1.88",
+      "bytes": 170800442,
+      "sha256": "eb2fae159ef44d3d4100026efb03d8cc3ddf8ca5187fd136e3d7ee09768bc7a3"
+    },
+    {
+      "filename": "KithMoot-0.1.88-linux-arm64.tar.gz",
+      "version": "0.1.88",
+      "bytes": 165092487,
+      "sha256": "6f752d65ab04354cadbbdbeb66176f2a8387be48aa58945601e267587aa0e11c"
+    },
+    {
+      "filename": "KithMoot-0.1.88-linux-x64.tar.gz",
+      "version": "0.1.88",
+      "bytes": 163971109,
+      "sha256": "44cbb482cbdf71f4e5b0bc936063daa1dd5ffcd0d1cfee3ceb130b61e189bfe5"
+    },
+    {
+      "filename": "KithMoot-0.1.88-windows-x64.zip",
+      "version": "0.1.88",
+      "bytes": 199390684,
+      "sha256": "757cb6838f3929921ca21a39770fc516239cf3a205ea03ef31e8a88e0e143ed4"
+    },
+    {
+      "filename": "kithmoot_0.1.88_amd64.deb",
+      "version": "0.1.88",
+      "bytes": 129372324,
+      "sha256": "1697c65c65e80216edf8f2c211d48d04650b7c62c820728d9e3ec529b4ebc9ba"
+    },
+    {
+      "filename": "kithmoot_0.1.88_arm64.deb",
+      "version": "0.1.88",
+      "bytes": 124389800,
+      "sha256": "61f85bfb34e93a5de7389067de52bc003d6cd0b5d45a233153d61f94e22f5447"
+    }
+  ],
+  "desktopPayload": {
+    "platforms": {
+      "mac": {
+        "asarSha256": "9a71f839a8c79276475eb92acbd34ac185f2621c536f1a4f0acca11a74c5d105",
+        "matchingRuntimeFiles": 17,
+        "matchingWebFiles": 349
+      },
+      "linuxX64": {
+        "asarSha256": "1f759f5c40f4bdba0b2084f808944c5f306bb7b8fc3f3ca660a2a42a120996ef",
+        "matchingRuntimeFiles": 17,
+        "matchingWebFiles": 349
+      },
+      "linuxArm64": {
+        "asarSha256": "1f759f5c40f4bdba0b2084f808944c5f306bb7b8fc3f3ca660a2a42a120996ef",
+        "matchingRuntimeFiles": 17,
+        "matchingWebFiles": 349
+      },
+      "windows": {
+        "asarSha256": "1f759f5c40f4bdba0b2084f808944c5f306bb7b8fc3f3ca660a2a42a120996ef",
+        "matchingRuntimeFiles": 17,
+        "matchingWebFiles": 349
+      }
+    },
+    "identicalPayloadFiles": 374,
+    "canonicalPayloadSha256": "0803b5108bd0212836a92bb17ad3a297ec0969035f4dd864c0b73071c67115f6",
+    "installMetadataDifferences": [
+      {
+        "path": "/version",
+        "mac": "0.1.24",
+        "other": "0.1.45"
+      }
+    ]
+  },
+  "mac": {
+    "developerIdSigned": true,
+    "notarisation": {
+      "message": "Processing complete",
+      "id": "8994a31f-a0ed-4f9b-9cc4-84cea84f454e",
+      "status": "Accepted"
+    },
+    "stapled": true,
+    "gatekeeperAccepted": true,
+    "packagedSmokePassed": true
+  },
+  "android": {
+    "unsignedApkSha256": "db7083e85f3832530f1c57f6a152078d77f30fadb5c7596d331e90bff9f6b176",
+    "signedApkSha256": "d77aac33d19886245f36ee8e240800216ed8dc1d56f8ec590c4820e2de1ff907",
+    "bytes": 73479951,
+    "unchangedZipPayloadEntries": 787,
+    "abi": "arm64-v8a",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "v3Only": true,
+    "existingLineageVerified": true,
+    "independentApkPublicationVerifierPassed": true,
+    "telemetryDependencyAndManifestGuardPassed": true,
+    "unitTests": {
+      "protocol/test": {
+        "tests": 501,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app/testDebugUnitTest": {
+        "tests": 2376,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app/testReleaseUnitTest": {
+        "tests": 2365,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "debugAndReleaseLintPassed": true,
+    "syntheticFacePrivacyDeviceTestsPassed": 4
+  },
+  "localChecks": {
+    "typescriptPassed": true,
+    "focusedClientUnitTestsPassed": 307,
+    "desktopUnitTestsPassed": 102,
+    "focusedPrivacyBrowserTestsPassed": 14,
+    "correctedCallLayoutAndPrivacyTestsPassed": 7,
+    "inapplicableDesktopGalleryCasesSkipped": 2,
+    "pythonLearningTestsPassed": 6,
+    "rustTestsPassed": 7,
+    "nativeAndWasmParityBothArchitecturesPassed": true
+  },
+  "ci": {
+    "androidRun": "https://github.com/forgesworn/kithmoot-android/actions/runs/39161574363",
+    "androidFullMatrix": "running",
+    "webFinalRun": "pending",
+    "visionBothArchitectures": "passed on build ancestry"
+  },
+  "publication": {
+    "githubReleases": false,
+    "apt": false,
+    "website": false,
+    "signedFeeds": false,
+    "zapstore": false
+  },
+  "acceptance": {
+    "physicalAndroid": false,
+    "physicalDesktopCapture": false,
+    "realFaceOrHeldObjectAi": false,
+    "batteryAndThermal": false,
+    "productionPerformanceQualified": false
+  }
+}

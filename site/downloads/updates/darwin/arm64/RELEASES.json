@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.87",
+  "currentRelease": "0.1.88",
   "releases": [
     {
-      "version": "0.1.87",
+      "version": "0.1.88",
       "updateTo": {
-        "version": "0.1.87",
-        "pub_date": "2026-10-18T15:09:06Z",
+        "version": "0.1.88",
+        "pub_date": "2026-10-18T20:30:00Z",
         "notes": "Meeting codes: share a short code instead of a full link. Automatic replies no longer give away when a device is in use.",
-        "name": "0.1.87",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.87/KithMoot-0.1.87-mac-arm64.zip",
-        "sha256": "717fadfbcd2c63ecc8d363b47bcb2b91a37df8d06130c4b5d82725d0b0bc0913",
-        "size": 177693663
+        "name": "0.1.88",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.88/KithMoot-0.1.88-mac-arm64.zip",
+        "sha256": "eb2fae159ef44d3d4100026efb03d8cc3ddf8ca5187fd136e3d7ee09768bc7a3",
+        "size": 170800442
       }
     }
   ]
