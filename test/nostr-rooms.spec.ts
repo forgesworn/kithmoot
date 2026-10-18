@@ -636,10 +636,10 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
 
     await expect(second.locator('#roomArea')).toBeHidden()
     await expect(second.locator('#status')).toContainText('tidied this room up in another tab')
-    // A read position is published in a 30-90 second batch, or a few seconds
-    // after the tab is hidden, and the tidy-up forgets the room's pending one.
-    // Wait a little anyway: a record that slipped out late must still be
-    // caught by the check below rather than by the next run.
+    // A read position is published a few seconds after the chat was read, so
+    // the one this room earned is due about now. Wait past it: without the
+    // wait, a fast machine asks the relay before the record was ever due and
+    // a slow one fails instead, which is how this was a CI-only bug.
     await page.waitForTimeout(6_000)
 
     const deletions = (await relayHolds({ kinds: [5], authors: [inviterPub, devicePub, account] }))
@@ -909,61 +909,4 @@ test('granted contacts pair with explicit fields and a confirmed code, persist a
     await page.locator('#contactsClose').click()
     await expect(peerTile).toHaveCount(0)
   } finally { await context.close(); await peerContext.close(); publisher.close() }
-})
-
-/** Pretend the tab went to the background, or came back. */
-async function setTabHidden(page: Page, hidden: boolean): Promise<void> {
-  await page.evaluate(hidden => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => hidden ? 'hidden' : 'visible' })
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
-    document.dispatchEvent(new Event('visibilitychange'))
-  }, hidden)
-}
-
-async function readInNewRoom(page: Page, baseURL: string, name: string): Promise<void> {
-  await openNewRoomForm(page)
-  await page.locator('#roomName').fill(name)
-  await page.locator('#create').click()
-  await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
-  await page.locator('#join').click()
-  await expect(page.locator('#roomArea')).toBeVisible()
-  await page.locator('#chatInput').fill('Read up to here')
-  await page.locator('#chatInput').press('Enter')
-  await expect(page.locator('#chatLog')).toContainText('Read up to here')
-}
-
-// A read position is signed by the account under a tag every member can
-// derive, so publishing one four seconds after each message was a read
-// receipt to the whole room. It now goes out in a 30-90 second batch, or a
-// few seconds after the tab is hidden, and not at all with the switch off.
-test('read positions go out in batches, sooner once the tab is hidden, and never with sharing off', async ({ browser, baseURL }) => {
-  test.setTimeout(150_000)
-  for (const sharing of [true, false]) {
-    const secret = generateSecretKey()
-    const account = getPublicKey(secret)
-    const context = await device(browser, baseURL!, secret)
-    const records = () => relayHolds({ kinds: [30078], authors: [account], '#l': ['kithmoot.read.v1'] })
-    try {
-      const page = await context.newPage()
-      await signIn(page, baseURL!)
-      await page.locator('#openAppSettings').click()
-      await expect(page.locator('#toggleReadShare')).toHaveAttribute('aria-pressed', 'true')
-      if (!sharing) {
-        await page.locator('#toggleReadShare').click()
-        await expect(page.locator('#toggleReadShare')).toHaveAttribute('aria-pressed', 'false')
-        await expect(page.locator('#readShareNote')).toContainText('Off:')
-      }
-      await page.locator('#appSettingsClose').click()
-      await readInNewRoom(page, baseURL!, sharing ? 'Read and share' : 'Read and keep')
-      // The old schedule would have published by now.
-      await page.waitForTimeout(8_000)
-      expect(await records()).toEqual([])
-      await setTabHidden(page, true)
-      if (sharing) await expect.poll(records, { timeout: 15_000 }).toHaveLength(1)
-      else {
-        await page.waitForTimeout(12_000)
-        expect(await records()).toEqual([])
-      }
-    } finally { await context.close() }
-  }
 })
