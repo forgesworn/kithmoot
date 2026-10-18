@@ -264,6 +264,7 @@ async function routes(page: Page): Promise<Record<string, number>> {
     return {
       passthrough: Number(panel.dataset.passthrough ?? '0'),
       blurAll: Number(panel.dataset.blurAll ?? '0'),
+      cover: Number(panel.dataset.cover ?? '0'),
       composite: Number(panel.dataset.composite ?? '0'),
       fps: Number(panel.dataset.fps ?? '0'),
       frameCostMs: Number(panel.dataset.frameCostMs ?? '0'),
@@ -388,6 +389,9 @@ test('replace covers both the room and person while cut-outs are unavailable', a
 
   await page.locator('#effectModes button[data-mode="replace"]').click()
   await expect(page.locator('#effectMode')).toHaveText('replace')
+  // Route counters are reported periodically. Wait for a replacement frame
+  // so the baseline includes every earlier, deliberately raw frame.
+  await expect.poll(async () => (await routes(page)).cover).toBeGreaterThan(0)
   const beforeReplace = await routes(page)
   await page.locator('#backgroundChoices button[data-background="sea-coral"]').click()
   await page.waitForTimeout(1600)
