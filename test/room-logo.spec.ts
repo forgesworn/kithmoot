@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
-import { newDeviceContext, open, openRoomDetails } from './browser.js'
+import { newDeviceContext, open, openRoomDetails, leaveToChats } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 import { createLogoImage, logoFromCanvasEncoding, type LogoImage } from '../src/logo-image.js'
 import { followRoomLogo } from '../src/room-logo.js'
@@ -111,7 +111,7 @@ for (const scheme of ['light', 'dark'] as const) test(`an unusable signed room l
     expect(logoBox!.x + logoBox!.width).toBeLessThanOrEqual(textBox!.x)
     expect(Math.abs(logoBox!.y + logoBox!.height / 2 - textBox!.y - textBox!.height / 2)).toBeLessThan(2)
     await page.locator('#backToRooms:visible, #workspaceSwitch:visible').first().click()
-    await page.locator('#roomSwitcherHome').click()
+    await leaveToChats(page)
     const row = page.locator(`#roomList .roomRow[data-room="${keeper.roomId}"]`)
     await expect(row).toBeVisible()
     await expect(row.locator('.roomAvatar img')).toHaveCount(0)

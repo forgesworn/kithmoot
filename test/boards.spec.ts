@@ -8,7 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import {turnOnMedia} from './browser.js'
+import { turnOnMedia, leaveToChats } from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -395,8 +395,8 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     await expect(page.locator('#chatInput')).toHaveValue('Keep the release chat draft')
     await page.locator('#chatInput').fill('')
     await page.locator('#backToRooms').click()
-    await expect(page.locator('#roomSwitcherHome')).toBeEnabled()
-    await page.locator('#roomSwitcherHome').click()
+    await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'false')
+    await leaveToChats(page)
     await page.locator('#openAppSettings').click(); await page.locator('#signOut').click()
     await expect.poll(() => second.isClosed()).toBe(true)
     expect(errors).toEqual([])

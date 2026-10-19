@@ -9,6 +9,7 @@ import { createRoomInvitation } from '../src/invitation.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
 import { KINDS } from '../src/kinds.js'
+import { leaveToChats } from './browser.js'
 
 async function setup(browser: Browser, base: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
@@ -116,8 +117,8 @@ test('local groups organise rooms, filter by name, survive reload and remain rea
     await expect(page.locator('#roomSwitcherList .roomRow')).toHaveCount(1)
     await page.locator('#switcherProject').selectOption('')
     await expect(page.locator('#roomSwitcherList .roomRow')).toHaveCount(2)
-    await page.locator('#roomSwitcherHome').click()
-    await expect(page.locator('#home')).toBeVisible()
+    await leaveToChats(page)
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await page.locator('#homeProject').selectOption({ label: 'KithMoot' })
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await expect(page.locator('#roomList')).toContainText('Release planning')

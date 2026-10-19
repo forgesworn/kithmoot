@@ -2,7 +2,7 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
 import AxeBuilder from '@axe-core/playwright'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
-import { agentRelaysFor } from './relays.js'
+import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { showChats } from './browser.js'
 
@@ -449,7 +449,7 @@ test('the list is one tab stop: arrows move between rows and Enter opens', async
     const menu = page.getByRole('menu', { name: /More for/ })
     await expect(menu).toBeVisible()
     await expect(menu.getByRole('menuitem').first()).toBeFocused()
-    await expect(menu.getByRole('menuitem')).toHaveText(['Unpin', 'Copy invite link', 'Add to a project', 'Group on this browser', 'Forget this room'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['Unpin', 'Copy invite link', 'Open in a new tab', 'Add to a project', 'Group on this browser', 'Forget this room'])
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
     await expect(more).toBeFocused()
@@ -472,5 +472,23 @@ test('back to the list from the start page keeps the room list reachable at ever
     await joinRoom(page, 2)
     await showChats(page)
     await expect(page.locator('#roomList .open[aria-current="true"]')).toHaveAccessibleName('Open Town hall')
+  } finally { await context.close() }
+})
+
+test('creating a room from the New menu closes the sheet and leaves the door clear', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    const relays = testRelaysFor(baseURL!)!
+    await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
+    await page.goto(baseURL!)
+    await page.locator('#newMenuButton').click()
+    await page.getByRole('menuitem', { name: 'New room' }).click()
+    await page.locator('#roomName').fill('Door check')
+    await page.locator('#create').click()
+    await expect(page.locator('#join')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('dialog[open]')).toHaveCount(0)
+    await page.locator('#displayName').fill('Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
   } finally { await context.close() }
 })

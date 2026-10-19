@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
-import { newDeviceContext, open, openCall, openRoomDetails, turnOnMedia } from './browser.js'
+import { newDeviceContext, open, openCall, openRoomDetails, turnOnMedia, leaveToChats } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
@@ -107,7 +107,7 @@ for (const phone of [false, true]) {
         await expect(page.locator('#recordingBannerText')).toContainText('You are recording')
         await page.waitForTimeout(1600)
         if (leave) {
-          await page.keyboard.press('Control+k'); await page.locator('#roomSwitcherHome').click()
+          await leaveToChats(page)
           await expect(page.locator('#callDock')).toBeVisible()
         }
         holdReceipts = true

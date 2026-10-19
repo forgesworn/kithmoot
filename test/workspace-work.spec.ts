@@ -6,7 +6,7 @@ import { localIdentity } from '../src/identity.js'
 import { npubEncode } from 'nostr-tools/nip19'
 import { encodeRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
-import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia } from './browser.js'
+import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats } from './browser.js'
 
 for (const retainCall of [false, true]) {
 test(`cross-project Inbox routes a question, human mention, reply and exact-result review to their origins${retainCall ? ' while a signed-project call stays live' : ''}`, async ({ browser, baseURL }, info) => {
@@ -277,8 +277,7 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     await expect(page.locator(`#workspaceWorkCards [data-room="${saved[0]!.roomId}"]`)).toHaveCount(0)
     await expect(page.locator('#workspaceWorkCards')).not.toContainText('Private unjoined work')
     await page.locator('#workspaceWorkClose').click()
-    await page.locator('#backToRooms').click()
-    await page.locator('#roomSwitcherHome').click()
+    await leaveToChats(page)
     await expect(page.locator('#homeInbox')).toBeVisible()
     await page.locator('#homeInbox').click()
     await expect(page.locator('#workspaceWorkStatus')).not.toContainText('Sign in')

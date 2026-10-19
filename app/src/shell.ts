@@ -65,7 +65,8 @@ function render(): void {
   // Below 900 px with the main pane hidden, the list is what a screen reader
   // should find as the page's main landmark. The real main is not rendered
   // then, so there is still exactly one.
-  const listIsMain = onePane() && destination !== 'boards' && level === 'list'
+  const dock = el('callDock')
+  const listIsMain = onePane() && destination !== 'boards' && level === 'list' && !(dock && !dock.hidden)
   const column = el('listColumn')
   if (column) {
     if (listIsMain) column.setAttribute('role', 'main')
@@ -195,7 +196,96 @@ function placeEnd(): void {
   else if (end.parentElement !== rail) rail.append(end)
 }
 
+/** Where this device remembers how wide the list is. The key the old rooms
+ *  rail used, so a width somebody chose is not lost (it is clamped). */
+const WIDTH_KEY = 'kithmoot.desktopProjectsRailWidth'
+export const LIST_DEFAULT_PX = 300
+export const LIST_MIN_PX = 240
+export const LIST_MAX_PX = 480
+
+function clampList(px: number): number {
+  return Math.round(Math.max(LIST_MIN_PX, Math.min(LIST_MAX_PX, px)))
+}
+
+/**
+ * The drag line on the list column's right edge, the same control as the one
+ * between the call and the conversation: drag it, or focus it and use the
+ * arrow keys; Home or Enter or a double-click puts the list back to 300 px,
+ * End makes it as wide as it goes. Only there while the list and the room
+ * share the screen (900 px and up).
+ */
+function installListDivider(): void {
+  const divider = document.createElement('div')
+  divider.id = 'railDivider'
+  divider.setAttribute('role', 'separator')
+  divider.setAttribute('aria-orientation', 'vertical')
+  divider.setAttribute('aria-label', 'Resize chats list')
+  divider.setAttribute('aria-controls', 'listColumn')
+  divider.title = 'Drag to resize. Double-click to reset.'
+  divider.tabIndex = 0
+  document.body.append(divider)
+  let width = LIST_DEFAULT_PX
+  try {
+    const saved = Number(localStorage.getItem(WIDTH_KEY))
+    if (Number.isFinite(saved) && saved > 0) width = clampList(saved)
+  } catch { /* No storage: the width lasts for this visit. */ }
+  const render = (): void => {
+    root.style.setProperty('--shell-list', `${width}px`)
+    divider.setAttribute('aria-valuemin', String(LIST_MIN_PX))
+    divider.setAttribute('aria-valuemax', String(LIST_MAX_PX))
+    divider.setAttribute('aria-valuenow', String(width))
+    divider.setAttribute('aria-valuetext', `Chats list ${width} pixels wide`)
+  }
+  const apply = (px: number, keep = true): void => {
+    width = clampList(px)
+    render()
+    if (keep) try { localStorage.setItem(WIDTH_KEY, String(width)) } catch { /* As above. */ }
+  }
+  const reset = (): void => {
+    width = LIST_DEFAULT_PX
+    render()
+    try { localStorage.removeItem(WIDTH_KEY) } catch { /* As above. */ }
+  }
+  render()
+  let drag: { id: number; startX: number; startWidth: number } | null = null
+  divider.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    drag = { id: event.pointerId, startX: event.clientX, startWidth: width }
+    divider.setPointerCapture(event.pointerId)
+    divider.dataset.dragging = ''
+    root.setAttribute('data-rail-dragging', '')
+    divider.focus({ preventScroll: true })
+    event.preventDefault()
+  })
+  divider.addEventListener('pointermove', event => {
+    if (drag && event.pointerId === drag.id) apply(drag.startWidth + event.clientX - drag.startX, false)
+  })
+  const end = (event: PointerEvent): void => {
+    if (!drag || event.pointerId !== drag.id) return
+    apply(drag.startWidth + event.clientX - drag.startX)
+    if (divider.hasPointerCapture(drag.id)) divider.releasePointerCapture(drag.id)
+    drag = null
+    delete divider.dataset.dragging
+    root.removeAttribute('data-rail-dragging')
+  }
+  divider.addEventListener('pointerup', end)
+  divider.addEventListener('pointercancel', end)
+  divider.addEventListener('dblclick', reset)
+  divider.addEventListener('keydown', event => {
+    const step = event.shiftKey ? 64 : 16
+    switch (event.key) {
+      case 'ArrowLeft': apply(width - step); break
+      case 'ArrowRight': apply(width + step); break
+      case 'Home': case 'Enter': reset(); break
+      case 'End': apply(LIST_MAX_PX); break
+      default: return
+    }
+    event.preventDefault()
+  })
+}
+
 function init(): void {
+  installListDivider()
   for (const button of document.querySelectorAll<HTMLElement>('#rail [data-destination]')) {
     button.addEventListener('click', () => openDestination(button.dataset.destination as Destination))
   }
@@ -205,6 +295,9 @@ function init(): void {
   document.addEventListener('keydown', shortcut)
   const hint = el('searchHint')
   if (hint) hint.textContent = isMac ? '⌘K' : 'Ctrl K'
+  // A docked call keeps a strip of the main pane on screen over the list.
+  const dock = el('callDock')
+  if (dock) new MutationObserver(render).observe(dock, { attributes: true, attributeFilter: ['hidden'] })
   ONE_PANE.addEventListener('change', render)
   COMPACT.addEventListener('change', placeEnd)
   placeEnd()

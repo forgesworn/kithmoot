@@ -313,25 +313,34 @@ html[data-destination='boards'] #roomNav { display: none; }
 /* ---- One pane at a time, under 900 -------------------------------------- */
 
 @media (max-width: 899px) {
-  body { grid-template-columns: var(--shell-rail) minmax(0, 1fr); }
+  /* Two rows: the main pane's call dock (when a call is docked) over the list.
+     At the list level nothing else of the main pane shows. */
+  body { grid-template-columns: var(--shell-rail) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  #rail { grid-row: 1 / span 2; }
   #listColumn, main { grid-column: 2; width: auto; border-right: 0; }
-  /* The list is the first level; opening something pushes the room over it. */
-  html:not([data-destination='boards'])[data-level='list'] main { display: none; }
+  #listColumn { grid-row: 2; background: var(--bg); }
+  main { grid-row: 1; }
+  html[data-level='detail'] main, html[data-destination='boards'] main { grid-row: 1 / span 2; }
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main { padding-block: 0; overflow: visible; }
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main > :not(#workspaceContent),
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) #workspaceContent > :not(#callSurface),
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) #callSurface > :not(#callDock) { display: none; }
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main:not(:has(#callDock:not([hidden]))) { display: none; }
   html[data-level='detail'] #listColumn, html[data-destination='boards'] #listColumn { display: none; }
   /* Nothing to list yet: the start page is all there is. */
-  html[data-list='off'][data-destination='chats'] main { display: flex; }
-  #listColumn { background: var(--bg); }
+  html[data-list='off'][data-destination='chats'] main { grid-row: 1 / span 2; }
   #rooms { padding-inline: var(--s4); }
 }
 
 /* ---- Compact: the rail is the bottom bar -------------------------------- */
 
 @media (max-width: 599px) {
-  body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
-  #listColumn, main { grid-column: 1; grid-row: 1; }
+  body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
+  #listColumn, main { grid-column: 1; }
+  html[data-level='detail'] main, html[data-destination='boards'] main, html[data-list='off'][data-destination='chats'] main { grid-row: 1 / span 2; }
   #rail {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 3;
     flex-direction: row;
     justify-content: space-around;
     align-items: stretch;
@@ -345,8 +354,7 @@ html[data-destination='boards'] #roomNav { display: none; }
   html[data-level='detail'] #rail { display: none; }
   .railLogo { display: none; }
   .railItem { flex: 1 1 0; width: auto; min-height: var(--shell-bar); max-width: 9rem; justify-content: center; padding: var(--s2) 0; }
-  #listColumn { background: var(--bg); border-right: 0; }
-  #rooms { padding-top: max(var(--s3), 0px); }
+  #listColumn { border-right: 0; }
 }
 
 /* Settings and sign-in sit in the list header when there is no rail. */
@@ -387,4 +395,42 @@ html[data-destination='boards'] #roomNav { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .chip, .railItem, .railIcon { transition: none; }
+}
+
+/* Older and Ended: fold buttons at the foot of the list, folded by default. */
+#roomList .sectionFold { display: inline-flex; align-items: center; gap: var(--s1); min-height: 32px; margin: 0; padding: 0 var(--s1); background: transparent; color: var(--muted); font-size: var(--fs-1); }
+#roomList .sectionFold::before { content: '▸'; transition: transform .15s; }
+#roomList .sectionFold[aria-expanded='true']::before { transform: rotate(90deg); }
+#roomList .sectionFold:hover { color: var(--text); background: transparent; }
+@media (prefers-reduced-motion: reduce) { #roomList .sectionFold::before { transition: none; } }
+
+/* The keyboard hint is noise on a phone. */
+@media (pointer: coarse), (max-width: 599px) {
+  .listSearch kbd { display: none; }
+  .listSearch input { padding-right: var(--s3); }
+}
+
+/* The drag line on the list column's edge. There only while the list and the
+   room share the screen. */
+#railDivider {
+  position: fixed;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  left: calc(env(safe-area-inset-left) + var(--shell-rail) + var(--shell-list) - 6px);
+  width: 12px;
+  display: none;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+#railDivider::before { content: ''; width: 1px; background: transparent; }
+#railDivider:hover::before, #railDivider:focus-visible::before, #railDivider[data-dragging]::before { width: 3px; border-radius: var(--r-s); background: var(--accent); }
+#railDivider:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+@media (min-width: 900px) { #railDivider { display: flex; } }
+html[data-list='off'][data-destination='chats'] #railDivider, html[data-destination='boards'] #railDivider { display: none; }
+html[data-rail-dragging] { cursor: col-resize; user-select: none; }
+html[data-rail-dragging] * { user-select: none; }
+@media (forced-colors: active) {
+  #railDivider:hover::before, #railDivider:focus-visible::before, #railDivider[data-dragging]::before { background: Highlight; }
 }

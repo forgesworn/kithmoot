@@ -361,6 +361,7 @@ export async function openNewRoomForm(page: Page): Promise<void> {
  *  wider, the list is always there. */
 export async function showChats(page: Page): Promise<void> {
   const back = page.locator('#backToRooms')
+  await expect(page.locator('#rooms:visible, #backToRooms:visible').first()).toBeVisible()
   if (await back.isVisible()) await back.click()
   await expect(page.locator('#rooms')).toBeVisible()
 }
@@ -380,7 +381,8 @@ export async function leaveToChats(page: Page): Promise<void> {
   // is reached by script, which is what a back-to-start gesture would be.
   if (await logo.isVisible()) await logo.click()
   else await logo.evaluate(button => (button as HTMLButtonElement).click())
-  await expect(page.locator('#home')).toBeVisible()
+  // The start page is the main pane where it shows, and the list where it is the only pane.
+  await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
 }
 
 export async function createRoom(page: Page, baseURL: string, relays = testRelays()): Promise<string> {

@@ -5,6 +5,7 @@ import { NostrRelayPool } from '../src/relay-pool.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { readFile } from 'node:fs/promises'
 import { TEST_RELAY_WS } from './relays.js'
+import { openNewRoomForm } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -81,6 +82,7 @@ test('duration sliders set the signed room deadline and the brand returns home',
   const { context } = await device(browser, baseURL!)
   try {
     const page = await context.newPage(); await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('Slider lifetime')
     await page.locator('#roomEnds').selectOption('duration')
     await page.locator('#roomDurationHours').press('Home')
@@ -100,9 +102,9 @@ test('duration sliders set the signed room deadline and the brand returns home',
     expect(saved.endsAt).toBeLessThanOrEqual(Math.floor(Date.now()/1000) + 86400 + 300)
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.locator('#workspaceBrandHome:visible, #appHome:visible').first().click()
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await expect(page.locator('#roomList')).toContainText('Slider lifetime')
     await page.locator('#appHome').focus(); await page.locator('#appHome').press('Enter')
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
   } finally { await context.close() }
 })

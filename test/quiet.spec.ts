@@ -4,7 +4,7 @@ import type { Event } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { KINDS } from '../src/kinds.js'
-import { openRoomDetails, allowTestFileStorage, TEST_RELAY_WS } from './browser.js'
+import { openRoomDetails, allowTestFileStorage, TEST_RELAY_WS, leaveToChats } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
@@ -101,8 +101,7 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
 
     // On the front page's list, a quiet room is not read in the background;
     // it says so, where a plain room would count what is new.
-    await ada.locator('#backToRooms').click()
-    await ada.locator('#roomSwitcherHome').click()
+    await leaveToChats(ada)
     await expect(ada.locator('#rooms')).toBeVisible()
     const quietRow = ada.locator('#roomList .roomRow', { has: ada.locator('.roomName', { hasText: 'Quiet: Rowan' }) })
     await expect(quietRow.locator('.roomPreview')).toHaveText('Quiet room. Open it to read.', { timeout: 30_000 })

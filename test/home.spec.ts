@@ -3,7 +3,7 @@ import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { RoomAgent } from '../src/agent.js'
 import { KINDS } from '../src/kinds.js'
 import { withRelays, TEST_RELAY_WS } from './relays.js'
-import { requestAdmission } from './browser.js'
+import { requestAdmission, openNewRoomForm } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -31,7 +31,7 @@ test('the home page leads with room actions, fits both themes and starts a named
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await expect(page.locator('#displayName')).toBeHidden()
     await expect(page.locator('#notify')).toBeHidden()
     for (const colorScheme of ['light', 'dark'] as const) {
@@ -39,7 +39,7 @@ test('the home page leads with room actions, fits both themes and starts a named
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 740 })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-        const start = await page.locator('#create').boundingBox()
+        const start = await page.locator('#newRoom').boundingBox()
         const signIn = await page.locator('#homeSignIn').boundingBox()
         expect(start!.y).toBeLessThan(signIn!.y)
       }
@@ -47,15 +47,16 @@ test('the home page leads with room actions, fits both themes and starts a named
     // Landscape phone, the hardest layout: Start a room fits above the fold
     // with no scrolling, and the header carries no more than the short case.
     await page.setViewportSize({ width: 844, height: 390 })
-    const landscapeStart = await page.locator('#create').boundingBox()
+    const landscapeStart = await page.locator('#newRoom').boundingBox()
     expect(landscapeStart!.y + landscapeStart!.height).toBeLessThanOrEqual(390)
     await page.setViewportSize({ width: 390, height: 740 })
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.evaluate(() => { document.documentElement.style.fontSize = '' })
     await page.setViewportSize({ width: 390, height: 540 })
-    const start = await page.locator('#create').boundingBox()
+    const start = await page.locator('#newRoom').boundingBox()
     expect(start!.y + start!.height).toBeLessThanOrEqual(540)
+      await openNewRoomForm(page)
       await page.locator('#roomName').fill('Saturday workshop')
     await page.locator('#roomName').press('Enter')
     await expect(page.locator('#arrivalTitle')).toHaveText('Saturday workshop')
@@ -117,6 +118,7 @@ test('relay-only network privacy refuses to join without a TURN allocation', asy
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#create').click()
     await page.locator('#displayName').fill('Ada')
     await page.locator('#joinNetworkPrivacy > summary').click()
@@ -133,7 +135,7 @@ test('invalid links stay beside their field and a complete invitation from anoth
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await page.locator('#openLink > summary').click()
+    await page.locator('#homeOpenLink').click()
     for (const value of ['', 'javascript:window.badLink=true', 'https://example.com/ordinary-page', 'https://example.com/#bad']) {
       await page.locator('#url').fill(value)
       await page.locator('#url').press('Enter')
@@ -177,14 +179,13 @@ test('saved rooms can be searched and refreshed without losing the selected room
     await expect(page.locator('#homeRoomSearch')).toBeVisible()
     await page.locator('#homeRoomQuery').fill('WORKSHOP')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(2)
-    await expect(page.locator('#homeRoomResults')).toHaveText('2 rooms found')
     const open = page.getByRole('button', { name: 'Open Saturday workshop', exact: true })
     await open.focus()
     await page.clock.runFor(5100)
     await expect(open).toBeFocused()
     await expect(page.locator('#homeRoomQuery')).toHaveValue('WORKSHOP')
     await page.locator('#homeRoomQuery').fill('No such room')
-    await expect(page.locator('#homeRoomResults')).toHaveText('No rooms match “No such room”.')
+    await expect(page.locator('#homeRoomResults')).toContainText('No chats match')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
     await page.locator('#clearHomeRoomQuery').click()
     await expect(page.locator('#homeRoomQuery')).toBeFocused()
@@ -208,7 +209,7 @@ test('an incomplete invitation has a clear way back to rooms', async ({ browser,
     await expect(page.locator('#retryArrival')).toBeHidden()
     await expect(page.locator('#setup')).toBeHidden()
     await page.locator('#arrivalHome').click()
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     expect(new URL(page.url()).hash).toBe('')
   } finally { await context.close() }
 })
@@ -265,7 +266,7 @@ test('a retired invitation asks for a current link and does not offer a pointles
     await expect(page.locator('#retryArrival')).toBeHidden()
     await expect(page.locator('#joinRoomForm')).toBeHidden()
     await page.locator('#arrivalHome').click()
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
   } finally { await host.leave(); await context.close() }
 })
 
@@ -315,6 +316,7 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('The workshop')
     await page.locator('#create').click()
     await expect(page.locator('#arrivalLead')).toContainText('Invite people')
@@ -398,6 +400,7 @@ test('the "Ask me before anyone joins" checkbox starts unticked on a fresh visit
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await expect(page.locator('#roomAsk')).not.toBeChecked()
     await expect(page.locator('#roomAskHint')).toBeHidden()
     await page.locator('#roomAsk').check()

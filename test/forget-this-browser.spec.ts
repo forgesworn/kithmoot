@@ -27,6 +27,7 @@ test('Forget this browser removes the visitor identity, kept rooms and signer co
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('A room to forget')
     await page.locator('#roomName').press('Enter')
     await expect(page.locator('#arrivalTitle')).toHaveText('A room to forget')
@@ -56,7 +57,7 @@ test('Forget this browser removes the visitor identity, kept rooms and signer co
     await expect(dialog).toBeVisible()
     await dialog.getByRole('button', { name: 'Forget this browser', exact: true }).click()
 
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     // A brand new visitor with nothing kept and no account gets no rooms
     // section at all, not an empty one - see showRoomsList/renderRooms.
     await expect(page.locator('#rooms')).toBeHidden()
@@ -76,6 +77,7 @@ test('Forget this browser, offered from Room details too, refuses while on a cal
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('A room mid-call')
     await page.locator('#roomName').press('Enter')
     await page.locator('#displayName').fill('Ada')

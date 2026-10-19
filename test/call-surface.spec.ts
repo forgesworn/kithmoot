@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
 import { PANE_COLLAPSE_MS } from '../app/src/call-stance.js'
 import { collectAppDiagnostics } from './app-diagnostics.js'
-import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm, turnOnMedia } from './browser.js'
+import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm, turnOnMedia, leaveToChats, switchToRoom } from './browser.js'
 
 // Three encoded-media clients and two live popouts produced over 5,000 trace
 // screencast frames (about 200 MB) during this journey on the hosted runner.
@@ -50,7 +50,7 @@ test('portrait cameras stay whole and another chat defaults to a gallery with wo
     await expect(camera).toHaveAttribute('data-camera-orientation', 'portrait')
     await expect.poll(() => camera.evaluate(v => getComputedStyle(v).objectFit)).toBe('contain')
     await viewer.screenshot({path: info.outputPath('portrait-camera.png')})
-    await viewer.keyboard.press('Control+k'); await viewer.locator('#roomSwitcherList').getByRole('button', {name: 'Switch to Side chat', exact: true}).click()
+    await switchToRoom(viewer, 'Side chat')
     await expect(viewer.locator('#room')).toHaveAttribute('data-layout', 'gallery')
     await expect(viewer.locator('#room .participant[data-floating]')).toHaveCount(0)
     await expect(viewer.locator('#room .participant[data-name="Ada"]')).toBeVisible()
@@ -165,7 +165,7 @@ for (const phone of [false, true]) {
       }
       for (const room of sides) {
         await ada!.keyboard.press('Control+k')
-        await ada!.locator('#roomSwitcherList').getByRole('button', { name: `Switch to ${room.name}`, exact: true }).click()
+        await switchToRoom(ada!, `${room.name}`)
         await expect(ada!.locator('#roomTitle')).toHaveText(room.name)
         await expect(ada!.locator('#callSurface')).toBeVisible()
         await expect(ada!.locator('#callStage')).toBeVisible()
@@ -235,8 +235,8 @@ for (const phone of [false, true]) {
       expect(dimensions).toEqual({ width: 1280, height: 720 })
       await expect(ada!.locator('#recordingShare')).toBeHidden()
       await expect(bo!.locator('#recordingBanner')).toBeHidden()
-      await bo!.keyboard.press('Control+k'); await bo!.locator('#roomSwitcherHome').click()
-      await expect(bo!.locator('#home')).toBeVisible()
+      await leaveToChats(bo!)
+      await expect(bo!.locator('#home:visible, #rooms:visible').first()).toBeVisible()
       await expect(bo!.locator('#callDockRecording')).toBeVisible()
       await expect(bo!.locator('#callDockRecording')).toBeEnabled()
       await expect(bo!.locator('#callDockRecordingHint')).toBeHidden()
@@ -249,8 +249,8 @@ for (const phone of [false, true]) {
       await bo!.locator('#callDockBack').click()
       await expect(bo!.locator('#callDock')).toBeHidden()
       await continuous()
-      await ada!.keyboard.press('Control+k'); await ada!.locator('#roomSwitcherHome').click()
-      await expect(ada!.locator('#home')).toBeVisible()
+      await leaveToChats(ada!)
+      await expect(ada!.locator('#home:visible, #rooms:visible').first()).toBeVisible()
       await expect(ada!.locator('#callStage')).toBeVisible()
       await continuous()
       await ada!.locator('#callDockBack').click()
@@ -271,7 +271,7 @@ for (const phone of [false, true]) {
       }
       await ada!.screenshot({ path: info.outputPath(`persistent-gallery-${phone ? 'phone' : 'desktop'}.png`) })
       await ada!.keyboard.press('Control+k')
-      await ada!.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Side B', exact: true }).click()
+      await switchToRoom(ada!, 'Side B')
       // Leaving from another room also stops the original room's recorder.
       await ada!.locator('#recordingDiscard').click()
       await ada!.locator('#actionConfirm').click()
@@ -330,7 +330,7 @@ for (const destruct of [false, true]) {
       const popup = await ready
       await expect.poll(() => popup.locator('.shareStage > video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(0)
       const roomId = await ada.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.') && JSON.parse(localStorage.getItem(key)!).name === 'Dated call')!.slice('kithmoot.room.'.length))
-      await ada.keyboard.press('Control+k'); await ada.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Still open', exact: true }).click()
+      await switchToRoom(ada, 'Still open')
       await expect(ada.locator('#roomTitle')).toHaveText('Still open')
       await ada.locator('#callDockRecording').click(); await ada.locator('#actionConfirm').click()
       await expect(bo.locator('#recordingBanner')).toBeVisible()

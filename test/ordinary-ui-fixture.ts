@@ -63,6 +63,10 @@ export function uiFixture(mode: UiMode = 'browser-all') {
     const lastKnownProfileNames = new LastKnownNames(500,seed)
     main('rememberProfileName',['LAST_KNOWN_PROFILE_NAME_KEY'],{lastKnownProfileNames,deviceStore})(UI_ROOM,'Library')
   }
+  if (all || mode.startsWith('fold-')) {
+    const write = main('setSectionFolded',['FOLD_PREFIX'],{localStorage:storage})
+    for (const section of mode==='fold-all'?['pinned','unread','recent','older','other','ended']:['older']) write(section,mode!=='fold-open')
+  }
   if (all || mode.startsWith('delay-')) expression({receiver:'localStorage',key:'SEND_DELAY_KEY',constants:['SEND_DELAY_KEY'],
     globals:{localStorage:storage,SEND_DELAYS:[0,5,10],delay:{value:mode==='delay-zero'?'0':mode==='delay-ten'?'10':'5'}}})
   if (all || mode.startsWith('tone-')) expression({file:'app/src/emoji-picker.ts',within:'setPreferredSkinTone',receiver:'localStorage',key:'toneKey',constants:['toneKey'],

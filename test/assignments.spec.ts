@@ -209,7 +209,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.locator('#assignmentCreate [name=objective]').fill('A separate planning assignment')
     await page.keyboard.press('Escape')
     await page.locator('#backToRooms').click()
-    await expect(page.locator('#roomSwitcherHome')).toBeDisabled()
+    await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'true')
     await page.getByRole('button', { name: 'Switch to Workshop', exact: true }).click()
     await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('An unfinished workshop assignment')

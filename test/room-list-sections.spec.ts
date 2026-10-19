@@ -69,7 +69,7 @@ test('eight rooms are one list with no headings', async ({ browser, baseURL }) =
 test('a long list is in sections, and Older folds away and stays folded', async ({ browser, baseURL }) => {
   const { page } = await homeWith(browser, baseURL!, 12)
   try {
-    expect(await headings(page)).toEqual(['Recent', 'Older · 5'])
+    expect(await headings(page)).toEqual(['Chats', 'Older · 5'])
     await expect(page.locator('#roomList .roomRow')).toHaveCount(7)
     await expect(row(page, 'Room 12')).toHaveCount(0)
 
@@ -132,10 +132,10 @@ test('Unpin puts the room back where its activity says', async ({ browser, baseU
   try {
     await row(page, 'Room 02').locator('.rowMenu').click()
     await page.getByRole('menuitem', { name: 'Pin', exact: true }).click()
-    expect(await headings(page)).toEqual(['Pinned', 'Recent', 'Older · 2'])
+    expect(await headings(page)).toEqual(['Pinned', 'Chats', 'Older · 2'])
     await row(page, 'Room 02').locator('.rowMenu').click()
     await page.getByRole('menuitem', { name: 'Unpin' }).click()
-    expect(await headings(page)).toEqual(['Recent', 'Older · 2'])
+    expect(await headings(page)).toEqual(['Chats', 'Older · 2'])
     await expect(page.locator('#roomList .roomRow').nth(1).locator('.roomName')).toHaveText('Room 02')
   } finally { await page.context().close() }
 })
@@ -145,7 +145,7 @@ test('a long list of rooms without readable history stays visible without invent
   const { page } = await homeWith(browser, baseURL!, 12, false)
   try {
     await expect(page.locator('#roomList .roomRow')).toHaveCount(12)
-    expect(await headings(page)).toEqual(['Other rooms'])
+    expect(await headings(page)).toEqual(['Chats'])
     await expect(page.locator('#roomList .roomTime')).toHaveText(Array(12).fill(''))
     await expect(page.getByRole('button', { name: /^Older/ })).toHaveCount(0)
     await page.reload()

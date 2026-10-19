@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, open } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, open, switchToRoom } from './browser.js'
 
 /**
  * Nothing a person navigates to ends a call.
@@ -46,7 +46,7 @@ test('a call carries on while its member chats in another room, and comes back w
 
     // Away, with no question asked.
     await pageA.keyboard.press('Control+k')
-    await pageA.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Side room', exact: true }).click()
+    await switchToRoom(pageA, 'Side room')
     await expect(pageA.locator('#roomTitle')).toHaveText('Side room')
     await expect(pageA.locator('#actionConfirm')).toBeHidden()
     await expect(pageA.locator('#callDock')).toBeVisible()
@@ -69,7 +69,7 @@ test('a call carries on while its member chats in another room, and comes back w
     // The brand takes the member home through the same dock, without a reload.
     await pageA.setViewportSize({ width: 1440, height: 1000 })
     await pageA.locator('#workspaceBrandHome').click()
-    await expect(pageA.locator('#home')).toBeVisible()
+    await expect(pageA.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await expect(pageA.locator('#callDock')).toBeVisible()
     await keepsHearing(pageB, 'Bo')
     await keepsHearing(pageA, 'Ada')
@@ -87,7 +87,7 @@ test('a call carries on while its member chats in another room, and comes back w
 
     // Leave from the dock ends the call, and leaves the room on screen alone.
     await pageA.keyboard.press('Control+k')
-    await pageA.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Side room', exact: true }).click()
+    await switchToRoom(pageA, 'Side room')
     await expect(pageA.locator('#callDock')).toBeVisible()
     await pageA.locator('#callDockLeave').click()
     await expect(pageA.locator('#callDock')).toBeHidden()

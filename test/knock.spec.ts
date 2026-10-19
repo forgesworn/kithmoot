@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm, requestAdmission } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 async function askedRoom(browser: Browser, baseURL: string) {
@@ -190,8 +190,7 @@ test('leaving the room cancels its pending decision without granting entry', asy
   })
   try {
     const card = await startAskedRoom(host, guest, baseURL!)
-    await host.locator('#backToRooms').click()
-    await host.locator('#roomSwitcherHome').click()
+    await leaveToChats(host)
     await openNewRoomForm(host)
     await host.locator('#roomName').fill('Another room')
     await host.locator('#create').click()
