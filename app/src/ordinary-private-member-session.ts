@@ -2,8 +2,8 @@ import { getPublicKey } from 'nostr-tools/pure'
 import { RoomSession, type RoomSessionOptions } from '../../src/session.js'
 import { registerRetainedNativeSessionBinding, type NativeSessionView, type NativeSessionSnapshot } from '../../src/session-native-binding.js'
 import { OrdinaryStateHold } from './ordinary-state-codec.js'
-import { takeOrdinaryPrivateSessionClaim, takeOrdinaryPrivateMemberSessionJoinClaim,
-  type OrdinaryPrivateSessionClaim, type OrdinaryPrivateMemberSessionJoinClaim } from './ordinary-persistent-bootstrap.js'
+import { takeOrdinaryPrivateSessionClaim, takeOrdinaryPrivateMemberSessionJoinClaim, takeOrdinaryPrivateMemberRenewalReadClaim,
+  type OrdinaryPrivateSessionClaim, type OrdinaryPrivateMemberSessionJoinClaim, type OrdinaryPrivateMemberRenewalReadClaim } from './ordinary-persistent-bootstrap.js'
 import type { OrdinaryPrivateCredentialGeneration } from './ordinary-state-owner.js'
 import { ordinaryOwnedJSON } from './ordinary-owned-json.js'
 import type { OrdinaryProtocolGraphIdentity } from './ordinary-protocol-work.js'
@@ -46,6 +46,42 @@ interface JoinedDecision {
 }
 const joinedDecisions = new WeakMap<object, JoinedDecision>()
 const joinedReceipts = new WeakMap<object, Readonly<{value: OwnedSession; session: OrdinaryPrivateMemberSessionResource}>>()
+declare const renewalReadDecisionBrand: unique symbol
+export interface OrdinaryPrivateMemberRenewalReadDecision { readonly [renewalReadDecisionBrand]: true }
+interface RenewalReadDecision extends JoinedDecision { readonly joined: OrdinaryPrivateMemberJoinedReceipt }
+const renewalReadDecisions = new WeakMap<object, RenewalReadDecision>()
+/** Separate from join authentication. Only the exact bootstrap's current
+ * native read can request this lexical snapshot of an already joined Session.
+ * A cached joined snapshot, supplied object or receipt cannot mint a decision. */
+export function readOrdinaryPrivateMemberRenewalFromBootstrapClaim(claim: OrdinaryPrivateMemberRenewalReadClaim):
+  Readonly<{dueAt: number; ttlSeconds: number; credentialIssuedAt: number}> {
+  const binding = takeOrdinaryPrivateMemberRenewalReadClaim(claim), value = owned(binding.session)
+  const current = () => {
+    binding.current()
+    checkOrdinaryPrivateMemberJoinedReceipt(binding.joined, binding.session, binding.graph, binding.generation)
+    value.protocol.check('credential-lifecycle-transition')
+  }
+  current()
+  const snapshot = value.view.snapshot()
+  current()
+  const decision = Object.freeze(Object.create(null)) as OrdinaryPrivateMemberRenewalReadDecision
+  renewalReadDecisions.set(decision, Object.freeze(Object.assign(Object.create(null), {value, session: binding.session,
+    graph: binding.graph, generation: binding.generation, joined: binding.joined, snapshot, current})))
+  try { const result = binding.authenticate(decision); current(); return result }
+  finally {renewalReadDecisions.delete(decision)}
+}
+/** Spend before checking any lifetime or snapshot metadata. This distinct
+ * decision is never accepted by the initial join's decision consumer. */
+export function takeOrdinaryPrivateMemberRenewalReadDecision(decision: OrdinaryPrivateMemberRenewalReadDecision):
+  Readonly<Omit<RenewalReadDecision, 'value' | 'current'>> {
+  const value = renewalReadDecisions.get(decision)
+  renewalReadDecisions.delete(decision)
+  if (!value) throw new OrdinaryStateHold()
+  value.current()
+  checkOrdinaryPrivateMemberJoinedReceipt(value.joined, value.session, value.graph, value.generation)
+  return Object.freeze(Object.assign(Object.create(null), {session: value.session, graph: value.graph,
+    generation: value.generation, joined: value.joined, snapshot: value.snapshot}))
+}
 interface JoinAuthentication {
   readonly session: OrdinaryPrivateMemberSessionResource
   readonly current: () => void

@@ -101,6 +101,11 @@ test.beforeAll(async () => {
              ;(globalThis as any).__invokePrivateControlForTest = () => (globalThis as any).__privateControlForTest(this)
              ;(globalThis as any).__invokePrivateForegroundForTest = () => (globalThis as any).__privateForegroundForTest(this)
              ;(globalThis as any).__privateRootCloseForTest=()=>this.close()
+             ;(globalThis as any).__prepareRenewalViewForTest=()=>this.prepareRenewal()
+             ;(globalThis as any).__preparedRenewalViewForTest=()=>{const prepared=this.#renewalPrepareView?.prepared;return !prepared?null:{
+               keys:Reflect.ownKeys(prepared).map(String).sort(),frozen:Object.isFrozen(prepared),nullPrototype:Object.getPrototypeOf(prepared)===null,
+               receiptOpaque:Object.isFrozen(prepared.receipt)&&Reflect.ownKeys(prepared.receipt).length===0,
+               issuedAt:prepared.issuedAt,expiresAt:prepared.expiresAt}}
              // Privileged preview mechanics only; no production bridge exists.
              ;(globalThis as any).__draftPreviewForTest=(kind:any)=>(globalThis as any).__draftOwnerPreviewForTest(this,kind)
              ;(globalThis as any).__draftPreviewTakeForTest=(receipt:any,kind:any)=>(globalThis as any).__draftOwnerPreviewTakeForTest(this,receipt,kind)
@@ -440,6 +445,17 @@ test.beforeAll(async () => {
         reader=reader.replace(publication,`;(globalThis as any).liveReadBeforeToken?.(); `+publication)
         source=source.slice(0,readStart)+reader+source.slice(readEnd)
         source = `import * as ControllerGraphForTest from './ordinary-protocol-work.js'\nimport * as ControllerRenewalForTest from './ordinary-private-renewal.js'\n` + source
+        const moduleEntry='async function privateRenewalIntentModules() {'
+        if(source.split(moduleEntry).length!==2)throw Error('Prepare deferred module observer drift')
+        source=source.replace(moduleEntry,moduleEntry+`; (globalThis as any).__prepareFullIntentModuleCalls=((globalThis as any).__prepareFullIntentModuleCalls??0)+1;`)
+        const deriveEntry='    const {proof: proofs, snapshot, lease, devices, rooms, seal, session} = modules'
+        if(source.split(deriveEntry).length!==2)throw Error('Prepare deferred derivation observer drift')
+        source=source.replace(deriveEntry,`    ;(globalThis as any).__prepareFullIntentDeriveCalls=((globalThis as any).__prepareFullIntentDeriveCalls??0)+1;\n`+deriveEntry)
+        const prepareStart='const lifecycle = startOrdinaryProtocolReadLifecycle(control, async operation => {'
+        if(source.split(prepareStart).length!==2)throw Error('Prepare reader start refusal observer drift')
+        source=source.replace(prepareStart,`const observedStart=(globalThis as any).__prepareReadStartRefusal
+          ? (()=>Promise.reject(new OrdinaryStateHold())) : startOrdinaryProtocolReadLifecycle
+        const lifecycle = observedStart(control, async (operation:ProtocolExecution) => {`)
         source=source.replace('const claim = await value.prepare()', `await (globalThis as any).__privateBootstrapPause('controller-before-factory')
           const claim = await value.prepare()
           await (globalThis as any).__privateBootstrapPause('controller-before-factory-open')`).replace('value.factory = factory', `value.factory = factory
@@ -488,6 +504,10 @@ test.beforeAll(async () => {
             state:()=>({closed:value.closed,prepared:!!value.factory,claimed:generation.renewal.claimed,bootstrap:member.bootstrap.claimed,standalone:member.renewal.claimed}),
             indexed:()=>privateControllerRenewalsByRoot.get(member.capture.root)===resource,
             due:()=>prepareOrdinaryPrivateRenewalDue(member.capture.root),
+            prepareState:()=>{const p=privateRenewalPreparations.get(member.capture.root);return{phase:p?.phase??null,root:!!p?.root,
+              previewTimes:!!p?.previewTimes,receipt:!!p?.receipt&&privateRenewalPreparedReads.has(p.receipt),bodyStarted:p?.bodyStarted??false,
+              resources:p?[member.capture.browser,member.capture.tab].map(o=>o.#resources.has(p.cancel)):[],
+              factoryStarted:p?.due.factoryState.operationStarted??privateRenewalFactories.get(value.factory!)?.operationStarted??null}},
             foreignDue:(root:any)=>prepareOrdinaryPrivateRenewalDue(root),
             drift:(kind:string)=>{
               const capture=member.capture,oldGeneration=capture.credentialGeneration.current,oldIndex=privateControllerRenewalsByRoot.get(capture.root),factory=value.factory!,f=privateRenewalFactories.get(factory)!,oldStarted=f.operationStarted;
@@ -533,6 +553,14 @@ test.beforeAll(async () => {
         const foregroundEnd='} finally {pairCustody.delete(custody)}'
         if(due.split(foregroundEnd).length!==2)throw Error('Due notice foreground cleanup drift')
         due=due.replace(foregroundEnd,'} finally {try{restoreDue()}finally{pairCustody.delete(custody)}}')
+        // Deliberately scoped mechanics injection: the old full derivation is
+        // absent here. Restore before any reused bootstrap/Session helper or
+        // cleanup; this makes no claim about broad ambient poisoning there.
+        const timesStart='                      const now = OrdinaryStateOwner.#privateRenewalPrepareNow()'
+        const timesEnd='                      preparation.previewTimes = privateSelectionFreeze(privateSelectionAssign(privateSelectionCreate(null), {issuedAt, expiresAt}))'
+        if(due.split(timesStart).length!==2||due.split(timesEnd).length!==2)throw Error('Prepare primitive boundary observer drift')
+        due=due.replace(timesStart,`                      const restoreTimes=(globalThis as any).__prepareTimesAmbientEnter?.()??(()=>{});try{\n`+timesStart)
+        due=due.replace(timesEnd,timesEnd+'\n                      }finally{restoreTimes()}')
 
         for(const[marker,stage]of[
           ['check(); const br = row(raw[0]), tr = row(raw[1])','rows'],
@@ -5429,4 +5457,126 @@ test('renewal due native abort refusal before effect drains the actual readonly 
   expect(await page.evaluate('window.__dueOutcome')).toBe('OrdinaryStateHold');await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
   expect(await page.evaluate('window.__privateControllerRenewalForTest.dueState()')).toMatchObject({work:false,receipt:false,resources:[0,0]})
   expect(await dueEffects(page)).toEqual(before)
+})
+
+async function renewalPrepareViewReady(page:Page,keep=true,due=true):Promise<void>{
+  await page.clock.install()
+  await renewalDueNoticeReady(page,keep)
+  if(due){
+    const delay=await page.evaluate(()=>{const w=window as any;return Math.max(1,w.__privateControllerRenewalForTest.joined().dueAt-Date.now()+1)})
+    await page.clock.fastForward(delay)
+  }
+  await page.evaluate('window.__prepareRenewalViewForTest()')
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='renewal-due'")
+}
+async function renewalPrepareEffects(page:Page):Promise<unknown>{
+  return page.evaluate(()=>{const w=window as any;return{...w.effects,calls:w.providerFixture.calls,signs:w.providerFixture.signs,
+    crypts:w.providerFixture.crypts??0,nonces:w.probeNonces}})
+}
+for(const keep of [false,true])for(const mode of ['pointer','Enter','Space']as const)
+test(`trusted renewal Prepare reads fresh membership without durable or provider effects, keep=${keep}, ${mode}`,async({page})=>{
+  await renewalPrepareViewReady(page,keep)
+  const before=await renewalPrepareEffects(page)
+  await page.evaluate(()=>{const w=window as any;w.__dueTransactionModes=[];w.__dueObserveTransactions=true})
+  const button=page.locator('[data-private-renewal-action="prepare-read"]')
+  if(mode==='pointer')await button.click();else{await button.focus();await button.press(mode)}
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='renewal-prepared-read'")
+  expect(await renewalPrepareEffects(page)).toEqual(before)
+  const result=await page.evaluate(()=>{const w=window as any;return{state:w.__privateControllerRenewalForTest.prepareState(),
+    modes:w.__dueTransactionModes,signControls:document.querySelectorAll('[data-private-renewal-action="sign"]').length}})
+  expect(result.state).toMatchObject({phase:'prepared',root:true,previewTimes:true,receipt:true,bodyStarted:true,resources:[true,true],factoryStarted:true})
+  expect(result.modes.length).toBeGreaterThan(0);expect(result.modes.every((mode:string)=>mode==='readonly')).toBe(true)
+  expect(result.signControls).toBe(0);await expect(button).toBeDisabled()
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:'stopped',previewTimes:false,receipt:false})
+})
+test('trusted renewal due timer enables only its native Prepare button',async({page})=>{
+  await renewalPrepareViewReady(page,true,false)
+  const button=page.locator('[data-private-renewal-action="prepare-read"]'),before=await renewalPrepareEffects(page)
+  await expect(button).toBeDisabled()
+  expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:null,root:false,factoryStarted:false})
+  const delay=await page.evaluate(()=>{const w=window as any;return Math.max(1,w.__privateControllerRenewalForTest.joined().dueAt-Date.now()+1)})
+  await page.clock.fastForward(delay);await expect(button).toBeEnabled()
+  expect(await renewalPrepareEffects(page)).toEqual(before)
+  expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:null,root:false,factoryStarted:false})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+for(const mode of ['click','dispatch','replacement']as const)
+test(`trusted renewal Prepare refuses ${mode} without an intent, root or effect`,async({page})=>{
+  await renewalPrepareViewReady(page)
+  const before=await renewalPrepareEffects(page)
+  await page.evaluate(mode=>{const button=document.querySelector('[data-private-renewal-action="prepare-read"]')as HTMLButtonElement
+    if(mode==='click')button.click()
+    else if(mode==='dispatch')button.dispatchEvent(new MouseEvent('click',{bubbles:true}))
+    else{const replacement=button.cloneNode(true)as HTMLButtonElement;button.replaceWith(replacement);replacement.click()}
+  },mode)
+  expect(await renewalPrepareEffects(page)).toEqual(before)
+  expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:null,root:false,factoryStarted:false})
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+})
+test('trusted renewal Prepare cancellation joins its delayed real readonly reader',async({page})=>{
+  await renewalPrepareViewReady(page)
+  const before=await renewalPrepareEffects(page)
+  await page.evaluate(()=>{const w=window as any;w.privateBootstrapGate={stage:'due-before-db'}})
+  await page.locator('[data-private-renewal-action="prepare-read"]').click()
+  await page.waitForFunction('privateBootstrapGate.entered')
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  expect(await lockAvailable(page,'migration')).toBe(false)
+  expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:'stopped',previewTimes:false,receipt:false,factoryStarted:true})
+  await page.evaluate('privateBootstrapGate.release()')
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await renewalPrepareEffects(page)).toEqual(before)
+})
+test('trusted renewal Prepare pre-body start refusal removes both owner resources',async({page})=>{
+  await renewalPrepareViewReady(page)
+  const before=await renewalPrepareEffects(page)
+  await page.evaluate(()=>{(window as any).__prepareReadStartRefusal=true})
+  await page.locator('[data-private-renewal-action="prepare-read"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:'stopped',root:false,
+    bodyStarted:false,resources:[false,false],previewTimes:false,receipt:false,factoryStarted:true})
+  expect(await renewalPrepareEffects(page)).toEqual(before)
+})
+test('trusted renewal Prepare with internal receipt cleanup failure publishes no prepared receipt',async({page})=>{
+  await renewalPrepareViewReady(page)
+  const before=await renewalPrepareEffects(page)
+  await page.evaluate(()=>{const w=window as any;w.__dueCleanupFault={armed:true,faults:['browser'],visited:[]}})
+  await page.locator('[data-private-renewal-action="prepare-read"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='held'")
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
+  expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:'stopped',
+    resources:[false,false],previewTimes:false,receipt:false,factoryStarted:true})
+  expect(await page.evaluate('window.__dueCleanupFault.visited')).toEqual(expect.arrayContaining(['receipt','slot','browser','tab']))
+  expect(await renewalPrepareEffects(page)).toEqual(before)
+})
+for(const fault of ['descriptors','ownKeys','slice','encode']as const)
+test(`trusted renewal Prepare primitive preview skips deferred derivation under scoped ${fault} poison`,async({page})=>{
+  await renewalPrepareViewReady(page)
+  const before=await renewalPrepareEffects(page)
+  await page.evaluate(fault=>{
+    const w=window as any,define=Object.defineProperty,get=Object.getOwnPropertyDescriptor
+    w.__prepareTimesAmbient={entries:0,calls:0,restored:0}
+    w.__prepareTimesAmbientEnter=()=>{
+      const state=w.__prepareTimesAmbient;state.entries++
+      const target=fault==='descriptors'?Object:fault==='ownKeys'?Reflect:fault==='slice'?Array.prototype:TextEncoder.prototype,
+        name=fault==='descriptors'?'getOwnPropertyDescriptors':fault==='ownKeys'?'ownKeys':fault==='slice'?'slice':'encode',
+        saved=get(target,name)!
+      define(target,name,{...saved,value:()=>{state.calls++;throw Error('Scoped deferred derivation hook invoked')}})
+      return()=>{define(target,name,saved);state.restored++}
+    }
+  },fault)
+  await page.locator('[data-private-renewal-action="prepare-read"]').click()
+  await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='renewal-prepared-read'")
+  expect(await page.evaluate('window.__prepareTimesAmbient')).toEqual({entries:1,calls:0,restored:1})
+  expect(await page.evaluate('[window.__prepareFullIntentModuleCalls??0,window.__prepareFullIntentDeriveCalls??0]')).toEqual([0,0])
+  const preview=await page.evaluate<{issuedAt:number;expiresAt:number}>('window.__preparedRenewalViewForTest()')
+  expect(preview).toMatchObject({keys:['display','expiresAt','issuedAt','receipt'],frozen:true,nullPrototype:true,receiptOpaque:true})
+  expect(Number.isSafeInteger(preview.issuedAt)).toBe(true);expect(preview.expiresAt).toBeGreaterThan(preview.issuedAt)
+  expect(await renewalPrepareEffects(page)).toEqual(before)
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
+  await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
 })

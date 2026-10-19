@@ -36,6 +36,7 @@ declare const controlBrand: unique symbol
 export interface OrdinaryProtocolControl { readonly [controlBrand]: true }
 interface Control {
   start(work: (scope: ProtocolExecution) => Promise<void>): Promise<void>
+  startRead(work: (scope: ProtocolExecution) => Promise<void>): Promise<void>
   suspend(scope: ProtocolExecution, timeoutMs?: number): Promise<void>
   check(scope: ProtocolExecution): void
   transition(scope: ProtocolExecution): void
@@ -91,6 +92,14 @@ export function ordinaryProtocolControlFor(execution: ProtocolExecution): Ordina
 }
 export function startOrdinaryProtocolLifecycle(resource: OrdinaryProtocolControl, work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
   return control(resource).start(work)
+}
+/** Ownership only, used by the fixed private readonly producer. This skips the
+ * generic native task-start reader, which may perform migration or repair.
+ * The body still owes suspension and its own genuine immutable native read;
+ * creating this scope grants no execution boundary or effect authority. */
+export function startOrdinaryProtocolReadLifecycle(resource: OrdinaryProtocolControl,
+  work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+  return control(resource).startRead(work)
 }
 export function suspendOrdinaryProtocolLifecycle(resource: OrdinaryProtocolControl, scope: ProtocolExecution): Promise<void> {
   return control(resource).suspend(scope)
@@ -196,6 +205,7 @@ export class OrdinaryProtocolWork {
     const resource = Object.freeze({}) as OrdinaryProtocolControl
     controls.set(resource, Object.freeze({
       start: (work: (scope: ProtocolExecution) => Promise<void>) => this.#startRoot(work),
+      startRead: (work: (scope: ProtocolExecution) => Promise<void>) => this.#startReadRoot(work),
       suspend: (scope: ProtocolExecution, timeoutMs?: number) => this.#suspend(scope, timeoutMs),
       check: (scope: ProtocolExecution) => this.#checkQuiescent(scope),
       transition: (scope: ProtocolExecution) => this.#checkTransition(scope),
@@ -473,6 +483,29 @@ export class OrdinaryProtocolWork {
   #startRoot(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
     if (this.#active || this.#notifying || [...this.#roots].some(root => root.lifecycleRoot)) return Promise.reject(new OrdinaryProtocolSuspended())
     return this.#task(undefined, 'credential-lifecycle', work, true)
+  }
+  #startReadRoot(work: (scope: ProtocolExecution) => Promise<void>): Promise<void> {
+    if (this.#active || this.#notifying || [...this.#roots].some(root => root.lifecycleRoot)) return Promise.reject(new OrdinaryProtocolSuspended())
+    let job: Job
+    try {job = this.#job(undefined, true)} catch (error) {return Promise.reject(error)}
+    // Reserve synchronously. The caller can retain this actual result before
+    // the body begins; no native read, supplied getter or effect runs here.
+    const result = Promise.resolve().then(async () => {
+      this.#check(job)
+      const body = work(job.scope)
+      if (!(body instanceof Promise)) throw new OrdinaryProtocolSuspended()
+      const value = await body
+      if (value !== undefined || !job.transitioned && this.#phase !== 'closed') throw new OrdinaryProtocolSuspended()
+    }).catch(error => {
+      try {this.#close()} catch { /* retain the original refusal */ }
+      throw error
+    }).finally(() => this.#bodyDone(job))
+    this.#promises.set(result, job)
+    try {return this.#native.retain(result)} catch (error) {
+      try {this.#close()} catch { /* the retention refusal remains the cause */ }
+      void result.catch(() => {})
+      throw error
+    }
   }
   #preparedStartupBody(body: (root: ProtocolExecution) => Promise<void>): Promise<void> {
     if (this.#phase !== 'open' || this.#jobs || this.#roots.size || this.#listeners.size || this.#active || this.#notifying) {

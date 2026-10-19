@@ -1,6 +1,7 @@
 import { OrdinaryLegacyStartupLifetime } from './ordinary-legacy-startup.js'
 import { OrdinaryProtectedWorkerLifetime } from './ordinary-protected-worker.js'
-import type { OrdinaryPrivateExistingCaptureResource, OrdinaryPrivateMemberActionKind, OrdinaryPrivateSelectionPreview, OrdinaryPrivateSelectionPreviewReceipt } from './ordinary-state-owner.js'
+import type { OrdinaryPrivateExistingCaptureResource, OrdinaryPrivateMemberActionKind, OrdinaryPrivateSelectionPreview, OrdinaryPrivateSelectionPreviewReceipt,
+  OrdinaryPrivateRenewalDuePreview, OrdinaryPrivateRenewalDueReceipt, OrdinaryPrivateRenewalPreparedReadPreview } from './ordinary-state-owner.js'
 
 const privateRootFreeze = Object.freeze
 const privateRootCreate = Object.create
@@ -21,6 +22,47 @@ interface PrivateMemberAction {
 }
 const memberIntents = new WeakMap<object, PrivateMemberAction>()
 const memberCommands = new WeakMap<object, PrivateMemberAction>()
+declare const renewalPrepareIntentBrand: unique symbol
+export interface OrdinaryPrivateRenewalPrepareIntent { readonly [renewalPrepareIntentBrand]: true }
+interface PrivateRenewalPrepareAction {
+  readonly root: object
+  readonly receipt: OrdinaryPrivateRenewalDueReceipt
+  readonly command: Promise<void>
+  readonly current: () => boolean
+  claimed: boolean
+}
+const renewalPrepareIntents = new WeakMap<object, PrivateRenewalPrepareAction>()
+const renewalPrepareCommands = new WeakMap<object, PrivateRenewalPrepareAction>()
+/** A distinct native Prepare click cannot be substituted for Connect, Sign,
+ * or a wallet effect. Spend before touching the root, command or view. */
+export function claimOrdinaryPrivateRenewalPrepareIntent(root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateRenewalPrepareIntent,
+  receipt: OrdinaryPrivateRenewalDueReceipt, command: Promise<void>): void {
+  const action = renewalPrepareIntents.get(intent)
+  renewalPrepareIntents.delete(intent)
+  if (!action) hold()
+  if (action.claimed || action.root !== root || action.receipt !== receipt || action.command !== command ||
+      renewalPrepareCommands.get(command) !== action || !action.current()) {
+    renewalPrepareCommands.delete(action.command); hold()
+  }
+  action.claimed = true
+}
+export function assertOrdinaryPrivateRenewalPrepareCommand(root: OrdinaryPrivateExistingRoot, command: Promise<void>): void {
+  const action = renewalPrepareCommands.get(command)
+  if (!action || !action.claimed || action.root !== root || !action.current()) hold()
+}
+interface PrivateRenewalPrepareView {
+  readonly preview: OrdinaryPrivateRenewalDuePreview
+  readonly node: HTMLElement
+  readonly button: HTMLButtonElement
+  readonly facts: readonly Readonly<{node: Node; text: string}>[]
+  removeListener: (() => void) | undefined
+  removeWatch: (() => void) | undefined
+  cancelTimer: (() => void) | undefined
+  intent: OrdinaryPrivateRenewalPrepareIntent | undefined
+  command: Promise<void> | undefined
+  prepared: OrdinaryPrivateRenewalPreparedReadPreview | undefined
+  phase: 'ready' | 'pending' | 'prepared' | 'retired'
+}
 /** Fixed owner consumer. Spend a genuine intent before checking its purpose,
  * root or command. Neither caller data nor Event structure can mint it. */
 export function claimOrdinaryPrivateMemberIntent(root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,
@@ -165,7 +207,8 @@ function captureOrdinaryPrivateTrustedInput() {
   const userActivation = read(activation, nav)
   if (!userActivation) held()
   const active = get(Object.getPrototypeOf(userActivation), 'isActive')
-  const hasFocus = Document.prototype.hasFocus, setTimer = window.setTimeout, clearTimer = window.clearTimeout
+  const hasFocus = Document.prototype.hasFocus, setTimer = window.setTimeout, clearTimer = window.clearTimeout,
+    now = Date.now, safeInteger = Number.isSafeInteger
   const rectangles = Element.prototype.getClientRects
   const sampleRects = apply(rectangles, doc.createElement('button'), [])
   const rectangleCount = get(Object.getPrototypeOf(sampleRects), 'length')
@@ -229,6 +272,8 @@ function captureOrdinaryPrivateTrustedInput() {
       }
     },
     focused(): boolean { return apply(hasFocus, doc, []) === true && read(visibility, doc) === 'visible' },
+    now(): number { return apply(now, Date, []) },
+    safeInteger(value: number): boolean { return apply(safeInteger, Number, [value]) },
     listenFocus(listener: () => void): () => void {
       const changed = (event: Event) => {if (read(target, event) === window && read(trusted, event) === true && apply(hasFocus, doc, []) === true) listener()}
       apply(add, window, ['focus', changed, true])
@@ -257,6 +302,8 @@ function captureOrdinaryPrivateTrustedInput() {
     assertActive(): void
     watchLaterActivation(revoke: () => void, windowBlur: () => void): () => void
     focused(): boolean
+    now(): number
+    safeInteger(value: number): boolean
     listenFocus(listener: () => void): () => void
     after(delay: number, callback: () => void): () => void
     make(name: string): HTMLElement
@@ -279,6 +326,7 @@ class ExistingRoot {
   #trustedMemberMode = false
   #memberOpening?: Promise<void>
   #memberView?: PrivateMemberView
+  #renewalPrepareView?: PrivateRenewalPrepareView
   #nativeMember?: typeof import('./ordinary-state-owner.js')
   // Actual entry metadata is captured synchronously before the first await.
   readonly #href = location.href
@@ -433,6 +481,116 @@ class ExistingRoot {
     const opening = this.#trackMember(this.start().then(() => this.#showMemberAction('unlock-private-member')))
     this.#memberOpening = opening.then(undefined, async () => {this.#stop(); await this.close()})
     return this.#memberOpening
+  }
+  /** Private checkpoint entry only. A due timer changes this button's
+   * availability; only a new trusted click can start the owner's fixed read. */
+  prepareRenewal(): Promise<void> {
+    let resolve!: () => void, reject!: (error: unknown) => void
+    const outer = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+    void outer.catch(() => {}); this.#trackMember(outer)
+    void Promise.resolve().then(async () => {
+      this.#check()
+      if (!this.#trustedMemberMode || !this.#nativeMember || this.#memberView || this.#renewalPrepareView) hold()
+      const preview = await this.#nativeMember.prepareOrdinaryPrivateRenewalDue(this as unknown as OrdinaryPrivateExistingRoot)
+      this.#check()
+      // Re-entrancy while the read was pending cannot replace another view.
+      if (this.#memberView || this.#renewalPrepareView) hold()
+      const node = this.#input.make('section'), heading = this.#input.make('h1'), account = this.#input.make('p'),
+        room = this.#input.make('p'), details = this.#input.make('p'), button = this.#input.make('button') as HTMLButtonElement
+      this.#input.attr(node, 'data-private-renewal-view', 'prepare-read')
+      this.#input.attr(button, 'data-private-renewal-action', 'prepare-read'); this.#input.attr(button, 'type', 'button')
+      this.#input.disable(button)
+      const facts = privateRootFreeze([
+        privateRootFreeze({node: heading, text: preview.display.roomLabel}),
+        privateRootFreeze({node: account, text: 'Account: ' + preview.display.account}),
+        privateRootFreeze({node: room, text: 'Room: ' + preview.display.roomId}),
+        privateRootFreeze({node: details, text: 'Read and check the current room membership to prepare a renewal preview.'}),
+        privateRootFreeze({node: button, text: 'Prepare renewal'}),
+      ])
+      for (let index = 0; index < facts.length; index++) {
+        this.#input.setText(facts[index]!.node, facts[index]!.text); this.#input.append(node, facts[index]!.node)
+      }
+      const view: PrivateRenewalPrepareView = privateRootAssign(privateRootCreate(null), {preview, node, button, facts,
+        removeListener: undefined, removeWatch: undefined, cancelTimer: undefined, intent: undefined, command: undefined,
+        prepared: undefined, phase: 'ready' as const})
+      this.#renewalPrepareView = view
+      view.removeListener = this.#input.listen(button, event => this.#takeRenewalPrepare(event, view))
+      this.#input.mount(node); this.#check()
+      const enable = () => {
+        if (!this.#live() || this.#renewalPrepareView !== view || view.phase !== 'ready') return
+        if (this.#input.now() < preview.dueAt) return
+        this.#input.enable(button)
+      }
+      const remaining = preview.dueAt - this.#input.now(), delay = remaining > 0 ? remaining : 0
+      if (!this.#input.safeInteger(delay) || delay > 2_147_483_647) hold()
+      if (delay) view.cancelTimer = this.#input.after(delay, enable)
+      else enable()
+      this.#notice('renewal-due')
+    }).then(resolve, error => {reject(error); this.#stop(); void this.close().catch(() => {})}).catch(() => {})
+    return outer
+  }
+  #renewalPrepareCurrent(view: PrivateRenewalPrepareView, command: Promise<void>): boolean {
+    try {
+      if (!this.#live() || !this.#trustedMemberMode || this.#renewalPrepareView !== view || view.phase !== 'pending' ||
+          view.command !== command || !this.#input.connected(view.node) || !this.#input.connected(view.button)) return false
+      for (let index = 0; index < view.facts.length; index++) {
+        const fact = view.facts[index]!
+        if (!this.#input.connected(fact.node) || !this.#input.hasText(fact.node, fact.text)) return false
+      }
+      return true
+    } catch {return false}
+  }
+  #takeRenewalPrepare(event: Event, view: PrivateRenewalPrepareView): void {
+    if (!this.#live() || this.#renewalPrepareView !== view || view.phase !== 'ready' || !this.#nativeMember) return
+    for (let index = 0; index < view.facts.length; index++) {
+      const fact = view.facts[index]!
+      if (!this.#input.connected(fact.node) || !this.#input.hasText(fact.node, fact.text)) {this.#stop(); void this.close().catch(() => {}); return}
+    }
+    try {this.#input.take(event, view.button)} catch {return}
+    view.phase = 'pending'
+    let resolve!: () => void, reject!: (error: unknown) => void
+    const command = new Promise<void>((yes, no) => {resolve = yes; reject = no})
+    void command.catch(() => {}); this.#trackMember(command); view.command = command
+    const intent = privateRootFreeze(privateRootCreate(null)) as OrdinaryPrivateRenewalPrepareIntent
+    view.intent = intent
+    const action: PrivateRenewalPrepareAction = privateRootAssign(privateRootCreate(null), {root: this,
+      receipt: view.preview.receipt, command, claimed: false, current: () => this.#renewalPrepareCurrent(view, command)})
+    renewalPrepareIntents.set(intent, action); renewalPrepareCommands.set(command, action)
+    try {
+      this.#stopOne(() => view.cancelTimer?.()); view.cancelTimer = undefined; this.#check()
+      const revoke = () => {this.#stop(); void this.close().catch(() => {})}
+      view.removeWatch = this.#input.watchLaterActivation(revoke, revoke)
+      const preparing = this.#nativeMember.prepareOrdinaryPrivateRenewalFromTrustedIntent(this as unknown as OrdinaryPrivateExistingRoot,
+        intent, view.preview.receipt, command)
+      void preparing.then(prepared => {
+        if (!action.current()) hold()
+        view.prepared = prepared // Same opaque owner receipt survives for the later Sign slice.
+        view.phase = 'prepared'
+        this.#stopOne(() => view.removeWatch?.()); view.removeWatch = undefined; this.#check()
+        // This is a read preview. There is deliberately no Sign control yet.
+        this.#input.setText(view.button, 'Renewal preview prepared')
+        this.#input.setText(view.facts[3]!.node, 'Proposed credential: ' + prepared.issuedAt + ' to ' + prepared.expiresAt + ' (Unix seconds).')
+        this.#notice('renewal-prepared-read'); resolve()
+      }).catch(reject)
+    } catch (error) {reject(error)}
+    void command.then(() => {
+      renewalPrepareIntents.delete(intent); renewalPrepareCommands.delete(command)
+    }, () => {this.#stop(); void this.close().catch(() => {})}).catch(() => {this.#stop(); void this.close().catch(() => {})})
+  }
+  #retireRenewalPrepareView(): void {
+    const view = this.#renewalPrepareView; this.#renewalPrepareView = undefined
+    if (view) {
+      view.phase = 'retired'
+      view.prepared = undefined
+      if (view.intent) renewalPrepareIntents.delete(view.intent)
+      if (view.command) renewalPrepareCommands.delete(view.command)
+      this.#stopOne(() => this.#input.disable(view.button)); this.#stopOne(() => view.cancelTimer?.())
+      this.#stopOne(() => view.removeWatch?.()); this.#stopOne(() => view.removeListener?.())
+      this.#stopOne(() => this.#input.removeNode(view.node))
+      view.cancelTimer = undefined; view.removeWatch = undefined; view.removeListener = undefined
+    }
+    this.#stopOne(() => this.#nativeMember?.revokeOrdinaryPrivateRenewalDue(this as unknown as OrdinaryPrivateExistingRoot))
+    this.#stopOne(() => this.#nativeMember?.revokeOrdinaryPrivateRenewalPrepare(this as unknown as OrdinaryPrivateExistingRoot))
   }
   #retireMemberView(): void {
     const value = this.#memberView
@@ -628,7 +786,7 @@ class ExistingRoot {
     this.#check()
     this.#captureReady = true
   }
-  #notice(state: 'held' | 'captured-held' | 'provider-held' | 'unlock-ready' | 'verify-ready' | 'connect-ready' | 'member-joined'): void {
+  #notice(state: 'held' | 'captured-held' | 'provider-held' | 'unlock-ready' | 'verify-ready' | 'connect-ready' | 'member-joined' | 'renewal-due' | 'renewal-prepared-read'): void {
     document.documentElement.dataset.ordinaryProtectedStartup = state
   }
   #stopOne(stop: () => void): void {
@@ -640,6 +798,7 @@ class ExistingRoot {
     this.#claimable = false
     this.#captureReady = false
     this.#retireMemberView()
+    this.#retireRenewalPrepareView()
     if (this.#providerWork) providerCommands.delete(this.#providerWork)
     this.#stopOne(() => this.#notice('held'))
     // Before acquire's continuation no native reader or worker was started.

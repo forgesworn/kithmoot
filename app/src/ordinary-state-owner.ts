@@ -5,8 +5,10 @@ import { OrdinaryForegroundSigner, openOrdinaryPrivateForegroundFromOwnerClaim,
   retainOrdinaryPrivateRenewalForeground, signOrdinaryPrivateRenewalAttempt, validateOrdinaryPrivateRenewalForegroundDecision, validateOrdinaryPrivateSettledReadForegroundDecision,
   type OrdinaryPrivateForegroundAuthority, type OrdinaryPrivateForegroundResource } from './ordinary-foreground-signer.js'
 import { takeOrdinaryPrivateRenewalObligation, openOrdinaryPrivateRenewalFactoryFromOwnerClaim, closeOrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalFactory, type OrdinaryPrivateRenewalObligation } from './ordinary-private-renewal.js'
-import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise, verifyOrdinaryProtocolLifecycle, observeOrdinaryLifecycleEnd, type OrdinaryProtocolControl } from './ordinary-protocol-work.js'
+import { verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise, verifyOrdinaryProtocolLifecycle, observeOrdinaryLifecycleEnd,
+  startOrdinaryProtocolReadLifecycle, suspendOrdinaryProtocolLifecycle, type OrdinaryProtocolControl } from './ordinary-protocol-work.js'
 import { claimOrdinaryPrivateExistingRoot, claimOrdinaryPrivateExistingProviderCommand, claimOrdinaryPrivateMemberIntent,
+  claimOrdinaryPrivateRenewalPrepareIntent, assertOrdinaryPrivateRenewalPrepareCommand, type OrdinaryPrivateRenewalPrepareIntent,
   assertOrdinaryPrivateMemberCommand, beginOrdinaryPrivateWalletEffect, endOrdinaryPrivateWalletEffect, discardOrdinaryPrivateWalletEffect,
   type OrdinaryPrivateWalletTicket, type OrdinaryPrivateMemberIntent, type OrdinaryPrivateExistingRoot,
   type OrdinaryPrivateExistingRootBinding } from './ordinary-private-existing-root.js'
@@ -179,9 +181,41 @@ interface PrivateRenewalDueWork {
   stopped: boolean
   pending: boolean
   receipt: OrdinaryPrivateRenewalDueReceipt | undefined
+  preparation?: PrivateRenewalPrepareWork
 }
 const privateRenewalDueReceipts = new WeakMap<object, PrivateRenewalDueWork>()
 const privateRenewalDueSlots = new WeakMap<object, {revision: number; work: PrivateRenewalDueWork | undefined}>()
+declare const privateRenewalPreparedReadBrand: unique symbol
+export interface OrdinaryPrivateRenewalPreparedReadReceipt { readonly [privateRenewalPreparedReadBrand]: true }
+/** PREPARE-READ only. No durable E/P, statement, signature or current member
+ * authority is represented by this opaque lifetime-bound receipt. */
+export interface OrdinaryPrivateRenewalPreparedReadPreview {
+  readonly display: OrdinaryPrivateSelectionDisplay
+  readonly issuedAt: number
+  readonly expiresAt: number
+  readonly receipt: OrdinaryPrivateRenewalPreparedReadReceipt
+}
+interface PrivateRenewalPrepareWork {
+  readonly due: PrivateRenewalDueWork
+  readonly command: Promise<void>
+  readonly cancel: {readonly stop: () => void}
+  readonly finish: () => void
+  readonly resolve: (preview: OrdinaryPrivateRenewalPreparedReadPreview) => void
+  readonly reject: (error: unknown) => void
+  root?: ProtocolExecution
+  read?: PrivateRenewalDueWork
+  previewTimes?: Readonly<{issuedAt: number; expiresAt: number}>
+  receipt?: OrdinaryPrivateRenewalPreparedReadReceipt
+  releaseRoot?: () => void
+  cancelTimer?: () => void
+  bodyStarted: boolean
+  phase: 'reading' | 'prepared' | 'stopped'
+}
+const privateRenewalPreparations = new WeakMap<object, PrivateRenewalPrepareWork>()
+const privateRenewalPreparedReads = new WeakMap<object, PrivateRenewalPrepareWork>()
+const privateRenewalNow = Date.now
+const privateRenewalFloor = Math.floor
+const privateRenewalMin = Math.min
 
 // Only the future fixed Unlock continuation may publish this exact tuple after
 // foreground, bootstrap and native member construction actually complete.
@@ -253,6 +287,14 @@ export const prepareOrdinaryPrivateRenewalDue = (root: OrdinaryPrivateExistingRo
 export function revokeOrdinaryPrivateRenewalDue(root: OrdinaryPrivateExistingRoot): void {
   const slot = privateRenewalDueSlots.get(root)
   try { slot?.work?.cancel.stop() } finally { privateRenewalDueSlots.delete(root) }
+}
+let preparePrivateRenewalFromTrustedIntent!: (root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateRenewalPrepareIntent,
+  due: OrdinaryPrivateRenewalDueReceipt, command: Promise<void>) => Promise<OrdinaryPrivateRenewalPreparedReadPreview>
+export const prepareOrdinaryPrivateRenewalFromTrustedIntent = (root: OrdinaryPrivateExistingRoot,
+  intent: OrdinaryPrivateRenewalPrepareIntent, due: OrdinaryPrivateRenewalDueReceipt,
+  command: Promise<void>): Promise<OrdinaryPrivateRenewalPreparedReadPreview> => preparePrivateRenewalFromTrustedIntent(root, intent, due, command)
+export function revokeOrdinaryPrivateRenewalPrepare(root: OrdinaryPrivateExistingRoot): void {
+  privateRenewalPreparations.get(root)?.cancel.stop()
 }
 
 
@@ -465,6 +507,8 @@ export function stopOrdinaryPrivateControllerRenewal(resource: OrdinaryPrivateCo
   // and revision even when retirement of the predecessor runs afterwards.
   const due = privateRenewalDueSlots.get(value.member.capture.root)?.work
   if (due?.resource === resource && due.producer === value) due.cancel.stop()
+  const preparation = privateRenewalPreparations.get(value.member.capture.root)
+  if (preparation?.due.resource === resource && preparation.due.producer === value) preparation.cancel.stop()
   if (value.settledRead) stopPrivateSettledRead(value.settledRead)
   if (value.factory) closeOrdinaryPrivateRenewalFactory(value.factory)
 }
@@ -1327,6 +1371,7 @@ export class OrdinaryStateOwner {
     beginPrivateExistingProvider = (root, command) => this.#beginPrivateExistingProvider(root, command)
     preparePrivateSelectionPreview = (root, kind) => this.#preparePrivateSelectionPreview(root, kind)
     preparePrivateRenewalDue = root => this.#preparePrivateRenewalDue(root)
+    preparePrivateRenewalFromTrustedIntent = (root, intent, due, command) => this.#preparePrivateRenewalFromTrustedIntent(root, intent, due, command)
     reservePrivateTrustedUnlock = (root, intent, preview, command) => this.#reservePrivateTrustedUnlock(root, intent, preview, command, 'unlock-private-member')
     reservePrivateTrustedProof = (root, intent, preview, command) => this.#reservePrivateTrustedUnlock(root, intent, preview, command, 'verify-private-member')
     finishPrivateTrustedUnlock = (root, command) => this.#finishPrivateTrustedUnlock(root, command)
@@ -1711,7 +1756,9 @@ export class OrdinaryStateOwner {
         producer.member.capture !== capture || producer.generation !== generation || producer.factory !== factory ||
         privateRenewalFactories.get(factory) !== factoryState || factoryState.member !== producer.member ||
         factoryState.generation !== generation || factoryState.control !== producer.binding.control ||
-        privateMemberNatives.get(factoryState.native) !== producer.member || factoryState.closed || factoryState.operationStarted ||
+        privateMemberNatives.get(factoryState.native) !== producer.member || factoryState.closed ||
+        (factoryState.operationStarted && (!work.preparation || privateRenewalPreparations.get(root) !== work.preparation ||
+          work.preparation.phase === 'stopped' || work.preparation.due !== work && work.preparation.read !== work)) ||
         privateExistingProviders.get(root) !== provider || provider.capture !== capture ||
         provider.bootstrap !== producer.binding.bootstrap || provider.bootstrapModule !== producer.graphModule ||
         !controllerRenewalLive(producer) || !ordinaryPrivateRenewalFactoryCurrent(factory)) hold()
@@ -1727,7 +1774,8 @@ export class OrdinaryStateOwner {
   }
   /** Publish only notice data after a fresh, no-write authenticated read.
    * A timer may enable the exact future Prepare view; it cannot call this. */
-  static #preparePrivateRenewalDue(root: OrdinaryPrivateExistingRoot): Promise<OrdinaryPrivateRenewalDuePreview> {
+  static #preparePrivateRenewalDue(root: OrdinaryPrivateExistingRoot,
+    preparation?: PrivateRenewalPrepareWork): Promise<OrdinaryPrivateRenewalDuePreview> {
     try { privateSelectionCheckAmbient() } catch { return Promise.reject(new OrdinaryStateHold()) }
     const capture = privateExistingCaptures.get(root)
     if (!capture) return Promise.reject(new OrdinaryStateHold())
@@ -1775,6 +1823,10 @@ export class OrdinaryStateOwner {
       privateSelectionCheckAmbient()
       if (work.stopped || privateRenewalDueSlots.get(root) !== slot || slot.work !== work) hold()
       OrdinaryStateOwner.#checkPrivateRenewalDue(work)
+      if (preparation) {
+        OrdinaryStateOwner.#checkPrivateRenewalPrepare(preparation)
+        verifyOrdinaryLifecyclePromise(preparation.root!, outer)
+      }
     }
     const clients = async () => { check(); await binding.assertClientsCurrent(); check() }
     let resolve!: (value: OrdinaryPrivateRenewalDuePreview) => void, reject!: (error: unknown) => void
@@ -1783,6 +1835,13 @@ export class OrdinaryStateOwner {
     try {
       browser.#track(outer); tab.#track(outer); provider.trackControl(outer)
       browser.#resources.add(work.cancel); tab.#resources.add(work.cancel)
+      if (preparation) {
+        if (privateRenewalPreparations.get(root) !== preparation || preparation.due.capture !== capture ||
+            preparation.due.generation !== generation || preparation.due.producer !== producer ||
+            preparation.due.joined !== joined.receipt || preparation.due.dueAt !== joined.dueAt || !preparation.root) hold()
+        work.preparation = preparation; preparation.read = work
+        preparation.root.retain(outer)
+      }
       check()
       void Promise.resolve().then(async () => {
         let display: OrdinaryPrivateSelectionDisplay | undefined
@@ -1866,6 +1925,30 @@ export class OrdinaryStateOwner {
                       bv.store, tv.store, custody, generation.selection.participant)
                     if (deadline !== factoryState.foregroundExpiresAt) hold()
                     OrdinaryStateOwner.#validatePrivateRenewalRead(producer.member, scopes, bv.store, tv.store, custody)
+                    if (preparation) {
+                      if (!preparation.root) hold()
+                      const fresh = producer.graphModule.authenticateOrdinaryPrivateBootstrapRenewalRead(
+                        producer.binding.bootstrap, resource, preparation.root, bv.store, tv.store, custody)
+                      const now = OrdinaryStateOwner.#privateRenewalPrepareNow()
+                      if (fresh.dueAt !== work.dueAt || now < fresh.dueAt || !privateSelectionSafeInteger(fresh.ttlSeconds) || fresh.ttlSeconds <= 0 ||
+                          !privateSelectionSafeInteger(fresh.credentialIssuedAt) || fresh.credentialIssuedAt < 0) hold()
+                      const admissionEnd = privateSelectionOwnData(selected.admission, 'endsAt', true)
+                      if (admissionEnd !== undefined && (!privateSelectionSafeInteger(admissionEnd) || (admissionEnd as number) <= 0) ||
+                          !privateSelectionSafeInteger(tab.expiresAt) || tab.expiresAt <= 0 ||
+                          deadline !== null && (!privateSelectionSafeInteger(deadline) || deadline <= 0)) hold()
+                      const issuedAt = privateRenewalFloor(now / 1000), ttlEnd = issuedAt + fresh.ttlSeconds
+                      if (!privateSelectionSafeInteger(ttlEnd) || issuedAt <= fresh.credentialIssuedAt) hold()
+                      const expiresAt = privateRenewalMin(ttlEnd,
+                        privateRenewalFloor(tab.expiresAt / 1000), admissionEnd === undefined ? Infinity : admissionEnd as number,
+                        deadline === null ? Infinity : privateRenewalFloor(deadline / 1000))
+                      if (!privateSelectionSafeInteger(issuedAt) || !privateSelectionSafeInteger(expiresAt) ||
+                          expiresAt <= generation.selection.credentialExpiresAt || expiresAt <= issuedAt) hold()
+                      // Primitive preview data only. Full intent derivation,
+                      // predecessor digests and capacity checks belong to the
+                      // later durable E/P slice's separate native contract.
+                      preparation.previewTimes = privateSelectionFreeze(privateSelectionAssign(privateSelectionCreate(null), {issuedAt, expiresAt}))
+                      OrdinaryStateOwner.#checkPrivateRenewalPrepare(preparation)
+                    }
                     check()
                   } finally {pairCustody.delete(custody)}
                 })
@@ -1908,6 +1991,121 @@ export class OrdinaryStateOwner {
         !slot || slot.revision !== work.revision) hold()
     OrdinaryStateOwner.#checkPrivateSelectionPreview(root, work.capture, work.generation, kind)
     return work
+  }
+
+  static #privateRenewalPrepareNow(): number {
+    if (privateSelectionDescriptor(Date, 'now')?.value !== privateRenewalNow ||
+        privateSelectionDescriptor(Math, 'floor')?.value !== privateRenewalFloor ||
+        privateSelectionDescriptor(Math, 'min')?.value !== privateRenewalMin ||
+        privateSelectionDescriptor(Number, 'isSafeInteger')?.value !== privateSelectionSafeInteger) hold()
+    const now = privateSelectionApply(privateRenewalNow, Date, []) as number
+    if (!privateSelectionSafeInteger(now) || now < 0) hold()
+    return now
+  }
+  static #checkPrivateRenewalPrepare(work: PrivateRenewalPrepareWork): void {
+    const {due} = work
+    if (work.phase === 'stopped' || privateRenewalPreparations.get(due.root) !== work || due.preparation !== work ||
+        !due.factoryState.operationStarted) hold()
+    OrdinaryStateOwner.#checkPrivateRenewalDue(due)
+    if (work.phase === 'reading') assertOrdinaryPrivateRenewalPrepareCommand(due.root, work.command)
+    const now = OrdinaryStateOwner.#privateRenewalPrepareNow()
+    if (now < due.dueAt || now >= due.generation.selection.credentialExpiresAt * 1000) hold()
+  }
+  /** Consume both one-use records before native checks or queued work. The
+   * proposed times come from this exact live Session and authenticated rows.
+   * Full durable intent derivation is deliberately deferred; a read preview
+   * cannot enter the existing broad lower-layer writer or signing APIs. */
+  static #preparePrivateRenewalFromTrustedIntent(root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateRenewalPrepareIntent,
+    receipt: OrdinaryPrivateRenewalDueReceipt, command: Promise<void>): Promise<OrdinaryPrivateRenewalPreparedReadPreview> {
+    const due = privateRenewalDueReceipts.get(receipt)
+    privateRenewalDueReceipts.delete(receipt)
+    // Even a wrong-root attempt spends both genuine objects.
+    let intentFailure: {error: unknown} | undefined
+    try {claimOrdinaryPrivateRenewalPrepareIntent(root, intent, receipt, command)} catch (error) {intentFailure = {error}}
+    if (!due) throw new OrdinaryStateHold()
+    const slot = privateRenewalDueSlots.get(due.root), exact = due.receipt === receipt
+    due.receipt = undefined
+    if (slot?.work === due) slot.work = undefined
+    due.capture.browser.#resources.delete(due.cancel); due.capture.tab.#resources.delete(due.cancel)
+    if (intentFailure || !exact || due.pending || due.stopped || due.root !== root || !slot || slot.revision !== due.revision ||
+        privateRenewalPreparations.has(root)) hold()
+    OrdinaryStateOwner.#checkPrivateRenewalDue(due)
+    if (OrdinaryStateOwner.#privateRenewalPrepareNow() < due.dueAt || due.factoryState.operationStarted) hold()
+    due.factoryState.operationStarted = true // Permanent reservation, also on refusal.
+    const {browser, tab} = due.capture
+    let resolve!: (preview: OrdinaryPrivateRenewalPreparedReadPreview) => void, reject!: (error: unknown) => void,
+      finish!: () => void, work!: PrivateRenewalPrepareWork
+    const outer = new Promise<OrdinaryPrivateRenewalPreparedReadPreview>((yes, no) => {resolve = yes; reject = no}),
+      waiting = new Promise<void>(yes => {finish = yes})
+    void outer.catch(() => {})
+    const cleanup = (action: () => void) => {
+      try {action()} catch (error) {browser.#cleanupFailure ??= {error}; tab.#cleanupFailure ??= {error}}
+    }
+    const stop = () => {
+      if (work.phase === 'stopped') return
+      work.phase = 'stopped'
+      // Resolve before graph/producer revocation can synchronously start a
+      // drain which includes this body's real, already-retained promise.
+      finish(); reject(new OrdinaryStateHold())
+      if (work.receipt) privateRenewalPreparedReads.delete(work.receipt)
+      work.receipt = undefined; work.previewTimes = undefined
+      cleanup(() => work.read?.cancel.stop()); cleanup(() => work.cancelTimer?.()); cleanup(() => work.releaseRoot?.())
+      work.cancelTimer = undefined; work.releaseRoot = undefined
+      if (!work.bodyStarted) {
+        cleanup(() => browser.#resources.delete(work.cancel)); cleanup(() => tab.#resources.delete(work.cancel))
+      }
+      cleanup(() => due.producer.revoke())
+      // Keep the spent preparation indexed. A same-generation retry may
+      // neither create a new operation root nor resurrect its due notice.
+    }
+    work = privateSelectionAssign(privateSelectionCreate(null), {due, command, cancel: privateSelectionFreeze({stop}), finish,
+      resolve, reject, bodyStarted: false, phase: 'reading' as const})
+    due.preparation = work; privateRenewalPreparations.set(root, work)
+    try {
+      browser.#track(outer); tab.#track(outer); due.provider.trackControl(outer)
+      browser.#resources.add(work.cancel); tab.#resources.add(work.cancel)
+      OrdinaryStateOwner.#checkPrivateRenewalPrepare(work)
+      void Promise.resolve().then(() => {
+        OrdinaryStateOwner.#checkPrivateRenewalPrepare(work)
+        const control = due.factoryState.control
+        if (!control || control !== due.producer.binding.control) hold()
+        const lifecycle = startOrdinaryProtocolReadLifecycle(control, async operation => {
+          work.bodyStarted = true
+          work.root = operation
+          try {
+            await suspendOrdinaryProtocolLifecycle(control, operation)
+            OrdinaryStateOwner.#checkPrivateRenewalPrepare(work)
+            verifyOrdinaryPrivateRenewalLifecycle(due.factory, operation)
+            work.releaseRoot = observeOrdinaryLifecycleEnd(operation, stop)
+            const timeout = privateRenewalMin(60_000, due.generation.selection.credentialExpiresAt * 1000 - OrdinaryStateOwner.#privateRenewalPrepareNow())
+            if (timeout < 1) hold()
+            const timer = setTimeout(stop, timeout); work.cancelTimer = () => clearTimeout(timer)
+            const read = OrdinaryStateOwner.#preparePrivateRenewalDue(root, work)
+            const preview = await read
+            verifyOrdinaryPrivateRenewalLifecycle(due.factory, operation)
+            OrdinaryStateOwner.#checkPrivateRenewalPrepare(work)
+            const prepared = work.previewTimes
+            if (!prepared || !work.read) hold()
+            work.read.cancel.stop() // Retire the internal notice, never publish its receipt.
+            OrdinaryStateOwner.#checkPrivateRenewalPrepare(work)
+            const token = privateSelectionFreeze(privateSelectionCreate(null)) as OrdinaryPrivateRenewalPreparedReadReceipt
+            work.receipt = token; privateRenewalPreparedReads.set(token, work); work.phase = 'prepared'
+            resolve(privateSelectionFreeze(privateSelectionAssign(privateSelectionCreate(null), {display: preview.display,
+              issuedAt: prepared.issuedAt, expiresAt: prepared.expiresAt, receipt: token})))
+            await waiting
+          } catch (error) {reject(error); stop()}
+          finally {
+            stop()
+            // Resource ownership lasts through the actual read and graph
+            // body. Neither cancellation nor an early preview releases it.
+            cleanup(() => browser.#resources.delete(work.cancel)); cleanup(() => tab.#resources.delete(work.cancel))
+          }
+        })
+        browser.#track(lifecycle); tab.#track(lifecycle); due.provider.trackControl(lifecycle)
+        void lifecycle.catch(() => stop())
+      }).catch(() => stop())
+    } catch (error) {reject(error); stop()}
+    return outer
   }
 
   static #reservePrivateTrustedUnlock(root: OrdinaryPrivateExistingRoot, intent: OrdinaryPrivateMemberIntent,

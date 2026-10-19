@@ -4,8 +4,8 @@ on:
     - cron: '23 8 * * 1'
   workflow_dispatch:
     inputs:
-      private_renewal_completion:
-        description: Complete the two job-budget-cancelled native cohorts
+      private_renewal_prepare_read:
+        description: Run bounded native Prepare-read development checks
         type: boolean
         default: false
 permissions:
@@ -23,21 +23,16 @@ jobs:
           node-version: 24
       - run: node scripts/check-protocol-upstream.mjs
 
-  # Non-main validation only. The established CI workflow and its gates are
-  # unchanged; only the two cancelled cohorts are split into fixed133-case
-  # slices. Original completed cohorts retain their separate frozen evidence.
-  private-renewal-completion-native:
-    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_completion
-    name: private renewal completion (${{ matrix.engine }}, ${{ matrix.shard }}/4)
+  # Isolated development branch only. Original normal CI and product gates stay unchanged.
+  private-renewal-prepare-read-native:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_prepare_read
+    name: private renewal Prepare-read (${{ matrix.engine }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        engine: [chromium, firefox]
-        shard: [3, 4]
-    env:
-      ORDINARY_RENEWAL_SHARD: '${{ matrix.shard }}'
+        engine: [chromium, firefox, webkit]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -54,27 +49,27 @@ jobs:
         run: npm run build:lib
       - name: Install selected browser
         run: npx playwright install --with-deps ${{ matrix.engine }}
-      - name: Retain and verify the exact fixed title selection
+      - name: Verify the exact seventeen-case development selection
         run: |
-          npx playwright test -c playwright.private-renewal-validation.config.ts --project=${{ matrix.engine }}-sdk020 --list --reporter=json > private-renewal-inventory.json
-          node scripts/verify-private-renewal-validation-inventory.mjs private-renewal-inventory.json ${{ matrix.engine }} ${{ matrix.shard }}
-      - name: Run the fixed native component selection once
-        run: npx playwright test -c playwright.private-renewal-validation.config.ts --project=${{ matrix.engine }}-sdk020 --max-failures=1 --trace=retain-on-failure
+          npx playwright test -c playwright.private-renewal-prepare-read.config.ts --project=${{ matrix.engine }}-sdk020 --list --reporter=json > private-renewal-prepare-read-inventory.json
+          node scripts/verify-private-renewal-prepare-read-inventory.mjs private-renewal-prepare-read-inventory.json ${{ matrix.engine }}
+      - name: Run the native development selection once
+        run: npx playwright test -c playwright.private-renewal-prepare-read.config.ts --project=${{ matrix.engine }}-sdk020 --max-failures=1 --trace=retain-on-failure
       - name: Retain validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: private-renewal-completion-native-${{ matrix.engine }}-${{ matrix.shard }}
+          name: private-renewal-prepare-read-native-${{ matrix.engine }}
           path: |
             locked-dependencies.json
-            private-renewal-inventory.json
+            private-renewal-prepare-read-inventory.json
             test-results/
           if-no-files-found: ignore
           retention-days: 7
 
-  private-renewal-completion-support:
-    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_completion
-    name: private renewal completion units and types
+  private-renewal-prepare-read-support:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_prepare_read
+    name: private renewal Prepare-read units and types
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -91,7 +86,7 @@ jobs:
         run: node scripts/verify-private-renewal-locked-dependencies.mjs > locked-dependencies.json
       - name: Build library
         run: npm run build:lib
-      - name: Run the unchanged focused units
+      - name: Run the focused units
         run: |
           node node_modules/vitest/vitest.mjs run src/session-retained-native.test.ts src/session-native-binding.test.ts src/session-retention.test.ts src/session-fresh-epoch.test.ts src/session.test.ts src/session-seal.test.ts src/session-member-epoch.test.ts app/src/ordinary-operation-codec.test.ts app/src/ordinary-prepared-renewal-capacity.test.ts app/src/ordinary-renewal-request.test.ts app/src/ordinary-renewal-credential.test.ts app/src/ordinary-member-startup.test.ts app/src/ordinary-protocol-work.test.ts app/src/ordinary-lifecycle-root.test.ts app/src/ordinary-owned-json.test.ts > private-renewal-unit-results.log 2>&1
           cat private-renewal-unit-results.log
@@ -103,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: private-renewal-completion-support
+          name: private-renewal-prepare-read-support
           path: |
             locked-dependencies.json
             private-renewal-unit-results.log

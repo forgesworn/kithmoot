@@ -47,7 +47,8 @@ import type { SendOptions, ChatMessage } from '../../src/chat.js'
 import { captureProtocolData } from '../../src/protocol-execution.js'
 import { OrdinaryRelayCarrier, stopOrdinaryPrivateCarrier, closeOrdinaryPrivateCarrier, type OrdinaryCarrierSuccessor } from './ordinary-relay-carrier.js'
 import type { OrdinaryPrivateCarrierResource } from './ordinary-relay-carrier.js'
-import type { OrdinaryPrivateMemberSessionResource, OrdinaryPrivateMemberJoinedDecision, OrdinaryPrivateMemberJoinedReceipt } from './ordinary-private-member-session.js'
+import type { OrdinaryPrivateMemberSessionResource, OrdinaryPrivateMemberJoinedDecision, OrdinaryPrivateMemberJoinedReceipt,
+  OrdinaryPrivateMemberRenewalReadDecision } from './ordinary-private-member-session.js'
 import type { RetainedNativeSessionCapture } from '../../src/session-native-binding.js'
 import type { OrdinaryPrivateMemberControllerResource } from './ordinary-private-member-controller.js'
 
@@ -101,6 +102,15 @@ let constructPrivateMember!: (resource: OrdinaryPrivateBootstrapResource) => Pro
 let joinPrivateMember!: (resource: OrdinaryPrivateBootstrapResource) => Promise<void>
 let capturePrivateRenewalJoined!: (resource: OrdinaryPrivateBootstrapResource,
   renewal: import('./ordinary-state-owner.js').OrdinaryPrivateControllerRenewal) => import('./ordinary-private-member-controller.js').OrdinaryPrivateMemberRenewalJoinedSnapshot
+let authenticatePrivateRenewalRead!: (resource: OrdinaryPrivateBootstrapResource,
+  renewal: import('./ordinary-state-owner.js').OrdinaryPrivateControllerRenewal, root: ProtocolExecution,
+  browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody) => Readonly<{dueAt: number; ttlSeconds: number; credentialIssuedAt: number}>
+/** Fixed owner-only synchronous edge. The owner supplies its actual immutable
+ * read views; no Session, view, executor or application callback is returned. */
+export const authenticateOrdinaryPrivateBootstrapRenewalRead = (resource: OrdinaryPrivateBootstrapResource,
+  renewal: import('./ordinary-state-owner.js').OrdinaryPrivateControllerRenewal, root: ProtocolExecution,
+  browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody): Readonly<{dueAt: number; ttlSeconds: number; credentialIssuedAt: number}> =>
+  authenticatePrivateRenewalRead(resource, renewal, root, browser, tab, custody)
 /** Fixed owner consumer. Claim consumption and resource construction happen
  * synchronously in the owner's actual read; no instance or material escapes. */
 export function openOrdinaryPrivateBootstrapFromOwnerClaim(claim: OrdinaryPrivateBootstrapClaim): OrdinaryPrivateBootstrapResource {
@@ -195,6 +205,24 @@ export function takeOrdinaryPrivateMemberSessionJoinClaim(claim: OrdinaryPrivate
   const value = privateSessionJoinClaims.get(claim)
   if (!value) hold()
   privateSessionJoinClaims.delete(claim); value.current()
+  return value
+}
+declare const privateRenewalReadClaimBrand: unique symbol
+export interface OrdinaryPrivateMemberRenewalReadClaim { readonly [privateRenewalReadClaimBrand]: true }
+interface PrivateRenewalReadBinding {
+  readonly session: OrdinaryPrivateMemberSessionResource
+  readonly graph: OrdinaryProtocolGraphIdentity
+  readonly generation: OrdinaryPrivateCredentialGeneration
+  readonly joined: OrdinaryPrivateMemberJoinedReceipt
+  readonly current: () => void
+  readonly authenticate: (decision: OrdinaryPrivateMemberRenewalReadDecision) => Readonly<{dueAt: number; ttlSeconds: number; credentialIssuedAt: number}>
+}
+const privateRenewalReadClaims = new WeakMap<object, PrivateRenewalReadBinding>()
+export function takeOrdinaryPrivateMemberRenewalReadClaim(claim: OrdinaryPrivateMemberRenewalReadClaim): PrivateRenewalReadBinding {
+  const value = privateRenewalReadClaims.get(claim)
+  privateRenewalReadClaims.delete(claim)
+  if (!value) hold()
+  value.current()
   return value
 }
 declare const privateControllerClaimBrand: unique symbol
@@ -407,6 +435,34 @@ export class OrdinaryPersistentBootstrap {
       if (state.#closed || !state.#private || !state.#private.live() || state.#privateResource !== resource ||
           state.#privateControllerRenewal !== renewal || !state.#privateController || !state.#privateControllerModule) hold()
       return state.#privateControllerModule.captureOrdinaryPrivateMemberControllerRenewalJoined(state.#privateController, renewal)
+    }
+    authenticatePrivateRenewalRead = (resource, renewal, root, browser, tab, custody) => {
+      const entry = privateBootstrapResources.get(resource), state = entry?.state
+      if (!state || state.#privateResource !== resource || state.#privateControllerRenewal !== renewal) hold()
+      const protocol = state.#privateMemberProtocol, module = state.#privateSessionModule,
+        native = state.#private, session = state.#privateSession
+      if (!protocol || !module || !native || !session || !state.#live()) hold()
+      const joined = capturePrivateRenewalJoined(resource, renewal)
+      return protocol.enterLifecycle(root, browser, tab, custody, () => {
+        const nativeCurrent = protocol.captureConstructionCurrent()
+        const current = () => {
+          nativeCurrent()
+          if (state.#privateResource !== resource || state.#privateControllerRenewal !== renewal ||
+              state.#privateSession !== session || capturePrivateRenewalJoined(resource, renewal).receipt !== joined.receipt) hold()
+        }
+        current()
+        const claim = Object.freeze(Object.create(null)) as OrdinaryPrivateMemberRenewalReadClaim
+        privateRenewalReadClaims.set(claim, Object.freeze({session, graph: protocol.graph, generation: native.credentialGeneration,
+          joined: joined.receipt, current, authenticate: (decision: OrdinaryPrivateMemberRenewalReadDecision) => {
+            const data = module.takeOrdinaryPrivateMemberRenewalReadDecision(decision)
+            if (data.joined !== joined.receipt) hold()
+            const result = state.#authenticatePrivateMemberSnapshot(browser, tab, custody, data, protocol)
+            if (result.dueAt !== joined.dueAt) hold()
+            current(); return result
+          }}))
+        try {const result = module.readOrdinaryPrivateMemberRenewalFromBootstrapClaim(claim); current(); return result}
+        finally {privateRenewalReadClaims.delete(claim)}
+      })
     }
   }
   private constructor(construction: {kind: 'legacy'; options: Options; participant: string; sign: ParticipantIdentity['signEvent']; browser: OrdinaryScope; tab: OrdinaryScope} |
@@ -1249,6 +1305,14 @@ export class OrdinaryPersistentBootstrap {
     const module = this.#privateSessionModule, native = this.#private
     if (!module || !native) hold()
     const data = module.takeOrdinaryPrivateMemberJoinedDecision(decision)
+    return this.#authenticatePrivateMemberSnapshot(browser, tab, custody, data, protocol).dueAt
+  }
+  #authenticatePrivateMemberSnapshot(browser: DeviceStore, tab: DeviceStore, custody: OrdinaryPairCustody,
+    data: Readonly<{session: OrdinaryPrivateMemberSessionResource; graph: OrdinaryProtocolGraphIdentity;
+      generation: OrdinaryPrivateCredentialGeneration; snapshot: NativeSessionSnapshot}>,
+    protocol: OrdinaryMemberProtocolExecution): Readonly<{dueAt: number; ttlSeconds: number; credentialIssuedAt: number}> {
+    const native = this.#private
+    if (!native) hold()
     if (data.session !== this.#privateSession || data.graph !== protocol.graph || data.generation !== native.credentialGeneration ||
         protocol !== this.#privateMemberProtocol || !this.#privateController || !this.#privateCarrier || !this.#privateResource || !this.#privateControllerRenewal) hold()
     verifyOrdinaryPrivateControllerRenewalAttachment(this.#privateControllerRenewal, {controller: this.#privateController,
@@ -1280,7 +1344,7 @@ export class OrdinaryPersistentBootstrap {
       const dueAt = (retained.expiresAt - retained.ttlSeconds * (1 - CREDENTIAL_RENEWAL_FRACTION)) * 1000
       if (!Number.isSafeInteger(dueAt) || dueAt < 0) hold()
       native.validate(browser, tab, custody)
-      return dueAt
+      return Object.freeze(Object.assign(Object.create(null), {dueAt, ttlSeconds: retained.ttlSeconds, credentialIssuedAt: retained.credential.created_at}))
     } finally {inspected.close()}
   }
   /** Create the genuine library session from acknowledged member material.

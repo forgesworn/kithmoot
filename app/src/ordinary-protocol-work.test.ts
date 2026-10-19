@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProtocolExecution } from '../../src/protocol-execution.js'
 import { ProtocolTimers } from '../../src/protocol-timers.js'
-import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise } from './ordinary-protocol-work.js'
+import { OrdinaryProtocolWork, OrdinaryProtocolSuspended, verifyOrdinaryLifecycleRoot, verifyOrdinaryLifecyclePromise,
+  ordinaryProtocolControlFor, startOrdinaryProtocolReadLifecycle, observeOrdinaryLifecycleEnd } from './ordinary-protocol-work.js'
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void, reject!: (error: unknown) => void
@@ -32,6 +33,94 @@ function fixture(before: (operation: string) => Promise<void> = async () => {}) 
 }
 const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
 afterEach(() => { vi.useRealTimers() })
+describe('private readonly lifecycle ownership entry', () => {
+  it('reserves before the body, enters no generic native reader and grants no native boundary', async () => {
+    const f = fixture(), ready = deferred(), finish = deferred()
+    let root!: ProtocolExecution
+    const pending = startOrdinaryProtocolReadLifecycle(ordinaryProtocolControlFor(f.graph.execution), async scope => {
+      root = scope; await f.graph.suspend(scope); verifyOrdinaryLifecycleRoot(scope); ready.resolve(); await finish.promise
+    })
+    expect(f.reads).toEqual([])
+    await ready.promise
+    expect(f.reads).toEqual([])
+    expect(() => root.check('credential-lifecycle-transition')).toThrow()
+    const effect = vi.fn()
+    expect(() => f.graph.enter(root, 'credential-lifecycle-transition', effect)).toThrow('no current native boundary')
+    expect(effect).not.toHaveBeenCalled()
+    finish.resolve(); await pending; await f.graph.join()
+    expect(f.retained.size).toBe(0)
+  })
+  it('drains real old jobs and retains the exact readonly child until it settles', async () => {
+    const f = fixture(), oldReady = deferred(), oldFinish = deferred(), ready = deferred(), read = deferred(), finish = deferred()
+    const old = f.graph.execution.task!('old member work', async () => {oldReady.resolve(); await oldFinish.promise})
+    await oldReady.promise
+    let root!: ProtocolExecution
+    const pending = startOrdinaryProtocolReadLifecycle(ordinaryProtocolControlFor(f.graph.execution), async scope => {
+      root = scope; await f.graph.suspend(scope)
+      scope.retain(read.promise); verifyOrdinaryLifecyclePromise(scope, read.promise); ready.resolve()
+      await read.promise; verifyOrdinaryLifecycleRoot(scope); await finish.promise
+    })
+    await tick(); expect(() => verifyOrdinaryLifecycleRoot(root)).toThrow(OrdinaryProtocolSuspended)
+    oldFinish.resolve(); await old; await ready.promise
+    expect(() => verifyOrdinaryLifecyclePromise(root, read.promise.then(() => {}))).toThrow(OrdinaryProtocolSuspended)
+    f.graph.close(); let joined = false; const joining = f.graph.join().then(() => {joined = true})
+    finish.resolve(); await tick(); expect(joined).toBe(false)
+    read.resolve(); await expect(pending).rejects.toThrow(OrdinaryProtocolSuspended)
+    await joining; expect(joined).toBe(true)
+    expect(f.reads).toEqual(['old member work-task-start', 'old member work-task-handoff'])
+  })
+  it('cancels its bounded waiting body synchronously on graph close', async () => {
+    const f = fixture(), ready = deferred(), finish = deferred(); let cancelled = 0
+    const pending = startOrdinaryProtocolReadLifecycle(ordinaryProtocolControlFor(f.graph.execution), async scope => {
+      await f.graph.suspend(scope)
+      observeOrdinaryLifecycleEnd(scope, () => {cancelled++; finish.resolve()})
+      ready.resolve(); await finish.promise
+    })
+    await ready.promise; f.graph.close(); expect(cancelled).toBe(1)
+    await pending; await f.graph.join(); f.graph.close(); expect(cancelled).toBe(1)
+    expect(f.reads).toEqual([]); expect(f.retained.size).toBe(0)
+  })
+  it('refuses foreign controls and a concurrent lifecycle without running their bodies', async () => {
+    const f = fixture(), ready = deferred(), finish = deferred(), refused = vi.fn(async () => {})
+    expect(() => startOrdinaryProtocolReadLifecycle({} as never, refused)).toThrow(OrdinaryProtocolSuspended)
+    const control = ordinaryProtocolControlFor(f.graph.execution)
+    const pending = startOrdinaryProtocolReadLifecycle(control, async scope => {
+      await f.graph.suspend(scope); ready.resolve(); await finish.promise
+    })
+    await ready.promise; await expect(startOrdinaryProtocolReadLifecycle(control, refused)).rejects.toThrow(OrdinaryProtocolSuspended)
+    expect(refused).not.toHaveBeenCalled(); f.graph.close(); finish.resolve(); await pending; await f.graph.join()
+    expect(f.reads).toEqual([])
+  })
+  it('closes rather than accepting a body that returns without a terminal transition', async () => {
+    const f = fixture()
+    await expect(startOrdinaryProtocolReadLifecycle(ordinaryProtocolControlFor(f.graph.execution), async scope => {
+      await f.graph.suspend(scope)
+    })).rejects.toThrow(OrdinaryProtocolSuspended)
+    await f.graph.join(); expect(f.stops()).toBe(1); expect(f.reads).toEqual([])
+  })
+  it.each(['throw', 'non-Promise', 'reject'] as const)('drains a %s refusal before suspension without reading native state', async mode => {
+    const f = fixture()
+    const body = mode === 'throw' ? () => {throw new Error('fixed body refused')} : mode === 'non-Promise' ? () => undefined :
+      async () => {throw new Error('fixed body refused')}
+    await expect(startOrdinaryProtocolReadLifecycle(ordinaryProtocolControlFor(f.graph.execution), body as () => Promise<void>)).rejects.toThrow()
+    await f.graph.join(); expect(f.stops()).toBe(1); expect(f.reads).toEqual([]); expect(f.retained.size).toBe(0)
+  })
+  it('closes before the queued body when native promise retention throws', async () => {
+    const f = fixture(), body = vi.fn(async () => {})
+    const graph = new OrdinaryProtocolWork({...f.native, retain: () => {throw new Error('retention refused')}})
+    expect(() => startOrdinaryProtocolReadLifecycle(ordinaryProtocolControlFor(graph.execution), body)).toThrow('retention refused')
+    await graph.join(); expect(body).not.toHaveBeenCalled(); expect(f.reads).toEqual([])
+  })
+  it('preserves the exact root through suspension and an explicit resume', async () => {
+    const f = fixture(); let root!: ProtocolExecution
+    await startOrdinaryProtocolReadLifecycle(ordinaryProtocolControlFor(f.graph.execution), async scope => {
+      root = scope; await f.graph.suspend(scope); verifyOrdinaryLifecycleRoot(scope); f.graph.resume(scope)
+    })
+    await f.graph.join(); expect(f.graph.suspended).toBe(false)
+    expect(() => verifyOrdinaryLifecycleRoot(root)).toThrow(OrdinaryProtocolSuspended)
+    expect(f.reads).toEqual([]); expect(f.retained.size).toBe(0)
+  })
+})
 describe('private prepared-startup ownership, never phase authority', () => {
   it('registers the real sole quiescent root synchronously and joins its exact retained promise', async () => {
     const resource = deferred(), body = deferred()
