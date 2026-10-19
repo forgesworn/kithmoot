@@ -445,6 +445,9 @@ test.beforeAll(async () => {
         reader=reader.replace(publication,`;(globalThis as any).liveReadBeforeToken?.(); `+publication)
         source=source.slice(0,readStart)+reader+source.slice(readEnd)
         source = `import * as ControllerGraphForTest from './ordinary-protocol-work.js'\nimport * as ControllerRenewalForTest from './ordinary-private-renewal.js'\n` + source
+        const prepareSuspend='await suspendOrdinaryProtocolLifecycle(control, operation)'
+        if(source.split(prepareSuspend).length!==2)throw Error('Prepare readonly suspension observer drift')
+        source=source.replace(prepareSuspend,prepareSuspend+`; (globalThis as any).__prepareReadQuiescence={frameCount:(globalThis as any).privateJoinFrames?.length??0}`)
         const moduleEntry='async function privateRenewalIntentModules() {'
         if(source.split(moduleEntry).length!==2)throw Error('Prepare deferred module observer drift')
         source=source.replace(moduleEntry,moduleEntry+`; (globalThis as any).__prepareFullIntentModuleCalls=((globalThis as any).__prepareFullIntentModuleCalls??0)+1;`)
@@ -5462,28 +5465,32 @@ test('renewal due native abort refusal before effect drains the actual readonly 
 async function renewalPrepareViewReady(page:Page,keep=true,due=true):Promise<void>{
   await page.clock.install()
   await renewalDueNoticeReady(page,keep)
-  if(due){
-    const delay=await page.evaluate(()=>{const w=window as any;return Math.max(1,w.__privateControllerRenewalForTest.joined().dueAt-Date.now()+1)})
-    await page.clock.fastForward(delay)
-  }
+  const dueAt=await page.evaluate<number>('window.__privateControllerRenewalForTest.joined().dueAt')
+  // Wall-clock expiry setup must not fire the old Session's unrelated timers.
+  // The timer-only case mounts just before due and advances its real timer below.
+  await page.clock.setSystemTime(dueAt+(due?1:-1000))
   await page.evaluate('window.__prepareRenewalViewForTest()')
   await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='renewal-due'")
 }
 async function renewalPrepareEffects(page:Page):Promise<unknown>{
   return page.evaluate(()=>{const w=window as any;return{...w.effects,calls:w.providerFixture.calls,signs:w.providerFixture.signs,
-    crypts:w.providerFixture.crypts??0,nonces:w.probeNonces}})
+    crypts:w.providerFixture.crypts??0,publications:(w.privateJoinFrames??[]).filter((v:any)=>v.frame[0]==='EVENT').length}})
 }
 for(const keep of [false,true])for(const mode of ['pointer','Enter','Space']as const)
 test(`trusted renewal Prepare reads fresh membership without durable or provider effects, keep=${keep}, ${mode}`,async({page})=>{
   await renewalPrepareViewReady(page,keep)
-  const before=await renewalPrepareEffects(page)
+  const before=await renewalPrepareEffects(page),probesBefore=await page.evaluate<number>('probeNonces')
   await page.evaluate(()=>{const w=window as any;w.__dueTransactionModes=[];w.__dueObserveTransactions=true})
   const button=page.locator('[data-private-renewal-action="prepare-read"]')
   if(mode==='pointer')await button.click();else{await button.focus();await button.press(mode)}
   await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='renewal-prepared-read'")
   expect(await renewalPrepareEffects(page)).toEqual(before)
+  expect(await page.evaluate<number>('probeNonces')).toBeGreaterThan(probesBefore)
   const result=await page.evaluate(()=>{const w=window as any;return{state:w.__privateControllerRenewalForTest.prepareState(),
+    quiescenceObserved:!!w.__prepareReadQuiescence,
+    publicationsAfterQuiescence:(w.privateJoinFrames??[]).slice(w.__prepareReadQuiescence?.frameCount??0).filter((v:any)=>v.frame[0]==='EVENT').length,
     modes:w.__dueTransactionModes,signControls:document.querySelectorAll('[data-private-renewal-action="sign"]').length}})
+  expect(result.quiescenceObserved).toBe(true);expect(result.publicationsAfterQuiescence).toBe(0)
   expect(result.state).toMatchObject({phase:'prepared',root:true,previewTimes:true,receipt:true,bodyStarted:true,resources:[true,true],factoryStarted:true})
   expect(result.modes.length).toBeGreaterThan(0);expect(result.modes.every((mode:string)=>mode==='readonly')).toBe(true)
   expect(result.signControls).toBe(0);await expect(button).toBeDisabled()
@@ -5493,12 +5500,13 @@ test(`trusted renewal Prepare reads fresh membership without durable or provider
 })
 test('trusted renewal due timer enables only its native Prepare button',async({page})=>{
   await renewalPrepareViewReady(page,true,false)
-  const button=page.locator('[data-private-renewal-action="prepare-read"]'),before=await renewalPrepareEffects(page)
+  const button=page.locator('[data-private-renewal-action="prepare-read"]'),before=await renewalPrepareEffects(page),probesBefore=await page.evaluate<number>('probeNonces')
   await expect(button).toBeDisabled()
   expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:null,root:false,factoryStarted:false})
   const delay=await page.evaluate(()=>{const w=window as any;return Math.max(1,w.__privateControllerRenewalForTest.joined().dueAt-Date.now()+1)})
   await page.clock.fastForward(delay);await expect(button).toBeEnabled()
   expect(await renewalPrepareEffects(page)).toEqual(before)
+  expect(await page.evaluate('probeNonces')).toBe(probesBefore)
   expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:null,root:false,factoryStarted:false})
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
@@ -5506,13 +5514,14 @@ test('trusted renewal due timer enables only its native Prepare button',async({p
 for(const mode of ['click','dispatch','replacement']as const)
 test(`trusted renewal Prepare refuses ${mode} without an intent, root or effect`,async({page})=>{
   await renewalPrepareViewReady(page)
-  const before=await renewalPrepareEffects(page)
+  const before=await renewalPrepareEffects(page),probesBefore=await page.evaluate<number>('probeNonces')
   await page.evaluate(mode=>{const button=document.querySelector('[data-private-renewal-action="prepare-read"]')as HTMLButtonElement
     if(mode==='click')button.click()
     else if(mode==='dispatch')button.dispatchEvent(new MouseEvent('click',{bubbles:true}))
     else{const replacement=button.cloneNode(true)as HTMLButtonElement;button.replaceWith(replacement);replacement.click()}
   },mode)
   expect(await renewalPrepareEffects(page)).toEqual(before)
+  expect(await page.evaluate('probeNonces')).toBe(probesBefore)
   expect(await page.evaluate('window.__privateControllerRenewalForTest.prepareState()')).toMatchObject({phase:null,root:false,factoryStarted:false})
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')))
   await expect.poll(()=>lockAvailable(page,'migration')).toBe(true)
