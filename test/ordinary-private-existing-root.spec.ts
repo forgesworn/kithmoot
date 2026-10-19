@@ -23,7 +23,7 @@ for(const name of ['setItem','removeItem','clear'])Storage.prototype[name]=()=>{
 window.__privateBootstrapPause=async stage=>{const cut=window.privateBootstrapGate;if(!cut||cut.stage!==stage||cut.used)return;cut.used=true;cut.entered=true;await new Promise((yes,no)=>{cut.release=()=>cut.reject?no(Error('Explicit bootstrap fixture failure')):yes()})};\nwindow.privateRenewalEntropy=[];window.privateRenewalWrites=[];window.privateRenewalPackets=[];window.privateRenewalEncryptedRows={};window.privateRenewalEncryptedCohorts={};
 window.__enterPrivateRenewalDecision=()=>{const before=[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision];window.__privateRenewalDecision=true;window.__controlDecision=true;window.__foregroundDecision=true;return()=>{[window.__privateRenewalDecision,window.__controlDecision,window.__foregroundDecision]=before}};
 for(const name of ['put','add','delete','clear']){const actual=IDBObjectStore.prototype[name];IDBObjectStore.prototype[name]=function(...args){effects.put++;if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalWrites.push([name,args[1]??null]);privateRenewalPackets.push({phase:window.__privateRenewalWritePhase,key:args[1],packet:JSON.stringify(args[0],(_k,v)=>v instanceof ArrayBuffer?Array.from(new Uint8Array(v)):v)});const result=Reflect.apply(actual,this,args);if(name==='put'&&window.__privateRenewalWritePhase){privateRenewalEncryptedRows[args[1]]=structuredClone(args[0]);if(String(args[1]).startsWith('journal:'))privateRenewalEncryptedCohorts[window.__privateRenewalWritePhase]=structuredClone(privateRenewalEncryptedRows)}const fault=window.privateRenewalAckFault;if(fault&&!fault.used&&fault.phase===window.__privateRenewalWritePhase){fault.used=true;const tx=this.transaction;if(fault.prior){fault.entered=true;tx.abort();if(fault.close)window.dispatchEvent(new PageTransitionEvent('pagehide'))}else{const complete=tx.oncomplete,abort=tx.onabort;tx.oncomplete=event=>{fault.entered=true;fault.release=()=>{fault.delivered=true;if(fault.reject)abort.call(tx,new Event('abort'));else complete.call(tx,event)}}}}return result}throw Error('native write forbidden')}};
-crypto.getRandomValues=value=>{if(curveProbeActive)return nativeProbeRandom(value);effects.entropy++;if(window.privateMemberConstruction&&window.__controlDecision){(window.privateMemberEntropy??=[]).push(value.byteLength);return nativeProbeRandom(value)};if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalEntropy.push(value.byteLength);if(value.byteLength===12&&window.privateRenewalNonceCollision){const prior=window.privateRenewalNonceCollision==='existing'?window.__privateRenewalPriorNonces[0]:window.__privateRenewalFirstNonce;if(prior){value.set(Uint8Array.from(prior.match(/../g).map(v=>parseInt(v,16))));return value}}const result=nativeProbeRandom(value);if(value.byteLength===12&&!window.__privateRenewalFirstNonce)window.__privateRenewalFirstNonce=Array.from(value,v=>v.toString(16).padStart(2,'0')).join('');return result}const error=Error('entropy forbidden');privateEntropyCalls.push(error.stack);throw error};
+crypto.getRandomValues=value=>{if(curveProbeActive)return nativeProbeRandom(value);effects.entropy++;if(window.__prepareReadEntropyProbe){const p=window.__prepareReadEntropyProbe;if(p.calls.length<16)p.calls.push({bytes:value.byteLength,type:Object.prototype.toString.call(value),control:!!window.__controlDecision,renewal:!!window.__privateRenewalDecision,stage:p.stage,stack:new Error('Prepare read entropy callsite').stack})};if(window.privateMemberConstruction&&window.__controlDecision){(window.privateMemberEntropy??=[]).push(value.byteLength);return nativeProbeRandom(value)};if(window.allowPrivateRenewalEffects&&window.__privateRenewalDecision){privateRenewalEntropy.push(value.byteLength);if(value.byteLength===12&&window.privateRenewalNonceCollision){const prior=window.privateRenewalNonceCollision==='existing'?window.__privateRenewalPriorNonces[0]:window.__privateRenewalFirstNonce;if(prior){value.set(Uint8Array.from(prior.match(/../g).map(v=>parseInt(v,16))));return value}}const result=nativeProbeRandom(value);if(value.byteLength===12&&!window.__privateRenewalFirstNonce)window.__privateRenewalFirstNonce=Array.from(value,v=>v.toString(16).padStart(2,'0')).join('');return result}const error=Error('entropy forbidden');privateEntropyCalls.push(error.stack);throw error};
 crypto.subtle.generateKey=()=>{effects.key++;throw Error('key allocation forbidden')};
 window.__dueTransactionModes=[];window.__dueObserveTransactions=false;
 const dueNativeTransaction=IDBDatabase.prototype.transaction;
@@ -445,6 +445,11 @@ test.beforeAll(async () => {
         reader=reader.replace(publication,`;(globalThis as any).liveReadBeforeToken?.(); `+publication)
         source=source.slice(0,readStart)+reader+source.slice(readEnd)
         source = `import * as ControllerGraphForTest from './ordinary-protocol-work.js'\nimport * as ControllerRenewalForTest from './ordinary-private-renewal.js'\n` + source
+        const prepareSuspend='await suspendOrdinaryProtocolLifecycle(control, operation)'
+        if(source.split(prepareSuspend).length!==2)throw Error('Prepare read entropy stage observer drift')
+        source=source.replace(prepareSuspend,`;if((globalThis as any).__prepareReadEntropyProbe)(globalThis as any).__prepareReadEntropyProbe.stage='before-suspend';
+          ${prepareSuspend};if((globalThis as any).__prepareReadEntropyProbe)(globalThis as any).__prepareReadEntropyProbe.stage='quiescent'`)
+
         const moduleEntry='async function privateRenewalIntentModules() {'
         if(source.split(moduleEntry).length!==2)throw Error('Prepare deferred module observer drift')
         source=source.replace(moduleEntry,moduleEntry+`; (globalThis as any).__prepareFullIntentModuleCalls=((globalThis as any).__prepareFullIntentModuleCalls??0)+1;`)
@@ -1050,7 +1055,7 @@ test.beforeAll(async () => {
 test.afterAll(() => !server ? undefined : new Promise<void>((yes, no) => server.close(error => error ? no(error) : yes())))
 test.beforeEach(async ({ page }) => {
   page.on('pageerror', error => console.error('Private root fixture page error:', error.message))
-  page.on('console', message => { if (message.type() === 'error') console.error('Private root fixture console:', message.text()) })
+  page.on('console', message => { if (message.type() === 'error') console.error('Private root fixture console:', message.text()); else if (message.type() === 'log' && message.text().startsWith('PREPARE_READ_EFFECTS_DIAGNOSTIC ')) console.log(message.text()) })
 })
 
 async function seed(page: Page, keep = true, visitor = false, signedDestinations = false): Promise<string> {
@@ -5470,8 +5475,13 @@ async function renewalPrepareViewReady(page:Page,keep=true,due=true):Promise<voi
   await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='renewal-due'")
 }
 async function renewalPrepareEffects(page:Page):Promise<unknown>{
-  return page.evaluate(()=>{const w=window as any;return{...w.effects,calls:w.providerFixture.calls,signs:w.providerFixture.signs,
-    crypts:w.providerFixture.crypts??0,nonces:w.probeNonces}})
+  return page.evaluate(()=>{const w=window as any,counters={...w.effects,calls:w.providerFixture.calls,signs:w.providerFixture.signs,
+    crypts:w.providerFixture.crypts??0,nonces:w.probeNonces}
+    const p=w.__prepareReadEntropyProbe??={calls:[],stage:'before-click',framesBefore:w.privateJoinFrames?.length??0,reports:0}
+    const frames=(w.privateJoinFrames??[]).slice(p.framesBefore,p.framesBefore+32).map((v:any)=>({type:v.frame[0],kind:v.frame[0]==='EVENT'?v.frame[1]?.kind:null,native:v.native}))
+    if(p.reports++<4)console.log('PREPARE_READ_EFFECTS_DIAGNOSTIC '+JSON.stringify({counters,stage:p.stage,calls:p.calls,framesAfterBaseline:frames,
+      memberEntropyByteLengths:(w.privateMemberEntropy??[]).slice(-32),causeEstablished:false,originalAssertionRetained:true}))
+    return counters})
 }
 for(const keep of [false,true])for(const mode of ['pointer','Enter','Space']as const)
 test(`trusted renewal Prepare reads fresh membership without durable or provider effects, keep=${keep}, ${mode}`,async({page})=>{

@@ -1,7 +1,7 @@
 import {defineConfig,devices} from '@playwright/test'
 import {readFileSync} from 'node:fs'
 const titles:unknown=JSON.parse(readFileSync(new URL('./test/private-renewal-prepare-read-titles.json',import.meta.url),'utf8'))
-if(!Array.isArray(titles)||titles.length!==17||titles.some(v=>typeof v!=='string')||new Set(titles).size!==17)throw Error('Prepare-read development title inventory drift')
+if(!Array.isArray(titles)||titles.length!==1||titles.some(v=>typeof v!=='string')||new Set(titles).size!==1)throw Error('Prepare-read development title inventory drift')
 const escape=(value:string)=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
 export default defineConfig({
   testDir:'test',testMatch:'ordinary-private-existing-root.spec.ts',
