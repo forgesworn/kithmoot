@@ -187,7 +187,7 @@ def main():
         return json.loads(result.stdout)
 
     def fetch(url, method="GET"):
-        request = urllib.request.Request(url, method=method, headers={"User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache"})
+        request = urllib.request.Request(url, method=method, headers={"User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache", "Accept-Encoding": "identity"})
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read(), response.headers
 
@@ -222,11 +222,15 @@ def main():
                 if error.code != 405: raise
             else: raise RuntimeError("Hosted preview must reject uploads")
             if args.site:
+                homepage_headers = None
                 for name in SITE_FILES:
                     content, site_headers = fetch("https://kithmoot.app/" + ("" if name == "index.html" else name) + nonce)
                     if digest(content) != params["uploaded"]["site/" + name]: raise RuntimeError("Public homepage checksum mismatch: " + name)
-                if "form-action https://kithmoot.forgesworn.dev/j/" not in site_headers.get("Content-Security-Policy", ""):
+                    if name == "index.html": homepage_headers = site_headers
+                if "form-action https://kithmoot.forgesworn.dev/j/" not in homepage_headers.get("Content-Security-Policy", ""):
                     raise RuntimeError("Homepage policy must allow its native join form")
+                if not all(value in homepage_headers.get("Permissions-Policy", "") for value in ("camera=()", "microphone=()")):
+                    raise RuntimeError("The marketing page must leave device access to the app and lab")
             state = remote("verify")
         except BaseException:
             # Activation rolls back its own failures. Guard every later rollback
