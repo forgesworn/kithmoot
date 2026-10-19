@@ -49,7 +49,16 @@ before(async () => {
   server = await createLabServer(options)
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   origin = 'http://127.0.0.1:' + server.address().port
-  browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'] })
+  // An original, continuous PCM tone makes the microphone input measurable
+  // across platforms. Chromium's default synthetic sensor may supply silence.
+  const rate = 48_000, samples = rate * 2, tone = Buffer.alloc(44 + samples * 2)
+  tone.write('RIFF'); tone.writeUInt32LE(tone.length - 8, 4); tone.write('WAVEfmt ', 8)
+  tone.writeUInt32LE(16, 16); tone.writeUInt16LE(1, 20); tone.writeUInt16LE(1, 22)
+  tone.writeUInt32LE(rate, 24); tone.writeUInt32LE(rate * 2, 28); tone.writeUInt16LE(2, 32); tone.writeUInt16LE(16, 34)
+  tone.write('data', 36); tone.writeUInt32LE(samples * 2, 40)
+  for (let i = 0; i < samples; i++) tone.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 8192), 44 + i * 2)
+  const microphoneFile = join(temporary, 'microphone.wav'); await writeFile(microphoneFile, tone)
+  browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output', '--use-file-for-fake-audio-capture=' + microphoneFile] })
   const directory = join(temporary, 'hosted')
   hostedManifest = await buildLab(directory, options)
   hostedServer = createServer(async (request, response) => {
@@ -130,7 +139,9 @@ test('microphone is opt-in, measures local audio and stops on input replacement 
       const get = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
       navigator.mediaDevices.getUserMedia = async constraints => {
         window.mediaRequests.push(structuredClone(constraints))
-        const stream = await get(constraints); window.mediaStreams.push(stream)
+        // Keep the fixture's known waveform unprocessed for the level check.
+        const stream = await get({ ...constraints, audio: constraints.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false })
+        window.mediaStreams.push(stream)
         if (window.delayMedia) return new Promise(resolve => { window.releaseMedia = () => resolve(stream) })
         return stream
       }
