@@ -1,55 +1,86 @@
 :root {
   /* Every colour in the sheet is named here and nowhere else.
 
-     It used to be about thirty raw hex values scattered through the rules,
-     which is fine while there is one theme and impossible the moment there
-     are two. The marketing page follows the reader's light or dark
-     preference and the app did not, so opening a room turned the screen
-     from white to near black and read as a different site. */
+     One token set for the web, the desktop window and Android, taken from
+     the logo's turquoise and deep blue on cool neutrals (design-calm-shell,
+     section 4.2). Body text is 7:1 or better on every surface it sits on in
+     both themes, muted text 6.4:1 at worst, and each focus ring and control
+     boundary at least 3:1 on its ground.
+
+     A few names from before the calm shell stay, as aliases at the end of
+     each theme block, so the rules that still use them resolve to the new
+     values and can be retired one at a time. */
   color-scheme: dark light;
 
-  --bg: #101114;
-  --panel: #1a1b1f;
-  --border: #2c2e33;
-  --text: #eae6dc;
-  --muted: #aca79c;
-  --accent: #4ecbff;
-  --accent-dim: #244a5c;
-  --danger: #f88;
-  --ok: #6dd18a;
+  /* Grounds. The canvas, the chrome around it, menus and fields, and the
+     fill of a hovered, pressed or chosen row. */
+  --bg: #0f1215;
+  --surface: #15191d;
+  --raised: #1d2226;
+  --bubble: #1d2226;
+  --selected: #262c32;
 
-  /* Text that sits ON a filled accent or danger patch. It flips with the
-     theme, because the fill does: a bright accent wants dark ink and a deep
-     one wants white. */
-  --on-accent: #001022;
-  --on-danger: #2a0a0a;
+  /* Lines. A hairline only separates; it is never the one thing marking
+     the edge of a control. A control's own boundary is --control-line. */
+  --line: #2a3036;
+  --control-line: #707b86;
 
-  /* Controls */
-  --control: #2a2a2a;
-  --control-hover: #333;
-  --control-border: #444;
-  --field: #16171a;
-  --field-border: #5a5e66;
-  --focus-glow: rgb(78 203 255 / 25%);
-
-  /* Panels and boxes */
-  --box-border: #333;
-  --pair-bg: #14181c;
-  --chip: #222;
-  --drop-shadow: rgb(0 0 0 / 50%);
+  /* Ink */
+  --text: #ecf0f3;
+  --muted: #afbac4;
+  --accent: #2cc5cc;
+  --on-accent: #032326;
+  --link: #62d7dc;
+  --focus: #62d7dc;
+  --mine: #0c5961;
+  --on-mine: #ecf0f3;
 
   /* Meanings */
-  --danger-border: #a33;
-  --live: #4a4;
-  --agent: #7a6fd0;
-  --agent-bubble: #221f33;
+  --danger: #ff8a80;
+  --danger-fill: #b3261e;
+  --on-danger-fill: #ffffff;
+  --ok: #6dd18a;
+  --warn: #f3cd8e;
+  --agent: #b9afff;
+
+  /* A picture is letterboxed against black in either theme: that is what a
+     video is shown against, not a property of the page around it. */
+  --video-bg: #000;
+
+  /* One shadow, for what floats: menus, popovers, sheets. */
+  --shadow: 0 8px 24px rgb(0 0 0 / 45%), 0 1px 2px rgb(0 0 0 / 40%);
+
+  /* Type: five sizes. Times, previews and captions; body and menus (a
+     touch larger where a finger is the pointer); titles; destination
+     headings; the largest, for a name on a door. Weights are 400 and 600. */
+  --fs-1: 0.8125rem;
+  --fs-2: 0.9375rem;
+  --fs-3: 1.0625rem;
+  --fs-4: 1.25rem;
+  --fs-5: 1.5rem;
+
+  /* Space on a 4 and 8 scale; radius in three steps; control height and
+     row height, taller where a finger is the pointer. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --r-s: 6px;
+  --r-m: 12px;
+  --r-full: 999px;
+  --ctl: 36px;
+  --row: 36px;
+
+  /* Text that sits ON a filled danger patch. It flips with the theme,
+     because the fill does: a bright pink wants dark ink, a deep red white. */
+  --on-danger: #2a0a0a;
+
+  /* The agent label on a roster tile or a call chip is a fill with white
+     ink; in the conversation it is an outlined pill in --agent. */
   --on-agent: #fff;
-  /* The agent tag's fill: --agent itself is 4.2:1 under white text. */
   --agent-fill: #6a5fc4;
-  --on-live: #08210a;
-  --bubble: #23252b;
-  --bubble-mine-border: #3d7f9e;
-  --system-ink: #b9b3a6;
 
   /* The self-destruct countdown: a fill and its ink per stage, then the
      final minute's banner. Each ink is at least 4.5:1 on its fill in both
@@ -65,9 +96,26 @@
   --fuse-banner: #7a1712;
   --on-fuse-banner: #ffffff;
 
-  /* A picture is letterboxed against black in either theme: that is what a
-     video is shown against, not a property of the page around it. */
-  --video-bg: #000;
+  /* Names from before the calm shell. */
+  --panel: var(--surface);
+  --border: var(--line);
+  --box-border: var(--line);
+  --control: var(--selected);
+  --control-hover: var(--line);
+  --control-border: var(--line);
+  --field: var(--raised);
+  --field-border: var(--control-line);
+  --accent-dim: var(--selected);
+  --focus-glow: transparent;
+  --pair-bg: var(--surface);
+  --chip: var(--selected);
+  --drop-shadow: rgb(0 0 0 / 50%);
+  --danger-border: #a33;
+  --live: var(--ok);
+  --on-live: #08210a;
+  --agent-bubble: var(--surface);
+  --bubble-mine-border: var(--mine);
+  --system-ink: var(--muted);
 }
 
 /* The same app, in the light the reader asked for.
@@ -76,44 +124,41 @@
    theme is the special case - which is the only way a second theme stays
    true a month later. The accent goes DARK here rather than staying bright:
    a colour that carries text on a dark ground has to carry it on a pale one
-   too, and #4ecbff on white is unreadable. */
+   too, and a bright turquoise on white is unreadable. */
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #faf8f3;
-    --panel: #fffefb;
-    --border: #d8d2c6;
-    --text: #1b1915;
-    --muted: #5c574e;
-    --accent: #0a6488;
-    --accent-dim: #d7ecf6;
-    --danger: #9c2420;
-    --ok: #1c6f38;
+    --bg: #ffffff;
+    --surface: #f3f6f8;
+    --raised: #ffffff;
+    --bubble: #eef2f5;
+    --selected: #e2e9ef;
 
+    --line: #dce3e9;
+    --control-line: #75828f;
+
+    --text: #102a43;
+    --muted: #3f5468;
+    --accent: #073b7a;
     --on-accent: #ffffff;
+    --link: #0a4c96;
+    --focus: #0a4c96;
+    --mine: #073b7a;
+    --on-mine: #ffffff;
+
+    --danger: #a3130e;
+    --danger-fill: #a3130e;
+    --ok: #1c6f38;
+    --warn: #6b4310;
+    --agent: #4b3fb0;
+
+    --shadow: 0 8px 24px rgb(16 42 67 / 16%), 0 1px 2px rgb(16 42 67 / 12%);
+
     --on-danger: #ffffff;
-
-    --control: #efece4;
-    --control-hover: #e4e0d5;
-    --control-border: #c6c0b3;
-    --field: #ffffff;
-    --field-border: #9a948a;
-    --focus-glow: rgb(10 100 136 / 25%);
-
-    --box-border: #ded8cc;
-    --pair-bg: #eef6fa;
-    --chip: #eae6dc;
-    --drop-shadow: rgb(40 34 24 / 22%);
-
-    --danger-border: #b8524e;
-    --live: #2f7d2f;
-    --agent: #5b4fbe;
-    --agent-bubble: #f0eefb;
-    --on-agent: #ffffff;
     --agent-fill: #5b4fbe;
+
+    --drop-shadow: rgb(40 34 24 / 22%);
+    --danger-border: #b8524e;
     --on-live: #ffffff;
-    --bubble: #ffffff;
-    --bubble-mine-border: #7fb6cf;
-    --system-ink: #6a655b;
 
     /* Amber on a pale ground needs a dark ink, not an amber one. */
     --fuse-green: #dff2e5;
@@ -129,40 +174,78 @@
   }
 }
 
+/* Touch gets taller controls and rows. `any-pointer`, because a touchscreen
+   laptop reports a fine primary pointer and still has fingers. */
+@media (any-pointer: coarse) {
+  :root {
+    --ctl: 44px;
+    --row: 48px;
+    --fs-2: 1rem;
+  }
+}
+
 /* Turned up when the OS asks for more contrast (`prefers-contrast: more`):
-   every border reads as a line rather than a suggestion, muted text moves
+   every line reads as a line rather than a suggestion, muted text moves
    closer to the page's own foreground, and the focus ring below thickens.
    Modest on purpose - this sits on top of the light/dark values above, the
    same way light already sits on top of dark, rather than a third theme. */
 @media (prefers-contrast: more) {
   :root {
+    --muted: #d4dce3;
+    --line: #707b86;
+    --control-line: #9aa5b0;
     --on-fuse-green: #b5f0c9;
     --on-fuse-amber: #ffe2a6;
     --on-fuse-red: #ffd0cc;
     --on-fuse-neutral: #e6e2d8;
-    --border: #565b63;
-    --control-border: #7a7f87;
-    --field-border: #9aa0a8;
-    --box-border: #6a6f77;
-    --muted: #cfcabe;
   }
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: light) {
   :root {
+    --muted: #24384c;
+    --control-line: #4e5b68;
+    --line: #75828f;
     --on-fuse-green: #0b3d1c;
     --on-fuse-amber: #3f2800;
     --on-fuse-red: #640f0c;
     --on-fuse-neutral: #2e2b26;
-    --border: #8f8a7c;
-    --control-border: #6d675b;
-    --field-border: #55504a;
-    --box-border: #736d61;
-    --muted: #423e37;
+  }
+}
+
+/* Forced colours (Windows contrast themes) take the system's own palette
+   for everything. What the tokens drew with fills alone is given a real
+   border here, because a background is thrown away and a box-shadow is not
+   a boundary; each component adds its own line to this block as it gains
+   one. */
+@media (forced-colors: active) {
+  :root {
+    --line: CanvasText;
+    --control-line: CanvasText;
+    --focus: Highlight;
+    --link: LinkText;
+    --agent: CanvasText;
   }
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* An icon from the sprite in app/src/icons.ts. It takes the ink of the
+   button around it, so one rule serves every theme and forced colours. */
+svg.i {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#iconSprite {
+  display: none;
 }
 
 /* A class that sets `display` beats the user agent's own `[hidden]` rule,
