@@ -6,15 +6,9 @@ import { parseRoomLink } from '../src/link.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openNewRoomForm } from './browser.js'
 
-/** People, from the rail. While the shell is being built the rail is not
- *  drawn on every screen yet; then People is opened as the rail would. */
+/** People, from the rail. */
 async function openPeople(page: Page): Promise<void> {
-  const rail = page.locator('#railPeople')
-  if (await rail.isVisible()) await rail.click()
-  else await page.evaluate(() => import('/src/shell.ts').then(shell => shell.openDestination('people')).catch(() => {
-    for (const id of ['peopleList', 'peoplePane']) document.getElementById(id)!.hidden = false
-    document.dispatchEvent(new CustomEvent('shell:destination', { detail: { destination: 'people' } }))
-  }))
+  await page.locator('#railPeople').click()
   await expect(page.locator('#peopleList')).toBeVisible()
 }
 
