@@ -3160,6 +3160,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .keyboardHelpBody { overflow-y: auto; min-height: 0; }
 .keyboardHelp dt { font-weight: 600; margin-top: 1rem; overflow-wrap: anywhere; }
 .keyboardHelp dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+/* The log is one tab stop: it shows when it has the keyboard. */
+#chatLog:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 #chatLog > .msg:focus-visible, #chatLog .thread > .msg:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--r-m); }
 
 .sheetBar button {
@@ -3715,6 +3717,9 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   button.primary,
   #chatForm button[type=submit],
   button[aria-pressed='true'],
+  [role=tab][aria-selected='true'],
+  .chatArtPicker [aria-selected='true'],
+  .chatArtPicker [aria-pressed='true'],
   .barBtn[data-on='true'],
   .barBtn[data-count]::before,
   #attachCount:not(:empty) {
