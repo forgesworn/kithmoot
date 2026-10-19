@@ -211,14 +211,14 @@
   color: var(--muted);
 }
 
-/* Back only where the contact covers the list: below 600px wide. */
+/* Back only where the contact covers the list: the shell's one-pane widths. */
 .peoplePane .peopleBack {
   position: absolute;
   top: var(--s2);
   left: var(--s2);
   display: none;
 }
-@media (max-width: 599px) {
+@media (max-width: 899px) {
   .peoplePane .peopleBack { display: inline-flex; }
 }
 

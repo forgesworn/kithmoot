@@ -6,15 +6,16 @@ import { parseRoomLink } from '../src/link.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openNewRoomForm } from './browser.js'
 
-/** People, from the rail once the app shell has one; until then its two
- *  panes are shown in place and told People is open, as the shell will. */
+/** People, from the rail. While the shell is being built the rail is not
+ *  drawn on every screen yet; then People is opened as the rail would. */
 async function openPeople(page: Page): Promise<void> {
   const rail = page.locator('#railPeople')
-  if (await rail.count() && await rail.isVisible()) { await rail.click(); return }
-  await page.evaluate(() => {
+  if (await rail.isVisible()) await rail.click()
+  else await page.evaluate(() => import('/src/shell.ts').then(shell => shell.openDestination('people')).catch(() => {
     for (const id of ['peopleList', 'peoplePane']) document.getElementById(id)!.hidden = false
     document.dispatchEvent(new CustomEvent('shell:destination', { detail: { destination: 'people' } }))
-  })
+  }))
+  await expect(page.locator('#peopleList')).toBeVisible()
 }
 
 /** An account's public relay list for private invitations, a follow list

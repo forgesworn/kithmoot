@@ -15142,13 +15142,6 @@ $('contactInboxRetry').addEventListener('click', () => {
 // #peoplePane. Where each person comes from, who may be messaged and what the
 // buttons do are decided here, over the same paths the Contacts dialog uses.
 
-/** The shell's panes (app/src/shell.ts). No-ops until the shell lands. */
-const peopleShell = {
-  openDestination(_destination: 'chats' | 'people'): void {},
-  openDetail(): void {},
-  closeDetail(): void {},
-}
-
 function peopleModel(): PeopleModel {
   const self = nostrSession?.pubkey
   const view = grantedContactView
@@ -15208,7 +15201,7 @@ function inPrivateChatWith(peer: string): boolean {
 async function messagePerson(person: Person): Promise<string | undefined> {
   contactInboxMessage = ''
   await messageContact(person.pubkey, person.name)
-  if (inPrivateChatWith(person.pubkey)) { peopleShell.openDestination('chats'); return undefined }
+  if (inPrivateChatWith(person.pubkey)) { openDestination('chats'); return undefined }
   return contactInboxMessage || 'The private chat did not open. Try again.'
 }
 
@@ -15332,14 +15325,14 @@ function linkSignetContacts(opener: HTMLElement): void {
     invite: invitePerson,
     privateChat: peer => {
       const room = privateChatWith(peer)
-      return room ? { label: knownRoomLabel(room), open: () => { peopleShell.openDestination('chats'); void switchRoom(room) } } : undefined
+      return room ? { label: knownRoomLabel(room), open: () => { openDestination('chats'); void switchRoom(room) } } : undefined
     },
     want: pubkeys => profiles.want(pubkeys),
     pasteCard: pasteContactCard,
     linkSignet: linkSignetContacts,
     showMyCard: showMyCardSheet,
-    openDetail: () => peopleShell.openDetail(),
-    closeDetail: () => peopleShell.closeDetail(),
+    openDetail: openDetail,
+    closeDetail: closeDetail,
   })
   document.addEventListener('shell:destination', event => {
     if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'people') return
