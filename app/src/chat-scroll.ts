@@ -37,13 +37,17 @@ export class ChatScroll {
     })
     // An explicit reading gesture takes precedence over history arriving late.
     const readingGesture = () => { this.#pending = undefined; this.#painted = undefined }
-    // Pressing a control inside the log (React, More, a link) is not reading:
-    // it must not drop a reader who is at the bottom out of follow mode, or
-    // the reaction they just added lands under the log's edge (#458). A drag
-    // that starts on one still scrolls, and the scroll handler above notices.
+    // Pressing a control inside the log (React, More, a link) still ends a
+    // pending restore, as any gesture does, but it is not reading: it must
+    // not drop a reader who is at the bottom out of follow mode, or the
+    // reaction they just added lands under the log's edge (#458). A drag that
+    // starts on one still scrolls, and the scroll handler above notices.
     const onControl = (event: Event) => event.target instanceof Element && !!event.target.closest('button, a, summary, input, textarea')
     for (const event of ['wheel', 'touchstart', 'pointerdown']) {
-      log.addEventListener(event, e => { if (event === 'wheel' || !onControl(e)) readingGesture() }, { passive: true })
+      log.addEventListener(event, e => {
+        if (event !== 'wheel' && onControl(e)) this.#pending = undefined
+        else readingGesture()
+      }, { passive: true })
     }
     // A picture or sticker that finishes loading under the newest message
     // makes the log taller after it was painted; a reader at the bottom
