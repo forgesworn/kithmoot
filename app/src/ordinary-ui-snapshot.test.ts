@@ -14,7 +14,7 @@ it.each(UI_MODES)('retains %s writer-cut bytes without clock, catalogue or ident
     expect(validate(f.records,true,{kind:f.kind})).toEqual(result); expect([...f.records]).toEqual(before)
     expect(clock).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled()
     if (mode==='browser-all') expect(result).toEqual({booleans:6,names:1,accountHints:1,methodHints:1,profileCaches:1,profileNames:1,
-      roomNames:1,folds:1,sendDelays:1,nudges:1,headsUps:1,tombstoneLists:1,tombstones:1,skinTones:1,recentLists:1,recents:1,
+      roomNames:1,folds:0,sendDelays:1,nudges:1,headsUps:1,tombstoneLists:1,tombstones:1,skinTones:1,recentLists:1,recents:1,
       wayBacks:0,roomSwitches:0,notices:0})
     if (mode.startsWith('tab-')) expect([result.wayBacks,result.roomSwitches,result.notices]).toEqual([1,1,1])
     if (mode==='profile-opaque') expect(result.profileNames).toBe(3)

@@ -62,7 +62,7 @@ export function installKeyboardNavigation(root: Document): void {
     }
     if ((event.ctrlKey || event.metaKey) && event.key === 'F6') {
       const sections = [
-        [get('workspaceNav'), get('workspaceQuery')],
+        [get('rooms'), get('homeRoomQuery')],
         [get('roomArea').querySelector<HTMLElement>('.roomBar')!, get('roomIdentity')],
         [get('conversationNav'), get('conversationNav').querySelector<HTMLElement>('[aria-pressed=true]')],
         [get('roomArea').querySelector<HTMLElement>('.conversationTools')!,

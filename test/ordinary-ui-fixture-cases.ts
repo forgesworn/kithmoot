@@ -1,5 +1,5 @@
 export const UI_ROOM = 'a'.repeat(64)
-export const UI_MODES = ['browser-all', 'booleans-off', 'profile-opaque', 'profile-cap', 'fold-open', 'fold-all',
+export const UI_MODES = ['browser-all', 'booleans-off', 'profile-opaque', 'profile-cap',
   'delay-zero', 'delay-ten', 'tone-zero', 'tone-five', 'recents-duplicate', 'recents-cap',
   'tombstone-duplicate', 'tombstone-extension', 'tombstone-expired', 'tombstone-cap', 'legacy-desktop-bell',
   'tab-all', 'tab-no-account', 'tab-stale-switch', 'tab-empty-hash', 'tab-empty-notice',

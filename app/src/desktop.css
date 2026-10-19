@@ -6,15 +6,17 @@
    Declared on the root rather than inside a media query: `--work-panel`
    reads the others, and a property that exists at only some widths is a
    property that resolves to nothing at the rest. */
+html[data-desktop][data-list='off'] { --rail-w: var(--shell-rail); }
 html[data-desktop] {
   --chat-min: 360px;          /* CHAT_MIN_WIDTH_PX */
   --chat-min-height: 60svh;   /* CHAT_MIN_HEIGHT_FRACTION */
   --call-min: 240px;          /* CALL_MIN_WIDTH_PX */
   --work-max: 28rem;          /* WORK_MAX_PX */
   --work-min: 20rem;          /* WORK_MIN_PX */
-  /* RAIL_WIDTH_PX, or what the rail's divider was dragged to (RAIL_MAX_FRACTION
-     in desktop-projects-rail.ts is the 40vw) */
-  --rail-w: min(var(--rail-open-w, 13rem), 40vw);
+  /* RAIL_WIDTH_PX: everything to the left of the room, the rail and the list
+     column (--shell-rail and --shell-list, in shell.css). On a first run there
+     is no list, and the room area has that width back. */
+  --rail-w: calc(var(--shell-rail) + var(--shell-list));
   --room-gutter: 3rem;        /* ROOM_GUTTER_PX: the window's own padding, both sides, plus the grid gap */
   /* Shared Work is the panel that gives way. It asks for 28rem and gets
      whatever is left once the conversation and the call pane have their
@@ -22,18 +24,10 @@ html[data-desktop] {
   --work-panel: clamp(var(--work-min), calc(100vw - (var(--rail-w) + var(--chat-min) + var(--call-min) + var(--room-gutter))), var(--work-max));
 }
 
-/* An installed desktop window has a fixed working area. Scroll its panels,
-   not the whole room, so the composer and Leave call remain reachable. */
+/* An installed desktop window has a fixed working area, and so does the shell
+   (shell.css): only its panels scroll, so the composer and Leave call remain
+   reachable. */
 @media (min-width: 701px) and (min-height: 541px) {
-  html[data-desktop] body:has(#roomArea:not([hidden])) {
-    height: 100dvh; min-height: 0; overflow: hidden; max-width: none;
-    padding: 1rem;
-  }
-  /* Home's returning list uses the window's own 1rem edge too, the same
-     one the room's rail sits at - leaving a room must not reshape the
-     window (finding 5). */
-  html[data-desktop] body:has(#home[data-state='returning']:not([hidden])) { padding-left: 1rem; padding-right: 1rem; }
-  html[data-desktop] body:has(#roomArea:not([hidden])) > main { min-height: 0; }
   html[data-desktop] .desktopRoomContent {
     display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; gap: .75rem;
   }
@@ -62,7 +56,6 @@ html[data-desktop] {
    win regardless of which media query actually matched. */
 html[data-desktop] #chatDrawerToggle { display: none; }
 @media (min-width: 1100px) and (min-height: 541px) {
-  html[data-desktop] main:has(#roomArea:not([hidden])) { grid-template-columns: var(--rail-w) minmax(0, 1fr); gap: 1rem; }
   html[data-desktop] #callSurface:has(#callBay:not([hidden])) #callStage { max-height: none; }
   html[data-desktop] #room { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 
@@ -202,75 +195,6 @@ html[data-desktop][data-call-pane="controls"] #deviceControls > .callExtras[open
    compact phone build still shows it - see the `data-mobile-view="call"`
    rule in style.css - because there the header's own call button is
    hidden, and the strip is the call view's only way to start or join. */
-
-/* The rooms rail, and the control that puts it away.
-   Collapsed, the grid column comes down to the control's own width and the
-   room takes the rest; `--rail-w` comes down with it, so the width the rail
-   gave up is width Shared Work and the conversation can actually have
-   rather than width nobody is using. */
-html[data-desktop] .railBar { display: flex; align-items: center; justify-content: space-between; gap: .35rem; margin: 0 0 .5rem; }
-html[data-desktop] #projectsRailToggle { margin: 0; padding: .3rem .55rem; line-height: 1; font-size: var(--fs-3); }
-html[data-desktop] .railUnread, html[data-desktop] .railUnreadAgent {
-  min-width: 1.35rem;
-  padding: .1rem .3rem;
-  border-radius: var(--r-m);
-  background: var(--accent-dim);
-  color: var(--accent);
-  font-size: var(--fs-1);
-  font-weight: 600;
-  text-align: center;
-}
-/* An agent's tag, in the same colour the agent tag elsewhere in the app
-   uses, so it never reads as a person's message. A class of its own: both
-   badges live in the DOM at once, only shown or hidden. */
-html[data-desktop] .railUnreadAgent {
-  background: var(--agent-bubble);
-  color: var(--agent);
-}
-@media (min-width: 1100px) and (min-height: 541px) {
-  /* A long list of rooms scrolls inside the rail. Sized by its contents,
-     the rail made the grid row taller than the window, the room beside it
-     stretched to match, and the composer and the rail's own last button
-     went off the bottom. `contain: size` keeps the rail out of the row's
-     sizing, so the room alone decides it and the rail stretches to fit;
-     the body scrolls rather than the rail, whose drag line sits outside
-     its edge and would be clipped by an overflow there. */
-  html[data-desktop] main:has(#roomArea:not([hidden])) > #workspaceNav:not([hidden]) { contain: size; min-height: 0; }
-  html[data-desktop] main:has(#roomArea:not([hidden])) #workspaceRailBody { flex: 1 1 0; min-height: 0; overflow-y: auto; }
-  html[data-desktop][data-rail="collapsed"] { --rail-w: 3.5rem; }
-  html[data-desktop][data-rail="collapsed"] main:has(#roomArea:not([hidden])) { grid-template-columns: 3.5rem minmax(0, 1fr); }
-  html[data-desktop][data-rail="collapsed"] #workspaceRailBody { display: none; }
-  html[data-desktop][data-rail="collapsed"] #workspaceNav:not([hidden]) { padding-right: .35rem; }
-  html[data-desktop][data-rail="collapsed"] .railBar { flex-direction: column; gap: .5rem; }
-}
-
-/* The drag line on the rail's edge, drawn and behaving like the one between
-   the call and the conversation (#callChatDivider in call-focus.css). It
-   sits over the rail's own border, half in the gap beside it, and is only
-   there while the rail is a column that can be resized. */
-html[data-desktop] #railDivider { display: none; }
-@media (min-width: 1100px) and (min-height: 541px) {
-  html[data-desktop] main:has(#roomArea:not([hidden])) > #workspaceNav:not([hidden]) { position: relative; }
-  html[data-desktop][data-rail="open"] main:has(#roomArea:not([hidden])) #railDivider {
-    position: absolute; z-index: 5; top: 0; bottom: 0; right: calc(-.5rem - .5px); width: 1rem;
-    display: flex; justify-content: center; cursor: col-resize; touch-action: none; border-radius: var(--r-s);
-  }
-  html[data-desktop] #railDivider::before { content: ''; width: 1px; background: transparent; }
-  html[data-desktop] #railDivider:hover::before,
-  html[data-desktop] #railDivider:focus-visible::before,
-  html[data-desktop] #railDivider[data-dragging]::before { width: 3px; border-radius: var(--r-s); background: var(--accent); }
-  html[data-desktop] #railDivider:hover,
-  html[data-desktop] #railDivider[data-dragging] { background: var(--accent-dim); }
-  html[data-desktop] #railDivider:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-}
-html[data-rail-dragging] { cursor: col-resize; user-select: none; }
-html[data-rail-dragging] * { user-select: none; }
-@media (forced-colors: active) {
-  html[data-desktop] #railDivider:hover::before,
-  html[data-desktop] #railDivider:focus-visible::before,
-  html[data-desktop] #railDivider[data-dragging]::before { background: Highlight; }
-  html[data-desktop] #railDivider:focus-visible { outline-color: Highlight; }
-}
 
 /* Shared Work narrows before the conversation does. The web client keeps
    its fixed 28rem panel; this window is the one where all three are open at

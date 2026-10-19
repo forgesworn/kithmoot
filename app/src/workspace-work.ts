@@ -33,11 +33,19 @@ export interface WorkspaceObservation {
   valid(): boolean
 }
 
-/** A view of canonical room data, never a task store or a signing surface. */
+/** A view of canonical room data, never a task store or a signing surface.
+ *
+ *  The Boards destination: it sits in the main pane, opened without
+ *  `showModal()` and closed when the person goes elsewhere. "Needs you"
+ *  (`inbox`) is what waits on this account; "All" (`work`) is every task
+ *  board. It opens on Needs you when there is anything there, and on All
+ *  when there is not, until the person picks a tab themselves. */
 export class WorkspaceWorkPanel {
   readonly dialog: HTMLDialogElement
   #account?: string
   #mode: 'inbox' | 'work' = 'inbox'
+  /** The person chose a tab, so the panel stops choosing for them. */
+  #picked = false
   #observations = new Map<string, WorkspaceObservation>()
   #unavailable = new Map<string, string>()
   #forgotten = new Set<string>()
@@ -57,51 +65,46 @@ export class WorkspaceWorkPanel {
     projectLabel(room: KnownRoom): string | undefined
     person(pubkey: string): string
     agent(room: KnownRoom, pubkey: string): boolean
-    showMobileNavigation(): boolean
-    openProjects(from: HTMLElement): void
     currentRoomTasks?: {available(): boolean; open(): Promise<void>}
     observe(room: KnownRoom, changed: () => void): WorkspaceObservation | string
     openOrigin(room: KnownRoom, target: { assignment: string } | { message: MessageRef }): Promise<void>
     signIn(): void
   }) {
     this.dialog = this.el('workspaceWorkPanel') as HTMLDialogElement
-    for (const scope of ['home', 'workspace', 'switcher', 'mobileWorkspace']) for (const mode of ['Inbox', 'Work'] as const) {
-      const button = this.el(scope + mode)
-      button.onclick = () => {
-        ;(this.root.getElementById('roomSwitcher') as HTMLDialogElement).close()
-        this.open(mode === 'Inbox' ? 'inbox' : 'work', button)
-      }
-    }
     if (options.currentRoomTasks) {
       const tasks = this.button('Current room tasks', () => {
-        this.dialog.close()
         void options.currentRoomTasks!.open().catch(error => {this.open('work', tasks); this.#error = error instanceof Error ? error.message : 'Room tasks could not open'; this.render()})
       })
       this.#currentRoomTasks = tasks; this.el('workspaceWorkClose').before(tasks)
     }
     this.el('workspaceWorkClose').onclick = () => this.dialog.close()
-    this.el('mobileWorkspaceProjects').onclick = () => this.options.openProjects(this.el('mobileWorkspaceProjects'))
     this.el('workspaceWorkSignIn').onclick = () => { this.dialog.close(); this.options.signIn() }
-    this.el('workspaceInboxTab').onclick = () => { this.#mode = 'inbox'; this.render() }
-    this.el('workspaceWorkTab').onclick = () => { this.#mode = 'work'; this.render() }
+    this.el('workspaceInboxTab').onclick = () => { this.#mode = 'inbox'; this.#picked = true; this.render() }
+    this.el('workspaceWorkTab').onclick = () => { this.#mode = 'work'; this.#picked = true; this.render() }
     this.el('workspaceWorkProject').onchange = () => this.render()
     this.el('workspaceWorkRefresh').onclick = () => { this.stop(); this.sync() }
     this.dialog.addEventListener('close', () => {
       this.stop(); this.el('workspaceWorkCards').replaceChildren(); this.#error = undefined; this.#renderKey = undefined
-      if (this.#return?.isConnected && this.#return.getClientRects().length) this.#return.focus({ preventScroll: true })
     })
   }
   el(id: string): HTMLElement { return this.root.getElementById(id)! }
-  open(mode: 'inbox' | 'work', from: HTMLElement): void {
-    this.#mode = mode; this.#return = from
-    if (!this.dialog.open) this.dialog.showModal()
+  /** The destination was chosen: show the panel in its pane, on whichever
+   *  tab suits what is there. */
+  show(from: HTMLElement): void {
+    if (this.dialog.open) return
+    this.#picked = false; this.#mode = 'inbox'
+    this.open(this.#mode, from, false)
+  }
+  hide(): void { this.dialog.close() }
+  open(mode: 'inbox' | 'work', from: HTMLElement, picked = true): void {
+    this.#mode = mode; this.#return = from; if (picked) this.#picked = true
+    if (!this.dialog.open) this.dialog.show()
     this.sync()
     this.#timer ??= setInterval(() => this.sync(), 5_000)
     this.el('workspaceWorkTitle').focus({ preventScroll: true })
   }
   /** Scope is re-read after account, admission, project or room changes. */
   sync(): void {
-    this.el('mobileWorkspaceDestinations').hidden = !this.options.showMobileNavigation()
     if (!this.dialog.open) return
     const account = this.options.account()
     if (account !== this.#account) this.stop()
@@ -149,7 +152,6 @@ export class WorkspaceWorkPanel {
     this.#opening = true; this.#error = undefined; this.render()
     // Release the modal before origin controls, including admission or call
     // switching confirmations, need to take focus. Opening is deliberate.
-    this.dialog.close()
     try { await this.options.openOrigin(room, target) }
     catch (e) {
       if (account === this.options.account()) {
@@ -164,7 +166,6 @@ export class WorkspaceWorkPanel {
     if (this.#currentRoomTasks) this.#currentRoomTasks.hidden = this.#mode !== 'work' || !this.options.currentRoomTasks?.available()
     const signedIn = !!this.#account
     this.el('workspaceWorkSignIn').hidden = signedIn
-    this.el('workspaceWorkTitle').textContent = this.#mode === 'inbox' ? 'Inbox' : 'Room task boards'
     this.el('workspaceInboxTab').setAttribute('aria-pressed', String(this.#mode === 'inbox'))
     this.el('workspaceWorkTab').setAttribute('aria-pressed', String(this.#mode === 'work'))
     const select = this.el('workspaceWorkProject') as HTMLSelectElement, selected = select.value || '*'
@@ -227,6 +228,12 @@ export class WorkspaceWorkPanel {
     }
     this.el('workspaceWorkStatus').textContent = this.#error ?? (!signedIn ? 'Sign in with Nostr to see your projects and work across conversations.'
       : `${count} ${this.#mode === 'inbox' ? (count === 1 ? 'item needs attention' : 'items need attention') : (count === 1 ? 'active task' : 'active tasks')}.${loading ? ` ${loading} ${loading === 1 ? 'room is loading or has' : 'rooms are loading or have'} missing task history.` : ''}${unavailable ? ` ${unavailable} ${unavailable === 1 ? 'room needs' : 'rooms need'} opening.` : ''}`)
+    // Nothing waits on this account: show the boards instead, until the
+    // person picks a tab themselves.
+    if (signedIn && this.#mode === 'inbox' && !this.#picked && count === 0 && loading === 0) {
+      this.#mode = 'work'; this.#renderKey = undefined
+      this.render(); return
+    }
     this.el('workspaceWorkCoverage').hidden = !signedIn
     if (signedIn && !count) cards.prepend(this.text('p', 'No matching items in the recent activity loaded here. Open a room to check older work.', 'workEmpty'))
     if (unavailableNotes.length) {

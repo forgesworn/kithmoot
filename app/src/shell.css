@@ -1,9 +1,390 @@
 /* The app shell. Stage 2 of the calm shell (design-calm-shell, sections 5, 7
    and 9.4): a rail of destinations, a list column and the main pane, with the
-   page itself fixed so that only the list, the log and the panels scroll. */
+   page itself fixed so that only the list, the log and the panels scroll.
 
-/* The rail and the list column take their place in the layout commit. Until
-   then People can already be built against the panes: they show when the
-   destination is People and are left to flow as they are. */
-#rail { display: none; }
-#listColumn { display: contents; }
+   Three widths, by what is available (not by device):
+     compact   under 600   one pane; the rail is the bottom bar
+     medium    600 to 899  the rail and one pane, the list or the room
+     expanded  900 up      the rail, the list (300) and the room
+
+   `app/src/shell.ts` sets two attributes on the root element that this
+   sheet reads: data-destination (chats, people, boards) and data-level
+   (list or detail, which matters below 900 only), and `app/src/main.ts`
+   sets data-list (on or off: there is nothing to list on a first run). */
+
+:root {
+  --shell-rail: 76px;
+  --shell-list: 300px;
+  --shell-bar: 64px;
+}
+
+/* ---- A fixed page ------------------------------------------------------- */
+
+html {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  box-sizing: border-box;
+  height: 100dvh;
+  max-width: none;
+  margin: 0;
+  /* Clear of a notch and the rounded corners, held back only by what the
+     device reports (nothing, in an ordinary tab). The bottom is each pane's
+     own business, since the bar and the composer sit against it. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  overflow: hidden;
+  overscroll-behavior: none;
+  display: grid;
+  grid-template-columns: var(--shell-rail) auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+#ordinaryStartupNotice { grid-column: 1 / -1; grid-row: 1; }
+noscript { display: none; }
+
+/* A phone's keyboard shrinks the visual viewport and not 100dvh: the room
+   follows the visible part, so the composer is never under the keys. */
+@media (max-width: 599px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  body { height: var(--room-viewport-height, 100dvh); }
+}
+
+/* ---- Skip links --------------------------------------------------------- */
+
+.skipLinks { position: fixed; top: 0; left: 0; z-index: 100; display: flex; gap: var(--s2); padding: var(--s2); pointer-events: none; }
+.skipLink {
+  position: absolute;
+  left: -10000px;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-s);
+  background: var(--raised);
+  color: var(--link);
+  font-weight: 600;
+  text-decoration: underline;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.skipLink:focus { position: static; pointer-events: auto; outline: 2px solid var(--focus); outline-offset: 2px; }
+/* The two that need a room are offered only when there is one. */
+.skipRoom { display: none; }
+body:has(#roomArea:not([hidden])) .skipRoom { display: inline-block; }
+
+/* ---- The rail ----------------------------------------------------------- */
+
+#rail {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 0;
+  padding: var(--s3) 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+.railLogo { width: 44px; height: 44px; min-height: 0; margin: 0 0 var(--s2); padding: 0; display: grid; place-items: center; background: transparent; border-radius: var(--r-m); }
+.railLogo:hover { background: var(--selected); }
+.railLogo img { display: block; width: 32px; height: 32px; border-radius: var(--r-m); }
+
+.railItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 64px;
+  min-height: 52px;
+  margin: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--r-m);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: var(--lh-1);
+}
+.railItem:hover { background: transparent; color: var(--text); }
+.railIcon { position: relative; display: grid; place-items: center; width: 48px; height: 28px; border-radius: var(--r-full); }
+.railIcon svg.i { width: 22px; height: 22px; }
+.railItem:hover .railIcon { background: var(--selected); }
+.railItem[aria-current='page'] { color: var(--text); }
+.railItem[aria-current='page'] .railIcon { background: var(--selected); }
+.railCount {
+  position: absolute;
+  top: -6px;
+  right: -2px;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 .3rem;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 1;
+}
+.railEnd { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: var(--s1); }
+
+/* ---- The list column ---------------------------------------------------- */
+
+#listColumn {
+  grid-column: 2;
+  grid-row: 1;
+  box-sizing: border-box;
+  width: var(--shell-list);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+html[data-list='off'][data-destination='chats'] #listColumn { display: none; }
+
+#rooms { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: var(--s3) var(--s2) 0; }
+.listHead { display: flex; align-items: center; gap: var(--s1); padding: 0 var(--s1) 0 var(--s2); min-height: var(--ctl); }
+#roomsHeading { flex: 1 1 auto; margin: 0; font-size: var(--fs-4); font-weight: 600; line-height: var(--lh-4); color: var(--text); }
+#newMenuButton { margin: 0; }
+
+.listSearch { position: relative; display: flex; align-items: center; margin: var(--s3) var(--s1) var(--s2); }
+.listSearch > svg.i { position: absolute; left: var(--s3); width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
+.listSearch input { height: var(--ctl); padding: 0 3.5rem 0 2.25rem; border: 0; border-radius: var(--r-m); background: var(--raised); box-shadow: inset 0 0 0 1px var(--control-line); }
+.listSearch input::-webkit-search-cancel-button { display: none; }
+.listSearch kbd { position: absolute; right: var(--s3); font: inherit; font-size: var(--fs-1); color: var(--muted); pointer-events: none; }
+.listSearch input:not(:placeholder-shown) ~ kbd { display: none; }
+#clearHomeRoomQuery { position: absolute; right: var(--s1); margin: 0; min-height: 0; height: 28px; padding: 0 var(--s2); background: transparent; color: var(--link); }
+
+/* Chips: All, Unread, Mentions, then one for each project. They scroll
+   inside their own row, never the page. */
+.chatFilters { flex: none; display: flex; gap: var(--s1); padding: 0 var(--s1) var(--s2); overflow-x: auto; scrollbar-width: none; }
+.chatFilters::-webkit-scrollbar { display: none; }
+.chip { flex: none; min-height: 32px; margin: 0; padding: 0 var(--s3); border-radius: var(--r-full); background: var(--raised); color: var(--muted); font-size: var(--fs-1); }
+.chip:hover { background: var(--selected); color: var(--text); }
+.chip[aria-pressed='true'] { background: var(--accent); color: var(--on-accent); }
+
+#rooms .accountReconnect { margin: 0 var(--s1) var(--s2); }
+#rooms .note { margin: var(--s1) var(--s2); font-size: var(--fs-1); color: var(--muted); }
+#homeRoomResults { display: flex; align-items: center; gap: var(--s1); }
+#homeRoomResults button { margin: 0; min-height: 0; padding: 0; background: transparent; color: var(--link); text-decoration: underline; }
+
+#roomList { flex: 1 1 auto; min-height: 0; margin: 0; padding: 0 var(--s1) var(--s3); list-style: none; overflow-y: auto; overscroll-behavior: contain; }
+#roomList .roomSection { margin: var(--s3) 0 var(--s1); padding: 0 var(--s2); }
+#roomList .roomSection:first-child { margin-top: var(--s1); }
+#roomList .roomRow { position: relative; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s2); padding: var(--s1) var(--s2) var(--s1) var(--s2); }
+#roomList .roomRow:hover, #roomList .roomRow:has(.open[aria-current='true']) { background: var(--selected); }
+#roomList .roomRow:has(.open:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+#roomList .open:focus-visible { outline: none; }
+#roomList .roomAside { align-items: flex-end; min-width: 2.5rem; }
+#roomList .mentionMark { display: inline-grid; place-items: center; min-width: 1.4rem; height: 1.4rem; border-radius: var(--r-full); background: var(--accent); color: var(--on-accent); font-size: var(--fs-1); font-weight: 600; }
+#roomList .roomRow.invitationRow { grid-template-columns: minmax(0, 1fr) auto auto; }
+#roomList .invitationRow button { margin: 0; min-height: 32px; padding: 0 var(--s3); font-size: var(--fs-1); }
+
+/* A row's ⋯ takes the place of its time on a fine pointer, when the row is
+   pointed at or focused; on a touch screen it keeps a column of its own,
+   since there is no hover to wait for. */
+@media (any-pointer: fine) {
+  #roomList .rowMenu { position: absolute; right: var(--s1); top: 50%; transform: translateY(-50%); min-width: 32px; min-height: 32px; width: 32px; height: 32px; border-radius: var(--r-full); background: var(--selected); opacity: 0; }
+  #roomList .roomRow:is(:hover, :focus-within) .rowMenu { opacity: 1; }
+  #roomList .roomRow:is(:hover, :focus-within):has(.rowMenu) .roomAside { visibility: hidden; }
+}
+@media (any-pointer: coarse) {
+  #roomList .roomRow { grid-template-columns: minmax(0, 1fr) auto 44px; }
+  #roomList .roomRow.invitationRow { grid-template-columns: minmax(0, 1fr) auto auto; }
+}
+
+.menuPopover, .rowMenuPopover {
+  margin: 0;
+  padding: 6px;
+  min-width: 12rem;
+  max-width: calc(100vw - 16px);
+  border: 0;
+  border-radius: var(--r-m);
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.menuPopover button, .rowMenuPopover button {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 var(--s3);
+  border-radius: var(--r-s);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-weight: 400;
+}
+.menuPopover button:hover, .menuPopover button:focus-visible, .rowMenuPopover button:hover, .rowMenuPopover button:focus-visible { background: var(--selected); }
+.menuPopover button:focus-visible, .rowMenuPopover button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.menuPopover button svg.i { width: 20px; height: 20px; flex: none; color: var(--muted); }
+.menuPopover button.danger, .rowMenuPopover button.danger { color: var(--danger); }
+@media (pointer: fine) { .menuPopover button, .rowMenuPopover button { min-height: var(--row); } }
+
+/* ---- The main pane ------------------------------------------------------ */
+
+main {
+  grid-column: 3;
+  grid-row: 1;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 var(--s4);
+}
+@media (min-width: 900px) { main { padding-inline: var(--s5); } }
+main > p { max-width: none; }
+#workspaceContent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
+#workspaceContent > section, #workspaceContent > div { flex: none; }
+#roomNav { flex: none; display: flex; gap: var(--s2); padding-top: var(--s2); }
+#roomNav button { margin: 0; }
+
+/* A room fills its pane and does not scroll it; its log does. */
+main:has(#roomArea:not([hidden])) #workspaceContent { overflow: hidden; }
+#workspaceContent > #roomArea:not([hidden]) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin: 0; padding-top: var(--s2); padding-bottom: max(var(--s3), env(safe-area-inset-bottom)); }
+
+/* The door, the start page and the people pane read at a measure. */
+#home, #identity { box-sizing: border-box; width: 100%; max-width: 40rem; margin: auto; padding: var(--s5) 0; }
+#identity { margin-block: var(--s5); }
+
+/* What shows in the pane follows the destination. The room and its call
+   stay in the page, hidden, so a call's sound carries on. */
+html[data-destination='people'] #workspaceContent > :not(#peoplePane),
+html[data-destination='boards'] #workspaceContent > :not(#workspaceWorkPanel),
+html[data-destination='people'] #rooms,
+html[data-destination='people'] #roomNav,
+html[data-destination='boards'] #roomNav { display: none; }
+
+/* ---- Start page: first run, and nothing chosen yet ---------------------- */
+
+#home .homeIntro { margin: 0 0 var(--s5); max-width: none; }
+#home .homeLogo { display: block; width: 56px; height: 56px; margin-bottom: var(--s4); border-radius: var(--r-m); }
+#homeHeading { margin: 0 0 var(--s2); font-size: var(--fs-5); line-height: var(--lh-5); }
+#home .homeIntro p { max-width: none; }
+.homeActions { display: flex; flex-direction: column; gap: var(--s2); }
+.homeActions button { width: 100%; min-height: 44px; margin: 0; }
+.homeActions .linkish { width: auto; align-self: center; background: transparent; color: var(--link); }
+.homeActions #homeSignIn { align-self: flex-start; margin-top: var(--s3); min-height: 44px; padding-inline: 0; color: var(--muted); font-weight: 400; }
+.linkish { background: transparent; color: var(--link); }
+.linkish:hover { background: transparent; text-decoration: underline; }
+#home[data-state='returning'] .homeIntro, #home[data-state='returning'] .homeActions { display: none; }
+#home[data-state='cold'] .homeEmpty { display: none; }
+.homeEmpty { display: flex; flex-direction: column; align-items: center; gap: var(--s3); text-align: center; color: var(--muted); }
+.homeEmpty p { margin: 0; }
+.homeEmpty button { display: inline-flex; align-items: center; gap: var(--s2); margin: 0; }
+.homeEmpty svg.i { width: 18px; height: 18px; }
+#newRoomDialog #setup, #openLink form, #joinCode form { margin: 0; }
+#newRoomHeading { margin: 0 0 var(--s4); }
+
+/* ---- Boards, in the pane ------------------------------------------------ */
+
+#workspaceContent > #workspaceWorkPanel[open] {
+  display: block;
+  position: static;
+  inset: auto;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 56rem;
+  height: auto;
+  max-height: none;
+  margin: 0 auto;
+  padding: var(--s4) 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
+  box-shadow: none;
+}
+#workspaceWorkPanel .sheetBar { position: static; padding: 0; background: transparent; }
+#workspaceWorkTitle { margin: 0 0 var(--s3); font-size: var(--fs-4); line-height: var(--lh-4); color: var(--text); }
+#workspaceBoardsOpen { margin-left: var(--s2); }
+
+/* ---- One pane at a time, under 900 -------------------------------------- */
+
+@media (max-width: 899px) {
+  body { grid-template-columns: var(--shell-rail) minmax(0, 1fr); }
+  #listColumn, main { grid-column: 2; width: auto; border-right: 0; }
+  /* The list is the first level; opening something pushes the room over it. */
+  html:not([data-destination='boards'])[data-level='list'] main { display: none; }
+  html[data-level='detail'] #listColumn, html[data-destination='boards'] #listColumn { display: none; }
+  /* Nothing to list yet: the start page is all there is. */
+  html[data-list='off'][data-destination='chats'] main { display: flex; }
+  #listColumn { background: var(--bg); }
+  #rooms { padding-inline: var(--s4); }
+}
+
+/* ---- Compact: the rail is the bottom bar -------------------------------- */
+
+@media (max-width: 599px) {
+  body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  #listColumn, main { grid-column: 1; grid-row: 1; }
+  #rail {
+    grid-column: 1;
+    grid-row: 2;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: stretch;
+    gap: 0;
+    padding: 0 0 env(safe-area-inset-bottom);
+    overflow: visible;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+  /* Inside a room, or any pushed page, the bar is gone. */
+  html[data-level='detail'] #rail { display: none; }
+  .railLogo { display: none; }
+  .railItem { flex: 1 1 0; width: auto; min-height: var(--shell-bar); max-width: 9rem; justify-content: center; padding: var(--s2) 0; }
+  #listColumn { background: var(--bg); border-right: 0; }
+  #rooms { padding-top: max(var(--s3), 0px); }
+}
+
+/* Settings and sign-in sit in the list header when there is no rail. */
+.listHead .railEnd { margin: 0; flex-direction: row; }
+.listHead .railItem { width: var(--ctl); min-height: var(--ctl); height: var(--ctl); padding: 0; justify-content: center; }
+.listHead .railLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.listHead .railIcon { width: var(--ctl); height: var(--ctl); }
+.listHead .railItem:hover .railIcon { background: var(--selected); }
+@media (any-pointer: coarse) {
+  .listHead .railItem, .listHead .railIcon { width: 44px; height: 44px; min-height: 44px; }
+  .railItem { min-height: 52px; }
+  .chip { min-height: 44px; }
+  .listSearch input { height: 44px; }
+}
+
+/* A room on a phone is the whole pane: back sits where the title starts. */
+@media (min-width: 900px) { #backToRooms, #doorToRooms { display: none; } }
+
+/* ---- The update notice floats ------------------------------------------- */
+
+#updateNotice { position: fixed; z-index: 60; inset: auto var(--s4) var(--s4) auto; max-width: min(26rem, calc(100vw - 2 * var(--s4))); margin: 0; background: var(--raised); box-shadow: var(--shadow); }
+
+/* ---- Forced colours: the selected things keep a boundary ---------------- */
+
+@media (forced-colors: active) {
+  #rail { border-right-color: CanvasText; }
+  .railItem[aria-current='page'] { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+  .railItem[aria-current='page'] .railIcon { background: transparent; }
+  .railCount { forced-color-adjust: none; background: Highlight; color: HighlightText; border: 1px solid HighlightText; }
+  #roomList .roomRow:has(.open[aria-current='true']) { outline: 2px solid Highlight; outline-offset: -2px; }
+  .chip { border: 1px solid ButtonText; }
+  .chip[aria-pressed='true'] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; }
+  .listSearch input { border: 1px solid CanvasText; box-shadow: none; }
+  .menuPopover, .rowMenuPopover { border: 1px solid CanvasText; }
+  .menuPopover button:focus-visible, .rowMenuPopover button:focus-visible { outline-color: Highlight; }
+  #roomList .mentionMark { border: 1px solid CanvasText; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip, .railItem, .railIcon { transition: none; }
+}

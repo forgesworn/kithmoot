@@ -156,8 +156,9 @@ const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)
 
 function shortcut(event: KeyboardEvent): void {
   if (event.defaultPrevented || event.altKey || event.shiftKey || event.isComposing) return
-  if (!(isMac ? event.metaKey : event.ctrlKey) || (isMac ? event.ctrlKey : event.metaKey)) return
-  if (document.querySelector('dialog[open]')) return
+  // Command on a Mac, Control elsewhere; the help says "Control / Command", and either works.
+  if (!(event.metaKey || event.ctrlKey)) return
+  if (document.querySelector('dialog:modal')) return
   const key = event.key.toLowerCase()
   if (key === 'k') { event.preventDefault(); focusSearch(); return }
   if (key !== '1' && key !== '2' && key !== '3') return
@@ -185,6 +186,15 @@ function skip(kind: string): void {
   }
 }
 
+/** Under 600 px there is no rail, so Settings and Sign in sit in the list's
+ *  own header beside New, as they do in the Android app. */
+function placeEnd(): void {
+  const end = el('railEnd'), head = document.querySelector<HTMLElement>('#rooms .listHead'), rail = el('rail')
+  if (!end || !head || !rail) return
+  if (COMPACT.matches) { if (end.parentElement !== head) head.insertBefore(end, el('newMenuButton')) }
+  else if (end.parentElement !== rail) rail.append(end)
+}
+
 function init(): void {
   for (const button of document.querySelectorAll<HTMLElement>('#rail [data-destination]')) {
     button.addEventListener('click', () => openDestination(button.dataset.destination as Destination))
@@ -196,6 +206,8 @@ function init(): void {
   const hint = el('searchHint')
   if (hint) hint.textContent = isMac ? '⌘K' : 'Ctrl K'
   ONE_PANE.addEventListener('change', render)
+  COMPACT.addEventListener('change', placeEnd)
+  placeEnd()
   render()
 }
 
