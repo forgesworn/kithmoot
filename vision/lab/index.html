@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>KithMoot Camera Lab</title><link rel="stylesheet" href="lab.css"></head>
+<body>
+<main>
+  <header><p class="eyebrow">KithMoot · local experiments</p><h1>Camera Lab</h1>
+    <p>Test face detection, masking and background cut-outs with our Rust/WASM engine. Predictions can miss faces and objects. This preview is separate from calls.</p>
+    <p class="privacy">Camera frames, loaded models and labels stay in this tab. Nothing is uploaded or saved automatically. Export explicitly to keep your work.</p>
+  </header>
+  <section aria-labelledby="source-title">
+    <h2 id="source-title">1. Choose an input</h2>
+    <div class="controls">
+      <label>Take for <select id="split"><option value="train">Training</option><option value="validation">Validation</option><option value="test">Held-out test</option></select></label>
+      <label>Camera <select id="facing"><option value="user">Front</option><option value="environment">Rear</option></select></label>
+      <button id="camera">Start camera</button><button id="stop" disabled>Stop input</button>
+      <label class="file">Image or video <input id="input-file" type="file" accept="image/*,video/*"></label>
+      <button id="sample">Try drawing sample</button><button id="play" hidden>Play / pause video</button>
+    </div>
+    <p class="hint">Record separate takes for training, validation and testing. Stop the camera or close a clip before changing the split. Clips can be up to 32 MiB. All camera edges are retained; portrait and wide inputs are letterboxed.</p>
+    <div class="controls">
+      <button id="reference" disabled>Capture empty room</button><button id="clear-reference" disabled>Clear room</button>
+      <label><input id="use-reference" type="checkbox" checked> Use room reference</label>
+      <label><input id="temporal" type="checkbox"> Use previous prediction</label>
+    </div>
+    <p id="reference-state" class="hint">No room reference. Step out of view before capturing one.</p>
+  </section>
+  <section aria-labelledby="model-title">
+    <h2 id="model-title">2. Run a model</h2>
+    <p id="model-state" role="status">Loading the procedural smoke model…</p>
+    <div class="controls">
+      <label class="file">Model export (.kvm) <input id="model-file" type="file" accept=".kvm"></label>
+      <label class="file">Export card (.json) <input id="model-card" type="file" accept=".json"></label>
+      <button id="load-model">Load local model</button><button id="default-model">Use drawing model</button>
+      <label>Task <select id="task"><option value="both">Faces and foreground</option><option value="faces">Faces only</option><option value="matte">Foreground only</option></select></label>
+      <label>Preview <select id="effect"><option value="boxes">Face boxes</option><option value="mask">Mask faces</option><option value="replace">Replace background</option><option value="blur">Blur background</option></select></label>
+    </div>
+    <div class="pictures">
+      <figure><figcaption>Input / captured frame</figcaption><canvas id="input" width="320" height="192"></canvas></figure>
+      <figure><figcaption>Matched-frame preview · experimental</figcaption><canvas id="output" width="320" height="192"></canvas></figure>
+      <figure><figcaption>Predicted foreground · white stays</figcaption><canvas id="matte" width="320" height="192"></canvas></figure>
+    </div>
+    <p id="metrics" aria-live="off">No inference yet.</p><p id="status" role="status">Start your camera, open a clip, or try an original drawing sample.</p>
+  </section>
+  <section aria-labelledby="capture-title">
+    <h2 id="capture-title">3. Label personal test frames</h2>
+    <div class="controls"><button id="capture" disabled>Capture frame to label</button><button id="resume" disabled>Resume input</button></div>
+    <p>Draw a box around every face. Paint the person, hands and held objects into the white foreground. These are reviewed training labels; the predicted matte is only a draft.</p>
+    <div class="controls">
+      <label>Tool <select id="tool"><option value="face">Face box</option><option value="keep">Keep foreground</option><option value="erase">Remove foreground</option><option value="object">Mark held object</option></select></label>
+      <label>Brush <input id="brush" type="range" min="2" max="36" value="12"></label>
+      <button id="undo-face" disabled>Undo face</button><button id="clear-labels" disabled>Clear labels</button>
+      <button id="prediction-labels" disabled>Draft from prediction</button><button id="sample-labels" disabled>Load drawing labels</button>
+    </div>
+    <canvas id="editor" width="320" height="192" aria-label="Face and foreground label editor"></canvas>
+    <div class="review">
+      <label><input id="faces-reviewed" type="checkbox"> Every visible face is boxed, or this picture contains no face.</label>
+      <label><input id="foreground-reviewed" type="checkbox"> I reviewed the foreground, including hands and held objects.</label>
+      <label><input id="permission-reviewed" type="checkbox"> I have permission to use every visible person's image for this private local test.</label>
+    </div>
+    <button id="save-sample" disabled>Add reviewed sample</button><p id="samples-state">0 of 32 samples in memory.</p>
+    <div class="controls"><button id="export" disabled>Export personal samples</button><button id="reset">Clear lab and stop camera</button></div>
+    <p class="hint">Personal exports grant no public-training or model-release permission. They contain your pictures: keep them out of Git. Clearing the lab releases its in-memory captures and room reference; exported files need deleting separately.</p>
+  </section>
+  <section aria-labelledby="train-title"><h2 id="train-title">4. Train and test locally</h2>
+    <p>Export samples from three independent takes, with each take assigned to one split. From <code>vision/</code>, import one combined export or list several:</p>
+    <pre>python3 -m kithmoot_vision.capture ~/Downloads/kithmoot-vision-*.json --output data/personal-test
+python3 -m kithmoot_vision.train data/personal-test/manifest.jsonl runs/personal-test --personal --steps 1000 --device cpu
+python3 -m kithmoot_vision.evaluate runs/personal-test/experimental.pt data/personal-test/manifest.jsonl
+python3 -m kithmoot_vision.export runs/personal-test/experimental.pt runs/personal-test/experimental.kvm</pre>
+    <p>On Apple Silicon, use <code>--device mps</code> for training. Load the resulting <code>experimental.kvm</code> and <code>experimental.json</code> above. Personal results measure your held-out takes, not unseen people or rooms.</p>
+  </section>
+  <footer><a href="LICENSE">Original MIT software and artwork</a> · Rust runtime notices:
+    <a href="notices/COPYRIGHT-library.html">Copyright</a>, <a href="notices/MIT.txt">MIT</a>,
+    <a href="notices/Apache-2.0.txt">Apache</a>, <a href="notices/BSD-2-Clause.txt">BSD</a>, <a href="notices/Unicode-3.0.txt">Unicode</a>.
+    <p>The default model learned procedural drawings. It is not a trained real-face detector. No qualified camera model is bundled.</p>
+  </footer>
+</main>
+<video id="source-video" playsinline muted hidden></video><img id="source-image" alt="" hidden>
+<script type="module" src="lab.mjs"></script>
+</body></html>

@@ -15,6 +15,16 @@ architecture, training/evaluation tools, data rights policy and open gates.
 A manual image-patch tracker was removed from this draft because it did not
 meet the automatic AI requirement.
 
+## Testing the experimental model
+
+The [Local Camera Lab](../vision/lab/README.md) runs the owned Rust/WASM model
+on camera, images or clips, with face boxes, background/blur previews, a matte
+view and optional empty-room reference. Start it from the checkout with
+`npm run vision:lab -- --prepare`. It includes reviewed personal sample export,
+local training/evaluation and model reload. Android can use its browser through
+USB loopback forwarding. The released apps' automatic masking/matting controls
+remain unchanged; native integration and real-camera qualification remain open.
+
 ## Current application behaviour
 
 | Choice | Outgoing picture in this release |
@@ -57,9 +67,10 @@ film/comic mask. No stock mask, pretrained Google model, face SDK or hosted
 vision service is added.
 
 The training library operates on local files, with no network clients,
-telemetry SDKs or auto-downloads. It has no capture UI and currently stores
-no personal recordings. Future personal training must be optional and local,
-with deletion/reset controls and no implicit contribution to general weights.
+telemetry SDKs or auto-downloads. The separate Camera Lab keeps captures in
+browser memory, with explicit export and clear/reset controls. Importing an
+export writes local private training files. Personal training is optional,
+with no implicit contribution to general weights or public-release permission.
 Android retains the existing ML Kit QR telemetry exclusions and no-op transport
 stubs; removing camera models does not make those QR defences unnecessary.
 Android, WebRTC and Chromium are separate existing dependencies. This work

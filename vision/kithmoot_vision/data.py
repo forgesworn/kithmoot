@@ -35,10 +35,18 @@ def read_manifest(path: Path, *, personal: bool = False) -> list[dict]:
         if (row["scope"] == "personal") != personal or row["scope"] not in {"general", "personal"}:
             raise ValueError("Personal recordings cannot enter general model training")
         rights = row["rights"]
-        if rights["licence"] not in {"MIT", "CC0-1.0", "PROJECT-OWNED"}:
-            raise ValueError("Unreviewed or restricted training-data licence")
-        if not all(rights.get(key) is True for key in ("training", "commercial", "mit_weights")):
-            raise ValueError("Data does not permit commercial MIT model releases")
+        if personal:
+            if rights.get("licence") != "PERSONAL-LOCAL" or not all(
+                rights.get(key) is True for key in ("training", "personal_only", "subject_permission")
+            ):
+                raise ValueError("Personal training needs reviewed local-only permission")
+            if rights.get("commercial") or rights.get("mit_weights"):
+                raise ValueError("Personal captures do not grant public model-release rights")
+        else:
+            if rights["licence"] not in {"MIT", "CC0-1.0", "PROJECT-OWNED"}:
+                raise ValueError("Unreviewed or restricted training-data licence")
+            if not all(rights.get(key) is True for key in ("training", "commercial", "mit_weights")):
+                raise ValueError("Data does not permit commercial MIT model releases")
         evidence = asset_path(root, rights["evidence"])
         if not evidence.is_file() or not evidence.stat().st_size:
             raise ValueError("Missing rights review evidence")
@@ -54,6 +62,11 @@ def read_manifest(path: Path, *, personal: bool = False) -> list[dict]:
                 if not isinstance(group, str) or not group:
                     raise ValueError("Missing split group")
                 key = (kind, group)
+                # A personal experiment deliberately reuses its person/room.
+                # Independent takes and identical-picture checks still apply;
+                # its scores cannot establish unseen-person/room performance.
+                if personal and kind in {"subject", "scene"}:
+                    continue
                 if key in partitions and partitions[key] != row["split"]:
                     raise ValueError(f"{kind} leaks across held-out splits")
                 partitions[key] = row["split"]
