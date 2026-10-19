@@ -19,7 +19,7 @@
 <main id="main" class="wrap">
 <section class="legal-page">
 <h1>Check it yourself</h1>
-<p class="dated">Written for desktop 0.1.89, 19 October 2026.</p>
+<p class="dated">Written for desktop 0.1.91, 19 October 2026.</p>
 <p>We have run every command on this page, except the Windows connection check.</p>
 
 <p>Installing an app means trusting it with your computer. You shouldn't have to take our word for what KithMoot does, so this page lists everything the desktop app connects to and everything it can touch, with a way to check each claim. If you find something we haven't listed, <a href="https://github.com/forgesworn/kithmoot/issues">tell us</a>: that's a bug in the app or in this page.</p>
@@ -34,7 +34,7 @@
 <li>Room messages and files are encrypted on your device before they leave it.</li>
 <li>All of the app's code is in the download. It never loads code from a server.</li>
 <li>Updates are installed only if they carry our signature.</li>
-<li>It connects only to the services listed below, which include Google on Windows and Linux.</li>
+<li>It connects only to the services listed below.</li>
 </ul>
 
 <h2>What it connects to</h2>
@@ -44,10 +44,10 @@
 <li><strong>Our server, kithmoot.forgesworn.dev.</strong> It checks here for updates, 30 seconds after it starts and then every 10 minutes on a Mac, or every hour on Windows and the Linux tar.gz. There's no switch for this yet. When you join a room that uses the default call settings, it also fetches a short-lived call credential here and uses our STUN and TURN server, which helps calls get through home routers and firewalls. A room whose link names its own call servers uses those instead.</li>
 <li><strong>GitHub, for the Debian and Ubuntu package.</strong> apt fetches KithMoot's updates from the project's GitHub releases, along with your other system updates.</li>
 <li><strong>Public profile relays and picture hosts.</strong> With <em>Show public profile pictures, names and Nostr addresses</em> on, which it is unless you turn it off, the app looks up the people in your rooms on purplepag.es, relay.damus.io, nos.lol and relay.primal.net, and loads each person's picture from wherever they host it. Turn it off under Profile pictures and names.</li>
-<li><strong>Google, on Windows and Linux only.</strong> The spellchecker built into Electron, the framework the app runs on, downloads its dictionary from a Google server. <a href="https://www.electronjs.org/docs/latest/tutorial/spellchecker">Electron's documentation</a> says it sends nothing you type. The Mac app uses macOS's own spellchecker instead. There's no switch for this yet.</li>
 <li><strong>The people on your call.</strong> Calls connect straight to the other people's devices where they can, so those people can see your IP address, as in any direct call. When a direct connection fails, the call goes through the TURN server instead.</li>
 <li><strong>Only if you choose them.</strong> A file storage server, if you set one up for sharing files. The domain in someone's Nostr address, if you turn on <em>Verify Nostr addresses</em>. Your signer's relays, if you sign in with a remote signer. A link you click, which opens in your browser after you confirm.</li>
 </ul>
+<p>Not Google. Before 0.1.91, the app downloaded a spelling dictionary from a Google server on Windows and Linux, through the spellchecker built into Electron, the framework it runs on. From 0.1.91 that download is switched off, so there's no spelling check on those systems for now. The Mac app uses macOS's own spellchecker, which downloads nothing. We started a fresh copy of 0.1.91 on Linux and logged every connection: the only server it contacted was ours, for the update check. Windows runs the same code, but we haven't watched its connections.</p>
 <p>You may find walletofsatoshi.com in the app's code. It's there for a donor ring that is switched off, so the app never contacts it.</p>
 
 <h2>What it can touch on your computer</h2>
@@ -71,7 +71,7 @@ sha256sum --check --ignore-missing SHA256SUMS.txt
 # macOS
 shasum -a 256 --check --ignore-missing SHA256SUMS.txt
 # Windows (PowerShell): compare the result with SHA256SUMS.txt by eye
-Get-FileHash KithMoot-0.1.89-windows-x64.zip -Algorithm SHA256</code></pre>
+Get-FileHash KithMoot-0.1.91-windows-x64.zip -Algorithm SHA256</code></pre>
 <p>That proves the file wasn't damaged on the way, but it comes from the same server as the download. To check that we made it, verify our signed release list. The check uses the key built into the app, fetched from GitHub rather than from our server. You need Node.js:</p>
 <pre><code>curl -fsSO https://raw.githubusercontent.com/forgesworn/kithmoot/main/desktop/update-manifest.mjs
 curl -fsSO https://kithmoot.forgesworn.dev/downloads/release.json
@@ -95,9 +95,9 @@ Get-NetTCPConnection -OwningProcess (Get-Process KithMoot).Id</code></pre>
 
 <h3>What the Linux package runs as root</h3>
 <p>Installing any .deb runs its scripts as root. Read ours before you install, and list the files it marks setuid:</p>
-<pre><code>dpkg-deb -e kithmoot_0.1.89_amd64.deb kithmoot-scripts
+<pre><code>dpkg-deb -e kithmoot_0.1.91_amd64.deb kithmoot-scripts
 cat kithmoot-scripts/postinst
-dpkg-deb -c kithmoot_0.1.89_amd64.deb | grep '^-rws'</code></pre>
+dpkg-deb -c kithmoot_0.1.91_amd64.deb | grep '^-rws'</code></pre>
 <p>The one setuid file is <code>chrome-sandbox</code>, Chromium's own sandbox helper. The script installs an AppArmor rule at <code>/etc/apparmor.d/kithmoot</code>. The rule doesn't restrict the app; it lets Chromium's sandbox start on Ubuntu 23.10 and later. The script also removes an old menu entry, and only one that the tar.gz installer wrote. The tar.gz runs nothing as root: it installs into your home folder.</p>
 
 <h3>The app's code</h3>
@@ -125,7 +125,7 @@ dpkg-deb -c kithmoot_0.1.89_amd64.deb | grep '^-rws'</code></pre>
 <li>The operating system doesn't sandbox the app.</li>
 <li>The Windows build isn't signed, so Windows warns about it.</li>
 <li>Builds aren't reproducible, so you can't yet prove our download matches the source.</li>
-<li>The update check, and the spelling dictionary download on Windows and Linux, have no off switch.</li>
+<li>The update check has no off switch.</li>
 <li>Linux doesn't ask before an app uses the camera or microphone, and on X11 any app can read the screen.</li>
 </ul>
 

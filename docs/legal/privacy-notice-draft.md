@@ -7,7 +7,8 @@
 > Changed 19 October 2026: the parties the app's defaults contact
 > (profile relays, picture hosts, Nostr address checks when turned on,
 > and for the desktop app our site, GitHub and Google), update checks
-> from the desktop app, and the default relay count.
+> from the desktop app, and the default relay count. Later the same day:
+> desktop 0.1.91 stops the Google dictionary download.
 
 ## 1. Who we are
 
@@ -35,8 +36,9 @@ see section 2). Contact us about anything in this notice at
   held.
 - Some defaults make your device contact other parties: relays asked for
   people's public profiles and the hosts of their profile pictures, and,
-  for the desktop app, our site for updates, GitHub and Google (section
-  8). You can turn the profile lookups off.
+  for the desktop app, our site for updates and GitHub (section 8).
+  Desktop versions before 0.1.91 also contacted Google. You can turn the
+  profile lookups off.
 - We do not sell your data, we do not show adverts, and we do not run
   analytics or tracking.
 
@@ -276,18 +278,17 @@ The desktop app also makes your device contact:
   GitHub learns your device's address, the time, and that it is fetching
   KithMoot.
   <!-- desktop/linux apt source: the project's GitHub releases, signed Release with Origin: KithMoot; site/downloads/index.html Linux section -->
-- **Google, for spelling dictionaries, on Windows and Linux.** The
-  spellchecker built into Electron, the framework the desktop app runs
-  on, downloads a dictionary for your language from a Google server.
-  Google learns your device's address, the time and the language asked
-  for. Electron's documentation says nothing you type is sent. The Mac
-  app uses the macOS spellchecker and downloads nothing. There is no
-  setting to turn this off.
-  <!-- desktop/main.mjs webPreferences spellcheck: true, no session.setSpellCheckerDictionaryDownloadURL; Electron 44.4.1; https://www.electronjs.org/docs/latest/tutorial/spellchecker "Does the spellchecker use any Google services?" -->
-
-`[DECISION: whether the desktop app keeps the Google dictionary download;
-it goes if spellcheck is off on Windows and Linux, or if the dictionaries
-ship inside the app.]`
+- **Google, in desktop versions before 0.1.91, on Windows and Linux.**
+  The spellchecker built into Electron, the framework the desktop app
+  runs on, downloaded a dictionary for your language from a Google
+  server, which learned your device's address, the time and the language
+  asked for. Electron's documentation says nothing you type was sent.
+  From 0.1.91 the app switches that download off, so it no longer
+  contacts Google for spelling, and it has no spelling check on Windows
+  and Linux. The app updates itself as section 4.6 describes, and the
+  Debian package updates with your system. The Mac app uses the macOS
+  spellchecker, which downloads nothing.
+  <!-- desktop/spellcheck.mjs keepSpellingLocal, applied in desktop/main.mjs whenReady to the default session and persist:kithmoot-desktop-v1: download URL http://127.0.0.1:9/, no languages, spelling off, not on darwin; docs/decisions.md "Nothing goes to Google", 19 October 2026 -->
 
 Every connection the desktop app makes, and a command to check each one,
 is listed at https://kithmoot.app/check/.

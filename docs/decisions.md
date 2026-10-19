@@ -2198,7 +2198,9 @@ it to the default session and the app's own partition first thing in the
 ready handler, before any window exists. macOS keeps its own spellchecker,
 which downloads nothing. The same Linux cold start with the change contacts
 only this project's update server, 30 seconds in, and leaves `Dictionaries`
-empty. Windows runs the same code and was not tested.
+empty. Windows runs the same code and was not tested. Desktop 0.1.91 is
+the first release with it; a cold start of its own Linux tarball, logged
+the same way, contacted only the update server.
 
 What it costs: no spelling underlines or suggestions on Windows and Linux.
 Spelling could come back without Google by shipping dictionaries inside the

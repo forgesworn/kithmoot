@@ -33,7 +33,7 @@
 <li>Joining a room needs only its link. We do not run accounts, and most people never give us anything we would call personal data.</li>
 <li>Our default infrastructure (a TURN server, a file store, a drop tier, and, for rooms whose links name it, a relay we also run) sees connection-level information while helping your room connect or store a sealed file, and is designed to keep as little of it as possible.</li>
 <li>We keep no server-side account, session or membership record for a room. There is nothing to delete on request because there is nothing held.</li>
-<li>Some defaults make your device contact other parties: relays asked for people's public profiles and the hosts of their profile pictures, and, for the desktop app, our site for updates, GitHub and Google (section 7). You can turn the profile lookups off.</li>
+<li>Some defaults make your device contact other parties: relays asked for people's public profiles and the hosts of their profile pictures, and, for the desktop app, our site for updates and GitHub (section 7). Desktop versions before 0.1.91 also contacted Google. You can turn the profile lookups off.</li>
 <li>We do not sell your data, we do not show adverts, and we do not run analytics or tracking.</li>
 </ul>
 
@@ -85,7 +85,7 @@
 <ul>
 <li><strong>Our site, for updates</strong>, as section 4.6 describes.</li>
 <li><strong>GitHub, for the Debian package.</strong> If you install the Debian or Ubuntu package, your system's package manager fetches KithMoot's updates from the project's releases on GitHub, on your system's own update schedule. GitHub learns your device's address, the time, and that it is fetching KithMoot.</li>
-<li><strong>Google, for spelling dictionaries, on Windows and Linux.</strong> The spellchecker built into Electron, the framework the desktop app runs on, downloads a dictionary for your language from a Google server. Google learns your device's address, the time and the language asked for. <a href="https://www.electronjs.org/docs/latest/tutorial/spellchecker">Electron's documentation</a> says nothing you type is sent. The Mac app uses the macOS spellchecker and downloads nothing. There is no setting to turn this off.</li>
+<li><strong>Google, in desktop versions before 0.1.91, on Windows and Linux.</strong> The spellchecker built into Electron, the framework the desktop app runs on, downloaded a dictionary for your language from a Google server, which learned your device's address, the time and the language asked for. <a href="https://www.electronjs.org/docs/latest/tutorial/spellchecker">Electron's documentation</a> says nothing you type was sent. From 0.1.91 the app switches that download off, so it no longer contacts Google for spelling, and it has no spelling check on Windows and Linux. The app updates itself as section 4.6 describes, and the Debian package updates with your system. The Mac app uses the macOS spellchecker, which downloads nothing.</li>
 </ul>
 <p>Every connection the desktop app makes, and a command to check each one, is listed on <a href="/check/">Check it yourself</a>.</p>
 <p>We do not use an email marketing service, an analytics company or an error-tracking company for this site.</p>
