@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.90",
+  "currentRelease": "0.1.91",
   "releases": [
     {
-      "version": "0.1.90",
+      "version": "0.1.91",
       "updateTo": {
-        "version": "0.1.90",
-        "pub_date": "2026-10-19T18:22:42Z",
-        "notes": "A calmer room, with messages grouped by sender and a one-line message box. Adding a reaction no longer hides the newest message.",
-        "name": "0.1.90",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.90/KithMoot-0.1.90-mac-arm64.zip",
-        "sha256": "40f35fd0a179df3fa5b02bf1fa07b4777694828e7f4a75bad395c75dc8c6fbee",
-        "size": 170807639
+        "version": "0.1.91",
+        "pub_date": "2026-10-19T18:54:53Z",
+        "notes": "Windows and Linux no longer download spelling dictionaries from Google. Nothing changes on a Mac, which keeps the macOS spellchecker.",
+        "name": "0.1.91",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.91/KithMoot-0.1.91-mac-arm64.zip",
+        "sha256": "34f02207e7e75dccf325f503f2c48856272ddda5a79ed4edc2f7dc3cb83b66c9",
+        "size": 170808752
       }
     }
   ]
