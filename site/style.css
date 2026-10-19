@@ -172,7 +172,7 @@ footer nav a { font-size: .875rem; color: var(--muted); }
 #linux > .button { margin-top: .5rem; }
 #linux h3 { font-size: 1.0625rem; margin-top: 1.5rem; }
 code { font-size: .88em; overflow-wrap: anywhere; }
-.platform pre { overflow-x: auto; max-width: 100%; padding: 1rem; border-radius: 8px; background: var(--bg); font-size: .82rem; line-height: 1.6; }
+.platform pre, .legal-page pre { overflow-x: auto; max-width: 100%; padding: 1rem; border-radius: 8px; background: var(--bg); font-size: .82rem; line-height: 1.6; }
 .recommended { max-width: 760px; margin-bottom: 2.5rem; border: 2px solid var(--accent); }
 .recommended .button { margin-top: .75rem; }
 .recommended .under { margin: .5rem 0 0; }
