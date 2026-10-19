@@ -28,6 +28,15 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def checked_vision_pin(manifest, tree_entry):
+    match = re.fullmatch(r"160000 commit ([0-9a-f]{40})\tvision", tree_entry.strip())
+    if not match or manifest.get("vision_revision") != match.group(1):
+        raise ValueError("Rebuild the preview with KithMoot's pinned vision dependency")
+    if manifest.get("vision_repository") != "https://github.com/forgesworn/kithmoot-vision":
+        raise ValueError("Preview must record the independent vision repository")
+    return match.group(1)
+
+
 REMOTE = r'''
 import hashlib, json, os, shutil, subprocess
 from pathlib import Path
@@ -86,7 +95,8 @@ if phase == 'prepare':
             if sha(current / name) != params['before'][name]: raise RuntimeError('Live homepage changed: ' + name)
     state = {'previous_site': link(root / 'current'), 'previous_lab': link(lab / 'current'),
              'created_lab': not lab.exists(), 'created_releases': not (lab / 'releases').exists(), 'created_site': False,
-             'preserved_before': preserved_digest(current), 'revision': params['revision'], 'release': params['release']}
+             'preserved_before': preserved_digest(current), 'revision': params['revision'],
+             'vision_revision': params.get('vision_revision'), 'release': params['release']}
     release.mkdir(parents=True, exist_ok=False)
     try:
         (release / 'state.json').write_text(json.dumps(state))
@@ -154,6 +164,11 @@ def main():
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SOURCE, text=True).strip()
     if manifest.get("format") != "kithmoot-camera-lab-static-v1" or manifest.get("revision") != revision or manifest.get("source_dirty") is not False:
         parser.error("Rebuild the lab from the current committed source")
+    tree_entry = subprocess.check_output(["git", "ls-tree", "HEAD", "--", "vision"], cwd=SOURCE, text=True)
+    try:
+        vision_revision = checked_vision_pin(manifest, tree_entry)
+    except ValueError as error:
+        parser.error(str(error))
     if manifest.get("model_scope") != "original-drawings-only" or any(manifest.get(name) is not False for name in ("qualified", "camera_frames_uploaded", "audio_recorded")):
         parser.error("Hosted preview metadata must retain its experimental and local-only status")
     if subprocess.run(["git", "diff", "--quiet", "HEAD", "--"], cwd=SOURCE).returncode:
@@ -173,7 +188,7 @@ def main():
     if card.get("portable_weights_sha256") != manifest.get("model_sha256") or card.get("portable_weights_sha256") != digest((args.lab / "default.kvm").read_bytes()):
         parser.error("Drawing model and export card differ")
     if args.check:
-        print(json.dumps({"checked": True, "revision": revision, "files": len(expected), "personal_models_published": False}))
+        print(json.dumps({"checked": True, "revision": revision, "vision_revision": vision_revision, "files": len(expected), "personal_models_published": False}))
         return
     subprocess.run(["git", "merge-base", "--is-ancestor", revision, "origin/main"], cwd=SOURCE, check=True)
     host = os.environ.get("DEPLOY_HOST", "")
@@ -184,7 +199,7 @@ def main():
     before = {"Caddyfile": digest(subprocess.check_output(["git", "show", args.base_revision + ":deploy/Caddyfile.kithmoot"], cwd=SOURCE))}
     if args.site:
         before.update({name: digest(subprocess.check_output(["git", "show", args.base_revision + ":site/" + name], cwd=SOURCE)) for name in SITE_FILES})
-    params = {"release": release, "revision": revision, "site": args.site, "before": before}
+    params = {"release": release, "revision": revision, "vision_revision": vision_revision, "site": args.site, "before": before}
     if args.receipt and (args.receipt.exists() or args.receipt.is_symlink()): parser.error("Refusing to overwrite a receipt")
     if args.receipt and not args.receipt.parent.is_dir(): parser.error("Receipt directory must already exist")
 
@@ -246,7 +261,7 @@ def main():
                 try: remote("rollback")
                 except subprocess.CalledProcessError: pass
             raise
-    receipt = {"revision": revision, "base_revision": args.base_revision, "published_at": datetime.now(timezone.utc).isoformat(),
+    receipt = {"revision": revision, "vision_revision": vision_revision, "base_revision": args.base_revision, "published_at": datetime.now(timezone.utc).isoformat(),
                "lab_url": BASE_URL, "homepage_updated": args.site, "qualified": False,
                "model_sha256": card["portable_weights_sha256"], "verified_public_files": len(expected),
                "uploads_rejected": True, "camera_frames_uploaded": False, "audio_recorded": False, **state}

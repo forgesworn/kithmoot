@@ -10,10 +10,13 @@ multiple-face detection and foreground matting, retaining people, hands and
 objects shown to camera. An optional empty-room/occupied recording can help
 local adaptation; it cannot replace broad base-model training.
 
-See [KithMoot Vision](../vision/README.md) for the implemented neural
+See the independent [KithMoot Vision repository](https://github.com/forgesworn/kithmoot-vision) for the implemented neural
 architecture, training/evaluation tools, data rights policy and open gates.
 A manual image-patch tracker was removed from this draft because it did not
-meet the automatic AI requirement.
+meet the automatic AI requirement. This checkout consumes a fixed commit through
+the `vision/` submodule; initialise it with `npm run vision:init`. Model training
+and review tools live in the library, while call integration, permissions and
+publication remain in KithMoot.
 
 ## Testing the experimental model
 

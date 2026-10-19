@@ -647,12 +647,17 @@ and a chosen backdrop replaces the whole picture on both clients. A saved
 tracked-mask preference covers the entire picture; it cannot expose raw camera
 pixels while the detector is unavailable.
 
-[KithMoot Vision](vision/README.md) is the separate MIT neural training library:
+[KithMoot Vision](https://github.com/forgesworn/kithmoot-vision) is the independent
+MIT library, consumed through the `vision/` submodule pinned to a specific commit:
 multiple faces, foreground mattes retaining people and held objects, and an
 optional local room-adaptation path. It has no qualified camera weights or
 production inference backend yet. Personal recordings must stay on the device
 and are excluded from general model training. There is no product training UI
-in this draft.
+in the call UI. The library provides separate local Camera Lab and Model
+Workshop tools. Initialise its pinned source with `npm run vision:init`, then
+use `npm run vision:workshop` to review sources and labels. Model development,
+training and portable Rust/WASM inference live in that repository; call
+integration and publishing remain here.
 
 [Implementation and acceptance status](docs/face-privacy.md) distinguishes the
 working avatar/compositor from the open model, runtime and physical-device
