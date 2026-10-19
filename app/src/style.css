@@ -390,13 +390,7 @@ textarea {
   background: var(--field);
   color: var(--text);
   border: 1px solid var(--field-border);
-  border-radius: 6px;
-}
-
-/* The two fields people type WORDS into, in the face people read. */
-#chatInput,
-#displayName {
-  font-family: inherit;
+  border-radius: var(--r-s);
 }
 
 /* A field says where it is before it is typed in and says plainly when it
@@ -1544,9 +1538,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   margin: 0.6rem 0 0;
 }
 
-.attachIcon {
-  display: none;
-}
+/* The composer: one row, one height and one centre line (#459).
 
    Add a file, the field, send. Every picture button is a control tall, the
    field is a pill at least as tall, and the row centres what is in it, so
@@ -1556,9 +1548,113 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 #chatForm {
   /* The name picker hangs off this. */
   position: relative;
-  /* The box grows and the buttons do not: without this they stretch to
-     whatever height a long message has given the box beside them. */
-  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+#attachToggle,
+#emojiToggle,
+#chatForm button[type=submit] {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text);
+}
+
+#attachToggle:hover,
+#emojiToggle:hover {
+  background: var(--selected);
+}
+
+#chatForm button[type=submit] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+#attachCount:not(:empty) {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-1);
+  line-height: 16px;
+}
+
+/* The composer is at the foot of the screen: its tooltips open upward, and
+   the first button's opens to the right so it stays on the screen. */
+#chatForm [data-tip]::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+#attachToggle::after {
+  right: auto;
+  left: 0;
+}
+
+/* The pill: the box people type into, the lane word and the emoji picker.
+   Its boundary is a real line, 3:1 on the page, because it is a field. */
+.composerField {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--s1);
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--s1) 0 var(--s3);
+  background: var(--raised);
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-full);
+}
+
+/* Past one line it is a rounded box rather than a capsule. */
+.composerField.grown {
+  border-radius: var(--r-m);
+}
+
+.composerField:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 0;
+  border-color: var(--focus);
+}
+
+/* The box inside the pill wears none of the page's field styling: the pill
+   is the field, and takes the focus ring. */
+#chatForm .composerField #chatInput {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  /* One line fills the pill's 44px, so the whole pill is the target. */
+  padding: max(4px, calc((44px - 1.45em) / 2)) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  outline: 0;
+  box-shadow: none;
+}
+
+#chatForm .composerField #emojiToggle {
+  color: var(--muted);
+  margin-right: calc(var(--s1) * -1);
+}
+
+#chatForm .composerField #emojiToggle:hover {
+  color: var(--text);
 }
 
 /* The message box. A box, not a line: it was one line that scrolled
@@ -1660,30 +1756,6 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
      afterwards - which leaves the page scrolled sideways with the send
      button off the edge. */
   font-size: max(1rem, 16px);
-}
-
-/* The two buttons beside the box keep to one line. "Add a file" broken
-   across two lines made the whole row taller than the box it sits next to,
-   which is a lot of screen spent on the least used control in the room. */
-#chatForm button {
-  margin: 0;
-  white-space: nowrap;
-}
-
-/* One height for the row's buttons. An emoji glyph's line box is taller
-   than a "+", so the emoji button stood a head above the two beside it. */
-#chatForm > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 2.5rem;
-  line-height: 1;
-}
-#emojiToggle { font-size: 1.1rem; }
-.sendIcon { display: none; width: 24px; height: 24px; fill: currentColor; }
-
-#chatForm input {
-  min-width: 0;
 }
 
 /* A file shared through Wildbloom, under the message that carried it.
@@ -2729,33 +2801,10 @@ label.note {
      is a box you send typos from. In landscape the row is wide and the
      problem never appears, which is what says it is width and nothing
      else. */
-  #chatForm {
-    gap: 0.4rem;
-    margin-top: 0.4rem;
-  }
-
   /* One row. The box takes what is left of it, and it is a box that WRAPS
      rather than a line that scrolls sideways, so what a narrower box costs
      is height rather than the ability to read back what you wrote - which
      is what was actually broken before. */
-  #chatInput {
-    flex: 1 1 auto;
-  }
-
-  #chatForm button {
-    flex: 0 0 auto;
-  }
-
-  .attachWord {
-    display: none;
-  }
-
-  #attachToggle .attachIcon {
-    display: inline;
-    font-size: 1.4rem;
-    line-height: 1;
-  }
-
   /* Forty-four points, which is what every phone platform asks of anything
      a thumb has to hit. Nothing on this page met it: the tabs were
      twenty-eight tall, "Your rooms" twenty-nine, the disclosures under
@@ -3657,8 +3706,53 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 }
 
 @media (forced-colors: active) {
-  button.primary { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; }
+  /* A fill is not drawn here, so what a fill made an edge of gets a real
+     border: buttons, bubbles, the field, chips, menus and floating panels.
+     Chosen, counted and primary things take Highlight; the agent label and
+     the lane keep to the text colour; focus stays an outline. Nothing
+     leans on a box-shadow for its boundary. */
+  button { border: 1px solid ButtonText; }
+  button.primary,
+  #chatForm button[type=submit],
+  button[aria-pressed='true'],
+  .barBtn[data-on='true'],
+  .barBtn[data-count]::before,
+  #attachCount:not(:empty) {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
   #roomList .unread, #roomList .unread.agent, .workspaceRoom .unread { border: 1px solid transparent; }
+  .bubble,
+  .composerField,
+  .messageActionPanel,
+  .rowMenuPopover,
+  .reactionDetails,
+  .mentions,
+  .chatArtPicker,
+  .composerContext,
+  .agentActivity,
+  .callBanner,
+  .presenceNotice,
+  .epochNotice,
+  .sharerMarksNotice,
+  .attachPanel { border: 1px solid CanvasText; }
+  .messageReactions button { border: 1px solid ButtonText; }
+  .messageReactions button[aria-pressed='true'] { border: 2px solid Highlight; }
+  .messageControls button { border-color: transparent; }
+  .messageControls button:hover,
+  .messageControls button:focus-visible { border-color: ButtonText; }
+  .badge.agent { border-color: CanvasText; color: CanvasText; }
+  .composerField:focus-within { outline-color: Highlight; }
+  [data-tip]::after { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
+  .roomBar { border-bottom-color: CanvasText; }
+}
+
+/* Increased contrast: a bubble gains a real line, on top of its fill. */
+@media (prefers-contrast: more) {
+  .bubble { border: 1px solid var(--control-line); }
+  .messageReactions button { box-shadow: inset 0 0 0 1px var(--control-line); }
 }
 
 @media (display-mode: standalone) {
@@ -3779,11 +3873,6 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 
 .shareViewerContent { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
 .shareViewerContent:fullscreen { height: 100dvh; width: 100vw; background: var(--bg); padding: .75rem; box-sizing: border-box; }
-@media (max-width: 600px) {
-  #chatForm { flex-wrap: wrap; }
-  #chatInput { flex: 1 0 100%; width: 100%; }
-  #chatForm button[type=submit] { margin-left: auto; }
-}
 
 /* Primary navigation stays beside the room on a desktop and within thumb
    reach above the conversation on a phone. */
@@ -3990,7 +4079,6 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 
 /* Keep a full line visible when text size changes after the composer was
    measured. The inline pixel height must not clip larger type. */
-#chatInput { min-height: calc(1.45em + 1.1rem + 2px); }
 @media (max-width: 540px) {
   .agentActivity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; }
   .agentActivity button { padding: .4rem .5rem; font-size: var(--fs-1); }
@@ -4051,8 +4139,8 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .contactCardForm input { flex: 1; min-width: 0; }
 #myCardOut { width: 100%; margin-top: 0.5rem; }
 #myCardQr { display: block; margin-top: 0.5rem; max-width: 100%; }
-.laneNote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0.25rem 0.35rem; font-size: 0.875rem; color: var(--muted); }
-.laneNote .laneWords { overflow-wrap: anywhere; }
+.laneNote { display: flex; flex: none; align-items: center; gap: var(--s1); margin: 0; font-size: var(--fs-1); color: var(--muted); }
+.laneNote .laneWords { white-space: nowrap; }
 /* On a phone the reading space is the budget that matters and every message
    already carries its lane chip, so the composer's note steps aside there.
    The words stay reachable through each chip's title. */
@@ -4073,7 +4161,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 }
 .composerContext .contextLabel { font-weight: 600; overflow-wrap: anywhere; }
 .composerContext .contextExcerpt { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composerContext button { grid-column: 2; grid-row: 1 / span 2; min-height: 44px; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.875rem; }
+.composerContext button { grid-column: 2; grid-row: 1 / span 2; min-height: 44px; padding: 0.1rem 0.6rem; margin: 0; font-size: var(--fs-1); }
 @media (max-width: 420px) {
   .composerContext .contextLabel { grid-column: 1 / -1; }
   .composerContext button { grid-row: 2; }
@@ -4192,10 +4280,6 @@ button.primary {
 }
 button.primary:hover:not(:disabled) {
   filter: brightness(1.08);
-}
-#chatForm button[type=submit].primary {
-  font-size: 1rem;
-  padding: 0.5rem 1.2rem;
 }
 
 /* The Nostr way in, as a line of text under the button rather than a
@@ -4353,9 +4437,6 @@ button.primary:hover:not(:disabled) {
 .callMore { margin: .4rem 0 0; }
 .callMore summary { cursor: pointer; color: var(--muted); font-size: var(--fs-2); }
 .callMore > * + * { margin-top: .4rem; }
-
-/* The lane chip sits in the composer's button row. */
-#chatForm #laneNote { align-self: center; margin: 0 .25rem 0 0; flex: 0 0 auto; }
 
 /* The call stage.
 
@@ -4666,9 +4747,6 @@ input[type="search"] { font-family: inherit; }
    it for two buttons, and at 150% text that was two words a line.
    --------------------------------------------------------------------------- */
 
-/* A full line of text in the box, and the 44px a thumb needs. */
-#chatInput { min-height: max(44px, calc(1.45em + 1.1rem + 2px)); }
-
 /* The log contains what it scrolls. A continuation's sender name is kept
    for screen readers with `position: absolute`, and with nothing positioned
    between it and the page those names were laid out against the page, not
@@ -4963,13 +5041,6 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   #callDock:not([hidden]) { flex-wrap: nowrap; margin: 0; padding: 0 .5rem; height: 44px; border-radius: 0; border-width: 0 0 1px; }
 }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 0; min-width: 0; width: auto; }
-  #roomArea[data-mobile-view="chat"] #chatForm { flex-wrap: nowrap; }
-  #roomArea[data-mobile-view="chat"] #mediaToggle { display: none; }
-  #roomArea[data-mobile-view="chat"] #chatForm > :is(#emojiToggle, #attachToggle, button[type=submit]) { min-width: 44px; min-height: 44px; padding-inline: .35rem; }
-  #roomArea[data-mobile-view="chat"] .sendWord { display: none; }
-  #roomArea[data-mobile-view="chat"] .sendIcon { display: block; }
-  #roomArea[data-mobile-view="chat"] #chatForm:has(#composerContext:not([hidden])) { flex-wrap: wrap; }
 }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   body:has(#roomArea:not([hidden])) { height: var(--room-viewport-height, 100dvh); min-height: 0; padding-inline: max(.65rem, env(safe-area-inset-left)) max(.65rem, env(safe-area-inset-right)); }

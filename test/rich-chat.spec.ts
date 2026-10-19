@@ -21,11 +21,8 @@ async function artworkSearch(page: Page, name: string) {
 }
 
 async function openGIFs(page: Page) {
-  if (await page.locator('#mediaToggle').isVisible()) await page.locator('#mediaToggle').click()
-  else {
-    await page.locator('#emojiToggle').click()
-    await page.locator('.chatArtPicker').getByRole('tab', { name: 'GIFs', exact: true }).click()
-  }
+  await page.locator('#emojiToggle').click()
+  await page.locator('.chatArtPicker').getByRole('tab', { name: 'GIFs', exact: true }).click()
 }
 
 test('familiar artwork keeps Unicode, human tones, drafts and links intact', async ({ browser, baseURL }) => {

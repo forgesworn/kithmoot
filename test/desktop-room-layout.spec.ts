@@ -477,7 +477,8 @@ test('with nothing beside it the conversation is the main column, not a strip', 
       const column = await boxOf(log)
       expect(column.width, `${label}: the message column is ${column.width.toFixed(0)}px wide`).toBeGreaterThanOrEqual(600)
       expect(column.width, `${label}: chat must use the available room width`).toBeGreaterThanOrEqual(room.width - 4)
-      const composer = await boxOf(page.locator('#chatInput'))
+      // The composer is the row: add a file, the field and send.
+      const composer = await boxOf(page.locator('#chatForm'))
       expect(composer.x + composer.width, `${label}: composer must reach the room edge`).toBeGreaterThanOrEqual(room.x + room.width - 4)
       expect(composer.y + composer.height, `${label}: composer must stay in the window`).toBeLessThanOrEqual(size.height)
       // Left-aligned, so the window is not a column adrift in empty black.

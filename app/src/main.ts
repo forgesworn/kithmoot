@@ -10240,7 +10240,6 @@ function renderComposer(): void {
   $('chatForm').hidden = readOnly
   ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
   ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
-  ;($('mediaToggle') as HTMLButtonElement).disabled = readOnly || closed
   if (readOnly || closed) chatArtPicker.close()
   ;($('attachToggle') as HTMLButtonElement).disabled = closed
   ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job) || Boolean(draft.pendingFiles?.length)
@@ -17492,6 +17491,8 @@ function growComposer(box: HTMLTextAreaElement): void {
   const most = line * COMPOSER_MAX_LINES + padding + borders
   // A long conversation name in the placeholder is not a multi-line draft.
   box.style.height = `${box.value ? Math.min(box.scrollHeight + borders, most) : line + padding + borders}px`
+  // Past one line the pill around it is a rounded box rather than a capsule.
+  box.parentElement?.classList.toggle('grown', box.scrollHeight > line + padding + borders + 2)
 }
 
 // ---------------------------------------------------------------------------
@@ -17744,7 +17745,7 @@ function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): void {
     start = input.selectionStart; end = input.selectionEnd; direction = input.selectionDirection
   }
   for (const event of ['input', 'click', 'keyup', 'select']) input.addEventListener(event, rememberSelection, { signal: selectionEvents.signal })
-  chatArtPicker.openComposer($(mode === 'emoji' ? 'emojiToggle' : 'mediaToggle'), input, mode, emoji => {
+  chatArtPicker.openComposer($('emojiToggle'), input, mode, emoji => {
     if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) return
     if (input.value.length - (end - start) + emoji.length > MAX_CHAT_TEXT_LENGTH) {
       setStatus('There is no room for that emoji. Shorten your message first.')
@@ -17765,7 +17766,6 @@ function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): void {
     if (roomGeneration === generation && currentChannel === channel && input.isConnected) input.setSelectionRange(start, end, direction)
   })
 }
-$('mediaToggle').addEventListener('click', () => openChatArt('gifs'))
 $('emojiToggle').addEventListener('click', () => openChatArt('emoji'))
 
 // ---------------------------------------------------------------------------
