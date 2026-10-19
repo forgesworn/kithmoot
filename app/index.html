@@ -23,6 +23,22 @@
       <div><strong>Update ready</strong><span>Update when you are ready. Your room will reopen.</span></div>
       <button id="updateApp" type="button">Update now</button>
     </aside>
+    <!-- The app shell (design-calm-shell, section 7): a rail of destinations,
+         a list column, and the main pane. `app/src/shell.ts` owns which
+         destination shows; this is its markup. -->
+    <nav id="rail" aria-label="Main">
+      <button id="railChats" class="railItem" type="button" data-destination="chats" aria-current="page"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-chats"/></svg><span id="railChatsCount" class="railCount" hidden></span></span><span class="railLabel">Chats</span></button>
+      <button id="railPeople" class="railItem" type="button" data-destination="people" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg></span><span class="railLabel">People</span></button>
+      <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
+    </nav>
+    <div id="listColumn">
+      <!-- Filled by whoever builds People (app/src/people.ts); the shell only
+           shows and hides it. -->
+      <section id="peopleList" aria-label="People" hidden>
+        <p class="note">People is coming in this build.</p>
+      </section>
+    </div>
+
     <header>
       <h1><button id="appHome" class="app-brand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="28" height="28" alt="" />KithMoot</button></h1>
       <button id="headerSignIn" type="button" class="quiet" hidden>Sign in</button>
@@ -60,6 +76,9 @@
         <p id="workspaceNote" class="note"></p>
       </aside>
       <div id="workspaceContent">
+      <section id="peoplePane" aria-label="Contact" hidden>
+        <p class="note">People is coming in this build.</p>
+      </section>
       <section id="callSurface" aria-label="Call surface" hidden>
         <div id="callSurfaceHeader" hidden>
           <span id="callSurfaceLogo" class="privateLogo" hidden></span>

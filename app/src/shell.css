@@ -1,0 +1,9 @@
+/* The app shell. Stage 2 of the calm shell (design-calm-shell, sections 5, 7
+   and 9.4): a rail of destinations, a list column and the main pane, with the
+   page itself fixed so that only the list, the log and the panels scroll. */
+
+/* The rail and the list column take their place in the layout commit. Until
+   then People can already be built against the panes: they show when the
+   destination is People and are left to flow as they are. */
+#rail { display: none; }
+#listColumn { display: contents; }

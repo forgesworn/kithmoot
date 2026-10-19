@@ -64,6 +64,8 @@ import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import './call-surface.css'
+import './shell.css'
+import { openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts } from './shell.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -13707,6 +13709,8 @@ function reconcileRailChildren(parent: HTMLElement, children: HTMLElement[]): vo
 
 function renderWorkspace(): void {
   updateDesktopUnread()
+  // People is for somebody signed in with Nostr, and nobody else (Q14).
+  setPeopleAvailable(!!nostrSession)
   if ($('workspaceNav').hidden) return
   const list = $('workspaceRooms')
   const focused = document.activeElement as HTMLElement | null
