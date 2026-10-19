@@ -38,8 +38,8 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await writer.chat.send('Where is the toolbox?')
     const row = page.locator('#chatLog .msg').filter({ hasText: 'Where is the toolbox?' })
-    await expect(row.locator('.messageHeader time')).toHaveAttribute('datetime', /T/)
-    await expect(row.locator('.messageHeader time')).toContainText(/\d{1,2}:\d{2}/)
+    await expect(row.locator('.messageMeta time')).toHaveAttribute('datetime', /T/)
+    await expect(row.locator('.messageMeta time')).toContainText(/\d{1,2}:\d{2}/)
     await expect(row.locator('img.avatar')).toHaveAttribute('src', pictureURL)
     // WebKit reports an SVG's rendered intrinsic size here. Verify decoding
     // independently of that engine-specific size; the source is checked above.
@@ -308,10 +308,12 @@ test('holding an older message opens emoji choices without losing the reading po
       await expect(row.getByRole('button', { name: 'Remove 🎉 reaction, 1', exact: true })).toBeVisible()
       await cdp.detach()
     }
-    await row.locator('.messageReact').click()
+    // On touch the message's one button is More, which opens the reactions
+    // among its other actions; closing the panel returns focus to it.
+    await row.locator('.messageMore').click()
     await page.screenshot({ path: testInfo.outputPath('older-message-reactions.png') })
     await page.keyboard.press('Escape')
-    await expect(row.locator('.messageReact')).toBeFocused()
+    await expect(row.locator('.messageMore')).toBeFocused()
     expect(Math.abs(await position() - before)).toBeLessThan(3)
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished thought')
   } finally { await writer.leave(); await context.close() }

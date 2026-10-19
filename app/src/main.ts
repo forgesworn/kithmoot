@@ -295,7 +295,7 @@ import {
 } from '../../src/peer-assist.js'
 import type { AssistBlock, AssistEnvironment } from '../../src/peer-assist.js'
 import { UplinkProbe } from '../../src/uplink.js'
-import { LANE_GLYPH, LANE_MEANING, type Lane } from '../../src/lane.js'
+import { LANE_MEANING, type Lane } from '../../src/lane.js'
 import type { StatLike } from '../../src/uplink.js'
 import type { AssistOffer } from '../../src/types.js'
 import {
@@ -341,7 +341,7 @@ import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 import { signinRelays, withSignetRelay } from './signet-relays.js'
-import { installIcons } from './icons.js'
+import { icon, installIcons } from './icons.js'
 
 // The icon sprite, written once, before anything draws a button that uses it.
 installIcons()
@@ -6629,7 +6629,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       chip.append(identityRun(shown, view.participant === me))
       const badge = document.createElement('span')
       badge.className = 'badge agent'
-      badge.textContent = 'agent'
+      badge.textContent = 'Agent'
       badge.title = 'An agent, not a person'
       chip.append(badge)
       if (view.owner) chip.append(ownerRun(view.owner))
@@ -6695,7 +6695,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       // be, and it is what the "agents can hear me" switch acts on.
       const badge = document.createElement('span')
       badge.className = 'badge agent'
-      badge.textContent = 'agent'
+      badge.textContent = 'Agent'
       badge.title = 'This participant says it is an automated agent'
       heading.append(badge)
       if (view.owner) heading.append(ownerRun(view.owner))
@@ -6869,7 +6869,7 @@ function agentsSentence(count: number): DocumentFragment | undefined {
   // sentence and the thing it is about cannot be told apart.
   const badge = document.createElement('span')
   badge.className = 'badge agent'
-  badge.textContent = 'agent'
+  badge.textContent = 'Agent'
   run.append(badge)
   run.append(
     count === 1 ? ': a computer program, not a person. ' : ': computer programs, not people. ',
@@ -6945,7 +6945,7 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     if (view.agent) {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
-      badge.textContent = 'agent'
+      badge.textContent = 'Agent'
       badge.title = 'An agent, not a person'
       identity.append(badge)
       if (view.owner) identity.append(ownerRun(view.owner))
@@ -9478,13 +9478,26 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
   return card
 }
 
-/** The lane indicator: a glyph and a word, the meaning as its title. */
-function laneChip(lane: Lane): HTMLSpanElement {
+/**
+ * The lane indicator. In the composer it is a lock and a word; on each
+ * message it is the lock alone, an image whose name is the lane and whose
+ * tooltip says what that lane gives away. Never colour alone: the name and
+ * the tooltip carry the fact, the colour is a second cue.
+ */
+function laneChip(lane: Lane, glyphOnly = false): HTMLSpanElement {
   const span = document.createElement('span')
-  span.className = `chip lane ${lane}`
+  span.className = `chip lane ${lane}${glyphOnly ? ' glyph' : ''}`
   const label = lane === 'public' ? 'Encrypted · public relay' : lane === 'sheltered' ? 'Encrypted · circle relay' : 'Encrypted · direct'
   const meaning = 'Message content is encrypted for this conversation. ' + LANE_MEANING[lane]
-  span.textContent = `${LANE_GLYPH[lane]} ${label}`
+  span.append(icon('lock'))
+  if (glyphOnly) {
+    span.setAttribute('role', 'img')
+  } else {
+    const words = document.createElement('span')
+    words.className = 'laneWords'
+    words.textContent = label
+    span.append(words)
+  }
   span.title = meaning
   // The short label only (M9): the fuller meaning stays in the tooltip and
   // in Room details, not repeated in every message's accessible name.
@@ -10648,6 +10661,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const person = document.createElement('button'); person.type = 'button'; person.className = 'messagePerson'
       person.setAttribute('aria-label', `View details for ${shown.name ?? shown.short}`)
       person.setAttribute('aria-haspopup', 'dialog'); person.append(identityRun(shown, mine, true))
+      // Your own name is not drawn above your bubble; the button stays in the page
+      // for a screen reader and is not a tab stop nobody can see.
+      if (mine) person.tabIndex = -1
       person.onclick = () => {
         const current = session?.participants().find(view => view.participant === original.participant)
         const me = meParticipant
@@ -10662,7 +10678,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       if (fromAgent) {
         const badge = document.createElement('span')
         badge.className = 'badge agent'
-        badge.textContent = 'agent'
+        badge.textContent = 'Agent'
         badge.title = 'An agent, not a person'
         sender.append(badge)
       }
@@ -10672,12 +10688,6 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       else if (original.ownerClaim) sender.append(ownerClaimRun(original.ownerClaim))
       header.append(sender)
     }
-    // The time it was first said. An edit does not move a message.
-    header.append(timeChip(original.sentAt, true))
-    // The lane it travelled, from where the bytes went and never from what
-    // the message says about itself. Glyph and word, so it reads without
-    // colour; the meaning is in the title and is the same everywhere.
-    if (original.lane) header.append(laneChip(original.lane))
     if (r.edited && !r.retracted) {
       header.append(chip('edited', `Edited${r.edits.length > 1 ? ` ${r.edits.length} times` : ''}. Earlier versions are kept on every device that received them.`, 'edited'))
     }
@@ -10744,6 +10754,15 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     }
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
     bubble.append(artworkCards(m.artwork, (file, trigger) => attachmentViewer.open(file, trigger), m.text))
+    // The time it was first said (an edit does not move a message) and the
+    // lane it travelled, from where the bytes went and never from what the
+    // message says about itself: the last line of the bubble, at the right.
+    // The lane is a lock whose name and tooltip are the same everywhere.
+    const meta = document.createElement('span')
+    meta.className = 'messageMeta'
+    meta.append(timeChip(original.sentAt, true))
+    if (original.lane) meta.append(laneChip(original.lane, true))
+    bubble.append(meta)
     body.append(bubble)
     row.append(body)
     if (mine && !m.reaction && !m.retracts) {
@@ -10790,8 +10809,8 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const more = document.createElement('button')
       more.type = 'button'
       more.className = 'messageMore'
-      more.textContent = '⋯'
-      more.title = 'Reply, react and more'
+      more.append(icon('more'))
+      more.dataset.tip = 'Reply, react and more'
       more.dataset.focusKey = 'message-actions'
       more.setAttribute('aria-label', `Actions for message from ${senderLabel(original)}`)
       more.setAttribute('aria-haspopup', 'dialog')
@@ -10818,14 +10837,16 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const addReaction = document.createElement('button')
       addReaction.type = 'button'
       addReaction.className = 'messageReact'
-      addReaction.textContent = '☺+'
-      addReaction.title = 'Add a reaction'
+      addReaction.append(icon('smile'))
+      addReaction.dataset.tip = 'Add a reaction'
       addReaction.dataset.focusKey = 'add-reaction'
       addReaction.setAttribute('aria-label', `React to message from ${senderLabel(original)}`)
       addReaction.setAttribute('aria-haspopup', 'dialog')
       addReaction.setAttribute('aria-controls', 'messageActionPanel')
       addReaction.setAttribute('aria-expanded', 'false')
-      addReaction.addEventListener('click', () => openActions(addReaction, true))
+      // On touch React is not drawn (More is), and holding a bubble still opens
+      // the reaction choices, anchored to the button that is.
+      addReaction.addEventListener('click', () => openActions(addReaction.getClientRects().length ? addReaction : more, true))
       const controls = document.createElement('div')
       controls.className = 'messageControls'
       controls.append(addReaction, more)
@@ -17636,7 +17657,7 @@ function renderMentionPicker(): void {
     if (choice.agent && !choice.model) {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
-      badge.textContent = 'agent'
+      badge.textContent = 'Agent'
       option.append(badge)
     }
     // Pointer down rather than click: a tap takes focus off the box, and a
