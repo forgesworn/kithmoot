@@ -80,6 +80,7 @@ export class InvitationsView {
    *  text changes, so a button is never swapped out from under a click. */
   render(): void {
     const waiting = this.#model()
+    if (!waiting.length) this.#error = ''
     const rows = new Map([...this.#list.children].map(row => [(row as HTMLElement).dataset.invitation, row as HTMLLIElement]))
     let index = 0
     for (const invitation of waiting) {

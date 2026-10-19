@@ -15149,7 +15149,8 @@ function peopleModel(): PeopleModel {
 function invitationModel(): WaitingInvitation[] {
   const view = grantedContactView
   const signet = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts : []
-  return waitingInvitations().filter(invitation => !contactIsBlocked(invitation.sender)).map(invitation => {
+  // The same list the Chats count reads, so the count never shows rows that are not there.
+  return waitingInvitations().map(invitation => {
     const peer = invitation.sender
     const contact = signet.find(entry => entry.pubkey === peer), card = contactFor(deviceStore, peer)
     const known = !!contact || !!card || follows.follows(peer)

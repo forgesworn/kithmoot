@@ -2255,5 +2255,6 @@ contact card, then their own public profile, but that last only for somebody
 already known or followed. A stranger is shown by their key and never looked
 up, so nobody can arrive calling themselves "Mum" and no public relay learns
 who wrote to this account. Decline clears the invitation on this device; the
-sender is not told (D1). Not built yet: "Decline and block" (web has no block
-of its own, only Signet's) and Accept skipping the door (stage 6).
+sender is not told (D1). Accept opens the private chat straight away, with no
+door. Not built yet: "Decline and block", because web has no block of its
+own, only Signet's.
