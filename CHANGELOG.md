@@ -1,5 +1,9 @@
 # Changelog
 
+## Desktop 0.1.91, 19 October 2026
+
+- On Windows and Linux the desktop app no longer downloads spelling dictionaries from Google. Electron's built-in spellchecker fetched one from a Google server at start-up; it is now switched off on those systems, so there are no spelling underlines or suggestions there until dictionaries can ship inside the app. The Mac app keeps the macOS spellchecker, which downloads nothing.
+
 ## Desktop 0.1.90 and Android 0.6.93, 19 October 2026
 
 - A calmer room on desktop, web and Android. One palette and type scale on the logo colours, shared by all three apps. Buttons, panels and bubbles lose their borders. Messages from one person within five minutes sit together under one name. The time and the lane sit inside the bubble, the lane as a lock whose name says which lane it is, and "Agent" is an outlined label that reads without colour.
