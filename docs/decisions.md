@@ -2245,3 +2245,15 @@ Signet grant shares them, otherwise where the contact came from ("Signet",
 otherwise nothing. Starting a private chat now asks for the other person's
 relay lists only while public profile lookups are on, as a room already did
 (spec D9); without them the invitation goes to this account's own relays.
+
+Invitations sit at the top of Chats (spec §6.3, `app/src/invitations.ts`):
+"Bob invited you to a private chat", "Sealed for you · 2 minutes ago",
+Decline and Accept. Only private-chat requests arrive there, because the
+private inbox carries nothing else; an invitation to a group room still
+arrives inside the private chat. The inviter is named by Signet, then their
+contact card, then their own public profile, but that last only for somebody
+already known or followed. A stranger is shown by their key and never looked
+up, so nobody can arrive calling themselves "Mum" and no public relay learns
+who wrote to this account. Decline clears the invitation on this device; the
+sender is not told (D1). Not built yet: "Decline and block" (web has no block
+of its own, only Signet's) and Accept skipping the door (stage 6).

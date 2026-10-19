@@ -30,6 +30,7 @@ import type { GrantedContactsView } from './granted-contacts.js'
 import { ContactInbox } from './contact-inbox.js'
 import { FollowBook } from './follow-list.js'
 import { PeopleView, type PeopleModel, type Person } from './people.js'
+import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import type { ContactInvitation } from '../../src/contact-invitation.js'
 import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
 import { showChannelCheckDialog } from './channel-check-dialog.js'
@@ -359,6 +360,9 @@ installIcons()
  * left in history. They live in memory only until the code has been looked up.
  */
 let linkWords: { code: string; words: string } | undefined
+/** Invitations at the top of Chats (invitations.ts), made on first render.
+ *  Declared this early because the list can render before People is set up. */
+let invitationsView: InvitationsView | undefined
 {
   const arrival = readCodeArrival(location.href, href => { try { parseRoomLink(href); return true } catch { return false } })
   if (arrival) {
@@ -2692,7 +2696,7 @@ let people: PeopleView | undefined
 const follows = new FollowBook({
   relays: () => PROFILE_RELAYS,
   transport: urls => relayConnections.pool('follows', urls),
-  onChange: () => renderPeople(),
+  onChange: () => { renderPeople(); renderInvitations() },
 })
 follows.setEnabled(profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
@@ -13149,40 +13153,6 @@ function listHeading(text: string): HTMLLIElement {
   return row
 }
 
-/** One waiting invitation: who asked, and the two answers. Accepting opens
- *  the conversation; declining clears it on this device. */
-function invitationRow(invitation: ReturnType<typeof waitingInvitations>[number]): HTMLLIElement {
-  const peer = invitation.sender
-  const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name ?? shortKey(peer)
-  const row = document.createElement('li')
-  row.className = 'roomRow invitationRow'
-  row.dataset.invitation = invitation.id
-  const text = document.createElement('span')
-  text.className = 'roomText'
-  const title = document.createElement('span')
-  title.className = 'roomName'
-  title.textContent = name
-  const note = document.createElement('span')
-  note.className = 'roomPreview'
-  note.textContent = 'wants a private conversation'
-  text.append(title, note)
-  const accept = document.createElement('button')
-  accept.type = 'button'
-  accept.className = 'primary'
-  accept.dataset.action = 'accept'
-  accept.textContent = 'Accept'
-  accept.setAttribute('aria-label', `Accept private conversation with ${name}`)
-  accept.addEventListener('click', () => { void openContactInvitation(invitation).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) })
-  const decline = document.createElement('button')
-  decline.type = 'button'
-  decline.dataset.action = 'decline'
-  decline.textContent = 'Decline'
-  decline.setAttribute('aria-label', `Decline private conversation with ${name}`)
-  decline.addEventListener('click', () => { void contactInbox?.dismiss(invitation.id).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) })
-  row.append(text, decline, accept)
-  return row
-}
-
 let roomListPress = false, roomListPaintPending = false
 document.addEventListener('pointerdown', event => {
   if ((event.target as Element | null)?.closest('#roomList .open')) roomListPress = true
@@ -13243,6 +13213,7 @@ function renderRooms(): void {
   }
   const invitations = waitingInvitations()
   setCounts({ chats: [...rooms].reduce((total, room) => total + unreadOf(room), 0) + invitations.length })
+  renderInvitations()
   const hidden = disconnectedAccountRooms()
   // A signed-in account keeps the list on screen even before its first room
   // or project arrives: the reconnect banner lives in it, and it must stay
@@ -13323,11 +13294,6 @@ function renderRooms(): void {
   // A repaint must not replace a row between a press and its click.
   if (roomListPress) { roomListPaintPending = true; return }
   list.innerHTML = ''
-  // Invitations sit above everything while any wait.
-  if (invitations.length) {
-    list.append(listHeading('Invitations'))
-    for (const invitation of invitations) list.append(invitationRow(invitation))
-  }
   // Rooms that self-destructed, greyed, naming none (D2), until dismissed or
   // a week has passed: nobody is left wondering where a room went.
   if (!query && listFilter === 'all') for (const tombstone of destroyed) list.append(tombstoneRow(tombstone.id, tombstone.at))
@@ -15176,6 +15142,40 @@ function peopleModel(): PeopleModel {
     : view?.status === 'unavailable' ? 'Your contacts need attention. Choose Add a contact, then Link Signet contacts.'
     : undefined
   return { contacts: contactsList, following, followStatus: snapshot.status, ...(contactsNote ? { contactsNote } : {}) }
+}
+
+/** Invitations (invitations.ts): the inbox's waiting private-chat requests,
+ *  named by the same rule as People and drawn in the shell's slot. */
+function invitationModel(): WaitingInvitation[] {
+  const view = grantedContactView
+  const signet = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts : []
+  return waitingInvitations().filter(invitation => !contactIsBlocked(invitation.sender)).map(invitation => {
+    const peer = invitation.sender
+    const contact = signet.find(entry => entry.pubkey === peer), card = contactFor(deviceStore, peer)
+    const known = !!contact || !!card || follows.follows(peer)
+    // Somebody unknown is never looked up: asking public relays about them
+    // would tell those relays who wrote to this account.
+    if (known) profiles.want([peer])
+    const profile = known ? profiles.get(peer) : undefined
+    return { id: invitation.id, pubkey: peer, sentAt: invitation.sentAt, ...inviterIdentity({
+      ...(contact?.name ? { signetName: contact.name } : {}), ...(card?.name ? { cardName: contactLabel(card) } : {}), known,
+      ...(profile ? { profile: { ...(profile.name ? { name: profile.name } : {}), ...(profile.picture ? { picture: profile.picture } : {}) } } : {}),
+    }) }
+  })
+}
+
+function renderInvitations(): void {
+  const section = document.getElementById('chatInvitations')
+  if (!section) return
+  invitationsView ??= new InvitationsView(section, invitationModel, {
+    accept: async id => {
+      const invitation = waitingInvitations().find(entry => entry.id === id)
+      if (invitation) await openContactInvitation(invitation)
+    },
+    decline: async id => { await contactInbox?.dismiss(id) },
+    when: sentAt => whenWords(sentAt),
+  })
+  invitationsView.render()
 }
 
 function renderPeople(): void {

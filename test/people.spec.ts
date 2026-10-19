@@ -6,6 +6,9 @@ import { parseRoomLink } from '../src/link.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openNewRoomForm } from './browser.js'
 
+/** A key as the app shortens it when there is no name. */
+const shortNpub = (pubkey: string): string => { const npub = npubEncode(pubkey); return `${npub.slice(0, 10)}…${npub.slice(-4)}` }
+
 /** People, from the rail. */
 async function openPeople(page: Page): Promise<void> {
   await page.locator('#railPeople').click()
@@ -57,10 +60,46 @@ test('People lists the people you follow, and Message starts a private chat with
     await alice.locator('#chatInput').press('Enter')
     await expect(alice.locator('#chatLog')).toContainText('Hello Bob, found you through who I follow')
 
-    const bob = await bc.newPage(); await signInAccount(bob, baseURL!)
-    await bob.locator('#homeContacts').click()
-    await expect(bob.locator('#contactInvites li')).toHaveCount(1)
-    await expect(bob.locator('#contactInvites li')).toContainText('wants a private conversation')
+    // Bob sees the request at the top of his chats. Alice is nobody he
+    // knows, so she is shown by her key, not by any name she gives herself.
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const waiting = bob.locator('#chatInvitations li[data-invitation]')
+    await expect(waiting).toHaveCount(1)
+    await expect(waiting).toContainText(`${shortNpub(a)} invited you to a private chat`)
+    await expect(waiting).toContainText('Sealed for you · ')
+    await expect(bob.locator('#railChatsCount')).toHaveText('1')
+    await bob.screenshot({ path: test.info().outputPath('invitation.png') })
+    await waiting.getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await expect(bob.locator('#roomArea')).toBeVisible()
+    await expect(bob.locator('#chatLog')).toContainText('Hello Bob, found you through who I follow')
+    await expect(bob.locator('#chatInvitations')).toBeHidden()
+  } finally { publisher.close(); await ac.close(); await bc.close() }
+})
+
+test('Decline clears an invitation on this device and opens nothing', async ({ browser, baseURL }) => {
+  const aKey = generateSecretKey(), bKey = generateSecretKey()
+  const b = getPublicKey(bKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  try {
+    await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
+    const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
+    await signInAccount(alice, baseURL!)
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await alice.locator('#peopleMessage').click()
+    await expect(alice.locator('#roomArea')).toBeVisible()
+
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const waiting = bob.locator('#chatInvitations li[data-invitation]')
+    await expect(waiting).toHaveCount(1)
+    await waiting.locator('button[data-action="decline"]').click()
+    await expect(bob.locator('#chatInvitations')).toBeHidden()
+    await expect(bob.locator('#railChatsCount')).toBeHidden()
+    await expect(bob.locator('#roomArea')).toBeHidden()
+    await bob.reload()
+    await expect(bob.getByRole('navigation', { name: 'Chats' })).toBeVisible()
+    await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 

@@ -478,7 +478,7 @@ export class PeopleView {
   }
 }
 
-function shortNpub(pubkey: string): string {
+export function shortNpub(pubkey: string): string {
   const npub = npubEncode(pubkey)
   return `${npub.slice(0, 10)}…${npub.slice(-4)}`
 }
@@ -493,18 +493,24 @@ function subline(person: Person): string {
 }
 
 function avatar(person: Person, className: string): HTMLElement {
-  const name = person.name ?? npubEncode(person.pubkey).slice(5)
+  return personAvatar(person.pubkey, person.name, person.picture, className)
+}
+
+/** A round avatar: the initial in a colour taken from the key, with the
+ *  picture over it when there is one. Invitations use it too, so a person
+ *  looks the same in Chats and in People. */
+export function personAvatar(pubkey: string, name: string | undefined, picture: string | undefined, className: string): HTMLElement {
   const span = document.createElement('span')
   span.className = className
-  span.dataset.slot = String(avatarSlot(person.pubkey))
+  span.dataset.slot = String(avatarSlot(pubkey))
   span.setAttribute('aria-hidden', 'true')
-  span.textContent = avatarInitial(name)
-  if (person.picture) {
+  span.textContent = avatarInitial(name ?? npubEncode(pubkey).slice(5))
+  if (picture) {
     const image = document.createElement('img')
     image.alt = ''
     image.loading = 'lazy'
     image.referrerPolicy = 'no-referrer'
-    image.src = person.picture
+    image.src = picture
     image.addEventListener('error', () => image.remove(), { once: true })
     span.append(image)
   }
