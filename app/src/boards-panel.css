@@ -1,9 +1,9 @@
-#boardsPanel { box-sizing: border-box; width: min(96rem, calc(100vw - 2rem)); height: calc(100dvh - 2rem); max-width: 100vw; max-height: 100dvh; padding: 0; border: 1px solid var(--border); border-radius: 14px; color: var(--text); background: var(--bg); }
+#boardsPanel { box-sizing: border-box; width: min(96rem, calc(100vw - 2rem)); height: calc(100dvh - 2rem); max-width: 100vw; max-height: 100dvh; padding: 0; border: 1px solid var(--border); border-radius: var(--r-m); color: var(--text); background: var(--bg); }
 #boardsPanel .boardsShell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .boardsBar { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding: .75rem 1rem; border-bottom: 1px solid var(--border); }
-.boardsBar h2 { margin: 0; font-size: 1.1rem; flex: 1; }
+.boardsBar h2 { margin: 0; font-size: var(--fs-3); flex: 1; }
 .boardsBar button { margin: 0; min-height: 44px; }
-.boardsContext { margin: 0; padding: .6rem 1rem; font-size: .9rem; overflow-wrap: anywhere; }
+.boardsContext { margin: 0; padding: .6rem 1rem; font-size: var(--fs-2); overflow-wrap: anywhere; }
 .boardsScopes { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: 0 1rem .6rem; }
 .boardsSaved, .roomBoardLinks { display: flex; gap: .5rem; align-items: center; overflow-x: auto; padding: .4rem 1rem; flex: 0 0 auto; }
 .boardsSaved[hidden], .roomBoardLinks[hidden] { display: none; }
@@ -19,7 +19,7 @@
 .boardsPopup { box-sizing: border-box; margin: 0; padding: 0; max-width: none; width: 100%; height: 100dvh; display: flex; flex-direction: column; background: var(--bg, #101114); color: var(--text, #eee); font: 16px system-ui, sans-serif; }
 .boardsPopup .boardsContext { flex: 1; padding: 0; }
 .boardsPopup .boardsBar { flex: 0 0 auto; }
-.boardsPopup button { color: inherit; background: transparent; border: 1px solid var(--border, #666); border-radius: 6px; padding: .4rem .8rem; cursor: pointer; }
+.boardsPopup button { color: inherit; background: transparent; border: 1px solid var(--border, #666); border-radius: var(--r-s); padding: .4rem .8rem; cursor: pointer; }
 @media (max-width: 700px) {
   #boardsPanel { width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
   .boardsScopes { display: block; }

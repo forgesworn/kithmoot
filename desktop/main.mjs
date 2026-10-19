@@ -255,7 +255,7 @@ async function createWindow() {
     // Follows the OS rather than always dark: the two --bg values from
     // app/src/style.css, so a light-mode launch shows no dark flash before
     // the first paint (finding 17).
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#101114' : '#faf8f3', show: !testProfile,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1215' : '#ffffff', show: !testProfile,
     webPreferences: {
       session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
@@ -299,7 +299,7 @@ async function createWindow() {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
-          title: 'KithMoot', backgroundColor: '#101114', autoHideMenuBar: true,
+          title: 'KithMoot', backgroundColor: '#0f1215', autoHideMenuBar: true,
           ...(url === AREA_URL && areaMode === 'preview' ? { title: 'Share an area', minWidth: 460, minHeight: 320 } : {}),
           ...(url === AREA_URL && areaMode !== 'preview' ? { transparent: true, backgroundColor: '#00000000', frame: false, alwaysOnTop: true, hasShadow: false, resizable: false, minWidth: 460, minHeight: 200 } : {}),
           webPreferences: {

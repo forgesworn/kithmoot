@@ -104,7 +104,8 @@ test('a phone reads the conversation: size, width, contrast and no sideways scro
       await page.emulateMedia({ colorScheme })
       expect(await px(page, '#chatLog .bubble .text')).toBeGreaterThanOrEqual(16)
       for (const secondary of ['#chatLog .msg .sender', '#chatLog .msg .when', '#chatLog .msg .chip']) {
-        expect(await px(page, secondary), secondary).toBeGreaterThanOrEqual(14)
+        // The calm shell's caption size: times, names above a run and chips.
+        expect(await px(page, secondary), secondary).toBeGreaterThanOrEqual(13)
       }
       for (const [selector, floor] of [
         ['#chatLog .msg.theirs:not(.fromAgent) .bubble .text', 4.5],
@@ -125,8 +126,9 @@ test('a phone reads the conversation: size, width, contrast and no sideways scro
       const logWidth = await log.evaluate(el => el.clientWidth)
       const bubble = await page.locator('#chatLog .msg').filter({ hasText: 'risk assessment' }).locator('.bubble').boundingBox()
       expect(bubble!.width / logWidth).toBeGreaterThanOrEqual(0.75)
-      // Every message keeps both of its buttons, at thumb size.
-      for (const control of await page.locator('#chatLog .messageControls button').all()) {
+      // On touch each message keeps its actions button at thumb size, which
+      // opens React, Reply and the rest; holding a bubble opens the same panel.
+      for (const control of await page.locator('#chatLog .messageMore').all()) {
         const box = (await control.boundingBox())!
         expect(box.width).toBeGreaterThanOrEqual(43.5); expect(box.height).toBeGreaterThanOrEqual(43.5)
       }

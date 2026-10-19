@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1215" media="(prefers-color-scheme: dark)" />
     <meta name="referrer" content="no-referrer" />
     <meta name="description" content="A workspace nobody owns." />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
@@ -317,7 +317,8 @@
 
         <!-- One line. Back, who and where you are, a call, and the rest. -->
         <div class="roomBar">
-          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher">Rooms</button>
+          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher"
+                  aria-label="Rooms" data-tip="Rooms"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
           <!-- The name and the who-is-here line are one control, because
                they answer the same question and a reader who wants more
                about either taps the thing they are looking at. -->
@@ -329,13 +330,15 @@
               <span id="roomWho" class="roomWho"></span>
             </span>
           </button>
+          <!-- The word is in the page for assistive technology and for the tests;
+               the button shows the phone. `renderCallState` in app/src/main.ts
+               writes the word and swaps the picture. -->
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
-                  title="Call: microphone, camera and screen share" aria-label="Call controls">Call</button>
-          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Boards</button>
+                  data-tip="Call: microphone, camera and screen share" aria-label="Call controls"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-phone"/></svg><span class="barWord">Call</span></button>
+          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel"
+                  data-tip="Boards"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span class="barWord">Boards</span></button>
           <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
-                  aria-label="Room details">
-            <span aria-hidden="true">&#8943;</span>
-          </button>
+                  aria-label="Room details" data-tip="Room details"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg></button>
         </div>
 
         <nav id="roomBoards" class="roomBoardLinks" aria-label="Boards in this chat" hidden></nav>
@@ -466,37 +469,35 @@
                a message, or replacing one of yours. Filled in by
                `renderComposerContext` in app/src/main.ts. -->
           <div id="composerContext" class="composerContext" hidden></div>
-          <!-- Which lane the next message will take, and what that lane
-               delivers. Worked out from where the bytes go, never claimed.
-               Filled in by `renderLaneNote` in app/src/main.ts. -->
           <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
-          <!-- A box, not a line. It was one line that scrolled sideways, so
-               a long message could not be read back before it was sent -
-               and a person who cannot re-read what they wrote sends it
-               anyway. It grows with what is typed, up to a few lines, and
-               then scrolls. Enter sends; Shift and Enter start a new line.
-               See the `keydown` handler in app/src/main.ts. -->
-          <textarea id="chatInput" placeholder="Say something" autocomplete="off" rows="1"
-                    enterkeyhint="send" aria-label="Say something" role="combobox"
-                    aria-autocomplete="list" aria-controls="mentions" aria-expanded="false"></textarea>
-          <!-- The word on a screen with room for it, a plus on one without.
-               The accessible name never changes and neither does what the
-               button is: only how much of it there is room to print. It is
-               NOT allowed to rename itself as you use it - the count goes
-               in its own span - because a control that changes identity
-               under a person is a control they stop trusting. -->
-          <!-- The lane the next message takes, as a chip in the button row
-               rather than a row of its own above the box: a row above the
-               box was a row taken from the conversation on every phone. -->
-          <div id="laneNote" class="laneNote" role="status" hidden></div>
-          <button type="button" id="mediaToggle" aria-label="GIFs and stickers" title="GIFs and stickers">GIF</button>
-          <button type="button" id="emojiToggle" aria-label="Choose an emoji" title="Emoji, stickers and GIFs"><img src="%BASE_URL%emoji/happy.png" alt="" width="28" height="28" /></button>
+          <!-- One row, one height and one centre line: add a file, the field,
+               send. The picture buttons are all the height of a control, so
+               nothing in the row is taller than the rest. The word of each
+               stays in its name. -->
           <button type="button" id="attachToggle" aria-label="Add a file"
-                  title="Send a file: drop one here, or pick one">
-            <span class="attachIcon" aria-hidden="true">+</span>
-            <span class="attachWord">Add a file</span><span id="attachCount" class="attachCount"></span>
+                  data-tip="Send a file: drop one here, or pick one">
+            <svg class="i" aria-hidden="true" focusable="false"><use href="#i-plus"/></svg><span id="attachCount" class="attachCount"></span>
           </button>
-          <button type="submit" class="primary" aria-label="Send"><span class="sendWord">Send</span><svg class="sendIcon" aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3l18 9-18 9 4-9z" /></svg></button>
+          <!-- The field is a pill that holds the box people type into, the
+               lane the next message takes, and the emoji picker, which also
+               holds the GIFs and stickers. -->
+          <div class="composerField">
+            <!-- The lane the next message takes, worked out from where the
+                 bytes go, never claimed. Filled in by `renderLaneNote` in
+                 app/src/main.ts. -->
+            <div id="laneNote" class="laneNote" role="status" hidden></div>
+            <!-- A box, not a line. It was one line that scrolled sideways, so
+                 a long message could not be read back before it was sent -
+                 and a person who cannot re-read what they wrote sends it
+                 anyway. It grows with what is typed, up to a few lines, and
+                 then scrolls. Enter sends; Shift and Enter start a new line.
+                 See the `keydown` handler in app/src/main.ts. -->
+            <textarea id="chatInput" placeholder="Say something" autocomplete="off" rows="1"
+                      enterkeyhint="send" aria-label="Say something" role="combobox"
+                      aria-autocomplete="list" aria-controls="mentions" aria-expanded="false"></textarea>
+            <button type="button" id="emojiToggle" aria-label="Emoji, GIFs and stickers" data-tip="Emoji, GIFs and stickers"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-smile"/></svg></button>
+          </div>
+          <button type="submit" class="primary" aria-label="Send" data-tip="Send"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-send"/></svg></button>
         </form>
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>

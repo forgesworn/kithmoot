@@ -45,7 +45,9 @@ test('a phone guest reviews details before one deliberate request, and retry nee
     await expect(f.guest.locator('#notify')).toBeHidden()
     await f.guest.locator('#displayName').fill('Synthetic visitor')
     await f.guest.evaluate(() => { document.documentElement.style.fontSize = '20px' })
-    await f.guest.locator('#requestAdmission').scrollIntoViewIfNeeded()
+    // The request and the way out of it can be on screen together: bring the
+    // later of the two into view, and the one above it has to be there too.
+    await f.guest.locator('#cancelAdmission').scrollIntoViewIfNeeded()
     await expect(f.guest.locator('#requestAdmission')).toBeInViewport()
     await expect(f.guest.locator('#cancelAdmission')).toBeInViewport()
     expect(await f.guest.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)

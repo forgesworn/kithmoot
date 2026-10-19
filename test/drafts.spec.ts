@@ -557,7 +557,7 @@ test('clipboard screenshot waits locally for storage consent, uploads once and s
     await expect(viewer).toHaveCount(0)
     await expect(attachment.getByRole('button', { name: 'Expand screenshot.png' })).toBeFocused()
     await popup.close()
-    await expect(page.locator('#chatLog .lane').first()).toContainText('Encrypted · public relay')
+    await expect(page.locator('#chatLog .lane').first()).toHaveAttribute('aria-label', 'Encrypted · public relay')
     await page.screenshot({ path: '/tmp/kithmoot-pasted-screenshot.png' })
   } finally { await context.close() }
 })

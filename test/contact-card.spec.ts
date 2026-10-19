@@ -76,7 +76,8 @@ test('a contact card marks its holder without treating its transport relay as sh
     await page.locator('#chatInput').press('Enter')
     const sent = page.locator('#chatLog .msg').filter({ hasText: 'through the box' })
     await expect(sent).toBeVisible()
-    await expect(sent.locator('.chip.lane')).toHaveText(/public/)
+    // On a message the lane is a lock whose name is the lane.
+    await expect(sent.locator('.chip.lane')).toHaveAttribute('aria-label', /public/)
     await expect.poll(() => rowan.chat.messages().some(m => m.text === 'through the box')).toBe(true)
 
     // Ada's own card, signed by whatever holds her identity, reads back
