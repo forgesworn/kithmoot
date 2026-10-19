@@ -11,7 +11,7 @@ export class ChatScroll {
   #scope = ''
   #paused = true
   #pending?: ReadingPlace
-  #painted?: { top: number; height: number; total: number; place: ReadingPlace }
+  #painted?: { top: number; height: number; width: number; total: number; place: ReadingPlace }
   #channel: string | undefined
   #ids = new Set<string>()
   #places = new Map<string, ReadingPlace>()
@@ -66,8 +66,12 @@ export class ChatScroll {
       // WebKit can deliver resize before a queued scrollbar/programmatic
       // scroll event. A move beyond the resize's anchoring allowance means
       // the reader already left the bottom; do not reinstate follow mode.
+      // A new width is different: every message reflows, and scroll
+      // anchoring holds the top message still by moving as far as the text
+      // above it grew, which can be thousands of pixels.
       const resizedBy = Math.abs(log.clientHeight - this.#painted.height)
-      if (Math.abs(log.scrollTop - this.#painted.top) > resizedBy + 48) {
+      const reflowed = log.clientWidth !== this.#painted.width
+      if (!reflowed && Math.abs(log.scrollTop - this.#painted.top) > resizedBy + 48) {
         this.#paint()
         return
       }
@@ -111,7 +115,7 @@ export class ChatScroll {
   }
 
   #paint(place = this.#place()): void {
-    this.#painted = { top: this.#log.scrollTop, height: this.#log.clientHeight, total: this.#log.scrollHeight, place }
+    this.#painted = { top: this.#log.scrollTop, height: this.#log.clientHeight, width: this.#log.clientWidth, total: this.#log.scrollHeight, place }
   }
 
   #place(): ReadingPlace {
