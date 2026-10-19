@@ -17,6 +17,7 @@
 }
 .peopleList .listHead h2 {
   margin: 0;
+  color: var(--text);
   font-size: var(--fs-4);
   line-height: var(--lh-4);
 }
@@ -238,6 +239,7 @@
 }
 .peoplePane .contactCard h2 {
   margin: var(--s3) 0 var(--s1);
+  color: var(--text);
   font-size: var(--fs-4);
   line-height: var(--lh-4);
   overflow-wrap: anywhere;
@@ -258,7 +260,9 @@
 
 .peoplePane .contactActions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 5.5rem));
+  width: 100%;
+  max-width: 23rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--s2);
   margin: var(--s5) 0 var(--s2);
 }
