@@ -18,6 +18,19 @@ publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
 
 
+class VisionPin(unittest.TestCase):
+    def test_only_the_exact_component_pin_and_repository_can_be_published(self):
+        pin = "a" * 40
+        entry = f"160000 commit {pin}\tvision\n"
+        manifest = {"vision_revision": pin, "vision_repository": "https://github.com/forgesworn/kithmoot-vision"}
+        self.assertEqual(publisher.checked_vision_pin(manifest, entry), pin)
+        for changed in ({}, {**manifest, "vision_revision": "b" * 40},
+                        {**manifest, "vision_repository": "https://example.invalid/other"}):
+            with self.assertRaises(ValueError): publisher.checked_vision_pin(changed, entry)
+        for changed_entry in ("", f"040000 tree {pin}\tvision", f"160000 commit {pin}\tother"):
+            with self.assertRaises(ValueError): publisher.checked_vision_pin(manifest, changed_entry)
+
+
 class Publication(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="kithmoot-phone-transaction-")

@@ -2,10 +2,10 @@ name: Vision learning checks
 
 on:
   pull_request:
-    paths: ['vision/**', 'deploy/phone-access*.py', 'deploy/Caddyfile.kithmoot', '.github/workflows/vision.yml']
+    paths: ['vision', '.gitmodules', 'scripts/build-vision-lab*.mjs', 'vision/**', 'deploy/phone-access*.py', 'deploy/Caddyfile.kithmoot', '.github/workflows/vision.yml']
   push:
     branches: [main]
-    paths: ['vision/**', 'deploy/phone-access*.py', 'deploy/Caddyfile.kithmoot', '.github/workflows/vision.yml']
+    paths: ['vision', '.gitmodules', 'scripts/build-vision-lab*.mjs', 'vision/**', 'deploy/phone-access*.py', 'deploy/Caddyfile.kithmoot', '.github/workflows/vision.yml']
   workflow_dispatch:
 
 permissions:
@@ -19,6 +19,9 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+          submodules: true
+      - name: Check pinned consumer and component provenance
+        run: node --test scripts/build-vision-lab.test.mjs
       - name: Check isolated publication and rollback
         run: python3 deploy/phone-access.test.py -v
       - name: Install CPU training dependencies
@@ -66,3 +69,24 @@ jobs:
         run: |
           ../.vision-venv/bin/python -m kithmoot_vision.export "$RUNNER_TEMP/kithmoot-vision/mobile-v2/experimental.pt" "$RUNNER_TEMP/kithmoot-vision/mobile-v2/experimental.kvm"
           node --test lab/browser.test.mjs
+      - name: Exercise local source review, annotation and dataset export
+        env:
+          VISION_WORKSHOP_EXPORT: ${{ runner.temp }}/workshop-reviewed-fixture.json
+        run: |
+          node --test vision/workshop/browser.test.mjs
+          cd vision
+          ../.vision-venv/bin/python -m kithmoot_vision.workshop "$RUNNER_TEMP/workshop-reviewed-fixture.json" --output "$RUNNER_TEMP/workshop-reviewed-data"
+          ../.vision-venv/bin/python -m kithmoot_vision.train "$RUNNER_TEMP/workshop-reviewed-data/manifest.jsonl" "$RUNNER_TEMP/workshop-model" --steps 2
+          ../.vision-venv/bin/python -m kithmoot_vision.evaluate "$RUNNER_TEMP/workshop-model/experimental.pt" "$RUNNER_TEMP/workshop-reviewed-data/manifest.jsonl"
+          ../.vision-venv/bin/python -m kithmoot_vision.export "$RUNNER_TEMP/workshop-model/experimental.pt" "$RUNNER_TEMP/workshop-model/experimental.kvm"
+      - name: Verify the pinned library's static consumer bundle
+        run: |
+          node --input-type=module - <<'JS'
+          import { buildVisionLab } from './scripts/build-vision-lab.mjs'
+          const manifest = await buildVisionLab(process.env.RUNNER_TEMP + '/vision-consumer-preview', {
+            modelDirectory: process.env.RUNNER_TEMP + '/kithmoot-vision/mobile-v2',
+            dataDirectory: process.env.RUNNER_TEMP + '/kithmoot-vision/data',
+          })
+          console.log(JSON.stringify({ revision: manifest.revision, vision_revision: manifest.vision_revision, qualified: manifest.qualified }))
+          JS
+          python3 deploy/phone-access.py --lab "$RUNNER_TEMP/vision-consumer-preview" --base-revision 0000000000000000000000000000000000000000 --check
