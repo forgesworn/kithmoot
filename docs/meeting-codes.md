@@ -12,8 +12,12 @@ A host taps **Get a meeting code** and can read out or send:
   screen (web, desktop, Android);
 - or the link `https://kithmoot.app/c/ABC-DEF-GH` (25 characters), which opens
   the app where it is installed and the browser otherwise;
-- and, when **Add a password** is on, four password words such as
-  `ability zoo jasmine forget`, sent separately (see [Password](#password)).
+- and, when **Add a password** is on, the same link with four password words
+  after a `#`, such as `https://kithmoot.app/c/ABCDEFGH#ability-zoo-jasmine-forget`.
+  That one link joins in a tap with no prompt; the words are in the fragment,
+  which no server receives (see [Password](#password)). A host who prefers to
+  send the words in a different message switches on **Send the password
+  separately**, and the link is then the bare one above.
 
 ## Trust model
 
@@ -47,6 +51,15 @@ or withhold an envelope; it cannot substitute one the words open. The
 password is on by default for rooms without a waiting room, where the link
 alone lets someone in, and off by default for Ask rooms, where a member must
 still press Let in.
+
+By default the host's link carries the words too, in its fragment, so a guest
+taps once and nothing is typed. The fragment is never sent to any server, so
+the service still holds only the sealed envelope and still cannot open it. What
+changes is who holds both halves: a link with its words is as strong as the
+full invitation link it stands for, and whoever has it can enter and forward
+it. The password's job, keeping the invitation from the service and from
+someone who merely guesses a code, is unchanged. A host who wants a link seen
+in one place not to be enough switches on **Send the password separately**.
 
 Chat, calls and files stay end-to-end encrypted from everyone outside the
 room in every case; the service never sees room traffic. Only the room's
@@ -184,25 +197,62 @@ the guest's decryption failing. It also means the client must know the code
 before sealing, so the service allocates first: `POST {sealed: true,
 expires}`, seal, then `PUT` the envelope with the upload token.
 
+**Link fragment.** The words travel in the short link's fragment:
+`https://kithmoot.app/c/<CODE>#<words>`, where `<words>` is the canonical words
+joined by single hyphens, lowercase, with no spaces: `ability-zoo-jasmine-forget`.
+Every word in the list is `a-z` only, so a hyphen never occurs inside one and
+nothing is percent-encoded; the canonical words come back exactly. The web app
+formats and parses it in `passwordFragment` and `parsePasswordFragment`
+(`app/src/meeting-codes.ts`), and the desktop app checks the same shape against
+its own copy of the word list. Parsing is stricter than for typed words: a
+leading `#` is allowed, then exactly four words from the list joined by single
+hyphens. Upper case, spaces or `%20`, commas, underscores, `%2D`, a doubled,
+leading or trailing hyphen, three or five words, a word outside the list and
+any trailing text are all refused, and nothing is corrected. Words never go in
+a query string, a request or a log.
+
 **Host.** Next to Get a meeting code, an **Add a password** switch, on by
 default for rooms without a waiting room (Ask off) and off by default for Ask
 rooms, until the host sets it in that sheet. With it on: allocate, seal,
 upload; any failure after allocation deletes the pending code. Then the sheet
-shows the code, the short link and the four words. Copy puts the code and
-link on one line and the words on the next, and the sheet tells the host to
-send the words separately; Share sends the code and link only. The words are
-kept with the code's record in the device store, beside its delete token, so
-the sheet shows them again; they never go on the delete queue, in a link or
-to another member.
+shows the code and the one short link with the words in its fragment. Copy
+puts that link, and only that link, on the clipboard (no code and no password
+line, since a bare code in the text would ask a guest for words they were
+never shown); Share sends it with a line that does not name the code. A host
+who reads the bare code out loud still needs to give the words, so the sheet
+keeps them behind **Reading the code out loud? Show the password words**,
+beside the code and never in the default share text.
 
-**Guest.** When a lookup answers with an envelope, the door asks **Enter the
-password words you were given** in one field. Words that do not parse, or do
-not open the envelope, say **Those words do not match. Check them and try
-again.** There is no client-side lockout: each try is local and a fresh
-lookup spends the service's budget. The opened link is checked exactly as a
-plain code's link is (`returnedJoinFragment`), then goes through the
-existing `openLink` door; it never auto-joins. The words and the envelope
-are held in memory only and never stored on the guest's device.
+A second switch, **Send the password separately**, is off by default and
+appears once a code has words. On, the link is the bare `https://kithmoot.app/c/<CODE>`,
+the four words are shown for sending on their own, Copy puts the code and link
+on one line and the words on the next, and the sheet tells the host to send
+the words separately; Share sends the code and bare link only. It is a choice
+about what the link says: sealing, the envelope and the service's record are
+the same either way, and it is kept for the life of the page, not reset each
+time the sheet opens. The words are kept with the code's record in the device
+store, beside its delete token, so the sheet shows them again; they never go
+on the delete queue or to another member.
+
+**Guest.** A link with words arrives on the join page as
+`/j/?c=<CODE>#<words>` (see [Routing](#routing)). Before anything else reads the
+address, the page reads the fragment, removes it from the address bar with
+`history.replaceState` so the words are not left in history, and keeps the
+words in memory only. When the lookup answers with an envelope, the words open
+it silently and the page continues to the door with no prompt. If the fragment
+is absent, is not four list words, or opens nothing, the door asks **Enter the
+password words you were given** in one field instead (a fragment that is
+neither words nor a room link is dropped, so that is the outcome rather than
+an incomplete-link failure). Typing a code in by hand always asks, as does a
+bare link. Words that do not parse, or do not open the envelope, say **Those
+words do not match. Check them and try again.** There is no client-side
+lockout: each try is local and a fresh lookup spends the service's budget. The
+opened link is checked exactly as a plain code's link is
+(`returnedJoinFragment`), then goes through the existing `openLink` door; it
+never auto-joins. The words and the envelope are held in memory only, never
+stored on the guest's device, logged, or sent anywhere. The link as it was
+sent still sits wherever it was sent or pasted, and a browser may record the
+address it was first given before the redirect.
 
 ## Routing
 
@@ -210,7 +260,12 @@ are held in memory only and never stored on the guest's device.
   before the catch-all, as `/turn` does.
 - `kithmoot.app/c/<code>`: Caddy answers `302` to
   `https://kithmoot.forgesworn.dev/j/?c=<code>` with `Cache-Control: no-store`,
-  so Cloudflare does not cache it. The app reads `c` from the query.
+  so Cloudflare does not cache it. The app reads `c` from the query. The
+  `Location` names no fragment of its own, so the browser carries the fragment
+  of the link it followed (the password words) through the redirect, and the
+  server, which is never sent a fragment, sees neither. A fragment in
+  `Location` would replace the browser's, so a test reads the Caddyfile and
+  fails if one is ever added.
 
 ## Clients
 
@@ -234,8 +289,8 @@ not block the action. Expiry needs no client.
 `/j/?c=<code>`, `kithmoot.app/c/<code>` (desktop `invitationTarget` and the
 Android verified link) and the typed code all do the same thing: canonicalise,
 GET, then hand the returned link to the existing `openLink` flow, which shows
-the door. A code with a password asks for its words first (see
-[Password](#password)). `410` shows **This meeting has ended**; `404` **We could not find
+the door. A code with a password asks for its words first, unless the link it
+arrived in carried them in its fragment (see [Password](#password)). `410` shows **This meeting has ended**; `404` **We could not find
 that code. Check it and try again**; `429` **Too many tries. Wait a minute**;
 network failure offers Retry. A code never auto-joins.
 
@@ -243,12 +298,15 @@ network failure offers Retry. A code never auto-joins.
 
 1. **Web and desktop (kithmoot):** service, tests, Caddy, unit, docs; create,
    delete and join in the web app; desktop `invitationTarget` accepts
-   `https://kithmoot.app/c/<code>` and `kithmoot://c/<code>`. Ship with the
-   next desktop release.
+   `https://kithmoot.app/c/<code>` and `kithmoot://c/<code>`, each with an
+   optional fragment of exactly four list words (passed through as
+   `?c=<code>#<words>`; any other fragment, a query, host or path is still
+   refused). Ship with the next desktop release.
 2. **Android join and End room:** verified link filter `kithmoot.app`
    `pathPrefix /c` (assetlinks already lists the package), Join with code, a
    confirmation door for code arrivals (Android currently enters group links
-   at once), and End room for the creator. End room is what stops a late
+   at once), reading the password words from a code link's fragment as the
+   web does, and End room for the creator. End room is what stops a late
    Join ringing everyone on Android, codes or not.
 3. **Android host:** Ask rooms and Get a meeting code on Android.
 
@@ -262,7 +320,14 @@ bounded store refuses creation when full; sealed allocation, single upload
 injected clock, envelope bounds and strict base64url, pending lookups as
 misses. Password: the word list's hash and count, unbiased generation,
 parsing, seal and open, wrong words, tampered code, expiry, salt, nonce and
-ciphertext, and the fixed vector. Web: eligibility, create stores the
-token with the room, End room and New link delete, Join with code reaches the
-door without joining, each error message. Desktop: policy accepts the two code
-forms and nothing looser.
+ciphertext, and the fixed vector; the fragment format and parse, round-tripping
+every list word and refusing malformed fragments; the Caddy redirect sets no
+fragment. Web: eligibility, create stores the token with the room, End room and
+New link delete, Join with code reaches the door without joining, each error
+message; a code link with its words reaches the door with no prompt, one lookup
+and nothing of the words sent, stored or left in the address bar; wrong,
+malformed or missing words fall back to the prompt; the host's default link
+carries the words and shares as that one link, and Send the password
+separately restores the bare link with the words apart. Desktop: policy accepts
+the two code forms, each with an optional fragment of four list words, and
+nothing looser.

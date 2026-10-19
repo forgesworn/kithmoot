@@ -17,7 +17,9 @@
  * A code may carry a password of four words (docs/meeting-codes.md,
  * "Password"): the host seals the link under them before the service sees
  * it, so the service holds only an envelope it cannot open. The host keeps
- * the words with the code's record; a guest's are never stored.
+ * the words with the code's record and, unless the host sends them apart,
+ * puts them in the short link's fragment (`passwordFragment`), which no
+ * server receives; a guest's are never stored.
  */
 import type { DeviceStore } from './device-store.js'
 // The frozen foregather en-v1 word list, copied byte for byte from
@@ -61,11 +63,16 @@ export function displayMeetingCode(code: string): string {
   return `${canonical.slice(0, 3)}-${canonical.slice(3, 6)}-${canonical.slice(6)}`
 }
 
-/** The short link a code opens: the canonical form, which is what URLs carry. */
-export function meetingCodeLink(code: string): string {
+/**
+ * The short link a code opens: the canonical form, which is what URLs carry.
+ * With the code's password words it is `/c/<CODE>#<words>`, so one tap joins.
+ * The words ride in the fragment, which a browser never sends to any server
+ * (docs/meeting-codes.md, "Password").
+ */
+export function meetingCodeLink(code: string, words?: string): string {
   const canonical = parseMeetingCode(code)
   if (!canonical) throw new Error('not a meeting code')
-  return SHORT_LINK_BASE + canonical
+  return SHORT_LINK_BASE + canonical + (words === undefined ? '' : '#' + passwordFragment(words))
 }
 
 /**
@@ -242,6 +249,52 @@ export function parsePasswordWords(value: string): string | undefined {
   const words = text.split(/[\s,-]+/)
   if (words.length !== PASSWORD_WORD_COUNT || !words.every(word => PASSWORD_WORD_SET.has(word))) return undefined
   return words.join(' ')
+}
+
+/**
+ * The words as the body of a link's fragment: the canonical words joined by
+ * hyphens, such as `ability-zoo-jasmine-forget`. Every word in the list is
+ * lowercase `a-z` only, so a hyphen never occurs inside one and nothing
+ * needs percent-encoding: `parsePasswordFragment` returns exactly the
+ * canonical words this was made from. No leading `#`.
+ */
+export function passwordFragment(words: string): string {
+  const canonical = parsePasswordWords(words)
+  if (!canonical) throw new Error('not a password')
+  return canonical.replaceAll(' ', '-')
+}
+
+/**
+ * The canonical words a link's fragment carries, or undefined. Takes
+ * `location.hash` (the leading `#` is optional) and is stricter than
+ * `parsePasswordWords`: exactly four lowercase words joined by single
+ * hyphens, each in the list. Uppercase, spaces, commas, percent-escapes,
+ * extra or missing words and trailing text are all refused, so a fragment
+ * that is anything else falls back to asking for the words.
+ */
+export function parsePasswordFragment(hash: string): string | undefined {
+  const text = hash.startsWith('#') ? hash.slice(1) : hash
+  if (text.length > 64 || !/^[a-z]+(?:-[a-z]+){3}$/.test(text)) return undefined
+  return parsePasswordWords(text.replaceAll('-', ' '))
+}
+
+/**
+ * A join-page address that arrived with `?c=<code>`: the password words from
+ * its `#<words>` fragment, and the address to leave in the bar without it,
+ * so the words are not kept in history. Undefined when there is no code or
+ * no fragment, or when the fragment is already a room link (that is opened
+ * as it always was). A fragment that is neither words nor a room link is
+ * dropped too, so the person is asked for the words rather than shown an
+ * incomplete-link failure. `isRoomLink` decides the second case.
+ */
+export function readCodeArrival(href: string, isRoomLink: (href: string) => boolean): { words?: string; cleaned: string } | undefined {
+  let url: URL
+  try { url = new URL(href) } catch { return undefined }
+  if (!url.searchParams.has('c') || url.hash.length <= 1) return undefined
+  const words = parsePasswordFragment(url.hash)
+  if (!words && isRoomLink(href)) return undefined
+  url.hash = ''
+  return { ...(words ? { words } : {}), cleaned: url.pathname + url.search }
 }
 
 /** The GCM additional data: the code and expiry the envelope is bound to. */

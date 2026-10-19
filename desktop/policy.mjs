@@ -1,4 +1,5 @@
 import { resolve, sep } from 'node:path'
+import { PASSWORD_WORD_LIST } from './meeting-code-words.mjs'
 export const ORIGIN = 'https://kithmoot.forgesworn.dev'
 export const HOME = `${ORIGIN}/j/`
 export const CSP = "default-src 'self'; script-src https://kithmoot.forgesworn.dev/j/ 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src https://kithmoot.forgesworn.dev/j/; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src https://kithmoot.forgesworn.dev/j/girnel/; frame-ancestors 'none'"
@@ -30,18 +31,34 @@ export function invitationTarget(value) {
 /** A meeting code's eight symbols (foregather base32-en-v1), plain or in
  *  triples, as docs/meeting-codes.md parses them. */
 const MEETING_CODE = /^(?:[0-9A-HJKMNP-TV-Z]{8}|[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{2})$/i
+const PASSWORD_WORDS = new Set(PASSWORD_WORD_LIST.split('\n'))
+/**
+ * The four words of a `#word-word-word-word` fragment, or undefined: exactly
+ * four lowercase words from the frozen list, joined by single hyphens, as
+ * the web app writes them (formatted and parsed in app/src/meeting-codes.ts,
+ * "passwordFragment"). Nothing is corrected, decoded or matched loosely.
+ */
+function passwordWordsIn(hash) {
+  const match = /^#([a-z]+(?:-[a-z]+){3})$/.exec(hash)
+  return match && match[1].split('-').every(word => PASSWORD_WORDS.has(word)) ? match[1] : undefined
+}
 /**
  * `https://kithmoot.app/c/<code>` and `kithmoot://c/<code>` open the app's
  * join page with `?c=<code>`, which looks the code up and shows the door.
- * Nothing else: no other host, path, query or fragment.
+ * A code with a password may carry its words in the fragment
+ * (`/c/<code>#<words>`, docs/meeting-codes.md): they go through as
+ * `?c=<code>#<words>` so the page opens it without asking. Nothing else: no
+ * other host, path or query, and no fragment that is not those words.
  */
 function meetingCodeTarget(u) {
-  if (u.search || u.hash) return undefined
+  if (u.search) return undefined
   const path = u.protocol === 'https:' && u.host === 'kithmoot.app' && u.pathname.startsWith('/c/') ? u.pathname.slice(3)
     : u.protocol === 'kithmoot:' && u.host === 'c' && u.pathname.startsWith('/') ? u.pathname.slice(1)
       : undefined
   if (path === undefined || !MEETING_CODE.test(path)) return undefined
-  return `${HOME}?c=${path.replaceAll('-', '').toUpperCase()}`
+  const words = u.hash ? passwordWordsIn(u.hash) : undefined
+  if (u.hash && !words) return undefined
+  return `${HOME}?c=${path.replaceAll('-', '').toUpperCase()}${words ? `#${words}` : ''}`
 }
 /**
  * What a `window.open` from inside the app may do.

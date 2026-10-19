@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs'
 import { memoryDeviceStore } from './device-store.js'
 import {
   MEETING_CODE_WRONG_WORDS, PASSWORD_WORDS, WrongPasswordError, generatePasswordWords, issueSealedMeetingCode, openInvitation,
-  parsePasswordWords, passwordAdditionalData, sealInvitation, validSealedInvitation, type MeetingCodeClient, type SealedInvitation,
+  parsePasswordFragment, parsePasswordWords, passwordAdditionalData, passwordFragment, readCodeArrival, sealInvitation, validSealedInvitation,
+  type MeetingCodeClient, type SealedInvitation,
 } from './meeting-codes.js'
 import {
   MEETING_CODE_ALPHABET, MEETING_CODE_MAX_SECONDS, MEETING_CODES_UNAVAILABLE, MEETING_CODE_PREFIX, MEETING_CODE_RETIRE_KEY, MEETING_ENDED, MEETING_CODE_TOO_MANY, MEETING_CODE_UNKNOWN,
@@ -40,6 +41,15 @@ describe('meeting code format', () => {
     expect(displayMeetingCode('abcdefgh')).toBe('ABC-DEF-GH')
     expect(meetingCodeLink('ABC-DEF-GH')).toBe('https://kithmoot.app/c/ABCDEFGH')
     expect(() => displayMeetingCode('ABCDEFGI')).toThrow()
+  })
+
+  it('carries the password words in the fragment, and nowhere else, when given them', () => {
+    expect(meetingCodeLink('abc-def-gh', 'Ability  ZOO jasmine forget')).toBe('https://kithmoot.app/c/ABCDEFGH#ability-zoo-jasmine-forget')
+    const link = new URL(meetingCodeLink('ABCDEFGH', 'ability zoo jasmine forget'))
+    expect(link.search).toBe('')
+    expect(link.pathname).toBe('/c/ABCDEFGH')
+    expect(() => meetingCodeLink('ABCDEFGH', 'not words')).toThrow()
+    expect(() => meetingCodeLink('ABCDEFGH', '')).toThrow()
   })
 })
 
@@ -227,6 +237,102 @@ describe('password words', () => {
     ['   ', undefined],
   ])('parses %j as %j', (typed, expected) => {
     expect(parsePasswordWords(typed)).toBe(expected)
+  })
+})
+
+describe('password words in a link fragment', () => {
+  const WORDS = 'ability zoo jasmine forget'
+
+  it('joins the canonical words with hyphens, lowercase, without a leading #', () => {
+    expect(passwordFragment(WORDS)).toBe('ability-zoo-jasmine-forget')
+    expect(passwordFragment('  ABILITY, Zoo - jasmine forget\n')).toBe('ability-zoo-jasmine-forget')
+    expect(() => passwordFragment('ability zoo jasmine')).toThrow()
+    expect(() => passwordFragment('ability zoo jasmine forgot')).toThrow()
+    expect(() => passwordFragment('')).toThrow()
+  })
+
+  it('round-trips the canonical words exactly, whether or not the # is kept', () => {
+    expect(parsePasswordFragment('#ability-zoo-jasmine-forget')).toBe(WORDS)
+    expect(parsePasswordFragment('ability-zoo-jasmine-forget')).toBe(WORDS)
+    // Every word in the list, in every position, survives the round trip.
+    for (let i = 0; i < PASSWORD_WORDS.length; i++) {
+      const words = [PASSWORD_WORDS[i], PASSWORD_WORDS[(i * 7 + 1) % 2048], PASSWORD_WORDS[(i * 31 + 5) % 2048], PASSWORD_WORDS[2047 - i]].join(' ')
+      expect(parsePasswordFragment('#' + passwordFragment(words))).toBe(words)
+      expect(passwordFragment(words)).not.toMatch(/[^a-z-]/)
+    }
+    for (let n = 0; n < 50; n++) {
+      const words = generatePasswordWords()
+      expect(parsePasswordFragment(new URL('https://kithmoot.app/c/ABCDEFGH#' + passwordFragment(words)).hash)).toBe(words)
+    }
+  })
+
+  it.each([
+    ['', 'empty'],
+    ['#', 'a bare #'],
+    ['#ability-zoo-jasmine', 'three words'],
+    ['#ability-zoo-jasmine-forget-zoo', 'five words'],
+    ['#ability-zoo-jasmine-forgot', 'a word outside the list'],
+    ['#abilty-zoo-jasmine-forget', 'a misspelt word, which is never corrected'],
+    ['#ABILITY-ZOO-JASMINE-FORGET', 'upper case'],
+    ['#Ability-zoo-jasmine-forget', 'mixed case'],
+    ['#ability zoo jasmine forget', 'spaces'],
+    ['#ability%20zoo%20jasmine%20forget', 'percent-encoded spaces'],
+    ['#ability%2Dzoo%2Djasmine%2Dforget', 'percent-encoded hyphens'],
+    ['#ability+zoo+jasmine+forget', 'plus signs'],
+    ['#ability,zoo,jasmine,forget', 'commas'],
+    ['#ability_zoo_jasmine_forget', 'underscores'],
+    ['#ability--zoo-jasmine-forget', 'a doubled hyphen'],
+    ['#-ability-zoo-jasmine-forget', 'a leading hyphen'],
+    ['#ability-zoo-jasmine-forget-', 'a trailing hyphen'],
+    ['#ability-zoo-jasmine-forget.', 'trailing punctuation'],
+    ['#ability-zoo-jasmine-forget\n', 'a trailing newline'],
+    ['#ability-zoo-jasmine-forget&x=1', 'a trailing parameter'],
+    ['##ability-zoo-jasmine-forget', 'a doubled #'],
+    ['#abilityzoojasmineforget', 'no separators'],
+    ['#ability-zoo-jasmine-forgét', 'a non-ASCII letter'],
+    ['#ability-zoo-jasmine-ｆorget', 'a full-width letter'],
+    ['#' + 'a'.repeat(100), 'a very long run'],
+    ['#eyJ2IjozfQ', 'an invitation fragment'],
+  ])('refuses %j (%s)', (hash) => {
+    expect(parsePasswordFragment(hash)).toBeUndefined()
+  })
+
+  it('opens a sealed invitation with the words read back from the fragment', async () => {
+    const LINK = 'https://kithmoot.forgesworn.dev/j/#r=room&k=secret'
+    const words = generatePasswordWords()
+    const envelope = await sealInvitation({ link: LINK, words, code: 'K7M2Q9TX', expires: 1_900_000_000 })
+    const read = parsePasswordFragment(new URL(meetingCodeLink('K7M2Q9TX', words)).hash)
+    expect(read).toBe(words)
+    expect(await openInvitation({ envelope, words: read!, code: 'K7M2Q9TX', expires: 1_900_000_000 })).toBe(LINK)
+  })
+})
+
+describe('reading the words from the join page address', () => {
+  const never = () => { throw new Error('should not be asked') }
+  const room = (href: string) => new URL(href).hash.startsWith('#eyJ')
+
+  it('takes valid words from a code arrival and leaves the address without them', () => {
+    expect(readCodeArrival('https://kithmoot.forgesworn.dev/j/?c=K7M2Q9TX#ability-zoo-jasmine-forget', never))
+      .toEqual({ words: 'ability zoo jasmine forget', cleaned: '/j/?c=K7M2Q9TX' })
+    expect(readCodeArrival('http://localhost:4173/?c=K7M2Q9TX&x=1#ability-zoo-jasmine-forget', never))
+      .toEqual({ words: 'ability zoo jasmine forget', cleaned: '/?c=K7M2Q9TX&x=1' })
+  })
+
+  it('does nothing without a code or without a fragment', () => {
+    expect(readCodeArrival('https://kithmoot.forgesworn.dev/j/#ability-zoo-jasmine-forget', never)).toBeUndefined()
+    expect(readCodeArrival('https://kithmoot.forgesworn.dev/j/?c=K7M2Q9TX', never)).toBeUndefined()
+    expect(readCodeArrival('https://kithmoot.forgesworn.dev/j/?c=K7M2Q9TX#', never)).toBeUndefined()
+    expect(readCodeArrival('not a url', never)).toBeUndefined()
+  })
+
+  it('leaves a room link alone, as it was opened before words existed', () => {
+    expect(readCodeArrival('https://kithmoot.forgesworn.dev/j/?c=K7M2Q9TX#eyJ2IjozfQeyJ2IjozfQ', room)).toBeUndefined()
+  })
+
+  it('drops a fragment that is neither words nor a room link, so the person is asked for the words', () => {
+    for (const hash of ['#ability-zoo-jasmine', '#ability-zoo-jasmine-forget.', '#ABILITY-ZOO-JASMINE-FORGET', '#x']) {
+      expect(readCodeArrival('https://kithmoot.forgesworn.dev/j/?c=K7M2Q9TX' + hash, room), hash).toEqual({ cleaned: '/j/?c=K7M2Q9TX' })
+    }
   })
 })
 

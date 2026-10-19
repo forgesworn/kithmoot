@@ -250,7 +250,7 @@ test('New link deletes the old code', async ({ browser, baseURL }) => {
   } finally { await context.close() }
 })
 
-test('a code with a password: the host gets words, the guest needs them to reach the door', async ({ browser, baseURL }) => {
+test('a code with a password: the link carries the words, the guest needs nothing but a tap', async ({ browser, baseURL }) => {
   const contexts: BrowserContext[] = []
   try {
     const vault: Vault = new Map()
@@ -264,6 +264,8 @@ test('a code with a password: the host gets words, the guest needs them to reach
     await startRoom(page, baseURL!, async () => {})
     await page.locator('#invitePeople').click()
     await expect(page.locator('#meetingCodePassword')).toHaveAttribute('data-on', 'true')
+    // Nothing about sending the words apart is offered before there are words.
+    await expect(page.locator('#meetingCodeSeparateRow')).toBeHidden()
     // The test app serves on localhost; a code's link must name a KithMoot
     // origin, so the link being sealed is given one, with the same fragment.
     const local = await page.locator('#shareUrl').inputValue()
@@ -271,74 +273,163 @@ test('a code with a password: the host gets words, the guest needs them to reach
     await page.locator('#shareUrl').evaluate((input, link) => { (input as HTMLInputElement).value = link }, link)
     await page.locator('#getMeetingCode').click()
     await expect(page.locator('#meetingCode')).toHaveText('K7M-2Q9-TX')
-    await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
-    await expect(page.locator('#meetingCodeWordsRow')).toBeVisible()
-    const words = (await page.locator('#meetingCodeWords').textContent())!
-    expect(words).toMatch(/^[a-z]+ [a-z]+ [a-z]+ [a-z]+$/)
     await expect(page.locator('#meetingCodePasswordRow')).toBeHidden()
 
-    // The service was asked for a pending code, then given only an envelope.
+    // The default is one link, with the words inside its fragment.
+    const words = (await page.locator('#meetingCodeAloudWords').textContent())!
+    expect(words).toMatch(/^[a-z]+ [a-z]+ [a-z]+ [a-z]+$/)
+    const joined = words.replaceAll(' ', '-')
+    const oneLink = `https://kithmoot.app/c/K7M2Q9TX#${joined}`
+    await expect(page.locator('#meetingCodeLink')).toHaveValue(oneLink)
+    await expect(page.locator('#meetingCodeSeparateRow')).toBeVisible()
+    await expect(page.locator('#meetingCodeSeparate')).toHaveText('Send the password separately')
+    await expect(page.locator('#meetingCodeSeparate')).toHaveAttribute('data-on', 'false')
+    // No password line beside the link: the words wait behind a disclosure
+    // for the host who reads the bare code out.
+    await expect(page.locator('#meetingCodeWordsRow')).toBeHidden()
+    await expect(page.locator('#meetingCodeAloud')).toBeVisible()
+    await expect(page.locator('#meetingCodeAloudWords')).toBeHidden()
+    await page.locator('#meetingCodeAloud > summary').click()
+    await expect(page.locator('#meetingCodeAloudWords')).toHaveText(words)
+
+    // The service was asked for a pending code, then given only an envelope,
+    // and nothing it was sent or asked for carries the words or the room key.
     const post = seen.find(r => r.method() === 'POST')!
     expect(Object.keys(post.postDataJSON()).sort()).toEqual(['expires', 'sealed'])
     expect(post.postDataJSON().sealed).toBe(true)
     const put = seen.find(r => r.method() === 'PUT')!
     expect(new URL(put.url()).pathname).toBe('/codes/K7M2Q9TX')
     expect(await put.headerValue('authorization')).toBe('Bearer upload-token-1')
-    const uploaded = JSON.stringify(put.postDataJSON())
     expect(Object.keys(put.postDataJSON().envelope).sort()).toEqual(['ciphertext', 'nonce', 'salt', 'v'])
-    expect(uploaded).not.toContain(new URL(link).hash.slice(1, 20))
-    expect(uploaded).not.toContain(words.split(' ')[0])
-    for (const r of seen) expect(r.postData() ?? '').not.toContain(new URL(link).hash.slice(1, 20))
+    const secrets = [new URL(link).hash.slice(1, 20), joined]
+    for (const r of seen) {
+      const everything = r.url() + JSON.stringify(await r.allHeaders()) + (r.postData() ?? '')
+      for (const secret of secrets) expect(everything).not.toContain(secret)
+    }
 
     // Kept with the host's code record, so the sheet shows them again.
     const stored = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.meeting-code.v1.')).map(k => localStorage.getItem(k)))
     expect(JSON.parse(stored[0]!)).toMatchObject({ code: 'K7M2Q9TX', words })
     await page.locator('#inviteClose').click()
     await page.locator('#invitePeople').click()
-    await expect(page.locator('#meetingCodeWords')).toHaveText(words)
+    await expect(page.locator('#meetingCodeLink')).toHaveValue(oneLink)
 
-    // Copy puts the link and the words on lines of their own.
+    // Copy is that one link and nothing else: no code, no password line.
+    await page.locator('#copyMeetingCode').click()
+    await expect(page.locator('#meetingCodeStatus')).toContainText('joins in one tap')
+    const copied = await page.evaluate(() => (window as unknown as { copied: string[] }).copied)
+    expect(copied.at(-1)).toBe(oneLink)
+
+    // Send the password separately: today's behaviour. A bare link, the words
+    // shown for sending on their own, and a Copy of two lines.
+    await page.locator('#meetingCodeSeparate').click()
+    await expect(page.locator('#meetingCodeSeparate')).toHaveAttribute('data-on', 'true')
+    await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
+    await expect(page.locator('#meetingCodeWordsRow')).toBeVisible()
+    await expect(page.locator('#meetingCodeWords')).toHaveText(words)
+    await expect(page.locator('#meetingCodeAloud')).toBeHidden()
     await page.locator('#copyMeetingCode').click()
     await expect(page.locator('#meetingCodeStatus')).toContainText('Send the words separately')
-    const copied = await page.evaluate(() => (window as unknown as { copied: string[] }).copied)
-    expect(copied.at(-1)!.split('\n')).toEqual(['Meeting code K7M-2Q9-TX: https://kithmoot.app/c/K7M2Q9TX', `Password words: ${words}`])
+    expect((await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).at(-1)!.split('\n'))
+      .toEqual(['Meeting code K7M-2Q9-TX: https://kithmoot.app/c/K7M2Q9TX', `Password words: ${words}`])
+    // The choice outlasts the sheet, so a host who sends words apart is not caught out by reopening it.
+    await page.locator('#inviteClose').click()
+    await page.locator('#invitePeople').click()
+    await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
+    await page.locator('#meetingCodeSeparate').click()
+    await expect(page.locator('#meetingCodeLink')).toHaveValue(oneLink)
 
-    // The guest: the code asks for words, a wrong set is refused, the right
-    // set (typed any accepted way) reaches the door and no further.
+    // A guest follows the one link: kithmoot.app/c/<code>#<words> reaches the
+    // join page as ?c=<code>#<words>. No prompt, one lookup, the door only.
     const guest = await device(browser, baseURL!); contexts.push(guest)
     const guestSeen = await codeService(guest, {}, vault)
+    const requested: string[] = []
+    guest.on('request', r => { requested.push(r.url()) })
     const door = await guest.newPage()
-    await door.goto(baseURL!)
-    await expect(door.locator('#home')).toBeVisible()
-    await joinWithCode(door, 'k7m-2q9-tx')
-    await expect(door.locator('#joinCodePassword')).toBeVisible()
-    await expect(door.locator('label[for="meetingCodeWordsInput"]')).toHaveText('Enter the password words you were given')
-    await expect(door.locator('#meetingCodeWordsInput')).toBeFocused()
-    await expect(door.locator('#join')).toBeHidden()
-
-    const wrong = words.split(' ').reverse().join(' ') === words ? 'ability zoo jasmine forget' : words.split(' ').reverse().join(' ')
-    await door.locator('#meetingCodeWordsInput').fill(wrong)
-    await door.locator('#meetingCodeWordsInput').press('Enter')
-    await expect(door.locator('#joinCodeError')).toHaveText('Those words do not match. Check them and try again.')
-    await expect(door.locator('#home')).toBeVisible()
-    await expect(door.locator('#join')).toBeHidden()
-    // A misspelt word is not corrected either.
-    await door.locator('#meetingCodeWordsInput').fill(words.replace(/^./, c => c === 'q' ? 'z' : 'q'))
-    await door.locator('#meetingCodeWordsInput').press('Enter')
-    await expect(door.locator('#joinCodeError')).toHaveText('Those words do not match. Check them and try again.')
-
-    await door.locator('#meetingCodeWordsInput').fill(`  ${words.toUpperCase().replaceAll(' ', '-')} `)
-    await door.locator('#meetingCodeWordsInput').press('Enter')
+    await door.goto(new URL(`?c=K7M2Q9TX#${joined}`, baseURL!).href)
     await expect(door.locator('#join')).toBeVisible()
+    await expect(door.locator('#joinCodePassword')).toBeHidden()
+    await expect(door.locator('#joinCodeError')).toBeHidden()
     expect(new URL(door.url()).hash).toBe(new URL(link).hash)
     await expect(door.locator('#roomArea')).toBeHidden()
     await expect(door.locator('#joinMic')).not.toBeChecked()
     await expect(door.locator('#joinCamera')).not.toBeChecked()
-    // One lookup: the words were tried here, not at the service.
     expect(guestSeen.map(r => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual(['GET /codes/K7M2Q9TX'])
-    // Nothing of the words is kept on the guest.
+    // The words went nowhere: not to a server, not into the address bar or
+    // history, not into this device's storage.
+    expect(door.url()).not.toContain(joined)
+    // What a server is sent never includes the fragment, however a test tool reports it.
+    for (const url of requested) expect(url.split('#')[0]).not.toContain(joined)
+    for (const r of guestSeen) expect(r.url() + (r.postData() ?? '') + JSON.stringify(await r.allHeaders())).not.toContain(joined)
     const kept = await door.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))
     for (const word of words.split(' ')) expect(kept.toLowerCase()).not.toContain(` ${word} `)
     expect(kept.toLowerCase()).not.toContain(words)
+    expect(kept.toLowerCase()).not.toContain(joined)
+    // Words in the link that open nothing, a valid set from another meeting: the
+    // prompt, exactly as for a code without them, and the address bar is clean.
+    const wrongWords = words.split(' ').reverse().join(' ') === words ? 'ability zoo jasmine forget' : words.split(' ').reverse().join(' ')
+    const other = await guest.newPage()
+    await other.goto(new URL(`?c=K7M2Q9TX#${wrongWords.replaceAll(' ', '-')}`, baseURL!).href)
+    await expect(other.locator('#joinCodePassword')).toBeVisible()
+    await expect(other.locator('#meetingCodeWordsInput')).toBeFocused()
+    await expect(other.locator('#join')).toBeHidden()
+    expect(new URL(other.url()).hash).toBe('')
+    expect(new URL(other.url()).search).toBe('?c=K7M2Q9TX')
+    await other.locator('#meetingCodeWordsInput').fill(words)
+    await other.locator('#meetingCodeWordsInput').press('Enter')
+    await expect(other.locator('#join')).toBeVisible()
+    expect(new URL(other.url()).hash).toBe(new URL(link).hash)
+
+    // A fragment that is not four list words is dropped and the prompt shown,
+    // never the incomplete-link failure; so is a missing one.
+    for (const hash of ['#' + joined.split('-').slice(0, 3).join('-'), '#' + joined.toUpperCase(), '#' + joined + '.', '#nonsense']) {
+      const bad = await guest.newPage()
+      await bad.goto(new URL(`?c=K7M2Q9TX${hash}`, baseURL!).href)
+      await expect(bad.locator('#joinCodePassword'), hash).toBeVisible()
+      await expect(bad.locator('#join')).toBeHidden()
+      expect(new URL(bad.url()).hash).toBe('')
+      await bad.close()
+    }
+    const plain = await guest.newPage()
+    await plain.goto(new URL('?c=K7M2Q9TX', baseURL!).href)
+    await expect(plain.locator('#joinCodePassword')).toBeVisible()
+    await expect(plain.locator('#join')).toBeHidden()
+    await plain.close()
+
+    // Typing the code in by hand still asks for the words, and a wrong set is
+    // refused, a misspelt word is not corrected, and the right set (typed any
+    // accepted way) reaches the door and no further.
+    const typed = await device(browser, baseURL!); contexts.push(typed)
+    const typedSeen = await codeService(typed, {}, vault)
+    const hand = await typed.newPage()
+    await hand.goto(baseURL!)
+    await expect(hand.locator('#home')).toBeVisible()
+    await joinWithCode(hand, 'k7m-2q9-tx')
+    await expect(hand.locator('#joinCodePassword')).toBeVisible()
+    await expect(hand.locator('label[for="meetingCodeWordsInput"]')).toHaveText('Enter the password words you were given')
+    await expect(hand.locator('#meetingCodeWordsInput')).toBeFocused()
+    await expect(hand.locator('#join')).toBeHidden()
+
+    await hand.locator('#meetingCodeWordsInput').fill(wrongWords)
+    await hand.locator('#meetingCodeWordsInput').press('Enter')
+    await expect(hand.locator('#joinCodeError')).toHaveText('Those words do not match. Check them and try again.')
+    await expect(hand.locator('#home')).toBeVisible()
+    await expect(hand.locator('#join')).toBeHidden()
+    await hand.locator('#meetingCodeWordsInput').fill(words.replace(/^./, c => c === 'q' ? 'z' : 'q'))
+    await hand.locator('#meetingCodeWordsInput').press('Enter')
+    await expect(hand.locator('#joinCodeError')).toHaveText('Those words do not match. Check them and try again.')
+
+    await hand.locator('#meetingCodeWordsInput').fill(`  ${words.toUpperCase().replaceAll(' ', '-')} `)
+    await hand.locator('#meetingCodeWordsInput').press('Enter')
+    await expect(hand.locator('#join')).toBeVisible()
+    expect(new URL(hand.url()).hash).toBe(new URL(link).hash)
+    await expect(hand.locator('#roomArea')).toBeHidden()
+    await expect(hand.locator('#joinMic')).not.toBeChecked()
+    await expect(hand.locator('#joinCamera')).not.toBeChecked()
+    // One lookup: the words were tried here, not at the service.
+    expect(typedSeen.map(r => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual(['GET /codes/K7M2Q9TX'])
+    const keptByHand = await hand.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))
+    for (const word of words.split(' ')) expect(keptByHand.toLowerCase()).not.toContain(` ${word} `)
+    expect(keptByHand.toLowerCase()).not.toContain(words)
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })

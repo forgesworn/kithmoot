@@ -107,7 +107,7 @@ import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countd
 import { scrubStore } from './storage-scrub.js'
 import { FOLDABLE, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
-import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, openInvitation, parseMeetingCode, parsePasswordWords, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
+import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, openInvitation, parseMeetingCode, parsePasswordWords, readCodeArrival, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
 import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { arrangeRooms, loadPins, setPinned } from './room-pins.js'
 import { roomProject, setRoomProject } from './room-projects.js'
@@ -341,6 +341,24 @@ import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 import { signinRelays, withSignetRelay } from './signet-relays.js'
+
+/**
+ * A meeting-code link with its password words, kithmoot.app/c/<code>#<words>,
+ * arrives here as /j/?c=<code>#<words>: the browser carries the fragment
+ * through the redirect and never sends it to a server. Read it, and take it
+ * out of the address bar, before anything else looks at the address: the rest
+ * of the page treats a fragment as a room link, and the words should not be
+ * left in history. They live in memory only until the code has been looked up.
+ */
+let linkWords: { code: string; words: string } | undefined
+{
+  const arrival = readCodeArrival(location.href, href => { try { parseRoomLink(href); return true } catch { return false } })
+  if (arrival) {
+    try { history.replaceState(history.state, '', arrival.cleaned) } catch { /* The fragment stays where it is. */ }
+    const code = parseMeetingCode(new URL(location.href).searchParams.get('c') ?? '')
+    if (arrival.words && code) linkWords = { code, words: arrival.words }
+  }
+}
 
 const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
 /** Whether this page was opened from an invitation link, read before anything
@@ -15893,7 +15911,9 @@ async function openReturnedLink(link: string): Promise<void> {
 
 /** Join with code, typed or from `/j/?c=<code>`: look the invite link up and
  *  open its door, exactly as a pasted link does. Never joins by itself. A
- *  code with a password asks for its words first. */
+ *  code with a password asks for its words first, unless the link it came in
+ *  carried them (`linkWords`): those open it silently, and if they do not,
+ *  the person is asked as for any code. */
 async function joinWithCode(value: string): Promise<void> {
   const { fail } = joinCodeFeedback()
   const button = $('joinCodeSubmit') as HTMLButtonElement
@@ -15901,20 +15921,36 @@ async function joinWithCode(value: string): Promise<void> {
   if (!value.trim()) { fail('Type the meeting code you were given.'); return }
   const code = parseMeetingCode(value)
   if (!code) { fail(MEETING_CODE_UNKNOWN); return }
+  // Words from a link belong to that link's code and no other.
+  const words = linkWords?.code === code ? linkWords.words : undefined
+  if (!words) linkWords = undefined
   button.disabled = true
+  let retryable = false
   try {
     const found = await meetingCodes.resolve(code)
     if (found.envelope) {
+      if (words) {
+        const link = await openInvitation({ code, envelope: found.envelope, expires: found.expires, words })
+          .catch(err => { if (err instanceof WrongPasswordError) return undefined; throw err })
+        if (link !== undefined) { linkWords = undefined; await openReturnedLink(link); return }
+      }
+      linkWords = undefined
       sealedArrival = { code, envelope: found.envelope, expires: found.expires }
       $('joinCodePassword').hidden = false
       $('meetingCodeWordsInput').focus()
       return
     }
+    linkWords = undefined
     await openReturnedLink(found.link)
   } catch (err) {
-    if (err instanceof MeetingCodeNetworkError) fail('The code could not be looked up. Check your connection, then retry.', true)
+    // A lookup that never got an answer is retried with the same link, words included.
+    retryable = err instanceof MeetingCodeNetworkError
+    if (retryable) fail('The code could not be looked up. Check your connection, then retry.', true)
     else fail(err instanceof MeetingCodeError ? err.message : MEETING_CODE_UNKNOWN)
-  } finally { button.disabled = false }
+  } finally {
+    if (!retryable) linkWords = undefined
+    button.disabled = false
+  }
 }
 
 /** The words for a sealed code: open the envelope here, then the same door
@@ -16212,8 +16248,15 @@ let meetingCodePasswordTouched = false
 function renderMeetingCodePassword(on: boolean): void {
   setToggle('meetingCodePassword', on)
   $('meetingCodePasswordNote').textContent = on
-    ? 'Guests also need four words you send separately. The code service keeps only a copy locked with them.'
+    ? 'The code service keeps only a copy locked with four password words, which it never sees. The link carries them.'
     : 'Anyone with the code gets the invite link, and the code service can read it.'
+}
+
+/** Whether the host chose Send the password separately. A choice about what
+ *  the link says, not about the code: both ways the service holds the same
+ *  sealed copy. Off until chosen, and kept for this page's life. */
+function meetingCodeSeparate(): boolean {
+  return $('meetingCodeSeparate').dataset.on === 'true'
 }
 
 function renderMeetingCode(): void {
@@ -16228,10 +16271,22 @@ function renderMeetingCode(): void {
     if (offered && roomId && !meetingCodePasswordTouched) renderMeetingCodePassword(!knockOn(roomId))
     return
   }
+  // With a password the one link joins in a tap: the words ride in its
+  // fragment, which no server receives. Sent separately, the link is bare
+  // and the words are shown to send on their own. Reading the code out
+  // loud needs the words either way, so they are never only in the link.
+  const separate = !!record.words && meetingCodeSeparate()
   $('meetingCode').textContent = displayMeetingCode(record.code)
-  ;($('meetingCodeLink') as HTMLInputElement).value = meetingCodeLink(record.code)
-  $('meetingCodeWordsRow').hidden = !record.words
-  $('meetingCodeWords').textContent = record.words ?? ''
+  ;($('meetingCodeLink') as HTMLInputElement).value = meetingCodeLink(record.code, separate ? undefined : record.words)
+  $('meetingCodeSeparateRow').hidden = !record.words
+  setToggle('meetingCodeSeparate', separate)
+  $('meetingCodeSeparateNote').textContent = separate
+    ? 'The link leaves the words out. Send them in a different message.'
+    : 'The link carries the words after its #, which no server receives, so one tap joins.'
+  $('meetingCodeWordsRow').hidden = !separate
+  $('meetingCodeWords').textContent = separate ? record.words ?? '' : ''
+  $('meetingCodeAloud').hidden = !record.words || separate
+  $('meetingCodeAloudWords').textContent = record.words && !separate ? record.words : ''
   $('meetingCodeExpiry').textContent = `This code works until ${formatConferenceEnd(record.expires)}. Ending the room or making a new link stops it sooner.`
   $('shareMeetingCode').hidden = navigator.share === undefined
 }
@@ -16257,19 +16312,26 @@ async function getMeetingCode(): Promise<void> {
   renderMeetingCode()
 }
 
-async function copyMeetingCode(): Promise<void> {
+/** What Copy and Share send. A code with its words in the link is just that
+ *  one link: a bare code in the text would ask a guest for words they were
+ *  never shown. Sent separately, or with no password, it is the code and the
+ *  bare link, and the words (when there are any) are a line of their own. */
+function meetingCodeMessage(): { text: string; words: string; withWords: boolean } {
   const link = ($('meetingCodeLink') as HTMLInputElement).value
   const words = $('meetingCodeWordsRow').hidden ? '' : $('meetingCodeWords').textContent ?? ''
-  // The link and the words on lines of their own, so either can be sent
-  // on its own; the words are meant to travel separately.
-  const text = words
-    ? `Meeting code ${$('meetingCode').textContent}: ${link}\nPassword words: ${words}`
-    : `Meeting code ${$('meetingCode').textContent}: ${link}`
+  const withWords = !$('meetingCodeAloud').hidden
+  if (withWords) return { text: link, words: '', withWords }
+  const code = `Meeting code ${$('meetingCode').textContent}: ${link}`
+  return { text: words ? `${code}\nPassword words: ${words}` : code, words, withWords }
+}
+
+async function copyMeetingCode(): Promise<void> {
+  const { text, words, withWords } = meetingCodeMessage()
   try {
     await navigator.clipboard.writeText(text)
     $('meetingCodeStatus').textContent = words
       ? 'Code, short link and password words copied, on separate lines. Send the words separately from the code.'
-      : 'Code and short link copied.'
+      : withWords ? 'Link copied. It joins in one tap, with the password words inside.' : 'Code and short link copied.'
   } catch {
     const input = $('meetingCodeLink') as HTMLInputElement
     input.focus(); input.select()
@@ -16371,10 +16433,19 @@ $('meetingCodePassword').addEventListener('click', () => {
   meetingCodePasswordTouched = true
   renderMeetingCodePassword($('meetingCodePassword').dataset.on !== 'true')
 })
+$('meetingCodeSeparate').addEventListener('click', () => {
+  setToggle('meetingCodeSeparate', !meetingCodeSeparate())
+  $('meetingCodeStatus').textContent = ''
+  renderMeetingCode()
+})
 $('copyMeetingCode').addEventListener('click', () => { void copyMeetingCode() })
 $('shareMeetingCode').addEventListener('click', async () => {
   try {
-    await navigator.share({ title: 'KithMoot', text: `Join with meeting code ${$('meetingCode').textContent}`, url: ($('meetingCodeLink') as HTMLInputElement).value })
+    await navigator.share({
+      title: 'KithMoot',
+      text: meetingCodeMessage().withWords ? 'Join my KithMoot meeting' : `Join with meeting code ${$('meetingCode').textContent}`,
+      url: ($('meetingCodeLink') as HTMLInputElement).value,
+    })
   } catch (err) {
     if (!(err instanceof DOMException && err.name === 'AbortError')) $('meetingCodeStatus').textContent = describeError(err)
   }
@@ -18539,6 +18610,8 @@ roomArrival
       showRoomsList()
       // kithmoot.app/c/<code> arrives here as ?c=<code>: the same path as
       // typing it into Join with code, so it reaches the door and no further.
+      // Password words that came in the link's fragment (see `linkWords`,
+      // already out of the address bar) open a sealed code without a prompt.
       const code = new URL(location.href).searchParams.get('c')
       if (code !== null) {
         ;($('joinCode') as HTMLDetailsElement).open = true

@@ -1,5 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { PASSWORD_WORD_LIST } from '../meeting-code-words.mjs'
 import { HOME, ORIGIN, CSP, appContentPolicy, invitationTarget, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from '../policy.mjs'
 test('only the bundled top-level page may navigate inside the app', () => {
   assert.equal(isAppUrl(HOME + '#invite'), true)
@@ -51,6 +54,45 @@ test('meeting code links open the join page with the code, and nothing looser', 
     'kithmoot://c/ABCDEFGH%0A']) {
     assert.equal(invitationTarget(value), undefined, value)
   }
+})
+test('a meeting code link may carry its password words in the fragment, and nothing else', () => {
+  const words = 'ability-zoo-jasmine-forget'
+  assert.equal(invitationTarget(`https://kithmoot.app/c/ABCDEFGH#${words}`), `${HOME}?c=ABCDEFGH#${words}`)
+  assert.equal(invitationTarget(`https://kithmoot.app/c/abc-def-gh#${words}`), `${HOME}?c=ABCDEFGH#${words}`)
+  assert.equal(invitationTarget(`kithmoot://c/ABCDEFGH#${words}`), `${HOME}?c=ABCDEFGH#${words}`)
+  assert.equal(invitationTarget(`kithmoot://c/abc-def-gh#${words}`), `${HOME}?c=ABCDEFGH#${words}`)
+  assert.equal(isAppUrl(invitationTarget(`kithmoot://c/ABCDEFGH#${words}`)), true)
+  // The first and last words of the list, and the same word more than once.
+  assert.equal(invitationTarget('https://kithmoot.app/c/ABCDEFGH#ability-ability-zoo-zoo'), `${HOME}?c=ABCDEFGH#ability-ability-zoo-zoo`)
+  // An empty fragment is no fragment, as before.
+  assert.equal(invitationTarget('https://kithmoot.app/c/ABCDEFGH#'), HOME + '?c=ABCDEFGH')
+  for (const hash of ['x', 'ability-zoo-jasmine', 'ability-zoo-jasmine-forget-zoo', 'ability-zoo-jasmine-forgot', 'abilty-zoo-jasmine-forget',
+    'ABILITY-ZOO-JASMINE-FORGET', 'Ability-zoo-jasmine-forget', 'ability%20zoo%20jasmine%20forget', 'ability zoo jasmine forget',
+    'ability%2Dzoo%2Djasmine%2Dforget', 'ability+zoo+jasmine+forget', 'ability,zoo,jasmine,forget', 'ability_zoo_jasmine_forget',
+    'ability--zoo-jasmine-forget', '-ability-zoo-jasmine-forget', 'ability-zoo-jasmine-forget-', 'ability-zoo-jasmine-forget.',
+    'ability-zoo-jasmine-forget%0A', 'ability-zoo-jasmine-forget&c=ZZZZZZZZ', 'ability-zoo-jasmine-forget#x', '#ability-zoo-jasmine-forget',
+    'abilityzoojasmineforget', 'ability-zoo-jasmine-forgét', 'eyJ2Ijoz', '..%2f..%2fetc', '<script>']) {
+    for (const base of ['https://kithmoot.app/c/ABCDEFGH', 'kithmoot://c/ABCDEFGH']) assert.equal(invitationTarget(`${base}#${hash}`), undefined, hash)
+  }
+  // Valid words do not loosen anything else: query, host, path and credentials stay refused.
+  for (const value of [`https://kithmoot.app/c/ABCDEFGH?x=1#${words}`, `kithmoot://c/ABCDEFGH?x=1#${words}`, `https://kithmoot.app/c/ABCDEFGH?c=ZZZZZZZZ#${words}`,
+    `https://kithmoot.forgesworn.dev/c/ABCDEFGH#${words}`, `https://www.kithmoot.app/c/ABCDEFGH#${words}`, `http://kithmoot.app/c/ABCDEFGH#${words}`,
+    `https://kithmoot.app/c/ABCDEFGH/#${words}`, `https://kithmoot.app/c/ABCDEFGH/x#${words}`, `https://kithmoot.app/x/ABCDEFGH#${words}`,
+    `https://kithmoot.app/c/ABCDEFGI#${words}`, `https://kithmoot.app/c/ABCDEFG#${words}`, `https://user@kithmoot.app/c/ABCDEFGH#${words}`,
+    `kithmoot://c/ABCDEFG#${words}`, `kithmoot://user@c/ABCDEFGH#${words}`, `kithmoot://join/ABCDEFGH#${words}`, `kithmoot://c/#${words}`,
+    `https://kithmoot.app/c/#${words}`, `https://kithmoot.app/j/c/ABCDEFGH#${words}`]) {
+    assert.equal(invitationTarget(value), undefined, value)
+  }
+  // The words never land anywhere but the fragment.
+  const target = new URL(invitationTarget(`https://kithmoot.app/c/ABCDEFGH#${words}`))
+  assert.equal(target.search, '?c=ABCDEFGH')
+  assert.equal(target.hash, `#${words}`)
+})
+test('the word list the desktop checks against is the web app\'s frozen foregather en-v1 list', () => {
+  const app = readFileSync(new URL('../../app/src/meeting-code-words-en-v1.txt', import.meta.url), 'utf8')
+  assert.equal(PASSWORD_WORD_LIST, app)
+  assert.equal(createHash('sha256').update(PASSWORD_WORD_LIST).digest('hex'), '0334930ebdfbc76e81ec914515d7567ca85738a6bf3069249d97df951d44661c')
+  assert.equal(PASSWORD_WORD_LIST.split('\n').length, 2048)
 })
 test('anything that is not an invitation link is ignored', () => {
   for (const value of ['', '--no-sandbox', '/home/me/file#x', 'kithmoot://join', 'kithmoot://join#', 'kithmoot://signet#x',
