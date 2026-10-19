@@ -1,21 +1,25 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>KithMoot Camera Lab</title><link rel="stylesheet" href="lab.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>KithMoot Camera Lab</title><link rel="stylesheet" href="lab.css"><link rel="icon" href="mask.svg"></head>
 <body>
 <main>
   <header><p class="eyebrow">KithMoot · local experiments</p><h1>Camera Lab</h1>
     <p>Test face detection, masking and background cut-outs with our Rust/WASM engine. Predictions can miss faces and objects. This preview is separate from calls.</p>
-    <p class="privacy">Camera frames, loaded models and labels stay in this tab. Nothing is uploaded or saved automatically. Export explicitly to keep your work.</p>
+    <p>The supplied model learned drawings, not people. Real-face and background accuracy remain unqualified. For a call, <a href="https://kithmoot.app/#join">join a room in KithMoot</a>.</p>
+    <p class="privacy">Camera frames, microphone samples, loaded models and labels stay in this tab. Nothing is uploaded or saved automatically. Export explicitly to keep reviewed pictures; audio is never recorded.</p>
   </header>
   <section aria-labelledby="source-title">
     <h2 id="source-title">1. Choose an input</h2>
     <div class="controls">
       <label>Take for <select id="split"><option value="train">Training</option><option value="validation">Validation</option><option value="test">Held-out test</option></select></label>
       <label>Camera <select id="facing"><option value="user">Front</option><option value="environment">Rear</option></select></label>
+      <label><input id="microphone" type="checkbox"> Include microphone level test</label>
       <button id="camera">Start camera</button><button id="stop" disabled>Stop input</button>
       <label class="file">Image or video <input id="input-file" type="file" accept="image/*,video/*"></label>
       <button id="sample">Try drawing sample</button><button id="play" hidden>Play / pause video</button>
     </div>
+    <div class="audio-test"><label for="microphone-level">Microphone level</label> <meter id="microphone-level" min="0" max="1" value="0"></meter>
+      <p id="microphone-state" class="hint" role="status">Microphone off. Optional level test; audio is never saved with samples.</p></div>
     <p class="hint">Record separate takes for training, validation and testing. Stop the camera or close a clip before changing the split. Clips can be up to 32 MiB. All camera edges are retained; portrait and wide inputs are letterboxed.</p>
     <div class="controls">
       <button id="reference" disabled>Capture empty room</button><button id="clear-reference" disabled>Clear room</button>

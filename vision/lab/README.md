@@ -1,9 +1,36 @@
-# Local Camera Lab
+# Camera Lab
 
 Test the owned Rust/WASM face detector and foreground model on camera frames,
 local images or clips. This is a separate development preview; the released
 desktop and native Android call settings keep their existing qualification
 gates. No Google face SDK, hosted inference or frame upload is used.
+
+## iPhone, iPad and other phones
+
+Open **https://kithmoot.forgesworn.dev/camera-lab/** in Safari on your iPhone.
+Choose Front or Rear, optionally tick **Include microphone level test**, then
+press **Start camera** and allow the requested devices. The microphone only
+drives a local level meter: it is not recorded, played back, exported or sent.
+Stop input, Clear lab, switching input and leaving the page stop both devices.
+Putting this test page in the background also stops capture; explicitly start
+it again when you return.
+
+This page downloads our software, original drawing examples and unqualified
+drawing weights over HTTPS. Inference runs on the phone in Rust/WASM. Local
+models loaded through the file picker stay in that browser tab. Exported
+reviewed pictures can be saved to Files and transferred to your own computer
+for training; no server training or personal-model upload is provided.
+
+For a normal video/audio call, open **https://kithmoot.app/** and enter the
+room code in **Join a room**. The existing join screen asks for any password
+words and admission. Join the call and turn on your microphone/camera there.
+The lab is a separate experiment and cannot join or mask a live call.
+
+`http://localhost:4388` below means the computer running the local server;
+it cannot reach that computer from an iPhone. Remote camera access needs
+HTTPS. The hosted page provides that without a tunnel or local certificate.
+
+## Run on your computer
 
 From the repository root, with Node 24, Python training dependencies installed
 as described in [Vision](../README.md), and the Rust WASM target installed:
@@ -26,7 +53,8 @@ card to test a personal model. The card's SHA-256 must match the weights.
 ## What to exercise
 
 - Live front/rear camera, an image or a short local video up to 32 MiB.
-  Nothing requests the microphone. Stop input ends camera capture.
+  Microphone access is off by default; explicitly select the optional level
+  test before starting the camera. Stop input ends camera and microphone capture.
 - Face-only, foreground-only and combined inference; face boxes, opaque masks,
   replacement background, blur and a separate predicted-matte view.
 - Optional empty-room reference and previous predicted matte. Changing the
@@ -115,10 +143,41 @@ node --test vision/lab/browser.test.mjs
 ```
 
 Browser checks require prepared assets and the installed Playwright Chromium.
-They use a synthetic camera, real Rust/WASM inference and real local training:
+Set `VISION_LAB_WEBKIT=1` with an installed Playwright WebKit for the phone
+engine check; CI requires it. Checks use a synthetic camera/microphone, real
+Rust/WASM inference and real local training:
 matched-frame background rendering, camera/source replacement, reviewed export,
-private training/evaluation, model reload, mobile layout and clear/reset. They
-do not access a physical camera or prove real-face/held-object accuracy.
+private training/evaluation, model reload, mobile layout and clear/reset.
+They also check microphone opt-in, measured audio, track/context shutdown,
+late permissions, hosted subdirectory assets and refusal to publish private
+models. They do not access a physical iPhone or prove real-face/held-object accuracy.
+
+## Publish the separate read-only preview
+
+After preparing the drawing assets, build into a fresh directory:
+
+```sh
+npm run vision:lab:build -- --output vision/runs/hosted-preview-NEW
+```
+
+Only original synthetic data and general MIT drawing exports with matching
+hashes can enter this bundle. Personal models and unlisted files are refused.
+The static manifest records the source revision and every asset hash. The
+publisher requires clean, committed source already merged into `origin/main`.
+
+```sh
+DEPLOY_HOST=YOUR_SSH_HOST python3 deploy/phone-access.py \
+  --lab vision/runs/hosted-preview-NEW --base-revision EXACT_PREVIOUS_SOURCE_SHA \
+  --site --receipt /path/to/new-publication-receipt.json
+```
+
+The base revision must match the live vhost and, with `--site`, the existing
+homepage HTML/CSS. The publisher stages a fresh lab release, validates/reloads
+only the KithMoot vhost, and can replace the homepage in an otherwise identical
+copy of the current website. Calls, APKs, manifests and downloads are retained.
+HTTPS hashes, device policies and rejected uploads are read back before success;
+failed activation/readback restores its own current links and vhost. No local
+development server or public capture endpoint is installed.
 
 All software/art is original MIT. The runtime's standard-library copyright
 and licence notices are served through the lab footer. This local tool does

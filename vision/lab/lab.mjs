@@ -1,5 +1,6 @@
 import { WIDTH as W, HEIGHT as H, MODEL_WIDTH as MW, MODEL_HEIGHT as MH,
   contain, nchw, grey, rectangle, checkedWeights, FrameGate } from './core.mjs'
+import { MicrophoneMeter } from './audio.mjs'
 
 const $ = id => document.getElementById(id)
 const canvas = (w = W, h = H) => Object.assign(document.createElement('canvas'), { width: w, height: h })
@@ -13,6 +14,7 @@ let worker, workerReady = false, modelSerial = 0, sourceSerial = 0, sourceAbort 
 let stream, blobUrl, kind = '', sequence = '', synthetic = false, example, sourceShape = '', sourceLoading = false
 let room, frozen, lastResult, lastVideoTime = -1, dirty = true, lastCompleted = 0, processed = 0
 let boxes = [], drag, samples = [], lastPointer, labelsLoading = false
+let microphone
 
 const status = message => { $('status').textContent = message }
 const blank = element => { context(element).clearRect(0, 0, element.width, element.height) }
@@ -26,6 +28,7 @@ function controls() {
   $('split').disabled = !!kind || sourceLoading
   $('facing').disabled = !!kind || sourceLoading
   $('camera').disabled = !!kind || sourceLoading
+  $('microphone').disabled = !!kind || sourceLoading
   $('stop').disabled = !kind && !sourceLoading
   $('reference').disabled = !kind || !!frozen
   $('clear-reference').disabled = !room
@@ -60,6 +63,7 @@ function resetInference() {
 function stopSource() {
   ++sourceSerial; sourceAbort.abort(); sourceAbort = new AbortController()
   stream?.getTracks().forEach(track => track.stop()); stream = undefined
+  microphone?.close(); microphone = undefined
   video.pause(); video.srcObject = null; video.removeAttribute('src'); video.load()
   image.removeAttribute('src')
   if (blobUrl) URL.revokeObjectURL(blobUrl)
@@ -79,13 +83,20 @@ function waitVideo(signal) {
 }
 
 async function camera() {
-  const facing = $('facing').value
+  const facing = $('facing').value, audio = $('microphone').checked
   stopSource(); const own = sourceSerial; sourceLoading = true; controls()
-  status('Requesting camera access. No microphone is requested.')
+  status(audio ? 'Requesting camera and microphone access for local testing.' : 'Requesting camera access. No microphone is requested.')
   try {
-    const next = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 384 } }, audio: false })
+    if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Camera access needs HTTPS (or localhost). Open the hosted Camera Lab in Safari on your iPhone.')
+    if (audio) {
+      microphone = new MicrophoneMeter($('microphone-level'), $('microphone-state'))
+      await microphone.prepare()
+      if (own !== sourceSerial) return
+    }
+    const next = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 384 } }, audio })
     if (own !== sourceSerial) { next.getTracks().forEach(track => track.stop()); return }
     stream = next; video.srcObject = stream
+    if (audio) microphone.attach(stream)
     await video.play()
     if (own !== sourceSerial) return
     kind = 'camera'; sequence = 'camera-' + uid(); synthetic = false
@@ -323,9 +334,13 @@ on('reset', 'click', async () => {
   stopSource(); worker?.terminate(); worker = undefined; workerReady = false; gate.cancel(); ++modelSerial
   samples = []; boxes = []; lastResult = undefined; room = undefined; processed = 0; lastCompleted = 0
   for (const id of ['input-file', 'model-file', 'model-card']) $(id).value = ''
-  clearLabels(); controls(); await defaultModel(); status('Lab cleared. Camera stopped; captures, personal model and room reference released from this tab. Exported files are separate.')
+  $('microphone').checked = false
+  clearLabels(); controls(); await defaultModel(); status('Lab cleared. Camera and microphone stopped; captures, personal model and room reference released from this tab. Exported files are separate.')
 })
 window.addEventListener('pagehide', () => { stopSource(); worker?.terminate() })
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && (kind || sourceLoading)) { stopSource(); status('Input stopped while the lab is in the background. Start camera to resume.') }
+})
 
 function tick() {
   try {

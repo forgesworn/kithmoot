@@ -36,7 +36,9 @@ npm run vision:lab -- --prepare
 The lab uses the Rust/WASM engine in a worker. Its procedural default weights
 are explicitly unqualified for real faces; personal models can be loaded
 without enabling them in calls. Android can exercise the same lab through a
-loopback USB forward in its browser; native JNI integration remains open.
+loopback USB forward in its browser. iPhone/Safari and Android can also open
+the separate [HTTPS preview](https://kithmoot.forgesworn.dev/camera-lab/), with
+an opt-in local microphone level test. Native JNI integration remains open.
 
 Python 3.11+; dependencies are in `pyproject.toml`. The development machine
 already has PyTorch 2.10.0, NumPy and Pillow. On a fresh machine install into
@@ -176,5 +178,6 @@ possible intellectual-property right:
    recordings as well as previews on intended hardware.
 5. Evaluate objects occluding a face: padded face rectangles can cover part
    of an object. Preserving such objects safely needs an occlusion policy.
-6. Review evidence and provenance before release. No qualified model, packaged
-   inference runtime or completed local-training product flow exists yet.
+6. Review evidence and provenance before release. Production calls still have
+   no qualified model or integrated inference runtime; the separate developer
+   lab and personal-training loop remain experimental.

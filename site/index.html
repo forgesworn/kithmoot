@@ -37,6 +37,20 @@
       <a class="button primary nav-open" href="j/">Open KithMoot</a>
     </header>
     <main id="main">
+      <section id="join" class="join-room wrap" aria-labelledby="join-title">
+        <div class="join-card">
+          <h2 id="join-title">Join a room</h2>
+          <p id="join-code-help">Enter the code you were given. Nothing to install.</p>
+          <form action="https://kithmoot.forgesworn.dev/j/" method="get">
+            <label for="room-code">Room code</label>
+            <div class="join-code-controls">
+              <input id="room-code" name="c" type="text" placeholder="ABC-DEF-GH" required maxlength="64" pattern="\s*([0123456789ABCDEFGHJKMNPQRSTVWXYZabcdefghjkmnpqrstvwxyz]{8}|[0123456789ABCDEFGHJKMNPQRSTVWXYZabcdefghjkmnpqrstvwxyz]{3}-[0123456789ABCDEFGHJKMNPQRSTVWXYZabcdefghjkmnpqrstvwxyz]{3}-[0123456789ABCDEFGHJKMNPQRSTVWXYZabcdefghjkmnpqrstvwxyz]{2})\s*" title="Enter the eight-character room code, with or without hyphens." autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="join-code-help join-code-note" />
+              <button class="button primary" type="submit">Join room</button>
+            </div>
+          </form>
+          <p id="join-code-note" class="under">Hyphens are optional. If the room has a password, you’ll be asked for it next.</p>
+        </div>
+      </section>
       <section class="hero wrap" aria-labelledby="hero-title">
         <h1 id="hero-title">A workspace nobody owns.</h1>
         <p class="lead">Chat, calls, files and AI agents for your group. Encrypted end to end, with no account to make and no company in the middle.</p>

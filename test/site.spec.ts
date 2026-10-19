@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { resolve, extname } from 'node:path'
@@ -8,6 +8,20 @@ const caddy = await readFile(new URL('../deploy/Caddyfile.kithmoot', import.meta
 const csp = caddy.match(/header @notApp \{[^}]*Content-Security-Policy "([^"]+)"/)?.[1]
 if (!csp) throw new Error('The website acceptance test needs its production Content-Security-Policy')
 const types: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2' }
+
+async function website(context: BrowserContext, failed: string[] = []): Promise<void> {
+  await context.route('https://site.kithmoot.test/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    const file = resolve(site, '.' + (path === '/' ? '/index.html' : path))
+    if (!file.startsWith(site)) throw new Error('Site request escaped its root')
+    try {
+      await route.fulfill({ body: await readFile(file), contentType: types[extname(file)], headers: { 'content-security-policy': csp! } })
+    } catch {
+      failed.push(path)
+      await route.fulfill({ status: 404, body: 'Missing website asset' })
+    }
+  })
+}
 
 // The homepage links straight to the desktop installers. A release that
 // updates the downloads page and forgets the homepage would leave it offering
@@ -20,21 +34,43 @@ test('the homepage offers the same installers as the downloads page', async () =
   for (const installer of installers) expect(downloads, installer).toContain(`href="/apk/${installer}"`)
 })
 
+test('phone visitors can enter a room code without JavaScript under the live website policy', async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 320, height: 640 } })
+  await website(context)
+  const arrivals: string[] = []
+  await context.route('https://kithmoot.forgesworn.dev/j/**', async route => {
+    expect(route.request().method()).toBe('GET')
+    arrivals.push(route.request().url())
+    await route.fulfill({ contentType: 'text/html', body: '<title>Room join</title><h1>Room join</h1>' })
+  })
+  const page = await context.newPage()
+  try {
+    for (const code of ['abc-def-gh', 'ABCDEFGH']) {
+      await page.goto('https://site.kithmoot.test/')
+      const input = page.getByRole('textbox', { name: 'Room code', exact: true })
+      const submit = page.getByRole('button', { name: 'Join room', exact: true })
+      await expect(input).toBeInViewport(); await expect(submit).toBeInViewport()
+      expect(await input.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16)
+      await submit.click()
+      expect(await input.evaluate(element => (element as HTMLInputElement).validity.valueMissing)).toBe(true)
+      await input.fill('INVALID!')
+      await submit.click()
+      expect(await input.evaluate(element => (element as HTMLInputElement).validity.patternMismatch)).toBe(true)
+      expect(page.url()).toBe('https://site.kithmoot.test/')
+      await input.fill(code)
+      await input.press('Enter')
+      await page.waitForURL('https://kithmoot.forgesworn.dev/j/?c=' + code)
+      expect(new URL(page.url()).searchParams.size).toBe(1)
+    }
+    expect(arrivals.map(value => new URL(value).searchParams.get('c'))).toEqual(['abc-def-gh', 'ABCDEFGH'])
+  } finally { await context.close() }
+})
+
 for (const colour of ['light', 'dark'] as const) {
   test(`website works without JavaScript, under its production CSP, in ${colour} mode`, async ({ browser }, info) => {
     const context = await browser.newContext({ javaScriptEnabled: false, colorScheme: colour })
     const failed: string[] = []
-    await context.route('https://site.kithmoot.test/**', async route => {
-      const path = new URL(route.request().url()).pathname
-      const file = resolve(site, '.' + (path === '/' ? '/index.html' : path))
-      if (!file.startsWith(site)) throw new Error('Site request escaped its root')
-      try {
-        await route.fulfill({ body: await readFile(file), contentType: types[extname(file)], headers: { 'content-security-policy': csp! } })
-      } catch {
-        failed.push(path)
-        await route.fulfill({ status: 404, body: 'Missing website asset' })
-      }
-    })
+    await website(context, failed)
     const page = await context.newPage()
     try {
       await page.goto('https://site.kithmoot.test/')
