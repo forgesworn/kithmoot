@@ -1,0 +1,316 @@
+/* People: the list in the list column and the contact in the main pane
+   (app/src/people.ts). Every rule is scoped to one of the two containers,
+   so the shell's own list styles and these cannot collide. */
+
+.peopleList {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.peopleList .listHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s4) var(--s4) var(--s2);
+}
+.peopleList .listHead h2 {
+  margin: 0;
+  font-size: var(--fs-4);
+  line-height: var(--lh-4);
+}
+
+.peopleList .iconButton,
+.peoplePane .iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl);
+  min-width: var(--ctl);
+  height: var(--ctl);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: var(--text);
+  border-radius: var(--r-full);
+}
+.peopleList .iconButton:hover,
+.peoplePane .iconButton:hover { background: var(--selected); }
+
+.peopleList .listSearch {
+  position: relative;
+  margin: 0 var(--s4) var(--s2);
+}
+.peopleList .listSearch svg.i {
+  position: absolute;
+  left: var(--s3);
+  top: 50%;
+  translate: 0 -50%;
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.peopleList .listSearch input {
+  padding-left: calc(var(--s3) + 26px);
+  background: var(--selected);
+  border-color: transparent;
+  border-radius: var(--r-m);
+}
+.peopleList .listSearch input:focus-visible { border-color: var(--focus); }
+
+.peopleList #peopleStatus {
+  margin: 0 var(--s4) var(--s2);
+}
+
+.peopleList #peopleRows {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--s2) var(--s4);
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.peopleList .peopleSection h3 {
+  margin: var(--s3) var(--s2) var(--s1);
+  font-size: var(--fs-1);
+  line-height: var(--lh-1);
+  color: var(--muted);
+}
+.peopleList .peopleSection .note {
+  margin: 0 var(--s2) var(--s2);
+}
+
+.peopleList .personRow button {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  margin: 0;
+  padding: var(--s2);
+  min-height: 56px;
+  background: transparent;
+  border-radius: var(--r-m);
+  font-weight: 400;
+  text-align: left;
+}
+.peopleList .personRow button:hover { background: var(--surface); }
+.peopleList .personRow button[aria-current='true'] { background: var(--selected); }
+
+.peopleList .personText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.peopleList .personName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.peopleList .personSub {
+  font-size: var(--fs-1);
+  line-height: var(--lh-1);
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:is(.peopleList, .peoplePane) .checkedMark {
+  width: 16px;
+  height: 16px;
+  color: var(--ok);
+  stroke-width: 2.25;
+}
+
+/* The same eight colours as a room's avatar in the list. */
+:is(.peopleList .personAvatar, .peoplePane .contactAvatar) {
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: var(--fs-3);
+  color: #fff;
+  background: var(--avatar, #0e7fa3);
+}
+:is(.personAvatar, .contactAvatar) img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+:is(.personAvatar, .contactAvatar)[data-slot='0'] { --avatar: #0e7fa3; }
+:is(.personAvatar, .contactAvatar)[data-slot='1'] { --avatar: #7a5fc4; }
+:is(.personAvatar, .contactAvatar)[data-slot='2'] { --avatar: #b54c25; }
+:is(.personAvatar, .contactAvatar)[data-slot='3'] { --avatar: #357d46; }
+:is(.personAvatar, .contactAvatar)[data-slot='4'] { --avatar: #9c4479; }
+:is(.personAvatar, .contactAvatar)[data-slot='5'] { --avatar: #6b7020; }
+:is(.personAvatar, .contactAvatar)[data-slot='6'] { --avatar: #2a6db0; }
+:is(.personAvatar, .contactAvatar)[data-slot='7'] { --avatar: #8c5616; }
+@media (prefers-color-scheme: light) {
+  :is(.personAvatar, .contactAvatar)[data-slot='0'] { --avatar: #0b6b8a; }
+  :is(.personAvatar, .contactAvatar)[data-slot='1'] { --avatar: #6a4fb3; }
+  :is(.personAvatar, .contactAvatar)[data-slot='2'] { --avatar: #a2431f; }
+  :is(.personAvatar, .contactAvatar)[data-slot='3'] { --avatar: #2f6f3e; }
+  :is(.personAvatar, .contactAvatar)[data-slot='4'] { --avatar: #8a3a6b; }
+  :is(.personAvatar, .contactAvatar)[data-slot='5'] { --avatar: #5b5f1c; }
+  :is(.personAvatar, .contactAvatar)[data-slot='6'] { --avatar: #1f5f9e; }
+  :is(.personAvatar, .contactAvatar)[data-slot='7'] { --avatar: #7a4a12; }
+}
+
+.peopleList .peopleEmpty {
+  margin: var(--s4);
+  color: var(--muted);
+}
+.peopleList .peopleEmpty p { margin: 0 0 var(--s2); color: var(--text); }
+
+/* A small menu that floats: the one place a shadow is used. */
+#peopleAddMenu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 240px;
+  padding: var(--s1);
+  background: var(--raised);
+  color: var(--text);
+  border: 0;
+  border-radius: var(--r-m);
+  box-shadow: var(--shadow);
+}
+#peopleAddMenu [role='menuitem'] {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  background: transparent;
+  font-weight: 400;
+  text-align: left;
+  border-radius: var(--r-s);
+}
+#peopleAddMenu [role='menuitem']:is(:hover, :focus-visible) { background: var(--selected); }
+
+.peoplePane {
+  position: relative;
+  overflow-y: auto;
+  min-height: 0;
+}
+.peoplePane .peopleBlank {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 12rem;
+  color: var(--muted);
+}
+
+/* Back only where the contact covers the list: below 600px wide. */
+.peoplePane .peopleBack {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  display: none;
+}
+@media (max-width: 599px) {
+  .peoplePane .peopleBack { display: inline-flex; }
+}
+
+.peoplePane .contactCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--s6) var(--s4);
+  text-align: center;
+}
+.peoplePane .contactAvatar {
+  flex-basis: 72px;
+  width: 72px;
+  height: 72px;
+  font-size: var(--fs-5);
+}
+.peoplePane .contactCard h2 {
+  margin: var(--s3) 0 var(--s1);
+  font-size: var(--fs-4);
+  line-height: var(--lh-4);
+  overflow-wrap: anywhere;
+}
+.peoplePane .contactMeta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s1) var(--s2);
+  margin: 0;
+  font-size: var(--fs-1);
+  line-height: var(--lh-1);
+  color: var(--muted);
+}
+.peoplePane .contactMeta .iconButton { width: 32px; min-width: 32px; height: 32px; }
+.peoplePane .contactMeta .iconButton svg.i { width: 16px; height: 16px; }
+
+.peoplePane .contactActions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 5.5rem));
+  gap: var(--s2);
+  margin: var(--s5) 0 var(--s2);
+}
+.peoplePane .contactAction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  margin: 0;
+  padding: var(--s3) var(--s1);
+  min-height: 64px;
+  background: var(--surface);
+  border-radius: var(--r-m);
+  font-weight: 400;
+  font-size: var(--fs-1);
+}
+.peoplePane .contactAction:hover:not(:disabled) { background: var(--selected); }
+
+.peoplePane #peopleActionNote {
+  min-height: 1.35em;
+  margin: 0;
+  max-width: 24rem;
+}
+
+.peoplePane .contactSection {
+  align-self: stretch;
+  margin-top: var(--s5);
+  text-align: left;
+}
+.peoplePane .contactSection h3 {
+  margin: 0 0 var(--s1);
+  font-size: var(--fs-1);
+  color: var(--muted);
+}
+.peoplePane .contactLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  font-weight: 400;
+  text-align: left;
+  border-radius: var(--r-s);
+}
+.peoplePane .contactLink:hover { background: var(--surface); }
+
+@media (forced-colors: active) {
+  .peopleList .personRow button[aria-current='true'] { outline: 2px solid Highlight; }
+  .peoplePane .contactAction { border: 1px solid ButtonText; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #peopleAddMenu { transition: none; }
+}
