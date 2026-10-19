@@ -3,6 +3,11 @@
 > **DRAFT for legal review, 25 September 2026.** It has not been reviewed
 > by a lawyer and it is not legal advice. HTML comments name the code
 > behind each statement; remove them when the page is built.
+>
+> Changed 19 October 2026: the parties the app's defaults contact
+> (profile relays, picture hosts, Nostr address checks when turned on,
+> and for the desktop app our site, GitHub and Google), update checks
+> from the desktop app, and the default relay count.
 
 ## 1. Who we are
 
@@ -28,6 +33,10 @@ see section 2). Contact us about anything in this notice at
 - We keep no server-side account, session or membership record for a
   room. There is nothing to delete on request because there is nothing
   held.
+- Some defaults make your device contact other parties: relays asked for
+  people's public profiles and the hosts of their profile pictures, and,
+  for the desktop app, our site for updates, GitHub and Google (section
+  8). You can turn the profile lookups off.
 - We do not sell your data, we do not show adverts, and we do not run
   analytics or tracking.
 
@@ -136,6 +145,27 @@ logging configuration applies. We have not independently verified this is
 fully suppressed, and we say so rather than claim a guarantee we have not
 checked.
 
+### 4.6 Update checks from the desktop app
+
+**What.** Every desktop build except the Debian package checks our site
+for updates, 30 seconds after it starts and then on a timer:
+
+- the signed app for Macs with Apple silicon fetches an update feed every
+  ten minutes;
+- the Windows ZIP and the Linux tar.gz fetch a signed release list every
+  hour.
+
+When there is an update, the app downloads it from our site too. The
+Debian package does not check by itself: the system's package manager
+fetches its updates from the project's GitHub releases (section 8).
+There is no setting to turn the checks off.
+<!-- desktop/updater.mjs: UPDATE_FEED on the KithMoot site, enabled only when packaged && darwin && arm64, initialDelayMs 30_000, intervalMs 10 minutes; site/downloads/updates/darwin/arm64/RELEASES.json names the download on the same site. desktop/archive-updater.mjs: UPDATE_ORIGIN https://kithmoot.forgesworn.dev, initialDelayMs 30_000, intervalMs 60 minutes, manifest 'downloads/release.json' (desktop/update-manifest.mjs MANIFESTS.desktop), download archiveUrl `${origin}/apk/desktop/${version}/${filename}`. desktop/main.mjs: a Debian install (kithmoot-version stamp) uses desktop/package-updater.mjs, which reads a local file and fetches nothing -->
+
+**What our web server sees.** Each check is an ordinary web request: the
+address it came from, the time, and the file it asked for, which says
+what kind of build is asking. The site's access log is discarded
+(section 4.5), so these requests are not kept.
+
 ## 5. How long we keep information
 
 We hold almost nothing described in section 4 for long, by design:
@@ -193,12 +223,74 @@ would like the chance to put things right first.
 
 ## 8. Who else receives data
 
-- **Public Nostr relays**, including the two independent defaults and any
-  a room's creator adds, receive the ciphertext, device keys and timing
+- **Public Nostr relays**, including the independent relays the app
+  suggests by default and any a room's creator adds, receive the ciphertext, device keys and timing
   any room necessarily produces to function, wherever those relays are
   operated.
 - **Our hosting provider**, `[hosting provider]`, which hosts the box our
   default TURN server, file store, drop tier and relay run on.
+  <!-- app/src/main.ts DEFAULT_RELAYS: nos.lol, relay.primal.net, nostr.mom, none run by the project -->
+
+The app also makes your device contact the following. Each learns your
+device's IP address and the time, as any web request does.
+
+- **Relays asked for public profiles.** To show people's chosen names
+  and pictures, the app asks for the public Nostr profile of each person
+  in the room. It asks the room's own relays and four public relays that
+  are not the room's: purplepag.es (a relay that gathers profiles),
+  relay.damus.io, nos.lol and relay.primal.net. Each learns the public
+  keys asked about, which are the keys of the people in the room, and the
+  address the question came from. The room itself keeps those keys inside
+  its encryption; this lookup is what hands them to relays in the clear,
+  and a relay that also carries the room can link them to it.
+  <!-- app/src/main.ts PROFILE_RELAYS; app/src/profiles.ts header: "That hands all of those relays the participant pubkeys of everybody in the room, in the clear, as a query"; ProfileBook.want subscribes with { kinds: [0], authors } -->
+- **The domain in a Nostr address, if you turn checking on.** If a
+  person's profile names a Nostr address (name@domain) and you have ticked
+  "Verify Nostr addresses", the app asks that domain to confirm it. The
+  domain learns the name asked about and the address the question came
+  from, and can infer that somebody is looking at that person. No cookies
+  or referrer are sent.
+  <!-- app/src/profiles.ts #checkAddress: fetch https://${domain}/.well-known/nostr.json?name=..., credentials: 'omit', referrerPolicy: 'no-referrer' -->
+- **The host of a profile picture.** A picture named in a person's
+  profile is loaded from whatever host that person chose. The host learns
+  the address it was fetched from and when, and so that somebody is
+  looking at that person. No referrer is sent. The picture's owner may
+  run that host.
+  <!-- app/src/main.ts pictureOf: img.src = profile picture, referrerPolicy 'no-referrer'; app/src/profiles.ts safePicture allows http: and https: -->
+
+Profile lookups and pictures are **on by default**. Turn them off under
+Settings, Connections, "Profile pictures and names" (also in a room's
+menu), by clearing "Show public profile pictures, names and Nostr
+addresses". The choice is saved on your device. Turning it off stops
+further lookups and removes loaded profiles and pictures; it cannot
+recall a request already sent. Checking Nostr addresses is **off by
+default**, under "Verify Nostr addresses" in the same place.
+<!-- app/src/relay-settings.ts profilePreference: on unless 'kithmoot.profiles.enabled' is 'false'; nip05VerifyPreference: off unless 'kithmoot.nip05.verify' is 'true'; app/index.html #lookupProfiles checked, #verifyAddresses unchecked, buttons #appProfileSettings and #roomProfileSettings; ProfileBook.setEnabled aborts checks and closes subscriptions -->
+
+The desktop app also makes your device contact:
+
+- **Our site, for updates**, as section 4.6 describes.
+- **GitHub, for the Debian package.** If you install the Debian or Ubuntu
+  package, your system's package manager fetches KithMoot's updates from
+  the project's releases on GitHub, on your system's own update schedule.
+  GitHub learns your device's address, the time, and that it is fetching
+  KithMoot.
+  <!-- desktop/linux apt source: the project's GitHub releases, signed Release with Origin: KithMoot; site/downloads/index.html Linux section -->
+- **Google, for spelling dictionaries, on Windows and Linux.** The
+  spellchecker built into Electron, the framework the desktop app runs
+  on, downloads a dictionary for your language from a Google server.
+  Google learns your device's address, the time and the language asked
+  for. Electron's documentation says nothing you type is sent. The Mac
+  app uses the macOS spellchecker and downloads nothing. There is no
+  setting to turn this off.
+  <!-- desktop/main.mjs webPreferences spellcheck: true, no session.setSpellCheckerDictionaryDownloadURL; Electron 44.4.1; https://www.electronjs.org/docs/latest/tutorial/spellchecker "Does the spellchecker use any Google services?" -->
+
+`[DECISION: whether the desktop app keeps the Google dictionary download;
+it goes if spellcheck is off on Windows and Linux, or if the dictionaries
+ship inside the app.]`
+
+Every connection the desktop app makes, and a command to check each one,
+is listed at https://kithmoot.app/check/.
 
 We do not use an email marketing service, an analytics company or an
 error-tracking company for this site.
