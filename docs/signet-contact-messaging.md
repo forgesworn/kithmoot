@@ -29,7 +29,8 @@ connection metadata and randomized outer timestamps. This is an invitation
 extension using the NIP-17 envelope, not full NIP-17 conversation support.
 
 Delivery prefers the recipient's kind-10050 inbox list, then their NIP-65 read
-list. With neither, it attempts KithMoot's configured relays; this fallback is
+list, asked for only while public profile lookups are on. With neither, it
+attempts KithMoot's configured relays; this fallback is
 application-specific and cannot guarantee reachability across disjoint relay
 choices. Receivers read their configured relays plus their own published inbox
 list. This does not change existing private conversations' routing.

@@ -2238,3 +2238,10 @@ person's device rings only if it already holds that chat (D4). Invite opens
 the private chat and sends the room there as the existing sealed in-room
 invite: the private inbox's reader accepts private-chat invitations only, on
 web and Android, so sending a group room through it would be a wire change.
+
+Under each name, web and Android say the same: tier and "checked" when the
+Signet grant shares them, otherwise where the contact came from ("Signet",
+"Contact card"); for someone followed, their Nostr address once checked,
+otherwise nothing. Starting a private chat now asks for the other person's
+relay lists only while public profile lookups are on, as a room already did
+(spec D9); without them the invitation goes to this account's own relays.

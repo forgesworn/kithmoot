@@ -25,6 +25,10 @@ export interface Person {
   checked?: boolean
   /** Contact cards and Signet grants are contacts; follows are Following. */
   section: 'contacts' | 'following'
+  /** Where a contact came from, said when there is no tier or check to show. */
+  source?: 'signet' | 'card'
+  /** A Nostr address, only once it has been checked. */
+  address?: string
 }
 
 export interface PeopleModel {
@@ -479,9 +483,13 @@ function shortNpub(pubkey: string): string {
   return `${npub.slice(0, 10)}…${npub.slice(-4)}`
 }
 
-/** "Kith · checked", or nothing to add. */
+/** The line under a name, the same on web and Android: "Kith · checked"
+ *  when Signet shares them, else where the contact came from; for someone
+ *  followed, their Nostr address once checked, else nothing. */
 function subline(person: Person): string {
-  return [person.tier ? person.tier[0]!.toUpperCase() + person.tier.slice(1) : '', person.checked ? 'checked' : ''].filter(Boolean).join(' · ')
+  if (person.section === 'following') return person.address ?? ''
+  const trust = [person.tier ? person.tier[0]!.toUpperCase() + person.tier.slice(1) : '', person.checked ? 'checked' : ''].filter(Boolean).join(' · ')
+  return trust || (person.source === 'signet' ? 'Signet' : person.source === 'card' ? 'Contact card' : '')
 }
 
 function avatar(person: Person, className: string): HTMLElement {

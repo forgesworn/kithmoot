@@ -3136,9 +3136,12 @@ async function messageContact(peer: string, name?: string): Promise<void> {
   let createdRoom: string | undefined, retained = false
   try {
     const defaults = relayConnections.configuration('default').filter(relay => relay.read || relay.write).map(relay => relay.url)
-    const lists = await lookUpDmRelayLists([account.pubkey, peer], distinctRelays([...defaults, ...RELAYS, ...PROFILE_RELAYS]), [KIND_DM_RELAYS, KIND_RELAY_LIST])
+    // The other person's relay lists are asked for only while public profile
+    // lookups are on, as in a room (`relaysForConversationWith`); without
+    // them the invitation goes to this account's configured relays.
+    const lists = await lookUpDmRelayLists(profilesEnabled ? [account.pubkey, peer] : [account.pubkey], distinctRelays([...defaults, ...RELAYS, ...PROFILE_RELAYS]), [KIND_DM_RELAYS, KIND_RELAY_LIST])
     if (!current()) throw new Error('Your account or contact permission changed.')
-    const own = inboxRelays(lists, account.pubkey), theirs = inboxRelays(lists, peer)
+    const own = inboxRelays(lists, account.pubkey), theirs = profilesEnabled ? inboxRelays(lists, peer) : []
     const dmRelays = relaysForPrivateConversation({ mine: own, theirs, fallback: defaults })
     const secret = generateRoomSecret(), created = createRoomInvitation(true), { roomId } = deriveRoom(secret)
     createdRoom = roomId
@@ -15146,22 +15149,26 @@ function peopleModel(): PeopleModel {
   const self = nostrSession?.pubkey
   const view = grantedContactView
   const byKey = new Map<string, Person>()
-  const add = (pubkey: string, person: Omit<Person, 'pubkey' | 'picture'>) => {
+  const add = (pubkey: string, person: Omit<Person, 'pubkey' | 'picture'>): void => {
     if (pubkey === self || contactIsBlocked(pubkey) || byKey.has(pubkey)) return
     const profile = profiles.get(pubkey)
     byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name, ...(profile?.picture ? { picture: profile.picture } : {}) })
   }
   if (view && (view.status === 'ready' || view.status === 'stale')) {
     for (const contact of view.contacts) add(contact.pubkey, {
-      section: 'contacts', ...(contact.name ? { name: contact.name } : {}),
+      section: 'contacts', source: 'signet', ...(contact.name ? { name: contact.name } : {}),
       ...(contact.tier && contact.tier !== 'none' ? { tier: contact.tier } : {}),
       ...(contact.checks.length ? { checked: true } : {}),
     })
   }
-  for (const card of contacts(deviceStore)) add(card.p, { section: 'contacts', ...(card.name ? { name: contactLabel(card) } : {}) })
+  for (const card of contacts(deviceStore)) add(card.p, { section: 'contacts', source: 'card', ...(card.name ? { name: contactLabel(card) } : {}) })
   const contactsList = [...byKey.values()]
   const snapshot = follows.snapshot()
-  for (const pubkey of snapshot.pubkeys) add(pubkey, { section: 'following' })
+  // A Nostr address shows only once checked; ProfileBook holds it only then.
+  for (const pubkey of snapshot.pubkeys) {
+    const address = profiles.get(pubkey)?.nip05
+    add(pubkey, { section: 'following', ...(address ? { address } : {}) })
+  }
   const following = [...byKey.values()].filter(person => person.section === 'following')
   const contactsNote = view?.status === 'stale' ? 'Open Signet to refresh your contacts. Names may be out of date.'
     : view?.status === 'lapsed' ? 'Open Signet and unlock your contacts to see their names again.'
