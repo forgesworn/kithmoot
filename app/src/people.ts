@@ -168,6 +168,8 @@ export class PeopleView {
     // Names for everyone listed, a batch at a time. The follow list is
     // public already, so asking about its people tells the relays nothing
     // new; the switch in Settings still decides whether anything is asked.
+    // Lookups switched off forget every profile, so ask again once back on.
+    if (model.followStatus === 'off') this.#wanted.clear()
     const fresh = [...model.contacts, ...model.following].map(person => person.pubkey).filter(key => !this.#wanted.has(key))
     for (const key of fresh) this.#wanted.add(key)
     for (let i = 0; i < fresh.length; i += WANT_BATCH) this.#actions.want(fresh.slice(i, i + WANT_BATCH))
