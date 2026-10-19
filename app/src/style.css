@@ -58,6 +58,11 @@
   --fs-3: 1.0625rem;
   --fs-4: 1.25rem;
   --fs-5: 1.5rem;
+  --lh-1: 1.35;
+  --lh-2: 1.45;
+  --lh-3: 1.25;
+  --lh-4: 1.2;
+  --lh-5: 1.2;
 
   /* Space on a 4 and 8 scale; radius in three steps; control height and
      row height, taller where a finger is the pointer. */
@@ -276,8 +281,8 @@ body {
   color: var(--text);
   max-width: 1500px;
   margin-inline: auto;
-  font-size: 1rem;
-  line-height: 1.5;
+  font-size: var(--fs-2);
+  line-height: var(--lh-2);
 }
 
 /* Prose keeps the measure the shell gave up. Everything a person READS in
@@ -297,8 +302,9 @@ main > p {
    not sticky, so it scrolls away with the rest of the page rather than
    taking a share of a short landscape phone. */
 h1 {
-  font-size: 1.25rem;
+  font-size: var(--fs-4);
   font-weight: 600;
+  line-height: var(--lh-4);
   overflow-wrap: anywhere;
   margin: 0;
 }
@@ -314,37 +320,50 @@ header {
 }
 
 .app-brand, .workspaceBrand { display: flex; align-items: center; gap: .6rem; min-width: 0; }
-.app-brand img, .workspaceBrand img { flex: 0 0 auto; border-radius: 22%; }
+.app-brand img, .workspaceBrand img { flex: 0 0 auto; border-radius: var(--r-m); }
 
 #openAppSettings { margin: 0; flex: 0 0 auto; }
 
 h2 {
-  font-size: 1rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-2);
   color: var(--muted);
   margin-top: 2rem;
+}
+
+/* Controls do not inherit the page's face by default; the app has one. */
+button, input, textarea, select {
+  font-family: inherit;
+}
+
+/* Two weights in the app, 400 and 600; the browser's own bold is 700. */
+h2, h3, h4, strong, b, th, summary, legend {
+  font-weight: 600;
 }
 
 /* In a room, the masthead steps back further still: the room's own bar
    carries the way out and back, and the header would otherwise cost a
    short landscape phone a second row it cannot spare. */
 body:has(#roomArea:not([hidden])) h1 {
-  font-size: 1.1rem;
+  font-size: var(--fs-3);
 }
 
 @media (max-height: 500px) and (orientation: landscape) {
   header { min-height: 44px; }
 }
 
+/* A button is a tonal patch, never a box with a line round it: grouping is
+   done with space and fill (design-calm-shell, rule 1). Forced colours get
+   its edge back below, because a fill is not drawn there. */
 button {
-  font-size: 1rem;
-  padding: 0.6rem 1rem;
+  font-size: var(--fs-2);
+  font-weight: 600;
+  padding: 0.5rem var(--s4);
+  min-height: var(--ctl);
   margin: 0.25rem 0.5rem 0.25rem 0;
   background: var(--control);
   color: var(--text);
-  border: 1px solid var(--control-border);
-  border-radius: 6px;
+  border: 0;
+  border-radius: var(--r-s);
   cursor: pointer;
 }
 
@@ -364,12 +383,8 @@ input[type='search'],
 input[type='number'],
 input:not([type]),
 textarea {
-  /* Monospace by default because most of the fields in this app hold a
-     code, a key or a link, where telling an l from a 1 matters. The two
-     that hold WORDS opt out below: a box in a typewriter face reads as a
-     place to paste a hash, not as a place to say something. */
-  font-family: monospace;
-  font-size: 1rem;
+  font-family: inherit;
+  font-size: var(--fs-2);
   padding: 0.55rem 0.6rem;
   width: 100%;
   background: var(--field);
@@ -384,34 +399,25 @@ textarea {
   font-family: inherit;
 }
 
-/* A field should say where it is before it is typed in and say plainly when
-   it has the keyboard.
-
-   One ring and a glow, not two rings and a glow. The outline used to sit a
-   pixel clear of a border that also turned accent-coloured, so a focused
-   field wore three concentric lines and read as heavier than anything else
-   on the page. `outline-offset: 0` lays the outline over the border
-   instead, which leaves one crisp edge - and the outline is still what a
-   forced-colours or high-contrast mode keeps when the glow is thrown away. */
+/* A field says where it is before it is typed in and says plainly when it
+   has the keyboard: one 2px ring in the focus colour, laid over its own
+   border so there is a single crisp edge. An outline, not a glow, so
+   forced-colours and high-contrast modes keep it. */
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 0;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-glow);
+  border-color: var(--focus);
 }
 
-/* Buttons, disclosure summaries and tabs relied on the browser's own default
-   ring, which several browsers draw thin or not at all. Keyboard and switch
-   users get the same accent ring and glow as a field, offset outward since
-   these sit on their own background rather than inside a bordered box. */
+/* Buttons, disclosure summaries and tabs get the same ring, offset outward
+   since they sit on their own fill rather than inside a bordered box. */
 button:focus-visible,
 summary:focus-visible,
 [role=tab]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--focus-glow);
 }
 
 /* A thicker ring under `prefers-contrast: more`, on top of the two rules
@@ -428,7 +434,7 @@ section {
 
 details#appConnections {
   margin-top: 0.75rem;
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
   color: var(--muted);
 }
 
@@ -440,10 +446,10 @@ details#appConnections label {
 details#appConnections button { display: block; }
 
 .linkBox {
-  border: 1px solid var(--box-border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.75rem;
   margin: 0.75rem 0;
+  background: var(--surface);
 }
 
 .linkBox p {
@@ -475,7 +481,7 @@ details#appConnections button { display: block; }
   margin: 0.5rem 0;
   max-width: 100%;
   height: auto;
-  border-radius: 4px;
+  border-radius: var(--r-s);
 }
 
 #shareQrDetails {
@@ -485,7 +491,7 @@ details#appConnections button { display: block; }
 #shareQrDetails summary {
   cursor: pointer;
   color: var(--accent);
-  font-size: 1rem;
+  font-size: var(--fs-2);
 }
 
 /* Opened by "Invite by QR": the code is the point, so it comes first and
@@ -516,7 +522,7 @@ details#appConnections button { display: block; }
 #status {
   min-height: 1.25rem;
   color: var(--danger);
-  font-size: 1rem;
+  font-size: var(--fs-2);
 }
 
 /* "Getting you in..." is not a failure, and the danger colour said it was.
@@ -547,24 +553,35 @@ details#appConnections button { display: block; }
    One row, and the only permanent furniture above the conversation. What
    it replaces - the room name on its own line, a strip of participant
    chips, a row of conversation tabs and a line explaining the tab - is
-   either in this bar in words or one tap behind it. */
+   either in this bar as a picture or one tap behind it. A hairline under
+   it is the only line. */
 .roomBar {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  margin: 0 0 0.5rem;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--border);
+  gap: var(--s1);
+  margin: 0 0 var(--s2);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line);
 }
 
+/* An icon button: transparent, a circle the height of a control, filled
+   with the selected tone on hover, on press and while its panel is open.
+   Its name is in the markup and its words are in a tooltip that shows on
+   hover and on keyboard focus. */
 .barBack,
 .barBtn {
-  margin: 0;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
   flex: 0 0 auto;
+  width: var(--ctl);
+  height: var(--ctl);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--r-full);
   background: transparent;
-  border-color: transparent;
-  color: var(--muted);
-  padding: 0.45rem 0.6rem;
+  color: var(--text);
 }
 
 .barBack {
@@ -594,17 +611,15 @@ details#appConnections button { display: block; }
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 0.6rem;
+  gap: var(--s3);
   margin: 0;
-  padding: 0.25rem 0.4rem;
+  padding: var(--s1) var(--s2);
   background: transparent;
-  border-color: transparent;
   text-align: left;
 }
 
 .roomIdentity:hover {
-  background: var(--control);
-  border-color: var(--border);
+  background: var(--selected);
 }
 
 .roomIdentity .roomTitle,
@@ -619,39 +634,40 @@ details#appConnections button { display: block; }
 
 .roomIdentity .roomTitle {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: var(--fs-3);
+  line-height: var(--lh-3);
   color: var(--text);
 }
 
-.privateLogo { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; width: 2.25rem; height: 2.25rem; border-radius: .65rem; background: var(--control); color: var(--text); font-weight: 650; }
+.privateLogo { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; width: 2.25rem; height: 2.25rem; border-radius: var(--r-m); background: var(--control); color: var(--text); font-weight: 600; }
 .privateLogo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-#callSurfaceLogo { width: 1.5rem; height: 1.5rem; border-radius: .4rem; font-size: .85rem; }
+#callSurfaceLogo { width: 1.5rem; height: 1.5rem; border-radius: var(--r-s); font-size: var(--fs-1); }
 .roomIdentityText { display: flex; flex-direction: column; align-items: flex-start; gap: .05rem; min-width: 0; flex: 1 1 auto; }
 .roomLogoControls { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
 .roomLogoControls .note { flex-basis: 100%; margin: 0; }
 .arrivalRoomBrand { display: flex; align-items: center; gap: .65rem; margin-top: 1rem; min-width: 0; }
 #arrivalRoomBrandName { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
-.logoEditor { box-sizing: border-box; width: min(29rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: 1rem; border: 1px solid var(--border); border-radius: 12px; overflow-y: auto; background: var(--bg); color: var(--text); }
+.logoEditor { box-sizing: border-box; width: min(29rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: 1rem; border-radius: var(--r-m); overflow-y: auto; background: var(--bg); color: var(--text); box-shadow: var(--shadow); border: 0;}
 .logoEditor::backdrop { background: rgb(0 0 0 / 55%); }
-.logoEditor h2 { margin: 0 0 .75rem; font-size: 1.2rem; overflow-wrap: anywhere; }
+.logoEditor h2 { margin: 0 0 .75rem; font-size: var(--fs-4); overflow-wrap: anywhere; }
 .logoEditor figure { margin: .75rem auto; width: min(100%, 14rem); text-align: center; }
-.logoEditor canvas { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: .75rem; background: var(--panel); }
+.logoEditor canvas { display: block; width: 100%; height: auto; border-radius: var(--r-m); background: var(--panel); }
 .logoEditor label { display: block; margin: .65rem 0; }
 .logoEditor input { display: block; box-sizing: border-box; width: 100%; min-height: 44px; }
-.logoEditor figcaption { color: var(--muted); font-size: .85rem; }
+.logoEditor figcaption { color: var(--muted); font-size: var(--fs-1); }
 .logoEditorStatus { min-height: 2.5rem; }
 .logoEditorActions { position: sticky; bottom: -1rem; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; padding: .75rem 0; background: var(--bg); }
 .logoEditorActions button { margin: 0; min-height: 44px; max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
 
 .roomIdentity .roomWho {
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   color: var(--muted);
 }
 
 /* A conference room's end, under its name: the one fact about the room
    that changes what a reader should do with it. */
 .roomIdentity .roomEndsLine {
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   color: var(--accent);
 }
 
@@ -665,8 +681,8 @@ details#appConnections button { display: block; }
   max-width: 100%;
   padding: .05em .55em;
   border: 1px solid currentColor;
-  border-radius: 999px;
-  font-size: .8rem;
+  border-radius: var(--r-full);
+  font-size: var(--fs-1);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -688,14 +704,14 @@ details#appConnections button { display: block; }
    the row's buttons keep the first. */
 .workspaceRoom:has(> .fusePill) { flex-wrap: wrap; }
 .workspaceRoom:has(> .fusePill)::after { content: ''; order: 1; flex-basis: 100%; height: 0; }
-.workspaceRoom .fusePill { order: 2; flex: 0 1 auto; min-width: 0; max-width: calc(100% - .6rem); margin: -.3rem 0 .25rem .6rem; font-size: .72rem; }
+.workspaceRoom .fusePill { order: 2; flex: 0 1 auto; min-width: 0; max-width: calc(100% - .6rem); margin: -.3rem 0 .25rem .6rem; font-size: var(--fs-1); }
 
 /* The final minute, across the chat. A slow pulse, unless the reader asked
    for less motion. */
 .fuseBanner {
   margin: .4rem .6rem;
   padding: .6rem .9rem;
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--fuse-banner);
   color: var(--on-fuse-banner);
   font-weight: 600;
@@ -730,8 +746,7 @@ details#appConnections button { display: block; }
 #callBay {
   margin: 0 0 0.6rem;
   padding: 0.6rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--panel);
 }
 
@@ -748,17 +763,15 @@ details#appConnections button { display: block; }
 
 .roomHead h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: var(--fs-4);
 }
 
 /* A label over the row of names, not a heading competing with the room's
    own name beside it. */
 .miniHead {
   margin: 0.6rem 0 0.35rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -780,7 +793,7 @@ details#appConnections button { display: block; }
 
 /* The one sentence a person reads before they type their name in. */
 .lead {
-  font-size: 1.15rem;
+  font-size: var(--fs-3);
   line-height: 1.45;
   margin: 0 0 0.75rem;
 }
@@ -794,16 +807,15 @@ details#appConnections button { display: block; }
   gap: 0.45rem 1rem;
   margin: 0.8rem 0;
   padding: 0.55rem 0.8rem;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  /* Border only, no tint: a fieldset holding an unmade choice is not a
-     status to colour in - see finding 13. */
+  border: 0;
+  border-radius: var(--r-m);
+  background: var(--surface);
 }
 
 .joinMediaChoice legend {
   width: 100%;
   padding: 0;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .joinMediaChoice label {
@@ -829,9 +841,8 @@ details#appConnections button { display: block; }
 }
 
 .toggle[data-on='true'] {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 /* Sharing is not merely another selected preference: it is a live capture
@@ -839,13 +850,12 @@ details#appConnections button { display: block; }
    updateUi; the danger treatment keeps that stop action visible at a glance. */
 #toggleScreen[data-on='true'] {
   background: var(--danger);
-  border-color: var(--danger-border);
   color: var(--on-danger);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .indicator {
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
   color: var(--muted);
   min-height: 1.1rem;
 }
@@ -880,7 +890,7 @@ details#appConnections button { display: block; }
 
 .participant {
   border: 2px solid var(--live);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.75rem;
 }
 
@@ -906,7 +916,7 @@ details#appConnections button { display: block; }
 #room .participant:not(:has(video)) {
   padding: 0.25rem 0.55rem;
   border-width: 1px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -915,7 +925,7 @@ details#appConnections button { display: block; }
 
 #room .participant:not(:has(video)) h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
   flex-wrap: wrap;
 }
 
@@ -925,7 +935,7 @@ details#appConnections button { display: block; }
    costing a whole row per person on a phone. */
 #room .participant:not(:has(video)) .pubkey,
 .agentChip .pubkey {
-  font-size: 0.78rem;
+  font-size: var(--fs-1);
 }
 
 /* The device count is worth a card's space and not a chip's: on a chip it
@@ -961,8 +971,7 @@ details#appConnections button { display: block; }
 
 .participant h3 {
   margin: 0 0 0.5rem;
-  font-size: 1rem;
-  font-family: monospace;
+  font-size: var(--fs-2);
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -979,9 +988,9 @@ details#appConnections button { display: block; }
    short key. It looks like a tag now, everywhere it is written. */
 .badge {
   padding: 0.1rem 0.4rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   font-family: system-ui, sans-serif;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   background: var(--accent);
   color: var(--on-accent);
 }
@@ -994,9 +1003,9 @@ details#appConnections button { display: block; }
 
 .track {
   background: var(--chip);
-  border-radius: 4px;
+  border-radius: var(--r-s);
   padding: 0.4rem 0.6rem;
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
 }
 
 .media {
@@ -1009,7 +1018,7 @@ details#appConnections button { display: block; }
 .media video,
 .media audio {
   max-width: 100%;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   background: var(--video-bg);
 }
 
@@ -1022,19 +1031,16 @@ details#appConnections button { display: block; }
 
 video {
   max-width: 320px;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   background: var(--video-bg);
 }
 
 /* Chat */
 #chatLog {
-  border: 1px solid var(--border);
-  border-radius: 8px;
   padding: 0.6rem;
   height: clamp(220px, 38vh, 460px);
   overflow-y: auto;
-  background: var(--panel);
-  font-size: 1rem;
+  font-size: var(--fs-2);
 }
 
 #chatLog p {
@@ -1064,13 +1070,17 @@ video {
 #chatLog {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 2px;
+  overflow-x: hidden;
 }
 
+/* A run is one sender's messages within five minutes of each other: one
+   name above the first, two pixels between bubbles, a larger gap before the
+   next run. Space does the grouping; nothing is boxed. */
 .msg {
   display: flex;
   flex-direction: column;
-  max-width: min(88%, 44rem);
+  max-width: min(75ch, 88%);
   min-width: 0;
 }
 
@@ -1091,15 +1101,20 @@ video {
   font-size: 0.9rem;
   color: var(--muted);
   max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+/* The bubble has no border: its fill is the edge. Mine takes the deep
+   accent; someone else's, an agent's included, the quiet neutral. An agent
+   is told by its label, never by colour. */
 .bubble {
   max-width: 100%;
   min-width: 0;
-  padding: 0.45rem 0.7rem 0.3rem;
-  border-radius: 14px;
+  padding: 7px var(--s3) 6px;
+  border-radius: var(--r-m);
   background: var(--bubble);
-  border: 1px solid var(--border);
+  color: var(--text);
 }
 
 /* The tail. One squared corner on the side the bubble came from, which is
@@ -1135,12 +1150,12 @@ video {
    colour; `anywhere` keeps a very long one wrapping inside the bubble
    instead of stretching it, without ever shortening the address itself. */
 .bubble .text a {
-  color: var(--accent);
+  color: var(--link);
   text-decoration: underline;
   overflow-wrap: anywhere;
 }
 .bubble .text a:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
   border-radius: 2px;
 }
@@ -1186,7 +1201,8 @@ video {
 .messageHeader .when { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .msg.mine .messageHeader { justify-content: flex-end; }
 .conversationTools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.4rem; flex: 0 0 auto; }
-.conversationTools button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: 0.85rem; background: transparent; }
+.conversationTools button, .agentActivity button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: var(--fs-1); background: transparent; color: var(--link); }
+.conversationTools button:hover, .agentActivity button:hover { background: var(--selected); }
 
 /* An arrival is visible even when the conversation is scrolled away from
    the locally-rendered system line. It takes its own row and never overlays
@@ -1194,26 +1210,24 @@ video {
 .epochNotice {
   margin: 0 0 .5rem;
   padding: .55rem .75rem;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--accent-dim);
   color: var(--text);
-  font-weight: 650;
+  font-weight: 600;
 }
 .epochNotice[hidden] { display: none; }
 .presenceNotice {
   margin: 0 0 .5rem;
   padding: .55rem .75rem;
-  border: 1px solid var(--live);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--panel);
   color: var(--text);
-  font-weight: 650;
+  font-weight: 600;
 }
-.profileSettings { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text); }
+.profileSettings { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.25rem; border-radius: var(--r-m); background: var(--panel); color: var(--text); box-shadow: var(--shadow); border: 0;}
 .profileSettings::backdrop { background: rgb(0 0 0 / 55%); }
 .profileSettingsHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
-.profileSettingsHeader h2 { font-size: 1.25rem; margin: 0; }
+.profileSettingsHeader h2 { font-size: var(--fs-4); margin: 0; }
 .profileSettingsHeader button { min-height: 44px; }
 .shareExpand { min-height: 44px; padding: 0.45rem 0.7rem; margin: 0.5rem 0 0; }
 .media video.screenPreview { object-fit: contain; cursor: zoom-in; }
@@ -1235,24 +1249,24 @@ video.screenPreview.selfMirrorGuard { visibility: hidden; }
   justify-content: center;
   text-align: center;
   padding: .5rem 1rem;
-  font-size: .8rem;
+  font-size: var(--fs-1);
   color: #fff;
   background: #101114;
 }
-dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100vw - 2rem); max-width: none; height: calc(100dvh - 2rem); max-height: none; padding: 0; border: 1px solid var(--border); border-radius: 14px; }
+dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100vw - 2rem); max-width: none; height: calc(100dvh - 2rem); max-height: none; padding: 0; border-radius: var(--r-m); box-shadow: var(--shadow); border: 0;}
 .shareViewer { background: var(--panel); color: var(--text); }
 .shareViewer[open], main.shareViewer { display: flex; flex-direction: column; overflow: hidden; }
 .shareViewer::backdrop { background: rgb(0 0 0 / 70%); }
 .shareViewer:fullscreen { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
 .shareViewerBar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; padding: 0.65rem; flex: 0 0 auto; }
-.shareViewerBar h2 { font-size: 1rem; margin: 0; overflow-wrap: anywhere; }
+.shareViewerBar h2 { font-size: var(--fs-2); margin: 0; overflow-wrap: anywhere; }
 .shareViewerControls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
-.shareViewerControls button { min-height: 44px; min-width: 44px; padding: 0.35rem 0.6rem; font-size: 0.85rem; margin: 0; }
+.shareViewerControls button { min-height: 44px; min-width: 44px; padding: 0.35rem 0.6rem; font-size: var(--fs-1); margin: 0; }
 .shareViewerControls output { min-width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
-.shareViewerControls .shareDrawButton[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
+.shareViewerControls .shareDrawButton[aria-pressed=true] { background: var(--accent); color: var(--on-accent); }
 /* On a touch screen drawing has to be switched on before a finger draws, so
    the button that does it stands out from the zoom controls beside it. */
-@media (pointer: coarse) { .shareViewerControls .shareDrawButton { border-color: var(--accent); color: var(--accent); font-weight: 650; } }
+@media (pointer: coarse) { .shareViewerControls .shareDrawButton { border-color: var(--accent); color: var(--accent); font-weight: 600; } }
 .shareViewport { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #080b0d; touch-action: none; }
 .shareViewport.zoomed { cursor: grab; }
 .shareViewport.zoomed:active { cursor: grabbing; }
@@ -1286,13 +1300,13 @@ video.awaitingFrame {
 /* Marks over a preview tile of a share: the same strokes the viewer paints,
    sized to the picture inside the video element. Hidden when there are none. */
 .shareMarks { position: absolute; pointer-events: none; z-index: 1; }
-.shareViewerNotice { flex: 0 0 auto; margin: 0; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: var(--muted); }
-.shareOwnerCamera { position: absolute; right: .75rem; bottom: .75rem; width: min(var(--share-camera-width, 200px), 42%); border: 2px solid var(--border); border-radius: 10px; background: var(--tile-bg); color: var(--tile-label-fg); overflow: hidden; pointer-events: none; z-index: 3; }
+.shareViewerNotice { flex: 0 0 auto; margin: 0; padding: 0.45rem 0.75rem; font-size: var(--fs-1); color: var(--muted); }
+.shareOwnerCamera { position: absolute; right: .75rem; bottom: .75rem; width: min(var(--share-camera-width, 200px), 42%); border: 2px solid var(--border); border-radius: var(--r-m); background: var(--tile-bg); color: var(--tile-label-fg); overflow: hidden; pointer-events: none; z-index: 3; }
 .shareOwnerCamera[hidden], .shareOwnerCamera video[hidden], .shareCameraFallback[hidden] { display: none; }
 .shareOwnerCamera.speaking { border-color: var(--speak-ring); box-shadow: 0 0 0 2px var(--speak-ring); }
 .shareOwnerCamera video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
-.shareCameraFallback { display: grid; place-items: center; min-height: 4rem; font-size: .85rem; background: var(--tile-initials-bg); color: var(--tile-initials-fg); }
-.shareOwnerName { display: block; padding: .3rem .5rem; background: var(--tile-label-bg); overflow-wrap: anywhere; font-size: .85rem; font-weight: 650; }
+.shareCameraFallback { display: grid; place-items: center; min-height: 4rem; font-size: var(--fs-1); background: var(--tile-initials-bg); color: var(--tile-initials-fg); }
+.shareOwnerName { display: block; padding: .3rem .5rem; background: var(--tile-label-bg); overflow-wrap: anywhere; font-size: var(--fs-1); font-weight: 600; }
 .shareViewerControls input[type=range] { width: 7rem; max-width: 100%; min-height: 44px; margin: 0; }
 body.sharePopup { margin: 0; padding: 0; max-width: none; width: 100vw; height: 100dvh; overflow: hidden; }
 body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding: 0; max-width: none; }
@@ -1308,14 +1322,12 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   gap: .35rem .8rem;
   padding: .6rem .85rem;
   margin-bottom: .6rem;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--live);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--accent-dim);
-  font-size: .85rem;
+  font-size: var(--fs-1);
 }
 .sharerMarksNotice span { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
-.sharerMarksNotice button { margin: 0; min-height: 44px; padding: .4rem .6rem; font-size: .85rem; background: var(--panel); }
+.sharerMarksNotice button { margin: 0; min-height: 44px; padding: .4rem .6rem; font-size: var(--fs-1); background: var(--panel); }
 
 /* When a line was said.
 
@@ -1328,8 +1340,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
    See `whenWords` in app/src/main.ts. */
 .when {
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.875rem;
+  font-size: var(--fs-1);
   margin-right: 0.45rem;
   white-space: nowrap;
 }
@@ -1343,11 +1354,12 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   display: none;
 }
 
+   Add a file, the field, send. Every picture button is a control tall, the
+   field is a pill at least as tall, and the row centres what is in it, so
+   nothing is ever higher than its neighbours at any text size. The sizes
+   are in pixels on purpose: they are the size of a thumb, and a larger
+   text size grows the words in the field, not the buttons around it. */
 #chatForm {
-  flex-wrap: wrap;
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
   /* The name picker hangs off this. */
   position: relative;
   /* The box grows and the buttons do not: without this they stretch to
@@ -1383,9 +1395,9 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   overflow-y: auto;
   padding: 0.25rem;
   background: var(--panel);
-  border: 1px solid var(--accent-dim);
-  border-radius: 10px;
-  box-shadow: 0 -10px 28px var(--drop-shadow);
+  border-radius: var(--r-m);
+  box-shadow: var(--shadow);
+  border: 0;
 }
 
 /* A row a thumb can hit: the padding takes each one past the 44px every
@@ -1398,10 +1410,10 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   margin: 0;
   padding: 0.65rem 0.6rem;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-s);
   background: transparent;
   text-align: left;
-  font-size: 1rem;
+  font-size: var(--fs-2);
 }
 
 .mentions button[aria-selected='true'],
@@ -1420,7 +1432,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 
 .mentions .model-label {
   min-width: 0;
-  font-size: 0.875rem;
+  font-size: var(--fs-1);
   overflow-wrap: anywhere;
 }
 
@@ -1441,7 +1453,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 .mention.me {
   color: var(--on-accent);
   background: var(--accent);
-  border-radius: 4px;
+  border-radius: var(--r-s);
   padding: 0 0.25rem;
 }
 
@@ -1486,8 +1498,8 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   display: block;
   margin: 0.25rem 0 0.35rem;
   padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-s);
+  background: var(--surface);
 }
 
 .attachment .label {
@@ -1505,7 +1517,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   display: block;
   max-width: 100%;
   max-height: 320px;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   margin: 0.4rem 0;
 }
 
@@ -1519,8 +1531,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   gap: 0.4rem;
   margin-top: 0.5rem;
   padding: 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--panel);
 }
 
@@ -1536,7 +1547,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 #chatForm.dropping {
   outline: 2px dashed var(--accent);
   outline-offset: 4px;
-  border-radius: 6px;
+  border-radius: var(--r-s);
 }
 
 #attachFile {
@@ -1548,14 +1559,13 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   display: inline-block;
   margin: 0.3rem 0.4rem 0 0;
   padding: 0.15rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.95rem;
+  border-radius: var(--r-full);
+  font-size: var(--fs-2);
 }
 
 .attachChip button {
   margin-left: 0.3rem;
-  font-size: 0.8rem;
+  font-size: var(--fs-1);
 }
 
 /* A switch with its explanation beside it: who is sent this device's
@@ -1587,7 +1597,7 @@ button.primary {
   border-color: var(--accent);
   background: var(--accent-dim);
   color: var(--text);
-  font-size: 1.05rem;
+  font-size: var(--fs-3);
   font-weight: 600;
   padding: 0.6rem 1.4rem;
 }
@@ -1624,13 +1634,12 @@ button.primary:hover:not(:disabled) {
 
 
 .log {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.6rem;
   max-height: 220px;
   overflow-y: auto;
   background: var(--panel);
-  font-size: 1rem;
+  font-size: var(--fs-2);
 }
 
 .log p {
@@ -1649,7 +1658,7 @@ button.primary:hover:not(:disabled) {
 .count {
   color: var(--muted);
   font-weight: normal;
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
 }
 
 /* Verification has words to read and say aloud, so it has its own layout
@@ -1657,11 +1666,12 @@ button.primary:hover:not(:disabled) {
 #verifyDialog {
   background: var(--panel);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-m);
   padding: 0;
   max-width: 34rem;
   width: calc(100% - 2rem);
+  box-shadow: var(--shadow);
+  border: 0;
 }
 
 #verifyDialog::backdrop {
@@ -1678,13 +1688,12 @@ button.primary:hover:not(:disabled) {
 
 .verifyForm h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--fs-3);
 }
 
 .verifyWarning {
   margin: 0;
   padding: 0.6rem 0.75rem;
-  border-left: 3px solid var(--danger);
   background: rgb(255 136 136 / 0.12);
   color: var(--text);
 }
@@ -1702,13 +1711,13 @@ button.primary:hover:not(:disabled) {
 
 .verifyWords dt {
   color: var(--muted);
-  font-size: 1rem;
+  font-size: var(--fs-2);
 }
 
 .verifyWords dd {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 1.25rem;
+  font-size: var(--fs-4);
   letter-spacing: 0.02em;
   color: var(--accent);
 }
@@ -1727,11 +1736,11 @@ button.primary:hover:not(:disabled) {
 .participant .verifyChip {
   cursor: pointer;
   font: inherit;
-  font-size: 0.8em;
+  font-size: var(--fs-1);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
-  border-radius: 999px;
+  border-radius: var(--r-full);
   padding: 0.05em 0.5em;
 }
 
@@ -1756,9 +1765,19 @@ button.primary:hover:not(:disabled) {
   font-weight: 600;
 }
 
+/* The agent label: the word "Agent" in an outlined pill, the same wherever
+   it is drawn. The outline is the current text colour, so it survives
+   forced colours, where a fill would not, and the word means colour is
+   never the only cue. */
 .badge.agent {
-  background: var(--agent-fill);
-  color: var(--on-agent);
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--agent);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 /* A person turned down to 0% for this device only - the one state a volume
@@ -1788,8 +1807,7 @@ button.primary:hover:not(:disabled) {
  * key, not a check on the name - so it is quiet rather than a badge of
  * approval. */
 #identity {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.75rem;
   background: var(--panel);
 }
@@ -1800,13 +1818,13 @@ button.primary:hover:not(:disabled) {
   display: block;
   margin-bottom: 0.4rem;
   color: var(--text);
-  font-size: 1.05rem;
+  font-size: var(--fs-3);
   font-weight: 600;
 }
 
 #identity input {
   font-family: system-ui, sans-serif;
-  font-size: 1.05rem;
+  font-size: var(--fs-3);
   padding: 0.6rem 0.7rem;
 }
 
@@ -1820,13 +1838,13 @@ button.primary:hover:not(:disabled) {
 #identity summary {
   cursor: pointer;
   color: var(--accent);
-  font-size: 1rem;
+  font-size: var(--fs-2);
   margin-top: 0.5rem;
 }
 
 .note {
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
   margin: 0.4rem 0;
 }
 
@@ -1835,7 +1853,6 @@ button.primary:hover:not(:disabled) {
 .pairingCode {
   font-size: 2rem;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.12em;
   white-space: nowrap;
   margin: 0.4rem 0;
 }
@@ -1851,7 +1868,7 @@ button.primary:hover:not(:disabled) {
   gap: 0.4rem;
   flex-wrap: wrap;
   margin: 0.75rem 0 0;
-  font-size: 1rem;
+  font-size: var(--fs-2);
   color: var(--muted);
 }
 
@@ -1862,18 +1879,15 @@ button.primary:hover:not(:disabled) {
 }
 
 .pubkey {
-  font-family: monospace;
-  font-size: 0.8em;
+  font-size: var(--fs-1);
   color: var(--muted);
 }
 
 .idkind {
   padding: 0.05rem 0.35rem;
-  font-size: 0.8rem;
+  font-size: var(--fs-1);
   font-family: system-ui, sans-serif;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  border-radius: 4px;
+  border-radius: var(--r-s);
   border: 1px solid var(--accent-dim);
   color: var(--accent);
 }
@@ -1881,12 +1895,12 @@ button.primary:hover:not(:disabled) {
 .avatar {
   width: 1.6rem;
   height: 1.6rem;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   object-fit: cover;
   background: var(--border);
   display: block;
 }
-.avatar.initials { display: inline-grid; place-items: center; color: var(--text); background: var(--accent-dim); font: 600 0.85rem system-ui, sans-serif; flex: 0 0 auto; }
+.avatar.initials { display: inline-grid; place-items: center; color: var(--text); background: var(--accent-dim); font: 600 var(--fs-1) system-ui, sans-serif; flex: 0 0 auto; }
 
 /* The donor ring
  *
@@ -1902,7 +1916,7 @@ button.primary:hover:not(:disabled) {
   display: inline-flex;
   padding: 2px;
   border: 2px solid transparent;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   line-height: 0;
 }
 
@@ -1968,8 +1982,7 @@ button.primary:hover:not(:disabled) {
 }
 
 #effects details {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.5rem 0.75rem;
   margin: 0.5rem 0;
   background: var(--panel);
@@ -1977,16 +1990,15 @@ button.primary:hover:not(:disabled) {
 
 #effects summary {
   cursor: pointer;
-  font-size: 1rem;
+  font-size: var(--fs-2);
   color: var(--text);
 }
 
 #effects .chip {
-  font-family: monospace;
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   color: var(--accent);
   border: 1px solid var(--accent-dim);
-  border-radius: 4px;
+  border-radius: var(--r-s);
   padding: 0.05rem 0.35rem;
   margin-left: 0.35rem;
 }
@@ -1999,15 +2011,14 @@ button.primary:hover:not(:disabled) {
 }
 
 .seg {
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
   padding: 0.35rem 0.7rem;
   margin: 0;
 }
 
 .seg[aria-checked='true'] {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .effectRow {
@@ -2019,7 +2030,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .effectRow label {
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
   color: var(--muted);
 }
 
@@ -2053,12 +2064,12 @@ button.primary:hover:not(:disabled) {
    one is read at a glance from a call in progress, so it needs its own,
    louder styling rather than inheriting that. */
 #effectDegradedNotice.broken {
-  font-size: 1rem;
+  font-size: var(--fs-2);
   font-weight: 600;
   color: var(--danger);
   background: var(--panel);
   border: 2px solid var(--danger-border);
-  border-radius: 10px;
+  border-radius: var(--r-m);
   padding: 0.6rem 0.8rem;
   margin: 0.4rem 0;
 }
@@ -2079,7 +2090,7 @@ button.primary:hover:not(:disabled) {
 #cameraPrivacyNotices > .indicator {
   margin: 0;
   padding: .15rem .6rem;
-  font-size: .85rem;
+  font-size: var(--fs-1);
   line-height: 1.35;
 }
 
@@ -2095,10 +2106,10 @@ button.primary:hover:not(:disabled) {
    is being spent on their behalf, which they should be able to see from
    across the desk without reading a word of it. */
 #assist {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.75rem;
   margin: 0.75rem 0;
+  background: var(--surface);
 }
 
 #assist:has(#assistIndicator.mine) {
@@ -2112,7 +2123,7 @@ button.primary:hover:not(:disabled) {
 #assist summary {
   cursor: pointer;
   color: var(--accent);
-  font-size: 1rem;
+  font-size: var(--fs-2);
   margin-top: 0.4rem;
 }
 
@@ -2140,13 +2151,13 @@ button.primary:hover:not(:disabled) {
 
 .inviteRow .desc {
   color: var(--muted);
-  font-size: 1rem;
+  font-size: var(--fs-2);
   flex: 1 1 14rem;
 }
 
 .inviteRow .running {
   color: var(--accent);
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
 }
 
 /* Agents with nothing on screen: a row of names above the grid, not empty
@@ -2157,8 +2168,7 @@ button.primary:hover:not(:disabled) {
   gap: 0.5rem;
   align-items: center;
   margin: 0 0 0.6rem;
-  font-family: monospace;
-  font-size: 0.95rem;
+  font-size: var(--fs-2);
 }
 
 .agentChip {
@@ -2166,8 +2176,7 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 0.4rem;
   padding: 0.3rem 0.6rem;
-  border: 1px dashed var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-full);
   /* A name, a key and two tags is wider than a phone. Wrapping inside the
      chip keeps the tag on screen; without it the row scrolled sideways and
      the `agent` tag was the part that fell off the edge, which is the one
@@ -2189,11 +2198,11 @@ button.primary:hover:not(:disabled) {
 .agentsExplain {
   margin: 0 0 0.6rem;
   max-width: 72ch;
-  font-size: 1rem;
+  font-size: var(--fs-2);
   line-height: 1.5;
   color: var(--text);
-  border-left: 2px solid var(--agent);
   padding-left: 0.7rem;
+  background: var(--surface);
 }
 
 .agentsExplain .badge.agent {
@@ -2221,8 +2230,7 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.6rem 0.75rem;
   background: var(--panel);
 }
@@ -2249,7 +2257,7 @@ button.primary:hover:not(:disabled) {
   gap: 0.5rem;
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: 1rem;
+  font-size: var(--fs-2);
   margin-top: 0.3rem;
 }
 
@@ -2264,9 +2272,9 @@ button.primary:hover:not(:disabled) {
 .roomRow .unread.agent {
   min-width: 1.4rem;
   padding: 0 .35rem;
-  border-radius: 1rem;
-  font-size: .75rem;
-  font-weight: 700;
+  border-radius: var(--r-m);
+  font-size: var(--fs-1);
+  font-weight: 600;
   color: var(--on-agent);
   background: var(--agent-fill);
 }
@@ -2285,17 +2293,14 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 0.4rem;
   padding: 0.2rem 0.55rem;
-  border: 1px dashed var(--border);
-  border-radius: 999px;
-  font-family: monospace;
-  font-size: 0.95rem;
+  border-radius: var(--r-full);
+  font-size: var(--fs-2);
 }
 
 /* A button that is there without asking for attention: forget, and the way
    back to the list. */
 button.quiet {
   background: transparent;
-  border: 1px solid var(--border);
   color: var(--muted);
 }
 
@@ -2330,15 +2335,14 @@ label.note {
   align-items: baseline;
   gap: 0.5rem;
   flex-wrap: wrap;
-  font-size: 1.25rem;
+  font-size: var(--fs-4);
   text-transform: none;
-  letter-spacing: normal;
   color: var(--text);
   margin-top: 0;
 }
 
 .roomHead .roomTitle .pubkey {
-  font-size: 0.8rem;
+  font-size: var(--fs-1);
   color: var(--muted);
 }
 
@@ -2373,18 +2377,11 @@ label.note {
   text-align: left;
   max-width: 100%;
   margin: 0 0 0.4rem;
-  padding: 0 0 0 0.7rem;
-  border-left: 2px solid var(--border);
+  padding: 0 var(--s3);
   font-style: normal;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--fs-2);
   line-height: 1.45;
-}
-
-/* The one about agents is the one a first-time reader has to take in, so it
-   keeps the colour its tag uses. */
-#chatLog p.system.intro:first-child {
-  border-left-color: var(--agent);
 }
 
 #chatLog p.system.intro .badge.agent {
@@ -2401,8 +2398,7 @@ label.note {
 
 /* An agent's question, for the person who can answer it. */
 .approvalCard {
-  border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   padding: 0.6rem 0.75rem;
   margin: 0.4rem 0;
   background: var(--panel);
@@ -2641,7 +2637,7 @@ label.note {
 
   #roomNav button {
     padding: 0.35rem 0.7rem;
-    font-size: 0.95rem;
+    font-size: var(--fs-2);
   }
 
 
@@ -2743,25 +2739,24 @@ label.note {
   width: 100%;
   margin: 0;
   padding: 0.6rem 0.7rem;
-  font-size: 1rem;
-  border-radius: 8px;
+  font-size: var(--fs-2);
+  border-radius: var(--r-m);
   background: transparent;
-  border: 1px solid var(--border);
   color: var(--text);
   text-align: left;
 }
 
 .channelBar button[aria-pressed='true'] {
-  border-color: var(--accent);
-  background: var(--accent-dim);
+  background: var(--selected);
+  color: var(--text);
 }
 
 .draftBadge {
   display: inline-block;
   margin-left: .6rem;
   padding: .08rem .45rem;
-  border-radius: 4px;
-  font-size: .78rem;
+  border-radius: var(--r-s);
+  font-size: var(--fs-1);
   font-weight: 600;
   background: var(--accent-dim);
   color: var(--text);
@@ -2773,7 +2768,7 @@ label.note {
 }
 
 .channelDesc {
-  font-size: 0.9rem;
+  font-size: var(--fs-2);
   color: var(--muted);
 }
 
@@ -2786,7 +2781,7 @@ label.note {
   width: 0.4rem;
   height: 0.4rem;
   margin-left: 0.4rem;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   background: var(--accent);
   vertical-align: 0.08em;
 }
@@ -2834,8 +2829,7 @@ label.note {
 #contextPanel,
 #conversationSearch {
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-m);
   background: var(--bg);
   color: var(--text);
   width: min(38rem, 100%);
@@ -2844,6 +2838,8 @@ label.note {
   max-height: 88svh;
   overflow-y: auto;
   overscroll-behavior: contain;
+  box-shadow: var(--shadow);
+  border: 0;
 }
 
 #roomSheet::backdrop,
@@ -2879,7 +2875,7 @@ label.note {
 
 .sheetBar h2 {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
 }
 
 .actionDialog {
@@ -2887,15 +2883,16 @@ label.note {
   max-width: calc(100% - 2rem);
   max-height: calc(100svh - 2rem);
   padding: 1.5rem;
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--r-m);
   background: var(--bg);
   color: var(--text);
-  box-shadow: 0 1.5rem 5rem var(--drop-shadow);
+  
   overflow-wrap: anywhere;
+  box-shadow: var(--shadow);
+  border: 0;
 }
 .actionDialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(3px); }
-.actionDialog h2 { margin: 0 0 .75rem; font-size: 1.2rem; text-transform: none; letter-spacing: normal; color: var(--text); }
+.actionDialog h2 { margin: 0 0 .75rem; font-size: var(--fs-4); text-transform: none; color: var(--text); }
 .actionDialog p { margin: 0; line-height: 1.55; white-space: pre-line; }
 .actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
@@ -2916,10 +2913,10 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .keyboardHelp { box-sizing: border-box; width: min(36rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: .75rem; overflow: hidden; }
 .keyboardHelp[open] { display: flex; flex-direction: column; }
 .keyboardHelpBar { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; gap: .5rem; padding-bottom: .75rem; }
-.keyboardHelpBar h2 { flex: 1 1 9rem; margin: 0; font-size: 1.1rem; }
+.keyboardHelpBar h2 { flex: 1 1 9rem; margin: 0; font-size: var(--fs-3); }
 .keyboardHelpBar button { margin: 0; min-height: 44px; }
 .keyboardHelpBody { overflow-y: auto; min-height: 0; }
-.keyboardHelp dt { font-weight: 650; margin-top: 1rem; overflow-wrap: anywhere; }
+.keyboardHelp dt { font-weight: 600; margin-top: 1rem; overflow-wrap: anywhere; }
 .keyboardHelp dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
 #chatLog > .msg:focus-visible, #chatLog .thread > .msg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: .5rem; }
 
@@ -2934,10 +2931,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 
 .sheetHead {
   margin: 1.25rem 0 0.5rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -2956,10 +2951,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
    "You" and "Text size" rather than reading heavier than its neighbours. */
 #appSettingsNotify h3 {
   margin: 1.25rem 0 0.5rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -3003,10 +2996,9 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   flex-wrap: wrap;
   gap: 0.4rem;
   padding: 0.4rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: monospace;
-  font-size: 0.95rem;
+  border-radius: var(--r-m);
+  font-size: var(--fs-2);
+  background: var(--surface);
 }
 
 .rosterIdentity { display: contents; }
@@ -3030,7 +3022,7 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .volumeRow .volumeLabel {
   flex: 0 0 auto;
   font-family: system-ui, sans-serif;
-  font-size: 0.85rem;
+  font-size: var(--fs-1);
   color: var(--muted);
 }
 
@@ -3076,15 +3068,14 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   gap: .5rem 1rem;
   padding: .65rem 1rem;
   margin-bottom: .75rem;
-  border: 1px solid var(--accent);
-  border-radius: .5rem;
+  border-radius: var(--r-m);
   background: var(--accent-dim);
   color: var(--text);
   flex: 0 0 auto;
 }
 #updateNotice > div { flex: 1 1 15rem; min-width: 0; }
 #updateNotice strong, #updateNotice span { display: block; }
-#updateNotice span { font-size: .85rem; }
+#updateNotice span { font-size: var(--fs-1); }
 #updateApp { flex: 0 1 auto; margin: 0; background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 /* Unsent messages sit at the foot of the conversation as this person's own,
    greyed until a relay has them, each saying what it waits for. */
@@ -3104,10 +3095,10 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 #outbox .pendingMsg[data-state="unknown"] .bubble,
 #outbox .pendingMsg[data-state="moved"] .bubble { border-color: var(--danger, currentColor); }
 #outbox .pendingText { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-#outbox .pendingFiles { margin: .2rem 0 0; font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }
-#outbox .pendingStatus { margin: .15rem .4rem 0; font-size: .8rem; color: var(--muted); text-align: right; }
+#outbox .pendingFiles { margin: .2rem 0 0; font-size: var(--fs-1); color: var(--muted); overflow-wrap: anywhere; }
+#outbox .pendingStatus { margin: .15rem .4rem 0; font-size: var(--fs-1); color: var(--muted); text-align: right; }
 #outbox .pendingActions { display: flex; gap: .4rem; justify-content: flex-end; margin: .2rem .25rem 0; }
-#outbox .pendingActions button { font-size: .8rem; padding: .15rem .55rem; }
+#outbox .pendingActions button { font-size: var(--fs-1); padding: .15rem .55rem; }
 #chatViewport { position: relative; display: flex; min-width: 0; }
 #chatViewport > #chatLog { flex: 1 1 0; min-width: 0; min-height: 0; height: auto; scroll-padding-bottom: 4rem; }
 #newMessages {
@@ -3118,12 +3109,11 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   min-height: 44px;
   margin: 0;
   padding: .45rem .8rem;
-  border-radius: 2rem;
-  border-color: var(--accent);
-  background: var(--panel);
-  color: var(--accent);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 16%);
-  font-size: .85rem;
+  border-radius: var(--r-full);
+  background: var(--raised);
+  color: var(--link);
+  box-shadow: var(--shadow);
+  font-size: var(--fs-1);
 }
 .unreadDivider {
   display: flex;
@@ -3131,7 +3121,7 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   gap: .75rem;
   margin-block: .75rem;
   color: var(--accent);
-  font-size: .8rem;
+  font-size: var(--fs-1);
   font-weight: 600;
 }
 .unreadDivider::before, .unreadDivider::after { content: ''; height: 1px; background: currentColor; flex: 1; }
@@ -3142,7 +3132,7 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .switchRoom { display: flex; flex-direction: column; align-items: flex-start; text-align: left; flex: 1 1 12rem; min-width: 0; margin: 0; gap: .3rem; }
 .switchRoom span { overflow-wrap: anywhere; }
 .switchRoom[aria-current='true'] { border-color: var(--accent); }
-.switchRoomCode { color: var(--muted); font-size: .8rem; }
+.switchRoomCode { color: var(--muted); font-size: var(--fs-1); }
 .switchRoomNewTab { flex: 0 0 auto; padding: .6rem; color: var(--accent); }
 #roomSwitcherList .roomRow { align-items: center; flex-wrap: wrap; }
 #roomSwitcherList .forget { flex: 0 0 auto; margin: 0; }
@@ -3156,15 +3146,15 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .messageSearchResults button {
   display: flex; flex-direction: column; gap: .35rem; width: 100%; margin: 0;
   padding: 1rem; text-align: left; white-space: normal; overflow-wrap: anywhere;
-  background: var(--panel); border: 1px solid var(--field-border); border-radius: 10px;
+  background: var(--panel); border-radius: var(--r-m);
 }
 .messageSearchResults button:hover { background: var(--control-hover); }
-.searchSender { font-weight: 700; }
-.searchConversation { color: var(--accent); font-size: .8rem; font-weight: 600; }
+.searchSender { font-weight: 600; }
+.searchConversation { color: var(--accent); font-size: var(--fs-1); font-weight: 600; }
 #conversationSearch .sheetBar { flex-wrap: wrap; }
 #conversationSearch input[type='search'] { font-family: inherit; min-width: 0; max-width: 100%; }
 #conversationSearch .sheetBody { overflow-wrap: anywhere; }
-.searchCoverage { margin-block: .5rem; color: var(--muted); font-size: .85rem; }
+.searchCoverage { margin-block: .5rem; color: var(--muted); font-size: var(--fs-1); }
 .searchCoverage summary { cursor: pointer; min-height: 44px; padding-block: .65rem; }
 .messageSearchFilters { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem 1rem; margin-block: .75rem; }
 .messageSearchFilters > label:first-child { flex: 1 1 12rem; min-width: 0; margin: 0; }
@@ -3179,10 +3169,10 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .messageSearchFilters .searchFileFilter { margin: 0; }
 #backToSearch { color: var(--accent); }
 .conversationTools:has(#backToSearch:not([hidden])) #chatSearch { display: none; }
-.messageSearchResults time { font-size: .8rem; color: var(--muted); }
+.messageSearchResults time { font-size: var(--fs-1); color: var(--muted); }
 .searchExcerpt { white-space: pre-wrap; }
-.searchFiles { color: var(--accent); font-size: .9rem; }
-#chatLog .searchTarget { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; }
+.searchFiles { color: var(--accent); font-size: var(--fs-2); }
+#chatLog .searchTarget { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-m); }
 
 /* Give the dashboard and invitation a reading width on a desktop. */
 body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
@@ -3209,7 +3199,6 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   font-size: 1.75rem;
   font-weight: 600;
   line-height: 1.2;
-  letter-spacing: -.025em;
   text-transform: none;
   overflow-wrap: anywhere;
 }
@@ -3222,7 +3211,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
    than stacking #setup's bottom margin on top of #homeFoot's. */
 #setup { margin: 1.5rem 0 0; }
 #setup.collapsed { display: none; }
-#newRoomHeading { margin: 0 0 1rem; font-size: 1.25rem; font-weight: 600; text-transform: none; color: var(--text); }
+#newRoomHeading { margin: 0 0 1rem; font-size: var(--fs-4); font-weight: 600; text-transform: none; color: var(--text); }
 #home[data-state='cold'] #newRoomHeading { display: none; }
 #createRoomForm label { display: block; margin: 0 0 .4rem; font-weight: 600; }
 #createRoomForm input { font-family: inherit; }
@@ -3253,7 +3242,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 /* Cancel only makes sense once returning to a list it can cancel back to;
    the cold, first-visit form has nothing to cancel out of. */
 #home[data-state='cold'] #cancelNewRoom { display: none; }
-#setup #create.primary { font-size: 1rem; font-weight: 600; }
+#setup #create.primary { font-size: var(--fs-2); font-weight: 600; }
 
 /* The two quiet lines at the foot: never a card, never as loud as the
    primary action above them. */
@@ -3272,15 +3261,15 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #joinCodePassword[hidden] { display: none; }
 #joinCode #meetingCodeWordsInput { text-transform: none; letter-spacing: normal; }
 .meetingCodeRow { margin: .75rem 0; }
-.meetingCodeValue { margin: .5rem 0; font-size: 1.6rem; font-weight: 600; letter-spacing: .12em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.meetingCodeValue { margin: .5rem 0; font-size: var(--fs-5); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 #meetingCodeLink { width: 100%; box-sizing: border-box; }
-.meetingCodeWords { font-size: 1.25rem; letter-spacing: .02em; }
+.meetingCodeWords { font-size: var(--fs-4); letter-spacing: .02em; }
 .meetingCodeAloud { margin: .5rem 0; }
 .meetingCodeAloud summary { cursor: pointer; }
 #homeSignIn { border: 0; background: transparent; padding: 0; }
 
 .roomsHead { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 1.5rem 0 .75rem; }
-#home #roomsHeading { margin: 0; font-size: 1.25rem; font-weight: 600; text-transform: none; color: var(--text); }
+#home #roomsHeading { margin: 0; font-size: var(--fs-4); font-weight: 600; text-transform: none; color: var(--text); }
 .roomsHead .roomSearchRow { flex: 1 1 12rem; margin: 0; }
 .roomsHead .roomSearchRow input { flex: 1 1 auto; width: 100%; margin: 0; }
 .roomsHeadActions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-left: auto; }
@@ -3301,7 +3290,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #newRoom { margin: 0; }
 .roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
 .roomSearchRow label { font-weight: 600; }
-.accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border-radius: var(--r-m); background: var(--panel); }
 .accountReconnect[hidden] { display: none; }
 .accountReconnect .note { flex: 1 1 16rem; margin: 0; }
 .roomSearchRow input { min-width: 0; }
@@ -3321,7 +3310,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   min-height: 56px;
   padding: .5rem .25rem .5rem .5rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: transparent;
 }
 #roomList .open {
@@ -3345,12 +3334,12 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   flex: 0 0 40px;
   width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  font-size: 1.05rem;
+  font-size: var(--fs-3);
   color: #fff;
   background: var(--avatar, #0e7fa3);
 }
@@ -3381,20 +3370,20 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
    text, so the ellipsis lands earlier rather than the row ever scrolling
    sideways. The full name is always the row's accessible name regardless
    of where the visible text is cut. */
-#roomList .roomName { display: block; font-size: 1rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-#roomList .roomPreview { font-size: .875rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-#roomList .hasUnread .roomName { font-weight: 700; }
-#roomList .hasUnread .roomTime { font-weight: 700; color: var(--text); }
+#roomList .roomName { display: block; font-size: var(--fs-2); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+#roomList .roomPreview { font-size: var(--fs-1); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+#roomList .hasUnread .roomName { font-weight: 600; }
+#roomList .hasUnread .roomTime { font-weight: 600; color: var(--text); }
 #roomList .roomPin { display: inline-flex; vertical-align: -2px; margin-right: .3rem; color: var(--muted); }
 #roomList .roomSection { list-style: none; margin: 1rem 0 .25rem; padding: 0 .5rem; }
 #roomList .roomSection:first-child { margin-top: 0; }
-#roomList .roomSection h3 { margin: 0; font-size: .8rem; font-weight: 600; letter-spacing: .04em; text-transform: none; color: var(--muted); }
+#roomList .roomSection h3 { margin: 0; font-size: var(--fs-1); font-weight: 600; text-transform: none; color: var(--muted); }
 #roomList .sectionFold {
   display: inline-flex; align-items: center; gap: .35rem;
   min-height: 32px; margin: 0; padding: 0; border: 0; background: transparent;
   font: inherit; color: inherit; cursor: pointer;
 }
-#roomList .sectionFold::before { content: '▸'; font-size: .7rem; transition: transform .15s; }
+#roomList .sectionFold::before { content: '▸'; font-size: var(--fs-1); transition: transform .15s; }
 #roomList .sectionFold[aria-expanded='true']::before { transform: rotate(90deg); }
 #roomList .sectionFold:hover { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { #roomList .sectionFold::before { transition: none; } }
@@ -3404,7 +3393,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   flex-direction: column;
   align-items: flex-end;
   gap: .25rem;
-  font-size: .875rem;
+  font-size: var(--fs-1);
   color: var(--muted);
 }
 #roomList .roomTime { white-space: nowrap; }
@@ -3415,9 +3404,9 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   min-width: 1.4rem;
   height: 1.4rem;
   padding: 0 .4rem;
-  border-radius: 999px;
-  font-size: .75rem;
-  font-weight: 700;
+  border-radius: var(--r-full);
+  font-size: var(--fs-1);
+  font-weight: 600;
   color: var(--on-accent);
   background: var(--accent);
 }
@@ -3431,18 +3420,19 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   margin: 0;
   border: 0;
   background: transparent;
-  font-size: 1.1rem;
+  font-size: var(--fs-3);
   color: var(--muted);
 }
 #roomList .rowMenu:hover { color: var(--text); }
 .rowMenuPopover {
   margin: 0;
   padding: .35rem;
-  border: 1px solid var(--control-border);
-  border-radius: 6px;
+  border-radius: var(--r-s);
   background: var(--panel);
-  box-shadow: 0 4px 16px var(--drop-shadow);
+  
   min-width: 12rem;
+  box-shadow: var(--shadow);
+  border: 0;
 }
 .rowMenuPopover button {
   display: block;
@@ -3496,7 +3486,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
     max-width: none;
   }
   #home[data-state='cold'] .homeIntro { margin: 1rem 0 0; grid-column: 1; }
-  #home[data-state='cold'] #homeHeading { font-size: 1.5rem; }
+  #home[data-state='cold'] #homeHeading { font-size: var(--fs-5); }
   #home[data-state='cold'] #homeStatus,
   #home[data-state='cold'] #homeRooms { grid-column: 1; }
   #home[data-state='cold'] #homeActions { grid-column: 2; grid-row: 1 / span 4; }
@@ -3509,20 +3499,20 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
    New room form at 1100px, which read as a different page on resize and
    left most of a wide window empty. */
 
-#identity { padding: clamp(1rem, 4vw, 2rem); border-radius: 12px; }
-#identity .lead { margin: .5rem 0 1.25rem; color: var(--muted); font-size: 1rem; }
+#identity { padding: clamp(1rem, 4vw, 2rem); border-radius: var(--r-m); }
+#identity .lead { margin: .5rem 0 1.25rem; color: var(--muted); font-size: var(--fs-2); }
 #identity #status { margin: .75rem 0; }
 #identity #join { width: 100%; min-height: 44px; }
 #joinPrivacy { margin-bottom: 0; }
-.formError { color: var(--danger); font-size: .95rem; }
+.formError { color: var(--danger); font-size: var(--fs-2); }
 
 .emojiPicker { width: min(25rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
 .emojiPicker h2 { margin-top: 0; }
 .emojiPicker input { width: 100%; }
 .emojiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr)); gap: .35rem; margin: 1rem 0; }
-.emojiGrid button { min-height: 3rem; padding: .35rem; font-size: 1.5rem; }
+.emojiGrid button { min-height: 3rem; padding: .35rem; font-size: var(--fs-5); }
 .emojiTabs { display: flex; flex-wrap: wrap; gap: .35rem; margin: .7rem 0; }
-.emojiTabs button[aria-pressed="true"] { border-color: var(--accent, #4ecbff); }
+.emojiTabs button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .emojiGrid .familiarEmoji { width: 2rem; height: 2rem; }
 .familiarEmoji { display: inline-block; width: 1.5em; height: 1.5em; vertical-align: middle; background-position: center; background-size: contain; background-repeat: no-repeat; color: transparent; line-height: 1.5em; }
 .messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: -.65rem; padding-inline: .45rem; position: relative; z-index: 1; }
@@ -3559,19 +3549,18 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   white-space: nowrap;
   background: transparent;
   border-color: transparent;
-  font-size: .9rem;
+  font-size: var(--fs-2);
 }
 .conversationNav button[aria-pressed='true'] {
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-color: var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
 }
 .conversationUnread {
   min-width: 1.4rem;
   padding: 0 .35rem;
-  border-radius: 1rem;
-  font-size: .75rem;
-  font-weight: 700;
+  border-radius: var(--r-m);
+  font-size: var(--fs-1);
+  font-weight: 600;
   color: var(--on-accent);
   background: var(--accent);
 }
@@ -3589,16 +3578,14 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   gap: .35rem .8rem;
   padding: .6rem .85rem;
   margin-bottom: .6rem;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--agent);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--agent-bubble);
-  font-size: .85rem;
+  font-size: var(--fs-1);
 }
 .agentActivity > div { flex: 1 1 14rem; min-width: 0; }
 .agentActivity strong, .agentActivity span { display: block; overflow-wrap: anywhere; }
 .agentActivity span { color: var(--muted); }
-.agentActivity button { margin: 0; min-height: 44px; font-size: .85rem; background: var(--panel); }
+.agentActivity button { margin: 0; min-height: 44px; font-size: var(--fs-1); }
 .projectFilter { display: flex; gap: .7rem; align-items: center; margin: .7rem 0; }
 .projectFilter label { margin: 0; flex: 0 0 auto; }
 .projectFilter select { flex: 1; min-width: 0; max-width: 100%; }
@@ -3607,35 +3594,35 @@ select {
   min-height: 44px;
   padding: .5rem;
   border: 1px solid var(--field-border);
-  border-radius: 6px;
+  border-radius: var(--r-s);
   color: var(--text);
   background: var(--field);
 }
-.roomProject { display: inline-block; font-size: .8rem; color: var(--accent); margin-bottom: .25rem; }
-#projectEditor { width: min(34rem, calc(100vw - 2rem)); padding: 0; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 12px; max-height: calc(100svh - 2rem); }
+.roomProject { display: inline-block; font-size: var(--fs-1); color: var(--accent); margin-bottom: .25rem; }
+#projectEditor { width: min(34rem, calc(100vw - 2rem)); padding: 0; color: var(--text); background: var(--bg); border-radius: var(--r-m); max-height: calc(100svh - 2rem); }
 #projectEditor::backdrop { background: rgb(0 0 0 / 55%); }
-#projectRoomName { font-weight: 650; overflow-wrap: anywhere; }
+#projectRoomName { font-weight: 600; overflow-wrap: anywhere; }
 #projectName { font-family: inherit; }
-.organiseRoom { margin: 0; font-size: .85rem; min-height: 44px; }
-.sharedProjectsSheet { width: min(48rem, calc(100vw - 2rem)); padding: 0; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 12px; max-height: calc(100svh - 2rem); }
+.organiseRoom { margin: 0; font-size: var(--fs-1); min-height: 44px; }
+.sharedProjectsSheet { width: min(48rem, calc(100vw - 2rem)); padding: 0; color: var(--text); background: var(--bg); border-radius: var(--r-m); max-height: calc(100svh - 2rem); box-shadow: var(--shadow); border: 0;}
 .sharedProjectsSheet::backdrop { background: rgb(0 0 0 / 55%); }
-.sharedProjectsLead { font-size: 1.12rem; margin-top: 0; }
+.sharedProjectsLead { font-size: var(--fs-3); margin-top: 0; }
 .sharedProjectsActions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 .sharedProjectsActions button { margin: 0; }
 #sharedProjectsList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1rem; margin-top: 1rem; }
-.sharedProjectCard { padding: 1.1rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; min-width: 0; overflow-wrap: anywhere; }
-.sharedProjectCard h3 { margin: 0 0 .4rem; font-size: 1.2rem; }
+.sharedProjectCard { padding: 1.1rem; background: var(--panel); border-radius: var(--r-m); min-width: 0; overflow-wrap: anywhere; }
+.sharedProjectCard h3 { margin: 0 0 .4rem; font-size: var(--fs-4); }
 .sharedProjectHeading { display: flex; align-items: center; gap: .65rem; margin-bottom: .4rem; }
 .sharedProjectHeading h3 { margin: 0; }
 .sharedProjectLogo { flex: 0 0 2.25rem; }
-.workspaceProjectLogo, .workspaceRoomLogo, .switcherRoomLogo { --logo-size: 1.5rem; width: 1.5rem; height: 1.5rem; flex: 0 0 1.5rem; font-size: .75rem; margin-inline-end: .4rem; }
+.workspaceProjectLogo, .workspaceRoomLogo, .switcherRoomLogo { --logo-size: 1.5rem; width: 1.5rem; height: 1.5rem; flex: 0 0 1.5rem; font-size: var(--fs-1); margin-inline-end: .4rem; }
 .workspaceRoomLink { display: flex; align-items: center; }
 .workspaceRoomName, .workspaceProjectName { min-width: 0; overflow-wrap: anywhere; }
 .sharedProjectCard p { margin: .4rem 0 .8rem; }
 .sharedProjectRooms { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; }
 .sharedProjectRooms button { text-align: left; margin: 0; }
 .projectChoices { display: grid; gap: .3rem; }
-.projectChoice { display: flex; align-items: center; gap: .7rem; padding: .5rem; min-height: 44px; margin: 0; border-radius: 6px; overflow-wrap: anywhere; }
+.projectChoice { display: flex; align-items: center; gap: .7rem; padding: .5rem; min-height: 44px; margin: 0; border-radius: var(--r-s); overflow-wrap: anywhere; }
 .projectChoice:hover { background: var(--panel); }
 .projectChoice input[type=checkbox] { width: 1.2rem; height: 1.2rem; flex: 0 0 auto; margin: 0; }
 .sharedProjectContactRow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
@@ -3675,25 +3662,25 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > #workspaceNav { grid-column: 1; grid-row: 1 / span 20; }
   main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > :not(#workspaceNav) { grid-column: 2; }
   #workspaceNav:not([hidden]) { display: flex; flex-direction: column; min-width: 0; padding-right: 1rem; border-right: 1px solid var(--border); }
-  .workspaceBrand { font-size: 1.3rem; font-weight: 750; letter-spacing: -.035em; margin: .2rem 0 1.25rem; }
-  #workspaceSwitch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .3rem; margin: 0 0 .75rem; font-size: .9rem; }
-  #workspaceSwitch kbd { font: .65rem system-ui, sans-serif; color: var(--muted); }
-  #workspaceQuery { font: .85rem system-ui, sans-serif; margin-bottom: .75rem; }
+  .workspaceBrand { font-size: var(--fs-4); font-weight: 600; margin: .2rem 0 1.25rem; }
+  #workspaceSwitch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .3rem; margin: 0 0 .75rem; font-size: var(--fs-2); }
+  #workspaceSwitch kbd { font: var(--fs-1) system-ui, sans-serif; color: var(--muted); }
+  #workspaceQuery { font: var(--fs-2) system-ui, sans-serif; margin-bottom: .75rem; }
   #workspaceRooms { flex: 1; }
   #workspaceRooms section { margin: 0 0 1rem; }
-  #workspaceRooms h3 { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; margin: .65rem .5rem; }
+  #workspaceRooms h3 { font-size: var(--fs-1); color: var(--muted); overflow-wrap: anywhere; margin: .65rem .5rem; }
   .workspaceRoom { display: flex; align-items: center; gap: .2rem; margin-bottom: .15rem; }
   /* A room with something waiting: its name in bold and a count beside it,
      the same pill the rooms list uses. */
-  .workspaceRoom.hasUnread .workspaceRoomLink { font-weight: 650; color: var(--text); }
+  .workspaceRoom.hasUnread .workspaceRoomLink { font-weight: 600; color: var(--text); }
   .workspaceRoom .unread {
     display: inline-flex; align-items: center; justify-content: center; flex: none;
-    min-width: 1.3rem; height: 1.3rem; padding: 0 .35rem; border-radius: 999px;
-    font-size: .7rem; font-weight: 700; color: var(--on-accent); background: var(--accent);
+    min-width: 1.3rem; height: 1.3rem; padding: 0 .35rem; border-radius: var(--r-full);
+    font-size: var(--fs-1); font-weight: 600; color: var(--on-accent); background: var(--accent);
   }
   .workspaceRoom .unread.agent { color: var(--on-agent); background: var(--agent-fill); }
-  .workspaceRoomLink { flex: 1; min-width: 0; text-align: left; margin: 0; border-color: transparent; background: transparent; font-size: .9rem; padding: .55rem .6rem; overflow-wrap: anywhere; }
-  .workspaceRoomLink[aria-current='true'] { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); font-weight: 650; }
+  .workspaceRoomLink { flex: 1; min-width: 0; text-align: left; margin: 0; border-color: transparent; background: transparent; font-size: var(--fs-2); padding: .55rem .6rem; overflow-wrap: anywhere; }
+  .workspaceRoomLink[aria-current='true'] { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); font-weight: 600; }
   .workspaceRoom .organiseRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; }
   .workspaceRoom .pinRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; margin: 0; color: var(--muted); }
   .workspaceRoom .pinRoom[aria-pressed='true'] { color: var(--accent); }
@@ -3701,8 +3688,8 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
      so a rail of rooms is not a column of stars. */
   .workspaceRoom:not(:hover, :focus-within) .pinRoom[aria-pressed='false'] { opacity: 0; }
   .workspaceRoom .forget { border: 0; background: transparent; padding: .3rem; min-width: 32px; margin: 0; color: var(--muted); }
-  #workspaceHome { font-size: .85rem; margin-top: 1rem; }
-  #workspaceNote { font-size: .75rem; margin: .5rem 0; }
+  #workspaceHome { font-size: var(--fs-1); margin-top: 1rem; }
+  #workspaceNote { font-size: var(--fs-1); margin: .5rem 0; }
 }
 
 @media (max-width: 540px) {
@@ -3712,10 +3699,10 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   .callLabelWide { display: none; }
   .callLabelNarrow { display: inline; }
   .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
-  .conversationNav button { padding-inline: .6rem; font-size: .875rem; }
+  .conversationNav button { padding-inline: .6rem; font-size: var(--fs-1); }
   .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }
   .agentActivity > div { flex-basis: 10rem; }
-  .agentActivity span { font-size: .875rem; }
+  .agentActivity span { font-size: var(--fs-1); }
 }
 @media (max-width: 700px) {
   .roomBar { flex-wrap: wrap; }
@@ -3749,7 +3736,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 #chatInput { min-height: calc(1.45em + 1.1rem + 2px); }
 @media (max-width: 540px) {
   .agentActivity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; }
-  .agentActivity button { padding: .4rem .5rem; font-size: .875rem; }
+  .agentActivity button { padding: .4rem .5rem; font-size: var(--fs-1); }
 }
 
 /* The message layer: threads, edits, retractions, mentions on the wire.
@@ -3767,9 +3754,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .msg .chip {
   font-size: 0.875rem;
   color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 0.45rem;
+  font-size: var(--fs-1);
   white-space: nowrap;
 }
 .msg .chip.replyTo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
@@ -3787,10 +3772,10 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .chip.quiet { font-variant: small-caps; letter-spacing: 0.02em; color: var(--accent); border-color: var(--accent); border-style: dashed; }
 /* Somebody whose contact card this browser holds. A fact about this
    browser, like a verification, and shown the same way. */
-.badge.card { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.badge.card { background: transparent; color: var(--accent); }
 .contactList { display: flex; flex-direction: column; gap: 0.4rem; }
 .contactRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
-.contactRow .contactBoxes { flex-basis: 100%; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.contactRow .contactBoxes { flex-basis: 100%; font-size: var(--fs-1); color: var(--muted); overflow-wrap: anywhere; }
 .contactCardForm { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
 .contactCardForm input { flex: 1; min-width: 0; }
 #myCardOut { width: 100%; margin-top: 0.5rem; }
@@ -3809,11 +3794,11 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   align-items: center;
   gap: 0.5rem;
   padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 0.875rem;
+  border-radius: var(--r-m);
+  font-size: var(--fs-1);
   color: var(--muted);
   min-width: 0;
+  background: var(--surface);
 }
 .composerContext .contextLabel { font-weight: 600; overflow-wrap: anywhere; }
 .composerContext .contextExcerpt { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3822,7 +3807,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   .composerContext .contextLabel { grid-column: 1 / -1; }
   .composerContext button { grid-row: 2; }
 }
-.rosterRow .dmButton { margin-left: auto; font-size: 0.85rem; padding: 0.3rem 0.6rem; min-height: 2.25rem; }
+.rosterRow .dmButton { margin-left: auto; font-size: var(--fs-1); padding: 0.3rem 0.6rem; min-height: 2.25rem; }
 
 /* Relay controls stay usable on narrow phones without clipping URLs. */
 #relaySettings { width: min(38rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; }
@@ -3831,25 +3816,25 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 #relayScope { width: 100%; }
 .relayList { list-style: none; padding: 0; margin: 1rem 0; }
 .relayOrder { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
-.relayOrder span { font-size: .85rem; color: var(--muted); }
+.relayOrder span { font-size: var(--fs-1); color: var(--muted); }
 .relayRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; padding: .8rem 0; border-bottom: 1px solid var(--border); }
 .relayAuthenticate { grid-column: 1 / -1; justify-self: start; }
-.relayCircle { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; font-size: 1rem; }
+.relayCircle { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; font-size: var(--fs-2); }
 .relayCircle input { width: 1.2rem; height: 1.2rem; }
 .relayAddress, .relayHealth { grid-column: 1 / -1; overflow-wrap: anywhere; }
-.relayHealth { font-size: .8rem; color: var(--muted); }
+.relayHealth { font-size: var(--fs-1); color: var(--muted); }
 .relayHealth[data-state="connected"] { color: #168368; }
 .relayHealth[data-state="disconnected"] { color: #b95040; }
-.relayRoomNote { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
+.relayRoomNote { grid-column: 1 / -1; font-size: var(--fs-1); color: var(--muted); }
 .relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
 @media (max-width: 36rem) {
   .relayRow { grid-template-columns: minmax(0, 1fr); }
   .relayCircle { flex-wrap: wrap; }
 }
 
-#assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }
+#assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border-radius: var(--r-m); background: var(--bg); color: var(--text); box-shadow: var(--shadow); border: 0;}
 #assignmentPanel .sheetBar { position: sticky; top: 0; z-index: 1; background: var(--bg); flex-wrap: wrap; padding: 1rem 0 .75rem; }
-#assignmentPanel .sheetBar h2 { font-size: 1.15rem; text-transform: none; }
+#assignmentPanel .sheetBar h2 { font-size: var(--fs-3); text-transform: none; }
 #assignmentPanel button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 #assignmentPanel [aria-invalid=true] { border-color: var(--danger); outline: 1px solid var(--danger); }
 #assignmentPanel fieldset { border: 0; padding: 0; min-width: 0; }
@@ -3857,22 +3842,22 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 #assignmentPanel input, #assignmentPanel select, #assignmentPanel textarea { box-sizing: border-box; width: 100%; min-width: 0; }
 #assignmentPanel textarea { min-height: 5rem; resize: vertical; font-family: inherit; }
 #assignmentPanel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.assignmentCard { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; overflow-wrap: anywhere; }
+.assignmentCard { margin: 1rem 0; padding: 1rem; border-radius: var(--r-m); overflow-wrap: anywhere; background: var(--surface); }
 .assignmentCard h3 { margin-top: 0; }
 .assignmentCard > button { margin: .25rem .5rem .25rem 0; }
 .assignmentCard details { margin-top: 1rem; }
-.workAttention { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; padding: .6rem .85rem; margin-bottom: .6rem; border: 1px solid var(--accent); border-radius: .7rem; background: var(--accent-dim); font-size: .9rem; }
+.workAttention { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; padding: .6rem .85rem; margin-bottom: .6rem; border-radius: var(--r-m); background: var(--accent-dim); font-size: var(--fs-2); }
 .workAttention button { margin: 0; }
 .workFilters { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
 .workFilters button { flex: 1; margin: 0; min-height: 44px; }
-.workFilters button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.workFilters button[aria-pressed=true] { color: var(--on-accent); background: var(--accent); }
 #assignmentStatus:empty { display: none; }
-#assignmentNew { padding: .75rem 1rem; border: 1px dashed var(--border); border-radius: .7rem; }
+#assignmentNew { padding: .75rem 1rem; border-radius: var(--r-m); background: var(--surface); }
 #assignmentNew > summary { font-weight: 600; min-height: 24px; }
 .assignmentCard[data-attention=true] { border-color: var(--accent); }
-.assignmentCard h3 { margin-bottom: .5rem; font-size: 1.05rem; line-height: 1.4; }
-.assignmentCard .workMeta { color: var(--muted); font-size: .8rem; margin: 0 0 .8rem; }
-.workState { display: inline-block; padding: .15rem .45rem; border: 1px solid var(--border); border-radius: 1rem; }
+.assignmentCard h3 { margin-bottom: .5rem; font-size: var(--fs-3); line-height: 1.4; }
+.assignmentCard .workMeta { color: var(--muted); font-size: var(--fs-1); margin: 0 0 .8rem; }
+.workState { display: inline-block; padding: .15rem .45rem; border-radius: var(--r-m); background: var(--surface); }
 .workDecision { color: var(--accent); font-weight: 600; }
 .workResult { white-space: pre-wrap; line-height: 1.6; }
 .workEmpty { padding: 2rem .5rem; color: var(--muted); text-align: center; line-height: 1.6; }
@@ -3882,14 +3867,14 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   body:has(#assignmentPanel[open]) > main { box-sizing: border-box; padding-right: 28rem; }
 }
 @media (max-width: 700px) {
-  #assignmentPanel { width: 100%; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; padding-inline: 1rem; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  #assignmentPanel { width: 100%; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; padding-inline: 1rem; padding-bottom: max(1rem, env(safe-area-inset-bottom)); box-shadow: var(--shadow); }
 }
 
 /* Inviting people is a primary room action; the same controls remain in details. */
-#inviteDialog { width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); overflow-wrap: anywhere; }
+#inviteDialog { width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 0; border-radius: var(--r-m); background: var(--bg); color: var(--text); overflow-wrap: anywhere; box-shadow: var(--shadow); border: 0;}
 #inviteDialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(3px); }
 #inviteDialog .sheetBar { flex-wrap: wrap; }
-#inviteDialog .sheetBar h2 { font-size: 1.15rem; text-transform: none; }
+#inviteDialog .sheetBar h2 { font-size: var(--fs-3); text-transform: none; }
 #inviteDialog .linkBox { margin: 0; padding: 0; border: 0; }
 #inviteDialog .sheetBody { padding: 1rem; }
 .inviteButtons { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .6rem; }
@@ -3898,25 +3883,25 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 #inviteContent summary { min-height: 44px; padding-block: .6rem; }
 #inviteStatus:empty { display: none; }
 
-.nip05 { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.nip05 { color: var(--muted); font-size: var(--fs-1); overflow-wrap: anywhere; }
 
-#sendingIdentity { flex: 0 1 auto; min-width: 0; max-width: 12rem; font-size: .8rem; }
+#sendingIdentity { flex: 0 1 auto; min-width: 0; max-width: 12rem; font-size: var(--fs-1); }
 #sendingIdentity button, .sendingAccount { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sendingIdentity button { min-height: 44px; margin: 0; }
 .sendingAccount { padding-block: .6rem; }
-.visitorIdentity { border-left: 3px solid var(--accent); padding-left: .6rem; overflow-wrap: anywhere; }
+.visitorIdentity { padding-left: .6rem; overflow-wrap: anywhere; background: var(--surface); }
 @media (max-width: 700px) { #sendingIdentity .sendingName { display: none; } }
 
 .reactionChip { display: inline-flex; }
-.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .875rem; overflow-wrap: anywhere; pointer-events: auto; }
+.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border-radius: var(--r-m); background: var(--panel); color: var(--text);  font-size: var(--fs-1); overflow-wrap: anywhere; pointer-events: auto; box-shadow: var(--shadow); border: 0;}
 
 .reactionPerson { display: flex; align-items: flex-start; gap: .55rem; padding: .65rem 0; }
 .reactionPerson + .reactionPerson { border-top: 1px solid var(--border); }
 .reactionPerson > .avatar, .reactionPerson > .donorRing { flex-shrink: 0; }
 .reactionPersonInfo { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
-.reactionNpub { font-family: monospace; overflow-wrap: anywhere; font-size: .875rem; }
-.reactionPerson time, .reactionReceipt { color: var(--muted); font-size: .875rem; }
-.agentRequestStatus { color: var(--muted); font-size: .875rem; margin: .25rem 0; }
+.reactionNpub {overflow-wrap: anywhere; font-size: var(--fs-1); }
+.reactionPerson time, .reactionReceipt { color: var(--muted); font-size: var(--fs-1); }
+.agentRequestStatus { color: var(--muted); font-size: var(--fs-1); margin: .25rem 0; }
 
 .reactionPerson > .avatar { width: 2rem; height: 2rem; }
 
@@ -3953,20 +3938,20 @@ button.primary:hover:not(:disabled) {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: .2em;
-  font-size: .95rem;
+  font-size: var(--fs-2);
 }
 #identity #joinNostr.linkish:hover { color: var(--text); }
-#identity #joinNostr.linkish:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+#identity #joinNostr.linkish:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-s); }
 
 /* Tabs hide themselves when only Chat is left. */
 .conversationNav[hidden] { display: none; }
 
 /* File options fold away under the picker. */
-.attachOptions summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+.attachOptions summary { cursor: pointer; color: var(--muted); font-size: var(--fs-2); }
 .attachOptions > * + * { margin-top: .4rem; }
 .attachOptions input { width: 100%; box-sizing: border-box; }
 #fileStorageOptions { min-width: 0; }
-#fileStorageOptions summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+#fileStorageOptions summary { cursor: pointer; color: var(--muted); font-size: var(--fs-2); }
 #fileStorageOptions input[type="url"] { width: 100%; box-sizing: border-box; }
 #fileStorageOptions > * + * { margin-top: .5rem; }
 #fileStorageOptions label { display: block; }
@@ -3974,7 +3959,7 @@ button.primary:hover:not(:disabled) {
 #fileStorageStatus { overflow-wrap: anywhere; }
 
 /* "You" in Room details, where the identity chip now lives. */
-#roomSheet #sendingIdentity { max-width: none; font-size: .95rem; margin: .25rem 0; }
+#roomSheet #sendingIdentity { max-width: none; font-size: var(--fs-2); margin: .25rem 0; }
 #roomSheet #sendingIdentity[hidden] { display: none; }
 
 /* The file picker as a button, not a bare browser control. */
@@ -3984,7 +3969,7 @@ button.primary:hover:not(:disabled) {
   padding: .4rem .9rem;
   margin-right: .6rem;
   border: 1px solid var(--control-border);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--control);
   color: var(--text);
   cursor: pointer;
@@ -3999,8 +3984,7 @@ button.primary:hover:not(:disabled) {
   gap: .6rem;
   margin: 0 0 .5rem;
   padding: .5rem .7rem;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--r-m);
   background: var(--accent-dim);
 }
 .callBanner button.primary { margin: 0; white-space: nowrap; }
@@ -4014,23 +3998,23 @@ button.primary:hover:not(:disabled) {
   gap: .6rem;
   margin: 0 0 .5rem;
   padding: .5rem .7rem;
-  border-radius: 8px;
+  border-radius: var(--r-m);
 }
 .recordingBanner[hidden], .recordingReady[hidden], .meetingNotice[hidden] { display: none; }
-.recordingBanner { border: 1px solid var(--danger-border); color: var(--text); background: var(--panel); }
+.recordingBanner { color: var(--text); background: var(--panel); }
 .recordingBanner > span:not(.recordingDot) { flex: 1 1 14rem; min-width: 0; }
 .recordingDot {
   flex: none;
   width: .7rem;
   height: .7rem;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   background: var(--danger);
   animation: recordingPulse 1.6s ease-in-out infinite;
 }
 .recordingBanner[data-state="unconfirmed"] .recordingDot { animation: none; opacity: .6; }
 @keyframes recordingPulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .recordingDot { animation: none; } }
-.recordingReady, .meetingNotice { border: 1px solid var(--accent); background: var(--accent-dim); }
+.recordingReady, .meetingNotice { background: var(--accent-dim); }
 .recordingReady > span, .meetingNotice > span { flex: 1 1 14rem; min-width: 0; }
 .recordingBanner button, .recordingReady button, .meetingNotice button { margin: 0; white-space: nowrap; }
 /* The call's own controls carry the same dot while a recording runs. */
@@ -4040,7 +4024,7 @@ button.primary:hover:not(:disabled) {
   width: .6rem;
   height: .6rem;
   margin-right: .4rem;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   background: var(--danger);
 }
 /* A control meeting mode has locked: still pressable, so it can say why. */
@@ -4059,16 +4043,16 @@ button.primary:hover:not(:disabled) {
   max-width: 100%;
   min-width: 0;
   padding: .15rem .5rem;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  font-size: .9rem;
+  border-radius: var(--r-m);
+  font-size: var(--fs-2);
   white-space: nowrap;
+  background: var(--surface);
 }
 /* The same ring the tiles use, so "who is talking" reads the same whether
    the room is showing faces or names. */
 .callChip .name { overflow: hidden; text-overflow: ellipsis; }
 .callChip .avatar, .callChip .donorRing { width: 20px; height: 20px; }
-.callChip .badge { font-size: .7rem; }
+.callChip .badge { font-size: var(--fs-1); }
 
 /* The resting call strip belongs to the installed desktop window alone -
    see `[data-call-pane="resting"]` in desktop.css. A browser tab's call
@@ -4082,9 +4066,8 @@ button.primary:hover:not(:disabled) {
    controls, and by the green ring on this device's own tile below
    (#room .participant.onCall) - both of which stay green on purpose. */
 #callToggle[data-live="true"] {
-  background: var(--danger);
-  border-color: var(--danger-border);
-  color: var(--on-danger);
+  background: var(--danger-fill);
+  color: var(--on-danger-fill);
 }
 .callHead { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
 .callHead p { margin: 0; }
@@ -4097,7 +4080,7 @@ button.primary:hover:not(:disabled) {
 #room .participant.onCall { border-color: var(--live); }
 
 .callMore { margin: .4rem 0 0; }
-.callMore summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+.callMore summary { cursor: pointer; color: var(--muted); font-size: var(--fs-2); }
 .callMore > * + * { margin-top: .4rem; }
 
 /* The lane chip sits in the composer's button row. */
@@ -4151,7 +4134,7 @@ button.primary:hover:not(:disabled) {
 
   #room .participant:has(video) h3 {
     margin: 0 0 .25rem;
-    font-size: .875rem;
+    font-size: var(--fs-1);
   }
 
   #room .participant .media video:not(.screenPreview) {
@@ -4331,8 +4314,8 @@ button.primary:hover:not(:disabled) {
     background: rgb(0 0 0 / 55%);
     color: #fff;
     padding: .1rem .4rem;
-    border-radius: 4px;
-    font-size: .75rem;
+    border-radius: var(--r-s);
+    font-size: var(--fs-1);
   }
   /* A share with no camera behind it still reads as somebody's: the name
      that would sit under a camera sits in its place instead, at the camera's
@@ -4354,11 +4337,11 @@ button.primary:hover:not(:disabled) {
     align-items: center;
     justify-content: center;
     border: 1px dashed var(--border);
-    border-radius: 8px;
+    border-radius: var(--r-m);
     padding: .4rem;
     text-align: center;
     color: var(--muted);
-    font-size: .9rem;
+    font-size: var(--fs-2);
   }
 }
 @media (max-width: 700px) and (orientation: portrait) {
@@ -4373,7 +4356,7 @@ button.primary:hover:not(:disabled) {
 }
 /* Compact controls: two rows, and the explanations behind their folds. */
 #deviceControls .toggles .toggle { margin: 0; }
-#deviceControls .indicator { margin: .3rem 0 0; font-size: .85rem; }
+#deviceControls .indicator { margin: .3rem 0 0; font-size: var(--fs-1); }
 #deviceControls .indicator:empty { display: none; }
 /* The extension as the way in: filled, full width, first. */
 #identity #joinNostr.primary { display: block; width: 100%; margin: .6rem 0 0; }
@@ -4387,12 +4370,12 @@ input[type="search"] { font-family: inherit; }
    above (block, bold, .8rem over and .4rem under) would make each radio
    its own 44px row, and on a 390 by 540 phone that alone pushed the Start
    button off the bottom. Measured on Linux fonts, which are the widest. */
-.roomAccess label { display: inline-flex; gap: .4rem; align-items: center; margin: 0; font-size: .95rem; font-weight: 400; }
+.roomAccess label { display: inline-flex; gap: .4rem; align-items: center; margin: 0; font-size: var(--fs-2); font-weight: 400; }
 .roomAccess input { margin: 0; width: 1.1rem; height: 1.1rem; }
 .approvalCard.knock .options button.primary { margin: 0; }
 .approvalCard.knock .note { display: block; margin: .3rem 0; overflow-wrap: anywhere; }
 .approvalCard.knock .knockStatus:empty { display: none; }
-.approvalCard.knock:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.approvalCard.knock:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Which room to invite somebody to: one full-width button per room. */
 .inviteToRoomList button { display: block; width: 100%; margin: .35rem 0; min-height: 44px; text-align: left; }
@@ -4506,7 +4489,7 @@ input[type="search"] { font-family: inherit; }
   align-items: center;
   gap: .2rem .6rem;
   margin: .3rem 0 0;
-  font-size: .85rem;
+  font-size: var(--fs-1);
 }
 .otherDevice:not(:has(> :not([hidden]))) { display: none; }
 /* Both on the other device: the line says where the microphone is. */
@@ -4516,7 +4499,7 @@ input[type="search"] { font-family: inherit; }
   margin: 0;
   min-height: 36px;
   padding: .2rem .7rem;
-  border-radius: 18px;
+  border-radius: var(--r-m);
   border-color: var(--accent);
   color: var(--accent);
   font-size: inherit;
@@ -4529,8 +4512,7 @@ input[type="search"] { font-family: inherit; }
   justify-content: center;
   min-height: 44px;
   padding: .4rem .75rem;
-  border: 1px solid var(--control-border);
-  border-radius: 6px;
+  border-radius: var(--r-s);
   background: var(--control);
   color: var(--text);
   cursor: pointer;
@@ -4572,7 +4554,7 @@ input[type="search"] { font-family: inherit; }
   #deviceControls > .callHead,
   #deviceControls > .toggles { display: contents; }
   #callWho,
-  #deviceControls > #micIndicator { min-width: 0; min-height: 0; margin: 0; font-size: .875rem; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #deviceControls > #micIndicator { min-width: 0; min-height: 0; margin: 0; font-size: var(--fs-1); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #callWho { grid-area: 1 / 1 / 2 / 4; }
   #deviceControls > #micIndicator { grid-area: 1 / 4 / 2 / 7; text-align: right; }
   #toggleMic { grid-area: 2 / 1; }
@@ -4582,18 +4564,18 @@ input[type="search"] { font-family: inherit; }
   #recordToggle > .callWord { display: none; }
   #callExtras { grid-area: 2 / 5; min-width: 0; }
   #leaveCall { grid-area: 2 / 6; }
-  #deviceControls > #recordingAuthorityHint { grid-area: 3 / 1 / 4 / 7; margin: 0; font-size: .8rem; line-height: 1.4; }
+  #deviceControls > #recordingAuthorityHint { grid-area: 3 / 1 / 4 / 7; margin: 0; font-size: var(--fs-1); line-height: 1.4; }
   #deviceControls > .toggles > .toggle,
   #leaveCall,
   #callExtras > summary {
     display: flex; align-items: center; justify-content: center;
     width: 100%; min-width: 0; min-height: 44px; margin: 0; padding: .3rem .15rem;
-    font-size: .875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: var(--fs-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #callExtras > summary { list-style: none; cursor: pointer; color: var(--text); background: var(--control); border: 1px solid var(--control-border); border-radius: 6px; }
+  #callExtras > summary { list-style: none; cursor: pointer; color: var(--text); background: var(--control); border-radius: var(--r-s); }
   #callExtras > summary::-webkit-details-marker { display: none; }
   #callExtras[open] > summary { border-color: var(--accent); background: var(--accent-dim); }
-  #callExtras > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #callExtras > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   #deviceControls > #speakingLine { grid-area: 4 / 1 / 5 / 7; margin: 0; }
   /* Open, More takes a row of its own under the controls. */
   #callExtras[open] { grid-area: 5 / 1 / 6 / 7; }
@@ -4613,21 +4595,21 @@ input[type="search"] { font-family: inherit; }
   #callStage #whoIsHere .participant,
   #callStage #whoIsHere .agentChip {
     flex: 0 0 calc((100% - .4rem) / 2); min-width: 0; max-width: none; margin: 0;
-    border-radius: 8px; overflow-wrap: anywhere;
+    border-radius: var(--r-m); overflow-wrap: anywhere;
   }
   #callStage #whoIsHere .participant { display: block; padding: .3rem .4rem; }
   #callStage #whoIsHere .participant h3 { flex-wrap: wrap; }
   #callStage #whoIsHere .participant .verifyChip { white-space: nowrap; overflow-wrap: normal; }
   #callStage #whoIsHere .participant > .tracks { margin-top: .2rem; }
   #callStage #whoIsHere .participant:has(video) { order: -1; position: relative; display: block; padding: .3rem; }
-  #callStage #whoIsHere .participant h3 { margin: 0 0 .2rem; font-size: .875rem; }
+  #callStage #whoIsHere .participant h3 { margin: 0 0 .2rem; font-size: var(--fs-1); }
   #callStage #whoIsHere .participant h3 .devices { display: none; }
   #callStage #whoIsHere .participant:has(video) > .tracks { display: none; }
   #callStage #whoIsHere .participant .media { margin-top: 0; }
   #callStage #whoIsHere .participant .media video,
   #callStage #whoIsHere .participant .media video.screenPreview { width: 100%; height: 5rem; max-height: none; aspect-ratio: auto; }
   #callStage #whoIsHere .participant > .shareExpand { position: absolute; right: .5rem; bottom: .5rem; margin: 0; padding: .2rem .5rem; font-size: 0; min-height: 44px; }
-  #callStage #whoIsHere .participant > .shareExpand::after { content: 'Expand'; font-size: .875rem; }
+  #callStage #whoIsHere .participant > .shareExpand::after { content: 'Expand'; font-size: var(--fs-1); }
   #callStage #whoIsHere .participant > .shareExpand:disabled::after { content: 'Arriving'; }
 
   main:has(#roomArea:not([hidden])) #chatViewport { min-height: min(14rem, 30svh); }
@@ -4641,9 +4623,9 @@ input[type="search"] { font-family: inherit; }
 /* Text size, in Room details. */
 .textSizeChoice { display: flex; flex-wrap: wrap; gap: .5rem; margin: .25rem 0 .75rem; padding: 0; border: 0; min-width: 0; }
 .textSizeChoice legend { width: 100%; margin-bottom: .4rem; padding: 0; font-weight: 600; }
-.textSizeChoice label { flex: 1 1 6rem; display: flex; align-items: center; justify-content: center; gap: .4rem; min-height: 44px; margin: 0; padding: .4rem .75rem; border: 1px solid var(--control-border); border-radius: 8px; background: var(--control); cursor: pointer; }
+.textSizeChoice label { flex: 1 1 6rem; display: flex; align-items: center; justify-content: center; gap: .4rem; min-height: 44px; margin: 0; padding: .4rem .75rem; border: 1px solid var(--control-border); border-radius: var(--r-m); background: var(--control); cursor: pointer; }
 .textSizeChoice label:has(input:checked) { border-color: var(--accent); background: var(--accent-dim); color: var(--text); font-weight: 600; }
-.textSizeChoice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--focus-glow); }
+.textSizeChoice label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .textSizeChoice input { width: 1.1rem; height: 1.1rem; margin: 0; accent-color: var(--accent); }
 
 /* Hints inside a field at AA. The browser's own placeholder grey measured
@@ -4657,7 +4639,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 
 .attachment video { width: 100%; max-width: 32rem; max-height: 22rem; }
 .attachment audio { width: 100%; max-width: 24rem; }
-.attachmentText { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; }
+.attachmentText { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-2); }
 
 /* Phone rooms have one main activity at a time, like the native app. */
 #mobileRoomViews { display: none; }
@@ -4671,8 +4653,8 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   .roomBar { flex-shrink: 0; margin: 0; padding: 0 0 .3rem; }
   .roomBar #callToggle, .roomBar #openAssignments { display: none; }
   #mobileRoomViews { display: flex; flex-shrink: 0; gap: .25rem; padding: .25rem 0 .45rem; }
-  #mobileRoomViews button { flex: 1; min-height: 44px; margin: 0; border: 0; background: transparent; border-radius: .6rem; color: var(--muted); }
-  #mobileRoomViews button[aria-pressed="true"] { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px var(--accent); font-weight: 650; }
+  #mobileRoomViews button { flex: 1; min-height: 44px; margin: 0; border: 0; background: transparent; border-radius: var(--r-m); color: var(--muted); }
+  #mobileRoomViews button[aria-pressed="true"] { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px var(--accent); font-weight: 600; }
   #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#attachStaged,#attachPanel,#agentActivity,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
@@ -4690,17 +4672,17 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
     margin: 0;
     padding: .75rem;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--r-m);
   }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > .callStrip .callStripText { color: var(--muted); }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > .callStrip button { margin: 0; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #room,
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #room[data-tiles]:has(video) { display: grid; grid-template-columns: 1fr; gap: .65rem; }
-  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: 12px; padding: .6rem; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: var(--r-m); padding: .6rem; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant .media video { height: auto; min-height: 9rem; max-height: 48dvh; aspect-ratio: 4 / 3; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant .media video.screenPreview { object-fit: contain; aspect-ratio: auto; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant:has(.media ~ .media) { display: grid; grid-template-columns: 1fr 1fr; }
-  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant h3 { font-size: .95rem; margin-bottom: .4rem; }
+  #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant h3 { font-size: var(--fs-2); margin-bottom: .4rem; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #deviceControls > #micIndicator { display: none; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #callWho { grid-column: 1 / -1; }
   #roomArea[data-mobile-view="chat"] #chatViewport { flex: 1 1 0; min-height: 0; }
@@ -4714,7 +4696,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 .longMessage .text { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .longMessageTools { display: flex; gap: .4rem; margin-top: .5rem; }
 .longMessageTools button { min-height: 44px; margin: 0; padding: .35rem .65rem; color: var(--accent); background: transparent; border-color: transparent; }
-#pasteSizeNote { padding: .5rem .65rem; border-left: 3px solid var(--accent); font-size: .875rem; margin: .3rem 0; }
+#pasteSizeNote { padding: .5rem .65rem; font-size: var(--fs-1); margin: .3rem 0; background: var(--surface); }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   #roomArea[data-mobile-view="call"] > #pasteSizeNote { display: none; }
 }
@@ -4722,7 +4704,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #callWho { display: none; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #deviceControls { grid-template-rows: 0 44px; row-gap: 0; }
 }
-.media[data-camera-label]:not([data-camera-label=""]):has(video)::before { content: attr(data-camera-label); display: block; font-size: .8rem; color: var(--muted); padding: .2rem 0; }
+.media[data-camera-label]:not([data-camera-label=""]):has(video)::before { content: attr(data-camera-label); display: block; font-size: var(--fs-1); color: var(--muted); padding: .2rem 0; }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage #whoIsHere .participant:has(.media ~ .media) h3 { grid-column: 1 / -1; }
 }
@@ -4763,11 +4745,11 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 .tidyUp { max-width: min(40rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
 .tidyUp ol, .tidyUp ul { padding-left: 1.25rem; }
 .tidyUp li { margin: .35rem 0; }
-.tidyUp .tidyResult { display: block; color: var(--muted); font-size: .95rem; overflow-wrap: anywhere; }
+.tidyUp .tidyResult { display: block; color: var(--muted); font-size: var(--fs-2); overflow-wrap: anywhere; }
 .tidyUp .checkRow { display: flex; gap: .5rem; align-items: flex-start; margin: .75rem 0; }
 
 .attachment .attachmentImage { display: block; padding: 0; border: 0; background: transparent; cursor: zoom-in; max-width: 100%; }
-dialog.attachmentViewer { width: calc(100vw - 2rem); height: calc(100dvh - 2rem); max-width: none; max-height: none; padding: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg, #101114); color: inherit; }
+dialog.attachmentViewer { width: calc(100vw - 2rem); height: calc(100dvh - 2rem); max-width: none; max-height: none; padding: 0; border-radius: var(--r-m); background: var(--bg, #101114); color: inherit; box-shadow: var(--shadow); border: 0;}
 .attachmentViewer::backdrop { background: rgb(0 0 0 / 75%); }
 .attachmentViewer[open] { display: flex; flex-direction: column; }
 .attachmentViewer header { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding: .75rem; }
@@ -4780,12 +4762,12 @@ dialog.attachmentViewer { width: calc(100vw - 2rem); height: calc(100dvh - 2rem)
 /* The call, docked while another room is on screen. See `DockedCall` in
    app/src/main.ts. Its tiles and the room's call controls are hidden, never
    removed: a media element taken out of the document is paused. */
-.callDock { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem .75rem; margin: 0 0 .6rem; padding: .45rem .7rem; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-dim); }
+.callDock { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem .75rem; margin: 0 0 .6rem; padding: .45rem .7rem; border-radius: var(--r-m); background: var(--accent-dim); }
 .callDock[hidden] { display: none; }
 .callDockText { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .callDockActions { display: flex; flex-wrap: wrap; gap: .4rem; }
 .callDockActions button { margin: 0; }
-.callDockActions button[aria-pressed='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); color: var(--accent); font-weight: 650; }
+.callDockActions button[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--accent); color: var(--accent); font-weight: 600; }
 .callDockActions button[aria-pressed='true']::before { content: '● '; }
 html[data-call-docked] #callBay,
 html[data-call-docked] #callStrip,
@@ -4803,11 +4785,10 @@ html[data-call-docked] #mobileCall { display: none !important; }
   display: block;
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid var(--accent);
-  border-radius: 0.5rem;
+  border-radius: var(--r-m);
   background: var(--accent-dim);
   color: var(--text);
-  font-size: 1.05rem;
+  font-size: var(--fs-3);
   font-weight: 600;
   padding: 0.7rem 1.4rem;
   text-align: center;
@@ -4828,8 +4809,7 @@ html[data-call-docked] #mobileCall { display: none !important; }
   flex: 0 0 auto;
   margin: .4rem .6rem .7rem;
   padding: .8rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--fuse-ink) 55%, transparent);
-  border-radius: 14px;
+  border-radius: var(--r-m);
   color: var(--fuse-ink);
   background: radial-gradient(ellipse at top left, color-mix(in srgb, var(--fuse-ink) 15%, transparent), transparent 70%), var(--fuse-ground);
   box-shadow: inset 0 0 24px color-mix(in srgb, var(--fuse-ink) 8%, transparent);
@@ -4840,27 +4820,27 @@ html[data-call-docked] #mobileCall { display: none !important; }
   position: relative;
   flex: 0 0 56px;
   height: 56px;
-  border-radius: 50%;
+  border-radius: var(--r-full);
   background: conic-gradient(currentColor calc(var(--fuse-remaining) * 1turn), color-mix(in srgb, currentColor 14%, transparent) 0);
 }
-.roomFuseDial::before { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--fuse-ground); }
-.roomFuseSpark { position: absolute; inset: 0; display: grid; place-items: center; font-size: 1.6rem; filter: drop-shadow(0 0 6px currentColor); animation: fuseGlow 3s ease-in-out infinite; }
+.roomFuseDial::before { content: ''; position: absolute; inset: 4px; border-radius: var(--r-full); background: var(--fuse-ground); }
+.roomFuseSpark { position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--fs-5); filter: drop-shadow(0 0 6px currentColor); animation: fuseGlow 3s ease-in-out infinite; }
 .roomFuseBody { display: grid; gap: .15rem; flex: 1; min-width: 0; }
-.roomFuseLabel { text-transform: uppercase; letter-spacing: .13em; font-size: .65rem; font-weight: 700; }
-.roomFuseClock { font-family: ui-monospace, monospace; font-size: clamp(1.25rem, 4vw, 1.8rem); font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.roomFuseHint { font-size: .75rem; }
-.roomFuseTrack { height: 3px; margin-top: .3rem; background: color-mix(in srgb, currentColor 15%, transparent); border-radius: 3px; }
+.roomFuseLabel { font-size: var(--fs-1); font-weight: 600; }
+.roomFuseClock {font-size: clamp(1.25rem, 4vw, 1.8rem); font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.roomFuseHint { font-size: var(--fs-1); }
+.roomFuseTrack { height: 3px; margin-top: .3rem; background: color-mix(in srgb, currentColor 15%, transparent); border-radius: var(--r-s); }
 #roomFuseBurn { position: relative; display: block; height: 100%; border-radius: inherit; background: currentColor; }
-#roomFuseBurn::after { content: ''; position: absolute; right: -2px; top: -2px; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px 2px currentColor; }
+#roomFuseBurn::after { content: ''; position: absolute; right: -2px; top: -2px; width: 7px; height: 7px; border-radius: var(--r-full); background: currentColor; box-shadow: 0 0 10px 2px currentColor; }
 .roomFuse[data-stage='final'] .roomFuseSpark { animation-duration: 1.2s; }
 @keyframes fuseGlow { 50% { transform: scale(1.18) rotate(30deg); opacity: .75; } }
 .destructEffect { position: fixed; inset: 0; z-index: 10000; pointer-events: none; display: grid; place-items: center; color: #ffcf92; background: radial-gradient(ellipse at center, #321a11ef, #101114f5); animation: destructVeil 3.2s ease both; }
 .destructArt { position: absolute; top: 42%; left: 50%; width: 0; height: 0; }
-.destructRing { position: absolute; width: 110px; height: 110px; margin: -55px; border: 2px solid #ffcf92; border-radius: 50%; box-shadow: 0 0 35px #ff8a45, inset 0 0 20px #ff8a45; animation: destructRing 1.8s ease-out both; }
-.destructArt i { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #ffcf92; box-shadow: 0 0 8px #ff8a45; animation: destructSpark 1.9s var(--delay) ease-out both; }
+.destructRing { position: absolute; width: 110px; height: 110px; margin: -55px; border: 2px solid #ffcf92; border-radius: var(--r-full); box-shadow: 0 0 35px #ff8a45, inset 0 0 20px #ff8a45; animation: destructRing 1.8s ease-out both; }
+.destructArt i { position: absolute; width: 4px; height: 4px; border-radius: var(--r-full); background: #ffcf92; box-shadow: 0 0 8px #ff8a45; animation: destructSpark 1.9s var(--delay) ease-out both; }
 .destructWords { position: relative; display: grid; gap: .7rem; text-align: center; padding: 1rem; margin-top: 160px; }
-.destructWords strong { font-size: clamp(1.5rem, 5vw, 2.5rem); letter-spacing: -.02em; }
-.destructWords span { color: #f2e3d4; font-size: .9rem; }
+.destructWords strong { font-size: clamp(1.5rem, 5vw, 2.5rem); }
+.destructWords span { color: #f2e3d4; font-size: var(--fs-2); }
 @keyframes destructVeil { 0% { opacity: 0; } 12%, 75% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes destructRing { 0% { transform: scale(1); opacity: 1; } 35% { transform: scale(.2); opacity: 1; } 100% { transform: scale(3); opacity: 0; } }
 @keyframes destructSpark { 0%, 15% { transform: rotate(var(--angle)) translateX(45px); opacity: 0; } 30% { opacity: 1; } 100% { transform: rotate(var(--angle)) translateX(var(--distance)); opacity: 0; } }
@@ -4871,7 +4851,7 @@ html[data-call-docked] #mobileCall { display: none !important; }
 }
 
 .brandHome { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; padding: .25rem; margin: 0; text-align: left; cursor: pointer; }
-.brandHome:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.brandHome:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .roomDuration { border: 0; padding: 0; margin: .75rem 0; display: grid; gap: .4rem; }
 .roomDuration label { display: flex; justify-content: space-between; }
 .roomDuration input[type=range] { width: 100%; min-height: 44px; padding: 0; accent-color: var(--accent); }
@@ -4893,13 +4873,13 @@ html[data-call-docked] #mobileCall { display: none !important; }
 .mediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: .5rem; }
 .mediaGrid button { display: flex; flex-direction: column; padding: .5rem; text-align: left; overflow-wrap: anywhere; min-width: 0; }
 .mediaGrid img { width: 100%; height: 7rem; object-fit: contain; }
-.mediaGrid small { font-size: .75rem; color: var(--muted); }
+.mediaGrid small { font-size: var(--fs-1); color: var(--muted); }
 
 .messagePerson { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .35rem; min-height: 2.75rem; padding: 0 .2rem; border: 0; background: transparent; color: inherit; text-align: start; }
 .messagePerson:hover .name, .messagePerson:focus-visible .name { text-decoration: underline; }
 .participantCard { max-width: min(30rem, calc(100vw - 2rem)); }
 .participantCard p { overflow-wrap: anywhere; }
-.participantCard > .avatar { width: 4rem; height: 4rem; border-radius: 50%; object-fit: cover; }
+.participantCard > .avatar { width: 4rem; height: 4rem; border-radius: var(--r-full); object-fit: cover; }
 .participantCard button { margin: .3rem; min-height: 2.75rem; }
 
 /* Explicit MLS enrolment/recovery in the development preview. */
@@ -4913,7 +4893,7 @@ html[data-call-docked] #mobileCall { display: none !important; }
 
 /* Contact actions stay usable at phone widths and with long names. */
 .messageContacts { list-style: none; padding: 0; display: grid; gap: .65rem; }
-.messageContacts li { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .65rem; border: 1px solid var(--border); border-radius: .6rem; }
+.messageContacts li { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .65rem; border-radius: var(--r-m); background: var(--surface); }
 .messageContacts .contactLabel { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; }
 .messageContacts button { margin: 0; min-height: 44px; }
 #contactsDialog .sheetBody { overflow-y: auto; }
