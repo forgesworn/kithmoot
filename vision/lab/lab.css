@@ -1,0 +1,33 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101820; color: #eef3ed; line-height: 1.5 }
+* { box-sizing: border-box }
+body { margin: 0 }
+main { max-width: 1160px; margin: auto; padding: 24px }
+header { max-width: 850px }
+h1 { font-size: 2.5rem; margin: 0 }
+h2 { font-size: 1.2rem; margin: 0 0 12px }
+.eyebrow { color: #91d8ca; margin-bottom: 6px }
+section { border: 1px solid #36505a; border-radius: 12px; padding: 20px; margin: 20px 0; background: #17242d }
+.privacy { padding: 12px; border-left: 3px solid #91d8ca; background: #20393d }
+.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 12px 0 }
+.controls > label { display: flex; flex-direction: column; gap: 4px; max-width: 100% }
+.controls > label:has(input[type=checkbox]) { flex-direction: row; align-items: center; padding: 8px 0 }
+button, select, input { font: inherit; max-width: 100% }
+button, select { padding: 8px 12px; border: 1px solid #608b91; border-radius: 7px; background: #213942; color: #fff }
+button { cursor: pointer }
+button:hover:enabled { background: #31545c }
+button:disabled { opacity: .45; cursor: default }
+input[type=checkbox] { accent-color: #91d8ca }
+input[type=file] { font-size: .85rem; width: 240px }
+.pictures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px }
+figure { margin: 0; min-width: 0 }
+figcaption { font-size: .85rem; margin-bottom: 6px }
+canvas { background: #080d12; width: 100%; display: block; border: 1px solid #50727a; border-radius: 6px; aspect-ratio: 5 / 3 }
+#editor { max-width: 640px; touch-action: none; cursor: crosshair }
+.review { display: grid; gap: 8px; margin: 16px 0 }
+.hint, footer { color: #bacbd1; font-size: .9rem }
+#metrics { font-variant-numeric: tabular-nums; color: #91d8ca }
+pre { overflow-x: auto; padding: 16px; background: #0b1218; font-size: .85rem }
+code { overflow-wrap: anywhere }
+a { color: #91d8ca }
+:focus-visible { outline: 3px solid #e9d899; outline-offset: 3px }
+@media (max-width: 700px) { main { padding: 12px } section { padding: 12px } .pictures { grid-template-columns: 1fr } h1 { font-size: 2rem } }

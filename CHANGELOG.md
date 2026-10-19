@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Meeting codes with a password now share as one link that just joins: kithmoot.app/c/ABC-DEF-GH followed by # and the four words, such as #ability-zoo-jasmine-forget. The join page opens the invitation door without asking for the words, then removes them from the address bar. The words sit after the #, which no server is sent, so the code service still holds only the locked copy and the redirect never sees them. Copy and Share send only that link, with no separate password line.
+- A new switch, Send the password separately, is off by default. On, the link leaves the words out and they are shown to send on their own, as before. Reading the bare code out loud, the words are under the code. A wrong, missing or damaged set of words in a link falls back to the usual prompt, and typing a code in still asks for them.
+- The desktop app opens a code link with its words. It accepts a fragment only if it is exactly four words from the list, and still refuses any other fragment, query, host or path. Android does not yet join by code.
+
 ## Desktop 0.1.88 and Android 0.6.91 — 18 October 2026
 
 - Add an original full-picture masked avatar, remembered before capture starts. Prepare face-mask compositing and a separate MIT neural vision training library. Automatic face masking remains unavailable pending qualified weights.

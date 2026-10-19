@@ -870,15 +870,6 @@
           </select>
           <p class="note">Time to undo or edit a message after you press Send. Until then it stays on this device and nobody can see it. Saved on this device.</p>
         </div>
-        <!-- Read positions keep unread the same on every device of a signed-in
-             account. On by default; see READ_SHARE_KEY in app/src/main.ts. -->
-        <div id="readShareSettings">
-          <h4>Reading</h4>
-          <div class="toggles switchRow">
-            <button id="toggleReadShare" type="button" class="toggle" data-on="true" aria-pressed="true">Share where I have read up to with my other devices</button>
-          </div>
-          <p id="readShareNote" class="note"></p>
-        </div>
       </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's
@@ -1308,8 +1299,9 @@
             <button id="shareRoom" type="button" hidden>Share</button>
           </div>
           <p id="inviteStatus" class="note" role="status"></p>
-          <!-- Only for the room's creator. The code's delete token, and its
-               password words, stay on this device. -->
+          <!-- Only for the room's creator. The code's delete token stays on this
+               device, and so do its password words, apart from the link the
+               host chooses to share with them in its fragment. -->
           <div id="meetingCodeRow" class="meetingCodeRow" hidden>
             <div id="meetingCodePasswordRow" class="toggles switchRow">
               <button id="meetingCodePassword" type="button" class="toggle" data-on="true" aria-pressed="true">Add a password</button>
@@ -1320,9 +1312,21 @@
               <p class="meetingCodeValue"><span class="sr-only">Meeting code: </span><span id="meetingCode"></span></p>
               <label class="sr-only" for="meetingCodeLink">Short link</label>
               <input id="meetingCodeLink" readonly aria-label="Short link to this room" />
+              <!-- The link carries the password words after its #, which no
+                   server receives. They are shown here only for a host who
+                   reads the bare code out, or who sends the words apart. -->
+              <details id="meetingCodeAloud" class="meetingCodeAloud" hidden>
+                <summary>Reading the code out loud? Show the password words</summary>
+                <p class="note">Guests who type the code also need these four words. The link above already has them inside.</p>
+                <p class="meetingCodeValue meetingCodeWords"><span class="sr-only">Password words: </span><span id="meetingCodeAloudWords"></span></p>
+              </details>
               <div id="meetingCodeWordsRow" hidden>
                 <p class="meetingCodeValue meetingCodeWords"><span class="sr-only">Password words: </span><span id="meetingCodeWords"></span></p>
-                <p class="note">Send these four words separately from the code, for example by phone or in another app.</p>
+                <p class="note">Send these four words separately from the link, for example by phone or in another app.</p>
+              </div>
+              <div id="meetingCodeSeparateRow" class="toggles switchRow" hidden>
+                <button id="meetingCodeSeparate" type="button" class="toggle" data-on="false" aria-pressed="false">Send the password separately</button>
+                <span id="meetingCodeSeparateNote" class="note inline"></span>
               </div>
               <div class="inviteButtons">
                 <button id="copyMeetingCode" type="button">Copy</button>

@@ -898,6 +898,12 @@ export class RoomAgent {
           const admins = new Set(agent.admins.map((a) => a.toLowerCase()))
           agent.#epochDesk = hostRoomEpoch({
             transport: hostTransport,
+            // Answer at once and refuse every time, as before fold-kit 0.12.0
+            // made the desk wait and ration refusals: calls broke on the day
+            // that shipped, and this rules it out while that is checked.
+            replyDelayMs: [0, 0],
+            refuseAgainAfter: 0,
+            maxRefusalsPerMinute: Number.MAX_SAFE_INTEGER,
             roomId: session.roomId,
             authoritySk: opts.keeper.inviterSk,
             roomKey: deriveRoom(opts.secret).roomKey,

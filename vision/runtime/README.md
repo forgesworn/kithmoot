@@ -73,7 +73,9 @@ qualification. Node's WASM timings are not browser acceptance.
 
 [C header](include/kithmoot_vision.h) exposes one owned engine handle. Native
 hosts can wrap it through JNI/Node-API. [WASM host](../web/runtime.mjs) wraps
-the same functions for a Worker. No mobile or Electron native bridge has yet
+the same functions for a Worker. The [Local Camera Lab](../lab/README.md)
+uses this engine on camera/file frames with one request in flight and source
+epoch checks. No mobile or Electron native bridge has yet
 been integrated into either app's camera path.
 
 - Images are upright, normalised NCHW `f32`. The caller resizes before inference.
