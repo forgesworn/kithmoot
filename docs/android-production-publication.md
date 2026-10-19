@@ -6,6 +6,20 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.94 long pastes as documents, 19 October 2026
+
+Version **0.6.94**, code **117**, sends a paste over the 2,000 character chat
+limit as an encrypted text document with a 600 character preview, as the web
+client does, instead of silently discarding it (kithmoot-android #279). The
+document goes through the storage server already chosen for images, 8 MiB at
+most; without one, nothing is sent and the composer says why. Android also
+opens text documents from other clients, with Copy.
+
+The production APK is built from Android source
+`cbd3e818` (pull request #279, all checks passed), SHA-256
+`5a5c5514a2293085360187cfd5815d436b11c2a62c961f42c39eaf7be866b2d3`, signed with
+the retained production certificate. Not yet observed on a device.
+
 ## Android 0.6.93 calm chat screen, 19 October 2026
 
 Version **0.6.93**, code **116**, carries stages 0 and 1 of the calm shell
