@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.89",
+  "currentRelease": "0.1.90",
   "releases": [
     {
-      "version": "0.1.89",
+      "version": "0.1.90",
       "updateTo": {
-        "version": "0.1.89",
-        "pub_date": "2026-10-19T07:46:48Z",
-        "notes": "Meeting codes with a password share as one link that just joins. Quiet automatic replies are rolled back while broken calls are investigated.",
-        "name": "0.1.89",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.89/KithMoot-0.1.89-mac-arm64.zip",
-        "sha256": "f5666da9cd0f1ffdbcd83014b528b7b4463d20ff01ca5991bba895fb54fca1a9",
-        "size": 170804692
+        "version": "0.1.90",
+        "pub_date": "2026-10-19T18:22:42Z",
+        "notes": "A calmer room, with messages grouped by sender and a one-line message box. Adding a reaction no longer hides the newest message.",
+        "name": "0.1.90",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.90/KithMoot-0.1.90-mac-arm64.zip",
+        "sha256": "40f35fd0a179df3fa5b02bf1fa07b4777694828e7f4a75bad395c75dc8c6fbee",
+        "size": 170807639
       }
     }
   ]

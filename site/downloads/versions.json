@@ -1,6 +1,66 @@
 {
   "desktop": [
     {
+      "version": "0.1.90",
+      "published": "2026-10-19",
+      "files": [
+        {
+          "os": "mac",
+          "arch": "arm64",
+          "kind": "app",
+          "filename": "KithMoot-0.1.90-mac-arm64.zip",
+          "url": "/apk/desktop/0.1.90/KithMoot-0.1.90-mac-arm64.zip",
+          "bytes": 170807639,
+          "sha256": "40f35fd0a179df3fa5b02bf1fa07b4777694828e7f4a75bad395c75dc8c6fbee"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.90-windows-x64.zip",
+          "url": "/apk/desktop/0.1.90/KithMoot-0.1.90-windows-x64.zip",
+          "bytes": 199397596,
+          "sha256": "df4929d2733095b9c0c04363f7fa82755594219b6d607ca3bc8d5447acd71f4e"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.90_arm64.deb",
+          "url": "/apk/desktop/0.1.90/kithmoot_0.1.90_arm64.deb",
+          "bytes": 124402324,
+          "sha256": "204d13f3cee88f624d5478020cfbcd9b329e09b4b76e2e5d85f1021b534213d6"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.90_amd64.deb",
+          "url": "/apk/desktop/0.1.90/kithmoot_0.1.90_amd64.deb",
+          "bytes": 129377344,
+          "sha256": "e683bb117ddbc7a20ac4f587cce4bb7e5ef82bd27962764891623f3295258d07"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.90-linux-arm64.tar.gz",
+          "url": "/apk/desktop/0.1.90/KithMoot-0.1.90-linux-arm64.tar.gz",
+          "bytes": 165097096,
+          "sha256": "47d7f7040a19af796452fb17ccaf7f9e2c266c30dc0d885dc46370eddc78cd19"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.90-linux-x64.tar.gz",
+          "url": "/apk/desktop/0.1.90/KithMoot-0.1.90-linux-x64.tar.gz",
+          "bytes": 163980957,
+          "sha256": "737295101f1a3e845189003a7d90cd86bf7fc3da72165e28227a694e6e3d6f5d"
+        }
+      ]
+    },
+    {
       "version": "0.1.89",
       "published": "2026-10-19",
       "files": [
