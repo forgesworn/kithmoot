@@ -317,7 +317,8 @@
 
         <!-- One line. Back, who and where you are, a call, and the rest. -->
         <div class="roomBar">
-          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher">Rooms</button>
+          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher"
+                  aria-label="Rooms" data-tip="Rooms"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
           <!-- The name and the who-is-here line are one control, because
                they answer the same question and a reader who wants more
                about either taps the thing they are looking at. -->
@@ -329,13 +330,15 @@
               <span id="roomWho" class="roomWho"></span>
             </span>
           </button>
+          <!-- The word is in the page for assistive technology and for the tests;
+               the button shows the phone. `renderCallState` in app/src/main.ts
+               writes the word and swaps the picture. -->
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
-                  title="Call: microphone, camera and screen share" aria-label="Call controls">Call</button>
-          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Boards</button>
+                  data-tip="Call: microphone, camera and screen share" aria-label="Call controls"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-phone"/></svg><span class="barWord">Call</span></button>
+          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel"
+                  data-tip="Boards"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span class="barWord">Boards</span></button>
           <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
-                  aria-label="Room details">
-            <span aria-hidden="true">&#8943;</span>
-          </button>
+                  aria-label="Room details" data-tip="Room details"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg></button>
         </div>
 
         <nav id="roomBoards" class="roomBoardLinks" aria-label="Boards in this chat" hidden></nav>

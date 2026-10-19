@@ -35,6 +35,8 @@ export class AssignmentPanel {
   #pendingCreate?: string
   #decisionsOnly = false
   #wide = matchMedia('(min-width: 1280px)')
+  /** The button shows a picture; its words stay in it for assistive technology. */
+  #word(text: string): void { (this.#button.querySelector('.barWord') ?? this.#button).textContent = text }
   constructor(readonly root: Document, readonly people: () => AssignmentPerson[], readonly changed: () => void = () => {}) {
     this.#dialog = root.getElementById('assignmentPanel') as HTMLDialogElement
     this.#cards = root.getElementById('assignmentCards')!
@@ -279,7 +281,7 @@ export class AssignmentPanel {
     for (const input of form.querySelectorAll('[aria-invalid]')) input.removeAttribute('aria-invalid')
     this.#owner.replaceChildren(); this.#action.replaceChildren(); this.#inputs.replaceChildren()
     this.#peopleKey = ''; this.#drafts = new Map(); this.#pendingCreate = undefined
-    this.#status.textContent = 'Connecting assignments…'; this.#button.textContent = 'Boards'
+    this.#status.textContent = 'Connecting assignments…'; this.#word('Boards'); this.#button.removeAttribute('data-count')
     this.#button.removeAttribute('data-attention')
     this.root.getElementById('workAttention')!.hidden = true
     this.#decisionsOnly = false
@@ -336,7 +338,9 @@ export class AssignmentPanel {
     if (!snapshot) return
     const active = snapshot.assignments.filter(s => !['accepted', 'cancelled'].includes(s.status))
     const decisions = snapshot.assignments.filter(s => this.#needsYou(s))
-    this.#button.textContent = active.length ? `Boards (${active.length})` : 'Boards'
+    this.#word(active.length ? `Boards (${active.length})` : 'Boards')
+    if (active.length) this.#button.dataset.count = String(active.length)
+    else this.#button.removeAttribute('data-count')
     this.#button.toggleAttribute('data-attention', decisions.length > 0)
     this.root.getElementById('workAttention')!.hidden = decisions.length === 0 || !snapshot.ready
     this.root.getElementById('workAttentionText')!.textContent = `${decisions.length} ${decisions.length === 1 ? 'assignment needs' : 'assignments need'} your attention`

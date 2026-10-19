@@ -5041,11 +5041,15 @@ function renderCallState(views: ParticipantView[]): void {
   // away several times a second, during a call, which is the one moment
   // the machine has something better to do.
   const label = CALL_STANCE_LABELS[stance]
-  if (button.textContent !== label) {
-    button.textContent = label
+  const word = button.querySelector('.barWord')!
+  if (word.textContent !== label) {
+    // The word stays in the button for assistive technology and the specs;
+    // what is drawn is the phone, or the hang-up while you are on the call.
+    word.textContent = label
     button.setAttribute('aria-label', label)
-    button.title = CALL_STANCE_TITLES[stance]
+    button.dataset.tip = CALL_STANCE_TITLES[stance]
     button.dataset.stance = stance
+    button.querySelector('use')!.setAttribute('href', stance === 'leave' ? '#i-hangup' : '#i-phone')
   }
   if (button.dataset.live !== String(mineOn)) button.dataset.live = String(mineOn)
   const mobile = mineOn ? 'Call · live' : stance === 'join' ? 'Call · join' : 'Call'
@@ -15338,7 +15342,7 @@ boardsPanel = new BoardsPanel(document, {
   },
 })
 for (const id of ['workspaceWork', 'homeWork', 'switcherWork', 'mobileWorkspaceWork', 'openAssignments', 'mobileWork', 'workspaceWorkTab']) {
-  const button = $(id); button.textContent = 'Boards'; button.setAttribute('aria-controls', 'boardsPanel')
+  const button = $(id); (button.querySelector('.barWord') ?? button).textContent = 'Boards'; button.setAttribute('aria-controls', 'boardsPanel')
   button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); ($('roomSwitcher') as HTMLDialogElement).close(); ($('workspaceWorkPanel') as HTMLDialogElement).close(); boardsPanel!.open(button)}, {capture: true})
 }
 

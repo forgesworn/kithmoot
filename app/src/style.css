@@ -584,22 +584,79 @@ details#appConnections button { display: block; }
   color: var(--text);
 }
 
-.barBack {
-  font-size: 1.6rem;
-  line-height: 1;
-  padding: 0.2rem 0.5rem;
-}
-
-.callLabelNarrow {
-  display: none;
-}
-
 .barBack:hover,
 .barBtn:hover,
+.barBtn[aria-expanded='true'],
 .barBtn[data-on='true'] {
-  color: var(--text);
-  border-color: var(--border);
-  background: var(--control);
+  background: var(--selected);
+}
+
+/* The words of a picture button stay in the page for assistive technology,
+   and for anything that selects a control by what it says. */
+.barWord {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A count on a picture: the number is in the name as well. */
+.barBtn[data-count]::before {
+  content: attr(data-count);
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* A tooltip: on hover after a short wait, and at once on keyboard focus,
+   so a picture is never the only thing that says what a control does. */
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  padding: 3px var(--s2);
+  border-radius: var(--r-s);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--fs-1);
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+#backToRooms::after {
+  right: auto;
+  left: 0;
+}
+
+@media (hover: hover) {
+  [data-tip]:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.1s 0.3s, visibility 0s 0.3s;
+  }
+}
+
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* The name and who is here are one control. Left-aligned text in a button,
@@ -696,7 +753,7 @@ details#appConnections button { display: block; }
 .fusePill[data-stage='red'],
 .fusePill[data-stage='final'],
 .fusePill[data-stage='gone'] { background: var(--fuse-red); color: var(--on-fuse-red); }
-.roomIdentity .roomEndsLine.fusePill { display: inline-flex; width: auto; font-size: .78rem; }
+.roomIdentity .roomEndsLine.fusePill { display: inline-flex; width: auto; font-size: var(--fs-1); }
 .roomText .fusePill { margin-top: .2rem; align-self: flex-start; }
 /* In the rail the countdown takes a line of its own under the room's name:
    beside it, in a narrow rail, it squeezed the name to a letter a line. The
@@ -3697,7 +3754,6 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
      title still name every media control, and the opened panel spells out
      screen sharing before the buttons. */
   .callLabelWide { display: none; }
-  .callLabelNarrow { display: inline; }
   .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
   .conversationNav button { padding-inline: .6rem; font-size: var(--fs-1); }
   .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }
@@ -3861,7 +3917,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .workDecision { color: var(--accent); font-weight: 600; }
 .workResult { white-space: pre-wrap; line-height: 1.6; }
 .workEmpty { padding: 2rem .5rem; color: var(--muted); text-align: center; line-height: 1.6; }
-#openAssignments[data-attention] { color: var(--accent); background: var(--accent-dim); }
+#openAssignments[data-attention] { color: var(--link); }
 @media (min-width: 1280px) {
   #assignmentPanel[open] { position: fixed; inset: 0 0 0 auto; margin: 0; width: 28rem; max-height: none; height: 100dvh; border-radius: 0; border-width: 0 0 0 1px; z-index: 20; }
   body:has(#assignmentPanel[open]) > main { box-sizing: border-box; padding-right: 28rem; }
@@ -4405,9 +4461,6 @@ input[type="search"] { font-family: inherit; }
    tall and the whole page scrolled away from the box to reply in. */
 #chatLog { position: relative; }
 
-/* The room menu was the one button in the bar narrower than a thumb. */
-#roomMenu { min-width: 44px; }
-
 /* The reaction button's two glyphs stay on one line at larger text sizes
    rather than stacking inside a 44px square. */
 .messageReact { width: auto; min-width: 44px; padding-inline: .25rem; white-space: nowrap; }
@@ -4447,7 +4500,6 @@ input[type="search"] { font-family: inherit; }
   /* One row for the room bar at 360px: the name gives way before a button
      drops to a line of its own, which cost the conversation 50px. */
   .roomIdentity { flex: 1 1 4.5rem; }
-  .roomBar .barBtn { padding-inline: .4rem; min-width: 44px; }
 }
 
 /* A room on a phone is exactly the height of the screen. The body used to
