@@ -341,6 +341,10 @@ import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 import { signinRelays, withSignetRelay } from './signet-relays.js'
+import { installIcons } from './icons.js'
+
+// The icon sprite, written once, before anything draws a button that uses it.
+installIcons()
 
 /**
  * A meeting-code link with its password words, kithmoot.app/c/<code>#<words>,
