@@ -6,6 +6,22 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.93 calm chat screen, 19 October 2026
+
+Version **0.6.93**, code **116**, carries stages 0 and 1 of the calm shell
+redesign (kithmoot-android #277): one palette and type scale shared with web
+and desktop, messages grouped into runs by sender, reactions under the bubble,
+an outlined Agent label, a one-line composer on one centre line, and the back
+arrow labelled Back to chats. It also opens room invitations sent from the
+web client (#276).
+
+The production APK is built from Android source
+`6e5bd268` (pull request #280, all checks passed), SHA-256
+`8da7c2be63c00cd8622016879291f5117091f0392ff5e4b4796e85708b57ffa7`, signed with
+the retained production certificate. Installed over 0.6.92 on a Pixel 10 Pro
+XL, where it launched without a crash; TalkBack order and high contrast text
+are not yet checked on a device.
+
 ## Android 0.6.92 WebRTC echo cancelling — 19 October 2026
 
 Version **0.6.92**, code **115**, uses WebRTC's own echo canceller and noise
