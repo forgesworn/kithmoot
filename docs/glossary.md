@@ -23,6 +23,9 @@ is for the people writing the interface.
 | **Settings** | Relays, servers, keyboard shortcuts, the Wildbloom import. Bottom of Room details, and the Settings button on the rooms list. | preferences, advanced, options (except "File options") |
 | **Just a name** | Going in without an account: a name and a key made for the room. The phrase for it is "with just a name"; the chip on a message says "Name only". | visitor, guest, anonymous |
 | **Checked** | You did the words-out-loud check with this person. Shown as a badge on the member row. | verified, trusted |
+| **People** | Where your contacts and the people you follow are listed. Shown only when signed in with Nostr. | address book, friends, directory |
+| **Contacts** | People from your Signet contacts, or from a contact card someone handed you. | connections, friends |
+| **Following** | The people your Nostr account follows, read from its public list. KithMoot never changes the list. | follows, follow list, followers |
 
 ## The code beside a name
 

@@ -41,7 +41,8 @@ export interface PeopleActions {
   blockedReason(pubkey: string): string | undefined
   message(person: Person): Promise<string | undefined>
   call(person: Person, video: boolean): Promise<string | undefined>
-  invite(person: Person, opener: HTMLElement): void
+  /** Open the private chat, then choose a room to invite them to. */
+  invite(person: Person): Promise<string | undefined>
   /** The private chat already open with this person, if there is one. */
   privateChat(pubkey: string): { label: string; open(): void } | undefined
   /** Look up names and pictures for these keys (the public-profile switch decides). */
@@ -73,6 +74,9 @@ export class PeopleView {
   #busy = false
   #note = ''
   #wanted = new Set<string>()
+  /** What the pane last drew, so a redraw that changes nothing leaves its
+   *  buttons in place: a profile arriving mid-click must not swap them. */
+  #painted = ''
   /** The order last drawn, kept while the pointer or focus is in the list,
    *  so a name arriving does not move the row about to be pressed. */
   #order: string[] | undefined
@@ -265,7 +269,11 @@ export class PeopleView {
       second.textContent = sub
       text.append(second)
     }
-    button.replaceChildren(avatar(person, 'personAvatar'), text)
+    const drawn = JSON.stringify([name, sub, person.picture, person.checked])
+    if (button.dataset.drawn !== drawn) {
+      button.dataset.drawn = drawn
+      button.replaceChildren(avatar(person, 'personAvatar'), text)
+    }
     if (!row.contains(button)) row.append(button)
     return row
   }
@@ -287,6 +295,9 @@ export class PeopleView {
   #paintPane(): void {
     const model = this.#model()
     const person = [...model.contacts, ...model.following].find(entry => entry.pubkey === this.#selected)
+    const shown = person ? JSON.stringify([person, this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label]) : 'none'
+    if (shown === this.#painted && this.#pane.childElementCount) return
+    this.#painted = shown
     if (!person) {
       const blank = document.createElement('div')
       blank.className = 'peopleBlank'
@@ -364,7 +375,7 @@ export class PeopleView {
       action('peopleMessage', 'Message', 'chat', () => this.#actions.message(person)),
       action('peopleVoice', 'Voice', 'phone', () => this.#actions.call(person, false)),
       action('peopleVideo', 'Video', 'video', () => this.#actions.call(person, true)),
-      action('peopleInvite', 'Invite', 'personAdd', opener => this.#actions.invite(person, opener)),
+      action('peopleInvite', 'Invite', 'personAdd', () => this.#actions.invite(person)),
     )
     const note = document.createElement('p')
     note.id = 'peopleActionNote'
@@ -466,9 +477,8 @@ function shortNpub(pubkey: string): string {
   return `${npub.slice(0, 10)}…${npub.slice(-4)}`
 }
 
-/** "Kith · checked", "Following on Nostr", or nothing to add. */
+/** "Kith · checked", or nothing to add. */
 function subline(person: Person): string {
-  if (person.section === 'following') return 'Following on Nostr'
   return [person.tier ? person.tier[0]!.toUpperCase() + person.tier.slice(1) : '', person.checked ? 'checked' : ''].filter(Boolean).join(' · ')
 }
 

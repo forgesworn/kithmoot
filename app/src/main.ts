@@ -2221,10 +2221,7 @@ function openInviteToRoom(participant: string, name: string | undefined): void {
     return
   }
   invitingPeer = { participant, ...(name ? { name } : {}) }
-  peopleInviting = undefined
   const who = name ?? shortKey(participant)
-  $('inviteToRoomTitle').textContent = 'Invite to a room'
-  $('inviteToRoomNote').textContent = 'The invite goes to them sealed, in this conversation. A room that asks first lets people you invited straight in.'
   $('inviteToRoomLead').textContent = `Which room should ${who} be invited to?`
   const list = $('inviteToRoomList')
   list.replaceChildren()
@@ -3041,10 +3038,6 @@ function mayMessageContact(peer: string): boolean {
   const granted = !!view && (view.status === 'ready' || view.status === 'stale') && view.contacts.some(contact => contact.pubkey === peer)
   return granted || contactFor(deviceStore, peer) !== undefined || follows.follows(peer)
 }
-/** A private-chat invitation, rather than one to a group room. */
-function isPrivateChatInvitation(invitation: ContactInvitation, self: string): boolean {
-  try { return dmPeer(parseRoomLink(invitation.link).policy, self) !== undefined } catch { return false }
-}
 async function startContactInbox(account: SignetSession): Promise<void> {
   closeContactInbox()
   const generation = contactInboxGeneration, crypt = account.signer.nip44
@@ -3087,7 +3080,7 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   if (!account || !inbox) return
   const peer = invitation.sender === account.pubkey ? invitation.recipient : invitation.sender
   if (contactIsBlocked(peer) || bookmarks?.forgotten(invitation.room) || !inbox.snapshot().invitations.some(entry => entry.id === invitation.id)) return
-  const name = isPrivateChatInvitation(invitation, account.pubkey) ? personName(peer) : undefined
+  const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name
   const room = rememberRoom(roomStore(), contactInvitationRoom(invitation, name))
   bookmarks?.save(room)
   ;($('contactsDialog') as HTMLDialogElement).close()
@@ -3106,11 +3099,10 @@ function renderContactInbox(): void {
   $('contactInvitesHeading').hidden = !invitations.length
   for (const invitation of invitations) {
     const peer = invitation.sender
-    const name = personName(peer) ?? shortKey(peer)
+    const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name ?? shortKey(peer)
     const row = previous.get(invitation.id) ?? document.createElement('li'); row.dataset.invitation = invitation.id
     previous.delete(invitation.id)
-    const label = row.querySelector<HTMLSpanElement>('span') ?? document.createElement('span'); label.className = 'contactLabel'
-    label.textContent = self && !isPrivateChatInvitation(invitation, self) ? `${name} invited you to a room` : `${name} wants a private conversation`; label.title = npubEncode(peer)
+    const label = row.querySelector<HTMLSpanElement>('span') ?? document.createElement('span'); label.className = 'contactLabel'; label.textContent = `${name} wants a private conversation`; label.title = npubEncode(peer)
     const open = row.querySelector<HTMLButtonElement>('[data-action=open]') ?? document.createElement('button'); open.type = 'button'; open.textContent = 'Open conversation'; open.dataset.action = 'open'; open.setAttribute('aria-label', `Open conversation with ${name}`)
     open.onclick = () => { void openContactInvitation(invitation).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) }
     const dismiss = row.querySelector<HTMLButtonElement>('[data-action=dismiss]') ?? document.createElement('button'); dismiss.type = 'button'; dismiss.textContent = 'Dismiss'; dismiss.dataset.action = 'dismiss'
@@ -3132,8 +3124,7 @@ async function messageContact(peer: string, name?: string): Promise<void> {
   const current = () => nostrSession === account && generation === contactInboxGeneration && mayMessageContact(peer)
   const existing = preferredDm(knownRooms(roomStore()).filter(room => dmPeer(parseRoomLink(room.link).policy, account.pubkey) === peer && !isQuietRoom(room))
     .map(room => ({ room: room.roomId, sentAt: room.openedAt, known: room })))
-  const offered = preferredDm((inbox?.snapshot().invitations ?? []).filter(invitation => !bookmarks?.forgotten(invitation.room) && (invitation.sender === peer || invitation.recipient === peer)
-    && isPrivateChatInvitation(invitation, account.pubkey))
+  const offered = preferredDm((inbox?.snapshot().invitations ?? []).filter(invitation => !bookmarks?.forgotten(invitation.room) && (invitation.sender === peer || invitation.recipient === peer))
     .map(invitation => ({ room: invitation.room, sentAt: invitation.sentAt, invitation })))
   if (offered && (!existing || preferredDm([offered, { ...offered, room: existing.room, sentAt: existing.sentAt }])?.room === offered.room)) {
     await openContactInvitation(offered.invitation); return
@@ -15158,13 +15149,6 @@ const peopleShell = {
   closeDetail(): void {},
 }
 
-/** A person's name: a Signet grant, then a contact card, then a profile. */
-function personName(pubkey: string): string | undefined {
-  const granted = grantedContactView?.contacts.find(contact => contact.pubkey === pubkey)?.name
-  const card = contactFor(deviceStore, pubkey)
-  return granted ?? (card ? contactLabel(card) : undefined) ?? profiles.get(pubkey)?.name
-}
-
 function peopleModel(): PeopleModel {
   const self = nostrSession?.pubkey
   const view = grantedContactView
@@ -15242,54 +15226,15 @@ async function callPerson(person: Person, video: boolean): Promise<string | unde
   return undefined
 }
 
-/** Invite to a room from People: the room's link goes to them sealed, through
- *  the same private inbox as a private chat, so no shared room is needed. */
-let peopleInviting: Person | undefined
-function invitePerson(person: Person): void {
-  const rooms = knownRooms(roomStore()).filter(room => !dmPeerOf(room) && !isQuietRoom(room) && !roomIsEnded(room))
-  const who = person.name ?? shortKey(person.pubkey)
-  if (!rooms.length) { setStatus('No rooms to invite to yet. Start one from Chats first.'); return }
-  peopleInviting = person
-  invitingPeer = undefined
-  $('inviteToRoomTitle').textContent = `Invite ${who} to a room`
-  $('inviteToRoomLead').textContent = `Which room should ${who} be invited to?`
-  $('inviteToRoomNote').textContent = `The invite goes to ${who} sealed. Only they can open it.`
-  const list = $('inviteToRoomList')
-  list.replaceChildren()
-  for (const room of rooms.sort((a, b) => b.openedAt - a.openedAt)) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.textContent = knownRoomLabel(room)
-    button.addEventListener('click', () => { void sendInboxInvite(room, person) })
-    list.append(button)
-  }
-  const dialog = $('inviteToRoom') as HTMLDialogElement
-  if (!dialog.open) dialog.showModal()
-}
-
-async function sendInboxInvite(room: KnownRoom, person: Person): Promise<void> {
-  const account = nostrSession, inbox = contactInbox, generation = contactInboxGeneration
-  const who = person.name ?? shortKey(person.pubkey)
-  const dialog = $('inviteToRoom') as HTMLDialogElement
-  const say = (text: string) => { $('inviteToRoomLead').textContent = text }
-  if (!account || !inbox?.snapshot().ready) { say('Wait for your private inbox to open, then try again.'); return }
-  if (!mayMessageContact(person.pubkey)) { say(peopleBlockedReason(person.pubkey) ?? 'This person cannot be invited from here.'); return }
-  const current = () => nostrSession === account && generation === contactInboxGeneration && mayMessageContact(person.pubkey)
-  say(`Sending the invite to ${who}…`)
-  try {
-    const defaults = relayConnections.configuration('default').filter(relay => relay.read || relay.write).map(relay => relay.url)
-    const lists = await lookUpDmRelayLists([account.pubkey, person.pubkey], distinctRelays([...defaults, ...RELAYS, ...PROFILE_RELAYS]), [KIND_DM_RELAYS, KIND_RELAY_LIST])
-    if (!current()) throw new Error('Your account or contact permission changed.')
-    const own = inboxRelays(lists, account.pubkey), theirs = inboxRelays(lists, person.pubkey)
-    await inbox.enqueue(person.pubkey, room.roomId, room.link, theirs.length ? theirs : defaults, own.length ? own : defaults)
-    void inbox.retry()
-    noteInvited(room.roomId, person.pubkey)
-    if (peopleInviting === person) peopleInviting = undefined
-    if (dialog.open) dialog.close()
-    setStatus(`Invite to ${knownRoomLabel(room)} sent to ${who}.`, 'done')
-  } catch (error) {
-    say(describeError(error))
-  }
+/** Invite to a room from People: open the private chat with them, then send
+ *  the room there as today's sealed in-room invite. The private inbox
+ *  carries private-chat invitations only, so a group room travels inside a
+ *  room the two of them share, as it does from a member's row. */
+async function invitePerson(person: Person): Promise<string | undefined> {
+  const failed = await messagePerson(person)
+  if (failed) return failed
+  openInviteToRoom(person.pubkey, person.name)
+  return undefined
 }
 
 /** A small sheet built here rather than in index.html, for Add a contact. */
@@ -15384,7 +15329,7 @@ function linkSignetContacts(opener: HTMLElement): void {
     blockedReason: peopleBlockedReason,
     message: messagePerson,
     call: callPerson,
-    invite: person => invitePerson(person),
+    invite: invitePerson,
     privateChat: peer => {
       const room = privateChatWith(peer)
       return room ? { label: knownRoomLabel(room), open: () => { peopleShell.openDestination('chats'); void switchRoom(room) } } : undefined
@@ -15789,7 +15734,7 @@ async function saveDmRelaySettings(): Promise<void> {
   }
 }
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
-$('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; peopleInviting = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
+$('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
 $('profileSettings').addEventListener('close', () => {
   profileReturnFocus.focus({ preventScroll: true })
   if (reopenAppSettings) { reopenAppSettings = false; openAppSettings() }

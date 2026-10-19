@@ -2213,3 +2213,28 @@ stubs (kithmoot-android `app/build.gradle.kts`); it contacts nothing. ZXing,
 already in that app for making QR codes, could also read them and would
 take Google's code out entirely. A link that names only Google's old STUN
 address is still upgraded to this origin's own server (13 September).
+
+## People shows who you follow, 19 October 2026
+
+The owner asked to see their contacts and message them when signed in with
+their Nostr account. People (calm shell stages 2 and 6, `app/src/people.ts`)
+lists Contacts (Signet grants and contact cards) and Following: the account's
+own kind 3 follow list, read only, from the same public relays as profile
+lookups and only while that switch is on (`app/src/follow-list.ts`). Those
+relays learn that this connection asked for this account's follows. The list
+is public already, so asking for the followed people's names afterwards adds
+nothing; they are asked for in batches of a hundred. KithMoot never publishes
+a follow list.
+
+A private chat may now be started with someone the account follows, or whose
+contact card was read on this device, as well as with a granted Signet
+contact (`mayMessageContact`). A block still wins, and a Signet copy that
+cannot be read still refuses everyone. Incoming invitations were already
+filtered by blocks alone; that is unchanged. A message to someone who does
+not use KithMoot reaches nobody, because private chats are not NIP-17 (D8).
+
+Voice and Video open the private chat and start a call in it. The other
+person's device rings only if it already holds that chat (D4). Invite opens
+the private chat and sends the room there as the existing sealed in-room
+invite: the private inbox's reader accepts private-chat invitations only, on
+web and Android, so sending a group room through it would be a wire change.
