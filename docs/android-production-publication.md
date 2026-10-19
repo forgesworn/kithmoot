@@ -6,6 +6,20 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.92 WebRTC echo cancelling — 19 October 2026
+
+Version **0.6.92**, code **115**, uses WebRTC's own echo canceller and noise
+suppressor instead of the handset's, so people on a call no longer hear
+themselves back as reverb from a phone on loudspeaker. It also rolls back the
+0.6.90 quiet automatic replies: call signals, epoch recovery answers and
+keeper admission answers go out at once again while broken calls are
+investigated.
+
+The production APK is built from Android source
+`df396bc5` (pull request #275, all checks passed), SHA-256
+`500ac4b9dcd116b236901ab63b8d677d5253696a7eebaa18846fa1d94d6dc505`, signed with
+the retained production certificate. Not yet observed on a device.
+
 ## Android 0.6.91 opaque camera avatar — 18 October 2026
 
 Version **0.6.91**, code **114**, remembers Avatar before camera capture and
