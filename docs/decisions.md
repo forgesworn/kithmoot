@@ -2177,3 +2177,39 @@ edit in Signet publishes at once, because Signet is running when it is made.
 A stale name grants nothing, since tiers and checks have gone, and a label
 the owner changed in Signet is shown, marked, for at most 30 days past
 expiry. This is D2 of the Signet contacts plan of 3 October, as recommended.
+
+## Nothing goes to Google, 19 October 2026
+
+The owner's rule: KithMoot does not contact Google, by default or through a
+library. The 13 September entry removed Google's STUN server from calls;
+this one removes the last default contact found.
+
+On Windows and Linux, Electron's built-in spellchecker fetched Hunspell
+dictionaries from Google. A cold start of desktop 0.1.89 on Linux, logged
+with `--log-net-log`, asked `redirector.gvt1.com` and then a `gvt1.com`
+download host in its first second and saved `Dictionaries/en-GB-10-1.bdic`.
+A window's `spellcheck: false` does not stop this: the download belongs to
+the session, which starts it on its own.
+
+`desktop/spellcheck.mjs` now gives every session on Windows and Linux a
+dictionary address of `http://127.0.0.1:9/`, a port Chromium refuses to
+open, no spelling languages, and spelling switched off. `main.mjs` applies
+it to the default session and the app's own partition first thing in the
+ready handler, before any window exists. macOS keeps its own spellchecker,
+which downloads nothing. The same Linux cold start with the change contacts
+only this project's update server, 30 seconds in, and leaves `Dictionaries`
+empty. Windows runs the same code and was not tested. Desktop 0.1.91 is
+the first release with it; a cold start of its own Linux tarball, logged
+the same way, contacted only the update server.
+
+What it costs: no spelling underlines or suggestions on Windows and Linux.
+Spelling could come back without Google by shipping dictionaries inside the
+app. They are other people's data under their own licences, so that is a
+decision of its own.
+
+Checked and left alone: Android's QR scanner uses Google's ML Kit, bundled
+in the app and run on the phone, with its usage reporting replaced by local
+stubs (kithmoot-android `app/build.gradle.kts`); it contacts nothing. ZXing,
+already in that app for making QR codes, could also read them and would
+take Google's code out entirely. A link that names only Google's old STUN
+address is still upgraded to this origin's own server (13 September).

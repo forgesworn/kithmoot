@@ -5,6 +5,7 @@ import { createDesktopUpdater } from './updater.mjs'
 import { createPackageUpdater, packageVersionFile, readPackageVersion } from './package-updater.mjs'
 import { createArchiveUpdater } from './archive-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
+import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
 import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, isAbsolute } from 'node:path'
@@ -153,8 +154,10 @@ function attachContextMenu(contents) {
   })
 }
 
+const DESKTOP_PARTITION = 'persist:kithmoot-desktop-v1'
+
 async function createWindow() {
-  const ses = session.fromPartition('persist:kithmoot-desktop-v1')
+  const ses = session.fromPartition(DESKTOP_PARTITION)
   if (!ses.__kithmootConfigured) {
     ses.__kithmootConfigured = true
     ses.protocol.handle('https', async request => {
@@ -259,7 +262,7 @@ async function createWindow() {
     webPreferences: {
       session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
-      backgroundThrottling: false, spellcheck: true,
+      backgroundThrottling: false, spellcheck: usesSystemSpellchecker(),
     },
   })
   // A link goes to the person's browser, never to a window of ours. The one
@@ -361,6 +364,8 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   // Windows and Linux start a closed app with the link as an argument.
   pendingInvitation = invitationTarget(invitationIn(process.argv) ?? '')
   app.whenReady().then(async () => {
+    // First, before any window: no spelling dictionaries from Google.
+    for (const ses of [session.defaultSession, session.fromPartition(DESKTOP_PARTITION)]) keepSpellingLocal(ses)
     ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
     ipcMain.handle('desktop:area-check', event => trusted(event.sender) ? shareArea.check() : null)
