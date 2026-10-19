@@ -37,7 +37,18 @@ export class ChatScroll {
     })
     // An explicit reading gesture takes precedence over history arriving late.
     const readingGesture = () => { this.#pending = undefined; this.#painted = undefined }
-    for (const event of ['wheel', 'touchstart', 'pointerdown']) log.addEventListener(event, readingGesture, { passive: true })
+    // Pressing a control inside the log (React, More, a link) is not reading:
+    // it must not drop a reader who is at the bottom out of follow mode, or
+    // the reaction they just added lands under the log's edge (#458). A drag
+    // that starts on one still scrolls, and the scroll handler above notices.
+    const onControl = (event: Event) => event.target instanceof Element && !!event.target.closest('button, a, summary, input, textarea')
+    for (const event of ['wheel', 'touchstart', 'pointerdown']) {
+      log.addEventListener(event, e => { if (event === 'wheel' || !onControl(e)) readingGesture() }, { passive: true })
+    }
+    // A picture or sticker that finishes loading under the newest message
+    // makes the log taller after it was painted; a reader at the bottom
+    // stays there.
+    log.addEventListener('load', () => this.#stay(), true)
     log.addEventListener('keydown', event => {
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) readingGesture()
     })
@@ -59,6 +70,13 @@ export class ChatScroll {
       log.scrollTop = log.scrollHeight
       this.#paint()
     }).observe(log)
+  }
+
+  /** Content grew under a reader who is following the latest messages. */
+  #stay(): void {
+    if (this.#paused || this.#pending || !this.#painted?.place.follow) return
+    this.#log.scrollTop = this.#log.scrollHeight
+    this.#paint()
   }
 
   #atBottom(): boolean {

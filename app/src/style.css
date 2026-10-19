@@ -3708,9 +3708,74 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .emojiTabs button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .emojiGrid .familiarEmoji { width: 2rem; height: 2rem; }
 .familiarEmoji { display: inline-block; width: 1.5em; height: 1.5em; vertical-align: middle; background-position: center; background-size: contain; background-repeat: no-repeat; color: transparent; line-height: 1.5em; }
-.messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: -.65rem; padding-inline: .45rem; position: relative; z-index: 1; }
-.messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: var(--bg); border: 1px solid var(--border); border-radius: 2rem; font-size: .95rem; }
-.messageReactions button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
+/* Reactions sit under the bubble, a quiet pill each: 26px on a fine pointer,
+   32px on touch, with the hit area carried past the pill. Nothing overlaps
+   the bubble above or the log's edge below (#458). Mine is ringed, and
+   says so in its name. */
+.messageReactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-top: var(--s1);
+  padding-inline: var(--s2);
+}
+
+.msg.mine .messageReactions {
+  justify-content: flex-end;
+}
+
+.messageReactions button {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  height: 26px;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--s2);
+  border-radius: var(--r-full);
+  background: var(--selected);
+  color: var(--text);
+  font-size: var(--fs-1);
+}
+
+.messageReactions button::before {
+  content: '';
+  position: absolute;
+  inset: -9px -2px;
+}
+
+.messageReactions button[aria-pressed=true] {
+  background: var(--selected);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+@media (any-pointer: coarse) {
+  .messageReactions button {
+    height: 44px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* The pill is drawn 32px tall inside a 44px target. */
+  .messageReactions button::before {
+    inset: 6px 0;
+    z-index: -1;
+    border-radius: var(--r-full);
+    background: var(--selected);
+  }
+
+  .messageReactions button[aria-pressed=true]::before {
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+}
+
+.familiarEmoji ~ *, .messageReactions .familiarEmoji {
+  vertical-align: middle;
+}
 
 .shareViewerContent { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
 .shareViewerContent:fullscreen { height: 100dvh; width: 100vw; background: var(--bg); padding: .75rem; box-sizing: border-box; }

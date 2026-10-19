@@ -134,8 +134,10 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
     await expect(reaction).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => writer.chat.messages().some(message => message.reaction?.emoji === '🦄' && message.reaction.active)).toBe(true)
     const bubble = await row.locator('.bubble').boundingBox(), chip = await reaction.boundingBox()
-    expect(chip!.height).toBeGreaterThanOrEqual(44)
-    expect(chip!.y).toBeLessThan(bubble!.y + bubble!.height)
+    // A reaction is a pill of its own, 26px on a fine pointer (44px to hit on
+    // touch), under its bubble rather than over the bubble's lower edge (#458).
+    expect(chip!.height).toBeGreaterThanOrEqual(26)
+    expect(chip!.y).toBeGreaterThanOrEqual(bubble!.y + bubble!.height)
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { (window as any).__copied = value } } }))
     await row.getByRole('button', { name: 'View details for Rowan' }).click()
     const card = page.getByRole('dialog', { name: 'Participant details' })
