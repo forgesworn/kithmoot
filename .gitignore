@@ -12,6 +12,7 @@ blob-report/
 EFFECTS-REPORT.md
 ASSIST-REPORT.md
 .superpowers/
+deploy/__pycache__/
 *.bundle
 *.apk
 

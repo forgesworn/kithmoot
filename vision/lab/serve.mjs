@@ -8,7 +8,12 @@ import { spawnSync } from 'node:child_process'
 const here = dirname(fileURLToPath(import.meta.url)), vision = resolve(here, '..')
 const data = join(vision, 'runs/lab-drawings-v1'), model = join(vision, 'runs/lab-model-1000-v1')
 const wasm = join(vision, 'runtime/target/wasm32-unknown-unknown/release/kithmoot_vision.wasm')
-const csp = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+export const labHeaders = Object.freeze({
+  'Content-Security-Policy': "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'Permissions-Policy': 'camera=(self), microphone=(self)',
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+})
 
 function run(command, args, cwd = vision) {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit' })
@@ -32,9 +37,9 @@ export async function prepare(device = 'cpu') {
   }
 }
 
-export async function createLabServer({ modelDirectory = model, dataDirectory = data, wasmPath = wasm } = {}) {
+export async function labAssets({ modelDirectory = model, dataDirectory = data, wasmPath = wasm } = {}) {
   const routes = new Map()
-  for (const name of ['index.html', 'lab.mjs', 'lab.css', 'core.mjs', 'worker.mjs']) routes.set('/' + name, join(here, name))
+  for (const name of ['index.html', 'lab.mjs', 'lab.css', 'core.mjs', 'worker.mjs', 'audio.mjs']) routes.set('/' + name, join(here, name))
   routes.set('/', join(here, 'index.html'))
   routes.set('/runtime.mjs', join(vision, 'web/runtime.mjs'))
   routes.set('/runtime.wasm', wasmPath)
@@ -44,7 +49,8 @@ export async function createLabServer({ modelDirectory = model, dataDirectory = 
   routes.set('/mask.svg', resolve(vision, '../art/face-mask/kithmoot-mask.svg'))
   const notices = ['Apache-2.0.txt', 'COPYRIGHT-library.html', 'MIT.txt', 'Unicode-3.0.txt', 'BSD-2-Clause.txt']
   for (const name of notices) routes.set('/notices/' + name, join(vision, 'runtime/third_party/rust-1.94.1', name))
-  const rows = (await readFile(join(dataDirectory, 'manifest.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  const manifest = await readFile(join(dataDirectory, 'manifest.jsonl'))
+  const rows = manifest.toString('utf8').trim().split('\n').map(line => JSON.parse(line))
   const examples = ['train', 'validation', 'test'].map((split, index) => {
     const matches = rows.filter(row => row.split === split)
     const row = matches.find(row => row.faces.length >= 2) ?? matches[0]
@@ -54,20 +60,22 @@ export async function createLabServer({ modelDirectory = model, dataDirectory = 
       if (!row[kind]) continue
       const path = resolve(dataDirectory, row[kind].path)
       if (!path.startsWith(resolve(dataDirectory) + '/')) throw new Error('Example path escapes its directory')
-      const url = `/examples/${index}/${kind}.png`
-      routes.set(url, path); example[kind] = url
+      const url = `examples/${index}/${kind}.png`
+      routes.set('/' + url, path); example[kind] = url
     }
     return example
   })
+  return { routes, examples, rows, manifest, dataDirectory }
+}
+
+export async function createLabServer(options = {}) {
+  const { routes, examples } = await labAssets(options)
   const mime = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
     '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png', '.svg': 'image/svg+xml' }
   return createServer(async (request, response) => {
     const host = request.headers.host ?? ''
     if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) { response.writeHead(403); response.end(); return }
-    response.setHeader('Content-Security-Policy', csp)
-    response.setHeader('Permissions-Policy', 'camera=(self), microphone=()')
-    response.setHeader('Cache-Control', 'no-store')
-    response.setHeader('X-Content-Type-Options', 'nosniff')
+    for (const [name, value] of Object.entries(labHeaders)) response.setHeader(name, value)
     if (!['GET', 'HEAD'].includes(request.method)) { response.writeHead(405); response.end(); return }
     let pathname
     try { pathname = new URL(request.url, 'http://localhost').pathname }

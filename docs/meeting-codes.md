@@ -19,6 +19,11 @@ A host taps **Get a meeting code** and can read out or send:
   send the words in a different message switches on **Send the password
   separately**, and the link is then the bare one above.
 
+Phone visitors can also enter the code in **Join a room** at the top of
+**https://kithmoot.app/**. That native form works without JavaScript and sends
+only the code to the existing app join screen. It does not ask for password
+words, start media, join a room or ring anyone on the marketing page.
+
 ## Trust model
 
 A code is short enough to read aloud, so it cannot carry the invitation's

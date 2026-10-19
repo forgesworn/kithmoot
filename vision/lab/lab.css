@@ -25,6 +25,7 @@ canvas { background: #080d12; width: 100%; display: block; border: 1px solid #50
 #editor { max-width: 640px; touch-action: none; cursor: crosshair }
 .review { display: grid; gap: 8px; margin: 16px 0 }
 .hint, footer { color: #bacbd1; font-size: .9rem }
+.audio-test meter { width: 180px; max-width: 100%; vertical-align: middle }
 #metrics { font-variant-numeric: tabular-nums; color: #91d8ca }
 pre { overflow-x: auto; padding: 16px; background: #0b1218; font-size: .85rem }
 code { overflow-wrap: anywhere }

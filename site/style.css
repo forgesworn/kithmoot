@@ -62,6 +62,18 @@ nav a[aria-current="page"] { color: var(--link); text-decoration: underline; }
 .button.primary:hover { background: color-mix(in srgb, var(--accent) 86%, var(--text)); }
 .under { font-size: .875rem; color: var(--muted); line-height: 1.55; }
 
+/* Join by code stays above the marketing content, including on a phone. */
+.join-room { padding-top: 1rem; }
+.join-card { max-width: 42rem; margin-inline: auto; padding: 1.5rem; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.join-card h2 { font-size: 1.5rem; margin-bottom: .5rem; }
+.join-card > p { color: var(--muted); margin-bottom: 1rem; }
+.join-card form > label { display: block; font-weight: 600; margin-bottom: .4rem; }
+.join-code-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; }
+.join-code-controls input { min-width: 0; width: 100%; min-height: 48px; padding: .75rem; border: 1.5px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font: 1rem/1.3 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .05em; }
+.join-code-controls input::placeholder { color: var(--muted); opacity: 1; }
+.join-code-controls button { cursor: pointer; font-family: inherit; }
+.join-card .under { margin: .75rem 0 0; }
+
 /* Hero */
 .hero { text-align: center; padding-block: clamp(2.5rem, 7vw, 5rem) 0; }
 .hero h1 { margin-inline: auto; }
@@ -132,6 +144,7 @@ footer nav a { font-size: .875rem; color: var(--muted); }
   .site-header nav a { font-size: .875rem; }
   .site-header .brand img { width: 128px; }
   .nav-open { font-size: .875rem; padding-inline: .875rem; }
+  .join-card { padding: 1rem; }
   .hero-shot { max-width: 360px; }
   .window-bar { display: none; }
   .feature-grid, .steps, .split { grid-template-columns: 1fr; }
@@ -142,6 +155,7 @@ footer nav a { font-size: .875rem; color: var(--muted); }
   .feature-grid p { grid-column: 2; }
 }
 @media (max-width: 380px) { .site-header nav a[href$="#help"] { display: none; } }
+@media (max-width: 420px) { .join-code-controls { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { transition: none !important; } }
 @media (forced-colors: active) { .button, .hero-shot, .platform, .feature-grid article { border: 1px solid ButtonText; } }
 

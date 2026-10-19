@@ -2,17 +2,18 @@
  * Camera tests use Chromium's synthetic sensor, never a physical camera. */
 import assert from 'node:assert/strict'
 import test, { before, after } from 'node:test'
-import { chromium, expect } from '@playwright/test'
-import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises'
+import { chromium, webkit, expect } from '@playwright/test'
+import { mkdtemp, readFile, rm, mkdir, writeFile, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { request as httpRequest } from 'node:http'
-import { createLabServer } from './serve.mjs'
+import { request as httpRequest, createServer } from 'node:http'
+import { createLabServer, labHeaders } from './serve.mjs'
+import { buildLab } from './build.mjs'
 
 const vision = fileURLToPath(new URL('../', import.meta.url))
-let browser, server, origin, temporary
+let browser, server, origin, temporary, hostedServer, hostedOrigin, hostedManifest
 const options = {
   modelDirectory: process.env.VISION_LAB_MODEL ? resolve(process.env.VISION_LAB_MODEL) : undefined,
   dataDirectory: process.env.VISION_LAB_DATA ? resolve(process.env.VISION_LAB_DATA) : undefined,
@@ -20,16 +21,16 @@ const options = {
 }
 for (const key of Object.keys(options)) if (!options[key]) delete options[key]
 const errors = [], unexpectedRequests = []
-async function page(contextOptions = {}) {
-  const context = await browser.newContext(contextOptions)
+async function page(contextOptions = {}, base = origin, engine = browser) {
+  const context = await engine.newContext(contextOptions)
   const page = await context.newPage()
   page.on('pageerror', error => errors.push(error.message))
   page.on('request', request => {
-    if ((!request.url().startsWith(origin + '/') && !request.url().startsWith('blob:')) || request.method() !== 'GET') {
+    if ((!request.url().startsWith(base.endsWith('/') ? base : base + '/') && !request.url().startsWith('blob:')) || request.method() !== 'GET') {
       unexpectedRequests.push({ url: request.url(), method: request.method() })
     }
   })
-  await page.goto(origin)
+  await page.goto(base)
   await expect(page.locator('#model-state')).toContainText('MiB workspace')
   return page
 }
@@ -44,15 +45,42 @@ async function screenshot(page, name) {
   await page.screenshot({ path: join(process.env.VISION_LAB_ARTIFACTS, name + '.png'), fullPage: true })
 }
 before(async () => {
-  temporary = await mkdtemp(join(tmpdir(), 'kithmoot-vision-lab-test-'))
+  temporary = await mkdtemp(join(process.env.VISION_LAB_TEMP_ROOT ?? tmpdir(), 'kithmoot-vision-lab-test-'))
   server = await createLabServer(options)
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   origin = 'http://127.0.0.1:' + server.address().port
-  browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] })
+  // An original, continuous PCM tone makes the microphone input measurable
+  // across platforms. Chromium's default synthetic sensor may supply silence.
+  const rate = 48_000, samples = rate * 2, tone = Buffer.alloc(44 + samples * 2)
+  tone.write('RIFF'); tone.writeUInt32LE(tone.length - 8, 4); tone.write('WAVEfmt ', 8)
+  tone.writeUInt32LE(16, 16); tone.writeUInt16LE(1, 20); tone.writeUInt16LE(1, 22)
+  tone.writeUInt32LE(rate, 24); tone.writeUInt32LE(rate * 2, 28); tone.writeUInt16LE(2, 32); tone.writeUInt16LE(16, 34)
+  tone.write('data', 36); tone.writeUInt32LE(samples * 2, 40)
+  for (let i = 0; i < samples; i++) tone.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 8192), 44 + i * 2)
+  const microphoneFile = join(temporary, 'microphone.wav'); await writeFile(microphoneFile, tone)
+  browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output', '--use-file-for-fake-audio-capture=' + microphoneFile] })
+  const directory = join(temporary, 'hosted')
+  hostedManifest = await buildLab(directory, options)
+  hostedServer = createServer(async (request, response) => {
+    for (const [name, value] of Object.entries(labHeaders)) response.setHeader(name, value)
+    if (!['GET', 'HEAD'].includes(request.method)) { response.writeHead(405); response.end(); return }
+    const prefix = '/camera-lab/', path = new URL(request.url, 'http://localhost').pathname
+    if (!path.startsWith(prefix)) { response.writeHead(404); response.end(); return }
+    const relative = path.slice(prefix.length) || 'index.html'
+    if (!Object.hasOwn(hostedManifest.files, relative) && relative !== 'lab-manifest.json') { response.writeHead(404); response.end(); return }
+    const types = { html: 'text/html', mjs: 'text/javascript', css: 'text/css', json: 'application/json', wasm: 'application/wasm', png: 'image/png', svg: 'image/svg+xml' }
+    try {
+      const bytes = await readFile(join(directory, relative))
+      response.setHeader('Content-Type', types[relative.split('.').at(-1)] ?? 'text/plain')
+      response.end(request.method === 'HEAD' ? undefined : bytes)
+    } catch { response.writeHead(404); response.end() }
+  })
+  await new Promise(resolve => hostedServer.listen(0, '127.0.0.1', resolve))
+  hostedOrigin = 'http://127.0.0.1:' + hostedServer.address().port + '/camera-lab/'
 })
 after(async () => {
   await browser?.close()
-  if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
+  for (const instance of [server, hostedServer]) if (instance) { instance.closeAllConnections(); await new Promise(resolve => instance.close(resolve)) }
   if (temporary) await rm(temporary, { recursive: true, force: true })
 })
 
@@ -101,6 +129,65 @@ test('browser runs real owned WASM and background composition on its matched inp
     await p.waitForTimeout(150)
     assert.deepEqual(await pixels('#output'), [0, 0, 0, 0])
   } finally { await p.context().close() }
+})
+
+test('microphone is opt-in, measures local audio and stops on input replacement or late permission', { timeout: 60_000 }, async () => {
+  const p = await page({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, hostedOrigin)
+  try {
+    await p.evaluate(() => {
+      window.mediaRequests = []; window.mediaStreams = []; window.audioContexts = []
+      const get = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        window.mediaRequests.push(structuredClone(constraints))
+        // Keep the fixture's known waveform unprocessed for the level check.
+        const stream = await get({ ...constraints, audio: constraints.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false })
+        window.mediaStreams.push(stream)
+        if (window.delayMedia) return new Promise(resolve => { window.releaseMedia = () => resolve(stream) })
+        return stream
+      }
+      const Audio = window.AudioContext
+      window.AudioContext = class extends Audio { constructor(...args) { super(...args); window.audioContexts.push(this) } }
+    })
+    await expect(p.locator('#microphone')).not.toBeChecked()
+    await p.locator('#camera').click()
+    await expect(p.locator('#status')).toContainText('Camera is on locally')
+    assert.deepEqual(await p.evaluate(() => window.mediaRequests.map(item => item.audio)), [false])
+    assert.equal(await p.evaluate(() => window.mediaStreams[0].getAudioTracks().length), 0)
+    await p.locator('#stop').click()
+    await p.locator('#microphone').check(); await p.locator('#camera').click()
+    await expect(p.locator('#microphone-state')).toContainText('Microphone on')
+    await expect.poll(() => p.locator('#microphone-level').evaluate(meter => meter.value), { timeout: 10_000 }).toBeGreaterThan(.01)
+    assert.deepEqual(await p.evaluate(() => window.mediaRequests.map(item => item.audio)), [false, true])
+    const png = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 192; return c.toDataURL().split(',')[1] })
+    await p.locator('#input-file').setInputFiles({ name: 'next.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') })
+    await expect(p.locator('#status')).toContainText('Local file opened')
+    await expect(p.locator('#microphone-state')).toContainText('Microphone off')
+    await expect.poll(() => p.evaluate(() => window.audioContexts.every(context => context.state === 'closed'))).toBe(true)
+    assert.equal(await p.evaluate(() => window.mediaStreams.every(stream => stream.getTracks().every(track => track.readyState === 'ended'))), true)
+    await p.locator('#stop').click()
+    await p.evaluate(() => { window.delayMedia = true })
+    await p.locator('#camera').click()
+    await expect.poll(() => p.evaluate(() => typeof window.releaseMedia === 'function')).toBe(true)
+    await p.locator('#stop').click(); await p.evaluate(() => window.releaseMedia())
+    await expect.poll(() => p.evaluate(() => window.mediaStreams.every(stream => stream.getTracks().every(track => track.readyState === 'ended')))).toBe(true)
+    await expect.poll(() => p.evaluate(() => window.audioContexts.every(context => context.state === 'closed'))).toBe(true)
+    assert.equal(await p.locator('#microphone-level').evaluate(meter => meter.value), 0)
+    await p.locator('#reset').click(); await expect(p.locator('#microphone')).not.toBeChecked()
+  } finally { await p.context().close() }
+})
+
+test('hosted export rejects personal models and refuses to replace an existing preview', async () => {
+  const personal = join(temporary, 'private-model'); await mkdir(personal)
+  const card = await (await fetch(origin + '/default.json')).json()
+  await writeFile(join(personal, 'experimental.json'), JSON.stringify({ ...card, scope: 'personal', licence: 'PRIVATE-PERSONAL', public_release_allowed: false }))
+  await writeFile(join(personal, 'experimental.kvm'), Buffer.from(await (await fetch(origin + '/default.kvm')).arrayBuffer()))
+  const refused = join(temporary, 'refused')
+  await assert.rejects(() => buildLab(refused, { ...options, modelDirectory: personal }), /personal models must stay in the browser/)
+  await assert.rejects(() => access(refused), { code: 'ENOENT' })
+  await assert.rejects(() => buildLab(join(temporary, 'hosted'), options), { code: 'EEXIST' })
+  assert.equal(hostedManifest.model_scope, 'original-drawings-only')
+  assert.equal(hostedManifest.audio_recorded, false)
+  assert.equal(hostedManifest.qualified, false)
 })
 
 test('mobile-size lab exports reviewed samples, trains privately, evaluates and reloads real weights', { timeout: 120_000 }, async () => {
@@ -154,4 +241,25 @@ test('mobile-size lab exports reviewed samples, trains privately, evaluates and 
     assert.deepEqual(unexpectedRequests, [])
     assert.deepEqual(errors, [])
   } finally { await p.context().close() }
+})
+
+test('WebKit phone layout runs real WASM from the hosted subdirectory', { timeout: 60_000, skip: process.env.VISION_LAB_WEBKIT !== '1' }, async t => {
+  // Keep engines sequential on development machines with little free RAM.
+  await browser.close()
+  const server = await webkit.launchServer({ host: '127.0.0.1' })
+  t.signal.addEventListener('abort', () => { void server.kill().catch(() => {}) }, { once: true })
+  try {
+    const safari = await webkit.connect(server.wsEndpoint())
+    const p = await page({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, hostedOrigin, safari)
+    await expect(p.locator('#microphone')).not.toBeChecked()
+    await p.locator('#sample').click()
+    await expect(p.locator('#metrics')).toContainText('160×96 inference')
+    await p.locator('#effect').selectOption('replace')
+    assert.equal(await p.locator('#matte').evaluate(c => c.getContext('2d').getImageData(0, 0, 1, 1).data[3]), 255)
+    assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+    await screenshot(p, 'iphone-webkit-lab')
+    await p.locator('#reset').click()
+    await expect(p.locator('#microphone-state')).toContainText('Microphone off')
+    assert.deepEqual(unexpectedRequests, []); assert.deepEqual(errors, [])
+  } finally { await server.kill() }
 })

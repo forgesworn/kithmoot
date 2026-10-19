@@ -53,16 +53,17 @@
 		Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 	}
 
-	# Everything else: the marketing page, which is HTML, CSS, images and
-	# one self-hosted font with no script of any kind, and the APK
-	# downloads, which are bytes.
+	# The marketing page uses a native GET form to hand a room code to the
+	# app; no script, lookup or microphone/camera request happens here.
+	# All other website pages and APK downloads share these restrictions.
 	@notApp {
 		not path /j /j/*
 		not path /downloads /downloads/*
+		not path /camera-lab /camera-lab/*
 	}
 	header @notApp {
 		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
-		Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action https://kithmoot.forgesworn.dev/j/; frame-ancestors 'none'"
 	}
 
 	# Versioned APKs never change. The moving latest link must be re-fetched.
@@ -75,9 +76,30 @@
 	header @apkLatest Cache-Control "no-cache, no-store, must-revalidate"
 }
 
+# Separate read-only preview: models/assets download; capture stays on-device.
+# Its root is outside app releases so publishing a lab never changes a call.
+(kithmoot_camera_lab) {
+	redir /camera-lab /camera-lab/ 308
+	@cameraLab path /camera-lab /camera-lab/*
+	header @cameraLab {
+		Permissions-Policy "camera=(self), microphone=(self)"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Cache-Control "no-store"
+	}
+	handle_path /camera-lab/* {
+		root * /var/www/kithmoot/vision-lab/current
+		@cameraLabRead method GET HEAD
+		route {
+			file_server @cameraLabRead
+			respond "Read-only Camera Lab" 405
+		}
+	}
+}
+
 kithmoot.forgesworn.dev {
 	root * /var/www/kithmoot/current
 	encode zstd gzip
+	import kithmoot_camera_lab
 
 	# TURN credential minting (server/turn-credentials.mjs, installed as
 	# deploy/turn-credentials.service, listening on 127.0.0.1:8089). Live
@@ -251,12 +273,10 @@ kithmoot.forgesworn.dev {
 		# Derived from what app/src/main.ts actually does, and no wider:
 		#
 		#   script-src 'self' 'wasm-unsafe-eval' - one bundled module, no
-		#     inline script, and the MediaPipe segmenter is WebAssembly
+		#     inline script, and the pinned protocol modules use WebAssembly
 		#     served from this origin (app/vite.config.ts). Without
-		#     'wasm-unsafe-eval' Chromium refuses to compile it: the SIMD
-		#     probe fails, the loader asks for the nosimd variant, and the
-		#     effect dies into its passthrough fallback - silently, because
-		#     a broken effect must not end a call. There is no narrower
+		#     'wasm-unsafe-eval' the browser refuses to compile them.
+		#     There is no narrower
 		#     grant: 'wasm-unsafe-eval' is CSP's only switch for WASM, and
 		#     the modules it admits still come only from 'self'.
 		#   style-src ... 'unsafe-inline' - signet-login builds its signer
@@ -319,6 +339,8 @@ kithmoot.app {
 
 	@app path /j /j/*
 	redir @app https://kithmoot.forgesworn.dev{uri} 302
+	@cameraLab path /camera-lab /camera-lab/*
+	redir @cameraLab https://kithmoot.forgesworn.dev{uri} 302
 
 	# Meeting code links, kithmoot.app/c/ABC-DEF-GH: 302 to the app, which
 	# reads `c` from the query and asks the code service (on
