@@ -25,6 +25,14 @@ weights. Tracked masking remains unavailable; Avatar is independent of ML.
 
 ## Run locally
 
+For a separate local source-rights review and general-training annotation tool,
+use the [Model Workshop](workshop/README.md): `npm run vision:workshop` from the
+repository root. It accepts face-only and foreground-only reviewed examples,
+preserves detailed source pictures, and prepares data for offline M4/Metal
+training. Resumable checkpoints retain dataset and training-source provenance.
+The source catalogue remains pending human review; no real-camera model is
+qualified by creating a dataset or finishing a training run.
+
 For live camera/file previews, face boxes, background effects, reviewed
 personal captures and a complete local training/test loop, use the
 [Local Camera Lab](lab/README.md). From the repository root:
@@ -74,7 +82,8 @@ and rights-review file by SHA-256. A row contains:
 | `id`, `scope` | Unique example; `general` or `personal` |
 | `split` | `train`, `validation` or `test` |
 | `subjects`, `scene`, `sequence` | Opaque group IDs preventing split leakage |
-| `rgb`, `alpha` | Image and foreground alpha, each with local `path` and `sha256` |
+| `rgb`, `alpha` | Image and, when reviewed, foreground alpha, each with local `path` and `sha256` |
+| `labels` | Explicit `faces` and `foreground` booleans for partial supervision; legacy rows reviewed both |
 | `reference`, `previous_alpha` | Optional empty room and preceding matte |
 | `held_objects` | Optional labelled object region for evaluation |
 | `faces` | Every visible face as normalised `[x, y, width, height]` |
@@ -86,7 +95,8 @@ and rights-review file by SHA-256. A row contains:
 The generated smoke manifest is a complete format example. For general training, `rights` requires
 `licence`, `training`, `commercial`, `mit_weights`, `evidence` and
 `evidence_sha256`. Real footage also requires reviewed `subject_permission`.
-The initial allow-list is `PROJECT-OWNED`, `CC0-1.0` and `MIT`. This is a
+The allow-list is `PROJECT-OWNED`, `CC0-1.0`, `MIT` and
+`PUBLIC-DOMAIN-REVIEWED` (with a documented basis and scope). This is a
 conservative project policy, not an exhaustive list of compatible licences.
 Research-only, non-commercial, unknown and other unreviewed material is refused.
 Declarations cannot prove ownership: a person must review the actual terms

@@ -66,3 +66,13 @@ jobs:
         run: |
           ../.vision-venv/bin/python -m kithmoot_vision.export "$RUNNER_TEMP/kithmoot-vision/mobile-v2/experimental.pt" "$RUNNER_TEMP/kithmoot-vision/mobile-v2/experimental.kvm"
           node --test lab/browser.test.mjs
+      - name: Exercise local source review, annotation and dataset export
+        env:
+          VISION_WORKSHOP_EXPORT: ${{ runner.temp }}/workshop-reviewed-fixture.json
+        run: |
+          node --test vision/workshop/browser.test.mjs
+          cd vision
+          ../.vision-venv/bin/python -m kithmoot_vision.workshop "$RUNNER_TEMP/workshop-reviewed-fixture.json" --output "$RUNNER_TEMP/workshop-reviewed-data"
+          ../.vision-venv/bin/python -m kithmoot_vision.train "$RUNNER_TEMP/workshop-reviewed-data/manifest.jsonl" "$RUNNER_TEMP/workshop-model" --steps 2
+          ../.vision-venv/bin/python -m kithmoot_vision.evaluate "$RUNNER_TEMP/workshop-model/experimental.pt" "$RUNNER_TEMP/workshop-reviewed-data/manifest.jsonl"
+          ../.vision-venv/bin/python -m kithmoot_vision.export "$RUNNER_TEMP/workshop-model/experimental.pt" "$RUNNER_TEMP/workshop-model/experimental.kvm"

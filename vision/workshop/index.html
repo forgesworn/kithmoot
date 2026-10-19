@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KithMoot Model Workshop</title><link rel="stylesheet" href="workshop.css"></head>
+<body><main>
+<header><p class="eyebrow">KithMoot · model development</p><h1>Model Workshop</h1><p>Review footage and labels for our face masking and background removal models.</p><p class="privacy">Files stay in this browser until you explicitly export them. This local tool has no upload or training endpoint. Public model training needs a separate, explicit source-rights review.</p></header>
+<section aria-labelledby="candidates-title"><h2 id="candidates-title">Sources to review</h2><p>These are candidates, not approved training data. Review the actual material and terms before approving a source below.</p><div id="candidates" class="cards"></div></section>
+<section aria-labelledby="source-title"><h2 id="source-title">1. Open footage and review its source</h2>
+<label>Local video or image <input id="footage" type="file" accept="video/*,image/png,image/jpeg,image/webp"></label><p id="file-state" role="status">Choose a local file, up to 128 MiB. No download or account is required by this tool.</p>
+<label>Optional source notes (.json) <input id="source-notes" type="file" accept="application/json,.json"></label><p class="hint">Notes fill evidence fields only after matching the opened file’s hash. They never approve a source or tick review declarations.</p>
+<video id="video" controls playsinline hidden></video><img id="still" alt="Local source preview" hidden>
+<form id="source-form"><fieldset id="source-fields"><legend>Review for this exact source file</legend><div class="fields">
+<label>Source title <input id="title" required maxlength="200"></label><label>Original source / permission URL <input id="url" type="url" required placeholder="https://…"></label>
+<label>Licence <select id="licence" required><option value="">Choose after reviewing</option><option value="CC0-1.0">CC0 1.0</option><option value="MIT">MIT</option><option value="PROJECT-OWNED">Project-owned, with permission</option><option value="PUBLIC-DOMAIN-REVIEWED">Public domain, basis reviewed</option></select></label>
+<label>Reviewer <input id="reviewer" required maxlength="160"></label>
+<label>Terms / evidence text <textarea id="terms" required maxlength="24000" placeholder="Record the relevant terms and evidence location. A free-download label is not sufficient."></textarea></label>
+<label>Permission basis for visible people <textarea id="permission-basis" required maxlength="24000" placeholder="Record your reviewed basis, including any release or permission evidence."></textarea></label>
+<label>Public-domain basis and scope, if applicable <textarea id="pd-basis" maxlength="24000"></textarea></label>
+<label>Subject group IDs, comma separated <input id="subjects" required maxlength="500" placeholder="person-a, person-b"></label>
+<label>Scene group ID <input id="scene" required maxlength="160" placeholder="room-a"></label><label>Take / sequence group ID <input id="sequence" required maxlength="160" placeholder="take-a"></label>
+<label>Use this source for <select id="split"><option value="train">Training</option><option value="validation">Validation</option><option value="test">Held-out test</option></select></label></div>
+<p class="hint">Reuse the same opaque person/scene IDs wherever they recur. People, scenes, takes and the same source file must not cross splits. Keep real names out of group IDs.</p>
+<div class="checks"><label><input id="synthetic" type="checkbox"> This is synthetic imagery.</label>
+<label><input id="training-rights" type="checkbox" required> I reviewed permission to train on this source.</label>
+<label><input id="commercial-rights" type="checkbox" required> I reviewed permission for commercial use.</label>
+<label><input id="mit-rights" type="checkbox" required> I reviewed permission to release the resulting model weights under MIT.</label>
+<label><input id="subject-rights" type="checkbox" required> I reviewed the rights relating to visible people.</label></div>
+<button type="submit" id="approve-source" disabled>Approve this source for model training</button></fieldset></form><p id="source-state" role="status">No source approved. Declarations record a human review; they cannot establish rights by themselves.</p></section>
+<section aria-labelledby="labels-title"><h2 id="labels-title">2. Review useful frames</h2><p>Pause a video at a useful moment, then capture. Preserve varied poses, multiple faces, hands and held objects. Supplied masks can reduce manual painting.</p>
+<div class="controls"><button id="capture" disabled>Capture frame</button><label>Reviewed tasks <select id="tasks"><option value="faces">Faces only</option><option value="foreground">Foreground only</option><option value="both">Faces and foreground</option></select></label>
+<label>Tool <select id="tool"><option value="face">Face box</option><option value="keep">Keep foreground</option><option value="erase">Remove foreground</option><option value="object">Mark opaque held object</option></select></label>
+<label>Brush <input id="brush" type="range" min="2" max="100" value="24"></label>
+<label>Foreground value <input id="value" type="range" min="0" max="255" value="255"></label>
+<button id="undo-face" disabled>Undo face</button><button id="clear-labels" disabled>Clear labels</button>
+<label>Greyscale mask PNG <input id="alpha-file" type="file" accept="image/png" disabled></label></div>
+<p id="frame-state" role="status">No frame captured. Source images are retained up to 1280 × 960, preserving aspect ratio.</p><canvas id="editor" width="640" height="360" aria-label="Face and foreground editor"></canvas>
+<div class="checks"><label><input id="faces-reviewed" type="checkbox"> Every visible face is boxed, or no face is visible.</label><label><input id="foreground-reviewed" type="checkbox"> I reviewed the foreground, including hands and held objects.</label></div>
+<button id="save-frame" disabled>Add reviewed frame</button><p id="sample-state">0 of 24 frames in this review.</p><div id="samples"></div></section>
+<section aria-labelledby="export-title"><h2 id="export-title">3. Save the review and prepare training</h2><p>A saved review contains pictures and permission notes. Keep it out of Git. Training export requires approved sources and independently grouped training, validation and test frames.</p>
+<div class="controls"><button id="save-project">Save review project</button><label>Open review project <input id="project-file" type="file" accept="application/json,.json"></label><button id="export-training" disabled>Export reviewed training data</button><button id="clear-project">Clear this browser review</button></div>
+<p>On the M4, use a Python environment with the vision dependencies and run from the repository’s <code>vision/</code> directory. Choose fresh output names.</p>
+<pre>python -m kithmoot_vision.workshop ~/Downloads/kithmoot-workshop-training-*.json --output data/reviewed-001
+python -m kithmoot_vision.train data/reviewed-001/manifest.jsonl runs/reviewed-001 --device mps --steps 1000
+python -m kithmoot_vision.evaluate runs/reviewed-001/experimental.pt data/reviewed-001/manifest.jsonl
+python -m kithmoot_vision.export runs/reviewed-001/experimental.pt runs/reviewed-001/experimental.kvm</pre>
+<p>These commands produce experimental weights. Compare them in Camera Lab; footage, licensing declarations and training loss do not qualify a model for calls.</p></section>
+<footer><p id="status" role="status">Ready for local review.</p><a href="LICENSE">Our MIT licence</a> · No third-party scripts, fonts, hosted inference or telemetry.</footer>
+</main><script type="module" src="workshop.mjs"></script></body></html>

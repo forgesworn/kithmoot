@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from .data import Frames, digest
+from .data import Frames, digest, reviewed_tasks
 from .decode import decode
 from .learning import predict
 from .model import CameraVision, model_for
@@ -22,6 +22,7 @@ def iou(a: tuple | list, b: tuple | list) -> float:
 def evaluate_mode(model: CameraVision, frames: Frames, *, use_reference: bool) -> dict:
     hits = total = false_positives = retained = object_pixels = unusable = 0
     matte_iou = 0.0
+    face_frames = foreground_frames = 0
     with torch.no_grad():
         for index, row in enumerate(frames.rows):
             batch = {key: value[None] for key, value in frames[index].items()}
@@ -31,17 +32,29 @@ def evaluate_mode(model: CameraVision, frames: Frames, *, use_reference: bool) -
             if not use_reference:
                 batch["reference_valid"].zero_()
             output = predict(model, batch)
-            detection = decode(output["face_logits"][0], output["face_boxes"][0])
-            unusable += not detection.usable
-            remaining = list(detection.faces)
-            for target in row["faces"]:
-                total += 1
-                if remaining:
-                    best = max(range(len(remaining)), key=lambda i: iou(target, remaining[i]))
-                    if iou(target, remaining[best]) >= 0.5:
-                        hits += 1
-                        remaining.pop(best)
-            false_positives += len(remaining)
+            tasks = reviewed_tasks(row)
+            if tasks["faces"]:
+                face_frames += 1
+                detection = decode(output["face_logits"][0], output["face_boxes"][0])
+                unusable += not detection.usable
+                remaining = list(detection.faces)
+                # Decoded boxes use the letterboxed model coordinate system.
+                width, height = frames.size
+                _, image_width, image_height, x, y = frames._geometry(row)
+                for target in row["faces"]:
+                    tx, ty, tw, th = target
+                    target = [(tx * image_width + x) / width, (ty * image_height + y) / height,
+                              tw * image_width / width, th * image_height / height]
+                    total += 1
+                    if remaining:
+                        best = max(range(len(remaining)), key=lambda i: iou(target, remaining[i]))
+                        if iou(target, remaining[best]) >= 0.5:
+                            hits += 1
+                            remaining.pop(best)
+                false_positives += len(remaining)
+            if not tasks["foreground"]:
+                continue
+            foreground_frames += 1
             alpha = output["alpha_logits"][0].sigmoid() >= 0.5
             target = batch["alpha"][0] >= 0.5
             union = (alpha | target).sum().item()
@@ -50,9 +63,12 @@ def evaluate_mode(model: CameraVision, frames: Frames, *, use_reference: bool) -
                 objects = frames._image(row, "held_objects", 1) >= 0.5
                 retained += (alpha & objects).sum().item()
                 object_pixels += objects.sum().item()
-    return {"frames": len(frames), "faces": total, "matched_faces_iou_0_5": hits,
+    return {"frames": len(frames), "face_labelled_frames": face_frames,
+            "foreground_labelled_frames": foreground_frames,
+            "faces": total, "matched_faces_iou_0_5": hits,
             "face_recall": hits / total if total else None, "false_positive_faces": false_positives,
-            "unusable_detection_frames": unusable, "mean_foreground_iou": matte_iou / len(frames),
+            "unusable_detection_frames": unusable,
+            "mean_foreground_iou": matte_iou / foreground_frames if foreground_frames else None,
             "held_object_pixels": object_pixels,
             "held_object_recall": retained / object_pixels if object_pixels else None,
             "real_camera_acceptance": False}

@@ -18,19 +18,32 @@ def predict(model: CameraVision, batch: dict[str, Tensor], *, dropout: bool = Fa
 
 
 def loss(outputs: dict[str, Tensor], batch: dict[str, Tensor]) -> Tensor:
-    heat = batch["face_heat"]
-    probability = outputs["face_logits"].sigmoid()
-    # Focal weighting prevents the many empty grid cells overwhelming faces.
-    weight = torch.where(heat == 1, (1 - probability).square(), probability.square())
-    face = (F.binary_cross_entropy_with_logits(outputs["face_logits"], heat, reduction="none") * weight).sum() / heat.sum().clamp_min(1)
-    locations = heat.expand_as(outputs["face_boxes"])
-    box = (F.smooth_l1_loss(outputs["face_boxes"], batch["face_boxes"], reduction="none") * locations).sum() / locations.sum().clamp_min(1)
-    alpha = outputs["alpha_logits"].sigmoid()
-    matte = F.binary_cross_entropy_with_logits(outputs["alpha_logits"], batch["alpha"])
-    # Edges supervise hair and object boundaries, rather than just region area.
-    edge = (torch.diff(alpha, dim=-1) - torch.diff(batch["alpha"], dim=-1)).abs().mean()
-    edge = edge + (torch.diff(alpha, dim=-2) - torch.diff(batch["alpha"], dim=-2)).abs().mean()
-    return face + 5 * box + matte + edge
+    size = batch["rgb"].shape[0]
+    known = torch.ones(size, dtype=torch.bool, device=batch["rgb"].device)
+    faces = batch.get("faces_valid", known).bool()
+    foreground = batch.get("foreground_valid", known).bool()
+    objectives = []
+    if faces.any():
+        heat, logits = batch["face_heat"][faces], outputs["face_logits"][faces]
+        probability = logits.sigmoid()
+        # Unlabelled faces never become negative examples. Skip an entire
+        # unreviewed branch so AdamW does not decay its private head either.
+        weight = torch.where(heat == 1, (1 - probability).square(), probability.square())
+        face = (F.binary_cross_entropy_with_logits(logits, heat, reduction="none") * weight).sum() / heat.sum().clamp_min(1)
+        geometry = outputs["face_boxes"][faces]
+        locations = heat.expand_as(geometry)
+        box = (F.smooth_l1_loss(geometry, batch["face_boxes"][faces], reduction="none") * locations).sum() / locations.sum().clamp_min(1)
+        objectives.append(face + 5 * box)
+    if foreground.any():
+        logits, target = outputs["alpha_logits"][foreground], batch["alpha"][foreground]
+        alpha = logits.sigmoid()
+        matte = F.binary_cross_entropy_with_logits(logits, target)
+        edge = (torch.diff(alpha, dim=-1) - torch.diff(target, dim=-1)).abs().mean()
+        edge = edge + (torch.diff(alpha, dim=-2) - torch.diff(target, dim=-2)).abs().mean()
+        objectives.append(matte + edge)
+    if not objectives:
+        raise ValueError("A batch needs at least one reviewed task")
+    return sum(objectives)
 
 
 def adapt_step(base: CameraVision, adapter: MatteAdapter, batch: dict[str, Tensor],

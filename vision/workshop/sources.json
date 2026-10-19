@@ -1,0 +1,34 @@
+{
+  "checked": "2026-10-19",
+  "sources": [
+    {
+      "id": "videomatte240k",
+      "title": "VideoMatte240K — foreground training candidate",
+      "status": "pending human review",
+      "url": "https://grail.cs.washington.edu/projects/background-matting-v2/#/datasets",
+      "evidence_url": "https://github.com/PeterL1n/BackgroundMattingV2/issues/208",
+      "summary": "The author confirms MIT. The download page describes paired foreground and alpha clips derived from purchased stock footage; the original green-screen footage is not distributed. It also asks commercial users to complete a survey. Review the actual archive, notices, permission basis and survey request before admitting examples.",
+      "page_script_sha256": "58cb834cb99c6ff7d80528f616204039dcb6d1b7d5926c6b05b328feea91121a",
+      "automatic_download": false,
+      "approved": false
+    },
+    {
+      "id": "cc0-footage",
+      "title": "Individually reviewed CC0 / public-domain clips",
+      "status": "per-file review required",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "summary": "Record the actual file's licence, author/source, file hash and reviewed basis relating to visible people. A hosting site's footer or a free-download label does not establish the video's rights. Face and foreground labels still need review.",
+      "automatic_download": false,
+      "approved": false
+    },
+    {
+      "id": "makehuman-core",
+      "title": "MakeHuman core assets — rendered examples candidate",
+      "status": "asset review required",
+      "url": "https://static.makehumancommunity.org/about/license.html",
+      "summary": "Core assets are CC0; community assets have their own terms. Rendering can provide known foreground and face labels. Authoring tools retain their own licences and are separate from the MIT KithMoot runtime. Rendered results need independent real-camera evaluation.",
+      "automatic_download": false,
+      "approved": false
+    }
+  ]
+}
