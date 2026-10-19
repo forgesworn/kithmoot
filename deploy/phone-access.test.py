@@ -1,5 +1,6 @@
 """Exercise the actual remote transaction against disposable local releases."""
 import contextlib
+import errno
 import hashlib
 import importlib.util
 import io
@@ -40,6 +41,7 @@ class Publication(unittest.TestCase):
                        "before": {"Caddyfile": self.sha(self.config), **{name: self.sha(self.original / name) for name in ("index.html", "style.css")}},
                        "uploaded": {name: hashlib.sha256(content).hexdigest() for name, content in self.files.items()}}
         self.fail_validation = False
+        self.separate_staging_volume = False
 
     @staticmethod
     def sha(path):
@@ -60,7 +62,12 @@ class Publication(unittest.TestCase):
 
     def phase(self, name):
         output = io.StringIO()
-        with patch("subprocess.run", self.command), contextlib.redirect_stdout(output):
+        replace = Path.replace
+        def same_volume_replace(path, target):
+            if self.separate_staging_volume and path.parent == self.release / 'site':
+                raise OSError(errno.EXDEV, 'Cross-device link')
+            return replace(path, target)
+        with patch("subprocess.run", self.command), patch.object(Path, 'replace', same_volume_replace), contextlib.redirect_stdout(output):
             exec(self.program, {"params": {**self.params, "phase": name}})
         return json.loads(output.getvalue())
 
@@ -108,6 +115,29 @@ class Publication(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "differs"): self.phase("prepare")
         self.assertFalse((self.root / "vision-lab").exists())
         self.assertEqual(self.config.read_text(), "somebody else's change")
+
+    def test_relocated_releases_publish_with_staging_on_another_volume(self):
+        bulk = Path(self.temporary.name).resolve() / 'bulk'
+        bulk.mkdir()
+        (self.root / 'releases').rename(bulk / 'releases')
+        (self.root / 'releases').symlink_to(bulk / 'releases', target_is_directory=True)
+        self.separate_staging_volume = True
+        self.stage(); self.phase('activate')
+        result = self.phase('verify')
+        self.assertEqual((self.root / 'current').resolve(), bulk / 'releases' / self.release_name)
+        self.assertTrue(result['existing_app_and_downloads_unchanged'])
+        self.assertEqual((self.root / 'current/index.html').read_text(), 'new join form')
+        self.assertEqual((self.original / 'index.html').read_text(), 'old homepage')
+
+    def test_existing_site_release_is_preserved_when_activation_is_refused(self):
+        self.stage()
+        self.site_release.mkdir()
+        work = self.site_release / 'other-publisher-work'
+        work.write_text('keep this staged release')
+        with self.assertRaisesRegex(RuntimeError, 'already exists'): self.phase('activate')
+        self.assertEqual(work.read_text(), 'keep this staged release')
+        self.assertEqual((self.root / 'current').resolve(), self.original)
+        self.assertFalse(self.release.exists())
 
 
 if __name__ == "__main__":

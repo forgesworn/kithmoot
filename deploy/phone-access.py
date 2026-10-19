@@ -68,7 +68,7 @@ def rollback(state):
     backup = release / 'previous.Caddyfile'
     if params['before']['Caddyfile'] != params['uploaded']['Caddyfile'] and config.exists() and sha(config) == params['uploaded']['Caddyfile'] and backup.exists() and sha(backup) == params['before']['Caddyfile']:
         reload_config(backup)
-    if site_release.exists() and link(root / 'current') != str(site_release): shutil.rmtree(site_release)
+    if state.get('created_site') and site_release.exists() and link(root / 'current') != str(site_release): shutil.rmtree(site_release)
     if release.exists() and link(lab / 'current') != str(release / 'lab'): shutil.rmtree(release)
     for path, created in ((lab / 'releases', state.get('created_releases')), (lab, state.get('created_lab'))):
         if created:
@@ -80,12 +80,12 @@ if phase == 'prepare':
     if not (root / 'current').is_symlink(): raise RuntimeError('Existing KithMoot deployment is required')
     if sha(config) != params['before']['Caddyfile']: raise RuntimeError('Live vhost differs from the supplied base revision')
     current = (root / 'current').resolve(strict=True)
-    if not current.is_relative_to(root / 'releases'): raise RuntimeError('Unexpected site release location')
+    if not current.is_relative_to((root / 'releases').resolve()): raise RuntimeError('Unexpected site release location')
     if params['site']:
         for name in ('index.html', 'style.css'):
             if sha(current / name) != params['before'][name]: raise RuntimeError('Live homepage changed: ' + name)
     state = {'previous_site': link(root / 'current'), 'previous_lab': link(lab / 'current'),
-             'created_lab': not lab.exists(), 'created_releases': not (lab / 'releases').exists(),
+             'created_lab': not lab.exists(), 'created_releases': not (lab / 'releases').exists(), 'created_site': False,
              'preserved_before': preserved_digest(current), 'revision': params['revision'], 'release': params['release']}
     release.mkdir(parents=True, exist_ok=False)
     try:
@@ -108,9 +108,16 @@ else:
             if params['site']:
                 if site_release.exists(): raise RuntimeError('Site release already exists')
                 site_release.mkdir()
+                state['created_site'] = True
+                (release / 'state.json').write_text(json.dumps(state))
                 subprocess.run(['cp', '-al', str((root / 'current').resolve()) + '/.', str(site_release)], check=True)
-                # Rename new inodes over the hardlinks; never edit an old release.
-                for name in ('index.html', 'style.css'): (release / 'site' / name).replace(site_release / name)
+                # The staged lab and bulk website may be on different disks.
+                # Copy into the destination before atomically replacing a link.
+                for name in ('index.html', 'style.css'):
+                    incoming = site_release / ('.phone-' + name)
+                    shutil.copyfile(release / 'site' / name, incoming)
+                    incoming.chmod(0o644)
+                    incoming.replace(site_release / name)
             flip(lab / 'current', str(release / 'lab'))
             if params['before']['Caddyfile'] != params['uploaded']['Caddyfile']: reload_config(release / 'Caddyfile')
             if params['site']:
@@ -173,7 +180,7 @@ def main():
     if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*", host): parser.error("Set DEPLOY_HOST to the intended SSH host")
     ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
     if os.environ.get("DEPLOY_KEY"): ssh += ["-i", os.environ["DEPLOY_KEY"], "-o", "IdentitiesOnly=yes"]
-    release = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    release = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-phone-" + revision[:8]
     before = {"Caddyfile": digest(subprocess.check_output(["git", "show", args.base_revision + ":deploy/Caddyfile.kithmoot"], cwd=SOURCE))}
     if args.site:
         before.update({name: digest(subprocess.check_output(["git", "show", args.base_revision + ":site/" + name], cwd=SOURCE)) for name in SITE_FILES})
