@@ -9,6 +9,10 @@
 > update checks, agents, the default relay count, payments, and the right
 > to complain to us.
 >
+> Changed 19 October 2026: update checks on every desktop build, GitHub and
+> Google for the desktop app, Nostr address checks now off by default, and
+> a link to the "Check it yourself" page.
+>
 > What a notice must contain is written up in the jurisdiction kit's UK
 > online services note, sections 3.2 and 3.3:
 > https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md
@@ -204,17 +208,24 @@ and if so which rooms and how their members are told.]`
 
 ### 4.7 Update checks from the desktop app
 
-**What.** The signed desktop app for Macs with Apple silicon checks our
-site for updates, 30 seconds after it starts and then every ten minutes,
-by fetching an update feed from our web server. When there is an update,
-it downloads it from our site too. Other desktop builds do not check.
-There is no setting to turn this off.
-<!-- desktop/updater.mjs: UPDATE_FEED on the KithMoot site, enabled only when packaged && darwin && arm64, initialDelayMs 30_000, intervalMs 10 minutes; site/downloads/updates/darwin/arm64/RELEASES.json names the download on the same site -->
+**What.** Every desktop build except the Debian package checks our site
+for updates, 30 seconds after it starts and then on a timer:
+
+- the signed app for Macs with Apple silicon fetches an update feed every
+  ten minutes;
+- the Windows ZIP and the Linux tar.gz fetch a signed release list every
+  hour.
+
+When there is an update, the app downloads it from our site too. The
+Debian package does not check by itself: the system's package manager
+fetches its updates from the project's GitHub releases (section 8).
+There is no setting to turn the checks off.
+<!-- desktop/updater.mjs: UPDATE_FEED on the KithMoot site, enabled only when packaged && darwin && arm64, initialDelayMs 30_000, intervalMs 10 minutes; site/downloads/updates/darwin/arm64/RELEASES.json names the download on the same site. desktop/archive-updater.mjs: UPDATE_ORIGIN https://kithmoot.forgesworn.dev, initialDelayMs 30_000, intervalMs 60 minutes, manifest 'downloads/release.json' (desktop/update-manifest.mjs MANIFESTS.desktop), download archiveUrl `${origin}/apk/desktop/${version}/${filename}`. desktop/main.mjs: a Debian install (kithmoot-version stamp) uses desktop/package-updater.mjs, which reads a local file and fetches nothing -->
 
 **What our web server sees.** Each check is an ordinary web request: the
-address it came from, the time, and the feed it asked for, which says
-that it is the Mac app on Apple silicon. The site's access log is
-discarded (section 4.5), so these requests are not kept.
+address it came from, the time, and the file it asked for, which says
+what kind of build is asking. The site's access log is discarded
+(section 4.5), so these requests are not kept.
 
 `[INPUT: whether the Android app checks for updates, where, and how
 often; it is built from another repository.]`
@@ -308,8 +319,9 @@ any web request does.
   its encryption; this lookup is what hands them to relays in the clear,
   and a relay that also carries the room can link them to it.
   <!-- app/src/main.ts PROFILE_RELAYS; app/src/profiles.ts header: "That hands all of those relays the participant pubkeys of everybody in the room, in the clear, as a query"; ProfileBook.want subscribes with { kinds: [0], authors } -->
-- **The domain in a Nostr address.** If a person's profile names a Nostr
-  address (name@domain), the app asks that domain to confirm it. The
+- **The domain in a Nostr address, if you turn checking on.** If a
+  person's profile names a Nostr address (name@domain) and you have ticked
+  "Verify Nostr addresses", the app asks that domain to confirm it. The
   domain learns the name asked about and the address the question came
   from, and can infer that somebody is looking at that person. No cookies
   or referrer are sent.
@@ -321,13 +333,39 @@ any web request does.
   run that host.
   <!-- app/src/main.ts pictureOf: img.src = profile picture, referrerPolicy 'no-referrer'; app/src/profiles.ts safePicture allows http: and https: -->
 
-These three are **on by default**. Turn them off under Settings,
-Connections, "Profile pictures and names" (also in a room's menu), by
-clearing "Show public profile pictures, names and Nostr addresses". The
-choice is saved on your device. Turning it off stops further lookups and
-removes loaded profiles and pictures; it cannot recall a request already
-sent.
-<!-- app/src/relay-settings.ts profilePreference: on unless 'kithmoot.profiles.enabled' is 'false'; app/index.html #lookupProfiles checked, buttons #appProfileSettings and #roomProfileSettings; ProfileBook.setEnabled aborts checks and closes subscriptions -->
+Profile lookups and pictures are **on by default**. Turn them off under
+Settings, Connections, "Profile pictures and names" (also in a room's
+menu), by clearing "Show public profile pictures, names and Nostr
+addresses". The choice is saved on your device. Turning it off stops
+further lookups and removes loaded profiles and pictures; it cannot
+recall a request already sent. Checking Nostr addresses is **off by
+default**, under "Verify Nostr addresses" in the same place.
+<!-- app/src/relay-settings.ts profilePreference: on unless 'kithmoot.profiles.enabled' is 'false'; nip05VerifyPreference: off unless 'kithmoot.nip05.verify' is 'true'; app/index.html #lookupProfiles checked, #verifyAddresses unchecked, buttons #appProfileSettings and #roomProfileSettings; ProfileBook.setEnabled aborts checks and closes subscriptions -->
+
+The desktop app also makes your device contact:
+
+- **Our site, for updates**, as section 4.7 describes.
+- **GitHub, for the Debian package.** If you install the Debian or Ubuntu
+  package, your system's package manager fetches KithMoot's updates from
+  the project's releases on GitHub, on your system's own update schedule.
+  GitHub learns your device's address, the time, and that it is fetching
+  KithMoot.
+  <!-- desktop/linux apt source: the project's GitHub releases, signed Release with Origin: KithMoot; site/downloads/index.html Linux section -->
+- **Google, for spelling dictionaries, on Windows and Linux.** The
+  spellchecker built into Electron, the framework the desktop app runs
+  on, downloads a dictionary for your language from a Google server.
+  Google learns your device's address, the time and the language asked
+  for. Electron's documentation says nothing you type is sent. The Mac
+  app uses the macOS spellchecker and downloads nothing. There is no
+  setting to turn this off.
+  <!-- desktop/main.mjs webPreferences spellcheck: true, no session.setSpellCheckerDictionaryDownloadURL; Electron 44.4.1; https://www.electronjs.org/docs/latest/tutorial/spellchecker "Does the spellchecker use any Google services?" -->
+
+`[DECISION: whether the desktop app keeps the Google dictionary download;
+it goes if spellcheck is off on Windows and Linux, or if the dictionaries
+ship inside the app.]`
+
+Every connection the desktop app makes, and a command to check each one,
+is listed at https://kithmoot.app/check/.
 
 **Agents.** A room can have agents (programs) as members. An agent reads
 what any member of the room can read, and hears a call if it is set to
