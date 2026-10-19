@@ -1,5 +1,14 @@
 # Changelog
 
+## Desktop 0.1.90 and Android 0.6.93, 19 October 2026
+
+- A calmer room on desktop, web and Android. One palette and type scale on the logo colours, shared by all three apps. Buttons, panels and bubbles lose their borders. Messages from one person within five minutes sit together under one name. The time and the lane sit inside the bubble, the lane as a lock whose name says which lane it is, and "Agent" is an outlined label that reads without colour.
+- The room bar's Back, Call, Boards and More are icon buttons, each with a tooltip on hover and on keyboard focus.
+- The message box is one row on one centre line at every width and text size: Add, then the field with Emoji inside it, then Send. GIFs and stickers are tabs in the emoji picker.
+- Adding a reaction no longer hides the newest message, and reactions sit under the bubble instead of over it. A picture that finishes loading under the newest message keeps you at the bottom.
+- With forced colours on, selected tabs, the conversation's focus ring, the Agent label and button edges stay visible.
+- Android: the room's back arrow is labelled Back to chats, since it always kept the room, and stronger outlines and muted text follow the phone's high contrast text setting. Room invitations sent from the web client now open on Android.
+
 ## Desktop 0.1.89 and Android 0.6.92 — 19 October 2026
 
 - The 0.1.87 quiet automatic replies are rolled back while broken calls are investigated, since calls broke the day they shipped. Call signals, room link answers and room key answers go out straight away again, read positions go to your other devices as before rather than in random batches, and a removed member is refused every time.
