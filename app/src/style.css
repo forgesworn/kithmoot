@@ -1640,9 +1640,10 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   min-width: 0;
   margin: 0;
   /* One line fills the pill's 44px, so the whole pill is the target; the
-     height follows the text size, so a larger one never clips a line. */
+     height follows the text size, so a larger one never clips a line. The
+     2px spare stops whole-pixel rounding taking the bottom of the line. */
   padding: max(4px, calc((44px - 1.45em) / 2)) 0;
-  min-height: max(44px, calc(1.45em + 8px));
+  min-height: max(44px, calc(1.45em + 10px));
   border: 0;
   border-radius: 0;
   background: transparent;
