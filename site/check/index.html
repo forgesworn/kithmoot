@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Check it yourself · KithMoot</title>
+    <meta name="description" content="What the KithMoot desktop app connects to, what it can touch on your computer, and how to check every claim yourself." />
+    <meta name="theme-color" content="#F3F8FA" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#081923" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <link rel="canonical" href="https://kithmoot.app/check/" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap"><a class="brand" href="/" aria-label="KithMoot home"><picture><source srcset="/img/brand/kithmoot-horizontal-white.svg" media="(prefers-color-scheme: dark)" /><img src="/img/brand/kithmoot-horizontal-gradient.svg" width="174" height="44" alt="KithMoot" /></picture></a><nav aria-label="Main navigation"><a href="/#what">Features</a><a href="/#start">How it works</a><a href="/downloads/">Download</a><a href="/#help">Questions</a></nav><a class="button primary nav-open" href="/j/">Open KithMoot</a></header>
+<main id="main" class="wrap">
+<section class="legal-page">
+<h1>Check it yourself</h1>
+<p class="dated">Written for desktop 0.1.89, 19 October 2026.</p>
+<p>We have run every command on this page, except the Windows connection check. The Wallet of Satoshi connection is described from the source code; we haven't yet caught it in a capture.</p>
+
+<p>Installing an app means trusting it with your computer. You shouldn't have to take our word for what KithMoot does, so this page lists everything the desktop app connects to and everything it can touch, with a way to check each claim. If you find something we haven't listed, <a href="https://github.com/forgesworn/kithmoot/issues">tell us</a>: that's a bug in the app or in this page.</p>
+<p>Not sure yet? <a href="/j/">KithMoot in your browser</a> runs inside your browser's own sandbox and can't see your files at all. The desktop app adds area sharing, redaction and desktop notifications.</p>
+
+<h2>The short version</h2>
+<ul>
+<li>No analytics, tracking or crash reporting.</li>
+<li>Camera and microphone only after you turn them on in a call. Your screen only after you pick what to share.</li>
+<li>Files only when you choose them, or choose where to save.</li>
+<li>The app can't read your clipboard, and location, USB and serial port requests are refused.</li>
+<li>Room messages and files are encrypted on your device before they leave it.</li>
+<li>All of the app's code is in the download. It never loads code from a server.</li>
+<li>Updates are installed only if they carry our signature.</li>
+<li>It connects only to the services listed below, including two companies: Google, on Windows and Linux, and Wallet of Satoshi.</li>
+</ul>
+
+<h2>What it connects to</h2>
+<p>Every connection the app makes, when it makes it, and how to stop it.</p>
+<ul>
+<li><strong>Your rooms' relays.</strong> While a room is open, the app talks to the Nostr relays that room uses. New rooms start on nos.lol, relay.primal.net and nostr.mom, public relays we don't run. You can change them in Relay settings.</li>
+<li><strong>Our server, kithmoot.forgesworn.dev.</strong> It checks here for updates, 30 seconds after it starts and then every 10 minutes on a Mac, or every hour on Windows and the Linux tar.gz. There's no switch for this yet. When you join a room that uses the default call settings, it also fetches a short-lived call credential here and uses our STUN and TURN server, which helps calls get through home routers and firewalls. A room whose link names its own call servers uses those instead.</li>
+<li><strong>GitHub, for the Debian and Ubuntu package.</strong> apt fetches KithMoot's updates from the project's GitHub releases, along with your other system updates.</li>
+<li><strong>Public profile relays and picture hosts.</strong> With <em>Show public profile pictures, names and Nostr addresses</em> on, which it is unless you turn it off, the app looks up the people in your rooms on purplepag.es, relay.damus.io, nos.lol and relay.primal.net, and loads each person's picture from wherever they host it. Turn it off under Profile pictures and names.</li>
+<li><strong>Wallet of Satoshi.</strong> When the app shows someone with a public profile, it asks walletofsatoshi.com once, each time it starts, which key signs the project's Lightning receipts. That's for the donor ring on profile pictures. Turning off public profiles stops it.</li>
+<li><strong>Google, on Windows and Linux only.</strong> The spellchecker built into Electron, the framework the app runs on, downloads its dictionary from a Google server. <a href="https://www.electronjs.org/docs/latest/tutorial/spellchecker">Electron's documentation</a> says it sends nothing you type. The Mac app uses macOS's own spellchecker instead. There's no switch for this yet.</li>
+<li><strong>The people on your call.</strong> Calls connect straight to the other people's devices where they can, so those people can see your IP address, as in any direct call. When a direct connection fails, the call goes through the TURN server instead.</li>
+<li><strong>Only if you choose them.</strong> A file storage server, if you set one up for sharing files. The domain in someone's Nostr address, if you turn on <em>Verify Nostr addresses</em>. Your signer's relays, if you sign in with a remote signer. A link you click, which opens in your browser after you confirm.</li>
+</ul>
+
+<h2>What it can touch on your computer</h2>
+<ul>
+<li><strong>Camera and microphone:</strong> only after you turn them on in a call. macOS asks your permission the first time. Windows and Linux may not ask, so on those KithMoot's own buttons are the only thing in the way.</li>
+<li><strong>Your screen:</strong> only after you choose a screen, window or area to share. On a Mac, macOS asks for Screen Recording permission first. On Linux with Wayland, your system's own screen picker makes the choice. On Linux with X11, any app can read the screen; KithMoot captures only after you pick.</li>
+<li><strong>Files:</strong> only the ones you choose in a file dialog or drop into a chat. Saving always goes through a save dialog.</li>
+<li><strong>Clipboard:</strong> pasting works as usual, and the app can copy when you ask it to. It can't read the clipboard by itself.</li>
+<li><strong>Your local network:</strong> the app asks before it connects to relays or services on your own network.</li>
+<li><strong>Everything else is refused:</strong> location, USB, serial ports and any other permission not on its short list.</li>
+<li><strong>Its own folder:</strong> settings and history live in <code>~/Library/Application Support/KithMoot</code> on a Mac, <code>~/.config/KithMoot</code> on Linux and <code>%APPDATA%\KithMoot</code> on Windows. Uninstalling leaves the folder in place; delete it to remove everything.</li>
+</ul>
+<h3>The limit we can't hide</h3>
+<p>Rooms, chat and calls run in a sandboxed part of the app with no access to your files or system, the same protection a browser tab has. Around it sits a small native part, about 2,000 lines you can read, which opens windows, shows file dialogs, picks screens and installs updates. Like most desktop apps, that native part runs as you and could read anything you can. It doesn't, and the next section shows how to check. The operating system doesn't sandbox the app yet: there's no macOS App Sandbox and no Flatpak.</p>
+
+<h2>How to check</h2>
+<h3>That the download came from us</h3>
+<p>Download <a href="/downloads/SHA256SUMS.txt">SHA256SUMS.txt</a> into the same folder as your download, then run:</p>
+<pre><code># Linux
+sha256sum --check --ignore-missing SHA256SUMS.txt
+# macOS
+shasum -a 256 --check --ignore-missing SHA256SUMS.txt
+# Windows (PowerShell): compare the result with SHA256SUMS.txt by eye
+Get-FileHash KithMoot-0.1.89-windows-x64.zip -Algorithm SHA256</code></pre>
+<p>That proves the file wasn't damaged on the way, but it comes from the same server as the download. To check that we made it, verify our signed release list. The check uses the key built into the app, fetched from GitHub rather than from our server. You need Node.js:</p>
+<pre><code>curl -fsSO https://raw.githubusercontent.com/forgesworn/kithmoot/main/desktop/update-manifest.mjs
+curl -fsSO https://kithmoot.forgesworn.dev/downloads/release.json
+curl -fsSO https://kithmoot.forgesworn.dev/downloads/release.json.sig
+node -e "import('./update-manifest.mjs').then(m => { const fs = require('fs'); console.log(m.verifyManifest(m.MANIFESTS.desktop, fs.readFileSync('release.json'), fs.readFileSync('release.json.sig', 'utf8')) ? 'Signature OK' : 'Signature FAILED') })"</code></pre>
+<p>If it prints <code>Signature OK</code>, compare your file's SHA-256 with the one listed for it in <code>release.json</code>. <code>update-manifest.mjs</code> is about 120 lines; read it first if you like. The Windows app and the Linux tar.gz use the same two keys to accept or refuse every update. A Mac update must carry the same Apple signature as the app you installed, and apt checks the Debian package's updates against the repository key.</p>
+<p>On a Mac, check Apple's signature and notarisation:</p>
+<pre><code>codesign --verify --deep --strict /Applications/KithMoot.app
+codesign -dv --verbose=2 /Applications/KithMoot.app</code></pre>
+<p>The first command prints nothing if the signature holds. The second should name ForgeSworn and team <code>2GLP954N6A</code>, and show <code>Notarization Ticket=stapled</code>. Notarisation means Apple scanned the app for known malware. It doesn't mean Apple reviewed what the app does.</p>
+
+<h3>What it connects to</h3>
+<p>With KithMoot open, list its connections:</p>
+<pre><code># Linux
+ss -tunp | grep -i kithmoot
+# macOS
+lsof -nP -i -a -c KithMoot
+# Windows (PowerShell)
+Get-NetTCPConnection -OwningProcess (Get-Process KithMoot).Id</code></pre>
+<p>These show addresses, not names, and many relays sit behind Cloudflare, so most addresses will be Cloudflare's. To see names, and to approve or block each connection as it happens, use a firewall that asks: OpenSnitch on Linux, or LuLu or Little Snitch on a Mac. On a Mac you'll also see UDP port 5353. That's mDNS on your own network, which keeps your local address out of call connections.</p>
+
+<h3>What the Linux package runs as root</h3>
+<p>Installing any .deb runs its scripts as root. Read ours before you install, and list the files it marks setuid:</p>
+<pre><code>dpkg-deb -e kithmoot_0.1.89_amd64.deb kithmoot-scripts
+cat kithmoot-scripts/postinst
+dpkg-deb -c kithmoot_0.1.89_amd64.deb | grep '^-rws'</code></pre>
+<p>The one setuid file is <code>chrome-sandbox</code>, Chromium's own sandbox helper. The script installs an AppArmor rule at <code>/etc/apparmor.d/kithmoot</code>. The rule doesn't restrict the app; it lets Chromium's sandbox start on Ubuntu 23.10 and later. The script also removes an old menu entry, and only one that the tar.gz installer wrote. The tar.gz runs nothing as root: it installs into your home folder.</p>
+
+<h3>The app's code</h3>
+<p>The whole desktop app is one archive, <code>app.asar</code>. Unpack it with Electron's own tool:</p>
+<pre><code>npx @electron/asar@4.3.0 extract /Applications/KithMoot.app/Contents/Resources/app.asar kithmoot-code</code></pre>
+<p>On Linux it's <code>/opt/KithMoot/resources/app.asar</code>, or <code>~/.local/share/kithmoot-desktop/resources/app.asar</code> for the tar.gz. On Windows it's <code>resources\app.asar</code> in the folder you extracted. Start with these files:</p>
+<ul>
+<li><code>main.mjs</code>, the native part;</li>
+<li><code>policy.mjs</code>, the permission list and the only address the app serves its own pages from;</li>
+<li><code>preload.cjs</code>, everything the sandboxed part can ask the native part to do;</li>
+<li><code>update-manifest.mjs</code>, the update keys.</li>
+</ul>
+<p>The rooms themselves are in <code>web/</code>. That code is built and minified; the readable source is on <a href="https://github.com/forgesworn/kithmoot">GitHub</a>.</p>
+
+<h3>The permissions your system gave it</h3>
+<p>On a Mac, look in System Settings, under Privacy &amp; Security: Camera, Microphone, Screen &amp; System Audio Recording and Local Network. You can withdraw any of them. To see the special permissions the app was signed with, run:</p>
+<pre><code>codesign -d --entitlements - /Applications/KithMoot.app</code></pre>
+<p>There are three: camera, audio input, and <code>allow-jit</code>, which the JavaScript engine needs to run quickly.</p>
+
+<h3>Build it yourself</h3>
+<p>The source is on <a href="https://github.com/forgesworn/kithmoot">GitHub</a> under the MIT licence, and <code>desktop/README.md</code> explains how to build it. Builds aren't reproducible byte for byte yet, so yours won't match ours exactly.</p>
+
+<h2>What we can't promise yet</h2>
+<ul>
+<li>The operating system doesn't sandbox the app.</li>
+<li>The Windows build isn't signed, so Windows warns about it.</li>
+<li>Builds aren't reproducible, so you can't yet prove our download matches the source.</li>
+<li>The update check, and the spelling dictionary download on Windows and Linux, have no off switch.</li>
+<li>Linux doesn't ask before an app uses the camera or microphone, and on X11 any app can read the screen.</li>
+</ul>
+
+<h2>Found something we missed?</h2>
+<p>If the app does something this page doesn't say, or a command here gives a different answer, <a href="https://github.com/forgesworn/kithmoot/issues">open an issue</a>. We'll fix the app or the page.</p>
+</section>
+</main>
+<footer class="site-footer wrap"><a class="brand" href="/" aria-label="KithMoot home"><picture><source srcset="/img/brand/kithmoot-horizontal-white.svg" media="(prefers-color-scheme: dark)" /><img src="/img/brand/kithmoot-horizontal-gradient.svg" width="142" height="36" alt="KithMoot" /></picture></a><p>Made by <a href="https://forgesworn.dev/">ForgeSworn</a>. Open source under the MIT licence.</p><nav aria-label="Source and support"><a href="https://github.com/forgesworn/kithmoot">Source code</a><a href="https://github.com/forgesworn/kithmoot/issues">Report an issue</a><a href="/check/">Check it yourself</a><a href="/terms/">Terms</a><a href="/privacy/">Privacy notice</a><a href="/report/">Report abuse</a></nav></footer>
+</body></html>
