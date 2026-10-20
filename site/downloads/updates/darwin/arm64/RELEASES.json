@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.94",
+  "currentRelease": "0.1.95",
   "releases": [
     {
-      "version": "0.1.94",
+      "version": "0.1.95",
       "updateTo": {
-        "version": "0.1.94",
-        "pub_date": "2026-10-20T12:56:08Z",
-        "notes": "Room info fits in about one screen beside the conversation, Leave asks first, and Settings is its own place with a page for each kind of setting.",
-        "name": "0.1.94",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.94/KithMoot-0.1.94-mac-arm64.zip",
-        "sha256": "b049eb73ead530ba48bd73191545304491846e0e990c17f9879a1a5838f94227",
-        "size": 170828242
+        "version": "0.1.95",
+        "pub_date": "2026-10-20T20:52:02Z",
+        "notes": "A call has one row of named buttons and a short More menu, a banner says who is calling, and a contact's page in People lists the rooms you share and lets you check words together.",
+        "name": "0.1.95",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.95/KithMoot-0.1.95-mac-arm64.zip",
+        "sha256": "f82a2f95ea14ab526820b10b90babb0b3870510208e76a036ce5a8688d2cba3d",
+        "size": 170833793
       }
     }
   ]
