@@ -2246,7 +2246,9 @@ function invitesSent(roomId: string): Record<string, InviteSent> {
   }
 }
 function keepInvitesSent(roomId: string, sent: Record<string, InviteSent>): void {
-  deviceStore.set(INVITES_SENT_KEY_PREFIX + roomId, JSON.stringify(Object.fromEntries(Object.entries(sent).slice(-200))))
+  // Written while People draws, so storage that is full or blocked costs
+  // only the note, never the page.
+  try { deviceStore.set(INVITES_SENT_KEY_PREFIX + roomId, JSON.stringify(Object.fromEntries(Object.entries(sent).slice(-200)))) } catch { /* kept next time */ }
 }
 
 let invitingPeer: { participant: string; name?: string } | undefined
@@ -13487,7 +13489,8 @@ function renderRooms(): void {
   // People is for somebody signed in with Nostr, and nobody else (Q14).
   setPeopleAvailable(!!nostrSession)
   // A contact's page reads what these watches hear: who has come into a room.
-  renderPeople()
+  // Queued, so nothing in People can stop the list below from being drawn.
+  queueMicrotask(renderPeople)
   publishDesktopMenu()
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
