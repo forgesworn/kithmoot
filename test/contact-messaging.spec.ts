@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { parseRoomLink } from '../src/link.js'
-import { accountDevice, signInAccount } from './nostr-account.js'
+import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openSettings } from './browser.js'
 import { shareContacts } from './contacts-grant.js'
 
@@ -14,7 +14,7 @@ test('Signet contacts start a private conversation without a shared room, delive
   try {
     const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
     for (const key of [aKey, bKey]) await publisher.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), tags: [['relay', relay.href]], content: '' }, key))
-    let alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 }); await signInAccount(alice, baseURL!)
+    let alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await shareContacts(alice, a, [{ pubkey: b, name: 'Bob from Signet' }], publisher)
     await alice.locator('#signetContactsSearch').fill('unmatched person')
     await expect(alice.locator('#signetGrantedContacts li')).toHaveCount(0)
@@ -33,7 +33,7 @@ test('Signet contacts start a private conversation without a shared room, delive
     await expect(alice.locator('#contactInboxStatus')).toHaveText('')
     await alice.close()
     // Alice is offline too. Bob has never loaded this app or joined a room.
-    const bob = await bc.newPage(); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!)
     const invitations = bob.getByRole('navigation', { name: 'Chats' }).locator('li[data-invitation]')
     // Account restoration never opens arriving wrappers. Bob chooses to load
     // and classify the invitation before using the existing room controls.

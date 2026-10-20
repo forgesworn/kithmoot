@@ -75,6 +75,25 @@ export async function accountDevice(browser: Browser, baseURL: string, secret = 
   return context
 }
 
+/** Choose the fixture through the real relay controls before signing in.
+ *  A loopback-only run must not depend on public defaults being redirected. */
+export async function configureAccountTestRelay(page: Page, baseURL: string): Promise<void> {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  await page.goto(baseURL)
+  await expect(page.locator('html[data-ordinary-startup=ready]')).toBeVisible()
+  await openSettings(page, 'Connections')
+  await page.locator('#defaultRelaySettings').click()
+  await page.locator('#relayScope').selectOption('default')
+  const remove = page.locator('#relayList button[aria-label^="Remove "]')
+  for (let n = 0; n < 64 && await remove.count(); n++) await remove.first().click()
+  await expect(remove).toHaveCount(0)
+  await page.locator('#relayUrl').fill(relay.href)
+  await page.locator('#relayAddForm button[type=submit]').click()
+  await page.locator('#relaySave').click()
+  await page.locator('#relaySettingsClose').click()
+  await closeSettings(page)
+}
+
 export async function signInAccount(page: Page, baseURL: string) {
   await page.goto(baseURL + '?signin=nostr')
   await page.getByRole('button', { name: /Browser extension/ }).click()
