@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.92",
+  "currentRelease": "0.1.93",
   "releases": [
     {
-      "version": "0.1.92",
+      "version": "0.1.93",
       "updateTo": {
-        "version": "0.1.92",
-        "pub_date": "2026-10-20T07:34:59Z",
-        "notes": "One way around the app: a rail with Chats, People and Boards, one chats list with search and filters, and People for your contacts and the people you follow.",
-        "name": "0.1.92",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.92/KithMoot-0.1.92-mac-arm64.zip",
-        "sha256": "b59bf936356ad483447d7236443f65fe0881b2abbe58ab16ac4941d8cbd50e4f",
-        "size": 170818542
+        "version": "0.1.93",
+        "pub_date": "2026-10-20T10:28:54Z",
+        "notes": "A calmer room: the header is the name, Start call, Search and a short \u22ef menu, and the desktop app has its own File, View, Room and Help menus.",
+        "name": "0.1.93",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.93/KithMoot-0.1.93-mac-arm64.zip",
+        "sha256": "0576eb7fda8a9397f5b1ad29f1e6f9b44a33e1ef2cc791346ef8e1c49b2234ad",
+        "size": 170824221
       }
     }
   ]
