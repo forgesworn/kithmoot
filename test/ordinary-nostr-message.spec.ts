@@ -77,7 +77,7 @@ test('missing recipient inbox holds the message and editing a reviewed draft rem
     await expect(page.locator('#nostrMessageSend')).toBeHidden(); expect(events).toEqual([])
   } finally { pool.close(); await context.close() }
 })
-test('sign-out closes and clears the separate public compose without publishing', async ({ browser, baseURL }) => {
+test('a closed public draft stays cleared after sign-out without publishing', async ({ browser, baseURL }) => {
   const context = await accountDevice(browser, baseURL!), recipient = generateSecretKey()
   try {
     const page = await context.newPage(), events = publishedWraps(page)

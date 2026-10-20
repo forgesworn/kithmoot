@@ -51,7 +51,10 @@ Written regression sources cover ordinary rumor contents and sender copies,
 missing/newly empty/forged inbox lists, signer refusal or substitution, stale
 provider starts, blocking, cancellation, bounds and exact-envelope retry. Three
 built-client browser cases use the existing synthetic provider/relay fixture and
-are registered in the existing browser selections. They are **not** actual
+are registered in the existing browser selections. The sign-out case closes the
+view first; it does not prove invalidation of an open or pending send. Deferred
+provider handoff, actual socket cancellation and asymmetric partial-ACK retry
+still need targeted runtime qualification. These browser cases are **not** actual
 external-client interoperability and have not run.
 
 C04 still requires the unchanged Coracle app's real receive/decrypt/render path,
