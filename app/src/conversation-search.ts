@@ -96,7 +96,10 @@ export class ConversationSearch {
       this.#status.textContent = ''
       this.#back.hidden = true
       this.#lastResult = undefined
-      const opener = this.#returnFocus === this.#back ? root.getElementById('chatSearch')! : this.#returnFocus
+      // Back to results is a way into the search, so focus returns to where a
+      // search starts: the header's icon, or the menu where the header has none.
+      const search = root.getElementById('chatSearch')!
+      const opener = this.#returnFocus === this.#back ? (search.getClientRects().length ? search : root.getElementById('roomMenu')!) : this.#returnFocus
       opener.focus({ preventScroll: true })
     })
   }

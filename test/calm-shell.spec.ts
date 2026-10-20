@@ -3,8 +3,10 @@ import AxeBuilder from '@axe-core/playwright'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { agentRelaysFor, testRelaysFor } from './relays.js'
+import { encodeRoomLink } from '../src/link.js'
+import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -456,7 +458,7 @@ test('the list is one tab stop: arrows move between rows and Enter opens', async
     const menu = page.getByRole('menu', { name: /More for/ })
     await expect(menu).toBeVisible()
     await expect(menu.getByRole('menuitem').first()).toBeFocused()
-    await expect(menu.getByRole('menuitem')).toHaveText(['Unpin', 'Copy invite link', 'Open in a new tab', 'Add to a project', 'Group on this browser', 'Forget this room'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['Mark as read', 'Copy invite link', 'Open in a new tab', 'Notifications', 'Unpin', 'Add to a project', 'Group on this browser', 'Forget this room'])
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
     await expect(more).toBeFocused()
@@ -497,5 +499,241 @@ test('creating a room from the New menu closes the sheet and leaves the door cle
     await page.locator('#displayName').fill('Ada')
     await page.locator('#join').click()
     await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  } finally { await context.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 3: the room header, the ⋯ menu, the empty room.
+// ---------------------------------------------------------------------------
+
+/** Visible controls above the log, outside the rail and the list: what a
+ *  person meets before the first message. */
+async function controlsAboveLog(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const log = document.getElementById('chatLog')!.getBoundingClientRect()
+    const area = document.getElementById('roomArea')!
+    const found: string[] = []
+    for (const el of area.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')) {
+      const r = el.getBoundingClientRect()
+      if (!r.width || !r.height || getComputedStyle(el).visibility === 'hidden' || el.closest('[hidden], dialog:not([open]), [popover]:not(:popover-open)')) continue
+      if (r.bottom <= log.top + 1 && !el.closest('.sr-only')) found.push(el.id || el.getAttribute('aria-label') || (el.textContent ?? '').trim().slice(0, 20))
+    }
+    return found
+  })
+}
+
+for (const [label, size, touch] of [['1440 by 900', { width: 1440, height: 900 }, false], ['390 by 844', { width: 390, height: 844 }, true]] as const) {
+  test(`at ${label} a room has four controls above its log: the way back where there is one, the title, Start call, ⋯ (and Search where it fits)`, async ({ browser, baseURL }) => {
+    const { context, page } = await visitor(browser, baseURL!, size, { touch })
+    try {
+      await joinRoom(page)
+      const controls = await controlsAboveLog(page)
+      expect(controls.length, controls.join(', ')).toBeLessThanOrEqual(4)
+      await expect(page.locator('#callToggle')).toBeVisible()
+      await expect(page.locator('#callToggle')).toHaveAccessibleName('Start call')
+      await expect(page.locator('#roomMenu')).toHaveAccessibleName('More for this room')
+      await expect(page.locator('#roomMenu')).toHaveAttribute('aria-haspopup', 'menu')
+      // Search is an icon from 600 px and a menu item below it.
+      if (size.width >= 600) await expect(page.locator('#chatSearch')).toHaveAccessibleName('Search in room')
+      else await expect(page.locator('#chatSearch')).toBeHidden()
+      // None of what the header replaced is still on the screen.
+      for (const gone of ['#agentActivity', '#invitePeople', '#inviteQr', '#openAssignments', '#mobileWork']) await expect(page.locator(gone)).toHaveCount(0)
+      // The phone's Chat and Call switch waits until this device is on a call.
+      await expect(page.locator('#mobileRoomViews')).toBeHidden()
+    } finally { await context.close() }
+  })
+}
+
+test('the ⋯ menu has the keyboard model: Enter opens, arrows move, Right opens Notifications, Escape steps back out and focus returns to the ⋯', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    const more = page.locator('#roomMenu')
+    const menu = page.getByRole('menu', { name: 'More for this room' })
+    await more.focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeVisible()
+    await expect(more).toHaveAttribute('aria-expanded', 'true')
+    const items = menu.getByRole('menuitem')
+    await expect(items.first()).toHaveAccessibleName('Room info')
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.nth(1)).toBeFocused()
+    await page.keyboard.press('End')
+    await expect(items.last()).toHaveAccessibleName('Leave room…')
+    await page.keyboard.press('Home')
+    // Right on Notifications opens its choices, with the one in force ticked.
+    await menu.getByRole('menuitem', { name: 'Notifications', exact: true }).focus()
+    await page.keyboard.press('ArrowRight')
+    const choices = menu.getByRole('menu', { name: 'Notifications' }).getByRole('menuitemradio')
+    await expect(choices).toHaveText(['Every message', 'Nothing', 'Use my default'])
+    await expect(choices.first()).toBeFocused()
+    await expect(choices.nth(2)).toHaveAttribute('aria-checked', 'true')
+    // Left, and Escape, close only the submenu and give focus back to its item.
+    await page.keyboard.press('ArrowLeft')
+    await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true })).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true })).toBeFocused()
+    // Choosing one writes the room's own mode.
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeHidden()
+    await expect(more).toBeFocused()
+    expect(await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith('kithmoot.notification-scopes.v1.')).map(([, value]) => value))).toEqual(['off'])
+    // And a last Escape, from the top level, closes the menu onto the ⋯.
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(more).toBeFocused()
+    // Room info is the first item, and Cmd or Ctrl+I says the same.
+    await page.keyboard.press('Control+i')
+    await expect(page.locator('#roomSheet')).toHaveJSProperty('open', true)
+  } finally { await context.close() }
+})
+
+test('the menu of a room lists what a person does and leaves out what the room cannot, and a phone gets it as a sheet', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await joinRoom(page, 2)
+    await openRoomMenu(page)
+    const menu = page.locator('#roomMoreMenu')
+    await expect(menu.getByRole('menuitem')).toHaveText(['Room info', 'Search in room', 'Invite people…', 'Add an agent…', 'Notifications', 'New task…', 'Pin', 'Add to project…', 'Leave room…'])
+    // Two groups of separators and no stray one at an edge.
+    expect(await menu.evaluate(el => [...el.children].map(child => child.tagName === 'HR' ? '-' : 'i').join('').replace(/i+/g, 'i'))).toBe('i-i-i')
+    // A sheet from the bottom edge.
+    const bounds = (await menu.boundingBox())!
+    expect(Math.round(bounds.x)).toBe(0)
+    expect(Math.round(bounds.width)).toBe(390)
+    expect(Math.round(bounds.y + bounds.height)).toBe(844)
+    // Notifications replace the items, with a way back.
+    await menu.getByRole('menuitem', { name: 'Notifications', exact: true }).click()
+    await expect(menu.getByRole('menuitem', { name: 'Room info' })).toBeHidden()
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(3)
+    await menu.getByRole('menuitem', { name: /Back/ }).click()
+    await expect(menu.getByRole('menuitem', { name: 'Room info' })).toBeVisible()
+    await roomMenuItem(page, 'Invite people…')
+    await expect(page.locator('#inviteDialog')).toHaveJSProperty('open', true)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#roomMenu')).toBeFocused()
+    // Search is here on a phone.
+    await roomMenuItem(page, 'Search in room')
+    await expect(page.locator('#conversationSearch')).toBeVisible()
+  } finally { await context.close() }
+})
+
+test('a private chat has no invitation, no agent, no project, and says it is a private chat to leave', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const me = getPublicKey(secret)
+  const peer = getPublicKey(generateSecretKey())
+  const context = await accountDevice(browser, baseURL!, secret)
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await signInAccount(page, baseURL!)
+    const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Priya', relays: testRelaysFor(baseURL!) ?? [], iceUrls: [], policy: { tier: 'open', members: [me, peer].sort() } })
+    await page.goto('about:blank'); await page.goto(link)
+    await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
+    await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomWho')).toHaveText('Private chat')
+    await openRoomMenu(page)
+    await expect(page.locator('#roomMoreMenu').getByRole('menuitem')).toHaveText(['Room info', 'Notifications', 'New task…', 'Pin', 'Leave private chat…'])
+    await page.keyboard.press('Escape')
+    // No block about nobody being here: nobody is invited by a link.
+    await expect(page.locator('#emptyRoom')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('an empty room says so once, offers the link and the QR code, and steps aside the moment somebody arrives', async ({ browser, baseURL }) => {
+  const keeper = await RoomAgent.create({ base: baseURL!, roomName: 'Fresh room', name: 'Host', agent: false, ...agentRelaysFor(baseURL!) })
+  await keeper.leave()
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(baseURL!).origin })
+  let late: RoomAgent | undefined
+  try {
+    await page.goto('about:blank'); await page.goto(keeper.url)
+    await expect(page.locator('#displayName')).toBeVisible({ timeout: 60_000 })
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    const block = page.locator('#emptyRoom')
+    await expect(block).toBeVisible()
+    await expect(block.getByText('Nobody else is here yet.', { exact: true })).toBeVisible()
+    await expect(block.getByText('Anyone with the link can join.', { exact: true })).toBeVisible()
+    // Centred in the log.
+    const around = (await page.locator('#chatViewport').boundingBox())!, inside = (await block.boundingBox())!
+    expect(Math.abs((inside.x + inside.width / 2) - (around.x + around.width / 2))).toBeLessThan(4)
+    await block.getByRole('button', { name: 'Copy invite link', exact: true }).click()
+    await expect(page.locator('#status')).toHaveText('Invite link copied.')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await page.locator('#shareUrl').inputValue())
+    await block.getByRole('button', { name: 'Show QR code', exact: true }).click()
+    await expect(page.locator('#inviteDialog')).toHaveJSProperty('open', true)
+    await expect(page.locator('#shareQr')).toBeVisible()
+    await page.keyboard.press('Escape')
+    // Somebody arrives, and the block goes.
+    late = await RoomAgent.join({ link: keeper.url, name: 'Rowan', agent: false, transport: agentRelaysFor(baseURL!).transport })
+    await expect(block).toBeHidden({ timeout: 30_000 })
+  } finally { await late?.leave(); await context.close() }
+})
+
+test('at 320 by 640 with Huge text the header is back, name and ⋯, Start call is in the menu, and two messages and the composer are on screen', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 320, height: 640 }, { size: 'huge', touch: true })
+  try {
+    await joinRoom(page)
+    await expect(page.locator('#callToggle')).toBeHidden()
+    await expect(page.locator('#chatSearch')).toBeHidden()
+    await expect(page.locator('#roomMenu')).toBeVisible()
+    await expect(page.locator('#roomWho')).toBeHidden()
+    await openRoomMenu(page)
+    await expect(page.locator('#roomMoreMenu').getByRole('menuitem').first()).toHaveAccessibleName('Start call')
+    await page.keyboard.press('Escape')
+    const log = (await page.locator('#chatLog').boundingBox())!
+    const messages = await page.locator('#chatLog [data-message-id]').evaluateAll(rows => rows.map(row => { const r = row.getBoundingClientRect(); return { top: r.top, bottom: r.bottom } }))
+    const shown = messages.filter(m => m.top >= log.y - 1 && m.bottom <= log.y + log.height + 1)
+    expect(shown.length, 'messages wholly in view').toBeGreaterThanOrEqual(2)
+    const composer = (await page.locator('#chatForm').boundingBox())!
+    expect(composer.y).toBeGreaterThanOrEqual(0)
+    expect(composer.y + composer.height).toBeLessThanOrEqual(640)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
+  } finally { await context.close() }
+})
+
+test('a right-click on a message opens the app menu with what the message offers, and the message field keeps the native menu', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    await expect(page.locator('#chatLog [data-message-id]').first()).toBeVisible()
+    const bubble = page.locator('#chatLog [data-message-id] .bubble').last()
+    await bubble.click({ button: 'right' })
+    const menu = page.getByRole('menu', { name: /^Message from/ })
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem')).toHaveText(['Reply', 'React', 'Copy text', 'Send as task', 'Summarise this'])
+    await expect(menu.getByRole('menuitem').first()).toBeFocused()
+    // React opens its choices with Right, each a toggle with its state.
+    await menu.getByRole('menuitem', { name: 'React', exact: true }).focus()
+    await page.keyboard.press('ArrowRight')
+    const reactions = menu.getByRole('menu', { name: 'React' }).getByRole('menuitemcheckbox')
+    expect(await reactions.count()).toBeGreaterThan(3)
+    await expect(reactions.first()).toHaveAttribute('aria-checked', 'false')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    // Reply is the same handler as the ⋯ on the message.
+    await bubble.click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: /^Reply to/ }).click()
+    await expect(page.locator('#composerContext')).toBeVisible()
+    // What the page does with the event: the app takes it on a message, and
+    // leaves it alone in the message field, where the desktop shows its native edit menu.
+    const taken = (selector: string) => page.evaluate(sel => new Promise<boolean>(resolve => {
+      const target = document.querySelector(sel)!
+      target.addEventListener('contextmenu', event => queueMicrotask(() => resolve(event.defaultPrevented)), { once: true })
+      target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
+    }), selector)
+    expect(await taken('#chatInput')).toBe(false)
+    expect(await taken('#chatLog [data-message-id] .bubble')).toBe(true)
+    await page.keyboard.press('Escape')
   } finally { await context.close() }
 })

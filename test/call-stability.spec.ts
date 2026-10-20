@@ -809,13 +809,13 @@ test.describe('call stability', () => {
   })
 
   /**
-   * B1: the phone's Call tab is navigation, never an act. It used to click
-   * `#joinCall` on the way in, which creates a call when none exists - so
-   * opening the tab told the whole room "Sam started a call". Tapping it
-   * now only ever shows the call view; starting or joining stays the one
-   * explicit tap on that view's own strip action.
+   * B1: opening a room never starts a call. The phone's Call tab used to
+   * click `#joinCall` on the way in, which creates a call when none exists -
+   * so opening the tab told the whole room "Sam started a call". The tab is
+   * gone until this device is on a call (stage 3 of the calm shell); the
+   * header's Start call is the one explicit act, and nothing else starts one.
    */
-  test('B1: the phone Call tab only opens the call view, and starts nothing', async ({ browser, baseURL }) => {
+  test('B1: a phone in a room starts nothing, and offers Start call', async ({ browser, baseURL }) => {
     const watcherContext = await newDeviceContext(browser, baseURL!)
     const phoneContext = await newDeviceContext(browser, baseURL!)
     try {
@@ -831,9 +831,12 @@ test.describe('call stability', () => {
       await phone.locator('#join').click()
       await expect(phone.locator('#roomArea')).toBeVisible()
 
-      await phone.locator('#mobileCall').click()
-      await expect(phone.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'call')
+      // Nothing starts a call but the person: the header offers it, the Chat
+      // and Call switch is not there until they are on one, and the controls
+      // stay shut.
       await expect(phone.getByRole('button', { name: 'Start call', exact: true })).toBeVisible()
+      await expect(phone.locator('#mobileRoomViews')).toBeHidden()
+      await expect(phone.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'chat')
       await expect(phone.locator('#deviceControls')).toBeHidden()
 
       await PAUSE(watcher, 5000)

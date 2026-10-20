@@ -43,7 +43,6 @@ html[data-call-first] #roomArea > #status:empty { display: none; }
    drawer control all step aside while the call has the room. */
 html[data-call-first] #callToggle,
 html[data-call-first] #chatDrawerToggle,
-html[data-call-first] #roomArea > #agentActivity,
 html[data-call-first] #roomArea > #callBanner,
 html[data-call-first] #callStrip { display: none !important; }
 

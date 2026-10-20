@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { TEST_RELAY_WS } from './browser.js'
+import { TEST_RELAY_WS, openRoomDetails } from './browser.js'
 
 // Somebody on a phone during a live call could not read the chat. These are
 // the measurements that were wrong, taken the way that person met them: a
@@ -137,7 +137,7 @@ test('a phone reads the conversation: size, width, contrast and no sideways scro
     }
 
     // Huge text, chosen in Room details and kept on this device.
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await page.locator('#roomSheet').getByRole('radio', { name: 'Huge' }).check()
     await page.locator('#roomSheetClose').click()
     await expect.poll(() => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))).toBe(24)
@@ -183,11 +183,12 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
         await expect(p.locator('html')).toHaveAttribute('data-call-pane', 'live')
         await expect(p.locator('#callToggle')).toHaveAttribute('data-live', 'false')
       }
-      // The Call tab only opens the call view (B1); starting the call is
-      // still the one explicit tap on the strip's own action.
-      await p.locator('#mobileCall').click()
-      await expect(p.locator('#callStripAction')).toBeVisible()
-      await p.locator('#callStripAction').click(); await p.locator('#toggleCamera').click()
+      // The header's call button starts (or joins) the call, and the call
+      // view opens with it: the phone's Chat and Call switch only exists once
+      // this device is on the call.
+      await p.locator('#callToggle').click()
+      await expect(p.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'call')
+      await p.locator('#toggleCamera').click()
     }
     await expect(page.locator('#room video')).toHaveCount(2)
     await expect.poll(() => remote.locator('#room video').evaluateAll(v => v.every(e => (e as HTMLVideoElement).videoWidth > 0))).toBe(true)
@@ -200,7 +201,8 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
       const stage = (await page.locator('#whoIsHere').boundingBox())!
       expect(stage.height).toBeGreaterThan(viewport.height * .45)
       for (const name of ['Microphone', 'Camera', 'Screen share', 'Record call', 'Leave call']) {
-        await expect(page.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
+        // The header's own call button is also named Leave call while on one.
+        await expect(name === 'Leave call' ? page.locator('#leaveCall') : page.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
       }
       await expect(page.locator('#recordToggle .callShort')).toBeVisible()
       await expect(page.locator('#recordToggle .callShort')).toHaveText('Record')

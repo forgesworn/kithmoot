@@ -11,7 +11,7 @@ import { localIdentity } from '../src/identity.js'
 import { issueAgentOwnership } from '../src/ownership.js'
 import { AgentAssignmentWork } from '../src/node/assignment-work.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { open, TEST_RELAY_WS } from './browser.js'
+import { open, TEST_RELAY_WS, openRoomTasks } from './browser.js'
 
 // Build apps/den from the companion Vitark checkout and serve build/web on a
 // loopback origin. No production service, personal profile or physical device.
@@ -96,7 +96,7 @@ test('compiled Den shares, receives an agent artifact, and accepts the exact res
     const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
     const link = encodeRoomLink(baseURL!, { ...parseRoomLink(room.url), relays: [relay.href] })
     await open(witness, link, 'Room reviewer'); await witness.locator('#join').click()
-    await witness.locator('#mobileWork:visible, #openAssignments:visible').click(); await witness.getByRole('button', {name: 'Room tasks', exact: true}).click(); await witness.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(witness)
     const sharedCard = witness.locator(`.assignmentCard[data-assignment="${assignment.id}"]`)
     await expect(sharedCard).toContainText(result.result!.id)
     await expect(page.getByText('Build 54 checked', { exact: true })).toBeVisible()

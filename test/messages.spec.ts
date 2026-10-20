@@ -5,7 +5,7 @@ import { RoomAgent } from '../src/agent.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
-import { openRoomDetails, TEST_RELAY_WS, showChats } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS, showChats, openRoomMenu } from './browser.js'
 
 /**
  * The message layer, as a person meets it: a reply that sits under the
@@ -214,8 +214,13 @@ test('a private conversation is started from a person and reaches them inside th
     await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Rowan' }).click()
     await expect(ada.locator('#roomTitle')).toHaveText('Rowan', { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')
-    await expect(ada.locator('#invitePeople')).toHaveJSProperty('hidden', true)
-    await expect(rowan.locator('#invitePeople')).toHaveJSProperty('hidden', true)
+    // A private chat has no link to hand out, so its menu offers no invitation
+    // and says what leaving it is.
+    await openRoomMenu(ada)
+    const menu = ada.locator('#roomMoreMenu')
+    await expect(menu.getByRole('menuitem', { name: 'Invite people…', exact: true })).toHaveCount(0)
+    await expect(menu.getByRole('menuitem', { name: 'Leave private chat…', exact: true })).toBeVisible()
+    await ada.keyboard.press('Escape')
   } finally {
     for (const context of contexts) await context.close()
   }

@@ -41,6 +41,14 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
     ipcRenderer.on('desktop:open-room', handler)
     return () => ipcRenderer.removeListener('desktop:open-room', handler)
   },
+  // What the room on screen allows, for the Room menu's items; and the name of
+  // the menu item the person chose, from the fixed list in app-menu.mjs.
+  setRoomMenuState(state) { if (typeof state === 'object' && state !== null) ipcRenderer.send('desktop:room-menu-state', state) },
+  onMenuCommand(listener) {
+    const handler = (_event, command) => { if (typeof command === 'string') listener(command) }
+    ipcRenderer.on('desktop:menu-command', handler)
+    return () => ipcRenderer.removeListener('desktop:menu-command', handler)
+  },
   setCallActive(active) {
     if (typeof active === 'boolean') ipcRenderer.send('desktop:call-state', active)
   },

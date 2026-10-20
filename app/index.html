@@ -406,11 +406,13 @@
                the button shows the phone. `renderCallState` in app/src/main.ts
                writes the word and swaps the picture. -->
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
-                  data-tip="Call: microphone, camera and screen share" aria-label="Call controls"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-phone"/></svg><span class="barWord">Call</span></button>
-          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel"
-                  data-tip="Boards"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span class="barWord">Boards</span></button>
-          <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
-                  aria-label="Room details" data-tip="Room details"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg></button>
+                  data-tip="Start call" aria-label="Start call"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-phone"/></svg><span class="barWord">Start call</span></button>
+          <!-- Below 600 px this is an item in the more menu instead. -->
+          <button id="chatSearch" type="button" class="barBtn" aria-label="Search in room" aria-haspopup="dialog" aria-controls="conversationSearch"
+                  data-tip="Search in room"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-search"/></svg></button>
+          <button id="roomMenu" type="button" class="barBtn"
+                  aria-label="More for this room" data-tip="More for this room"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg></button>
+          <div id="roomMoreMenu" class="menuPopover"></div>
         </div>
 
         <nav id="roomBoards" class="roomBoardLinks" aria-label="Boards in this chat" hidden></nav>
@@ -451,10 +453,9 @@
           <span id="meetingNoticeText"></span>
           <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
         </div>
-        <nav id="mobileRoomViews" aria-label="Room views">
+        <nav id="mobileRoomViews" aria-label="Room views" hidden>
           <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
           <button id="mobileCall" type="button" aria-pressed="false">Call</button>
-          <button id="mobileWork" type="button" aria-haspopup="dialog" aria-controls="assignmentPanel">Boards</button>
         </nav>
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
         <div id="workAttention" class="workAttention" hidden>
@@ -470,11 +471,6 @@
         <div id="callBanner" class="callBanner" role="status" hidden>
           <span id="callBannerText"></span>
           <button id="joinCall" type="button" class="primary">Join call</button>
-        </div>
-        <div id="agentActivity" class="agentActivity" hidden>
-          <div><strong id="agentActivityTitle"></strong><span id="agentActivityNote"></span></div>
-          <button id="watchAgents" type="button">Watch agents</button>
-          <button id="manageAgents" type="button" hidden>Invite an agent</button>
         </div>
         <!-- Somebody has drawn on this device's own screen share and the
              floating preview, if this browser has one, is not open to show
@@ -494,12 +490,7 @@
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
           <button id="nextUnread" type="button" hidden></button>
-          <button id="chatSearch" type="button" aria-label="Search messages" aria-haspopup="dialog" aria-controls="conversationSearch">Search</button>
           <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
-          <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
-          <!-- The same invitation, opened on its QR code, large: for the
-               person across the table to scan from this screen. -->
-          <button id="inviteQr" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite by QR</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <!-- A re-render of the whole log re-announces everything already
@@ -516,6 +507,14 @@
         <div id="chatViewport">
           <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
+          <!-- Nobody else is here and nobody has said anything: the one thing to
+               do is get somebody in. Filled in and shown by `renderEmptyRoom`. -->
+          <div id="emptyRoom" class="emptyRoom" hidden>
+            <p class="emptyRoomTitle">Nobody else is here yet.</p>
+            <button id="emptyCopyLink" type="button" class="primary">Copy invite link</button>
+            <button id="emptyShowQr" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Show QR code</button>
+            <p class="emptyRoomNote">Anyone with the link can join.</p>
+          </div>
         </div>
         <p id="bothyRoomConnection" class="note" role="status" hidden></p>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
@@ -1390,7 +1389,7 @@
             <p class="note">The part after # stays in your browser when you open this website. The app you share it through may still read the complete link unless that chat uses end-to-end encryption.</p>
           </details>
           <details id="shareQrDetails">
-            <summary>Show a QR code</summary>
+            <summary>Show QR code</summary>
             <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>
             <p class="note">Point another phone's camera at this to open the room on it.</p>
           </details>
