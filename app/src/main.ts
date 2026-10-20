@@ -13498,6 +13498,9 @@ function renderRooms(): void {
   updateDesktopUnread()
   // People is for somebody signed in with Nostr, and nobody else (Q14).
   setPeopleAvailable(!!nostrSession)
+  // A contact's page reads what these watches hear: who has come into a room.
+  // Queued, so nothing in People can stop the list below from being drawn.
+  queueMicrotask(renderPeople)
   publishDesktopMenu()
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
@@ -15706,6 +15709,61 @@ function privateChatWith(peer: string): KnownRoom | undefined {
   })()).map(room => ({ room: room.roomId, sentAt: room.openedAt, known: room })))?.known
 }
 
+/** Whether this device has seen this person in a room: on its roster now, or
+ *  as the author of a message in the history held here. Read off what the
+ *  rooms list already watches, so it asks no relay anything. Somebody who
+ *  came in as a guest, under a key of that room's own, is not recognised. */
+function personSeenIn(roomId: string, pubkey: string): boolean {
+  const here = roomId === currentRoomId() && session ? session.participants() : roomWatches.get(roomId)?.watch.present() ?? []
+  // heldMessages reads the open room through conversationMessages: a room
+  // still joining has no chat yet.
+  return here.some(entry => entry.participant === pubkey) || heldMessages(roomId).some(message => message.participant === pubkey)
+}
+
+/** Group rooms on this device that are still going: not private chats, not ended. */
+function contactPageRooms(): KnownRoom[] {
+  return navigationRooms().filter(room => !dmPeerOf(room) && !roomIsEnded(room))
+    .sort((a, b) => knownRoomLabel(a).localeCompare(knownRoomLabel(b), undefined, { sensitivity: 'base' }))
+}
+
+/** What has been said in a room, as this device holds it: the open room's
+ *  session, else the list's watch of it. */
+function heldMessages(roomId: string): ChatMessage[] {
+  if (roomId === currentRoomId() && session) return conversationMessages(undefined)
+  return roomWatches.get(roomId)?.watch.messages() ?? []
+}
+
+/** The rooms this account invited the person to, and whether they have come.
+ *  An invitation is a message in the private chat with them, so its room and
+ *  its day are read from that chat's history; one this device sent and no
+ *  longer holds in that history is still known, without a day, from the
+ *  list that lets an invited knock in. */
+function invitationsSentTo(pubkey: string): { room: KnownRoom; at?: number; joined: boolean }[] {
+  const self = nostrSession?.pubkey
+  const chat = privateChatWith(pubkey)
+  const sentAt = new Map<string, number>()
+  if (self && chat) {
+    for (const message of heldMessages(chat.roomId)) {
+      if (message.participant !== self || message.invite?.to !== pubkey) continue
+      sentAt.set(message.invite.room, Math.max(sentAt.get(message.invite.room) ?? 0, message.sentAt))
+    }
+  }
+  return contactPageRooms().filter(room => sentAt.has(room.roomId) || invitedTo(room.roomId).has(pubkey)).map(room => {
+    const at = sentAt.get(room.roomId)
+    return { room, ...(at !== undefined ? { at } : {}), joined: personSeenIn(room.roomId, pubkey) }
+  })
+}
+
+/** Rooms you share with the person, worked out on this device alone. */
+function roomsSharedWith(pubkey: string): KnownRoom[] {
+  return contactPageRooms().filter(room => personSeenIn(room.roomId, pubkey))
+}
+
+function openFromPeople(room: KnownRoom): void {
+  openDestination('chats')
+  void switchRoom(room)
+}
+
 function inPrivateChatWith(peer: string): boolean {
   const room = currentRoomId()
   return !!session && !!room && privateChatWith(peer)?.roomId === room
@@ -15839,8 +15897,12 @@ function linkSignetContacts(opener: HTMLElement): void {
     invite: invitePerson,
     privateChat: peer => {
       const room = privateChatWith(peer)
-      return room ? { label: knownRoomLabel(room), open: () => { openDestination('chats'); void switchRoom(room) } } : undefined
+      return room ? { label: knownRoomLabel(room), open: () => openFromPeople(room) } : undefined
     },
+    sharedRooms: peer => roomsSharedWith(peer).map(room => ({ roomId: room.roomId, label: knownRoomLabel(room), open: () => openFromPeople(room) })),
+    sentInvitations: peer => invitationsSentTo(peer).map(({ room, at, joined }) => ({
+      roomId: room.roomId, label: knownRoomLabel(room), joined, ...(at !== undefined ? { at } : {}), open: () => openFromPeople(room),
+    })),
     want: pubkeys => profiles.want(pubkeys),
     pasteCard: pasteContactCard,
     linkSignet: linkSignetContacts,

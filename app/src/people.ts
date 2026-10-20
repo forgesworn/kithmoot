@@ -31,6 +31,18 @@ export interface Person {
   address?: string
 }
 
+export interface SharedRoom {
+  roomId: string
+  label: string
+  open(): void
+}
+
+export interface SentInvitation extends SharedRoom {
+  /** When it was sent, unix seconds; unknown for one sent before this was kept. */
+  at?: number
+  joined: boolean
+}
+
 export interface PeopleModel {
   contacts: Person[]
   following: Person[]
@@ -49,6 +61,10 @@ export interface PeopleActions {
   invite(person: Person): Promise<string | undefined>
   /** The private chat already open with this person, if there is one. */
   privateChat(pubkey: string): { label: string; open(): void } | undefined
+  /** Rooms this device has seen this person in, worked out here alone. */
+  sharedRooms(pubkey: string): SharedRoom[]
+  /** Rooms this device invited this person to, and whether they came. */
+  sentInvitations(pubkey: string): SentInvitation[]
   /** Look up names and pictures for these keys (the public-profile switch decides). */
   want(pubkeys: string[]): void
   pasteCard(opener: HTMLElement): void
@@ -301,7 +317,12 @@ export class PeopleView {
   #paintPane(): void {
     const model = this.#model()
     const person = [...model.contacts, ...model.following].find(entry => entry.pubkey === this.#selected)
-    const shown = person ? JSON.stringify([person, this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label]) : 'none'
+    const shared = person ? this.#actions.sharedRooms(person.pubkey) : []
+    const sent = person ? this.#actions.sentInvitations(person.pubkey) : []
+    // Only what is drawn goes in: a day word changes at midnight, not every tick.
+    const today = Date.now()
+    const shown = person ? JSON.stringify([person, this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label,
+      shared.map(room => [room.roomId, room.label]), sent.map(invite => [invite.roomId, invite.label, invite.joined, invite.at === undefined ? '' : dayWords(invite.at, today)])]) : 'none'
     if (shown === this.#painted && this.#pane.childElementCount) return
     this.#painted = shown
     if (!person) {
@@ -406,6 +427,27 @@ export class PeopleView {
       section.append(title, open)
       card.append(section)
     }
+    if (shared.length) {
+      const list = contactList('peopleSharedRooms', 'Rooms you share')
+      for (const room of shared) {
+        const open = contactLinkButton(room.label, room.open)
+        open.prepend(personAvatar(room.roomId, room.label, undefined, 'contactRoomAvatar'))
+        list.items.append(listItem(open))
+      }
+      card.append(list.section)
+    }
+    if (sent.length) {
+      const list = contactList('peopleSentInvitations', 'Invitations')
+      for (const invite of sent) {
+        const state = `You invited ${name} · ${invite.joined ? 'Joined' : 'Sent, not joined yet'}`
+        const day = invite.at === undefined ? '' : dayWords(invite.at, today)
+        const open = contactLinkButton(invite.label, invite.open, state, day)
+        open.prepend(icon('personAdd'))
+        open.setAttribute('aria-label', [invite.label, state, day].filter(Boolean).join(', '))
+        list.items.append(listItem(open))
+      }
+      card.append(list.section)
+    }
     const focusHeading = this.#pane.contains(document.activeElement) && document.activeElement !== heading
     this.#pane.replaceChildren(back, card)
     if (focusHeading) heading.focus({ preventScroll: true })
@@ -476,6 +518,73 @@ export class PeopleView {
     this.#menu.style.left = `${Math.round(Math.max(8, Math.min(box.left, window.innerWidth - 280)))}px`
     this.#menu.showPopover()
   }
+}
+
+/** A titled list in the contact's pane. */
+function contactList(id: string, heading: string): { section: HTMLElement; items: HTMLUListElement } {
+  const section = document.createElement('section')
+  section.className = 'contactSection'
+  const title = document.createElement('h3')
+  title.id = `${id}Title`
+  title.textContent = heading
+  const items = document.createElement('ul')
+  items.id = id
+  items.className = 'contactRooms'
+  items.setAttribute('aria-labelledby', title.id)
+  section.append(title, items)
+  return { section, items }
+}
+
+function listItem(content: HTMLElement): HTMLLIElement {
+  const item = document.createElement('li')
+  item.append(content)
+  return item
+}
+
+/** A row that opens a room: its name, an optional line under it, and a day
+ *  or a chevron on the right. */
+function contactLinkButton(label: string, open: () => void, sub?: string, meta?: string): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'contactLink'
+  const text = document.createElement('span')
+  text.className = 'contactLinkText'
+  const title = document.createElement('span')
+  title.className = 'contactLinkTitle'
+  title.textContent = label
+  text.append(title)
+  if (sub) {
+    const line = document.createElement('span')
+    line.className = 'contactLinkSub'
+    line.textContent = sub
+    text.append(line)
+  }
+  button.append(text)
+  if (meta) {
+    const day = document.createElement('span')
+    day.className = 'contactLinkMeta'
+    day.textContent = meta
+    button.append(day)
+  } else {
+    button.append(icon('chevron'))
+  }
+  button.addEventListener('click', () => open())
+  return button
+}
+
+/** A day for the right of a row, as the Chats list says it: "Today",
+ *  "Yesterday", a weekday within the week, else the date, with the year
+ *  outside this one. */
+export function dayWords(at: number, now: number = Date.now()): string {
+  const then = new Date(at * 1000)
+  const today = new Date(now)
+  const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const days = Math.round((midnight(today) - midnight(then)) / 86_400_000)
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return then.toLocaleDateString(undefined, { weekday: 'short' })
+  return then.toLocaleDateString(undefined, then.getFullYear() === today.getFullYear()
+    ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 export function shortNpub(pubkey: string): string {
