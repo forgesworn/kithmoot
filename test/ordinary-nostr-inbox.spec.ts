@@ -164,24 +164,42 @@ test('account-relay invitation checking is explicit and never substitutes for an
   const canonical = (value: object) => JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
   const catalogueOnly = (frame: unknown[]) => frame.length > 2 && frame.slice(2).every(filter =>
     filter !== null && typeof filter === 'object' && !Array.isArray(filter) && canonical(filter) === canonical(catalogue))
+  const potentialOrdinaryRead = (frame: unknown[]) => {
+    if (typeof frame[1] !== 'string' || frame.length <= 2) return true
+    return !catalogueOnly(frame) && frame.slice(2).some(filter => {
+      // Missing kinds is a wildcard. Unknown/malformed filters must count,
+      // rather than disappearing from the no-fallback assertion.
+      if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) return true
+      const kinds = (filter as { kinds?: unknown }).kinds
+      return kinds === undefined || !Array.isArray(kinds) ||
+        kinds.some(kind => typeof kind !== 'number' || !Number.isInteger(kind)) || kinds.includes(1059)
+    })
+  }
   try {
     const invite = await invitationCopy(peer, self)
     expect(matchFilter(catalogue, invite.copy)).toBe(false)
     expect(catalogueOnly(['REQ', 'catalogue-only-control', catalogue])).toBe(true)
     expect(catalogueOnly(['REQ', 'mixed-control', catalogue, { kinds: [1059], '#p': [self] }])).toBe(false)
+    expect(potentialOrdinaryRead(['REQ', 'catalogue-only-control', catalogue])).toBe(false)
+    expect(potentialOrdinaryRead(['REQ', 'mixed-control', catalogue, { kinds: [1059], '#p': [self] }])).toBe(true)
+    expect(matchFilter({ '#p': [self] }, invite.copy)).toBe(true)
+    expect(potentialOrdinaryRead(['REQ', 'wildcard-control', { '#p': [self] }])).toBe(true)
+    expect(potentialOrdinaryRead(['REQ', 'malformed-mixed-control', null, { kinds: [1059] }])).toBe(true)
+    expect(potentialOrdinaryRead(['REQ', 'malformed-kinds-control', { kinds: '1059' }])).toBe(true)
+    expect(potentialOrdinaryRead(['REQ', 'missing-filter-control'])).toBe(true)
+    expect(potentialOrdinaryRead(['REQ', 'public-notes-control', { kinds: [1] }])).toBe(false)
     const seal = JSON.parse(decrypt(invite.copy.content, getConversationKey(account, invite.copy.pubkey))) as Event
     const opening = () => starts.filter(text => text === invite.copy.content || text === seal.content).length
     await pool.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), tags: [], content: '' }, account))
     await pool.publish(invite.copy)
     const page = await context.newPage()
     page.on('websocket', socket => socket.on('framesent', frame => {
-      try {
-        const value = JSON.parse(String(frame.payload))
-        if (value[0] === 'REQ' && value.slice(2).some((filter: { kinds?: number[] }) => filter.kinds?.includes(1059))) {
-          allReads.push(value)
-          if (!catalogueOnly(value)) reads.push(value)
-        }
-      } catch { /* Other frames are unrelated. */ }
+      let value: unknown
+      try { value = JSON.parse(String(frame.payload)) }
+      catch { return /* Non-JSON frames cannot be Nostr REQs. */ }
+      if (!Array.isArray(value) || value[0] !== 'REQ') return
+      allReads.push(value)
+      if (potentialOrdinaryRead(value)) reads.push(value)
     }))
     await signInAccount(page, baseURL!); await showInbox(page); expect(opening()).toBe(0)
     expect(reads).toEqual([])
@@ -207,7 +225,7 @@ test('account-relay invitation checking is explicit and never substitutes for an
     await expect(pending).toHaveCount(1); await expect(pending.locator('button[data-action="accept"]')).toBeVisible()
     await expect(page.locator('#roomArea')).toBeHidden()
   } finally {
-    try { await test.info().attach('all-kind1059-requests', { body: JSON.stringify(allReads, null, 2), contentType: 'application/json' }) }
+    try { await test.info().attach('all-native-requests', { body: JSON.stringify(allReads, null, 2), contentType: 'application/json' }) }
     finally { pool.close(); await context.close() }
   }
 })
