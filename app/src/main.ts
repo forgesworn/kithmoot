@@ -2217,38 +2217,6 @@ function noteInvited(roomId: string, participant: string): void {
   const set = invitedTo(roomId)
   set.add(participant)
   deviceStore.set(INVITED_KEY_PREFIX + roomId, JSON.stringify([...set].slice(-200)))
-  const sent = invitesSent(roomId)
-  delete sent[participant]
-  sent[participant] = { at: nowSeconds() }
-  keepInvitesSent(roomId, sent)
-}
-
-// When each of those invitations went, and whether the person has since
-// been seen in the room, for their contact page in People. Kept apart from
-// the list above, which lets a knock in, so that list's shape never changes;
-// an invitation sent before this was kept has no date.
-const INVITES_SENT_KEY_PREFIX = 'kithmoot.invites-sent.v1.'
-type InviteSent = { at?: number; joined?: true }
-function invitesSent(roomId: string): Record<string, InviteSent> {
-  try {
-    const raw = deviceStore.get(INVITES_SENT_KEY_PREFIX + roomId)
-    const parsed = raw ? (JSON.parse(raw) as unknown) : {}
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    const sent: Record<string, InviteSent> = {}
-    for (const [participant, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!value || typeof value !== 'object') continue
-      const { at, joined } = value as { at?: unknown; joined?: unknown }
-      sent[participant] = { ...(typeof at === 'number' ? { at } : {}), ...(joined === true ? { joined: true as const } : {}) }
-    }
-    return sent
-  } catch {
-    return {}
-  }
-}
-function keepInvitesSent(roomId: string, sent: Record<string, InviteSent>): void {
-  // Written while People draws, so storage that is full or blocked costs
-  // only the note, never the page.
-  try { deviceStore.set(INVITES_SENT_KEY_PREFIX + roomId, JSON.stringify(Object.fromEntries(Object.entries(sent).slice(-200)))) } catch { /* kept next time */ }
 }
 
 let invitingPeer: { participant: string; name?: string } | undefined
@@ -15701,15 +15669,10 @@ function privateChatWith(peer: string): KnownRoom | undefined {
  *  rooms list already watches, so it asks no relay anything. Somebody who
  *  came in as a guest, under a key of that room's own, is not recognised. */
 function personSeenIn(roomId: string, pubkey: string): boolean {
-  if (roomId === currentRoomId() && session) {
-    // conversationMessages, not session.chat: a room still joining has no chat yet.
-    return session.participants().some(entry => entry.participant === pubkey)
-      || conversationMessages(undefined).some(message => message.participant === pubkey)
-  }
-  const watch = roomWatches.get(roomId)?.watch
-  if (!watch) return false
-  return watch.present().some(entry => entry.participant === pubkey)
-    || watch.messages().some(message => message.participant === pubkey)
+  const here = roomId === currentRoomId() && session ? session.participants() : roomWatches.get(roomId)?.watch.present() ?? []
+  // heldMessages reads the open room through conversationMessages: a room
+  // still joining has no chat yet.
+  return here.some(entry => entry.participant === pubkey) || heldMessages(roomId).some(message => message.participant === pubkey)
 }
 
 /** Group rooms on this device that are still going: not private chats, not ended. */
@@ -15718,27 +15681,37 @@ function contactPageRooms(): KnownRoom[] {
     .sort((a, b) => knownRoomLabel(a).localeCompare(knownRoomLabel(b), undefined, { sensitivity: 'base' }))
 }
 
-/** The rooms this device invited the person to, and whether they have come.
- *  Presence lapses when somebody closes the app, so once seen, joined is
- *  written down and stays. */
+/** What has been said in a room, as this device holds it: the open room's
+ *  session, else the list's watch of it. */
+function heldMessages(roomId: string): ChatMessage[] {
+  if (roomId === currentRoomId() && session) return conversationMessages(undefined)
+  return roomWatches.get(roomId)?.watch.messages() ?? []
+}
+
+/** The rooms this account invited the person to, and whether they have come.
+ *  An invitation is a message in the private chat with them, so its room and
+ *  its day are read from that chat's history; one this device sent and no
+ *  longer holds in that history is still known, without a day, from the
+ *  list that lets an invited knock in. */
 function invitationsSentTo(pubkey: string): { room: KnownRoom; at?: number; joined: boolean }[] {
-  return contactPageRooms().filter(room => invitedTo(room.roomId).has(pubkey)).map(room => {
-    const sent = invitesSent(room.roomId)
-    const entry = sent[pubkey] ?? {}
-    let joined = entry.joined === true
-    if (!joined && personSeenIn(room.roomId, pubkey)) {
-      joined = true
-      sent[pubkey] = { ...entry, joined: true }
-      keepInvitesSent(room.roomId, sent)
+  const self = nostrSession?.pubkey
+  const chat = privateChatWith(pubkey)
+  const sentAt = new Map<string, number>()
+  if (self && chat) {
+    for (const message of heldMessages(chat.roomId)) {
+      if (message.participant !== self || message.invite?.to !== pubkey) continue
+      sentAt.set(message.invite.room, Math.max(sentAt.get(message.invite.room) ?? 0, message.sentAt))
     }
-    return { room, ...(entry.at !== undefined ? { at: entry.at } : {}), joined }
+  }
+  return contactPageRooms().filter(room => sentAt.has(room.roomId) || invitedTo(room.roomId).has(pubkey)).map(room => {
+    const at = sentAt.get(room.roomId)
+    return { room, ...(at !== undefined ? { at } : {}), joined: personSeenIn(room.roomId, pubkey) }
   })
 }
 
 /** Rooms you share with the person, worked out on this device alone. */
 function roomsSharedWith(pubkey: string): KnownRoom[] {
-  const joined = new Set(invitationsSentTo(pubkey).filter(invite => invite.joined).map(invite => invite.room.roomId))
-  return contactPageRooms().filter(room => joined.has(room.roomId) || personSeenIn(room.roomId, pubkey))
+  return contactPageRooms().filter(room => personSeenIn(room.roomId, pubkey))
 }
 
 function openFromPeople(room: KnownRoom): void {

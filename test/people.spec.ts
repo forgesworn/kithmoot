@@ -194,13 +194,15 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await alice.screenshot({ path: test.info().outputPath('contact-rooms.png') })
 
     // From the private chat, Saturday walk is a room the list watches, and
-    // Joined has been written down, so the page says the same.
+    // its history holds Bob's message, so the page says the same.
     await alice.locator('#peoplePane').getByRole('button', { name: 'Bob on Nostr', exact: true }).click()
     await expect(alice.locator('#roomWho')).toHaveText('Private chat')
+    // Opened, not still opening: a room asked for mid-switch is not switched to.
+    await expect(alice.locator('#roomArea')).toHaveJSProperty('inert', false, { timeout: 30_000 })
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
-    await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Joined, Today' })).toBeVisible()
-    await expect(alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' })).toBeVisible({ timeout: 30_000 })
+    await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Joined, Today' })).toBeVisible({ timeout: 30_000 })
+    await expect(alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' })).toBeVisible()
     await alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' }).click()
     await expect(alice.locator('#roomTitle')).toHaveText('Saturday walk')
   } finally { publisher.close(); await ac.close(); await bc.close() }
