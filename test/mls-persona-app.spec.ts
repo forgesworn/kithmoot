@@ -1,3 +1,4 @@
+import { openSettings } from './browser.js'
 import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 
@@ -27,7 +28,7 @@ test('the app exposes witness preparation only in development preview and retain
   await page.goto(baseURL! + '?signin=nostr')
   await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()
-  await page.locator('#openAppSettings').click(); await page.locator('#appConnections > summary').click()
+  await openSettings(page, 'Connections');
   if (production) {
     await expect(page.locator('#mlsRoomDevelopmentOpen')).toHaveCount(0)
     await expect(page.locator('#mlsRoomDevelopment')).toHaveCount(0)
@@ -47,14 +48,14 @@ test('the app exposes witness preparation only in development preview and retain
   expect(await page.evaluate(() => indexedDB.databases())).toEqual(initialDatabases)
   expect(mlsRequests).toEqual([])
   await page.locator('#mlsRoomDevelopment [data-close]').click()
-  await page.locator('#openAppSettings').click()
+  await openSettings(page, 'Connections')
   await page.locator('#mlsGrantDevelopmentOpen').click()
   await expect(page.locator('#mlsGrantDevelopment')).toBeVisible()
   await expect(page.locator('#mlsGrantDevelopment [data-account]')).toHaveText(`${pubkey.slice(0, 12)}…`)
   expect((await page.evaluate(() => indexedDB.databases())).some(database => database.name === 'kithmoot-vmls-grants-v1')).toBe(false)
   expect(mlsRequests).toEqual([])
   await page.locator('#mlsGrantDevelopment [data-close]').click()
-  await page.locator('#openAppSettings').click()
+  await openSettings(page, 'Connections')
   await page.locator('#mlsWitnessSettingsOpen').click()
   await expect(page.locator('#mlsWitnessAccount')).toHaveText(pubkey)
   await expect(page.locator('#mlsWitnessPrepare')).toBeVisible()
@@ -62,10 +63,12 @@ test('the app exposes witness preparation only in development preview and retain
   await page.locator('#mlsWitnessPrepare').click()
   await expect(page.locator('#mlsWitnessPair')).toBeEnabled()
   expect(mlsRequests).toEqual([])
-  await page.locator('#mlsWitnessClose').click(); await page.locator('#openAppSettings').click()
+  await page.locator('#mlsWitnessClose').click(); await openSettings(page, 'Account')
   await page.locator('#forgetBrowser').click()
   await expect(page.locator('#status')).toContainText('Clear MLS keys and complete retirement for every account')
   await expect(page.locator('#actionDialog')).toHaveCount(0)
+  // Forget this browser is on the Account page; the grant workflows are under Connections.
+  await openSettings(page, 'Connections')
   await page.locator('#mlsGrantDevelopmentOpen').click()
   await expect(page.locator('#mlsGrantDevelopment')).toBeVisible()
   // Exercise the actual app's external account invalidation while the modal
@@ -81,7 +84,7 @@ test('the app exposes witness preparation only in development preview and retain
   expect(await page.locator('#mlsWitnessAccount').textContent()).toBe('')
   await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()
-  await page.locator('#openAppSettings').click(); await page.locator('#appConnections > summary').click(); await page.locator('#mlsRoomDevelopmentOpen').click()
+  await openSettings(page, 'Connections'); await page.locator('#mlsRoomDevelopmentOpen').click()
   await page.locator('#mlsRoomDevelopment [data-code]').fill('unsent-private-code')
   await page.locator('#mlsRoomDevelopment [data-create-name]').fill('unsent-private-room-name')
   await page.locator('#mlsRoomDevelopment [data-relays]').fill('wss://fixture.invalid/link')
@@ -105,12 +108,12 @@ test('the app exposes witness preparation only in development preview and retain
   expect((await page.evaluate(() => indexedDB.databases())).some(db => db.name?.startsWith('kithmoot-vmls-room-link-v1'))).toBe(false)
   await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()
-  await page.locator('#openAppSettings').click(); await page.locator('#appConnections > summary').click(); await page.locator('#mlsWitnessSettingsOpen').click()
+  await openSettings(page, 'Connections'); await page.locator('#mlsWitnessSettingsOpen').click()
   await expect(page.locator('#mlsWitnessLocalStatus')).toContainText('Installation prepared locally')
   expect(mlsRequests).toEqual([])
   await page.locator('#mlsWitnessRecovery summary').click(); await page.locator('#mlsWitnessClear').click(); await page.locator('#actionConfirm').click()
   await expect(page.locator('#mlsWitnessPrepare')).toBeVisible()
-  await page.locator('#mlsWitnessClose').click(); await page.locator('#openAppSettings').click(); await page.locator('#forgetBrowser').click()
+  await page.locator('#mlsWitnessClose').click(); await openSettings(page, 'Account'); await page.locator('#forgetBrowser').click()
   await expect(page.locator('#actionDialog')).toBeVisible(); await page.locator('#actionConfirm').click()
   await expect(page.locator('#signOut')).toBeHidden()
   expect(pageErrors).toEqual([])
@@ -133,7 +136,7 @@ test('production and preview both refuse forgetting retained room custody', asyn
     // Even interrupted naming creation, without a well-formed key, is held.
     db.close()
   })
-  await page.locator('#openAppSettings').click()
+  await openSettings(page, 'Account')
   await page.locator('#forgetBrowser').click()
   await expect(page.locator('#status')).toContainText('Retained MLS room connection data prevents forgetting this browser')
   await expect(page.locator('#actionDialog')).toHaveCount(0)

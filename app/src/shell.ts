@@ -2,8 +2,9 @@
  * The app shell: which destination is showing, and which pane of it.
  *
  * Three places a person can be (design-calm-shell, section 5.1): Chats,
- * People (signed in with Nostr only) and Boards, and Settings, which is a
- * sheet until stage 4. Each has a list and a main pane. Where the window is
+ * People (signed in with Nostr only) and Boards, and Settings, which has no
+ * list of its own and shows in the main pane beside the chats. Each has a
+ * list and a main pane. Where the window is
  * wide enough both show side by side. Where it is not (under 900 px: a phone,
  * a tablet held upright), one shows at a time: the list is the first level,
  * and opening something pushes the main pane over it.
@@ -15,12 +16,12 @@
  * learn of a change from the `shell:destination` event.
  *
  * Root attributes, for the stylesheet:
- *   data-destination  chats | people | boards
+ *   data-destination  chats | people | boards | settings
  *   data-level        list | detail, meaningful only below 900 px
  */
 
 export type Destination = 'chats' | 'people' | 'boards' | 'settings'
-type Place = Exclude<Destination, 'settings'>
+type Place = Destination
 
 const root = document.documentElement
 /** Below this the shell shows one pane at a time. */
@@ -30,6 +31,7 @@ const COMPACT = window.matchMedia('(max-width: 599px)')
 
 let destination: Place = 'chats'
 let level: 'list' | 'detail' = location.hash.length > 1 ? 'detail' : 'list'
+let levelBeforeSettings: 'list' | 'detail' = 'list'
 let peopleAvailable = false
 const counts: Record<'chats' | 'boards', number> = { chats: 0, boards: 0 }
 
@@ -54,7 +56,7 @@ export function currentDestination(): Place {
 function render(): void {
   root.dataset.destination = destination
   root.dataset.level = level
-  for (const button of document.querySelectorAll<HTMLElement>('#rail [data-destination]')) {
+  for (const button of document.querySelectorAll<HTMLElement>('button[data-destination]')) {
     if (button.dataset.destination === destination) button.setAttribute('aria-current', 'page')
     else button.removeAttribute('aria-current')
   }
@@ -62,6 +64,8 @@ function render(): void {
   const peopleList = el('peopleList'), peoplePane = el('peoplePane')
   if (peopleList) peopleList.hidden = !people
   if (peoplePane) peoplePane.hidden = !people
+  const settingsPane = el('settingsPane')
+  if (settingsPane) settingsPane.hidden = destination !== 'settings'
   // Below 900 px with the main pane hidden, the list is what a screen reader
   // should find as the page's main landmark. The real main is not rendered
   // then, so there is still exactly one.
@@ -78,18 +82,17 @@ function announce(): void {
   document.dispatchEvent(new CustomEvent('shell:destination', { detail: { destination } }))
 }
 
-/** Switch destination. `settings` opens the settings sheet and leaves the
- *  destination as it was. */
+/** Switch destination. Settings has no list of its own, so it is the main
+ *  pane at once: below 900 px a full screen with a back arrow. */
 export function openDestination(name: Destination): void {
-  if (name === 'settings') {
-    el('openAppSettings')?.click()
-    document.dispatchEvent(new CustomEvent('shell:destination', { detail: { destination: 'settings' } }))
-    return
-  }
+  const from = destination
   destination = name
   // Choosing a destination from the rail or bar shows its list; a person who
-  // wants a room opens it from there.
-  level = 'list'
+  // wants a room opens it from there. Settings is the exception on the way in
+  // and out: it remembers what was showing, so back from it returns to the
+  // room that was open.
+  if (name === 'settings') { if (from !== 'settings') levelBeforeSettings = level; level = 'detail' }
+  else level = from === 'settings' && name === 'chats' ? levelBeforeSettings : 'list'
   render()
   announce()
 }
@@ -109,6 +112,9 @@ export function openDetail(): void {
 
 /** Back to the list. */
 export function closeDetail(): void {
+  // Settings is only a main pane, and a list drawing itself behind it (a sign-out,
+  // say) must not close it. The way back from it is its own arrow, or Chats.
+  if (destination === 'settings') return
   level = 'list'
   render()
 }
@@ -162,6 +168,7 @@ function shortcut(event: KeyboardEvent): void {
   if (document.querySelector('dialog:modal')) return
   const key = event.key.toLowerCase()
   if (key === 'k') { event.preventDefault(); focusSearch(); return }
+  if (key === ',') { event.preventDefault(); openDestination('settings'); return }
   // Room info, for the room on screen.
   if (key === 'i') {
     const room = el('roomArea')

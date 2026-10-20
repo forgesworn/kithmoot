@@ -1,5 +1,5 @@
 import { test, expect, type Browser } from '@playwright/test'
-import { openCall, openNewRoomForm, openRoomDetails } from './browser.js'
+import { openCall, openNewRoomForm, openSettings, closeSettings } from './browser.js'
 
 /** A visitor device: no signer, no Nostr account, only what a name-only
  *  join and a kept room leave in this browser. Trimmed from home.spec.ts's
@@ -50,7 +50,7 @@ test('Forget this browser removes the visitor identity, kept rooms and signer co
     // Back to the front page - Forget this browser lives in Settings now,
     // reached from the rooms list, and only ever shows outside a live room.
     await page.goto(baseURL!)
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await expect(page.locator('#forgetBrowser')).toBeVisible()
     await page.locator('#forgetBrowser').click()
     const dialog = page.getByRole('alertdialog', { name: 'Forget this browser?', exact: true })
@@ -89,10 +89,11 @@ test('Forget this browser, offered from Room details too, refuses while on a cal
 
     // Room details stays reachable through a live call - that is exactly
     // where this has to refuse rather than silently dropping it.
-    await openRoomDetails(page)
-    await page.locator('#forgetBrowserRoom').click()
+    await openSettings(page, 'Account')
+    await page.locator('#forgetBrowser').click()
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
     await expect(page.locator('#status')).toContainText('Leave the call before forgetting this browser.')
+    await closeSettings(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).not.toBeNull()
   } finally { await context.close() }

@@ -3,7 +3,7 @@ import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { RoomAgent } from '../src/agent.js'
 import { KINDS } from '../src/kinds.js'
 import { withRelays, TEST_RELAY_WS } from './relays.js'
-import { requestAdmission, openNewRoomForm, openRoomDetails, roomMenuItem } from './browser.js'
+import { requestAdmission, openNewRoomForm, roomMenuItem, openRoomInfoPage } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -393,7 +393,7 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
     await expect(page.locator('#copyShare')).toBeFocused()
     await page.mouse.click(1, 1)
     await expect(dialog).not.toBeVisible()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Invite link')
     await expect(page.locator('#roomSheet #shareUrl')).toHaveValue(link)
     expect(await page.locator('#shareUrl').count()).toBe(1)
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'false')

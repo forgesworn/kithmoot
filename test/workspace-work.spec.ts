@@ -6,7 +6,7 @@ import { localIdentity } from '../src/identity.js'
 import { npubEncode } from 'nostr-tools/nip19'
 import { encodeRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
-import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats, openProjects, openBoardsDestination, showChats, openRoomTasks } from './browser.js'
+import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats, openProjects, openBoardsDestination, showChats, openRoomTasks, openSettings, closeSettings } from './browser.js'
 
 for (const retainCall of [false, true]) {
 test(`cross-project Inbox routes a question, human mention, reply and exact-result review to their origins${retainCall ? ' while a signed-project call stays live' : ''}`, async ({ browser, baseURL }, info) => {
@@ -274,9 +274,9 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     await inbox()
     await expect(page.locator('#workspaceWorkStatus')).not.toContainText('Sign in')
     await showChats(page)
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await page.locator('#signOut').click()
-    await page.locator('#appSettingsClose').click()
+    await closeSettings(page)
     await page.locator('#railChats:visible').click()
     await inbox()
     await expect(page.locator('#workspaceWorkStatus')).toContainText('Sign in with Nostr')

@@ -382,19 +382,6 @@ section {
   margin: 1rem 0;
 }
 
-details#appConnections {
-  margin-top: 0.75rem;
-  font-size: var(--fs-2);
-  color: var(--muted);
-}
-
-details#appConnections label {
-  display: block;
-  margin: 0.5rem 0 0.35rem;
-}
-
-details#appConnections button { display: block; }
-
 .linkBox {
   border-radius: var(--r-m);
   padding: 0.75rem;
@@ -2900,7 +2887,6 @@ label.note {
    scrolling, so it cannot bring back the collapsing-address-bar trouble
    that pinning anything to the page itself would. */
 #roomSheet,
-#appSettings,
 #contextPanel,
 #conversationSearch {
   padding: 0;
@@ -2918,7 +2904,6 @@ label.note {
 }
 
 #roomSheet::backdrop,
-#appSettings::backdrop,
 #contextPanel::backdrop,
 #conversationSearch::backdrop {
   background: rgb(0 0 0 / 0.55);
@@ -3021,16 +3006,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
    already has its own "Your account" summary - see the strings removed in
    spec section 9. */
 #accountHeading { display: none; }
-
-/* #notify brings its own "Notifications & sound" <h3> along when it moves
-   into the sheet (reused as-is, unchanged markup); restyled here to match
-   "You" and "Text size" rather than reading heavier than its neighbours. */
-#appSettingsNotify h3 {
-  margin: 1.25rem 0 0.5rem;
-  font-size: var(--fs-1);
-  font-weight: 600;
-  color: var(--muted);
-}
 
 .sheetBody > section {
   margin: 0.75rem 0;
@@ -3204,8 +3179,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .profileChoice { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
 #lookupProfiles { min-height: 0; width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
 
-/* Search uses the room's sheet so opening it never interrupts the call. */
-#searchConversation { margin-bottom: 1rem; }
 .searchFileFilter { display: flex; align-items: center; gap: .6rem; margin-block: .8rem; min-height: 44px; }
 .searchFileFilter input { width: 1.2rem; height: 1.2rem; margin: 0; }
 .messageSearchResults { list-style: none; margin: 0; padding: 0; }

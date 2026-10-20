@@ -8,7 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards } from './browser.js'
+import { turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards, openSettings, closeSettings } from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -393,7 +393,7 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     await page.locator('#chatInput').fill('')
     await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'false')
     await leaveToChats(page)
-    await page.locator('#openAppSettings').click(); await page.locator('#signOut').click()
+    await openSettings(page, 'Account'); await page.locator('#signOut').click()
     await expect.poll(() => second.isClosed()).toBe(true)
     expect(errors).toEqual([])
   } finally {await context.close(); await Promise.all(keepers.map(k => k.leave()))}
@@ -607,9 +607,9 @@ test('unfinished board drafts prevent pop-out, board switching and account sign-
     await expect(draft).toHaveValue('Keep my unfinished card')
     await page.getByRole('button', {name: 'Choose another board', exact: true}).click()
     await expect(draft).toHaveValue('Keep my unfinished card')
-    await page.locator('#boardsClose').click(); await page.locator('#openAppSettings').click(); await page.locator('#signOut').click()
+    await page.locator('#boardsClose').click(); await openSettings(page, 'Account'); await page.locator('#signOut').click()
     await expect(page.locator('#signOut')).toBeVisible()
-    await page.locator('#appSettingsClose').click()
+    await closeSettings(page)
     await openBoards(page); await expect(draft).toHaveValue('Keep my unfinished card')
     await draft.press('Enter'); await expect(frame.getByRole('link', {name: 'Keep my unfinished card', exact: true})).toBeVisible()
     // Closing Girnel's view leaves KithMoot's account usable and permits reopen.

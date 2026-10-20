@@ -3,7 +3,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { openNewRoomForm, requestAdmission, openRoomDetails, TEST_RELAY_WS, leaveToChats } from './browser.js'
+import { openNewRoomForm, requestAdmission, openRoomDetails, leaveRoom, TEST_RELAY_WS, leaveToChats, openRoomInfoPage } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
 import { openRoomUrl } from './relays.js'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
@@ -97,7 +97,7 @@ test('a new member joins two days after everyone leaves, then both members retur
     await arrival.clock.setFixedTime(new Date(Date.now() + 2 * 86400_000))
     await enter(arrival, link, 'Visitor')
     await expect(arrival.locator('#chatLog')).toContainText('See you later')
-    await openRoomDetails(arrival)
+    await openRoomInfoPage(arrival, 'Invite link')
     await expect(arrival.locator('#toggleKeep')).toHaveAttribute('aria-pressed', 'true')
     await expect(arrival.locator('#invitationAvailability')).toContainText('everyone closes the app')
     await expect(arrival.locator('#rotateShare')).toBeHidden()
@@ -122,7 +122,7 @@ test('a new member joins two days after everyone leaves, then both members retur
     await creator.clock.setFixedTime(new Date(Date.now() + 4 * 86400_000))
     await enter(creator, link, 'Creator')
     await expect(creator.locator('#chatLog')).toContainText('Back after the weekend')
-    await openRoomDetails(creator)
+    await openRoomInfoPage(creator, 'Invite link')
     await expect(creator.locator('#rotateShare')).toBeVisible()
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })
@@ -150,7 +150,7 @@ test('the creator ends a browser room for everyone: members are taken out, the o
     await openRoomDetails(page)
     await expect(page.locator('#endRoomNote')).toBeVisible()
     await page.locator('#endRoom').click()
-    await expect(page.getByRole('alertdialog')).toContainText('relays keep the encrypted history')
+    await expect(page.getByRole('alertdialog')).toContainText('People keep what they already received.')
     await page.locator('#actionConfirm').click()
     await expect(page.locator('#status')).toContainText('You ended this room for everyone')
     await expect(page.locator('#roomArea')).toBeHidden()
@@ -200,8 +200,7 @@ test('the creator ends the room and tidies up in one action: members are taken o
       return JSON.parse(localStorage.getItem(owner)!).inviterSk as string
     }).then(sk => getPublicKey(hexToBytes(sk)))
 
-    await openRoomDetails(page)
-    await page.locator('#tidyUpRoom').click()
+    await leaveRoom(page, { tidy: true })
     await expect(page.locator('#tidyUpTombstoneRow')).toBeHidden()
     await page.locator('#tidyUpEnd').check()
     await expect(page.locator('#tidyUpSteps li').first()).toContainText('End the room for everyone')
@@ -230,7 +229,7 @@ test('replacing a group invitation rejects fresh arrivals on the old link while 
     const saved = await member.storageState()
     await member.close()
     await page.locator('#join').click()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Invite link')
     await page.locator('#rotateShare').click()
     await page.locator('#actionConfirm').click()
     await expect.poll(() => page.locator('#shareUrl').inputValue()).not.toBe(link)
@@ -272,7 +271,7 @@ test('the creator can turn an existing temporary meeting into a group without ch
     await page.locator('#chatInput').fill('Keep this conversation')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('Keep this conversation')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Invite link')
     await page.locator('#makePersistent').click()
     await expect(page.locator('#makePersistent')).toBeHidden()
     const link = await page.locator('#shareUrl').inputValue()

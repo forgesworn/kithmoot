@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, withRelays } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openRoomDetails, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia } from './browser.js'
 
 /**
  * Can you actually see and hear the other person?
@@ -672,8 +672,7 @@ test('somebody who leaves is gone from everybody else at once', async ({ browser
 
     // Leaving is in the room's details, with everything else that is not
     // the conversation.
-    await openRoomDetails(pageA)
-    await pageA.locator('#leave').click({ timeout: 5_000 })
+    await leaveRoom(pageA)
 
     // Well inside the 75 s presence timeout: this is the farewell arriving,
     // not the sweep catching up.

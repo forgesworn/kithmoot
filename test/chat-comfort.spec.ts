@@ -7,7 +7,7 @@ import { generateSecretKey, finalizeEvent } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { reactionText, toggleReaction } from '../src/reactions.js'
-import { openRoomDetails, TEST_RELAY_WS, openRoomSearch } from './browser.js'
+import { TEST_RELAY_WS, openRoomSearch, openProfileSettings, closeProfileSettings } from './browser.js'
 
 async function artworkSearch(page: Page, name: string) {
   const query = page.getByRole('searchbox', { name, exact: true })
@@ -45,7 +45,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     // independently of that engine-specific size; the source is checked above.
     await expect.poll(() => row.locator('img.avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0)).toBe(true)
     expect(pictureRequests).toBeGreaterThan(0)
-    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').uncheck(); await page.locator('#profileSettingsClose').click()
+    await openProfileSettings(page); await page.locator('#lookupProfiles').uncheck(); await closeProfileSettings(page)
     await expect(row.locator('.avatar.initials')).toBeVisible()
     await expect(row.locator('img.avatar')).toHaveCount(0)
     await page.locator('#chatInput').fill('before after')
@@ -81,10 +81,10 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(person.locator('.nip05')).toHaveCount(0)
     await expect(person.locator('.avatar.initials')).toHaveText('R')
     await page.keyboard.press('Escape')
-    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').check()
+    await openProfileSettings(page); await page.locator('#lookupProfiles').check()
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
     expect(addressRequests).toBe(0)
-    await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
+    await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
     await expect(person.locator('.nip05')).toHaveText('rowan@profiles.example')
     await hearts.hover()
     await person.hover()

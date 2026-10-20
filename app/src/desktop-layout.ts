@@ -53,7 +53,7 @@ if (import.meta.env.VITE_DESKTOP === 'true') {
   progress.hidden = true
   progress.setAttribute('role', 'status')
   room.append(progress)
-  for (const id of ['forgetBrowser', 'forgetBrowserRoom']) {
+  for (const id of ['forgetBrowser']) {
     const button = document.getElementById(id)
     if (button) button.textContent = 'Forget this device'
   }

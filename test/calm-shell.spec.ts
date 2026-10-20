@@ -6,7 +6,7 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -409,7 +409,7 @@ test('a first run is one sentence and three ways in: no list, no People, no coun
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
     await page.getByRole('button', { name: 'Settings' }).click()
-    await expect(page.locator('#appSettings')).toBeVisible()
+    await expect(page.locator('#settingsPane')).toBeVisible()
   } finally { await context.close() }
 })
 
@@ -735,5 +735,254 @@ test('a right-click on a message opens the app menu with what the message offers
     expect(await taken('#chatInput')).toBe(false)
     expect(await taken('#chatLog [data-message-id] .bubble')).toBe(true)
     await page.keyboard.press('Escape')
+  } finally { await context.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 4: Room info, and Leave.
+// ---------------------------------------------------------------------------
+
+/** A room with three people, one of them an agent, that a name-only visitor
+ *  can go into: what the spec's measurements are taken on. */
+async function populatedRoom(baseURL: string, name = 'Release workshop') {
+  const rowan = await RoomAgent.create({ base: baseURL, roomName: name, name: 'Rowan', agent: false, ...agentRelaysFor(baseURL) })
+  const priya = await RoomAgent.join({ link: rowan.url, name: 'Priya', agent: false, transport: agentRelaysFor(baseURL).transport })
+  const tally = await RoomAgent.join({ link: rowan.url, name: 'Tally', transport: agentRelaysFor(baseURL).transport })
+  await rowan.chat.send('Perfect. Call at 3?')
+  return { rowan, priya, tally, link: rowan.url, leave: async () => { for (const who of [tally, priya, rowan]) await who.leave() } }
+}
+
+async function enterLink(page: Page, link: string) {
+  await page.goto('about:blank')
+  await page.goto(link)
+  await expect(page.locator('#displayName:visible, #chatLog:visible').first()).toBeVisible({ timeout: 60_000 })
+  if (await page.locator('#displayName').isVisible()) { await page.locator('#displayName').fill('Ada'); await page.locator('#join').click() }
+  await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('#roomWho')).toContainText('3 people, 1 agent', { timeout: 30_000 })
+}
+
+for (const [label, size, touch, limit, mode] of [['1440 by 900', { width: 1440, height: 900 }, false, 1.2, 'panel'], ['390 by 844', { width: 390, height: 844 }, true, 2.0, 'sheet']] as const) {
+  test(`Room info is about one screen at ${label}: its content is at most ${limit} times what is visible, as a ${mode}`, async ({ browser, baseURL }) => {
+    const room = await populatedRoom(baseURL!)
+    const { context, page } = await visitor(browser, baseURL!, size, { touch, empty: true })
+    try {
+      await enterLink(page, room.link)
+      await page.locator('#roomIdentity').click()
+      const sheet = page.locator('#roomSheet')
+      await expect(sheet).toHaveJSProperty('open', true)
+      await expect(sheet).toHaveAttribute('data-mode', mode)
+      await expect(page.locator('#roomSheetTitle')).toBeFocused()
+      await expect(page.locator('#roomSheetTitle')).toHaveText('Room info')
+      const measured = await sheet.evaluate(el => ({ content: el.scrollHeight, visible: el.clientHeight, modal: el.matches(':modal') }))
+      console.log(`room info ${label}: content ${measured.content}px over ${measured.visible}px visible = ${(measured.content / measured.visible).toFixed(2)}`)
+      expect(measured.content / measured.visible, JSON.stringify(measured)).toBeLessThanOrEqual(limit)
+      expect(measured.modal).toBe(mode === 'sheet')
+      // The who card says who is here and who can come in.
+      await expect(page.locator('#infoName')).toHaveText('Release workshop')
+      await expect(page.locator('#infoWho')).toHaveText('3 people, 1 agent · Anyone with the link can join')
+      // The three people and their agent, the agent with its pill.
+      await expect(page.locator('#sheetRoster .rosterRow')).toHaveCount(4)
+      await expect(page.locator('#sheetRoster .rosterRow', { hasText: 'Tally' }).locator('.badge.agent')).toHaveText('Agent')
+      // "not checked" is gone from the list.
+      await expect(page.locator('#sheetRoster')).not.toContainText('not checked')
+      if (mode === 'panel') {
+        // The conversation sits beside the panel and is still usable: from
+        // 1280 px it narrows to make room rather than going under it.
+        const form = await box(page, '#chatForm')
+        const panel = await box(page, '#roomSheet')
+        expect(form.x + form.width).toBeLessThanOrEqual(panel.x + 1)
+        await page.locator('#chatInput').fill('typing beside Room info')
+        await expect(page.locator('#chatInput')).toHaveValue('typing beside Room info')
+      }
+    } finally { await context.close(); await room.leave() }
+  })
+}
+
+test('a subpage opens in the same panel, its heading takes the focus, and back returns to the row that opened it; Escape closes and returns to the opener', async ({ browser, baseURL }) => {
+  const room = await populatedRoom(baseURL!)
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  try {
+    await enterLink(page, room.link)
+    await page.locator('#roomIdentity').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('#roomSheet')).toHaveJSProperty('open', true)
+    for (const [row, title] of [['Invite link', 'Invite link'], ['Privacy and connection', 'Privacy and connection'], ['Name and picture', 'Name and picture'], ['How you appear', 'How you appear'], ['Use your phone here too', 'Use your phone here too'], ['Conversations', 'Conversations']] as const) {
+      const opener = page.locator('#roomSheet .infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${row}$`) }) })
+      await opener.click()
+      await expect(page.locator('#roomSheetTitle')).toHaveText(title)
+      await expect(page.locator('#roomSheetTitle')).toBeFocused()
+      await expect(page.locator('#roomSheet')).toHaveJSProperty('open', true)
+      await page.locator('#roomInfoBack').click()
+      await expect(page.locator('#roomSheetTitle')).toHaveText('Room info')
+      await expect(opener, `back from ${title}`).toBeFocused()
+    }
+    // Escape, from inside the panel, closes it and the focus goes back.
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
+    await expect(page.locator('#roomIdentity')).toBeFocused()
+    // The same from a subpage, opened from the ⋯ menu's Room info.
+    await roomMenuItem(page, 'Room info')
+    await expect(page.locator('#roomSheetTitle')).toBeFocused()
+    await page.locator('#roomSheetClose').click()
+    await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
+    await expect(page.locator('#roomMenu')).toBeFocused()
+  } finally { await context.close(); await room.leave() }
+})
+
+test('Leave asks once with the name of the room; Cancel stays, and Leave goes to the chats', async ({ browser, baseURL }) => {
+  const room = await populatedRoom(baseURL!)
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  try {
+    await enterLink(page, room.link)
+    await roomMenuItem(page, 'Leave room…')
+    const confirm = page.locator('#actionDialog')
+    await expect(confirm.getByRole('heading', { name: 'Leave Release workshop?' })).toBeVisible()
+    await expect(confirm).toContainText('You stop getting its messages. You can come back with the link.')
+    const tidy = confirm.getByLabel('Also ask relays and the file server to delete what I left')
+    await expect(tidy).not.toBeChecked()
+    await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    // Room info's own Leave goes through the same question.
+    await page.locator('#roomIdentity').click()
+    await page.locator('#leave').click()
+    await expect(page.locator('#actionDialog')).toBeVisible()
+    await page.locator('#actionDialog').getByRole('button', { name: 'Leave', exact: true }).click()
+    await expect(page.locator('#roomArea')).toBeHidden({ timeout: 30_000 })
+    await expect(page.locator('#tidyUpDialog')).not.toBeVisible()
+  } finally { await context.close(); await room.leave() }
+})
+
+test('ticking the box in the Leave confirm hands over to the tidy-up steps instead of leaving at once', async ({ browser, baseURL }) => {
+  const room = await populatedRoom(baseURL!)
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  try {
+    await enterLink(page, room.link)
+    await leaveRoom(page, { tidy: true })
+    await expect(page.locator('#tidyUpDialog')).toBeVisible()
+    await expect(page.locator('#tidyUpSteps li').first()).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#tidyUpCancel').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+  } finally { await context.close(); await room.leave() }
+})
+
+for (const scheme of ['dark', 'light'] as const) {
+  test(`axe finds nothing on Room info and a subpage at 1440 and at 390 in ${scheme}`, async ({ browser, baseURL }) => {
+    const room = await populatedRoom(baseURL!)
+    try {
+      for (const [size, touch] of [[{ width: 1440, height: 900 }, false], [{ width: 390, height: 844 }, true]] as const) {
+        const { context, page } = await visitor(browser, baseURL!, size, { touch, scheme, empty: true })
+        try {
+          await enterLink(page, room.link)
+          await page.locator('#roomIdentity').click()
+          await expect(page.locator('#roomSheet')).toHaveJSProperty('open', true)
+          for (const where of ['Room info', 'Invite link']) {
+            if (where !== 'Room info') await openRoomInfoPage(page, 'Invite link')
+            const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+            expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `${where} ${size.width} ${scheme}`).toEqual([])
+          }
+        } finally { await context.close() }
+      }
+    } finally { await room.leave() }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4: Settings, a destination.
+// ---------------------------------------------------------------------------
+
+test('at 1440 Settings opens in the main pane beside the chats, with its pages as rows, and Display changes the text size', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await page.goto(baseURL!)
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
+    await page.locator('#openAppSettings').click()
+    await expect(page.locator('html')).toHaveAttribute('data-destination', 'settings')
+    await expect(page.locator('#openAppSettings')).toHaveAttribute('aria-current', 'page')
+    await expect(page.locator('#settingsPane')).toBeVisible()
+    await expect(page.locator('#rooms')).toBeVisible()
+    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Display', 'Privacy', 'Connections', 'Keyboard shortcuts', 'About and help'])
+    await expect(page.locator('#settingsSubaccount')).toHaveText('Just a name · sign in with Nostr')
+    expect(await page.evaluate(() => document.querySelector('dialog:modal'))).toBeNull()
+    const pane = await box(page, '#settingsPane'), list = await box(page, '#listColumn')
+    expect(pane.x).toBeGreaterThanOrEqual(list.x + list.width)
+    await openSettings(page, 'Display')
+    await expect(page.locator('#settingsTitle')).toBeFocused()
+    await page.getByRole('radio', { name: 'Large' }).check()
+    await expect(page.locator('html')).toHaveAttribute('data-text-size', 'large')
+    await expect(page.locator('#settingsPane')).toContainText('Light, dark and contrast follow your system settings.')
+    await page.locator('#settingsBack').click()
+    await expect(page.locator('#settingsRowdisplay')).toBeFocused()
+    // Back to the chats.
+    await page.locator('#railChats').click()
+    await expect(page.locator('#settingsPane')).toBeHidden()
+    await expect(page.locator('html')).toHaveAttribute('data-destination', 'chats')
+  } finally { await context.close() }
+})
+
+test('at 390 Settings is a full screen with a back arrow, and back returns to the room that was open', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await joinRoom(page)
+    await page.keyboard.press('Control+,')
+    await expect(page.locator('#settingsPane')).toBeVisible()
+    await expect(page.locator('#listColumn')).toBeHidden()
+    const pane = await box(page, '#settingsPane')
+    expect(pane.x).toBeLessThanOrEqual(20)
+    expect(pane.width).toBeGreaterThanOrEqual(350)
+    await expect(page.locator('#settingsBack')).toBeVisible()
+    await page.locator('#settingsRowmessages').click()
+    await expect(page.locator('#sendDelay')).toBeVisible()
+    await page.locator('#settingsBack').click()
+    await expect(page.locator('#settingsTitle')).toHaveText('Settings')
+    await page.locator('#settingsBack').click()
+    await expect(page.locator('#settingsPane')).toBeHidden()
+    await expect(page.locator('#chatLog')).toBeVisible()
+  } finally { await context.close() }
+})
+
+test('Ctrl+, opens Settings from a room and again from Settings, and not while a dialog is open', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    await page.keyboard.press('Control+,')
+    await expect(page.locator('#settingsPane')).toBeVisible()
+    await expect(page.locator('#chatLog')).toBeHidden()
+    await page.locator('#railChats').click()
+    await expect(page.locator('#chatLog')).toBeVisible()
+  } finally { await context.close() }
+})
+
+for (const scheme of ['dark', 'light'] as const) {
+  test(`axe finds nothing on Settings and its Display page at 1440 and at 390 in ${scheme}`, async ({ browser, baseURL }) => {
+    for (const [size, touch] of [[{ width: 1440, height: 900 }, false], [{ width: 390, height: 844 }, true]] as const) {
+      const { context, page } = await visitor(browser, baseURL!, size, { touch, scheme })
+      try {
+        await page.goto(baseURL!)
+        await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
+        await openSettings(page)
+        for (const where of ['Settings', 'Display', 'Connections', 'Notifications']) {
+          if (where !== 'Settings') await openSettings(page, where as 'Display')
+          const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+          expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `${where} ${size.width} ${scheme}`).toEqual([])
+        }
+      } finally { await context.close() }
+    }
+  })
+}
+
+test('Settings does not scroll sideways at 320 by 640 with Huge text, on any page', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 320, height: 640 }, { touch: true, size: 'huge' })
+  try {
+    await page.goto(baseURL!)
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
+    await openSettings(page)
+    for (const where of ['Settings', 'Account', 'Notifications', 'Messages', 'Display', 'Privacy', 'Connections', 'About and help'] as const) {
+      if (where !== 'Settings') await openSettings(page, where)
+      const widths = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, pane: document.getElementById('settingsPane')!.scrollWidth, inner: innerWidth, paneClient: document.getElementById('settingsPane')!.clientWidth }))
+      console.log(`settings 320 huge ${where}: ${JSON.stringify(widths)}`)
+      expect(widths.doc, where).toBeLessThanOrEqual(widths.inner)
+      expect(widths.pane, where).toBeLessThanOrEqual(widths.paneClient)
+    }
   } finally { await context.close() }
 })

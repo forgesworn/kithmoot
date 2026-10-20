@@ -1,3 +1,4 @@
+import { openSettings, closeSettings } from './browser.js'
 import { test, expect } from '@playwright/test'
 test('notification settings work at phone size without requesting permission on entry', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 })
@@ -11,8 +12,8 @@ test('notification settings work at phone size without requesting permission on 
   await page.goto('./')
   // Notifications & sound lives inline in Settings now, reached from the
   // rooms list rather than behind its own button and dialog.
-  await page.locator('#openAppSettings').click()
-  await expect(page.locator('#appSettings')).toBeVisible()
+  await openSettings(page, 'Notifications')
+  await expect(page.locator('#settingsPane')).toBeVisible()
   await expect(page.locator('#toggleNotify')).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('#toggleNotifyBell')).toHaveAttribute('aria-pressed', 'true')
   await page.locator('#toggleNotifyBell').click()
@@ -20,8 +21,8 @@ test('notification settings work at phone size without requesting permission on 
   await page.locator('#previewNotifyBell').click()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: '/tmp/kithmoot-notifications-phone.png' })
-  await page.locator('#appSettingsClose').click()
-  await expect(page.locator('#appSettings')).not.toBeVisible()
-  await page.locator('#openAppSettings').click()
+  await closeSettings(page)
+  await expect(page.locator('#settingsPane')).not.toBeVisible()
+  await openSettings(page, 'Notifications')
   await expect(page.locator('#toggleNotifyBell')).toHaveAttribute('aria-pressed', 'false')
 })

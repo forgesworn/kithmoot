@@ -277,6 +277,8 @@ main:has(#roomArea:not([hidden])) #workspaceContent { overflow: hidden; }
    stay in the page, hidden, so a call's sound carries on. */
 html[data-destination='people'] #workspaceContent > :not(#peoplePane),
 html[data-destination='boards'] #workspaceContent > :not(#workspaceWorkPanel),
+html[data-destination='settings'] #workspaceContent > :not(#settingsPane),
+html[data-destination='settings'] #roomNav,
 html[data-destination='people'] #rooms,
 html[data-destination='people'] #roomNav,
 html[data-destination='boards'] #roomNav { display: none; }
@@ -505,3 +507,20 @@ html[data-rail-dragging] * { user-select: none; }
 .emptyRoomNote { font-size: var(--fs-2); color: var(--muted); }
 .emptyRoom button { min-width: min(12rem, 100%); max-width: 100%; min-height: 44px; }
 .emptyRoom > p { max-width: 100%; overflow-wrap: anywhere; }
+
+/* ---- Settings, in the pane ---------------------------------------------- */
+
+html[data-destination='settings'] main:has(#settingsPane) #workspaceContent { overflow-y: auto; }
+#settingsPane { box-sizing: border-box; width: 100%; max-width: 40rem; margin: 0 auto; padding: var(--s4) 0 var(--s5); }
+#settingsPane[hidden], .settingsPage[hidden] { display: none; }
+.settingsBar { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); padding-inline: var(--s2); }
+.settingsBar .barBtn[hidden] { display: none; }
+#settingsTitle { margin: 0; font-size: var(--fs-4); line-height: var(--lh-4); }
+#settingsTitle:focus { outline: none; }
+#settingsTitle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-m); }
+#settingsPane .settingsPage:not([data-settings-page='main']) { padding: 0 var(--s2); }
+#settingsPane .settingsPage:not([data-settings-page='main']) input:not([type='checkbox']):not([type='radio']), #settingsPane select { box-sizing: border-box; max-width: 100%; }
+#settingsPane #notify { margin: 0; }
+#settingsPane #notify > h3 { margin: 0 0 var(--s2); font-size: var(--fs-2); }
+#settingsPane #accountHome { margin: 0; }
+@media (max-width: 599px) { #settingsPane { padding-inline: var(--s2); } }
