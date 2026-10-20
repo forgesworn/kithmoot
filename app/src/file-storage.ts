@@ -2,7 +2,7 @@ import { normaliseBlossomServer } from '../../src/attachment.js'
 
 export const FILE_STORAGE_KEY = 'kithmoot.file-storage.v1'
 export const LEGACY_FILE_STORAGE_KEY = 'kithmoot.blossom-server'
-export const FILE_STORAGE_REQUIRED = 'File uploads are off. Private Bothy storage is not connected in this app yet. To use shared storage instead, open Add a file and explicitly allow the displayed server.'
+export const FILE_STORAGE_REQUIRED = 'File uploads are off. Private Bothy storage is not connected in this app yet. To send files, open Add a file, choose where files go and allow that server.'
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 /** The version new consents are written with. Version 1 was written while the
