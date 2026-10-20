@@ -123,7 +123,7 @@ test('signer refusal is fixed copy and only an explicit retry can open the messa
   } finally { publisher.close(); await context.close() }
 })
 
-for (const boundary of ['close', 'sign-out', 'home-departure', 'settings-departure'] as const) {
+for (const boundary of ['close', 'sign-out', 'home-departure', 'settings-departure', 'settings-back', 'settings-destination'] as const) {
   test(`a provider result after ${boundary} cannot repopulate the view`, async ({ browser, baseURL }) => {
     const account = generateSecretKey(), sender = generateSecretKey()
     let calls = 0, returned = false, release!: () => void
@@ -148,8 +148,9 @@ for (const boundary of ['close', 'sign-out', 'home-departure', 'settings-departu
       // The programmatic click intentionally bypasses modal pointer blocking,
       // not an account or lifetime gate in the application.
       else if (boundary === 'sign-out') await page.locator('#signOut').evaluate(button => (button as HTMLButtonElement).click())
-      else if (boundary === 'settings-departure') await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
-      else await page.locator('#createRoomForm').evaluate(form => (form as HTMLFormElement).requestSubmit())
+      else if (boundary === 'home-departure') await page.locator('#createRoomForm').evaluate(form => (form as HTMLFormElement).requestSubmit())
+      else if (boundary === 'settings-back') await page.locator('#settingsBack').evaluate(button => (button as HTMLButtonElement).click())
+      else await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
       await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
       await expect(page.locator('#legacyMessagesList')).toBeEmpty()
       if (boundary === 'sign-out') {
@@ -233,9 +234,9 @@ for (const confirmForget of [false, true]) {
       await expect(decision).toBeVisible()
       await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
       await expect(page.locator('#legacyMessagesList')).toBeEmpty()
-      await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+      // The Account pane stays behind the confirmation dialog. Its real
+      // lifetime callback must disable opening while that decision is pending.
       await expect(page.locator('#legacyMessagesEntry')).toBeDisabled()
-      await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
       if (confirmForget) {
         await page.evaluate(() => { Object.defineProperty(window, 'legacyOriginalDocument', { value: true }) })
         await decision.locator('#actionConfirm').click()
@@ -292,13 +293,12 @@ test('a real delayed sign-in closes the inbox and refuses reopening while the pr
     await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
     await expect(page.locator('#legacyMessagesList')).toBeEmpty()
     const before = wire.legacySubscriptions().length
-    // Re-render actual Settings while the selected provider has not returned.
-    await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+    // Re-render the actual Account page while the provider has not returned.
+    await page.locator('#settingsRowaccount').evaluate(button => (button as HTMLButtonElement).click())
     await expect(page.locator('#legacyMessagesEntry')).toBeDisabled()
     await page.locator('#legacyMessagesEntry').evaluate(button => (button as HTMLButtonElement).click())
     await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
     expect(wire.legacySubscriptions()).toHaveLength(before)
-    await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
     release()
     await expect(page.locator('#legacyMessagesEntry')).toBeEnabled()
     wire.assertReceiveOnly()

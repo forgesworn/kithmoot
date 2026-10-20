@@ -8,6 +8,7 @@ import { dmPolicy, localPeerCrypt } from '../../src/dm.js'
 import { contactInvitationRumor, wrapContactInvitation, type ContactInvitationIdentity } from '../../src/contact-invitation.js'
 import { memoryDeviceStore } from './device-store.js'
 import { ContactInbox } from './contact-inbox.js'
+import { openAccountMessage } from './nostr-opened-message.js'
 
 const now = 1_800_000_000
 function identity(): ContactInvitationIdentity {
@@ -20,16 +21,15 @@ function room(a: string, b: string) {
 }
 function fixture(who = identity(), store = memoryDeviceStore()) {
   let current = true, allowed = true, blocked = false, reject = false, released = false
-  let receive: Parameters<RelayTransport['subscribe']>[1] = () => {}
   const published: string[] = []
-  const transport: RelayTransport = { publish: async () => {}, close: () => {}, subscribe: (_filters, fn) => { receive = fn; return () => { receive = () => {} } } }
-  const inbox = new ContactInbox({ identity: who, store, transport, acquire: async () => () => { released = true },
+  const transport: RelayTransport = { publish: async () => {}, close: () => {}, subscribe: () => { throw Error('Invitation journals must not subscribe') } }
+  const inbox = new ContactInbox({ identity: who, store, acquire: async () => () => { released = true },
     pool: () => ({ ...transport, publishGuarded: async (event, guard) => {
       if (!guard()) throw new Error('Not authorised')
       published.push(event.id)
       if (reject) throw new Error('Relay did not acknowledge')
     } }), current: () => current, allowed: () => allowed, blocked: () => blocked, changed: () => {}, now: () => now })
-  return { inbox, who, store, published, receive: (event: Parameters<typeof receive>[0]) => receive(event),
+  return { inbox, who, store, published,
     reject: (value: boolean) => { reject = value }, allowed: (value: boolean) => { allowed = value }, blocked: () => { blocked = true },
     stop: () => { current = false; inbox.close() }, released: () => released }
 }
@@ -52,17 +52,22 @@ it('retains exact failed envelopes encrypted, restores them and only clears afte
   restored.stop()
 })
 
-it('receives and deduplicates an offline invitation without joining its room, and persists dismissal', async () => {
+it('keeps an explicitly opened invitation without joining, deduplicates it and persists dismissal', async () => {
   const f = fixture(), sender = identity(), r = room(sender.pubkey, f.who.pubkey)
   const rumor = contactInvitationRumor(sender.pubkey, f.who.pubkey, r.room, r.link, now)
   const event = await wrapContactInvitation(rumor, sender, f.who.pubkey, now, () => true)
-  await f.inbox.open(); f.receive(event); f.receive(event)
-  await vi.waitFor(() => expect(f.inbox.snapshot().invitations).toHaveLength(1))
+  await f.inbox.open()
+  expect(f.inbox.snapshot().invitations).toEqual([])
+  const opened = await openAccountMessage(event, f.who.pubkey, (peer, text) => f.who.decrypt(peer, text), () => true, () => false, () => now)
+  if (opened.kind !== 'invitation') throw Error('Expected a real invitation')
+  expect(await f.inbox.keepOpenedInvitation(opened.token, () => true)).toBe(true)
+  expect(await f.inbox.keepOpenedInvitation(opened.token, () => true)).toBe(true)
+  expect(f.inbox.snapshot().invitations).toHaveLength(1)
   expect(f.published).toEqual([])
   await f.inbox.dismiss(rumor.id)
   f.stop(); await vi.waitFor(() => expect(f.released()).toBe(true))
-  const restored = fixture(f.who, f.store); await restored.inbox.open(); restored.receive(event)
-  await new Promise(resolve => setTimeout(resolve, 20))
+  const restored = fixture(f.who, f.store); await restored.inbox.open()
+  expect(await restored.inbox.keepOpenedInvitation(opened.token, () => true)).toBe(false)
   expect(restored.inbox.snapshot().invitations).toEqual([])
   restored.stop()
 })
