@@ -825,6 +825,10 @@
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.</p>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
+          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>Start public message</button>
+          <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
+          <button id="nostrAccountInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
+          <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
           <button id="legacyMessagesEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="legacyMessagesDialog" hidden>Legacy messages</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
           <details>
@@ -1674,6 +1678,38 @@
       </div>
     </dialog>
 
+    <dialog id="nostrMessageDialog" class="sharedProjectsSheet" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
+      <div class="sheetBar"><h2 id="nostrMessageTitle">Start public message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p id="nostrMessageLane" class="nostrMessageWarning">○ public</p>
+        <p id="nostrMessageWarning" class="nostrMessageWarning"></p>
+        <p class="note">The message content stays encrypted. This sends an ordinary Nostr message through published inbox relays. It does not send a room invitation or include room history. Use a browser extension that supports modern Nostr encryption to send from here.</p>
+        <form id="nostrMessageForm">
+          <label for="nostrMessageRecipient">Their Nostr public key (npub)</label>
+          <input id="nostrMessageRecipient" name="recipient" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
+          <label for="nostrMessageText">New message</label>
+          <textarea id="nostrMessageText" name="message" rows="5" maxlength="4096" autocomplete="off" required></textarea>
+          <p class="note">Review checks both accounts’ published Nostr inbox lists on your configured account relays. Your message stays on this device until you choose Send public. Closing clears this draft.</p>
+          <button id="nostrMessageReview" type="submit">Review public message</button>
+        </form>
+        <p id="nostrMessageSummary" class="note"></p>
+        <button id="nostrMessageSend" type="button" hidden>Send public</button>
+        <p id="nostrMessageStatus" class="note" role="status" aria-live="polite"></p>
+      </div>
+    </dialog>
+
+    <dialog id="nostrInboxDialog" class="sharedProjectsSheet" aria-labelledby="nostrInboxTitle" aria-describedby="nostrInboxHelp">
+      <div class="sheetBar"><h2 id="nostrInboxTitle">Nostr messages</h2><button id="nostrInboxClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p class="nostrMessageWarning">○ public</p>
+        <p id="nostrInboxHelp" class="note">Messages and invitations stay encrypted until you choose Open message and ask your signer. Ordinary text and links are displayed literally. Verified invitations can be reviewed in Chats; opening a copy does not join a room. The relay check selected below is outside your sheltered conversations.</p>
+        <p class="note">This device keeps up to 128 original encrypted copies, within a 2 MiB limit. Closing clears opened text from this view. Saved copies can be reopened after restart with the same account and signer. They do not prove delivery or read status, and older copies may leave this device’s cache. Forget this browser removes these local copies; relay copies are separate.</p>
+        <button id="nostrInboxLoad" type="button">Load messages</button>
+        <p id="nostrInboxStatus" class="note" role="status" aria-live="polite"></p>
+        <ul id="nostrInboxList" aria-label="Ordinary Nostr message copies"></ul>
+      </div>
+    </dialog>
+
     <dialog id="legacyMessagesDialog" class="sharedProjectsSheet" aria-labelledby="legacyMessagesTitle" aria-describedby="legacyMessagesHelp">
       <div class="sheetBar"><h2 id="legacyMessagesTitle">Legacy messages</h2><button id="legacyMessagesClose" type="button" autofocus>Close</button></div>
       <div class="sheetBody">
@@ -1723,6 +1759,8 @@
         <ul id="signetGrantedContacts" class="messageContacts"></ul>
         <p id="contactInboxStatus" class="note" role="status"></p>
         <button id="contactInboxRetry" type="button" hidden>Retry pending invitations</button>
+        <button id="contactInboxCheck" type="button" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
+        <p class="note">To find older invitations on your configured account relays, leave any room or call, then choose Check invitations on account relays. Load and open copies explicitly. Nostr messages in Settings uses your published inbox relays.</p>
         <h3 id="contactInvitesHeading" class="sheetHead" hidden>Private conversation requests</h3>
         <ul id="contactInvites" class="messageContacts"></ul>
       </div>
