@@ -3,6 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nost
 import { wrapEvent } from 'nostr-tools/nip59'
 import { decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { unwrapEvent } from 'nostr-tools/nip17'
+import { matchFilter, matchFilters, type Filter } from 'nostr-tools/filter'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openSettings } from './browser.js'
@@ -156,17 +157,34 @@ test('account-relay invitation checking is explicit and never substitutes for an
   const account = generateSecretKey(), peer = generateSecretKey(), self = getPublicKey(account), starts: string[] = []
   const context = await accountDevice(browser, baseURL!, account, true, undefined, undefined, undefined, { started: (_peer, text) => { starts.push(text) } })
   const pool = new NostrRelayPool([TEST_RELAY_WS])
+  const allReads: unknown[][] = [], reads: unknown[][] = []
+  // Existing project state has its own labelled subscriptions at sign-in.
+  // Exempt only this exact filter; an extra/mixed filter still counts as a read.
+  const catalogue: Filter = { kinds: [1059], '#p': [self], '#l': ['kithmoot.projects.v1', 'kithmoot.project-logo.v1'] }
+  const canonical = (value: object) => JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+  const catalogueOnly = (frame: unknown[]) => frame.length > 2 && frame.slice(2).every(filter =>
+    filter !== null && typeof filter === 'object' && !Array.isArray(filter) && canonical(filter) === canonical(catalogue))
   try {
     const invite = await invitationCopy(peer, self)
+    expect(matchFilter(catalogue, invite.copy)).toBe(false)
+    expect(catalogueOnly(['REQ', 'catalogue-only-control', catalogue])).toBe(true)
+    expect(catalogueOnly(['REQ', 'mixed-control', catalogue, { kinds: [1059], '#p': [self] }])).toBe(false)
     const seal = JSON.parse(decrypt(invite.copy.content, getConversationKey(account, invite.copy.pubkey))) as Event
     const opening = () => starts.filter(text => text === invite.copy.content || text === seal.content).length
     await pool.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), tags: [], content: '' }, account))
     await pool.publish(invite.copy)
-    const page = await context.newPage(), reads: unknown[][] = []
+    const page = await context.newPage()
     page.on('websocket', socket => socket.on('framesent', frame => {
-      try { const value = JSON.parse(String(frame.payload)); if (value[0] === 'REQ' && value.slice(2).some((filter: { kinds?: number[] }) => filter.kinds?.includes(1059))) reads.push(value) } catch { /* Other frames are unrelated. */ }
+      try {
+        const value = JSON.parse(String(frame.payload))
+        if (value[0] === 'REQ' && value.slice(2).some((filter: { kinds?: number[] }) => filter.kinds?.includes(1059))) {
+          allReads.push(value)
+          if (!catalogueOnly(value)) reads.push(value)
+        }
+      } catch { /* Other frames are unrelated. */ }
     }))
     await signInAccount(page, baseURL!); await showInbox(page); expect(opening()).toBe(0)
+    expect(reads).toEqual([])
     await page.locator('#nostrInboxLoad').click()
     await expect(page.locator('#nostrInboxStatus')).toContainText('could not be read')
     expect(reads).toEqual([]); expect(opening()).toBe(0)
@@ -178,6 +196,7 @@ test('account-relay invitation checking is explicit and never substitutes for an
     await page.getByRole('button', { name: 'Load account messages', exact: true }).click()
     const row = page.locator('#nostrInboxList > li')
     await expect(row).toHaveCount(1); expect(reads.length).toBeGreaterThan(0); expect(opening()).toBe(0)
+    expect(reads.some(frame => matchFilters(frame.slice(2) as Filter[], invite.copy))).toBe(true)
     await row.getByRole('button', { name: 'Open message', exact: true }).click()
     await expect(row.locator('.ordinaryInvitationReview')).toBeVisible(); expect(opening()).toBe(2)
     await expect(row.locator('.ordinaryMessageText')).toBeHidden(); await expect(page.locator('#roomArea')).toBeHidden()
@@ -187,7 +206,10 @@ test('account-relay invitation checking is explicit and never substitutes for an
     const pending = page.getByRole('navigation', { name: 'Chats' }).locator(`li[data-invitation="${invite.rumor.id}"]`)
     await expect(pending).toHaveCount(1); await expect(pending.locator('button[data-action="accept"]')).toBeVisible()
     await expect(page.locator('#roomArea')).toBeHidden()
-  } finally { pool.close(); await context.close() }
+  } finally {
+    try { await test.info().attach('all-kind1059-requests', { body: JSON.stringify(allReads, null, 2), contentType: 'application/json' }) }
+    finally { pool.close(); await context.close() }
+  }
 })
 
 test('closing the actual inbox during a pending inner invitation decrypt cannot keep or join it', async ({ browser, baseURL }) => {
