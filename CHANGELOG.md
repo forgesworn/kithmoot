@@ -1,5 +1,16 @@
 # Changelog
 
+## Desktop 0.1.95, 20 October 2026
+
+- A call has one row of buttons, each with its word under it: Mute, Camera, Share, Chat, More and Leave, with Full screen on a wider window. Leave is the only red one. More is a short menu: Effects, Layout, Record call, Run as a meeting, Use beside another device, Mirror my view, Let agents hear me and Invite people, each only when it applies.
+- When somebody starts a call in the room you have open, a banner says "Priya is calling" with Decline and Answer. Answer joins with your microphone on and your camera off. The ring stops after a minute, and opening a room where a call has been going for a while does not ring.
+- The first time you unmute in a call with an agent in the room, the call asks whether agents may hear you. They still hear nothing unless you say so.
+- On a call while you read another room, the call is one line with its clock, "On a call in Release workshop · 12:03", with Mute, Return and Leave.
+- The call shows names, never Nostr keys; somebody with no name is "Somebody". Two people with the same name still get a short key to tell them apart.
+- The divider between a call and its chat no longer covers a finished recording's buttons.
+- A contact's page in People lists the rooms you share with them and the rooms you invited them to, with "Sent, not joined yet" or "Joined" and the day it went. It is worked out from rooms already on this device, so the page asks no relay anything.
+- Check words together on a contact's page opens your private chat with them and the same word check a room member's row offers. Under it: when you checked, "Checked in Signet", a warning when a different key was checked under the same name, or "Not checked yet". A check made there also marks the person in People's list.
+
 ## Desktop 0.1.94, 20 October 2026
 
 - Room info replaces the long Room details sheet. It opens from the room's name or ⋯, as a panel beside the conversation on a wide window and full screen on a phone, and fits in about one screen: the room and who can join, Call, Invite and Search, the members with agents marked, then Conversations, Invite link, Privacy and connection, Name and picture, your phone, how you appear and your contact cards, each as a page inside the panel.
