@@ -8,6 +8,7 @@ import { finalizeEvent } from 'nostr-tools/pure'
 import { encodeEpochGrant } from '../src/epoch.js'
 import { setup } from './ordinary-bootstrap.setup.js'
 import { controls } from './ordinary-member-session.setup.js'
+import { installPrivateJoinStageObserver, privateJoinStagePlugin, recordPrivateJoinHostStage } from './ordinary-private-join-stage-observer.js'
 
 let server: Server, origin = '', fixture = '', worker = '', pureFence = ''
 const modules = new Map<string, string>()
@@ -15,7 +16,7 @@ const ROOT_ENTRY = '/j/build/ordinary-private-existing-root.browser-entry.js'
 const probes = `window.effects={provider:0,socket:0,storageWrite:0,put:0,entropy:0,key:0};window.probeNonces=0;window.curveInitializationProbes=0;window.curveProbeActive=false;window.privateEntropyCalls=[];
 const nativeProbeRandom=crypto.getRandomValues.bind(crypto);window.__probeRandom=value=>{probeNonces++;return nativeProbeRandom(value)};
 window.__privateProviderSetupProbe=stage=>{const f=window.privateProviderCommandFixture;if(!f)return;(f.stages??=[]).push(stage);if(f.cut===stage&&!f.cutEntered){f.cutEntered=true;if(f.cutMode==='controller')navigator.serviceWorker.dispatchEvent(new Event('controllerchange'));else if(f.cutMode==='close')void window.__privateRootCloseForTest().catch(()=>{});else window.dispatchEvent(new PageTransitionEvent('pagehide'))}if(f.fail===stage)throw Error('Explicit provider setup failure: '+stage)};
-window.privateG0JoinCutEntered=null;window.__privateG0JoinCut=stage=>{if(window.privateG0JoinCut!==stage||window.privateG0JoinCutEntered)return;window.privateG0JoinCutEntered=stage;window.dispatchEvent(new PageTransitionEvent('pagehide'))};
+window.privateG0JoinCutEntered=null;window.__privateG0JoinCut=stage=>{window.__privateJoinStage?.('g0-cut',stage);if(window.privateG0JoinCut!==stage||window.privateG0JoinCutEntered)return;window.privateG0JoinCutEntered=stage;window.dispatchEvent(new PageTransitionEvent('pagehide'))};
 window.__curveProbeRandom=(random,length)=>{curveInitializationProbes++;curveProbeActive=true;try{return random(length)}finally{curveProbeActive=false}};
 Object.defineProperty(window,'nostr',{configurable:true,get(){effects.provider++;if(window.providerFixture)return window.providerFixture.current;throw Error('provider forbidden')}});
 window.WebSocket=class{constructor(url){effects.socket++;if(window.privateJoinNetworkFixture&&window.__controlDecision)return new window.__privateJoinSocket(url);throw Error('socket forbidden')}};
@@ -37,7 +38,7 @@ test.beforeAll(async () => {
   const result = await build({ entryPoints: ['test/ordinary-private-existing-root.browser-entry.ts'],
     bundle: true, splitting: true, format: 'esm', platform: 'browser', target: 'es2022',
     outdir: '.private-root-test-build', chunkNames: 'chunks/[name]-[hash]', write: false, metafile: true,
-    plugins: [...sdkPlugins, { name: 'observe-private-root-failure-only', setup(builder) {
+    plugins: [...sdkPlugins, ...(process.env.VENNEL_PRIVATE_JOIN_STAGE_OBSERVER === '1' ? [privateJoinStagePlugin] : []), { name: 'observe-private-root-failure-only', setup(builder) {
       builder.onLoad({ filter: /ordinary-private-existing-root\.ts$/ }, async input => {
         let source = await readFile(input.path, 'utf8')
         const once = (marker: string, replacement: string) => {
@@ -4936,8 +4937,12 @@ test('trusted member synthetic clicks and keyboard events cannot request a walle
 
 
 async function installTrustedMemberPeer(page:Page,peer:PrivateG0JoinPeer):Promise<void>{
-  await page.exposeFunction('__privateJoinPeerGrant',(request:{id:string;pubkey:string})=>encodeEpochGrant({roomId:peer.roomId,authoritySk:Uint8Array.from(peer.authority),device:request.pubkey,request:request.id,
-    epoch:{epoch:0,secret:Uint8Array.from(peer.secret)},credential:peer.credential!,removed:[],now:Math.floor(Date.now()/1000)}))
+  await page.exposeFunction('__privateJoinPeerGrant',(request:{id:string;pubkey:string})=>{
+    recordPrivateJoinHostStage(page,'peer-grant-enter')
+    try{return encodeEpochGrant({roomId:peer.roomId,authoritySk:Uint8Array.from(peer.authority),device:request.pubkey,request:request.id,
+      epoch:{epoch:0,secret:Uint8Array.from(peer.secret)},credential:peer.credential!,removed:[],now:Math.floor(Date.now()/1000)})}
+    finally{recordPrivateJoinHostStage(page,'peer-grant-return')}
+  })
   await page.evaluate(({roomId,participant})=>{
     const w=window as any;w.privateJoinFixtureRoom=roomId;w.privateJoinFixturePrefix='kithmoot.account.'+participant+'.';w.privateJoinNetworkFixture=true;w.privateJoinGrantReady=false;w.privateJoinEpochRequested=false;w.privateJoinFrames=[];w.privateJoinSockets=[]
     w.__privateJoinSocket=class {
@@ -4955,10 +4960,13 @@ async function installTrustedMemberPeer(page:Page,peer:PrivateG0JoinPeer):Promis
             this.message(['OK',frame[1].id,true,'accepted'])
             if(frame[1].kind===20468){
               w.privateJoinEpochRequested=true
-              const grant=await w.__privateJoinPeerGrant(frame[1]);if(!grant)return
+              w.__privateJoinStage?.('peer-await-start','other',frame)
+              const grant=await w.__privateJoinPeerGrant(frame[1]);w.__privateJoinStage?.('peer-await-return','other',frame);if(!grant)return
               if(w.privateJoinPauseGrant){w.privateJoinGrantReady=true;await new Promise<void>(yes=>{w.privateJoinReleaseGrant=yes})}
+              w.__privateJoinStage?.('peer-delivery-start','other',frame)
               for(const socket of w.privateJoinSockets)for(const[id,filters]of socket.requests)
                 if(filters.some((f:any)=>f.kinds?.includes(grant.kind)))socket.message(['EVENT',id,grant])
+              w.__privateJoinStage?.('peer-delivery-end','other',frame)
             }
           }
         })
@@ -5256,11 +5264,14 @@ for(const fault of ['tuple','after-retention','replacement'])test(`renewal root 
 
 async function renewalDueNoticeReady(page:Page,keep=true,joined=true):Promise<void>{
   await prepareTrustedMemberUI(page,keep,false,true)
+  recordPrivateJoinHostStage(page,'before-native-unlock')
   await page.locator('[data-private-member-action="unlock-private-member"]').click()
   await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='verify-ready'")
+  recordPrivateJoinHostStage(page,'verify-ready')
   await page.locator('[data-private-member-action="verify-private-member"]').click()
   await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='connect-ready'")
-  if(joined){await page.locator('[data-private-member-action="connect-private-member"]').click();await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='member-joined'")}
+  recordPrivateJoinHostStage(page,'connect-ready')
+  if(joined){recordPrivateJoinHostStage(page,'before-native-connect');await page.locator('[data-private-member-action="connect-private-member"]').click();await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='member-joined'");recordPrivateJoinHostStage(page,'member-joined')}
 }
 for(const keep of [false,true])test(`renewal due notice reads genuine joined rows readonly without signing or writing, keep=${keep}`,async({page})=>{
   await renewalDueNoticeReady(page,keep)
@@ -5463,12 +5474,16 @@ test('renewal due native abort refusal before effect drains the actual readonly 
 })
 
 async function renewalPrepareViewReady(page:Page,keep=true,due=true):Promise<void>{
+  recordPrivateJoinHostStage(page,'before-clock-install')
   await page.clock.install()
+  recordPrivateJoinHostStage(page,'after-clock-install')
   await renewalDueNoticeReady(page,keep)
   const dueAt=await page.evaluate<number>('window.__privateControllerRenewalForTest.joined().dueAt')
   // Wall-clock expiry setup must not fire the old Session's unrelated timers.
   // The timer-only case mounts just before due and advances its real timer below.
+  recordPrivateJoinHostStage(page,'before-set-system-time')
   await page.clock.setSystemTime(dueAt+(due?1:-1000))
+  recordPrivateJoinHostStage(page,'after-set-system-time')
   await page.evaluate('window.__prepareRenewalViewForTest()')
   await page.waitForFunction("document.documentElement.dataset.ordinaryProtectedStartup==='renewal-due'")
 }
@@ -5477,7 +5492,9 @@ async function renewalPrepareEffects(page:Page):Promise<unknown>{
     crypts:w.providerFixture.crypts??0,publications:(w.privateJoinFrames??[]).filter((v:any)=>v.frame[0]==='EVENT').length}})
 }
 for(const keep of [false,true])for(const mode of ['pointer','Enter','Space']as const)
-test(`trusted renewal Prepare reads fresh membership without durable or provider effects, keep=${keep}, ${mode}`,async({page})=>{
+test(`trusted renewal Prepare reads fresh membership without durable or provider effects, keep=${keep}, ${mode}`,async({page,browserName},testInfo)=>{
+  if(process.env.VENNEL_PRIVATE_JOIN_STAGE_OBSERVER==='1'&&browserName==='firefox'&&!keep&&mode==='pointer')
+    await installPrivateJoinStageObserver(page,testInfo)
   await renewalPrepareViewReady(page,keep)
   const before=await renewalPrepareEffects(page),probesBefore=await page.evaluate<number>('probeNonces')
   await page.evaluate(()=>{const w=window as any;w.__dueTransactionModes=[];w.__dueObserveTransactions=true})
