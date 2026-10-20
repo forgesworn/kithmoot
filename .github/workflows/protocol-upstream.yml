@@ -12,6 +12,7 @@ permissions:
   contents: read
 jobs:
   compare:
+    if: github.event_name != 'workflow_dispatch' || !inputs.private_renewal_prepare_read
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -23,16 +24,15 @@ jobs:
           node-version: 24
       - run: node scripts/check-protocol-upstream.mjs
 
-  # Isolated development branch only. Original normal CI and product gates stay unchanged.
-  private-renewal-prepare-read-native:
-    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_prepare_read
-    name: private renewal Prepare-read (${{ matrix.engine }})
+  # This diagnostic branch observes one original Firefox case. Never merge as
+  # a replacement for the existing seventeen-case, three-engine development gate.
+  private-renewal-join-stage:
+    if: github.event_name == 'workflow_dispatch' && inputs.private_renewal_prepare_read && github.ref == 'refs/heads/diagnostic/firefox-renewal-join-stages'
+    name: private renewal join-stage (Firefox, one case)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [chromium, firefox, webkit]
+    timeout-minutes: 20
+    env:
+      VENNEL_PRIVATE_JOIN_STAGE_OBSERVER: '1'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -41,6 +41,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Bind the exact diagnostic source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          git rev-parse HEAD > private-join-stage-source-head.txt
+          git rev-parse 'HEAD^{tree}' > private-join-stage-source-tree.txt
+          sha256sum package-lock.json test/ordinary-private-existing-root.spec.ts test/ordinary-private-join-stage-observer.ts playwright.private-renewal-join-stage.config.ts scripts/verify-private-renewal-join-stage-inventory.mjs .github/workflows/protocol-upstream.yml > private-join-stage-source-before.sha256
       - name: Install locked dependencies
         run: npm ci
       - name: Verify exact installed validation dependencies
@@ -48,21 +56,42 @@ jobs:
       - name: Build library
         run: npm run build:lib
       - name: Install selected browser
-        run: npx playwright install --with-deps ${{ matrix.engine }}
-      - name: Verify the exact seventeen-case development selection
+        run: npx playwright install --with-deps firefox
+      - name: Verify the exact one-case Firefox selection
         run: |
-          npx playwright test -c playwright.private-renewal-prepare-read.config.ts --project=${{ matrix.engine }}-sdk020 --list --reporter=json > private-renewal-prepare-read-inventory.json
-          node scripts/verify-private-renewal-prepare-read-inventory.mjs private-renewal-prepare-read-inventory.json ${{ matrix.engine }}
-      - name: Run the native development selection once
-        run: npx playwright test -c playwright.private-renewal-prepare-read.config.ts --project=${{ matrix.engine }}-sdk020 --max-failures=1 --trace=retain-on-failure
+          npx playwright test -c playwright.private-renewal-join-stage.config.ts --project=firefox-sdk020 --list --reporter=json > private-join-stage-inventory.json
+          node scripts/verify-private-renewal-join-stage-inventory.mjs private-join-stage-inventory.json > private-join-stage-inventory-verification.json
+      - name: Observe the original native case once
+        shell: bash
+        run: |
+          set +e
+          npx playwright test -c playwright.private-renewal-join-stage.config.ts --project=firefox-sdk020 --max-failures=1 --trace=on 2>&1 | tee private-join-stage-run.log
+          test_result=("${PIPESTATUS[@]}")
+          printf '%s\n' "${test_result[0]}" > private-join-stage-test.exit
+          printf '%s\n' "${test_result[1]}" > private-join-stage-tee.exit
+          if [[ "${test_result[0]}" != 0 ]]; then exit "${test_result[0]}"; fi
+          exit "${test_result[1]}"
+      - name: Preserve observed source after the attempt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          paths=(package-lock.json test/ordinary-private-existing-root.spec.ts test/ordinary-private-join-stage-observer.ts playwright.private-renewal-join-stage.config.ts scripts/verify-private-renewal-join-stage-inventory.mjs .github/workflows/protocol-upstream.yml scripts/verify-private-renewal-locked-dependencies.mjs app/src/ordinary-protocol-work.ts app/src/ordinary-private-member-session.ts app/src/ordinary-persistent-bootstrap.ts app/src/ordinary-private-existing-root.ts app/src/ordinary-state-owner.ts src/session.ts src/fresh-epoch.ts)
+          sha256sum "${paths[@]}" > private-join-stage-source-after.sha256
+          mkdir producer-source
+          cp --parents -- "${paths[@]}" producer-source/
+          git status --porcelain > private-join-stage-source-status.txt
+          git diff --exit-code > private-join-stage-tracked-source.diff
       - name: Retain validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: private-renewal-prepare-read-native-${{ matrix.engine }}
+          name: private-renewal-join-stage-firefox
           path: |
             locked-dependencies.json
-            private-renewal-prepare-read-inventory.json
+            private-join-stage-*
+            producer-source/
             test-results/
-          if-no-files-found: ignore
-          retention-days: 7
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
