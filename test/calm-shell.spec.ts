@@ -401,6 +401,13 @@ test('a first run is one sentence and three ways in: no list, no People, no coun
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Join with a code' }).click()
     await expect(page.locator('#meetingCodeInput')).toBeVisible()
+    await page.keyboard.press('Escape')
+    // A phone has no rail and a first run no list header: Settings still has
+    // a place, because somebody who needs bigger text needs it first.
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await expect(page.locator('#appSettings')).toBeVisible()
   } finally { await context.close() }
 })
 

@@ -5,6 +5,7 @@ import { test, expect, type Page, type Request } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
 import { openRoomUrl, pinToTestRelays, TEST_RELAY_HTTP, TEST_RELAY_WS } from './relays.js'
+import { openNewRoomForm } from './browser.js'
 
 /**
  * A camera effect must never phone home.
@@ -36,7 +37,8 @@ const LOCAL_VIDEO = '.media.mine video'
 
 async function goIn(page: Page): Promise<void> {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Start a room' }).click()
+  await openNewRoomForm(page)
+  await page.locator('#create').click()
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
   await openRoomUrl(page, pinToTestRelays(await share.inputValue()))

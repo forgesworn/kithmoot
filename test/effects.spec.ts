@@ -5,6 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
 import { openRoomUrl, pinToTestRelays } from './relays.js'
+import { openNewRoomForm } from './browser.js'
 
 /**
  * Does the blur actually blur, and does it survive a camera swap?
@@ -236,7 +237,8 @@ async function openCamera(page: Page): Promise<void> {
  */
 async function goIn(page: Page): Promise<void> {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Start a room' }).click()
+  await openNewRoomForm(page)
+  await page.locator('#create').click()
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
   // Going in is what puts this device on a relay, and nothing measured in

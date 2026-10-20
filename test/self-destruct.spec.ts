@@ -473,8 +473,8 @@ test('the countdown walks green, amber and red by the clock', async ({ browser, 
   }
 })
 
-test('the desktop rail shows the countdown beside the room', async ({ browser, baseURL }, info) => {
-  test.skip(info.project.name !== 'chromium-desktop', 'the rail is the installed window\'s')
+test('the chats list shows the countdown under the room name, beside the conversation', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name !== 'chromium-desktop', 'one project is enough for the list beside a room')
   const context = await device(browser, baseURL!)
   try {
     const page = await context.newPage()
@@ -487,19 +487,19 @@ test('the desktop rail shows the countdown beside the room', async ({ browser, b
     await page.locator('#displayName').fill('Host')
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    const row = page.locator('.workspaceRoom').filter({ hasText: 'Railed' })
+    const row = page.locator('#roomList .roomRow').filter({ hasText: 'Railed' })
     await expect(row.locator('.fusePill')).toHaveAttribute('data-stage', 'green')
     await expect(page.locator('#roomFuse')).toBeVisible()
     await page.screenshot({ path: 'test-results/self-destruct-countdown-desktop.png' })
     await expect(row.locator('.fusePill .fuseSpoken')).toContainText('Self-destructs in')
-    // The countdown sits on its own line under the name, so a narrow rail
-    // never squeezes the name to a letter a line beside it.
-    for (const width of [undefined, 200]) {
-      if (width) await page.locator('#workspaceNav').evaluate((el, w) => { el.style.width = `${w}px`; el.style.minWidth = `${w}px`; el.style.maxWidth = `${w}px` }, width)
-      const name = (await row.locator('.workspaceRoomLink').boundingBox())!
+    // The countdown sits on its own line under the name, so the list at its
+    // narrowest never squeezes the name to a letter a line beside it.
+    for (const width of [undefined, 240]) {
+      if (width) await page.evaluate(w => document.documentElement.style.setProperty('--shell-list', `${w}px`), width)
+      const name = (await row.locator('.roomName').boundingBox())!
       const pill = (await row.locator('.fusePill').boundingBox())!
-      expect(pill.y, `rail ${width ?? 'default'}px: the countdown is under the name`).toBeGreaterThanOrEqual(name.y + name.height - 8)
-      expect(name.height, `rail ${width ?? 'default'}px: the name is one line`).toBeLessThan(48)
+      expect(pill.y, `list ${width ?? 'default'}px: the countdown is under the name`).toBeGreaterThanOrEqual(name.y + name.height - 8)
+      expect(name.height, `list ${width ?? 'default'}px: the name is one line`).toBeLessThan(48)
     }
   } finally {
     await context.close()
