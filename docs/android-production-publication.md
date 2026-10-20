@@ -6,6 +6,21 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.96 Chats, People and Boards, 20 October 2026
+
+Version **0.6.96**, code **119**, brings stage 2 of the calm shell to Android
+in step with the web and desktop apps: Chats, People and Boards in a bottom
+bar (a rail on tablets), Chats with filter chips, a New sheet and received
+invitations at the top, and People listing Signet contacts, contact cards and
+the account's follow list with Message, Voice and Video (kithmoot-android
+#288). Follow-list names are fetched only while public profiles are on.
+
+The production APK is built from Android source
+`3803acc8` (pull request #288 merged, all checks passed), SHA-256
+`59585116260d81e231810f711e424960232e133bad60ae7be3166221a37875d8`, signed with
+the retained production certificate. Launched on the arm64 emulator; not yet
+observed on a device.
+
 ## Android 0.6.95 visible sending, 20 October 2026
 
 Version **0.6.95**, code **118**, shows when a message is sending (an
