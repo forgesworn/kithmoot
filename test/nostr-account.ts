@@ -1,3 +1,4 @@
+import { openSettings, closeSettings } from './browser.js'
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
@@ -43,8 +44,8 @@ export async function signInAccount(page: Page, baseURL: string) {
   // Signed in and nothing found yet: the "Already on Nostr?" line is gone
   // now that signing in is done, and Settings is where Sign out lives now.
   await expect(page.locator('#homeSignIn')).toBeHidden()
-  await page.locator('#openAppSettings').click()
+  await openSettings(page, 'Account')
   await expect(page.locator('#signOut')).toBeVisible()
-  await page.locator('#appSettingsClose').click()
+  await closeSettings(page)
 }
 

@@ -5,7 +5,7 @@ import { NostrRelayPool } from '../src/relay-pool.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { readFile } from 'node:fs/promises'
 import { TEST_RELAY_WS } from './relays.js'
-import { openNewRoomForm } from './browser.js'
+import { openNewRoomForm, openProfileSettings } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -64,9 +64,7 @@ test('private chat rows show the peer picture before opening and respect the pro
     await expect(page.locator(`#roomList [data-room="${groupId}"] .roomAvatar img`)).toHaveCount(0)
     await page.reload()
     await expect(avatar).toHaveAttribute('src', picture)
-    await page.locator('#openAppSettings').click()
-    await page.locator('#appConnections > summary').click()
-    await page.locator('#appProfileSettings').click()
+    await openProfileSettings(page)
     await page.locator('#lookupProfiles').uncheck()
     await expect(avatar).toHaveCount(0)
     const count = requests.filter(url => url === picture).length

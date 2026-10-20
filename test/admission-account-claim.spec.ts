@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { writeFileSync } from 'node:fs'
 import { localIdentity } from '../src/identity.js'
-import { newDeviceContext, openNewRoomForm, requestAdmission } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, openSettings, closeSettings } from './browser.js'
 import { testRelaysFor, TEST_RELAY_WS } from './relays.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
@@ -104,9 +104,9 @@ for (const cancellation of ['sign out', 'stop opening', 'cancel request', 'deadl
     const page = await context.newPage()
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await expect(page.locator('#signOut')).toBeVisible()
-    await page.locator('#appSettingsClose').click()
+    await closeSettings(page)
     if (cancellation === 'deadline') await page.clock.install()
     await page.goto(encodeRoomLink(baseURL!, { invitation, relays, iceUrls: [] }))
     // A fragment-only navigation does not reload the application module.
@@ -129,7 +129,7 @@ for (const cancellation of ['sign out', 'stop opening', 'cancel request', 'deadl
       // The invitation door hides the home Settings button. Invoke its
       // existing handler to exercise account replacement during signing;
       // the sign-out action itself still runs through the visible dialog.
-      await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+      await openSettings(page, 'Account')
       await page.locator('#signOut').click()
       await expect(page.locator('#signIn')).toBeVisible()
     } else if (cancellation === 'cancel request') {

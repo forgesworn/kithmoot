@@ -1,3 +1,4 @@
+import { openSettings, closeSettings } from './browser.js'
 import { test, expect, type Page } from '@playwright/test'
 import { build } from 'esbuild'
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools/pure'
@@ -79,13 +80,13 @@ async function fixtureBunker() {
   } catch (error) { await close(); throw error }
 }
 
-async function settings(page: Page) { await page.locator('#openAppSettings').click() }
+async function settings(page: Page) { await openSettings(page) }
 async function openDetails(page: Page, id: string) {
   const details = page.locator(id)
   if (!await details.evaluate(e => (e as HTMLDetailsElement).open)) await details.locator('summary').first().click()
 }
-async function witnessSettings(page: Page) { await settings(page); await openDetails(page, '#appConnections'); await page.locator('#mlsWitnessSettingsOpen').click() }
-async function roomSettings(page: Page) { await settings(page); await openDetails(page, '#appConnections'); await page.locator('#mlsRoomDevelopmentOpen').click(); await expect(page.locator('#mlsRoomDevelopment')).toBeVisible() }
+async function witnessSettings(page: Page) { await openSettings(page, 'Connections'); await page.locator('#mlsWitnessSettingsOpen').click() }
+async function roomSettings(page: Page) { await openSettings(page, 'Connections'); await page.locator('#mlsRoomDevelopmentOpen').click(); await expect(page.locator('#mlsRoomDevelopment')).toBeVisible() }
 
 test('fresh bunker login provisions its actual browser device and creates a witnessed room through full-app controls', async ({ context, page, baseURL }) => {
   test.setTimeout(360_000)
@@ -141,12 +142,12 @@ test('fresh bunker login provisions its actual browser device and creates a witn
     const enrolled = await page.locator('#mlsWitnessDevice').textContent(), device = enrolled!.match(/Device:\s*([0-9a-f]{64})/)?.[1]
     expect(device).toBeDefined()
     await page.locator('#mlsWitnessClose').click()
-    await settings(page); await openDetails(page, '#accountMore'); await openDetails(page, '#rendezvousProvision')
+    await openSettings(page, 'Account'); await openDetails(page, '#accountMore'); await openDetails(page, '#rendezvousProvision')
     await page.locator('#rendezvousIndex').fill('1'); await page.locator('#provisionRendezvous').click()
     await expect(page.locator('#rendezvousStatus')).toContainText('This browser now holds rendezvous child 1', { timeout: 60_000 })
     expect(bunker.methods.has('heartwood_provision_rendezvous')).toBe(true)
     console.info('Bunker room lab: provisioned through actual NIP-46 browser key')
-    await page.locator('#appSettingsClose').click()
+    await closeSettings(page)
     const read = await fetch(control! + '/ready'); expect(read.ok).toBe(true); const ready = await read.json()
     const post = async () => { const response = await fetch(control! + '/pairing', { method: 'POST' }); if (!response.ok) throw new Error('Disposable box pairing refused'); return (await response.json()).uri as string }
     await page.addScriptTag({ url: new URL('fixture-room-operator.js', baseURL!).href })
@@ -173,7 +174,7 @@ test('fresh bunker login provisions its actual browser device and creates a witn
     await page.locator('#mlsRoomDevelopment [data-manual]').click()
     await expect(page.locator('#mlsRoomDevelopment [data-status]')).toContainText('0 witnessed outbox record(s) resolved', { timeout: 60_000 })
     expect(errors).toEqual([])
-    await page.locator('#mlsRoomDevelopment [data-close]').click(); await settings(page); await page.locator('#signOut').click()
+    await page.locator('#mlsRoomDevelopment [data-close]').click(); await openSettings(page, 'Account'); await page.locator('#signOut').click()
     await expect(page.locator('#status')).toContainText("Signed out. This forgets this browser's connection to your signer", { timeout: 60_000 })
     await expect(page.locator('#signIn')).toBeVisible()
     expect(await page.evaluate(() => ['signet:login.bunkerUri', 'signet:login.bunkerClientSk'].filter(key => localStorage.getItem(key) !== null))).toEqual([])

@@ -4592,8 +4592,6 @@ function showRoomTools(): void {
   // details with everything else, and it is moved rather than duplicated:
   // one element, one set of listeners, one truth about its state. Leaving
   // a room reloads the page, so it never needs moving back.
-  $('notify').hidden = false
-  $('notifySlot').append($('notify'))
   // The one line the page uses to say something went wrong belongs where
   // the person is looking. It is written in `main` for the join screen and
   // the rooms list; in a room it moves under the box to write in, because
@@ -5198,8 +5196,10 @@ function renderRoomInfo(): void {
   const board = boardTab()
   $('infoRowBoard').hidden = !board
   setInfoSub('infoSubBoard', board ? (board.needsYou ? `${board.needsYou} need${board.needsYou === 1 ? 's' : ''} you` : '') : '')
-  const modeLabel = { all: 'Every message', off: 'Nothing', inherit: 'Your default', mentions: 'Mentions and replies' } as const
-  setInfoSub('infoSubNotifications', model.notify ? modeLabel[model.notify as keyof typeof modeLabel] ?? '' : '')
+  // Per-room alerts are the ⋯ menu's Notifications; this page is only for what
+  // a keeper can offer, so the row is there only then.
+  $('infoRowNotifications').hidden = $('nudgeRow').hidden
+  setInfoSub('infoSubNotifications', 'Nudge me when I am away')
   const route = roomUsesBothy ? 'Bothy route' : 'public relays'
   setInfoSub('infoSubPrivacy', `Encrypted · ${route}`)
   setInfoSub('infoSubName', $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
@@ -13308,7 +13308,7 @@ function showRoomsList(): void {
   $('identityMore').hidden = true
   $('homeStatus').append($('status'))
   // Notifications & sound lives in Settings now, not loose on the page -
-  // see openAppSettings, which is the only thing that ever unhides it here.
+  // see enterSettings, which is the only thing that ever unhides it here.
   $('notify').hidden = true
   roomsListShown = true
   // The start page is the list level: below 900 px it is what shows.
@@ -15474,7 +15474,6 @@ $('roomSheetClose').addEventListener('click', closeRoomSheet)
 $('infoCall').addEventListener('click', () => { closeRoomSheet(); $('callToggle').click() })
 $('infoInvite').addEventListener('click', () => openInviteDialog(false, $('infoInvite')))
 $('infoRowBoard').addEventListener('click', () => openRoomBoard($('infoRowBoard')))
-$('roomInfoSettings').addEventListener('click', () => { closeRoomSheet(); $('openAppSettings').click() })
 $('searchConversation').addEventListener('click', () => {
   const sheet = $('roomSheet') as HTMLDialogElement
   if (sheet.open) {
@@ -16043,7 +16042,7 @@ $('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() =>
 window.addEventListener('pagehide', () => { void browserLinkPanel.stop(); void pauseBrowserMls().catch(() => undefined) })
 if (browserMlsPreview) {
   const rooms = document.createElement('button')
-  rooms.id = 'mlsRoomDevelopmentOpen'; rooms.type = 'button'; rooms.textContent = 'MLS room connection (preview)'
+  rooms.id = 'mlsRoomDevelopmentOpen'; rooms.type = 'button'; rooms.className = 'infoRow'; rooms.textContent = 'MLS room connection (preview)'
   rooms.setAttribute('aria-haspopup', 'dialog'); rooms.setAttribute('aria-controls', 'mlsRoomDevelopment')
   $('mlsWitnessSettingsOpen').after(rooms)
   rooms.onclick = () => closeAppSettingsFor(() => {
@@ -16066,7 +16065,7 @@ if (browserMlsPreview) {
     }).catch(() => setStatus('MLS room connection could not be opened.'))
   })
   const grants = document.createElement('button')
-  grants.id = 'mlsGrantDevelopmentOpen'; grants.type = 'button'; grants.textContent = 'MLS grant workflows (preview)'
+  grants.id = 'mlsGrantDevelopmentOpen'; grants.type = 'button'; grants.className = 'infoRow'; grants.textContent = 'MLS grant workflows (preview)'
   grants.setAttribute('aria-haspopup', 'dialog'); grants.setAttribute('aria-controls', 'mlsGrantDevelopment')
   $('mlsWitnessSettingsOpen').after(grants)
   grants.onclick = () => closeAppSettingsFor(() => {
@@ -16211,10 +16210,6 @@ $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') 
 $('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
 $('profileSettings').addEventListener('close', () => {
   profileReturnFocus.focus({ preventScroll: true })
-  if (reopenAppSettings) { reopenAppSettings = false; openAppSettings() }
-})
-$('relaySettings').addEventListener('close', () => {
-  if (reopenAppSettings) { reopenAppSettings = false; openAppSettings() }
 })
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the
@@ -16296,55 +16291,84 @@ $('toggleNotifyBell').addEventListener('click', () => {
 })
 $('previewNotifyBell').addEventListener('click', () => { void playZenChime(true) })
 
-let notificationHome: { parent: Node; next: Node | null; hidden: boolean } | undefined
-/** Settings, reached from the rooms list: everything the home page used to
- *  carry on its own face, moved into one sheet with the same shape as Room
- *  details' own Settings. `#notify` reuses `notificationHome` above - the
- *  two never overlap, since a person is either at the door of a room or on
- *  the rooms list, never both. */
-let appSettingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean }[] | undefined
-function moveIntoAppSettings(el: HTMLElement, target: Element): { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean } {
+/**
+ * Settings (design-calm-shell 5.5): a destination in the main pane. A list of
+ * rows, each opening a page of controls that are the old Settings sheet's own,
+ * moved there, so their ids and handlers stayed. The door's account block and
+ * Forget this browser are borrowed while it shows and put back when it goes.
+ */
+let settingsPage = 'main'
+let settingsRow: HTMLElement | undefined
+let settingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean }[] | undefined
+const settingsPane = $('settingsPane')
+const ONE_PANE_SETTINGS = window.matchMedia('(max-width: 899px)')
+
+function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean } {
   const home = { el, parent: el.parentNode!, next: el.nextSibling, hidden: el.hidden }
   el.hidden = false
   target.append(el)
   return home
 }
-function openAppSettings(): void {
+
+/** One page of Settings. Its title is the heading, which takes the focus so a
+ *  screen reader says where it is; the back arrow shows on a page, and on the
+ *  list where the list is not beside it. */
+function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
+  const previous = settingsPage
+  settingsPage = name
+  if (name !== 'main' && row) settingsRow = row
+  for (const page of settingsPane.querySelectorAll<HTMLElement>('[data-settings-page]')) page.hidden = page.dataset.settingsPage !== name
+  $('settingsTitle').textContent = name === 'main' ? 'Settings' : settingsPane.querySelector<HTMLElement>(`[data-settings-page="${name}"]`)?.dataset.settingsTitle ?? 'Settings'
+  $('settingsBack').hidden = name === 'main' && !ONE_PANE_SETTINGS.matches
+  settingsPane.dataset.page = name
+  settingsPane.scrollTop = 0
+  if (!focus) return
+  if (name === 'main' && previous !== 'main' && settingsRow?.isConnected) settingsRow.focus({ preventScroll: true })
+  else $('settingsTitle').focus({ preventScroll: true })
+}
+
+function renderSettingsRows(): void {
+  setInfoSub('settingsSubaccount', nostrSession ? 'Signed in with Nostr' : 'Just a name · sign in with Nostr')
+  setInfoSub('privacyProfilesState', profilesEnabled ? 'On' : 'Off')
+}
+
+function enterSettings(): void {
   renderIdentity()
   renderNotifyChoice()
-  const controls = $('notify')
-  notificationHome = { parent: controls.parentNode!, next: controls.nextSibling, hidden: controls.hidden }
-  controls.hidden = false
-  $('appSettingsNotify').append(controls)
-  appSettingsHomes = [
-    moveIntoAppSettings($('accountHome'), $('appSettingsYou')),
-    moveIntoAppSettings($('forgetBrowser'), $('appSettings').querySelector('.sheetBody')!),
+  $('notify').hidden = false
+  renderSettingsRows()
+  settingsHomes ??= [
+    moveIntoSettings($('accountHome'), $('appSettingsYou')),
+    moveIntoSettings($('forgetBrowser'), $('appSettingsYou')),
   ]
-  ;($('appSettings') as HTMLDialogElement).showModal()
+  settingsRow = undefined
+  showSettingsPage('main')
 }
-/** Whether `#appSettings` is being closed only to make way for Nostr relays
- *  or Profile pictures and names, which reopen it once they close - never
- *  two dialogs open at once, and Settings is where the person left it. */
-let reopenAppSettings = false
+
+function leaveSettings(): void {
+  if (!settingsHomes) return
+  for (const home of settingsHomes) { home.parent.insertBefore(home.el, home.next); home.el.hidden = home.hidden }
+  settingsHomes = undefined
+}
+
+document.addEventListener('shell:destination', event => {
+  if ((event as CustomEvent<{ destination?: string }>).detail?.destination === 'settings') enterSettings()
+  else leaveSettings()
+})
+settingsPane.querySelectorAll<HTMLElement>('[data-settings-open]').forEach(row => {
+  row.addEventListener('click', () => showSettingsPage(row.dataset.settingsOpen!, row))
+})
+$('settingsBack').addEventListener('click', () => {
+  if (settingsPage !== 'main') showSettingsPage('main')
+  else openDestination('chats')
+})
+ONE_PANE_SETTINGS.addEventListener('change', () => { if (!settingsPane.hidden) $('settingsBack').hidden = settingsPage === 'main' && !ONE_PANE_SETTINGS.matches })
+$('privacyProfiles').addEventListener('click', () => openProfileSettings($('privacyProfiles')))
+/** The dialogs Settings opens sit over it and give it back when they close:
+ *  Settings is a pane now, so there is nothing to close or reopen. */
 function closeAppSettingsFor(action: () => void): void {
-  reopenAppSettings = true
-  ;($('appSettings') as HTMLDialogElement).close()
   action()
 }
-$('openAppSettings').addEventListener('click', openAppSettings)
-$('appSettingsClose').addEventListener('click', () => ($('appSettings') as HTMLDialogElement).close())
-$('appSettings').addEventListener('close', () => {
-  if (notificationHome) {
-    notificationHome.parent.insertBefore($('notify'), notificationHome.next)
-    $('notify').hidden = notificationHome.hidden
-    notificationHome = undefined
-  }
-  if (appSettingsHomes) {
-    for (const home of appSettingsHomes) { home.parent.insertBefore(home.el, home.next); home.el.hidden = home.hidden }
-    appSettingsHomes = undefined
-  }
-  if (!reopenAppSettings) $('openAppSettings').focus({ preventScroll: true })
-})
 
 $('toggleNotify').addEventListener('click', () => {
   setNotify($('toggleNotify').dataset.on !== 'true').catch((err) => setStatus(describeError(err)))

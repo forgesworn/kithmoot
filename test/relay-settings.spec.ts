@@ -12,7 +12,7 @@ import { createRumor, createSeal } from 'nostr-tools/nip59'
 import { Relay } from 'nostr-tools/relay'
 import { verifyEventUncached } from '../src/verify.js'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { openNewRoomForm, openRoomInfoPage } from './browser.js'
+import { openNewRoomForm, openRoomInfoPage, openSettings } from './browser.js'
 import { TEST_RELAY_WS } from './relays.js'
 
 // The same signed kind-21236 response inside a kind-29999 gift wrap that
@@ -306,9 +306,9 @@ test('relay identity permission is explicit, names the chosen account and is wit
     await page.goto(baseURL + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
     expect(signed.filter(event => event.kind === 22242)).toHaveLength(0)
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await expect(page.locator('#signOut')).toBeVisible()
-    await page.locator('#appConnections > summary').click()
+    await openSettings(page, 'Connections')
     await page.locator('#defaultRelaySettings').click()
     const row = page.locator('.relayRow').filter({ hasText: keeper })
     await row.getByRole('button', { name: `Use signed-in account with ${keeper}` }).click()
@@ -330,8 +330,10 @@ test('relay identity permission is explicit, names the chosen account and is wit
     await page.locator('#actionConfirm').click()
     await expect(row.locator('.relayHealth')).toContainText('Account authenticated')
     await page.locator('#relaySettingsClose').click()
+    await openSettings(page, 'Account')
     await page.locator('#signOut').click()
     await expect(page.locator('#signOut')).toBeHidden()
+    await openSettings(page, 'Connections')
     await page.locator('#defaultRelaySettings').click()
     await expect(row.locator('.relayHealth')).toContainText('permission withdrawn')
     await expect(row.getByRole('button', { name: `Use signed-in account with ${keeper}` })).toBeDisabled()

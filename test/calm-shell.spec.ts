@@ -6,7 +6,7 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -409,7 +409,7 @@ test('a first run is one sentence and three ways in: no list, no People, no coun
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
     await page.getByRole('button', { name: 'Settings' }).click()
-    await expect(page.locator('#appSettings')).toBeVisible()
+    await expect(page.locator('#settingsPane')).toBeVisible()
   } finally { await context.close() }
 })
 
@@ -886,3 +886,103 @@ for (const scheme of ['dark', 'light'] as const) {
     } finally { await room.leave() }
   })
 }
+
+// ---------------------------------------------------------------------------
+// Stage 4: Settings, a destination.
+// ---------------------------------------------------------------------------
+
+test('at 1440 Settings opens in the main pane beside the chats, with its pages as rows, and Display changes the text size', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await page.goto(baseURL!)
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
+    await page.locator('#openAppSettings').click()
+    await expect(page.locator('html')).toHaveAttribute('data-destination', 'settings')
+    await expect(page.locator('#openAppSettings')).toHaveAttribute('aria-current', 'page')
+    await expect(page.locator('#settingsPane')).toBeVisible()
+    await expect(page.locator('#rooms')).toBeVisible()
+    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Display', 'Privacy', 'Connections', 'Keyboard shortcuts', 'About and help'])
+    await expect(page.locator('#settingsSubaccount')).toHaveText('Just a name · sign in with Nostr')
+    expect(await page.evaluate(() => document.querySelector('dialog:modal'))).toBeNull()
+    const pane = await box(page, '#settingsPane'), list = await box(page, '#listColumn')
+    expect(pane.x).toBeGreaterThanOrEqual(list.x + list.width)
+    await openSettings(page, 'Display')
+    await expect(page.locator('#settingsTitle')).toBeFocused()
+    await page.getByRole('radio', { name: 'Large' }).check()
+    await expect(page.locator('html')).toHaveAttribute('data-text-size', 'large')
+    await expect(page.locator('#settingsPane')).toContainText('Light, dark and contrast follow your system settings.')
+    await page.locator('#settingsBack').click()
+    await expect(page.locator('#settingsRowdisplay')).toBeFocused()
+    // Back to the chats.
+    await page.locator('#railChats').click()
+    await expect(page.locator('#settingsPane')).toBeHidden()
+    await expect(page.locator('html')).toHaveAttribute('data-destination', 'chats')
+  } finally { await context.close() }
+})
+
+test('at 390 Settings is a full screen with a back arrow, and back returns to the room that was open', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await joinRoom(page)
+    await page.keyboard.press('Control+,')
+    await expect(page.locator('#settingsPane')).toBeVisible()
+    await expect(page.locator('#listColumn')).toBeHidden()
+    const pane = await box(page, '#settingsPane')
+    expect(pane.x).toBeLessThanOrEqual(20)
+    expect(pane.width).toBeGreaterThanOrEqual(350)
+    await expect(page.locator('#settingsBack')).toBeVisible()
+    await page.locator('#settingsRowmessages').click()
+    await expect(page.locator('#sendDelay')).toBeVisible()
+    await page.locator('#settingsBack').click()
+    await expect(page.locator('#settingsTitle')).toHaveText('Settings')
+    await page.locator('#settingsBack').click()
+    await expect(page.locator('#settingsPane')).toBeHidden()
+    await expect(page.locator('#chatLog')).toBeVisible()
+  } finally { await context.close() }
+})
+
+test('Ctrl+, opens Settings from a room and again from Settings, and not while a dialog is open', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    await page.keyboard.press('Control+,')
+    await expect(page.locator('#settingsPane')).toBeVisible()
+    await expect(page.locator('#chatLog')).toBeHidden()
+    await page.locator('#railChats').click()
+    await expect(page.locator('#chatLog')).toBeVisible()
+  } finally { await context.close() }
+})
+
+for (const scheme of ['dark', 'light'] as const) {
+  test(`axe finds nothing on Settings and its Display page at 1440 and at 390 in ${scheme}`, async ({ browser, baseURL }) => {
+    for (const [size, touch] of [[{ width: 1440, height: 900 }, false], [{ width: 390, height: 844 }, true]] as const) {
+      const { context, page } = await visitor(browser, baseURL!, size, { touch, scheme })
+      try {
+        await page.goto(baseURL!)
+        await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
+        await openSettings(page)
+        for (const where of ['Settings', 'Display', 'Connections', 'Notifications']) {
+          if (where !== 'Settings') await openSettings(page, where as 'Display')
+          const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+          expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `${where} ${size.width} ${scheme}`).toEqual([])
+        }
+      } finally { await context.close() }
+    }
+  })
+}
+
+test('Settings does not scroll sideways at 320 by 640 with Huge text, on any page', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 320, height: 640 }, { touch: true, size: 'huge' })
+  try {
+    await page.goto(baseURL!)
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
+    await openSettings(page)
+    for (const where of ['Settings', 'Account', 'Notifications', 'Messages', 'Display', 'Privacy', 'Connections', 'About and help'] as const) {
+      if (where !== 'Settings') await openSettings(page, where)
+      const widths = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, pane: document.getElementById('settingsPane')!.scrollWidth, inner: innerWidth, paneClient: document.getElementById('settingsPane')!.clientWidth }))
+      console.log(`settings 320 huge ${where}: ${JSON.stringify(widths)}`)
+      expect(widths.doc, where).toBeLessThanOrEqual(widths.inner)
+      expect(widths.pane, where).toBeLessThanOrEqual(widths.paneClient)
+    }
+  } finally { await context.close() }
+})

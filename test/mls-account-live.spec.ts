@@ -1,3 +1,4 @@
+import { openSettings } from './browser.js'
 import { test, expect, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { encodeRoomLink } from '../src/link.js'
@@ -6,9 +7,7 @@ import { witnessDaemon } from './mls-witness-daemon.js'
 const binary = process.env.BOTHYD, relay = process.env.LAB_RELAY
 test.skip(!binary || !relay, 'Set BOTHYD and LAB_RELAY for the disposable full-app lab.')
 async function settings(page: Page) {
-  await page.locator('#openAppSettings').click()
-  const connections = page.locator('#appConnections')
-  if (!await connections.evaluate(e => (e as HTMLDetailsElement).open)) await connections.locator('summary').first().click()
+  await openSettings(page, 'Connections')
   await page.locator('#mlsWitnessSettingsOpen').click()
 }
 test('full app creates and manages a witnessed device, survives reload, holds offline and switches accounts', async ({ context, page, baseURL }) => {
@@ -67,14 +66,14 @@ test('full app creates and manages a witnessed device, survives reload, holds of
     // A late external signer must not install a replacement after host sign-out.
     hold = new Promise(resolve => { release = resolve })
     await click('DeviceReplace'); await page.locator('#actionConfirm').click(); await expect.poll(() => signing).toBe(true)
-    await click('Close'); await page.locator('#openAppSettings').click(); await page.locator('#signOut').click()
+    await click('Close'); await openSettings(page, 'Account'); await page.locator('#signOut').click()
     release!(); hold = undefined
     await expect(page.locator('#signIn')).toBeVisible()
     currentSecret = alternate
     await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#homeSignIn')).toBeHidden(); await settings(page)
     await expect(page.locator('#mlsWitnessAccount')).toHaveText(getPublicKey(alternate)); await expect(page.locator('#mlsWitnessPrepare')).toBeVisible()
-    await click('Close'); await page.locator('#openAppSettings').click(); await page.locator('#signOut').click()
+    await click('Close'); await openSettings(page, 'Account'); await page.locator('#signOut').click()
     currentSecret = secret
     await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#homeSignIn')).toBeHidden(); await settings(page); await click('VaultRead')

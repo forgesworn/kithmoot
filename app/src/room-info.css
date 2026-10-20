@@ -152,6 +152,7 @@ html[data-room-info='push'] body { padding-inline-end: 24rem; }
   margin: 0;
   min-height: var(--ctl);
   justify-content: flex-start;
+  padding: var(--s1) var(--s2);
   background: transparent;
   border: 0;
   color: var(--danger);

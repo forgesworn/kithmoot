@@ -46,7 +46,7 @@
       <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
-        <button id="openAppSettings" class="railItem" type="button" aria-haspopup="dialog" aria-controls="appSettings"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
+        <button id="openAppSettings" class="railItem" type="button" data-destination="settings" aria-controls="settingsPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
       </div>
     </nav>
 
@@ -115,6 +115,149 @@
       <div id="workspaceContent">
       <section id="peoplePane" aria-label="Contact" hidden>
         <p class="note">People is coming in this build.</p>
+      </section>
+      <!-- Settings (design-calm-shell 5.5, 11): a destination, shown in the main
+           pane like People and Boards. A list of rows, each opening a page; the
+           controls on the pages are the ones the old Settings sheet held, moved,
+           so their ids and handlers did not change. A few rows open an existing
+           dialog (profile, keyboard shortcuts, and the relay and Bothy panels). -->
+      <section id="settingsPane" aria-labelledby="settingsTitle" hidden>
+        <div class="settingsBar">
+          <button id="settingsBack" type="button" class="barBtn" aria-label="Back" hidden><svg class="i" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
+          <h2 id="settingsTitle" tabindex="-1">Settings</h2>
+        </div>
+        <div class="settingsBody">
+        <div class="settingsPage" data-settings-page="main">
+          <div class="infoRows">
+          <button type="button" class="infoRow" id="settingsRowaccount" data-settings-open="account">
+            <span class="infoRowText"><span class="infoRowTitle">Account</span><span class="infoRowSub" id="settingsSubaccount">Just a name · sign in with Nostr</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button id="appProfileSettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="profileSettings">
+            <span class="infoRowText"><span class="infoRowTitle">Profile</span><span class="infoRowSub">Pictures and names</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRownotifications" data-settings-open="notifications">
+            <span class="infoRowText"><span class="infoRowTitle">Notifications</span><span class="infoRowSub" id="settingsSubnotifications">Alerts and sound</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowmessages" data-settings-open="messages">
+            <span class="infoRowText"><span class="infoRowTitle">Messages</span><span class="infoRowSub" id="settingsSubmessages">Wait before sending</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowdisplay" data-settings-open="display">
+            <span class="infoRowText"><span class="infoRowTitle">Display</span><span class="infoRowSub" id="settingsSubdisplay">Text size</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowprivacy" data-settings-open="privacy">
+            <span class="infoRowText"><span class="infoRowTitle">Privacy</span><span class="infoRowSub" id="settingsSubprivacy">Profile pictures, files</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowconnections" data-settings-open="connections">
+            <span class="infoRowText"><span class="infoRowTitle">Connections</span><span class="infoRowSub" id="settingsSubconnections">Relays, Bothy, call servers</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button id="keyboardHelp" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">
+            <span class="infoRowText"><span class="infoRowTitle">Keyboard shortcuts</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowabout" data-settings-open="about">
+            <span class="infoRowText"><span class="infoRowTitle">About and help</span><span class="infoRowSub" id="settingsSubabout">Report abuse</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          </div>
+        </div>
+        <section class="settingsPage" data-settings-page="account" data-settings-title="Account" hidden>
+        <div id="appSettingsYou"></div>
+        </section>
+        <section class="settingsPage" data-settings-page="notifications" data-settings-title="Notifications" hidden>
+              <section id="notify">
+                <h3>Notifications &amp; sound</h3>
+                <div class="toggles switchRow">
+                  <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Tell me when somebody writes</button>
+                  <span id="desktopNotifySound" hidden><button id="toggleNotifyBell" type="button" class="toggle" data-on="true" aria-pressed="true">Zen bell</button> <button id="previewNotifyBell" type="button" class="quiet">Preview sound</button></span>
+                  <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
+                  <span id="notifyNote" class="note inline"></span>
+                </div>
+                <details id="notificationPreferences">
+                  <summary>Notifications by project and room</summary>
+                  <label for="notificationScope">Apply to</label>
+                  <select id="notificationScope"></select>
+                  <label for="notificationMode">Activity alerts</label>
+                  <select id="notificationMode">
+                    <option value="inherit">Use parent setting</option>
+                    <option value="all">On</option>
+                    <option value="off">Off</option>
+                  </select>
+                  <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Off mutes it unless you override the room. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
+                  <p class="note">These settings currently apply while KithMoot is open. Closed-app push uses the keeper’s separate room settings.</p>
+                </details>
+              </section>
+        <p class="note">Alerts depend on this app staying connected. On iPhone and iPad, add KithMoot to your Home Screen to enable system notifications. The Zen bell plays while the app is running; background alerts use the system sound. Delivery after the app is suspended or closed is not connected yet.</p>
+        </section>
+        <section class="settingsPage" data-settings-page="messages" data-settings-title="Messages" hidden>
+                <!-- A moment to take a message back after pressing Send. Off unless
+                     asked for: a delay on every message changes how chat feels. -->
+                <div id="sendDelaySettings">
+                  <h4>Sending</h4>
+                  <label for="sendDelay">Wait before sending</label>
+                  <select id="sendDelay">
+                    <option value="0">Off</option>
+                    <option value="5">5 seconds</option>
+                    <option value="10">10 seconds</option>
+                  </select>
+                  <p class="note">Time to undo or edit a message after you press Send. Until then it stays on this device and nobody can see it. Saved on this device.</p>
+                </div>
+        </section>
+        <section class="settingsPage" data-settings-page="display" data-settings-title="Display" hidden>
+        <fieldset class="textSizeChoice" data-text-size>
+          <legend>Text size</legend>
+          <label><input type="radio" name="appTextSize" value="standard" checked /> Standard</label>
+          <label><input type="radio" name="appTextSize" value="large" /> Large</label>
+          <label><input type="radio" name="appTextSize" value="huge" /> Huge</label>
+        </fieldset>
+        <p class="note">Light, dark and contrast follow your system settings.</p>
+        </section>
+        <section class="settingsPage" data-settings-page="privacy" data-settings-title="Privacy" hidden>
+        <p class="note">Profile pictures and names are looked up from public relays only if you allow it.</p>
+        <div class="infoRows">
+          <button id="privacyProfiles" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="profileSettings">
+            <span class="infoRowText"><span class="infoRowTitle">Show public profile pictures and names</span><span class="infoRowSub" id="privacyProfilesState"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </div>
+        <p class="note">Where files go is chosen the first time you add a file to a message, in the panel beside the message box. Hiding your IP address on a call is chosen as you join it.</p>
+        </section>
+        <section class="settingsPage" data-settings-page="connections" data-settings-title="Connections" hidden>
+        <div class="infoRows">
+                  <button id="defaultRelaySettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="relaySettings">
+                    <span class="infoRowText"><span class="infoRowTitle">Nostr relays</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+                  <button id="dmRelaySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>
+                    <span class="infoRowText"><span class="infoRowTitle">Relays for private chats</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+                  <button id="bothySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="bothySettings">
+                    <span class="infoRowText"><span class="infoRowTitle">Bothy connection</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+                  <button id="mlsWitnessSettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="mlsWitnessSettings" hidden>
+                    <span class="infoRowText"><span class="infoRowTitle">MLS restore protection (preview)</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+        </div>
+        <label for="iceServers">Call servers</label>
+        <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
+        <input id="iceServers" />
+        </section>
+        <section class="settingsPage" data-settings-page="about" data-settings-title="About and help" hidden>
+        <p class="note">
+          Something unsafe or illegal?
+          <a href="https://kithmoot.forgesworn.dev/report/" target="_blank" rel="noopener noreferrer">Report abuse</a>
+        </p>
+        </section>
+        </div>
       </section>
       <!-- Boards, a destination of its own: shown in the main pane, not over
            it (`app/src/shell.ts` moves it there and the stylesheet lays it
@@ -783,40 +926,6 @@
            reaches the operating system is the room and the sender unless
            the second switch says the words may go too. Reached from
            Settings on the rooms list, and from Room details once in a room. -->
-      <section id="notify">
-        <h3>Notifications &amp; sound</h3>
-        <div class="toggles switchRow">
-          <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Tell me when somebody writes</button>
-          <span id="desktopNotifySound" hidden><button id="toggleNotifyBell" type="button" class="toggle" data-on="true" aria-pressed="true">Zen bell</button> <button id="previewNotifyBell" type="button" class="quiet">Preview sound</button></span>
-          <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
-          <span id="notifyNote" class="note inline"></span>
-        </div>
-        <details id="notificationPreferences">
-          <summary>Notifications by project and room</summary>
-          <label for="notificationScope">Apply to</label>
-          <select id="notificationScope"></select>
-          <label for="notificationMode">Activity alerts</label>
-          <select id="notificationMode">
-            <option value="inherit">Use parent setting</option>
-            <option value="all">On</option>
-            <option value="off">Off</option>
-          </select>
-          <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Off mutes it unless you override the room. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
-          <p class="note">These settings currently apply while KithMoot is open. Closed-app push uses the keeper’s separate room settings.</p>
-        </details>
-        <!-- A moment to take a message back after pressing Send. Off unless
-             asked for: a delay on every message changes how chat feels. -->
-        <div id="sendDelaySettings">
-          <h4>Sending</h4>
-          <label for="sendDelay">Wait before sending</label>
-          <select id="sendDelay">
-            <option value="0">Off</option>
-            <option value="5">5 seconds</option>
-            <option value="10">10 seconds</option>
-          </select>
-          <p class="note">Time to undo or edit a message after you press Send. Until then it stays on this device and nobody can see it. Saved on this device.</p>
-        </div>
-      </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's
            layout and out of #room .participant, but still in the document,
@@ -919,45 +1028,6 @@
         </form>
     </dialog>
 
-    <!-- Settings, reached from the rooms list. Everything the home page used
-         to carry on its own face, in one sheet: the same shape as Room
-         details' own Settings, so it reads as the same place rather than a
-         second one. -->
-    <dialog id="appSettings" aria-labelledby="appSettingsTitle">
-      <div class="sheetBar">
-        <h2 id="appSettingsTitle">Settings</h2>
-        <button id="appSettingsClose" type="button" class="primary" autofocus>Done</button>
-      </div>
-      <div class="sheetBody">
-        <h3 class="sheetHead">You</h3>
-        <div id="appSettingsYou"></div>
-
-        <h3 class="sheetHead">Text size</h3>
-        <fieldset class="textSizeChoice" data-text-size>
-          <legend class="sr-only">Text size</legend>
-          <label><input type="radio" name="appTextSize" value="standard" checked /> Standard</label>
-          <label><input type="radio" name="appTextSize" value="large" /> Large</label>
-          <label><input type="radio" name="appTextSize" value="huge" /> Huge</label>
-        </fieldset>
-
-        <div id="appSettingsNotify"></div>
-
-        <details id="appConnections">
-          <summary>Connections</summary>
-          <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
-          <button id="bothySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="bothySettings">Bothy connection</button>
-          <button id="mlsWitnessSettingsOpen" type="button" aria-haspopup="dialog" aria-controls="mlsWitnessSettings" hidden>MLS restore protection (preview)</button>
-          <button id="appProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
-          <button id="dmRelaySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>Relays for private conversations</button>
-          <label for="iceServers">Call servers</label>
-          <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
-          <input id="iceServers" />
-        </details>
-
-        <h3 class="sheetHead">Keyboard shortcuts</h3>
-        <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
-      </div>
-    </dialog>
 
     <dialog id="verifyDialog" aria-labelledby="verifyTitle">
       <form method="dialog" class="verifyForm">
@@ -1291,10 +1361,6 @@
             <span class="infoRowText"><span class="infoRowTitle">Contact cards</span><span class="infoRowSub" id="infoSubCards"></span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
-          <button type="button" id="roomInfoSettings" class="infoRow">
-            <span class="infoRowText"><span class="infoRowTitle">Settings</span><span class="infoRowSub">Text size, notifications, relays</span></span>
-            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
-          </button>
           </div>
           <!-- The Contacts dialog is reached from People now. The button stays in the
                page, out of sight, because the tests and the Signet flow open it. -->
@@ -1306,10 +1372,10 @@
           <div id="infoDanger" class="infoDanger">
           <!-- Only in the browser holding a browser room's authority. A room
                with a keeper is closed through the keeper instead. -->
-          <button id="endRoom" type="button" class="danger" hidden>End room for everyone</button>
+          <button id="endRoom" type="button" class="danger" hidden>End room for everyone…</button>
           <!-- The same authority, ending the room so it self-destructs on
                every member's device. Any room it holds, dated or not (D5). -->
-          <button id="selfDestructNow" type="button" class="danger" hidden>Self-destruct now</button>
+          <button id="selfDestructNow" type="button" class="danger" hidden>Self-destruct now…</button>
           <p id="endRoomNote" class="note" hidden>
             Ending takes everyone out and stops every invite link working.
             People keep what they already received.
@@ -1326,7 +1392,7 @@
           </p>
           <div id="hostList"></div>
           <div class="hostRow">
-            <button type="button" id="closeRoom" class="danger">Close the room</button>
+            <button type="button" id="closeRoom" class="danger">Close the room…</button>
           </div>
         </details>
           </div>
@@ -1442,7 +1508,6 @@
       </section>
 
       <section class="infoPage" data-info-page="notifications" data-info-title="Notifications" hidden>
-        <div id="notifySlot"></div>
         <div id="nudgeRow" class="toggles switchRow" hidden>
           <button id="toggleNudge" class="toggle" data-on="false" aria-pressed="false">Nudge me when I am away</button>
           <span id="nudgeNote" class="note inline">
@@ -1452,7 +1517,6 @@
             all the servers in between learn is that one was sent.
           </span>
         </div>
-        <p class="note">Alerts depend on this app staying connected. On iPhone and iPad, add KithMoot to your Home Screen to enable system notifications. The Zen bell plays while the app is running; background alerts use the system sound. Delivery after the app is suspended or closed is not connected yet.</p>
       </section>
 
       <section class="infoPage" data-info-page="privacy" data-info-title="Privacy and connection" hidden>

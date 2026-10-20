@@ -4,7 +4,7 @@ import { buildFileEvent } from '../src/attachment.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
-import { goToConversation, allowTestFileStorage, TEST_RELAY_WS, showChats, openRoomInfoPage } from './browser.js'
+import { goToConversation, allowTestFileStorage, TEST_RELAY_WS, showChats, openRoomInfoPage, openSettings } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
@@ -422,7 +422,7 @@ test('pasted files stay staged until Send and text attachments display as inert 
 test('notification defaults and room overrides remain separate after reload', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
   try {
-    await openRoomInfoPage(page, 'Notifications')
+    await openSettings(page, 'Notifications')
     await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
     const scope = page.locator('#notificationScope')
     await scope.focus()
@@ -438,7 +438,7 @@ test('notification defaults and room overrides remain separate after reload', as
     await page.reload()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomInfoPage(page, 'Notifications')
+    await openSettings(page, 'Notifications')
     await expect(page.locator('#notificationMode')).toHaveValue('off')
     await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
     await scope.selectOption(roomScope)

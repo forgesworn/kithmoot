@@ -341,39 +341,51 @@ export async function leaveRoom(page: Page, { tidy = false }: { tidy?: boolean }
 /** The pages of Settings. */
 export type SettingsPage = 'Account' | 'Profile' | 'Notifications' | 'Messages' | 'Display' | 'Privacy' | 'Connections' | 'Keyboard shortcuts' | 'Updates' | 'About and help'
 
-/** Settings, on the page named (or its first page). It is one click away from
- *  the rail, and from Room info's Settings row where there is no rail. */
+/** Settings, on the page named (or its list). It is the main pane, one click
+ *  from the rail; a row that opens a dialog (Profile, Keyboard shortcuts) has no
+ *  page, so those stay on the list. */
 export async function openSettings(page: Page, name?: SettingsPage): Promise<void> {
-  const dialog = page.locator('#appSettings')
-  if (!(await dialog.evaluate(el => (el as HTMLDialogElement).open))) {
-    await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+  const pane = page.locator('#settingsPane')
+  // The first press can land before the page has wired the rail, so it is repeated until the pane is there.
+  await expect(async () => {
+    if (!(await pane.isVisible())) await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+    await expect(pane).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 30_000 })
+  if ((await pane.getAttribute('data-page')) !== 'main') {
+    await page.locator('#settingsBack').click()
+    await expect(pane).toHaveAttribute('data-page', 'main')
   }
-  await expect(dialog).toHaveJSProperty('open', true)
-  if (name === 'Connections' || name === 'Profile') await page.locator('#appConnections').evaluate(el => { (el as HTMLDetailsElement).open = true })
+  if (name && !['Profile', 'Keyboard shortcuts', 'Updates'].includes(name)) {
+    await pane.locator('.infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${name}$`) }) }).click()
+    await expect(page.locator('#settingsTitle')).toHaveText(name)
+  }
 }
 
-/** Profile pictures and names, the dialog Settings opens from its Profile page. */
+/** Out of Settings, back to the chats and the room that was open. */
+export async function closeSettings(page: Page): Promise<void> {
+  await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
+  await expect(page.locator('#settingsPane')).toBeHidden()
+}
+
+/** Profile pictures and names, the dialog Settings opens from its Profile row. */
 export async function openProfileSettings(page: Page): Promise<void> {
-  await openSettings(page, 'Profile')
+  await openSettings(page)
   await page.locator('#appProfileSettings').click()
   await expect(page.locator('#profileSettings')).toBeVisible()
 }
 
-/** Done with that dialog: back to where Settings was, and out of Settings. */
+/** Done with that dialog, and out of Settings. */
 export async function closeProfileSettings(page: Page): Promise<void> {
   await page.locator('#profileSettingsClose').click()
   await expect(page.locator('#profileSettings')).toBeHidden()
-  const settings = page.locator('#appSettings')
-  if (await settings.evaluate(el => (el as HTMLDialogElement).open)) await page.locator('#appSettingsClose').click()
-  await expect(settings).toHaveJSProperty('open', false)
+  await closeSettings(page)
 }
 
 /** Text size, chosen in Settings and left there. */
 export async function setTextSize(page: Page, size: 'Standard' | 'Large' | 'Huge'): Promise<void> {
   await openSettings(page, 'Display')
-  await page.locator('#appSettings').getByRole('radio', { name: size }).check()
-  await page.locator('#appSettingsClose').click()
-  await expect(page.locator('#appSettings')).toHaveJSProperty('open', false)
+  await page.locator('#settingsPane').getByRole('radio', { name: size }).check()
+  await closeSettings(page)
 }
 
 /** The room's ⋯ menu, open. Idempotent. */
