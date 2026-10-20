@@ -146,6 +146,8 @@ html[data-desktop] #chatDrawerToggle { display: none; }
   }
   html[data-desktop] #chatDrawerToggle { display: inline-flex; }
 }
+/* Words on a bar of pictures: as wide as "Hide chat", on one line. */
+#chatDrawerToggle { width: auto; padding: 0 var(--s3); white-space: nowrap; }
 #chatDrawerToggle[aria-expanded="true"] { background: var(--accent-dim); border-color: var(--accent); }
 
 /* The resting strip itself. One row, whatever the window is doing, and
