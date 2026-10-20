@@ -3,7 +3,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createRoom, joinWithMedia, INSTRUMENT, SYNTHETIC_MIC, SYNTHETIC_SCREEN, expectToSeeAndHear, inbound } from '../../test/browser.js'
+import { createRoom, joinWithMedia, INSTRUMENT, SYNTHETIC_MIC, SYNTHETIC_SCREEN, expectToSeeAndHear, inbound, openRoomBoards } from '../../test/browser.js'
 import { localAsset, HOME } from '../policy.mjs'
 const desktop = fileURLToPath(new URL('../', import.meta.url))
 const relays = ['ws://127.0.0.1:17777']
@@ -176,7 +176,7 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     await mac.locator('#projectsRailToggle').click()
     await expect(mac.locator('html')).toHaveAttribute('data-rail', 'collapsed')
     await expectFullWidthChat()
-    await mac.locator('#openAssignments').click(); await mac.getByRole('button', {name: 'New room task', exact: true}).click()
+    await openRoomBoards(mac); await mac.getByRole('button', {name: 'New room task', exact: true}).click()
     await expect(mac.locator('#assignmentPanel')).toBeVisible()
     await expectFullWidthChat()
     await mac.locator('#assignmentClose').click()

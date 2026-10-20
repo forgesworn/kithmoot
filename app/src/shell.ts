@@ -162,6 +162,14 @@ function shortcut(event: KeyboardEvent): void {
   if (document.querySelector('dialog:modal')) return
   const key = event.key.toLowerCase()
   if (key === 'k') { event.preventDefault(); focusSearch(); return }
+  // Room info, for the room on screen.
+  if (key === 'i') {
+    const room = el('roomArea')
+    if (!room || room.hidden || !room.getClientRects().length) return
+    event.preventDefault()
+    el('roomIdentity')?.click()
+    return
+  }
   if (key !== '1' && key !== '2' && key !== '3') return
   const target: Place = key === '1' ? 'chats' : key === '2' ? 'people' : 'boards'
   if (target === 'people' && !peopleAvailable) return

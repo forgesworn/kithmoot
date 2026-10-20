@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm } from './browser.js'
+import { openNewRoomForm, openInvite } from './browser.js'
 import { openRoomUrl } from './relays.js'
 import { parseRoomLink } from '../src/link.js'
 import { formatConferenceEnd } from '../app/src/conference.js'
@@ -87,7 +87,7 @@ test('a conference room ends in a day: it says so, tags what it sends, shows a Q
     await expect(page.locator('#roomEndsLine')).toHaveAttribute('title', `Ends ${formatConferenceEnd(ends)}`)
 
     // One tap to a QR big enough to scan across a table, with the end beside it.
-    await page.locator('#inviteQr').click()
+    await openInvite(page, { qr: true })
     await expect(page.locator('#inviteDialog')).toBeVisible()
     await expect(page.locator('#shareQr')).toBeVisible()
     await expect.poll(() => page.locator('#shareQr').evaluate(c => (c as HTMLCanvasElement).width)).toBeGreaterThanOrEqual(480)

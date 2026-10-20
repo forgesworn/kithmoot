@@ -226,6 +226,24 @@ html[data-list='off'][data-destination='chats'] #listColumn { display: none; }
 .menuPopover button svg.i { width: 20px; height: 20px; flex: none; color: var(--muted); }
 .menuPopover button.danger, .rowMenuPopover button.danger { color: var(--danger); }
 @media (pointer: fine) { .menuPopover button, .rowMenuPopover button { min-height: var(--row); } }
+.menuPopover { overflow: visible; }
+.menuPopover .menuLabel { flex: 1 1 auto; min-width: 0; }
+.menuPopover button[data-shortcut]::after { content: attr(data-shortcut); content: attr(data-shortcut) / ""; flex: none; margin-left: var(--s4); font-size: var(--fs-1); color: var(--muted); }
+.menuPopover button[aria-haspopup="menu"]::after { content: "\203A"; content: "\203A" / ""; flex: none; margin-left: var(--s3); color: var(--muted); }
+.menuPopover hr[role="separator"] { height: 1px; margin: 6px 4px; border: 0; background: var(--line); }
+.menuPopover button:is([role="menuitemradio"], [role="menuitemcheckbox"])::before { content: ""; flex: none; width: 20px; height: 20px; }
+.menuPopover button[aria-checked="true"]::before { content: "\2713"; display: grid; place-items: center; color: var(--accent); font-weight: 600; }
+.menuPopover button[aria-expanded="true"] { background: var(--selected); }
+/* A submenu beside its item, on the side with room; replacing the items on a
+   narrow screen (wireMenu adds the Back item and hides the rest). */
+.menuPopover .menuSub { position: absolute; left: calc(100% - 4px); min-width: 12rem; padding: 6px; border-radius: var(--r-m); background: var(--raised); color: var(--text); box-shadow: var(--shadow); }
+.menuPopover .menuSub[hidden] { display: none; }
+.menuPopover .menuSub.menuSubLeft { left: auto; right: calc(100% - 4px); }
+.menuPopover .menuSub.menuSubReplaces { position: static; min-width: 0; padding: 0; box-shadow: none; background: transparent; }
+/* The bottom sheet: the same menu, from the bottom edge, where a thumb is. */
+.menuPopover.menuSheetOn { position: fixed; inset: auto 0 0 0 !important; left: 0 !important; top: auto !important; width: 100%; max-width: none; max-height: 80dvh; overflow-y: auto; padding: var(--s2) var(--s3) calc(var(--s3) + env(safe-area-inset-bottom)); border-radius: var(--r-m) var(--r-m) 0 0; }
+.menuPopover.menuSheetOn button[data-shortcut]::after { content: none; }
+.menuPopover.menuSheetOn::backdrop { background: rgb(0 0 0 / .4); }
 
 /* ---- The main pane ------------------------------------------------------ */
 
@@ -447,3 +465,43 @@ html[data-rail-dragging] * { user-select: none; }
     padding: 0;
   }
 }
+
+/* ---- The room header and what stands in for the rows it replaced --------- */
+
+/* Search is an icon in the header from 600 px; below that it is a menu item.
+   And at 320 px with Huge text the title needs the room, so Start call goes
+   into the menu too (renderRoomMenu says the same, from the same widths). */
+@media (max-width: 599px) {
+  .roomBar #chatSearch { display: none; }
+}
+@media (max-width: 359px) {
+  html[data-text-size="huge"] .roomBar #callToggle { display: none; }
+  html[data-text-size="huge"] .roomIdentity .roomWho { display: none; }
+  /* The name may take two lines rather than a few letters and an ellipsis. */
+  html[data-text-size="huge"] .roomIdentity .roomTitle { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
+}
+/* The tools row is only ever "12 unread" and "Back to results"; with neither
+   showing it takes no room. */
+.conversationTools:not(:has(> button:not([hidden]))) { display: none; }
+
+/* The empty room: one block in the middle of the log, a way to get somebody
+   in, and nothing else. It sits over the log, which has only its intro. */
+.emptyRoom {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--s3);
+  padding: var(--s3);
+  box-sizing: border-box;
+  text-align: center;
+  pointer-events: none;
+}
+.emptyRoom[hidden] { display: none; }
+.emptyRoom > * { margin: 0; pointer-events: auto; }
+.emptyRoomTitle { font-size: var(--fs-4, 1.2rem); font-weight: 600; color: var(--text); }
+.emptyRoomNote { font-size: var(--fs-2); color: var(--muted); }
+.emptyRoom button { min-width: min(12rem, 100%); max-width: 100%; min-height: 44px; }
+.emptyRoom > p { max-width: 100%; overflow-wrap: anywhere; }

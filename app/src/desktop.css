@@ -146,6 +146,10 @@ html[data-desktop] #chatDrawerToggle { display: none; }
   }
   html[data-desktop] #chatDrawerToggle { display: inline-flex; }
 }
+/* With no pictures beside it the conversation has the whole room, so there is
+   nothing to hide it for, and the header keeps to its title, call, search and
+   menu. A drawer somebody closed keeps its button: it is the way back. */
+html[data-desktop]:not([data-call-pane="live"]):has(.desktopConversation[data-open="true"]) #chatDrawerToggle { display: none; }
 /* Words on a bar of pictures: as wide as "Hide chat", on one line. */
 #chatDrawerToggle { width: auto; padding: 0 var(--s3); white-space: nowrap; }
 #chatDrawerToggle[aria-expanded="true"] { background: var(--accent-dim); border-color: var(--accent); }

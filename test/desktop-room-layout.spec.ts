@@ -5,7 +5,7 @@ import { generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
 import { testRelaysFor } from './relays.js'
-import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, openNewRoomForm, remoteAudioCount, requestAdmission, turnOnMedia, TEST_RELAY_WS } from './browser.js'
+import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, openNewRoomForm, openRoomTasks, remoteAudioCount, requestAdmission, turnOnMedia, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Two screens on the stage, faces beside them, and a chat that slides.
@@ -287,7 +287,7 @@ test('an empty call pane costs nothing, and the call control says what it does',
 
     // Work and Chat both open, at every window size. This is the case the
     // owner called unusable: 32% of what Shared Work left was 197px.
-    await page.locator('#openAssignments').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await expect(page.locator('#assignmentPanel')).toBeVisible()
     for (const size of SIZES) {
       await page.setViewportSize(size)
@@ -472,7 +472,7 @@ test('with nothing beside it the conversation is the main column, not a strip', 
       const row = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(row => row.dataset.messageId === id)!
       return row.getBoundingClientRect().top - el.getBoundingClientRect().top
     }, readingAnchor.id)
-    await page.locator('#openAssignments').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await expect(page.locator('#assignmentPanel')).toBeVisible()
     await page.waitForTimeout(300)
     expect(Math.abs(await readingOffset() - readingAnchor.offset), 'opening Shared Work moved the visible reading anchor').toBeLessThanOrEqual(2)

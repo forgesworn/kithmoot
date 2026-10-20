@@ -12,7 +12,7 @@ import { createRumor, createSeal } from 'nostr-tools/nip59'
 import { Relay } from 'nostr-tools/relay'
 import { verifyEventUncached } from '../src/verify.js'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { openNewRoomForm } from './browser.js'
+import { openNewRoomForm, openRoomDetails } from './browser.js'
 import { TEST_RELAY_WS } from './relays.js'
 
 // The same signed kind-21236 response inside a kind-29999 gift wrap that
@@ -109,7 +109,7 @@ test('relay settings show activity outside account sync and keep the chosen orde
     await page.locator('#displayName').fill('Relay tester'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     const openDefaults = async () => {
-      await page.locator('#roomMenu').click()
+      await openRoomDetails(page)
       await page.locator('#roomRelaySettings').click()
       await page.locator('#relayScope').selectOption('default')
       await expect(page.locator('#relayScope')).toHaveValue('default')
@@ -164,7 +164,7 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await page.goto(encodeJoinUrl(baseURL!, generateRoomSecret(), [relay.href]))
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    const open = async () => { await page.locator('#roomMenu').click(); await page.locator('#roomRelaySettings').click() }
+    const open = async () => { await openRoomDetails(page); await page.locator('#roomRelaySettings').click() }
     await open()
     await expect(page.locator('#relayList .relayHealth')).toContainText('Connected')
     await page.locator('#relayUrl').fill(readRelay)

@@ -9,7 +9,7 @@ import { createRoomInvitation } from '../src/invitation.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
 import { KINDS } from '../src/kinds.js'
-import { leaveToChats, showChats, switchToRoom } from './browser.js'
+import { leaveToChats, showChats, switchToRoom, openRoomDetails, openRoomMenu, roomMenuItem } from './browser.js'
 
 async function setup(browser: Browser, base: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
@@ -63,10 +63,12 @@ test('local groups organise rooms into chips, filter by name, survive reload and
     await join(page, rooms[0]!.link)
     await expect(page.getByRole('navigation', { name: 'Chats' })).toBeVisible()
     // No agent here yet, so no Agents tab; Room details lists it.
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await page.locator('#channelBar button[data-channel=agents]').click()
-    await expect(page.locator('#agentActivityTitle')).toHaveText('No agents here yet')
-    await expect(page.locator('#manageAgents')).toBeVisible()
+    // Inviting the first agent is a verb in the room's menu, not a strip.
+    await openRoomMenu(page)
+    await expect(page.locator('#roomMoreMenu').getByRole('menuitem', { name: 'Add an agent…', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
     await project(page, 'Design workshop', 'KithMoot')
     await project(page, 'Release planning', 'KithMoot')
     const chip = page.locator('#chatFilters').getByRole('button', { name: 'KithMoot', exact: true })
@@ -125,7 +127,7 @@ test(`delayed agent presence reclassifies an unread badge without another messag
   let agent: RoomAgent | undefined
   try {
     await join(page, withRelays(keeper.url, [relay]))
-    await expect(page.locator('#agentActivityTitle')).toHaveText('1 agent in this room')
+    await expect(page.locator('#roomWho')).toContainText('1 agent')
     await keeper.setChannel('design-review', true)
     const review = page.locator('#conversationNav button[data-channel=design-review]')
     await expect(review).toBeVisible()
@@ -140,7 +142,7 @@ test(`delayed agent presence reclassifies an unread badge without another messag
     await expect.poll(() => held.length).toBeGreaterThan(0)
     holdPresence = false
     for (const deliver of held.splice(0)) deliver()
-    await expect(page.locator('#agentActivityTitle')).toHaveText('2 agents in this room')
+    await expect(page.locator('#roomWho')).toContainText('2 agents')
     await expect(review.locator('.conversationUnread')).toHaveCount(0)
     await expect(review).toBeFocused()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unsent draft')
@@ -164,7 +166,7 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await expect(review.locator('.conversationUnread')).toHaveCount(0)
     const agents = page.locator('#conversationNav button[data-channel=agents]')
     await expect(agents).toBeVisible()
-    await expect(page.locator('#agentActivityTitle')).toHaveText('2 agents in this room')
+    await expect(page.locator('#roomWho')).toContainText('2 agents')
     await keeper.session.channel('agents').send('I will map the navigation. Can you review the mobile layout?')
     await agent.session.channel('agents').send('Yes. I will check the room picker and the space left for messages.')
     await expect(agents.locator('.conversationUnread')).toHaveCount(0)
@@ -172,12 +174,12 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await agent.session.channel('agents').send('@Ada, can you weigh in on the mobile layout?')
     await expect(agents.locator('.conversationUnread.agent')).toHaveText('1')
     await expect(page.locator('#chatLog')).not.toContainText('I will map the navigation')
-    await page.locator('#watchAgents').click()
+    await agents.click()
     await expect(agents).toHaveAttribute('aria-pressed', 'true')
     await expect(page.locator('#chatLog')).toContainText('I will map the navigation')
     await expect(page.locator('#chatLog')).toContainText('I will check the room picker')
     await expect(agents.locator('.conversationUnread')).toHaveCount(0)
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await agent.session.channel('agents').send('@Ada, this arrived while room details covered the conversation.')
     await expect(agents.locator('.conversationUnread.agent')).toHaveText('1')
     await page.locator('#roomSheetClose').click()
@@ -191,7 +193,7 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await agent.session.channel('agents').send('@Ada, the next update should be visible from Chat.')
     await expect(agents.locator('.conversationUnread.agent')).toHaveText('1')
     // Transcript has no tab until a call has written to it; Room details lists it.
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await page.locator('#channelBar button[data-channel=transcript]').click()
     await expect(page.locator('#chatForm')).toBeHidden()
     await expect(page.locator('#readOnlyNote')).toBeVisible()
@@ -216,7 +218,7 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     expect(await page.locator('#chatInput').evaluate(el => el.clientHeight >= parseFloat(getComputedStyle(el).lineHeight) + parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom))).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('agents-large-text.png'), fullPage: true })
-    await page.locator('#manageAgents').click()
+    await roomMenuItem(page, 'Add an agent…')
     await expect(page.locator('#inviteAgents')).toHaveAttribute('open', '')
     await expect(page.locator('#inviteList')).toContainText('Nobody here is offering one')
   } finally { agent.leave(); keeper.leave(); await context.close() }
@@ -289,7 +291,7 @@ test('catching up starts at unread messages and keeps your place across conversa
     await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveCount(0)
     await log.evaluate(el => { el.scrollTop = 100 })
     const agentPlace = await readingPlace()
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await page.locator('#channelBar button[data-channel=transcript]').click()
     await expect(page.locator('#chatForm')).toBeHidden()
     await page.locator('#conversationNav button[data-channel=agents]').click()
@@ -315,7 +317,7 @@ test('catching up starts at unread messages and keeps your place across conversa
     await expect(page.locator('#conversationNav button[aria-pressed=true]')).toHaveAttribute('data-channel', channel)
     const finalComposer = await page.locator('#chatForm').boundingBox()
     expect(finalComposer!.y + finalComposer!.height).toBeLessThanOrEqual(540)
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await page.locator('#roomProfileSettings').click()
     await expect(page.locator('#profileSettings')).toBeVisible()
   } finally { writer.leave(); await context.close() }
@@ -361,7 +363,7 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
       await expect(page.locator('#chatLog')).toContainText(message)
       await expect(notices).toHaveCount(0)
       expect(keeper.session.epoch).toBe(epoch)
-      await page.locator('#roomMenu').click()
+      await openRoomDetails(page)
       await expect(page.locator('#roomLockState')).toContainText(epoch === 1 ? 'changed once' : `changed ${epoch} times`)
       await page.locator('#roomSheetClose').click()
     }
@@ -499,7 +501,7 @@ test(`switching rooms opens the latest messages through delayed history and hono
     await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
     await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
     if (unavailableStorage) {
-      await page.locator('#roomMenu').click()
+      await openRoomDetails(page)
       await expect(page.locator('#archiveStorageNotice')).toBeVisible()
       await expect(page.locator('#archiveStorageNotice')).toContainText('after closing it')
       await page.locator('#roomSheetClose').click()
@@ -525,8 +527,8 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
       await page.keyboard.press('Control+F6')
       await expect(page.locator('#conversationNav [aria-pressed=true]')).toBeFocused()
     }
-    await page.keyboard.press('Control+F6')
-    await expect(page.locator('#chatSearch')).toBeFocused()
+    // The row of tools is only ever "next unread" and "back to results", so
+    // with neither showing it is skipped like any other hidden area.
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#chatLog')).toBeFocused()
     await page.keyboard.press('Control+F6')
@@ -548,12 +550,12 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
     await expect(input).toBeFocused()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await page.locator('#channelBar button[data-channel=minutes]').click()
     await page.locator('#chatLog').focus()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await page.locator('#keyboardHelp').click()
     await expect(page.locator('#roomSheet')).not.toBeVisible()
     await expect(page.locator('#keyboardShortcuts')).toBeVisible()
@@ -712,7 +714,7 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     expect(keeper.session.epoch).toBe(2)
     await keeper.chat.send('Two turns on.')
     await expect(page.locator('#chatLog')).toContainText('Two turns on.')
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await expect(page.locator('#roomLockState')).toContainText('changed 2 times')
     await page.locator('#roomSheetClose').click()
     await expect(notices.filter({ hasText: 'moved to epoch' })).toHaveCount(0)
@@ -757,7 +759,7 @@ test('room details does not publish a read position for messages hidden behind t
     await join(page, withRelays(rowan.url, [relay]))
     const readAt = () => page.evaluate(roomId => JSON.parse(localStorage.getItem('kithmoot.room.' + roomId)!).readAt as number, rowan.roomId)
     const before = await readAt()
-    await page.locator('#roomMenu').click()
+    await openRoomDetails(page)
     await expect(page.locator('#roomSheet')).toBeVisible()
     await rowan.chat.send('This message has not been read behind Room details.')
     await expect(page.locator('#chatLog')).toContainText('This message has not been read behind Room details.')

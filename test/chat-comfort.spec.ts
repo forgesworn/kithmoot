@@ -7,7 +7,7 @@ import { generateSecretKey, finalizeEvent } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { reactionText, toggleReaction } from '../src/reactions.js'
-import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS, openRoomSearch } from './browser.js'
 
 async function artworkSearch(page: Page, name: string) {
   const query = page.getByRole('searchbox', { name, exact: true })
@@ -56,9 +56,9 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(page.locator('.chatArtPicker')).toBeVisible()
     await page.getByRole('button', { name: 'Close emoji picker', exact: true }).click()
     await expect(page.locator('#chatInput')).toBeFocused()
-    await page.locator('#chatSearch').click(); await page.locator('#messageSearchQuery').fill('toolbox')
+    await openRoomSearch(page); await page.locator('#messageSearchQuery').fill('toolbox')
     await expect(page.locator('#messageSearchResults li')).toHaveCount(1)
-    await page.locator('#messageSearchClose').click(); await expect(page.locator('#chatSearch')).toBeFocused()
+    await page.locator('#messageSearchClose').click(); await expect(page.locator('#roomMenu')).toBeFocused()
     await expect(page.locator('#chatInput')).toHaveValue('before 🤦after')
     // M9: the name alone, not "Rowan (npub…)" - nobody else in view shares it.
     await expect(row.getByRole('button', { name: 'React to message from Rowan', exact: true })).toBeVisible()

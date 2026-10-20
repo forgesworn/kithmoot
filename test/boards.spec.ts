@@ -8,7 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { turnOnMedia, leaveToChats, openProjects, openBoardsPanel } from './browser.js'
+import { turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards } from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -124,7 +124,7 @@ test('boards created in a chat are discovered on another device and edited toget
   try {
     // Keep the second person offline until the board has been created/shared.
     await enter(ada, 'Ada')
-    await ada.page.locator('#openAssignments').click()
+    await openRoomBoards(ada.page)
     const owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(owner, 'Room delivery')
     await addCard(owner, 'Shared from the start')
@@ -176,7 +176,7 @@ test('call attribution stays below board shortcuts created during a desktop call
     await expect(ada.page.locator('#chatInput')).toBeEditable()
     await turnOnMedia(ada.page)
     await expect(ada.page.locator('html')).toHaveAttribute('data-call-first', '')
-    await ada.page.locator('#openAssignments').click()
+    await openRoomBoards(ada.page)
     const frame = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Private Board')
     await ada.page.locator('#boardsClose').click()
@@ -251,7 +251,7 @@ test('an existing private board keeps its cards and is shared only after the exp
     await createBoard(owner, 'Existing notes'); await addCard(owner, 'Keep my existing card')
     await ada.page.locator('#boardsClose').click()
     await enter(ada, 'Ada')
-    await ada.page.locator('#openAssignments').click()
+    await openRoomBoards(ada.page)
     await expect(ada.page.locator('#boardsPanel')).toBeVisible()
     await expect(ada.page.locator('#boardsPanel iframe')).toBeVisible()
     owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
@@ -286,7 +286,7 @@ test('a room keeps its board discoverable after popping out, closing the window 
     if (await page.locator('#join').isVisible()) {await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()}
     await expect(page.locator('#chatInput')).toBeEditable()
     await page.locator('#chatInput').fill('Keep my room draft')
-    await page.locator('#openAssignments').click()
+    await openRoomBoards(page)
     let frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Workshop board'); await addCard(frame, 'Still here after closing')
     await expect(page.locator('#boardsContext')).toContainText('Board workshop')
@@ -365,7 +365,6 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     await page.locator('.sharedProjectCard').filter({has: page.getByRole('heading', {name: 'Release project', exact: true})}).getByRole('button', {name: 'Release chat', exact: true}).click()
     if (await page.locator('#displayName').isVisible()) {await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()}
     await expect(page.locator('#chatInput')).toBeEditable()
-    await expect(page.locator('#openAssignments')).toHaveText(/^Boards/)
     await page.locator('#chatInput').fill('Keep the release chat draft')
     await expect(first).toHaveTitle('KithMoot · Design project · Design chat · Design board')
     await expect(second).toHaveTitle('KithMoot · Release project · Release chat · Release board')
@@ -464,7 +463,7 @@ test('two agents handle separate cards while a second person edits the shared bo
     await ada.page.locator('#roomList').getByRole('button', {name: 'Open Delivery chat', exact: true}).click()
     if (await ada.page.locator('#join').isVisible()) {await ada.page.locator('#displayName').fill('Ada'); await ada.page.locator('#join').click()}
     await expect(ada.page.locator('#chatInput')).toBeEditable()
-    await ada.page.locator('#openAssignments').click()
+    await openRoomBoards(ada.page)
     await expect.poll(() => keeper.roster().find(person => person.participant === ada.pubkey)?.devices.length).toBe(1)
     const originalDevices = keeper.roster().find(person => person.participant === ada.pubkey)!.devices
     const boardHash = new URL(owner.url()).hash, boardId = boardHash.split('/')[2]!
@@ -473,7 +472,7 @@ test('two agents handle separate cards while a second person edits the shared bo
     const returnToBoard = async (page: Page): Promise<Frame> => {
       const panel = page.locator('#boardsPanel')
       if (!await panel.isVisible()) {
-        const roomBoards = page.locator('#openAssignments')
+        const roomBoards = page.locator('#conversationNav button[data-board]')
         if (await roomBoards.isVisible()) {
           await expect(roomBoards).toHaveAttribute('aria-controls', 'boardsPanel')
           await roomBoards.click()

@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { goToConversation, openCall, openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { goToConversation, openCall, openRoomDetails, TEST_RELAY_WS, openRoomSearch } from './browser.js'
 import { withRelays } from './relays.js'
 
 async function setup(browser: Browser, baseURL: string, namedConversations = false) {
@@ -138,7 +138,7 @@ test('room search finds unvisited conversations, edited replies and files, and r
       key: 'cd'.repeat(32), name: 'blue-toolbox.pdf', size: 65608, type: 'application/pdf',
     }] })
     await page.locator('#chatInput').fill('Keep my Chat draft')
-    await page.locator('#chatSearch').click()
+    await openRoomSearch(page)
     await expect(page.locator('#messageSearchConversation')).toHaveValue('*')
     await page.locator('#messageSearchQuery').fill('toolbox')
     const results = page.locator('#messageSearchResults')
@@ -198,7 +198,7 @@ test('room search finds unvisited conversations, edited replies and files, and r
     }))).toMatchObject({ fits: true })
     await page.screenshot({ path: testInfo.outputPath('room-search-large-text.png') })
     await page.locator('#messageSearchClose').click()
-    await expect(page.locator('#chatSearch')).toBeFocused()
+    await expect(page.locator('#roomMenu')).toBeFocused()
     await expect(page.locator('#messageSearchQuery')).toHaveValue('')
     await page.evaluate(() => { document.documentElement.style.fontSize = '' })
     await page.locator('#conversationNav [data-channel=""]').click()
@@ -219,7 +219,7 @@ test('search jumps preserve unread activity and focused retractions return to th
     await page.waitForTimeout(1100)
     for (let i = 0; i < 8; i++) await writer.channel('design-review').send(`Follow-up ${i}. ` + 'Plenty of detail to scroll through. '.repeat(8))
     await expect(page.locator('#conversationNav [data-channel=design-review] .conversationUnread')).toHaveText('9')
-    await page.locator('#chatSearch').click()
+    await openRoomSearch(page)
     await page.locator('#messageSearchQuery').fill('compass')
     const results = page.locator('#messageSearchResults')
     await expect(results.locator('li')).toHaveCount(1)
@@ -244,7 +244,7 @@ test('search jumps preserve unread activity and focused retractions return to th
     await writer.channel('a-new-conversation').send('Follow-up from the new conversation.')
     await expect(results.locator('li')).toHaveCount(9)
     await page.keyboard.press('Escape')
-    await expect(page.locator('#chatSearch')).toBeFocused()
+    await expect(page.locator('#roomMenu')).toBeFocused()
   } finally { await writer.leave(); await context.close() }
 })
 
@@ -258,7 +258,7 @@ test('large room searches reveal all matches and preserve the expanded results o
       await writer.setChannel(name, true)
       for (let message = 0; message < 24; message++) await writer.channel(name).send(`Agenda ${channel}/${message}: next steps for the workshop.`)
     }
-    await page.locator('#chatSearch').click()
+    await openRoomSearch(page)
     await page.locator('#messageSearchQuery').fill('Agenda')
     await expect(page.locator('#messageSearchStatus')).toContainText('120 matching messages')
     const results = page.locator('#messageSearchResults button')

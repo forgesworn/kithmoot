@@ -67,8 +67,9 @@ import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import './call-surface.css'
 import './shell.css'
+import { currentTextSize, chooseTextSize } from './text-size.js'
 import { currentDestination, openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
-import { wireMenu, menuItem, type MenuHandle } from './menu.js'
+import { wireMenu, menuItem, menuGroups, menuSubmenu, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -327,7 +328,7 @@ import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
 import { ContextPanel } from './context-panel.js'
-import { AssignmentPanel } from './assignment-panel.js'
+import { AssignmentPanel, type BoardSummary } from './assignment-panel.js'
 import { BoardsPanel } from './boards-panel.js'
 import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
@@ -466,6 +467,9 @@ const roomArchive = (() => {
   catch { archiveStorageUnavailable(); return undefined }
 })()
 const conversationSearch = new ConversationSearch(document, selectChannel)
+/** Tells the desktop window's application menu what the room on screen allows.
+ *  Does nothing in a browser; the desktop block near `joinCodeSheet` sets it. */
+let publishDesktopMenu: () => void = () => {}
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
 // Where every tile goes on a desktop-sized call. See app/src/call-stage.ts.
@@ -4583,8 +4587,6 @@ function showRoomTools(): void {
   // In the room now, and the room's own bar carries the way out of it.
   $('roomNav').hidden = true
   $('doorToRooms').hidden = true
-  $('invitePeople').hidden = Boolean(roomPolicy?.members?.length)
-  $('inviteQr').hidden = Boolean(roomPolicy?.members?.length)
   renderWorkspace()
   // Notifications are a front-page control as well as a room one, so the
   // markup lives in `main` for the rooms list. In a room it belongs in the
@@ -5088,8 +5090,13 @@ function renderCallState(views: ParticipantView[]): void {
     button.querySelector('use')!.setAttribute('href', stance === 'leave' ? '#i-hangup' : '#i-phone')
   }
   if (button.dataset.live !== String(mineOn)) button.dataset.live = String(mineOn)
+  publishDesktopMenu()
   const mobile = mineOn ? 'Call · live' : stance === 'join' ? 'Call · join' : 'Call'
   if ($('mobileCall').textContent !== mobile) $('mobileCall').textContent = mobile
+  // The phone's Chat and Call switch is only for the time this device is on
+  // the call; otherwise the header's Start call is the way in (design-calm-shell
+  // 5.2, with the call bar's own Chat button still to come in stage 5).
+  if ($('mobileRoomViews').hidden === mineOn) $('mobileRoomViews').hidden = !mineOn
 
   // A call pane with nothing in it costs the conversation its room. See
   // `applyCallPane`, and the two strips in app/src/desktop.css.
@@ -6931,11 +6938,30 @@ function renderAgentsExplain(views: ParticipantView[]): void {
  * space. The chips are not gone: they are in the room's details, one tap
  * away behind this very line, which is what it is for.
  */
+/** The block in the middle of an empty room: shown while nobody else is here
+ *  and nothing has been said, never in a private chat or a room with a member
+ *  list (nobody is invited by link there), and gone the moment that changes. */
+function renderEmptyRoom(): void {
+  const me = meParticipant || currentParticipant()
+  const alone = !(session?.participants() ?? []).some(view => view.participant !== me)
+  const show = Boolean(session) && currentChannel === undefined && !roomPolicy?.members?.length && !roomUsesBothy && alone
+    && (session?.chat.messages().length ?? 0) === 0
+  if ($('emptyRoom').hidden === show) $('emptyRoom').hidden = !show
+}
+$('emptyCopyLink').addEventListener('click', () => {
+  const link = ($('shareUrl') as HTMLInputElement).value
+  navigator.clipboard.writeText(link)
+    .then(() => setStatus('Invite link copied.', 'done'))
+    .catch(() => { void copyInput('shareUrl').then(() => setStatus('Invite link copied.', 'done')) })
+})
+$('emptyShowQr').addEventListener('click', () => openInviteDialog(true, $('emptyShowQr')))
+
 function renderRoomWho(): void {
   const line = $('roomWho')
   const views = session?.participants() ?? []
   const where = conversationLabel(currentChannel)
-  renderAgentActivity()
+  renderEmptyRoom()
+  publishDesktopMenu()
   // A private chat says what it is, as the spec draws it (design-calm-shell 6.2).
   const me = meParticipant || currentParticipant()
   if (currentChannel === undefined && me && dmPeer(roomPolicy, me)) {
@@ -9588,6 +9614,7 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
+  renderEmptyRoom()
   {
     const roster = session?.participants() ?? []
     const direct = dmPeer(roomPolicy, meParticipant) !== undefined
@@ -10074,6 +10101,19 @@ function navTabs(): Array<[string | undefined, string]> {
 }
 
 let renderedTabKey = ''
+/** What this room's tasks come to, kept by the assignment panel and read by
+ *  the Board tab. Starts empty so the tabs can draw before the panel exists. */
+let assignmentSummary: BoardSummary = { total: 0, active: 0, needsYou: 0 }
+
+/** The Board tab's state: undefined when this room has no board to open, else
+ *  how many things on it wait for this person. A room has one when it holds
+ *  tasks or a shared board; making the first is "New task…" in the menu. */
+function boardTab(): { needsYou: number } | undefined {
+  if (!session) return undefined
+  const shared = roomBoards.get(session)?.boards.length ?? 0
+  if (assignmentSummary.total === 0 && shared === 0) return undefined
+  return { needsYou: assignmentSummary.needsYou }
+}
 /** A small unread badge, capped at "99+" so a busy agent channel does not
  *  smear the tab it sits in. Shared by every place that shows one, so a
  *  person's count and an agent's look and read the same way everywhere. */
@@ -10103,7 +10143,8 @@ function renderConversationNav(): void {
   const scroll = nav.scrollLeft
   nav.replaceChildren()
   const tabs = navTabs()
-  nav.hidden = tabs.length < 2
+  const board = boardTab()
+  nav.hidden = tabs.length + (board ? 1 : 0) < 2
   for (const [name, label] of tabs) {
     const button = document.createElement('button')
     button.type = 'button'
@@ -10120,32 +10161,33 @@ function renderConversationNav(): void {
     button.addEventListener('click', () => selectChannel(name))
     nav.append(button)
   }
+  if (board) {
+    // The room's board opens over the conversation rather than beside it, so
+    // this is a button that opens a dialog, not a tab that is selected.
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.dataset.board = 'true'
+    button.setAttribute('aria-haspopup', 'dialog')
+    button.setAttribute('aria-controls', 'boardsPanel')
+    button.append('Board')
+    if (board.needsYou > 0) {
+      const badge = document.createElement('span')
+      badge.className = 'conversationUnread'
+      badge.setAttribute('aria-hidden', 'true')
+      badge.textContent = String(board.needsYou)
+      button.append(badge)
+      button.setAttribute('aria-label', `Board, ${board.needsYou} need you`)
+    }
+    button.addEventListener('click', () => openRoomBoard(button))
+    nav.append(button)
+  }
   renderDraftBadges()
   nav.scrollLeft = scroll
   if (focusedChannel !== undefined) {
     Array.from(nav.querySelectorAll<HTMLButtonElement>('button')).find(button => button.dataset.channel === focusedChannel)?.focus({ preventScroll: true })
+  } else if (focused?.dataset.board && nav.contains(focused)) {
+    nav.querySelector<HTMLButtonElement>('button[data-board]')?.focus({ preventScroll: true })
   }
-}
-
-function renderAgentActivity(): void {
-  const agents = (session?.participants() ?? []).filter(view => view.agent)
-  const watching = currentChannel === AGENT_CHANNEL
-  const activity = $('agentActivity')
-  // Inviting the first agent must not require an Agents conversation that
-  // does not exist until a host advertises one or an agent has already joined,
-  // so the banner and its Invite button stay even in a room with no agents.
-  activity.hidden = !session
-  activity.toggleAttribute('data-empty', agents.length === 0)
-  $('agentActivityTitle').textContent = agents.length ? `${agents.length} agent${agents.length === 1 ? '' : 's'} in this room` : 'No agents here yet'
-  const names = agents.slice(0, 3).map(view => shownAs(view.participant, view.name).name ?? shortKey(view.participant)).join(', ')
-  // Only ever built from a non-empty name list: joining an empty one used to
-  // leave a bare " · Read what they say to each other." with nothing before
-  // the dot (M3).
-  $('agentActivityNote').textContent = watching
-    ? agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''}` : 'Invite an agent, or read earlier messages here.'
-    : agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.` : ''
-  $('watchAgents').hidden = watching
-  $('manageAgents').hidden = !session
 }
 
 function renderChannels(): void {
@@ -10857,7 +10899,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       more.setAttribute('aria-haspopup', 'dialog')
       more.setAttribute('aria-controls', 'messageActionPanel')
       more.setAttribute('aria-expanded', 'false')
-      const openActions = (anchor: HTMLElement, reactionsOnly = false): void => {
+      // What a message offers, once, for the panel behind its ⋯ and for the
+      // menu a right-click opens: the same actions, the same handlers.
+      const messageActionList = (): MessageAction[] => {
         const actions: MessageAction[] = [
           { label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) },
           { label: 'Copy text', text: 'Copy text', run: () => { void copyMessageText(m.text) } },
@@ -10868,12 +10912,26 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
         )
-        messageActions.open(anchor, reactionsOnly ? [] : actions, REACTION_EMOJIS.map<MessageAction>(base => {
-          const emoji = preferredReaction(base)
-          const mineToo = reactions.get(emoji)?.some(entry => entry.reaction!.active && entry.participant === meParticipant)
-          return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
-        }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => chatArtPicker.openReaction(anchor, react) }]))
+        return actions
       }
+      const reactionChoices = (anchor: HTMLElement): MessageAction[] => REACTION_EMOJIS.map<MessageAction>(base => {
+        const emoji = preferredReaction(base)
+        const mineToo = reactions.get(emoji)?.some(entry => entry.reaction!.active && entry.participant === meParticipant)
+        return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
+      }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => chatArtPicker.openReaction(anchor, react) }])
+      const openActions = (anchor: HTMLElement, reactionsOnly = false): void => {
+        messageActions.open(anchor, reactionsOnly ? [] : messageActionList(), reactionChoices(anchor))
+      }
+      // Right-click (and the desktop's own context menu with it) opens the
+      // app's menu where the pointer is: Reply, React, Copy text and the rest,
+      // as the ⋯ offers them. Links, pictures and media keep the browser's
+      // own menu, which is what they are for; a touch press is the hold that
+      // already opens the reactions.
+      bubble.addEventListener('contextmenu', event => {
+        if ((event as PointerEvent).pointerType === 'touch' || (event.target as Element).closest('a[href], video, audio, img, canvas, input, textarea, select, [contenteditable="true"], .messageControls, .messageReactions')) return
+        event.preventDefault()
+        openMessageMenu(more, event.clientX, event.clientY, messageActionList(), reactionChoices(more), senderLabel(original))
+      })
       more.addEventListener('click', () => openActions(more))
       const addReaction = document.createElement('button')
       addReaction.type = 'button'
@@ -12884,12 +12942,12 @@ function attachRoomBoards(s: RoomSession): void {
     store:isQuietPolicy(roomPolicy)?memoryDeviceStore():deviceStore,
     crypt:signerSelfCrypt({pubkey:account.pubkey,nip44:account.signer.nip44}),current})
   const boards = new RoomBoards(s, {custody,current,
-    changed: () => boardsPanel?.sync(), report: error => setStatus(describeError(error))})
+    changed: () => { boardsPanel?.sync(); renderConversationNav() }, report: error => setStatus(describeError(error))})
   openingRoomBoards.set(s,boards)
   void boards.open().then(()=>{
     if(openingRoomBoards.get(s)!==boards)return boards.close()
     if(!current())return closeRoomBoardCatalogues(s)
-    openingRoomBoards.delete(s);roomBoards.set(s,boards);boardsPanel?.sync()
+    openingRoomBoards.delete(s);roomBoards.set(s,boards);boardsPanel?.sync();if(session===s)renderConversationNav()
   }).catch(async error=>{if(openingRoomBoards.get(s)===boards)await closeRoomBoardCatalogues(s);else await boards.close();if(current())setStatus(describeError(error))})
     .catch(error=>{if(current())setStatus(describeError(error))})
 }
@@ -13192,6 +13250,7 @@ function renderRooms(): void {
   updateDesktopUnread()
   // People is for somebody signed in with Nostr, and nobody else (Q14).
   setPeopleAvailable(!!nostrSession)
+  publishDesktopMenu()
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
@@ -13619,6 +13678,52 @@ function tombstoneRow(id: string, at: number): HTMLLIElement {
   return row
 }
 
+let messageMenuCount = 0
+/** The menu a right-click on a message opens, on the shared menu helper: the
+ *  message's own actions as items, and its reactions behind React. It is made
+ *  when asked for and goes when it closes, because the log it belongs to is
+ *  drawn again whenever anything arrives. */
+function openMessageMenu(opener: HTMLElement, x: number, y: number, actions: MessageAction[], reactions: MessageAction[], from: string): void {
+  messageActions.close(false)
+  const menu = document.createElement('div')
+  menu.id = `messageMenu-${++messageMenuCount}`
+  menu.setAttribute('aria-label', `Message from ${from}`)
+  const named = (item: HTMLElement, action: MessageAction): void => { item.setAttribute('aria-label', action.label) }
+  const [reply, ...rest] = actions
+  if (reply) named(menuItem(menu, reply.text ?? reply.label, reply.run, { icon: 'reply', action: 'reply' }), reply)
+  menuSubmenu(menu, 'React', sub => {
+    for (const choice of reactions) {
+      const more = choice.text === '+'
+      named(menuItem(sub, more ? 'More emoji…' : choice.text ?? choice.label, choice.run, more ? { action: 'react-more' } : { checked: Boolean(choice.pressed), toggle: true, action: 'react' }), choice)
+    }
+  }, { icon: 'smile' })
+  for (const action of rest) named(menuItem(menu, action.text ?? action.label, action.run, { danger: action.danger }), action)
+  document.body.append(menu)
+  const handle = wireMenu(opener, menu)
+  menu.addEventListener('toggle', event => { if ((event as ToggleEvent).newState === 'closed') queueMicrotask(() => menu.remove()) })
+  handle.openAt(x, y)
+}
+
+/** Mark a room read from its list row: everything it holds counts as seen,
+ *  as though it had been opened. Only this device's read position moves (and
+ *  the account's, where it syncs one); nothing is sent to the room. */
+function markRoomRead(room: KnownRoom): void {
+  const here = !!session && room.roomId === currentRoomId()
+  const messages = here ? conversationMessages(undefined) : roomWatches.get(room.roomId)?.watch.messages() ?? []
+  let newest = 0
+  let newestId: string | undefined
+  for (const m of messages) {
+    if (m.sentAt > newest || (m.sentAt === newest && newestId !== undefined && m.id > newestId)) { newest = m.sentAt; newestId = m.id }
+  }
+  if (newest > 0) {
+    markRead(roomStore(), room.roomId, newest, messages.filter(m => m.sentAt === newest).map(m => m.id))
+    readSync?.note(room.roomId, { '': newestId ? { at: newest, id: newestId } : { at: newest } })
+    updateDesktopUnread()
+  }
+  if (here) markConversationRead()
+  renderRooms()
+}
+
 /** The row's `⋯` menu, on the shared menu helper (app/src/menu.ts): a native
  *  popover with the full keyboard model. Copy invite link is here because
  *  getting a friend in is one of the five stranger-test tasks and the link
@@ -13636,15 +13741,7 @@ function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDi
   menu.id = id
   menu.className = 'rowMenuPopover'
 
-  const pinned = loadPins(localStorage).has(room.roomId)
-  menuItem(menu, pinned ? 'Unpin' : 'Pin', () => {
-    setPinned(localStorage, room.roomId, !pinned)
-    // The row moves; focus goes with it, to its ⋯ button.
-    lastRoomOrder = undefined
-    lastRoomSections = undefined
-    renderRooms()
-    $('roomList').querySelector<HTMLElement>(`[data-room="${room.roomId}"] .rowMenu`)?.focus({ preventScroll: false })
-  }, { action: 'pin' })
+  menuItem(menu, 'Mark as read', () => markRoomRead(room), { action: 'mark-read' })
   menuItem(menu, 'Copy invite link', () => {
     navigator.clipboard.writeText(room.link)
       .then(() => setStatus('Invite link copied.'))
@@ -13653,6 +13750,13 @@ function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDi
   if (room.roomId !== currentRoomId()) menuItem(menu, 'Open in a new tab', () => {
     window.open(joinLinkBase() + new URL(room.link, location.href).hash, '_blank', 'noopener,noreferrer')
   }, { action: 'new-tab' })
+  notificationsSubmenu(menu, room.roomId)
+  const pinned = loadPins(localStorage).has(room.roomId)
+  menuItem(menu, pinned ? 'Unpin' : 'Pin', () => {
+    togglePinned(room)
+    // The row moves; focus goes with it, to its ⋯ button.
+    $('roomList').querySelector<HTMLElement>(`[data-room="${room.roomId}"] .rowMenu`)?.focus({ preventScroll: false })
+  }, { action: 'pin' })
   menuItem(menu, 'Add to a project', () => openProjectEditor(room, opener))
   menuItem(menu, roomProject(deviceStore, nostrSession?.pubkey, room.roomId) ? 'Change local group' : 'Group on this browser', () => openLocalGroupEditor(room, opener))
   // The room on screen is left first; forgetting it from under the person would strand the conversation they are reading.
@@ -14964,18 +15068,11 @@ function backToList(): void {
 }
 $('backToRooms').addEventListener('click', backToList)
 $('doorToRooms').addEventListener('click', backToList)
-$('watchAgents').addEventListener('click', () => selectChannel(AGENT_CHANNEL))
 $('nextUnread').addEventListener('click', () => {
   const next = nextUnreadConversation()
   if (!next) return
   selectChannel(next[0])
   $('chatLog').focus({ preventScroll: true })
-})
-$('manageAgents').addEventListener('click', () => {
-  openRoomSheet()
-  ;($('inviteAgents') as HTMLDetailsElement).open = true
-  $('inviteAgents').scrollIntoView({ block: 'start' })
-  $('inviteAgents').querySelector('summary')?.focus()
 })
 $('copyAgentInvite').addEventListener('click', async () => {
   await copyInput('shareUrl')
@@ -15038,7 +15135,126 @@ window.addEventListener('storage', event => {
   if (event.key?.startsWith('kithmoot.project.v1.')) renderRooms()
 })
 $('roomIdentity').addEventListener('click', openRoomSheet)
-$('roomMenu').addEventListener('click', openRoomSheet)
+
+// ---------------------------------------------------------------------------
+// The room's ⋯ menu (design-calm-shell 5.3). A short list of verbs: what this
+// room's header cannot hold, in the order a person reaches for them. Built
+// each time it opens, because who is here, whether the room is a private chat
+// and whether it is pinned all change between one opening and the next.
+// ---------------------------------------------------------------------------
+
+/** Under this width the header has no room for Search, so it is a menu item. */
+const NARROW_ROOM_BAR = '(max-width: 599px)'
+const ROOM_INFO_KEYS = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent) ? '⌘I' : 'Ctrl+I'
+
+/** Whether the header has left its call button out, so the menu carries it:
+ *  320 px wide with Huge text, where the title would have no room. */
+function callButtonInMenu(): boolean {
+  const root = document.documentElement
+  return window.matchMedia('(max-width: 359px)').matches && root.dataset.textSize === 'huge' && !root.hasAttribute('data-call-first') && !root.hasAttribute('data-call-docked')
+}
+
+function currentKnownRoom(): KnownRoom | undefined {
+  return navigationRooms().find(room => room.roomId === currentRoomId())
+}
+
+/** Pin or unpin a room. The row moves, so the list is drawn again. */
+function togglePinned(room: KnownRoom): void {
+  setPinned(localStorage, room.roomId, !loadPins(localStorage).has(room.roomId))
+  lastRoomOrder = undefined
+  lastRoomSections = undefined
+  renderRooms()
+  publishDesktopMenu()
+}
+
+/** Notifications for one room: Every message, Nothing, or what this person
+ *  chose for everything else. "Only mentions and replies" waits for a notifier
+ *  that can tell them apart (design-calm-shell 5.3). */
+function notificationsSubmenu(menu: HTMLElement, roomId: string): void {
+  menuSubmenu(menu, 'Notifications', sub => {
+    const scope: NotificationScope = { kind: 'room', id: roomId }
+    const mode = notificationMode(deviceStore, nostrSession?.pubkey, scope)
+    for (const [value, label] of [['all', 'Every message'], ['off', 'Nothing'], ['inherit', 'Use my default']] as const) {
+      menuItem(sub, label, () => {
+        setNotificationMode(deviceStore, nostrSession?.pubkey, scope, value)
+        renderNotificationScopes()
+        renderRooms()
+        publishDesktopMenu()
+      }, { checked: mode === value, action: `notify-${value}` })
+    }
+  }, { icon: 'bell' })
+}
+
+/** What this room's menu offers, worked out once for the ⋯ menu and for the
+ *  desktop window's Room menu, so the two can never disagree. */
+interface RoomMenuModel {
+  /** A room is on screen (and joined). */
+  open: boolean
+  room?: KnownRoom
+  /** The other person, in a private chat. */
+  peer?: string
+  invite: boolean
+  agent: boolean
+  task: boolean
+  project: boolean
+  end: boolean
+  pinned: boolean
+  notify?: NotificationMode
+}
+
+function roomMenuModel(): RoomMenuModel {
+  const roomId = currentRoomId()
+  const me = meParticipant || currentParticipant()
+  const peer = me ? dmPeer(roomPolicy, me) : undefined
+  const room = currentKnownRoom()
+  return {
+    open: Boolean(session && roomId) && !$('roomArea').hidden,
+    room, peer,
+    invite: !peer && !roomPolicy?.members?.length,
+    agent: Boolean(session) && !peer,
+    task: Boolean(session),
+    project: Boolean(room) && !peer,
+    end: canEndRoom(),
+    pinned: Boolean(room) && loadPins(localStorage).has(room!.roomId),
+    notify: roomId ? notificationMode(deviceStore, nostrSession?.pubkey, { kind: 'room', id: roomId }) : undefined,
+  }
+}
+
+/** Invite an agent: the room's details, open on the place that does it. */
+function addAnAgent(): void {
+  openRoomSheet()
+  ;($('inviteAgents') as HTMLDetailsElement).open = true
+  $('inviteAgents').scrollIntoView({ block: 'start' })
+  $('inviteAgents').querySelector('summary')?.focus()
+}
+
+function renderRoomMenu(): void {
+  const menu = $('roomMoreMenu')
+  const model = roomMenuModel()
+  const room = model.room
+  const roomId = currentRoomId()
+  const groups: Array<(menu: HTMLElement) => void> = [
+    menu => {
+      if (callButtonInMenu() && $('callToggle').getAttribute('aria-label')) menuItem(menu, $('callToggle').getAttribute('aria-label')!, () => $('callToggle').click(), { icon: 'phone', action: 'call' })
+      menuItem(menu, 'Room info', openRoomSheet, { icon: 'info', shortcut: ROOM_INFO_KEYS, action: 'info' })
+      if (window.matchMedia(NARROW_ROOM_BAR).matches) menuItem(menu, 'Search in room', () => conversationSearch.open($('roomMenu')), { icon: 'search', action: 'search' })
+      if (model.invite) menuItem(menu, 'Invite people…', () => openInviteDialog(false), { icon: 'personAdd', action: 'invite' })
+      if (model.agent) menuItem(menu, 'Add an agent…', addAnAgent, { icon: 'agent', action: 'agent' })
+    },
+    menu => {
+      if (roomId) notificationsSubmenu(menu, roomId)
+      if (model.task) menuItem(menu, 'New task…', () => assignmentPanel.newTask(), { icon: 'task', action: 'task' })
+      if (room) menuItem(menu, model.pinned ? 'Unpin' : 'Pin', () => togglePinned(room), { icon: 'pin', action: 'pin' })
+      if (room && model.project) menuItem(menu, 'Add to project…', () => openProjectEditor(room, $('roomMenu')), { icon: 'folder', action: 'project' })
+    },
+    menu => {
+      if (model.end) menuItem(menu, 'End room for everyone…', () => $('endRoom').click(), { danger: true, action: 'end' })
+      menuItem(menu, model.peer ? 'Leave private chat…' : 'Leave room…', () => $('leave').click(), { danger: true, action: 'leave' })
+    },
+  ]
+  menuGroups(menu, groups)
+}
+wireMenu($('roomMenu'), $('roomMoreMenu'), { beforeOpen: renderRoomMenu, sheet: NARROW_ROOM_BAR })
 $('roomSheetClose').addEventListener('click', closeRoomSheet)
 $('searchConversation').addEventListener('click', () => {
   const sheet = $('roomSheet') as HTMLDialogElement
@@ -15049,8 +15265,8 @@ $('searchConversation').addEventListener('click', () => {
 })
 const inviteDialog = $('inviteDialog') as HTMLDialogElement
 /** Which button opened the invite sheet, to hand focus back to. */
-let inviteOpener: HTMLElement = $('invitePeople')
-function openInviteDialog(qrFirst: boolean): void {
+let inviteOpener: HTMLElement = $('roomMenu')
+function openInviteDialog(qrFirst: boolean, from: HTMLElement = $('roomMenu')): void {
   if (roomUsesBothy) { setStatus('New invitations are unavailable on this Bothy text route.'); return }
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
   $('inviteStatus').textContent = ''
@@ -15059,7 +15275,7 @@ function openInviteDialog(qrFirst: boolean): void {
   renderInviteEnds()
   renderMeetingCode()
   $('inviteSlot').append($('inviteContent'))
-  inviteOpener = qrFirst ? $('inviteQr') : $('invitePeople')
+  inviteOpener = from
   inviteDialog.classList.toggle('qrFirst', qrFirst)
   const qr = $('shareQrDetails') as HTMLDetailsElement
   if (qrFirst) {
@@ -15073,8 +15289,6 @@ function openInviteDialog(qrFirst: boolean): void {
   inviteDialog.showModal()
   ;(qrFirst ? $('inviteClose') : $('copyShare')).focus({ preventScroll: true })
 }
-$('invitePeople').addEventListener('click', () => openInviteDialog(false))
-$('inviteQr').addEventListener('click', () => openInviteDialog(true))
 $('inviteClose').addEventListener('click', () => inviteDialog.close())
 inviteDialog.addEventListener('close', () => {
   ;($('copyShare') as HTMLButtonElement).autofocus = false
@@ -15382,6 +15596,8 @@ const assignmentPanel = new AssignmentPanel(document, () => {
       ...(p.agent && p.devices.length ? { ownerDevice: [...p.devices].sort()[0] } : {}) }
   })
 }, refreshRoomNavigation)
+assignmentPanel.opener = () => $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu')
+assignmentPanel.onSummary = () => { assignmentSummary = assignmentPanel.summary; renderConversationNav() }
 
 function workspaceActivityRooms(): KnownRoom[] {
   return navigationRooms().filter(room => {
@@ -15483,12 +15699,22 @@ boardsPanel = new BoardsPanel(document, {
     setStatus(`Card title and link added to your draft in ${knownRoomLabel(room)}. Review it before sending to the room.`)
   },
 })
-for (const id of ['openAssignments', 'mobileWork', 'workspaceBoardsOpen']) {
-  const button = $(id)
-  if (id !== 'workspaceBoardsOpen') (button.querySelector('.barWord') ?? button).textContent = 'Boards'
+{
+  const button = $('workspaceBoardsOpen')
   button.setAttribute('aria-controls', 'boardsPanel')
   button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); boardsPanel!.open(button)}, {capture: true})
 }
+/** The room's board, opened from its tab (or anything standing in for it). */
+function openRoomBoard(from: HTMLElement): void {
+  closeRoomSheet()
+  boardsPanel!.open(from)
+}
+// The tab is drawn again whenever the conversations are, so focus is put back
+// on whichever Board tab is there now.
+$('boardsPanel').addEventListener('close', () => {
+  const active = document.activeElement
+  if (!active || active === document.body) $('conversationNav').querySelector<HTMLElement>('button[data-board]')?.focus({ preventScroll: true })
+})
 // Boards is a destination: the panel of what needs you and what is on the
 // boards sits in the main pane, and is open for as long as it is showing.
 document.addEventListener('shell:destination', event => {
@@ -15506,7 +15732,7 @@ workspaceWork = new WorkspaceWorkPanel(document, {
     if (!session) throw new Error('Open a chat before viewing its tasks')
     showRoomPane()
     // Focus comes back to the room's own Boards control when the panel closes.
-    ;[$('mobileWork'), $('openAssignments')].find(button => button.getClientRects().length)?.focus({ preventScroll: true })
+    $('conversationNav').querySelector<HTMLElement>('button[data-board]')?.focus({ preventScroll: true })
     await assignmentPanel.openAssignment()
   }},
   signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
@@ -16194,6 +16420,71 @@ $('joinCodeClose').addEventListener('click', () => ($('joinCode') as HTMLDialogE
 const openLinkSheet = () => openSheet($('openLink') as HTMLDialogElement, 'url')
 const joinCodeSheet = () => openSheet($('joinCode') as HTMLDialogElement, 'meetingCodeInput')
 $('homeOpenLink').addEventListener('click', openLinkSheet)
+
+// ---------------------------------------------------------------------------
+// The desktop window's application menu (design-calm-shell 9.3). The window
+// builds the menu; this says what the room on screen allows, and does what a
+// chosen item names. The names are the fixed list in desktop/app-menu.mjs and
+// each is one function that something on the page already runs.
+// ---------------------------------------------------------------------------
+{
+  const desktop = window.kithmootDesktop
+  if (desktop?.setRoomMenuState && desktop.onMenuCommand) {
+    let sent = ''
+    let queued = false
+    const publish = (): void => {
+      queued = false
+      const model = roomMenuModel()
+      const state = {
+        room: model.open,
+        people: Boolean(nostrSession),
+        call: $('callToggle').getAttribute('aria-label') ?? 'Start call',
+        search: model.open, invite: model.open && model.invite, agent: model.open && model.agent,
+        pinned: model.pinned, notify: model.notify, textSize: currentTextSize(),
+        leaveLabel: model.peer ? 'Leave private chat…' : 'Leave room…',
+      }
+      const key = JSON.stringify(state)
+      if (key === sent) return
+      sent = key
+      desktop.setRoomMenuState!(state)
+    }
+    publishDesktopMenu = () => { if (!queued) { queued = true; setTimeout(publish, 50) } }
+    const inRoom = (run: () => void) => () => { if (roomMenuModel().open) run() }
+    const notify = (mode: NotificationMode) => inRoom(() => {
+      const roomId = currentRoomId()
+      if (!roomId) return
+      setNotificationMode(deviceStore, nostrSession?.pubkey, { kind: 'room', id: roomId }, mode)
+      renderNotificationScopes(); renderRooms(); publishDesktopMenu()
+    })
+    const commands: Record<string, () => void> = {
+      'new-room': openNewRoom, 'open-link': openLinkSheet, 'join-code': joinCodeSheet,
+      settings: () => openDestination('settings'),
+      'show-chats': () => openDestination('chats'),
+      'show-people': () => { if (nostrSession) openDestination('people') },
+      'show-boards': () => openDestination('boards'),
+      find: focusSearch,
+      'room-info': inRoom(() => $('roomIdentity').click()),
+      'text-size-standard': () => chooseTextSize('standard'),
+      'text-size-large': () => chooseTextSize('large'),
+      'text-size-huge': () => chooseTextSize('huge'),
+      call: inRoom(() => $('callToggle').click()),
+      search: inRoom(() => conversationSearch.open($('chatSearch'))),
+      invite: inRoom(() => { if (roomMenuModel().invite) openInviteDialog(false) }),
+      agent: inRoom(() => { if (roomMenuModel().agent) addAnAgent() }),
+      'notify-all': notify('all'), 'notify-off': notify('off'), 'notify-inherit': notify('inherit'),
+      pin: inRoom(() => { const room = currentKnownRoom(); if (room) togglePinned(room) }),
+      leave: inRoom(() => $('leave').click()),
+      shortcuts: () => $('keyboardHelp').click(),
+    }
+    desktop.onMenuCommand(command => { if (Object.hasOwn(commands, command)) commands[command]!() })
+    // The room opens and closes behind a `hidden` attribute, and the text size
+    // is chosen on radios the page already listens to.
+    new MutationObserver(() => publishDesktopMenu()).observe($('roomArea'), { attributes: true, attributeFilter: ['hidden'] })
+    document.addEventListener('change', event => { if ((event.target as Element | null)?.closest('[data-text-size]')) publishDesktopMenu() })
+    document.addEventListener('shell:destination', () => publishDesktopMenu())
+    publishDesktopMenu()
+  }
+}
 $('homeJoinCode').addEventListener('click', joinCodeSheet)
 
 // The New menu: everything that starts a chat or brings one in. The same

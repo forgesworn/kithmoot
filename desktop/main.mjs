@@ -5,6 +5,7 @@ import { createDesktopUpdater } from './updater.mjs'
 import { createPackageUpdater, packageVersionFile, readPackageVersion } from './package-updater.mjs'
 import { createArchiveUpdater } from './archive-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
+import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE } from './app-menu.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
 import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
@@ -152,6 +153,27 @@ function attachContextMenu(contents) {
     })
     if (template.length) Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(contents) })
   })
+}
+
+let roomMenuState = { ...EMPTY_STATE }
+let roomMenuKey = ''
+/** A menu item was chosen: tell the page which one, by name from a fixed list. */
+function runMenuCommand(command) {
+  if (!MENU_COMMANDS.includes(command) || !win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show(); win.focus()
+  win.webContents.send('desktop:menu-command', command)
+}
+function showAbout() {
+  void dialog.showMessageBox(win, {
+    message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Signed Mac updates download quietly and wait for you to approve a safe restart. On Debian and Ubuntu, updates arrive with your system updates and wait for the same restart; other Linux installs update by hand. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
+  })
+}
+function applyAppMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildAppMenuTemplate({
+    platform: process.platform, appName: app.name, state: roomMenuState, run: runMenuCommand,
+    about: showAbout, reportAbuse: () => void external('https://kithmoot.forgesworn.dev/report/'),
+  })))
 }
 
 const DESKTOP_PARTITION = 'persist:kithmoot-desktop-v1'
@@ -413,16 +435,19 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       if (active && powerBlock === undefined) powerBlock = powerSaveBlocker.start('prevent-app-suspension')
       if (!active) releaseCall()
     })
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
-      { label: 'File', submenu: [{ role: 'close' }] },
-      { role: 'editMenu' },
-      { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
-      { role: 'windowMenu' },
-      { label: 'Help', submenu: [{ label: 'About this preview', click: () => dialog.showMessageBox(win, {
-        message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Signed Mac updates download quietly and wait for you to approve a safe restart. On Debian and Ubuntu, updates arrive with your system updates and wait for the same restart; other Linux installs update by hand. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
-      }) }] },
-    ]))
+    // What the room on screen allows, as the page last said (see app-menu.mjs).
+    // The Room menu's items are disabled with no room open and follow the same
+    // rules as the ⋯ menu in the page.
+    ipcMain.on('desktop:room-menu-state', (event, state) => {
+      if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame) return
+      const next = sanitiseRoomMenuState(state)
+      const key = JSON.stringify(next)
+      if (key === roomMenuKey) return
+      roomMenuKey = key
+      roomMenuState = next
+      applyAppMenu()
+    })
+    applyAppMenu()
     // The share pop-out is a window of ours the app writes into, so it never
     // navigates anywhere. Every other window inherits the same rules as the
     // main one: a link leaves for the person's browser, nothing else opens a

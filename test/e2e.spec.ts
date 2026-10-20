@@ -130,7 +130,7 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
 async function openRoomTools(page: Page): Promise<void> {
   const sheet = page.locator('#roomSheet')
   if (!(await sheet.evaluate((el) => (el as HTMLDialogElement).open))) {
-    await page.locator('#roomMenu').click()
+    await page.locator('#roomIdentity').click()
   }
   await expect(sheet).toHaveJSProperty('open', true)
 }

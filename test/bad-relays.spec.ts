@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
+import { openRoomDetails } from './browser.js'
 
 // The public relay failures seen in September 2026, each beside the local
 // test relay that behaves: a relay that accepts the socket and never
@@ -61,7 +62,7 @@ async function send(page: Page, text: string): Promise<void> {
 }
 
 async function relayRow(page: Page, url: string) {
-  await page.locator('#roomMenu').click()
+  await openRoomDetails(page)
   await page.locator('#roomRelaySettings').click()
   return page.locator('#relayList .relayRow').filter({ hasText: url }).locator('.relayHealth')
 }

@@ -39,6 +39,15 @@ function apply(size: TextSize): void {
 
 apply(saved())
 
+/** The size chosen on this device. */
+export function currentTextSize(): TextSize { return saved() }
+
+/** Choose a size from somewhere other than the radios: the desktop View menu. */
+export function chooseTextSize(size: TextSize): void {
+  try { localStorage.setItem(KEY, size) } catch { /* private mode: the choice lasts this visit */ }
+  apply(size)
+}
+
 document.addEventListener('change', (event) => {
   const input = event.target
   if (!(input instanceof HTMLInputElement) || !input.closest('[data-text-size]') || !isTextSize(input.value)) return

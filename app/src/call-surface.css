@@ -2,7 +2,6 @@
 #workspaceContent { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; }
 #workspaceContent > #roomArea { flex: 1 1 auto; min-height: 0; }
 #callStageSlot { display: none; }
-html:not([data-call-docked]) #workspaceContent:has(> #callSurface #callBay:not([hidden])) > #roomArea > #agentActivity { display: none; }
 #callSurface { display: flex; flex-direction: column; flex: 0 0 auto; min-width: 0; min-height: 0; margin: 0; }
 #callSurface[hidden], #callSurfaceHeader[hidden] { display: none !important; }
 #callSurfaceHeader { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex: 0 0 auto; padding: .25rem 0; }
@@ -53,7 +52,6 @@ html[data-call-docked] #callDockRecordingNotice { font-size: .85rem; color: var(
   html[data-call-docked] #callDock .callDockActions { gap: .3rem; }
   html[data-call-docked] #callDock .callDockActions button { padding-inline: .7rem; }
   html[data-call-docked] #callSurfaceLogo, html[data-call-docked] #callSurfaceOrigin { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  html[data-call-docked] .conversationTools > :is(#chatSearch, #invitePeople, #inviteQr) { display: none; }
   html[data-call-docked] .conversationTools:not(:has(> :is(#nextUnread, #backToSearch):not([hidden]))) { display: none; }
 }
 

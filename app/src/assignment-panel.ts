@@ -14,6 +14,9 @@ interface WorkDraft {
   pendingCreate?: string
 }
 
+/** What a room's tasks come to: all of them, the ones still going, and the
+ *  ones waiting on this person. */
+export interface BoardSummary { total: number; active: number; needsYou: number }
 export interface AssignmentPerson { pubkey: string; label: string; agent: boolean; ownerDevice?: string; actions?: AssignmentAction[] }
 export class AssignmentPanel {
   #log?: AssignmentLog
@@ -22,7 +25,6 @@ export class AssignmentPanel {
   #dialog: HTMLDialogElement
   #cards: HTMLElement
   #status: HTMLElement
-  #button: HTMLButtonElement
   #busy = false
   #epoch = 0
   #owner: HTMLSelectElement
@@ -35,17 +37,27 @@ export class AssignmentPanel {
   #pendingCreate?: string
   #decisionsOnly = false
   #wide = matchMedia('(min-width: 1280px)')
-  /** The button shows a picture; its words stay in it for assistive technology. */
-  #word(text: string): void { (this.#button.querySelector('.barWord') ?? this.#button).textContent = text }
+  #summary: BoardSummary = { total: 0, active: 0, needsYou: 0 }
+  /** Where focus goes when the panel closes: the room's Board tab, or what
+   *  stands in for it. Set by the page, which owns the tab. */
+  opener: () => HTMLElement | null | undefined = () => undefined
+  /** Told whenever the count of tasks or of those that need you changes. */
+  onSummary: () => void = () => {}
+  /** What the room's tasks come to, for the Board tab's name. */
+  get summary(): BoardSummary { return this.#summary }
+  #setSummary(next: BoardSummary): void {
+    const old = this.#summary
+    if (old.total === next.total && old.active === next.active && old.needsYou === next.needsYou) return
+    this.#summary = next
+    this.onSummary()
+  }
   constructor(readonly root: Document, readonly people: () => AssignmentPerson[], readonly changed: () => void = () => {}) {
     this.#dialog = root.getElementById('assignmentPanel') as HTMLDialogElement
     this.#cards = root.getElementById('assignmentCards')!
     this.#status = root.getElementById('assignmentStatus')!
-    this.#button = root.getElementById('openAssignments') as HTMLButtonElement
     this.#owner = root.getElementById('assignmentOwner') as HTMLSelectElement
     this.#action = root.getElementById('assignmentAction') as HTMLSelectElement
     this.#inputs = root.getElementById('assignmentInputs')!
-    this.#button.onclick = () => { this.#decisionsOnly = false; this.#open() }
     root.getElementById('reviewWork')!.onclick = () => { this.#decisionsOnly = true; this.#open() }
     for (const [id, decisions] of [['assignmentAll', false], ['assignmentDecisions', true]] as const) {
       root.getElementById(id)!.onclick = () => { this.#decisionsOnly = decisions; this.#render() }
@@ -63,11 +75,7 @@ export class AssignmentPanel {
     root.getElementById('assignmentClose')!.onclick = () => this.#dialog.close()
     this.#dialog.addEventListener('close', () => {
       if (this.#dialog.open) return
-      this.#button.setAttribute('aria-expanded', 'false')
-      if (this.#roomKey) {
-        const opener = this.#button.getClientRects().length ? this.#button : this.root.getElementById('mobileWork')
-        opener?.focus({ preventScroll: true })
-      }
+      if (this.#roomKey) this.opener()?.focus({ preventScroll: true })
     })
     this.#dialog.addEventListener('click', event => { if (event.target === this.#dialog) {
       const bounds = this.#dialog.getBoundingClientRect()
@@ -128,13 +136,18 @@ export class AssignmentPanel {
     }
     if (epoch === this.#epoch) this.#status.textContent = 'This task is not in the room history currently available. Check its connection or ask the sender to restore the history.'
   }
+  /** Open the panel on its form for a new task, and put the cursor in it. */
+  newTask(): void {
+    this.#decisionsOnly = false; this.#open()
+    ;(this.root.getElementById('assignmentNew') as HTMLDetailsElement).open = true
+    ;(this.root.getElementById('assignmentCreate') as HTMLFormElement).querySelector<HTMLElement>('textarea, input, select')?.focus({ preventScroll: true })
+  }
   #open(): void {
     this.#owners(); this.#render()
     if (!this.#dialog.open) {
       if (this.#wide.matches) this.#dialog.show()
       else this.#dialog.showModal()
     }
-    this.#button.setAttribute('aria-expanded', 'true')
     this.root.getElementById('assignmentTitle')!.focus({ preventScroll: true })
   }
   #needsYou(s: Assignment): boolean {
@@ -281,8 +294,7 @@ export class AssignmentPanel {
     for (const input of form.querySelectorAll('[aria-invalid]')) input.removeAttribute('aria-invalid')
     this.#owner.replaceChildren(); this.#action.replaceChildren(); this.#inputs.replaceChildren()
     this.#peopleKey = ''; this.#drafts = new Map(); this.#pendingCreate = undefined
-    this.#status.textContent = 'Connecting assignments…'; this.#word('Boards'); this.#button.removeAttribute('data-count')
-    this.#button.removeAttribute('data-attention')
+    this.#status.textContent = 'Connecting assignments…'; this.#setSummary({ total: 0, active: 0, needsYou: 0 })
     this.root.getElementById('workAttention')!.hidden = true
     this.#decisionsOnly = false
     ;(this.root.getElementById('assignmentFields') as HTMLFieldSetElement).disabled = false
@@ -338,10 +350,7 @@ export class AssignmentPanel {
     if (!snapshot) return
     const active = snapshot.assignments.filter(s => !['accepted', 'cancelled'].includes(s.status))
     const decisions = snapshot.assignments.filter(s => this.#needsYou(s))
-    this.#word(active.length ? `Boards (${active.length})` : 'Boards')
-    if (active.length) this.#button.dataset.count = String(active.length)
-    else this.#button.removeAttribute('data-count')
-    this.#button.toggleAttribute('data-attention', decisions.length > 0)
+    this.#setSummary({ total: snapshot.assignments.length, active: active.length, needsYou: decisions.length })
     this.root.getElementById('workAttention')!.hidden = decisions.length === 0 || !snapshot.ready
     this.root.getElementById('workAttentionText')!.textContent = `${decisions.length} ${decisions.length === 1 ? 'assignment needs' : 'assignments need'} your attention`
     this.root.getElementById('assignmentAll')!.setAttribute('aria-pressed', String(!this.#decisionsOnly))

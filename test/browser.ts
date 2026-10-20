@@ -294,9 +294,77 @@ export async function offerPairing(page: Page): Promise<string> {
 export async function openRoomDetails(page: Page): Promise<void> {
   const sheet = page.locator('#roomSheet')
   if (!(await sheet.evaluate((el) => (el as HTMLDialogElement).open))) {
-    await page.locator('#roomMenu').click()
+    // The room's name is the control that opens it (the ⋯ beside it is a menu
+    // of verbs now, and Room info is only the first of them).
+    await page.locator('#roomIdentity').click()
   }
   await expect(sheet).toHaveJSProperty('open', true)
+}
+
+/** The room's ⋯ menu, open. Idempotent. */
+export async function openRoomMenu(page: Page): Promise<void> {
+  const menu = page.locator('#roomMoreMenu')
+  if (!(await menu.evaluate(el => el.matches(':popover-open')))) await page.locator('#roomMenu').click()
+  await expect(menu).toBeVisible()
+}
+
+/** Choose an item from the room's ⋯ menu by its name, opening the menu first. */
+export async function roomMenuItem(page: Page, name: string | RegExp): Promise<void> {
+  await openRoomMenu(page)
+  await page.locator('#roomMoreMenu').getByRole('menuitem', { name, exact: typeof name === 'string' }).click()
+}
+
+/** The Invite sheet, from the menu or, with `qr`, from the empty room's own
+ *  "Show QR code" where that is on screen, else the sheet's QR summary. */
+export async function openInvite(page: Page, { qr = false }: { qr?: boolean } = {}): Promise<void> {
+  if (qr && await page.locator('#emptyShowQr').isVisible()) await page.locator('#emptyShowQr').click()
+  else {
+    await roomMenuItem(page, 'Invite people…')
+    if (qr) {
+      await expect(page.locator('#inviteDialog')).toHaveJSProperty('open', true)
+      await page.locator('#shareQrDetails > summary').click()
+    }
+  }
+  await expect(page.locator('#inviteDialog')).toHaveJSProperty('open', true)
+}
+
+/** Message search: the header's icon, or the menu where the header has none. */
+export async function openRoomSearch(page: Page): Promise<void> {
+  if (await page.locator('#chatSearch').isVisible()) await page.locator('#chatSearch').click()
+  else await roomMenuItem(page, 'Search in room')
+  await expect(page.locator('#conversationSearch')).toBeVisible()
+}
+
+/** The room's board, from its tab. Only there once the room has tasks or a
+ *  shared board; see `boardTab` in app/src/main.ts. */
+export async function openRoomBoard(page: Page): Promise<void> {
+  await page.locator('#conversationNav button[data-board]').click()
+  await expect(page.locator('#boardsPanel')).toBeVisible()
+}
+
+/** The boards panel for the room on screen: from the room's Board tab where it
+ *  has one, else from the Boards destination, which opens on the room in view. */
+export async function openRoomBoards(page: Page): Promise<void> {
+  if (await page.locator('#conversationNav button[data-board]').count()) await openRoomBoard(page)
+  else await openBoardsPanel(page)
+  await expect(page.locator('#boardsPanel')).toBeVisible()
+}
+
+/** The room's tasks panel, the way these specs always reached it, whether
+ *  or not the room has a Board tab yet: the tab and its Room tasks button
+ *  when there is one, else the menu's New task… with its form folded away
+ *  again so the panel is as the tab would have left it. */
+export async function openRoomTasks(page: Page): Promise<void> {
+  const tab = page.locator('#conversationNav button[data-board]')
+  if (await tab.count()) {
+    await tab.click()
+    await page.getByRole('button', { name: 'Room tasks', exact: true }).click()
+    await page.getByRole('button', { name: 'Current room tasks', exact: true }).click()
+  } else {
+    await roomMenuItem(page, 'New task…')
+    await page.locator('#assignmentNew').evaluate(el => { (el as HTMLDetailsElement).open = false })
+  }
+  await expect(page.locator('#assignmentPanel')).toBeVisible()
 }
 
 /** Move to one of the room's conversations. Picking one closes the sheet it
@@ -476,10 +544,14 @@ export async function openCall(page: Page): Promise<void> {
     'the call control only appears once this device is in the room',
   ).toBeVisible()
   if (await page.locator('#deviceControls').isHidden()) {
-    await page.locator('#callToggle:visible, #mobileCall:visible').click()
-    // On a phone the Call tab is navigation only (B1): it opens the call
-    // view, and starting or joining is that view's own strip action.
-    if (await page.locator('#mobileCall').isVisible()) await page.locator('#callStripAction').click()
+    // The header's call button starts (or joins) the call, on a phone too.
+    // Only on a call already is there a Call tab, and it only opens the view.
+    const toggle = page.locator('#callToggle:visible')
+    if (await toggle.count()) await toggle.click()
+    else {
+      await page.locator('#mobileCall:visible').click()
+      if (await page.locator('#callStripAction').isVisible()) await page.locator('#callStripAction').click()
+    }
   }
   await expect(page.locator('#deviceControls')).toBeVisible()
 }
