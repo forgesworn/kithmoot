@@ -251,10 +251,10 @@ runs `deploy/coturn/install.sh` on the box, which does the rest:
    simply never connects, and the error points nowhere near the cause.
 3. Generates `/etc/kithmoot/turn-secret` on first run only, mode 0600.
 4. Renders `/etc/kithmoot/coturn/turnserver.conf` from the template in
-   this repo, substituting the address and splicing in the secret. The
-   secret is written with a shell builtin, never passed as an argument to
-   `sed` or anything else, because arguments are visible in `ps` to every
-   user on the box.
+   this repo, substituting the address and splicing in the secret, plus
+   any extra secrets (see below). Secrets are written with a shell builtin,
+   never passed as an argument to `sed` or anything else, because arguments
+   are visible in `ps` to every user on the box.
 5. Writes `/etc/kithmoot/turn-credentials.env` with the same secret.
 6. Copies the TLS certificate out of Caddy's store.
 7. Opens the firewall ports.
@@ -278,6 +278,21 @@ Deliberate, and it will drop calls in progress:
 sudo rm /etc/kithmoot/turn-secret
 DEPLOY_HOST=deploy@YOUR_BOX deploy/turn-deploy.sh
 ```
+
+### Sharing the relay with another service
+
+Another service on the box can mint TURN credentials of its own without
+learning KithMoot's secret. Put its secret, one per line, in
+`/etc/kithmoot/turn-extra-secrets`, a regular file owned by root with mode
+0600, and re-run the deploy. Each line becomes another `static-auth-secret`
+in coturn's config, so coturn accepts credentials made with any of them.
+KithMoot's credential service never reads the file.
+
+A secret is 32 to 256 printable ASCII characters with no space, quote or
+`#`. The script checks every line before writing anything, and stops with the
+old config in place if one is wrong. Removing a line and re-running revokes
+that service's credentials without touching KithMoot's. Each re-run restarts
+coturn, which drops calls in progress that use the relay.
 
 ### After changing src/turn.ts or the credential service
 
