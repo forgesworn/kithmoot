@@ -1066,6 +1066,8 @@ test('More in the call bar is a menu: Enter opens it, arrows move, Escape closes
     await expect(more).toBeFocused()
     // Effects… opens a panel, with focus on its heading, and Escape gives focus back to More.
     await page.keyboard.press('Enter')
+    // The menu takes focus once it has opened; a second Enter sooner lands on More.
+    await expect(items.first()).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.locator('#effects')).toBeVisible()
     await expect(page.locator('#effectsHeading')).toBeFocused()
