@@ -778,6 +778,9 @@
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.</p>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
+          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>Start public message</button>
+          <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
+          <button id="legacyMessagesEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="legacyMessagesDialog" hidden>Legacy messages</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
           <details>
             <summary>Room sync and privacy</summary>
@@ -1627,6 +1630,38 @@
           <canvas id="myCardQr" hidden width="320" height="320" aria-label="My contact card as a QR code"></canvas>
         </div>
       </section>
+      </div>
+    </dialog>
+
+    <dialog id="nostrMessageDialog" class="sharedProjectsSheet" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
+      <div class="sheetBar"><h2 id="nostrMessageTitle">Start public message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p id="nostrMessageLane" class="nostrMessageWarning">○ public</p>
+        <p id="nostrMessageWarning" class="nostrMessageWarning"></p>
+        <p class="note">The message content stays encrypted. This sends an ordinary Nostr message through published inbox relays. It does not send a room invitation or include room history. Use a browser extension that supports modern Nostr encryption to send from here.</p>
+        <form id="nostrMessageForm">
+          <label for="nostrMessageRecipient">Their Nostr public key (npub)</label>
+          <input id="nostrMessageRecipient" name="recipient" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
+          <label for="nostrMessageText">New message</label>
+          <textarea id="nostrMessageText" name="message" rows="5" maxlength="4096" autocomplete="off" required></textarea>
+          <p class="note">Review checks both accounts’ published Nostr inbox lists on your configured account relays. Your message stays on this device until you choose Send public. Closing clears this draft.</p>
+          <button id="nostrMessageReview" type="submit">Review public message</button>
+        </form>
+        <p id="nostrMessageSummary" class="note"></p>
+        <button id="nostrMessageSend" type="button" hidden>Send public</button>
+        <p id="nostrMessageStatus" class="note" role="status" aria-live="polite"></p>
+      </div>
+    </dialog>
+
+    <dialog id="legacyMessagesDialog" class="sharedProjectsSheet" aria-labelledby="legacyMessagesTitle" aria-describedby="legacyMessagesHelp">
+      <div class="sheetBar"><h2 id="legacyMessagesTitle">Legacy messages</h2><button id="legacyMessagesClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p id="legacyMessagesHelp" class="note">Read older NIP-04 messages sent to your Nostr account. Loading uses your configured account relays and their existing read permissions. This account view is available outside rooms and calls; it does not use a room’s private route.</p>
+        <p class="legacyMessageWarning">Legacy NIP-04 encryption exposes the sender and recipient to relays. Use a modern private conversation for sensitive messages.</p>
+        <p class="note">Each message opens only when you ask your signer. Closing this view clears its messages from the page. It does not delete relay copies.</p>
+        <button id="legacyMessagesLoad" type="button">Load legacy messages</button>
+        <p id="legacyMessagesStatus" class="note" role="status"></p>
+        <ul id="legacyMessagesList" aria-label="Received legacy messages"></ul>
       </div>
     </dialog>
 

@@ -2930,6 +2930,12 @@ label.note {
 #contextRecords { padding-left: 1.2rem; }
 #contextRecords li { border-bottom: 1px solid var(--border); padding-bottom: .4rem; }
 #contextRecords p { white-space: pre-wrap; }
+
+#legacyMessagesList { list-style: none; padding: 0; }
+#legacyMessagesList > li { border-top: 1px solid currentColor; margin-top: 1rem; padding-top: 1rem; }
+.legacyMessageAuthor { overflow-wrap: anywhere; }
+.legacyMessageWarning { font-weight: 600; }
+.legacyMessageText { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext; }
 #contextPanel details { margin: 1rem 0; }
 
 .sheetBar h2 {
@@ -4816,3 +4822,10 @@ html[data-call-docked] #mobileCall { display: none !important; }
 .messageContacts button { margin: 0; min-height: 44px; }
 #contactsDialog .sheetBody { overflow-y: auto; }
 #signetContactsSearch { width: 100%; }
+
+/* Ordinary Nostr compose stays explicit and separate from private rooms. */
+#nostrMessageForm { display: grid; gap: .6rem; }
+#nostrMessageForm input, #nostrMessageForm textarea { width: 100%; box-sizing: border-box; }
+#nostrMessageForm textarea { resize: vertical; }
+#nostrMessageSummary { white-space: pre-wrap; overflow-wrap: anywhere; }
+.nostrMessageWarning { font-weight: 600; }
