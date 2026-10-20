@@ -1,5 +1,11 @@
 # Changelog
 
+## Desktop 0.1.94, 20 October 2026
+
+- Room info replaces the long Room details sheet. It opens from the room's name or ⋯, as a panel beside the conversation on a wide window and full screen on a phone, and fits in about one screen: the room and who can join, Call, Invite and Search, the members with agents marked, then Conversations, Invite link, Privacy and connection, Name and picture, your phone, how you appear and your contact cards, each as a page inside the panel.
+- Leave room asks first, naming the room. A tick box, "Also ask relays and the file server to delete what I left", replaces the separate Leave and tidy up button.
+- Settings is its own place, opened from the rail or with Cmd or Ctrl+comma, with pages for Account, Profile, Notifications, Messages, Display, Privacy, Connections, Keyboard shortcuts, and About and help. Text size, notification and profile settings, keyboard shortcuts and Forget this browser no longer appear inside a room.
+
 ## Desktop 0.1.93, 20 October 2026
 
 - A room's header is its name, Start call, Search and ⋯, and nothing else sits above the first message. The agents strip and the Search, Invite and Invite by QR buttons are gone.
