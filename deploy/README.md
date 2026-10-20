@@ -907,14 +907,20 @@ Drop a file on a room's chat and the browser seals it into a Wildbloom
 envelope under a fresh key, puts the sealed bytes on a Blossom server
 (BUD-01: `PUT /upload`, authorised by a signed kind-24242 event), and hands
 the key to the room inside the message; `docs/agents.md`, "Dropping a file
-in", has the whole of it. New browser uploads are off by default. The app
-origin is only a suggestion under **Add a file → Use shared storage instead**;
-the person must explicitly accept public retrieval of encrypted bytes before
-uploads are enabled. A legacy server URL is not migrated into consent.
+in", has the whole of it. New browser uploads are off by default, and the
+app suggests no server of ForgeSworn's: under **Add a file** the field starts
+empty, above a short list of public servers run by other people. The person
+must explicitly accept public retrieval of encrypted bytes before uploads are
+enabled. A legacy server URL is not migrated into consent.
 This shared Blossom deployment is not private Bothy storage. Bothy's paired,
 authenticated storage integration remains a separate gate (see
 `docs/private-file-storage.md`). No existing blobs are moved or deleted by
 the browser policy change.
+
+A self-hosted deployment can set `VITE_KITHMOOT_FILE_SERVER` to an https origin
+in the environment of `npm run build` to suggest its own server in that field.
+It is only a suggestion: each person still has to accept it. ForgeSworn's own
+build leaves it unset, and `deploy/deploy.sh` does not set it.
 
 The kit runs [blossom-server-ts](https://github.com/hzrd149/blossom-server),
 the most used open-source Blossom server, pinned to 5.2.0, on the box's

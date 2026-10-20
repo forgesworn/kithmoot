@@ -768,9 +768,17 @@
                `renderFileStorage` in app/src/main.ts. -->
           <details id="fileStorageOptions">
             <summary id="fileStorageSummary">Choose where files go</summary>
-            <p class="note">Anyone with a file's link can download its encrypted copy from this server. Only people with the key can open it. The server can see when files are uploaded and fetched, and how big they are.</p>
-            <label for="attachServer" class="note">File server</label>
+            <p class="note">Anyone with a file's link can download its encrypted copy from this server. Only people with the key can open it. The server can see when files are uploaded and fetched, and how big they are. The server's operator, not KithMoot, decides what it keeps and for how long.</p>
+            <!-- Buttons are built from PUBLIC_FILE_SERVERS (app/src/file-storage.ts)
+                 by `renderPublicFileServers` in app/src/main.ts. Choosing one
+                 only fills the field below; it never grants consent. -->
+            <div id="publicFileServers" role="group" aria-labelledby="publicFileServersLabel" hidden>
+              <p id="publicFileServersLabel" class="note">Public servers run by other people</p>
+              <div id="publicFileServerList" class="publicFileServerList"></div>
+            </div>
+            <label for="attachServer" class="note">Or your own server</label>
             <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
+            <p class="note"><a href="https://github.com/forgesworn/kithmoot/blob/main/docs/run-your-own.md#files" target="_blank" rel="noopener">How to run your own file server</a></p>
             <label><input id="allowSharedFiles" type="checkbox" /> I accept that encrypted files may be publicly downloadable from this server.</label>
             <div class="attachRow">
               <button type="button" id="saveFileStorage">Use this server</button>
@@ -1816,6 +1824,7 @@
       </div>
       <p id="relaySettingsStatus" class="note" role="status"></p>
       <p class="note">Connected means the socket is open. Accepted writes show the latest relay acknowledgement; connection alone does not prove a message was saved.</p>
+      <p class="note"><a href="https://github.com/forgesworn/kithmoot/blob/main/docs/run-your-own.md#relays" target="_blank" rel="noopener">How to run your own relay</a></p>
     </dialog>
 
     <dialog id="dmRelaySettings" class="profileSettings" aria-labelledby="dmRelaySettingsTitle">

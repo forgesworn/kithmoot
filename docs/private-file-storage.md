@@ -6,13 +6,31 @@ An owned hostname or signed upload alone does not establish private reads.
 ## Implemented browser safety boundary
 
 - New uploads default off, including chat picker/drop and Context uploads.
-- No fallback to the app host. Old `kithmoot.blossom-server` values are only
-  suggestions; they are preserved but never promoted into consent.
+- No fallback to the app host, and no suggestion of a ForgeSworn server. The
+  field starts empty. Old `kithmoot.blossom-server` values are only
+  suggestions (never a ForgeSworn host); they are preserved but never
+  promoted into consent.
+- A short list of public servers run by other people sits above the field.
+  An entry needs a named operator with published terms and a passed round
+  trip (upload, fetch by hash with CORS, delete). Choosing one only fills the
+  field, exactly as typing does; it is never consent. The list never holds a
+  ForgeSworn host. Your own server stays one field away, with a link to
+  `docs/run-your-own.md`.
+- Someone who deploys their own KithMoot can set `VITE_KITHMOOT_FILE_SERVER`
+  at build time to suggest their own server. ForgeSworn's build leaves it
+  unset. It is still only a suggestion.
 - Shared storage requires the destination, a disclosure checkbox and an
   explicit Allow action. Consent is stored on this browser/device, not sent
   to other room members. Editing a URL revokes it immediately, even if invalid.
+- Consent is written as `disclosure: 2`. A version 1 consent to a ForgeSworn
+  host came from the old pre-filled suggestion, so it is not honoured and is
+  removed at start-up, with a notice that names no host. Version 1 consent to
+  any other host is still honoured. Typing a ForgeSworn host and allowing it
+  is a person's choice and works.
 - The warning distinguishes encryption from download access control and
-  names the host's metadata visibility. A URL is never labelled private.
+  names the host's metadata visibility, and says the server's operator, not
+  KithMoot, decides what it keeps and for how long. A URL is never labelled
+  private.
 - Chat checks consent before encryption, again before upload and for each
   file in a batch. Other tabs' preference changes are reflected. A request
   already sent cannot be recalled; turning uploads off is not deletion.
