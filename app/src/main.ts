@@ -4698,12 +4698,16 @@ function resetIncomingCall(): void {
 // outgoing "Ringing Priya…".
 // ---------------------------------------------------------------------------
 
-let ringBannerTimer: ReturnType<typeof setTimeout> | undefined
+let ringTimer: ReturnType<typeof setTimeout> | undefined
 
-function showRingBanner(caller: string, forSeconds: number): void {
+/** The ring (banner and sound) gives up after `seconds`, as a phone does. */
+function giveUpRingingAfter(seconds: number): void {
+  clearTimeout(ringTimer)
+  ringTimer = setTimeout(() => { stopCallRing(); hideRingBanner() }, seconds * 1000)
+}
+
+function showRingBanner(caller: string): void {
   const banner = $('ringBanner')
-  clearTimeout(ringBannerTimer)
-  ringBannerTimer = setTimeout(() => { stopCallRing(); hideRingBanner() }, forSeconds * 1000)
   $('ringBannerTitle').textContent = `${caller} is calling`
   // The call does not say whether it is voice or video, so it is a "Call".
   $('ringBannerKind').textContent = 'Call'
@@ -4713,8 +4717,8 @@ function showRingBanner(caller: string, forSeconds: number): void {
 }
 
 function hideRingBanner(): void {
-  clearTimeout(ringBannerTimer)
-  ringBannerTimer = undefined
+  clearTimeout(ringTimer)
+  ringTimer = undefined
   const banner = $('ringBanner')
   if (banner.matches(':popover-open')) banner.hidePopover()
 }
@@ -5142,15 +5146,18 @@ function renderCallState(views: ParticipantView[]): void {
     // going for an hour is not somebody calling, and the room's own banner
     // already says "Call on" with Join.
     const ringFor = current ? ringBannerSeconds(current.since, nowSeconds()) : 0
+    // Banner, sound and alert alike, and all of them stop together a minute
+    // after the call began.
+    if (ringFor > 0) giveUpRingingAfter(ringFor)
     if (roomId && ringFor > 0 && !$('roomArea').hidden && !docked() && !onCall()) {
-      showRingBanner(shownAs(callChange.call.caller, starter?.name).name ?? 'Somebody', ringFor)
+      showRingBanner(shownAs(callChange.call.caller, starter?.name).name ?? 'Somebody')
     }
-    if (settings.enabled && roomId && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId))) {
+    if (ringFor > 0 && settings.enabled && roomId && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId))) {
       void startCallRing()
       const caller = shownAs(callChange.call.caller, starter?.name)
       void deliverIncomingCallAlert({
         title: currentRoomLabel(),
-        body: `${caller.name ?? caller.short} is calling`,
+        body: `${caller.name ?? 'Somebody'} is calling`,
         tag: `kithmoot:${roomId}:call:${callChange.call.id}`,
       }, roomId)
     }
