@@ -1,15 +1,16 @@
 import { expect, it } from 'vitest'
 import { Nip07Signer, type SignerEffectBoundary, type SignetSession } from 'signet-login'
-import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { signetFixtureEvent, signetFixtureSession } from '../../test/signet-session-fixture.js'
 import { ordinaryMessageDecrypt } from './nostr-message-receive-signer.js'
 
 for (const boundary of ['account', 'view', 'expiry', 'method'] as const) it(`actual installed SDK decrypt handoff refuses after ${boundary} changes`, async () => {
   const key = generateSecretKey(), pubkey = getPublicKey(key)
   let release!: () => void, entered!: () => void, calls = 0, live = true
   const pending = new Promise<void>(resolve => { release = resolve }), started = new Promise<void>(resolve => { entered = resolve })
-  const signer = new Nip07Signer(pubkey, { getPublicKey: async () => pubkey, signEvent: async template => finalizeEvent(template, key),
+  const signer = new Nip07Signer(pubkey, { getPublicKey: async () => pubkey, signEvent: async template => signetFixtureEvent(template, key),
     nip44: { encrypt: async () => { throw Error('Receive-only') }, decrypt: async () => { calls++; entered(); await pending; return 'provider result' } } })
-  const account = { method: 'nip07', signer, pubkey, expiresAt: Date.now() + 60_000 } as SignetSession
+  const account = signetFixtureSession(signer, key, Date.now() + 60_000)
   let selected: SignetSession | undefined = account
   const decrypt = ordinaryMessageDecrypt(account, () => selected)!
   const work = decrypt(pubkey, 'synthetic ciphertext', () => live)
@@ -41,11 +42,12 @@ it('checks a deferred provider start before dispatch and rejects a wrapper that 
 
 it('refuses unsupported signer transports and preserves the current actual SDK provider result', async () => {
   const key = generateSecretKey(), pubkey = getPublicKey(key)
-  const signer = new Nip07Signer(pubkey, { getPublicKey: async () => pubkey, signEvent: async template => finalizeEvent(template, key),
+  const signer = new Nip07Signer(pubkey, { getPublicKey: async () => pubkey, signEvent: async template => signetFixtureEvent(template, key),
     nip44: { encrypt: async () => 'unused', decrypt: async () => 'exact provider result' } })
   try {
-    const account = { method: 'nip07', signer, pubkey } as SignetSession
+    const account = signetFixtureSession(signer, key)
     expect(await ordinaryMessageDecrypt(account, () => account)!(pubkey, 'ciphertext', () => true)).toBe('exact provider result')
-    expect(ordinaryMessageDecrypt({ ...account, method: 'nip46' } as SignetSession, () => account)).toBeUndefined()
+    const remote: SignetSession = { ...account, method: 'bunker' }
+    expect(ordinaryMessageDecrypt(remote, () => remote)).toBeUndefined()
   } finally { await signer.close() }
 })

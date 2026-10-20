@@ -1,19 +1,24 @@
 import { expect, it, vi } from 'vitest'
-import { Nip07Signer, type SignerEffectBoundary, type SignetSession } from 'signet-login'
-import { generateSecretKey, getPublicKey, finalizeEvent, type EventTemplate } from 'nostr-tools/pure'
+import { Nip07Signer, type SignetSession, type SignetSigner, type EventTemplate } from 'signet-login'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { signetFixtureEvent, signetFixtureSession } from '../../test/signet-session-fixture.js'
 import { nostrMessageIdentity } from './nostr-message-signer.js'
 
 function fixture() {
   const key = generateSecretKey(), pubkey = getPublicKey(key)
   let starts = 0, release = async () => {}
-  const account = { pubkey, method: 'nip07', signer: { pubkey, method: 'nip07', providerEffectBoundary: 1,
+  const signer: SignetSigner = { pubkey, method: 'nip07', providerEffectBoundary: 1,
     capabilities: { canSignEvents: true, hasNip44: true },
-    nip44: { encrypt: async (_peer: string, _text: string, boundary: SignerEffectBoundary) => {
+    nip44: { encrypt: async (_peer, _text, boundary) => {
       await release()
+      if (!boundary) throw Error('Missing fixture provider boundary')
       return boundary.start(async () => { starts++; return 'provider ciphertext' })
-    } },
-    signEvent: (template: EventTemplate, boundary: SignerEffectBoundary) => boundary.start(async () => finalizeEvent(template, key)),
-  } } as unknown as SignetSession
+    }, decrypt: async () => { throw Error('Unexpected fixture decryption') } },
+    signEvent: (template, boundary) => boundary ? boundary.start(async () => signetFixtureEvent(template, key))
+      : Promise.reject(Error('Missing fixture provider boundary')),
+    close: async () => {},
+  }
+  const account = signetFixtureSession(signer, key)
   let selected: SignetSession | undefined = account
   const identity = nostrMessageIdentity(account, () => selected)!
   return { account, identity, starts: () => starts, stop: () => { selected = undefined },
@@ -33,7 +38,7 @@ it('checks view lifetime at actual start even while the account remains selected
   current = false; release(); await expect(pending).rejects.toThrow('no longer available'); expect(f.starts()).toBe(0)
 })
 it('refuses unsupported signer transports rather than omitting provider guards', () => {
-  const f = fixture(), account = { ...f.account, method: 'nip46' } as SignetSession
+  const f = fixture(), account: SignetSession = { ...f.account, method: 'bunker' }
   expect(nostrMessageIdentity(account, () => account)).toBeUndefined()
 })
 
@@ -45,10 +50,10 @@ for (const operation of ['encrypt', 'seal'] as const) for (const boundary of ['a
     let release!: () => void, entered!: () => void, calls = 0, current = true
     const waiting = new Promise<void>(resolve => { release = resolve }), started = new Promise<void>(resolve => { entered = resolve })
     const provider = { getPublicKey: async () => pubkey,
-      signEvent: async (template: EventTemplate) => { calls++; entered(); await waiting; return finalizeEvent(template, key) },
+      signEvent: async (template: EventTemplate) => { calls++; entered(); await waiting; return signetFixtureEvent(template, key) },
       nip44: { encrypt: async () => { calls++; entered(); await waiting; return 'actual provider result' }, decrypt: async () => '' },
     }
-    const signer = new Nip07Signer(pubkey, provider), account = { pubkey, method: 'nip07', signer } as SignetSession
+    const signer = new Nip07Signer(pubkey, provider), account = signetFixtureSession(signer, key)
     let selected: SignetSession | undefined = account
     const identity = nostrMessageIdentity(account, () => selected)!
     const pending = operation === 'encrypt' ? identity.encrypt(pubkey, 'synthetic text', () => current)
@@ -67,10 +72,10 @@ for (const cancel of [false, true]) it(`actual SDK transient signing retry ${can
   const key = generateSecretKey(), pubkey = getPublicKey(key)
   let calls = 0, current = true
   const signer = new Nip07Signer(pubkey, { getPublicKey: async () => pubkey,
-    signEvent: async (template: EventTemplate) => { if (++calls === 1) throw Error('Extension context invalidated'); return finalizeEvent(template, key) },
+    signEvent: async (template: EventTemplate) => { if (++calls === 1) throw Error('Extension context invalidated'); return signetFixtureEvent(template, key) },
     nip44: { encrypt: async () => 'unused', decrypt: async () => '' },
   })
-  const account = { pubkey, method: 'nip07', signer } as SignetSession, identity = nostrMessageIdentity(account, () => account)!
+  const account = signetFixtureSession(signer, key), identity = nostrMessageIdentity(account, () => account)!
   try {
     const pending = identity.signEvent({ kind: 13, created_at: 1, tags: [], content: 'synthetic ciphertext' }, () => current)
     // Attach both outcomes before advancing time; a cancellation is expected.

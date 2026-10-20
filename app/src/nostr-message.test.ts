@@ -12,7 +12,7 @@ function fixture(rememberCopy?: (event: Event, current: () => boolean) => Promis
   const rejectRecipients = new Set<string>()
   const list = (author: Uint8Array, url: string, at = now) => finalizeEvent({ kind: 10050, created_at: at,
     content: '', tags: url ? [['relay', url]] : [] }, author)
-  let statements = [list(sender, 'wss://sender.example'), list(recipient, 'wss://recipient.example')]
+  let statements: Event[] = [list(sender, 'wss://sender.example'), list(recipient, 'wss://recipient.example')]
   const identity: NostrMessageIdentity = { pubkey: self,
     encrypt: async (to, text, current) => {
       await beforeEncrypt(); if (!current()) throw Error('cancelled')
