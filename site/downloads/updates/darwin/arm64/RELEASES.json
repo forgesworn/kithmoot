@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.91",
+  "currentRelease": "0.1.92",
   "releases": [
     {
-      "version": "0.1.91",
+      "version": "0.1.92",
       "updateTo": {
-        "version": "0.1.91",
-        "pub_date": "2026-10-19T18:54:53Z",
-        "notes": "Windows and Linux no longer download spelling dictionaries from Google. Nothing changes on a Mac, which keeps the macOS spellchecker.",
-        "name": "0.1.91",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.91/KithMoot-0.1.91-mac-arm64.zip",
-        "sha256": "34f02207e7e75dccf325f503f2c48856272ddda5a79ed4edc2f7dc3cb83b66c9",
-        "size": 170808752
+        "version": "0.1.92",
+        "pub_date": "2026-10-20T07:34:59Z",
+        "notes": "One way around the app: a rail with Chats, People and Boards, one chats list with search and filters, and People for your contacts and the people you follow.",
+        "name": "0.1.92",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.92/KithMoot-0.1.92-mac-arm64.zip",
+        "sha256": "b59bf936356ad483447d7236443f65fe0881b2abbe58ab16ac4941d8cbd50e4f",
+        "size": 170818542
       }
     }
   ]
