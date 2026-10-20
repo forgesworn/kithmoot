@@ -573,7 +573,8 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
       await page.screenshot({ path: testInfo.outputPath(`keyboard-help-${colorScheme}.png`) })
     }
     await page.keyboard.press('Escape')
-    await expect(page.locator('#roomMenu')).toBeFocused()
+    // Help was opened from Room info, which the room's name opens.
+    await expect(page.locator('#roomIdentity')).toBeFocused()
   } finally { await context.close() }
 })
 
@@ -632,7 +633,7 @@ test('keyboard readers navigate messages, reply through actions and retain focus
     await expect(page.locator(`#chatLog [data-message-id="${removedId}"]`)).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(input).toBeFocused()
-    await page.keyboard.press('Control+Shift+F6')
+    // The log, then the tabs: the row of tools in between is not there unless it has something in it.
     await page.keyboard.press('Control+Shift+F6')
     await page.keyboard.press('Control+Shift+F6')
     const tab = page.locator('#conversationNav [aria-pressed=true]')

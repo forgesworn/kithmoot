@@ -700,3 +700,40 @@ test('at 320 by 640 with Huge text the header is back, name and ⋯, Start call 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
   } finally { await context.close() }
 })
+
+test('a right-click on a message opens the app menu with what the message offers, and the message field keeps the native menu', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    await expect(page.locator('#chatLog [data-message-id]').first()).toBeVisible()
+    const bubble = page.locator('#chatLog [data-message-id] .bubble').last()
+    await bubble.click({ button: 'right' })
+    const menu = page.getByRole('menu', { name: /^Message from/ })
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem')).toHaveText(['Reply', 'React', 'Copy text', 'Send as task', 'Summarise this'])
+    await expect(menu.getByRole('menuitem').first()).toBeFocused()
+    // React opens its choices with Right, each a toggle with its state.
+    await menu.getByRole('menuitem', { name: 'React', exact: true }).focus()
+    await page.keyboard.press('ArrowRight')
+    const reactions = menu.getByRole('menu', { name: 'React' }).getByRole('menuitemcheckbox')
+    expect(await reactions.count()).toBeGreaterThan(3)
+    await expect(reactions.first()).toHaveAttribute('aria-checked', 'false')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    // Reply is the same handler as the ⋯ on the message.
+    await bubble.click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: /^Reply to/ }).click()
+    await expect(page.locator('#composerContext')).toBeVisible()
+    // What the page does with the event: the app takes it on a message, and
+    // leaves it alone in the message field, where the desktop shows its native edit menu.
+    const taken = (selector: string) => page.evaluate(sel => new Promise<boolean>(resolve => {
+      const target = document.querySelector(sel)!
+      target.addEventListener('contextmenu', event => queueMicrotask(() => resolve(event.defaultPrevented)), { once: true })
+      target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
+    }), selector)
+    expect(await taken('#chatInput')).toBe(false)
+    expect(await taken('#chatLog [data-message-id] .bubble')).toBe(true)
+    await page.keyboard.press('Escape')
+  } finally { await context.close() }
+})

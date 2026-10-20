@@ -345,25 +345,19 @@ export async function openRoomBoard(page: Page): Promise<void> {
 /** The boards panel for the room on screen: from the room's Board tab where it
  *  has one, else from the Boards destination, which opens on the room in view. */
 export async function openRoomBoards(page: Page): Promise<void> {
-  if (await page.locator('#conversationNav button[data-board]').count()) await openRoomBoard(page)
+  if (await page.locator('#conversationNav button[data-board]').isVisible()) await openRoomBoard(page)
   else await openBoardsPanel(page)
   await expect(page.locator('#boardsPanel')).toBeVisible()
 }
 
-/** The room's tasks panel, the way these specs always reached it, whether
- *  or not the room has a Board tab yet: the tab and its Room tasks button
- *  when there is one, else the menu's New task… with its form folded away
- *  again so the panel is as the tab would have left it. */
+/** The room's tasks panel, the way these specs always reached it: through the
+ *  boards panel's Room tasks, which the room's Board tab opens where the room
+ *  has one and the Boards destination opens where it does not. */
 export async function openRoomTasks(page: Page): Promise<void> {
-  const tab = page.locator('#conversationNav button[data-board]')
-  if (await tab.count()) {
-    await tab.click()
-    await page.getByRole('button', { name: 'Room tasks', exact: true }).click()
-    await page.getByRole('button', { name: 'Current room tasks', exact: true }).click()
-  } else {
-    await roomMenuItem(page, 'New task…')
-    await page.locator('#assignmentNew').evaluate(el => { (el as HTMLDetailsElement).open = false })
-  }
+  if (await page.locator('#conversationNav button[data-board]').isVisible()) await page.locator('#conversationNav button[data-board]').click()
+  else await openBoardsPanel(page)
+  await page.getByRole('button', { name: 'Room tasks', exact: true }).click()
+  await page.getByRole('button', { name: 'Current room tasks', exact: true }).click()
   await expect(page.locator('#assignmentPanel')).toBeVisible()
 }
 

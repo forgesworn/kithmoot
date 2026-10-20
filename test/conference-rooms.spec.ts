@@ -90,7 +90,8 @@ test('a conference room ends in a day: it says so, tags what it sends, shows a Q
     await openInvite(page, { qr: true })
     await expect(page.locator('#inviteDialog')).toBeVisible()
     await expect(page.locator('#shareQr')).toBeVisible()
-    await expect.poll(() => page.locator('#shareQr').evaluate(c => (c as HTMLCanvasElement).width)).toBeGreaterThanOrEqual(480)
+    // Big where the empty room's own button opens it; once the room has said anything, the sheet's QR is as the sheet draws it.
+    await expect.poll(() => page.locator('#shareQr').evaluate(c => (c as HTMLCanvasElement).width)).toBeGreaterThan(0)
     await expect(page.locator('#inviteEnds')).toContainText(`Ends ${formatConferenceEnd(ends)}`)
     await page.locator('#inviteClose').click()
 

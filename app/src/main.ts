@@ -10104,14 +10104,19 @@ let renderedTabKey = ''
 /** What this room's tasks come to, kept by the assignment panel and read by
  *  the Board tab. Starts empty so the tabs can draw before the panel exists. */
 let assignmentSummary: BoardSummary = { total: 0, active: 0, needsYou: 0 }
+/** Whether the last tick found boards available, so the tab follows a sign-in. */
+let boardTabAvailable = false
 
-/** The Board tab's state: undefined when this room has no board to open, else
- *  how many things on it wait for this person. A room has one when it holds
- *  tasks or a shared board; making the first is "New task…" in the menu. */
+/** The Board tab's state: undefined when this room has no board to open and
+ *  none to make, else how many things on it wait for this person. A room has
+ *  one when it holds tasks or a shared board, or boards are available to this
+ *  person; a visitor's first task is "New task…" in the menu. */
 function boardTab(): { needsYou: number } | undefined {
   if (!session) return undefined
   const shared = roomBoards.get(session)?.boards.length ?? 0
-  if (assignmentSummary.total === 0 && shared === 0) return undefined
+  // Boards are available once this person is signed in with a signer that can
+  // encrypt (see `attachRoomBoards`); then the tab is the way to the first one.
+  if (assignmentSummary.total === 0 && shared === 0 && !nostrSession?.signer.nip44) return undefined
   return { needsYou: assignmentSummary.needsYou }
 }
 /** A small unread badge, capped at "99+" so a busy agent channel does not
@@ -13251,6 +13256,7 @@ function renderRooms(): void {
   // People is for somebody signed in with Nostr, and nobody else (Q14).
   setPeopleAvailable(!!nostrSession)
   publishDesktopMenu()
+  if (boardTabAvailable !== Boolean(nostrSession?.signer.nip44)) { boardTabAvailable = Boolean(nostrSession?.signer.nip44); if (session) renderConversationNav() }
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`

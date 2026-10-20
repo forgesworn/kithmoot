@@ -20,7 +20,7 @@ export function installKeyboardNavigation(root: Document): void {
   get('keyboardHelp').addEventListener('click', () => {
     const sheet = get('roomSheet') as HTMLDialogElement
     if (sheet.open) {
-      sheet.addEventListener('close', () => showHelp(get('roomMenu')), { once: true })
+      sheet.addEventListener('close', () => showHelp(get('roomIdentity')), { once: true })
       sheet.close()
     } else showHelp(get('keyboardHelp'))
   })

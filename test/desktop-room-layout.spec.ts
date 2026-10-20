@@ -791,12 +791,18 @@ test('the chat drawer control says what it will do, not "Chat" beside the Chat c
     await open(page, url, 'Ada')
     await page.locator('#join').click()
     const toggle = page.locator('#chatDrawerToggle')
+    // With no pictures beside it the chat has the room to itself, so the
+    // header keeps to its four controls and the toggle is not there...
+    await expect(toggle).toBeHidden()
+    // ...but a drawer somebody closed keeps its button, the way back.
+    await page.evaluate(() => localStorage.setItem('kithmoot.desktopChatDrawerOpen', 'closed'))
+    await page.reload()
+    await page.locator('#join').click()
     await expect(toggle).toBeVisible()
-    await expect(toggle).toHaveText('Hide chat')
-    await toggle.click()
     await expect(toggle).toHaveText('Show chat')
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(toggle).toHaveText('Hide chat')
   } finally {
     await context.close()
