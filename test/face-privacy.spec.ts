@@ -98,7 +98,8 @@ test('the unavailable owned model covers the whole scene without making requests
 
 async function enter(page: Page): Promise<void> {
   await page.goto('./')
-  await page.getByRole('button', { name: 'Start a room', exact: true }).click()
+  await page.locator('#newRoom').click()
+  await page.locator('#create').click()
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length).toBeGreaterThan(0)
   await openRoomUrl(page, pinToTestRelays(await share.inputValue()))

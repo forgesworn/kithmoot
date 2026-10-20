@@ -24,7 +24,7 @@ test('project logos recover privately and follow explicit room and call contexts
     localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${side.roomId}`, JSON.stringify(side))
   }, { saved, side, pubkey: owner.pubkey })
   let recovered: Awaited<ReturnType<typeof signedDevice>> | undefined
-  const openProjects = async (page: Page) => {
+  const openProjectsPanel = async (page: Page) => {
     // This journey checks signed encrypted project recovery. The signer's
     // picker can close before the app attaches that account; wait for the
     // signed-in identity controls before selecting its private project directory.
@@ -55,7 +55,7 @@ test('project logos recover privately and follow explicit room and call contexts
     const [a, b] = await Promise.all([owner, member].map(async device => {
       const page = await device.context.newPage(); await page.setViewportSize({ width: 390, height: 844 })
       await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
-      await openProjects(page); return page
+      await openProjectsPanel(page); return page
     }))
     await create(a!, 'Red project'); await create(a!, 'Blue project')
     const sources = new Map<string, string>()
@@ -98,11 +98,11 @@ test('project logos recover privately and follow explicit room and call contexts
     await b!.setViewportSize({ width: 1440, height: 900 }); await b!.locator('#callToggle').click()
     await expect(b!.locator('#callSurfaceLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
     await expect(b!.locator('#callSurfaceOrigin')).toHaveText('Call in Shared workshop · Blue project')
-    await openProjects(b!); await card(b!, 'Red project').getByRole('button', { name: saved.name, exact: true }).click()
+    await openProjectsPanel(b!); await card(b!, 'Red project').getByRole('button', { name: saved.name, exact: true }).click()
     await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Red project')!)
     await expect(b!.locator('#callSurfaceLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
     await expect(b!.locator('#callSurfaceOrigin')).toHaveText('Call in Shared workshop · Blue project')
-    await openProjects(b!); await card(b!, 'Red project').getByRole('button', { name: side.name, exact: true }).click()
+    await openProjectsPanel(b!); await card(b!, 'Red project').getByRole('button', { name: side.name, exact: true }).click()
     if (await b!.locator('#displayName').isVisible()) { await b!.locator('#displayName').fill('Member'); await b!.locator('#join').click() }
     await expect(b!.locator('#roomTitle')).toHaveText(side.name)
     await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Red project')!)
@@ -112,7 +112,7 @@ test('project logos recover privately and follow explicit room and call contexts
     recovered = await signedDevice(browser, baseURL!, true, member.key)
     checkImages(recovered)
     const fresh = await recovered.context.newPage(); await fresh.setViewportSize({ width: 320, height: 640 })
-    await fresh.goto(baseURL! + '?signin=nostr'); await fresh.getByRole('button', { name: /Browser extension/ }).click(); await openProjects(fresh)
+    await fresh.goto(baseURL! + '?signin=nostr'); await fresh.getByRole('button', { name: /Browser extension/ }).click(); await openProjectsPanel(fresh)
     for (const name of ['Red project', 'Blue project']) await expect(picture(fresh, name)).toHaveAttribute('src', sources.get(name)!)
     const stored = await fresh.evaluate(() => Object.entries(localStorage).filter(([key]) => key.includes('shared-projects')).map(([, value]) => value).join(''))
     expect(stored).not.toContain('Red project'); expect(stored).not.toContain('private-source.png'); expect(stored).not.toContain(sources.get('Red project'))
