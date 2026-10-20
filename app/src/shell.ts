@@ -188,11 +188,15 @@ function skip(kind: string): void {
 }
 
 /** Under 600 px there is no rail, so Settings and Sign in sit in the list's
- *  own header beside New, as they do in the Android app. */
+ *  own header beside New, as they do in the Android app. A first run has no
+ *  list, and they sit at the top of the start page instead: somebody who
+ *  needs bigger text needs Settings before anything else. */
 function placeEnd(): void {
-  const end = el('railEnd'), head = document.querySelector<HTMLElement>('#rooms .listHead'), rail = el('rail')
+  const end = el('railEnd'), rail = el('rail')
+  const first = root.dataset.list === 'off'
+  const head = first ? el('homeHead') : document.querySelector<HTMLElement>('#rooms .listHead')
   if (!end || !head || !rail) return
-  if (COMPACT.matches) { if (end.parentElement !== head) head.insertBefore(end, el('newMenuButton')) }
+  if (COMPACT.matches) { if (end.parentElement !== head) head.insertBefore(end, first ? null : el('newMenuButton')) }
   else if (end.parentElement !== rail) rail.append(end)
 }
 
@@ -300,6 +304,8 @@ function init(): void {
   if (dock) new MutationObserver(render).observe(dock, { attributes: true, attributeFilter: ['hidden'] })
   ONE_PANE.addEventListener('change', render)
   COMPACT.addEventListener('change', placeEnd)
+  // The list comes and goes with a first run (`data-list`, set where the list is drawn).
+  new MutationObserver(placeEnd).observe(root, { attributes: true, attributeFilter: ['data-list'] })
   placeEnd()
   render()
 }

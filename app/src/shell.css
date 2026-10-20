@@ -435,3 +435,18 @@ html[data-rail-dragging] * { user-select: none; }
 @media (forced-colors: active) {
   #railDivider:hover::before, #railDivider:focus-visible::before, #railDivider[data-dragging]::before { background: Highlight; }
 }
+
+/* Settings on a phone's first run: top right of the screen, where the list
+   header would carry it. Hidden everywhere else. */
+.homeHead { display: none; }
+@media (max-width: 599px) {
+  html[data-list='off'] .homeHead {
+    display: flex;
+    position: fixed;
+    z-index: 2;
+    top: calc(env(safe-area-inset-top, 0px) + var(--s1));
+    right: calc(env(safe-area-inset-right, 0px) + var(--s1));
+    min-height: 0;
+    padding: 0;
+  }
+}

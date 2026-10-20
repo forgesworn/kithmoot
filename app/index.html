@@ -607,6 +607,9 @@
       <!-- The dashboard and invitation door share their existing controls;
            boot moves each group into the screen for this visit. -->
       <section id="home" hidden aria-labelledby="homeHeading">
+        <!-- Settings on a phone's first run, where there is no list header
+             for it to sit in (`placeEnd` in app/src/shell.ts). -->
+        <div id="homeHead" class="listHead homeHead"></div>
         <div class="homeIntro">
           <img class="homeLogo" src="/pwa-192x192.png" width="56" height="56" alt="" />
           <h2 id="homeHeading">Start a room, then send the link.</h2>
