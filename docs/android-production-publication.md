@@ -6,6 +6,20 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.95 visible sending, 20 October 2026
+
+Version **0.6.95**, code **118**, shows when a message is sending (an
+hourglass on Send, a read-only field, and after a second a line saying there
+is no need to press Send again) and clears the composer once the message is
+kept, even when the keyboard changed the text as Send was pressed, which had
+left sent text in the box (kithmoot-android #283). It also carries the Keeper
+receiver contention fix (#287).
+
+The production APK is built from Android source
+`3f1e42fa` (pull request #283, all checks passed), SHA-256
+`a6283a09aa1b36d3c39f45d51f0aec455f5a0eb4f03eea59186e0e0c4c15fb42`, signed with
+the retained production certificate. Not yet observed on a device.
+
 ## Android 0.6.94 long pastes as documents, 19 October 2026
 
 Version **0.6.94**, code **117**, sends a paste over the 2,000 character chat
