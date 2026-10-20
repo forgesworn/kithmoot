@@ -42,4 +42,3 @@ export async function shareContacts(page: Page, account: string, contacts: { pub
   await page.locator('#signetContactsAccess').evaluate(el => { (el as HTMLDetailsElement).open = false })
   return { projection, publish }
 }
-

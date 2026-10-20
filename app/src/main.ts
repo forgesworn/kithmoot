@@ -16460,7 +16460,7 @@ legacyMessagesPanel = new LegacyMessagePanel(document, {
 })
 $('legacyMessagesEntry').addEventListener('click', event => {
   if (!event.isTrusted || !legacyMessagesPanel?.available) return
-  legacyMessagesPanel.show($('openAppSettings'))
+  legacyMessagesPanel.show($('legacyMessagesEntry'))
 })
 
 function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean } {

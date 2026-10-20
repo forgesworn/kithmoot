@@ -71,7 +71,7 @@ test('legacy reception is explicit, literal, warned and receive-only without NIP
     await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
     await expect(page.locator('#legacyMessagesList')).toBeEmpty()
     await expect.poll(() => ids.every(id => wire.closed(id))).toBe(true)
-    await expect(page.locator('#openAppSettings')).toBeFocused()
+    await expect(page.locator('#legacyMessagesEntry')).toBeFocused()
     await showLegacy(page)
     await expect(page.locator('#legacyMessagesList')).toBeEmpty()
     expect(decrypts).toBe(1)
