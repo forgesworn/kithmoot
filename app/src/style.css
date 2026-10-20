@@ -3179,8 +3179,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .profileChoice { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
 #lookupProfiles { min-height: 0; width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
 
-/* Search uses the room's sheet so opening it never interrupts the call. */
-#searchConversation { margin-bottom: 1rem; }
 .searchFileFilter { display: flex; align-items: center; gap: .6rem; margin-block: .8rem; min-height: 44px; }
 .searchFileFilter input { width: 1.2rem; height: 1.2rem; margin: 0; }
 .messageSearchResults { list-style: none; margin: 0; padding: 0; }
