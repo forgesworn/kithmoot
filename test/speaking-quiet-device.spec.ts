@@ -46,7 +46,7 @@ test('a device with no microphone or camera, only watching, still shows who is s
     await open(pageB, url, 'Bob')
     await pageB.locator('#join').click()
     await expect(pageB.locator('#roomArea')).toBeVisible()
-    await pageB.locator('#callToggle:visible, #mobileCall:visible').first().click()
+    await pageB.locator('#callToggle:visible').click()
     await expect(pageB.locator('#leaveCall')).toBeVisible({ timeout: 30_000 })
     await pageB.locator('#toggleCompanion').evaluate(el => (el as HTMLButtonElement).click())
     const adaOnBob = pageB.locator('#room .participant', { hasText: 'Ada' })

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, openCall, open, turnOnMedia, allowTestFileStorage } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, openCall, open, turnOnMedia, allowTestFileStorage, chooseCallMore } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
@@ -35,11 +35,9 @@ for (const phone of [false, true]) test(`recorded video survives storage refusal
     await expect(b.locator('#callToggle')).toHaveText('Join call')
     await turnOnMedia(b)
     await openCall(a)
-    await expect(a.locator('#recordToggle')).toBeInViewport()
-    await a.locator('#recordToggle').click()
+    await chooseCallMore(a, 'Record call…')
     await a.locator('input[name="recording-layout"][value="gallery"]').check()
     await a.locator('#actionConfirm').click()
-    if (await a.locator('#mobileCallSettings').isVisible()) await a.locator('#mobileCallSettingsClose').click()
     await expect(a.locator('#recordingElapsed')).toBeVisible()
     await a.waitForTimeout(3500)
     await a.locator('#recordingStop').click()

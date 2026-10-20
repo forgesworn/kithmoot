@@ -192,12 +192,16 @@ export function unreadAnnouncement(count: number): string {
 
 /** Where an arrow key, Home or End moves focus in a toolbar of `length`
  *  items from `index`, or undefined for any other key. Wraps at the ends,
- *  the way the ARIA toolbar pattern suggests. */
-export function toolbarMove(key: string, index: number, length: number): number | undefined {
+ *  the way the ARIA toolbar pattern suggests. A toolbar drawn as a column
+ *  (`vertical`, the short landscape phone's end edge) walks with Up and
+ *  Down; Left and Right still work, so nobody has to learn which it is. */
+export function toolbarMove(key: string, index: number, length: number, vertical = false): number | undefined {
   if (length <= 0) return undefined
   switch (key) {
     case 'ArrowRight': return (index + 1) % length
     case 'ArrowLeft': return (index - 1 + length) % length
+    case 'ArrowDown': return vertical ? (index + 1) % length : undefined
+    case 'ArrowUp': return vertical ? (index - 1 + length) % length : undefined
     case 'Home': return 0
     case 'End': return length - 1
     default: return undefined

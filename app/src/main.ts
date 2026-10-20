@@ -44,7 +44,7 @@ import { IncomingCallTracker } from './incoming-call.js'
 import { callToConverge, callToDeclare } from './call-declare.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
-import { dockSummary, switchIntent } from './call-dock.js'
+import { callElapsed, dockLabel, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
@@ -65,6 +65,8 @@ import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
+import { installCallMore } from './call-more.js'
+import { installAgentsHear } from './call-agents-hear.js'
 import './call-surface.css'
 import './shell.css'
 import './room-info.css'
@@ -812,6 +814,27 @@ function $<T extends HTMLElement>(id: string): T {
 
 function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/** The browser or the system refused the microphone or camera. */
+function mediaBlocked(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'SecurityError' || /permission (denied|dismissed)|not allowed/i.test(err.message))
+}
+
+/**
+ * A banner in the call for a refused microphone or camera, with what to do
+ * about it (design-calm-shell 8, Permission denied); any other failure keeps
+ * the page's one status line. `kind` undefined puts the banner away.
+ */
+function noteMediaBlocked(kind: 'Microphone' | 'Camera' | undefined, err?: unknown): void {
+  const note = $('mediaBlockedNote')
+  if (kind && err !== undefined && mediaBlocked(err)) {
+    note.textContent = `${kind} blocked. Allow it in your browser settings.`
+    note.hidden = false
+    return
+  }
+  note.hidden = true
+  if (kind && err !== undefined) setStatus(describeError(err))
 }
 
 /** The share error the status line is showing, if any; see `showShareError`. */
@@ -2914,7 +2937,7 @@ function pictureOf(shown: Shown, withFallback = false): HTMLElement | undefined 
 /** Build the name-and-key run that identifies one person. Deliberately the
  *  only place that decides what a person looks like, so a tile and a chat
  *  line can never drift apart on it. */
-function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, withKey = false): DocumentFragment {
+function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, withKey = false, keyless = false): DocumentFragment {
   const run = document.createDocumentFragment()
 
   // The picture, and the donor ring around it, live here rather than in one
@@ -2923,18 +2946,23 @@ function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, 
   const picture = pictureOf(shown, withAvatarFallback)
   if (picture) run.append(picture)
 
-  if (shown.name !== undefined) {
+  // `keyless`: the call, where a key is never printed (design-calm-shell
+  // check 13). A nameless person is "Somebody", as everywhere else a name
+  // is wanted and there is none; two people with one name are told apart by
+  // the "not checked" and "checked" chip on their tiles, not by a code.
+  const named = shown.name ?? (keyless ? 'Somebody' : undefined)
+  if (named !== undefined) {
     const name = document.createElement('span')
     name.className = 'name'
     // textContent, never innerHTML: this is somebody else's text.
-    name.textContent = shown.name
+    name.textContent = named
     run.append(name)
   }
 
   // The code, only when it is doing work: no name at all, two people in
   // view making the same claim, or a line whose whole point is "which key
   // is this" - who you are about to go in as, and your own account line.
-  if (withKey || nameCollides(shown.pubkey, shown.name)) {
+  if (!keyless && (withKey || nameCollides(shown.pubkey, shown.name))) {
     const key = document.createElement('span')
     key.className = 'pubkey'
     key.textContent = shown.short
@@ -2968,7 +2996,7 @@ function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, 
  * which exist only when the library verified the proof itself: an agent
  * that merely says it is somebody's gets the plain badge and nothing more.
  */
-function ownerRun(owner: { principal: string; label?: string }): DocumentFragment {
+function ownerRun(owner: { principal: string; label?: string }, keyless = false): DocumentFragment {
   const run = document.createDocumentFragment()
   const of = document.createElement('span')
   of.className = 'ownerOf'
@@ -2976,12 +3004,12 @@ function ownerRun(owner: { principal: string; label?: string }): DocumentFragmen
   of.title = owner.label ? `The person it works for calls it ${owner.label}, and signed to say so.` : 'The person it works for signed to say so.'
   run.append(of)
   const principalName = session?.participants().find((v) => v.participant === owner.principal)?.name
-  run.append(identityRun(shownAs(owner.principal, principalName), owner.principal === meParticipant))
+  run.append(identityRun(shownAs(owner.principal, principalName), owner.principal === meParticipant, false, false, keyless))
   return run
 }
 
 /** A signed old claim is useful context, but grants no present authority. */
-function ownerClaimRun(owner: { principal: string; label?: string }): DocumentFragment {
+function ownerClaimRun(owner: { principal: string; label?: string }, keyless = false): DocumentFragment {
   const run = document.createDocumentFragment()
   const note = document.createElement('span')
   note.className = 'ownerOf'
@@ -2989,7 +3017,7 @@ function ownerClaimRun(owner: { principal: string; label?: string }): DocumentFr
   note.title = 'This signed ownership claim is historical or unbounded. Renew it with an expiry of at most 30 days to establish current ownership.'
   run.append(note)
   const principalName = session?.participants().find((v) => v.participant === owner.principal)?.name
-  run.append(identityRun(shownAs(owner.principal, principalName), owner.principal === meParticipant))
+  run.append(identityRun(shownAs(owner.principal, principalName), owner.principal === meParticipant, false, false, keyless))
   return run
 }
 
@@ -4655,7 +4683,51 @@ const incomingCallTracker = new IncomingCallTracker()
 
 function resetIncomingCall(): void {
   if (incomingCallTracker.reset()?.type === 'stop') stopCallRing()
+  hideRingBanner()
 }
+
+// ---------------------------------------------------------------------------
+// The ring banner (design-calm-shell 6.5): a call has started in the room on
+// screen and this device is not on it. Pinned to the top of the window, in
+// the top layer, with focus on Answer. Answer is the join path with the
+// microphone on and the camera off, whatever kind of call it is. Decline and
+// Escape stop the ringing and put the banner away: nothing is sent and
+// nobody is told. Out of scope here: rings for rooms that are not open,
+// ringing a contact with no private chat, notification actions, and an
+// outgoing "Ringing Priya…".
+// ---------------------------------------------------------------------------
+
+function showRingBanner(caller: string): void {
+  const banner = $('ringBanner')
+  $('ringBannerTitle').textContent = `${caller} is calling`
+  // The call does not say whether it is voice or video, so it is a "Call".
+  $('ringBannerKind').textContent = 'Call'
+  const wasOpen = banner.matches(':popover-open')
+  if (!wasOpen) banner.showPopover()
+  $('ringAnswer').focus({ preventScroll: true })
+}
+
+function hideRingBanner(): void {
+  const banner = $('ringBanner')
+  if (banner.matches(':popover-open')) banner.hidePopover()
+}
+
+$('ringDecline').addEventListener('click', () => { stopCallRing(); hideRingBanner() })
+$('ringBanner').addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  stopCallRing()
+  hideRingBanner()
+})
+$('ringAnswer').addEventListener('click', () => {
+  stopCallRing()
+  hideRingBanner()
+  void (async () => {
+    await joinCall()
+    // Straight in with the microphone live and the camera off, like Signal.
+    if (!micTrack && onCall()) await toggleMic()
+  })().catch(err => noteMediaBlocked('Microphone', err))
+})
 
 /** The quiet line under the call controls saying the screen might sleep
  *  here. Worth saying only when it might actually happen - no Wake Lock API,
@@ -5018,7 +5090,7 @@ function renderCallChips(views: ParticipantView[], callId: string | undefined): 
     const devices = mine ? [LOCAL_SPEAKING_KEY] : view.devices
     chip.dataset.devices = devices.join(' ')
     if (devices.some((device) => speakingMonitor.isSpeaking(device))) chip.classList.add('speaking')
-    chip.append(identityRun(shownAs(view.participant, view.name), mine))
+    chip.append(identityRun(shownAs(view.participant, view.name), mine, false, false, true))
     if (mine) {
       if (!micTrack) chip.append(noMicBadge())
       else if (!micTrack.enabled) chip.append(selfMuteBadge())
@@ -5053,10 +5125,13 @@ function renderCallState(views: ParticipantView[]): void {
   if (callChange && callChange.type !== 'stop') {
     logCall('call-ring', callChange.call.caller, `${callChange.type === 'ring' ? 'rang for' : 'kept quiet, just on a call:'} ${callChange.call.id.slice(0, 8)}`)
   }
-  if (callChange?.type === 'stop') stopCallRing()
+  if (callChange?.type === 'stop') { stopCallRing(); hideRingBanner() }
   else if (callChange?.type === 'ring') {
     const settings = notifySettings(deviceStore)
     const roomId = currentRoomId()
+    // The banner is for the room on screen, whether or not system
+    // notifications are on: it is the app saying so, not the system.
+    if (roomId && !$('roomArea').hidden && !docked() && !onCall()) showRingBanner(shownAs(callChange.call.caller, starter?.name).name ?? 'Somebody')
     if (settings.enabled && roomId && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId))) {
       void startCallRing()
       const caller = shownAs(callChange.call.caller, starter?.name)
@@ -5088,21 +5163,11 @@ function renderCallState(views: ParticipantView[]): void {
   }
   if (button.dataset.live !== String(mineOn)) button.dataset.live = String(mineOn)
   publishDesktopMenu()
-  const mobile = mineOn ? 'Call · live' : stance === 'join' ? 'Call · join' : 'Call'
-  if ($('mobileCall').textContent !== mobile) $('mobileCall').textContent = mobile
-  // The phone's Chat and Call switch is only for the time this device is on
-  // the call; otherwise the header's Start call is the way in (design-calm-shell
-  // 5.2, with the call bar's own Chat button still to come in stage 5).
-  if ($('mobileRoomViews').hidden === mineOn) $('mobileRoomViews').hidden = !mineOn
 
   // A call pane with nothing in it costs the conversation its room. See
   // `applyCallPane`, and the two strips in app/src/desktop.css.
   applyCallPane(views, state)
   renderCallChips(views, current?.id)
-  if ($('callStripAction').textContent !== label) {
-    $('callStripAction').textContent = label
-    $('callStripAction').setAttribute('aria-label', label)
-  }
   const strip = stance === 'join' ? 'A call is on in this room.' : 'Nobody is on a call.'
   if ($('callStripText').textContent !== strip) $('callStripText').textContent = strip
 
@@ -5113,8 +5178,10 @@ function renderCallState(views: ParticipantView[]): void {
     const on = views.filter(view => view.call?.id === current.id).sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0))
     const starter = on[0]
     const who = starter ? (shownAs(starter.participant, starter.name).name ?? 'Somebody') : 'Somebody'
-    const others = current.participants.length - 1
-    $('callBannerText').textContent = others > 0 ? `${who} started a call · ${current.participants.length} on it` : `${who} started a call`
+    const names = on.map(view => shownAs(view.participant, view.name).name ?? 'Somebody')
+    // "Call on · Rowan and Priya": who is on it, three at most by name.
+    const said = names.length <= 1 ? (names[0] ?? who) : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]} and ${names.length - 2} more`
+    $('callBannerText').textContent = `Call on · ${said}`
   }
 
   if (mineOn && current) {
@@ -5715,7 +5782,7 @@ async function recoverCallMedia(): Promise<void> {
   adoptMicTrack()
   const failed = results.some(result => result.status === 'rejected')
   $('mediaRecoveryNote').hidden = !failed
-  if (failed) $('mediaRecoveryNote').textContent = 'Call media was interrupted. Tap Resume call media in More settings. If it still fails, switch the affected microphone or camera off and on.'
+  if (failed) $('mediaRecoveryNote').textContent = 'Call media was interrupted. Tap Resume call media in More. If it still fails, switch the affected microphone or camera off and on.'
 }
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void recoverCallMedia() })
@@ -6012,7 +6079,7 @@ function renderVoiceState(state: MicState): void {
   markSegmented('voicePresets', 'preset', state.preset)
   const notice = $('voiceFailureNotice')
   notice.hidden = !state.blocked
-  notice.textContent = state.blocked ? 'Microphone muted: voice masking failed. Press Microphone to retry. You can choose Off in More settings to use your own voice.' : ''
+  notice.textContent = state.blocked ? 'Microphone muted: voice masking failed. Press Microphone to retry. You can choose Off in Effects, under More, to use your own voice.' : ''
   const line = $('voiceStatus')
   line.classList.remove('broken', 'working')
   if (state.status === 'degraded') {
@@ -6441,10 +6508,22 @@ const AGENTS_HEAR_STORAGE_KEY = 'kithmoot.agents-hear'
  */
 let agentsMayHear = localStorage.getItem(AGENTS_HEAR_STORAGE_KEY) === 'true'
 
+/** This room was joined with "Hide my IP address": its calls go through the relay only. */
+let roomRelayOnly = false
+
 /** Who this device's media goes to: everybody, unless they say they are an
  *  agent and the switch above is off. */
 function audience(view: ParticipantView): boolean {
   return view.agent !== true || agentsMayHear
+}
+
+/** What an agent's tile or chip says while this person has let agents hear
+ *  them: said where the agent is, so the setting is never only in a menu. */
+function hearsYouNote(): HTMLElement {
+  const note = document.createElement('span')
+  note.className = 'hearsYou'
+  note.textContent = 'can hear you'
+  return note
 }
 
 function setAgentsMayHear(on: boolean): void {
@@ -6458,7 +6537,10 @@ function setAgentsMayHear(on: boolean): void {
   $('agentsHearNote').textContent = on
     ? 'On: agents get your camera and microphone like anybody else does, and one that is listening writes what you say into the transcript.'
     : 'Off: nothing that says it is an agent is sent your camera or microphone. It never leaves this device for them.'
+  document.documentElement.toggleAttribute('data-agents-hear', on)
   publishActiveTracks()
+  // The tiles and chips of agents say "can hear you" while it is on.
+  if (session) render(session.participants(), meParticipant)
 }
 
 /** When this device last took the microphone, for the singular-role claim.
@@ -6854,14 +6936,15 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       const chip = document.createElement('span')
       chip.className = 'agentChip'
       const shown = shownAs(view.participant, view.name)
-      chip.append(identityRun(shown, view.participant === me))
+      chip.append(identityRun(shown, view.participant === me, false, false, true))
       const badge = document.createElement('span')
       badge.className = 'badge agent'
       badge.textContent = 'Agent'
       badge.title = 'An agent, not a person'
       chip.append(badge)
-      if (view.owner) chip.append(ownerRun(view.owner))
-      else if (view.ownerClaim) chip.append(ownerClaimRun(view.ownerClaim))
+      if (agentsMayHear) chip.append(hearsYouNote())
+      if (view.owner) chip.append(ownerRun(view.owner, true))
+      else if (view.ownerClaim) chip.append(ownerClaimRun(view.ownerClaim, true))
       agentsRow.append(chip)
       continue
     }
@@ -6899,12 +6982,12 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     if (tileDevices.some((d) => speakingMonitor.isSpeaking(d))) box.classList.add('speaking')
 
     const shown = shownAs(view.participant, view.name)
-    box.dataset.name = shown.name ?? shown.short
+    box.dataset.name = shown.name ?? 'Somebody'
 
     const heading = document.createElement('h3')
     // The picture comes with the identity run now, ringed by what this
     // person has put in - see `pictureOf`.
-    heading.append(identityRun(shown, view.participant === me))
+    heading.append(identityRun(shown, view.participant === me, false, false, true))
     // In its own element so a tile with no picture in it can drop the
     // device count and stay one line wide. See `#room .participant` in
     // style.css for why that matters more than it sounds like it does.
@@ -6926,8 +7009,9 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       badge.textContent = 'Agent'
       badge.title = 'This participant says it is an automated agent'
       heading.append(badge)
-      if (view.owner) heading.append(ownerRun(view.owner))
-      else if (view.ownerClaim) heading.append(ownerClaimRun(view.ownerClaim))
+      if (agentsMayHear) heading.append(hearsYouNote())
+      if (view.owner) heading.append(ownerRun(view.owner, true))
+      else if (view.ownerClaim) heading.append(ownerClaimRun(view.ownerClaim, true))
     }
     if (view.participant !== me) {
       heading.append(verifyChip(view, shown.name ?? ''))
@@ -6940,7 +7024,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       mediaEl.dataset.cameraLabel = label
       // Read by the "person beside their screen" layout in style.css: a
       // share with no camera live beside it still shows whose it is.
-      mediaEl.dataset.ownerName = shown.name ?? shown.short
+      mediaEl.dataset.ownerName = shown.name ?? 'Somebody'
       if (mediaEl.parentElement !== box) box.append(mediaEl)
     }
 
@@ -6984,7 +7068,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     for (const device of sharedDevices) {
       const owner = mediaSession()
       const origin = callOrigin(owner)
-      const source = () => screenSource(view.participant, device, owner, origin, shown.name ?? shown.short)
+      const source = () => screenSource(view.participant, device, owner, origin, shown.name ?? 'Somebody')
       const available = source()
       const ready = available?.track?.readyState === 'live'
       // The button is there from the moment the roster says a screen is
@@ -7007,7 +7091,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       const mirrored = (): boolean => device === myDeviceId && shareMayShowItself
       expand.textContent = mirrored() ? 'Preview paused while sharing' : ready ? 'Expand screen share' : 'Screen share arriving…'
       expand.disabled = !ready || mirrored()
-      expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
+      expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? 'Somebody'}`)
       const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand!) }
       expand.onclick = openViewer
       if (!ready) continue
@@ -9019,7 +9103,6 @@ function discardPendingRecording(): void {
 
 $('recordingStop').addEventListener('click', () => { void stopRecording() })
 $('recordingPause').addEventListener('click', toggleRecordingPause)
-$('callDockRecordingPause').addEventListener('click', toggleRecordingPause)
 $('recordingShare').addEventListener('click', async () => {
   const pending = pendingRecording
   if (!pending || sharingRecording || session?.roomId !== pending.roomId) return
@@ -12541,6 +12624,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // connect. Capture this room's URLs: a late fetch must not affect another.
     const roomIceUrls = [...iceUrls]
     const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
+    // Said in the call's More menu, so the person can see what they chose at the door. It cannot change on a call.
+    roomRelayOnly = relayOnly
     let resolvedIceServers = relayOnly
       ? await resolveIceServers(roomIceUrls)
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
@@ -14652,41 +14737,32 @@ function renderDock(): void {
   collapse.setAttribute('aria-expanded', String(!galleryCollapsed))
   dock.hidden = !c
   if (!c) return
-  const views = c.session.participants()
-  const callId = c.session.call?.id
-  const others = callId
-    ? views.filter(view => view.call?.id === callId && view.participant !== c.me).map(view => shownAs(view.participant, view.name).name ?? 'somebody')
-    : []
-  const text = dockSummary(c.label, others)
+  const text = dockLabel(c.label)
   if ($('callDockText').textContent !== text) $('callDockText').textContent = text
+  renderDockElapsed()
   setToggle('callDockMic', !!micTrack?.enabled)
-  setToggle('callDockCamera', !!cameraTrack)
-  setToggle('callDockScreen', !!screenTrack)
-  $('callDockScreen').textContent = screenTrack ? 'Stop sharing' : 'Share screen'
-  $('callDockScreen').setAttribute('aria-label', screenTrack ? `Stop screen sharing in ${c.label}` : `Share screen in ${c.label}`)
-  const heard = recordings.get(c.session.roomId)
   const view = currentRecordingView(c.session)
   const recordingMine = activeRecording?.session === c.session
   const notice = $('callDockRecordingNotice')
   notice.hidden = view.state === 'off'
   notice.textContent = view.state === 'unconfirmed' ? 'Recording notice is unconfirmed.' : recordingMine ? activeRecording!.recorder.paused ? 'Your recording is paused.' : `You are recording this call. ${recordingCaptureDescription(c.session)}` : `This call is being recorded. ${recordingCaptureDescription(c.session)}`
-  renderRecordingPause('callDockRecordingPause', !!recordingMine)
   renderRecordingElapsed()
-  const recording = $('callDockRecording') as HTMLButtonElement
-  const recordingAuthority = participantRecordingReady(c.session) || legacyRecordingReady(c.session)
-  const canRecord = !!recordingMimeType() || (!!recordingMimeType(true) && typeof HTMLCanvasElement.prototype.captureStream === 'function')
-  recording.hidden = false
-  recording.disabled = !recordingMine && (!recordingAuthority || !canRecord)
-  const recordingHint = $('callDockRecordingHint')
-  recordingHint.hidden = !recording.disabled
-  recordingHint.textContent = !recordingAuthority ? recordingPermissionHint(c.session) : 'This browser cannot record calls.'
-  recording.title = recording.disabled ? recordingHint.textContent : recordingMine ? 'Stop recording' : 'Record audio or video'
-  if (recording.disabled) recording.setAttribute('aria-describedby', 'callDockRecordingHint')
-  else recording.removeAttribute('aria-describedby')
-  recording.textContent = recordingMine ? 'Stop recording' : 'Record call'
-  recording.setAttribute('aria-label', `${recordingMine ? 'Stop recording' : 'Record the call'} in ${c.label}`)
-  $('callDockBack').setAttribute('aria-label', `Back to the call in ${c.label}`)
+  $('callDockBack').setAttribute('aria-label', `Return to the call in ${c.label}`)
 }
+
+/** The dock's clock: how long the call has been going, written once a second
+ *  and never announced (the element says `aria-live="off"`). */
+function renderDockElapsed(): void {
+  const since = dockedCall?.session.call?.since
+  const text = since === undefined ? '' : `· ${callElapsed(since, nowSeconds())}`
+  if ($('callDockElapsed').textContent !== text) $('callDockElapsed').textContent = text
+  // The same clock over the conversation of the call this device is on.
+  const here = mediaSession()?.call?.since
+  const line = here === undefined ? '' : `· ${callElapsed(here, nowSeconds())}`
+  if ($('callChatBarElapsed').textContent !== line) $('callChatBarElapsed').textContent = line
+}
+setInterval(() => { if (dockedCall || !$('callChatBar').hidden) renderDockElapsed() }, 1000)
+new MutationObserver(renderDockElapsed).observe($('callChatBar'), { attributes: true, attributeFilter: ['hidden'] })
 
 new MutationObserver(renderDock).observe($('roomArea'), { attributes: true, attributeFilter: ['hidden', 'data-mobile-view'] })
 
@@ -15364,7 +15440,7 @@ const ROOM_INFO_KEYS = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.u
  *  320 px wide with Huge text, where the title would have no room. */
 function callButtonInMenu(): boolean {
   const root = document.documentElement
-  return window.matchMedia('(max-width: 359px)').matches && root.dataset.textSize === 'huge' && !root.hasAttribute('data-call-first') && !root.hasAttribute('data-call-docked')
+  return window.matchMedia('(max-width: 359px)').matches && root.dataset.textSize === 'huge' && !root.hasAttribute('data-call-bar') && !root.hasAttribute('data-call-docked')
 }
 
 function currentKnownRoom(): KnownRoom | undefined {
@@ -15477,6 +15553,23 @@ function renderRoomMenu(): void {
   menuGroups(menu, groups)
 }
 wireMenu($('roomMenu'), $('roomMoreMenu'), { beforeOpen: renderRoomMenu, sheet: NARROW_ROOM_BAR })
+
+// More, in the call bar: a menu built from the same parts as the room's ⋯.
+installCallMore({
+  invitePeople: () => roomMenuModel().invite ? () => openInviteDialog(false, $('callExtras')) : undefined,
+  ipHidden: () => roomRelayOnly,
+})
+// The first unmute in a call with an agent in the room asks about hearing.
+installAgentsHear({
+  agents: () => {
+    const names = new Set<string>()
+    for (const view of mediaSession()?.participants() ?? []) {
+      if (view.agent && view.participant !== meParticipant) names.add(shownAs(view.participant, view.name).name ?? 'An agent')
+    }
+    return [...names]
+  },
+  callId: () => mediaSession()?.call?.id,
+})
 $('roomSheetClose').addEventListener('click', closeRoomSheet)
 $('infoCall').addEventListener('click', () => { closeRoomSheet(); $('callToggle').click() })
 $('infoInvite').addEventListener('click', () => openInviteDialog(false, $('infoInvite')))
@@ -16354,18 +16447,10 @@ $('toggleMirror').addEventListener('click', () => {
   deviceStore.set('kithmoot.mirror-self', String(!mirrorSelf()))
   applyMirrorSelf()
 })
-// The resting strip's own control. Only ever on screen when this device is
-// off the call, so it starts or joins one; it never has to leave.
-$('callDockMic').addEventListener('click', () => { void toggleMic().catch(err => setStatus(describeError(err))) })
-$('callDockCamera').addEventListener('click', () => { void toggleCamera().catch(err => setStatus(describeError(err))) })
-$('callDockScreen').addEventListener('click', () => { void toggleScreen().catch(err => setStatus(describeError(err))) })
-$('callDockRecording').addEventListener('click', () => { void (activeRecording?.session === mediaSession() ? stopRecording() : startRecording()).catch(err => setStatus(describeError(err))) })
+$('callDockMic').addEventListener('click', () => { void toggleMic().catch(err => noteMediaBlocked('Microphone', err)) })
 $('callGalleryCollapse').addEventListener('click', () => { galleryCollapsed = !galleryCollapsed; renderDock(); callStage.refresh() })
 $('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })
 $('callDockLeave').addEventListener('click', () => { void endDockedCall() })
-$('callStripAction').addEventListener('click', () => {
-  joinCall().catch((err) => setStatus(describeError(err)))
-})
 $('leaveCall').addEventListener('click', () => {
   leaveCall().catch((err) => setStatus(describeError(err)))
 })
@@ -17360,10 +17445,10 @@ $('shareQrDetails').addEventListener('toggle', () => {
 })
 
 $('toggleMic').addEventListener('click', () => {
-  toggleMic().catch((err) => setStatus(describeError(err)))
+  toggleMic().then(() => noteMediaBlocked(undefined)).catch((err) => noteMediaBlocked('Microphone', err))
 })
 $('toggleCamera').addEventListener('click', () => {
-  toggleCamera().catch((err) => setStatus(describeError(err)))
+  toggleCamera().then(() => noteMediaBlocked(undefined)).catch((err) => noteMediaBlocked('Camera', err))
 })
 if (window.kithmootDesktop?.supportsShareArea) {
   const area = document.createElement('button')
@@ -18307,6 +18392,7 @@ window.addEventListener('pagehide', () => {
 })
 
 setToggle('toggleAgentsHear', agentsMayHear)
+document.documentElement.toggleAttribute('data-agents-hear', agentsMayHear)
 $('toggleAgentsHear').addEventListener('click', () => setAgentsMayHear(!agentsMayHear))
 
 // The agents' conversation had its own box to type in, under the chat's

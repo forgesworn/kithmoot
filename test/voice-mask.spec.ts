@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, open, openCall, newDeviceContext, SYNTHETIC_MIC, inbound } from './browser.js'
+import { createRoom, open, openCall, newDeviceContext, SYNTHETIC_MIC, inbound, openCallEffects, closeCallEffects } from './browser.js'
 
 /** Real AudioWorklets and WebRTC, with synthetic audio and loopback relays.
  * Faults stop the processor itself or make native module loading receive 404. */
@@ -43,16 +43,11 @@ async function joinSilent(page: Page, url: string, name: string) {
 }
 
 async function pickMask(page: Page, preset: string) {
-  if (!await page.locator('#voicePresets').isVisible()) {
-    if (!await page.locator('#voiceEffects').isVisible()) await page.locator('#callExtras > summary').click()
-    if (!await page.locator('#voicePresets').isVisible()) await page.locator('#voiceEffects > summary').click()
-  }
+  await openCallEffects(page, 'Voice')
   await page.locator(`#voicePresets [data-preset="${preset}"]`).click()
-  // Phone settings occupy a modal sheet: finish the choice before using the
-  // microphone controls behind it, just as a person must.
-  if (await page.locator('#mobileCallSettingsClose').isVisible()) {
-    await page.locator('#mobileCallSettingsClose').click()
-  }
+  // On a phone the Effects panel is a sheet over the bar: finish the choice
+  // before using the microphone controls behind it, just as a person must.
+  await closeCallEffects(page)
 }
 
 async function energy(page: Page) { return (await page.evaluate(inbound)).audioEnergy }

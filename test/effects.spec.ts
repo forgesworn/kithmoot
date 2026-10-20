@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
 import { openRoomUrl, pinToTestRelays } from './relays.js'
-import { openNewRoomForm } from './browser.js'
+import { openNewRoomForm, openCallEffects } from './browser.js'
 
 /**
  * Does the blur actually blur, and does it survive a camera swap?
@@ -212,8 +212,7 @@ async function openCamera(page: Page): Promise<void> {
   await goIn(page)
   await page.getByRole('button', { name: 'Camera' }).click()
   await expect(page.locator(LOCAL_VIDEO)).toBeVisible()
-  await page.locator('#callExtras > summary').click()
-  await page.locator('#cameraEffects > summary').click()
+  await openCallEffects(page, 'Background')
   await page.waitForFunction((selector) => {
     const video = document.querySelector<HTMLVideoElement>(selector)
     return !!video && video.videoWidth > 0
@@ -488,8 +487,7 @@ test('the unavailable owned segmenter uses a full blur and says so outside the f
 test('voice masking states what it is, and offers the four presets', async ({ page }) => {
   await goIn(page)
   await page.getByRole('button', { name: 'Microphone' }).click()
-  await page.locator('#callExtras > summary').click()
-  await page.locator('#voiceEffects > summary').click()
+  await openCallEffects(page, 'Voice')
   await expect(page.locator('#voiceEffects')).toBeVisible()
 
   // The claim has to be disclaimed in words, and the words changed with the

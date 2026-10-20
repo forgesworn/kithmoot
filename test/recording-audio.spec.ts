@@ -1,7 +1,7 @@
 import {test, expect} from '@playwright/test'
 import {encodeRoomLink} from '../src/link.js'
 import {generateRoomSecret} from '../src/room.js'
-import {newDeviceContext, open, openCall, turnOnMedia} from './browser.js'
+import { newDeviceContext, open, openCall, turnOnMedia, chooseCallMore } from './browser.js'
 import {testRelaysFor} from './relays.js'
 
 // Exercise Chromium's actual audio activation policy. The normal media suite
@@ -36,7 +36,7 @@ for (const [layout, simultaneous] of [['audio', false], ['gallery', false], ['ga
       try {await context.resume(); await new Promise(resolve => setTimeout(resolve, 100)); const samples = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(samples); return Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length)}
       finally {await context.close()}
     })).toBeGreaterThan(0.001)
-    await a.locator('#recordToggle').click()
+    await chooseCallMore(a, 'Record call…')
     await a.locator(`input[name="recording-layout"][value="${layout}"]`).check()
     await a.locator('#actionConfirm').click()
     await expect(a.locator('#recordingElapsed')).toBeVisible()

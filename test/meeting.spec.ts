@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, INSTRUMENT, joinWithMedia, newDeviceContext, open, openCall, remotePictures } from './browser.js'
+import { createRoom, INSTRUMENT, joinWithMedia, newDeviceContext, open, openCall, remotePictures, openCallMeeting, chooseCallMore, callMoreState } from './browser.js'
 import { collectAppDiagnostics } from './app-diagnostics.js'
 
 /**
@@ -62,12 +62,8 @@ const audioFrom = (name: string) => {
 
 async function openMeetingPanel(page: Page): Promise<void> {
   await openCall(page)
-  // Behind More, beside the call's other less-used controls.
-  const more = page.locator('#callExtras')
-  if (!await more.evaluate(el => (el as HTMLDetailsElement).open)) await more.locator('> summary').click()
-  const panel = page.locator('#meetingPanel')
-  await expect(panel, 'the room\'s creator is offered meeting mode').toBeVisible()
-  if (!await panel.evaluate(el => (el as HTMLDetailsElement).open)) await panel.locator('summary').click()
+  // Behind More, as Run as a meeting…, beside the call's other less-used controls.
+  await openCallMeeting(page)
 }
 
 test('meeting mode locks an attendee, and holds when the attendee\'s app ignores it', async ({ browser, baseURL }) => {
@@ -168,16 +164,15 @@ test('a recording is announced to everybody, before joining as well as during, a
     await expect(a.locator('#room .participant')).toHaveCount(2, { timeout: 60_000 })
 
     await openCall(a)
-    await expect(a.locator('#recordToggle')).toBeInViewport()
-    await expect(a.locator('#callExtras')).not.toHaveAttribute('open', '')
-    await expect(b.locator('#recordToggle')).toBeVisible()
+    await expect(a.locator('#recordToggle')).toBeEnabled()
+    await expect(a.locator('#callExtras')).toHaveAttribute('aria-expanded', 'false')
     await expect(b.locator('#recordToggle')).toBeEnabled()
     await expect(b.locator('#recordingAuthorityHint')).toBeHidden()
-    await a.locator('#recordToggle').click()
+    await chooseCallMore(a, 'Record call…')
     await expect(a.locator('#actionDialog')).toBeVisible()
     await a.locator('#actionConfirm').click()
     await expect(a.locator('#recordToggle')).toHaveAttribute('aria-label', 'Stop recording')
-    await expect(a.locator('#recordToggle .callWord:visible, #recordToggle .callShort:visible')).toHaveText(/^(Stop recording|Stop)$/)
+    expect(await callMoreState(a, 'Stop recording'), 'More now offers Stop recording').not.toBeNull()
     await expect(a.locator('#recordingBanner')).toBeVisible()
     await expect(a.locator('#recordingBannerText')).toContainText('You are recording')
 

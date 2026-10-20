@@ -488,6 +488,21 @@ export async function newDeviceContext(browser: Browser, baseURL: string, option
   }, relays)
   await context.addInitScript(INSTRUMENT)
   await context.addInitScript(SYNTHETIC_SCREEN)
+  // A call somebody else started rings as a banner pinned over the top of the
+  // window (calm shell, stage 5). The specs that use these devices join calls
+  // by the header's button, which the banner would cover, so these devices
+  // decline it the moment it shows. Declining only stops the ringing; the ring
+  // banner's own specs (calm-shell.spec.ts) use plain contexts and answer it.
+  await context.addInitScript(() => {
+    const decline = (): void => {
+      const banner = document.getElementById('ringBanner')
+      if (banner?.matches(':popover-open')) document.getElementById('ringDecline')?.click()
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      new MutationObserver(decline).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open', 'class', 'style'] })
+      setInterval(decline, 250)
+    })
+  })
   return context
 }
 
@@ -618,23 +633,15 @@ export async function joinWithMedia(page: Page, url: string, name: string): Prom
  * call is already open can just say so.
  */
 export async function openCall(page: Page): Promise<void> {
-  // Already open. On a wide screen with the call first, the room bar's call
-  // control steps aside and the controls are the bar under the stage.
+  // Already open. On a call the controls are the bar under the stage, and
+  // they stay on screen while the phone shows the conversation.
   if (await page.locator('#deviceControls').isVisible()) return
   await expect(
-    page.locator('#callToggle:visible, #mobileCall:visible'),
+    page.locator('#callToggle:visible'),
     'the call control only appears once this device is in the room',
   ).toBeVisible()
-  if (await page.locator('#deviceControls').isHidden()) {
-    // The header's call button starts (or joins) the call, on a phone too.
-    // Only on a call already is there a Call tab, and it only opens the view.
-    const toggle = page.locator('#callToggle:visible')
-    if (await toggle.count()) await toggle.click()
-    else {
-      await page.locator('#mobileCall:visible').click()
-      if (await page.locator('#callStripAction').isVisible()) await page.locator('#callStripAction').click()
-    }
-  }
+  // The header's call button starts (or joins) the call, on a phone too.
+  await page.locator('#callToggle:visible').click()
   await expect(page.locator('#deviceControls')).toBeVisible()
 }
 
@@ -767,22 +774,101 @@ export async function startRelay(port: number, okDelayMs = 0): Promise<{ url: st
   }
 }
 
-/**
- * The call's view switcher, open. On a wide screen with the call first it
- * is behind More in the control bar; anywhere else it is already on screen.
- */
-export async function openCallView(page: Page): Promise<void> {
-  const more = page.locator('#callExtras')
-  if (await page.locator('#callExtras #callView').count() === 0) return
-  if (!(await more.evaluate(el => (el as HTMLDetailsElement).open))) await more.locator(':scope > summary').click()
-  await expect(page.locator('#callView')).toBeVisible()
+/** What the call bar's More menu can offer, by its words. Items appear only
+ *  when they apply, so a helper that names one says so with a failing wait. */
+export type CallMoreItem =
+  | 'Share screen' | 'Stop sharing' | 'Effects…' | 'Layout' | 'Record call…' | 'Stop recording' | 'Run as a meeting…'
+  | 'Use beside another device' | 'Mirror my view' | 'Let agents hear me' | 'Show drawings in a floating window' | 'Invite people…'
+  | 'Resume call media' | 'Share an area' | 'Hide part of the screen'
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** The items of the call's More menu, whatever their role. */
+const callMoreItems = (page: Page, scope = '#callMoreMenu') => page.locator(`${scope} [role="menuitem"], ${scope} [role="menuitemcheckbox"], ${scope} [role="menuitemradio"]`)
+
+/** The call bar's More menu, open. Opens the call first if it is not. */
+export async function openCallMore(page: Page): Promise<void> {
+  await openCall(page)
+  // Asked of the popover itself: the button's `aria-expanded` follows it a task later.
+  if (!await page.locator('#callMoreMenu').evaluate(menu => menu.matches(':popover-open'))) await page.locator('#callExtras').click()
+  await expect(page.locator('#callMoreMenu')).toBeVisible()
 }
 
-/** More put away again, if the view switcher is behind it and it is open. */
-export async function closeCallView(page: Page): Promise<void> {
-  const more = page.locator('#callExtras')
-  if (await page.locator('#callExtras #callView').count() === 0) return
-  if (await more.evaluate(el => (el as HTMLDetailsElement).open)) await more.locator(':scope > summary').click()
+/** Choose an item of the call's More menu: `item` in the menu, or inside the
+ *  submenu `submenu` ('Layout'). */
+export async function chooseCallMore(page: Page, item: CallMoreItem | string | RegExp, submenu?: 'Layout'): Promise<void> {
+  await openCallMore(page)
+  const named = (name: string | RegExp) => typeof name === 'string' ? new RegExp(`^\\s*${escapeRegExp(name)}\\s*$`) : name
+  if (submenu) {
+    await callMoreItems(page).filter({ hasText: named(submenu) }).click()
+    await callMoreItems(page, '#callMoreMenu .menuSub:not([hidden])').filter({ hasText: named(item) }).click()
+  } else {
+    await callMoreItems(page).filter({ hasText: named(item) }).click()
+  }
+}
+
+/** A Layout choice: Gallery, Speaker or Screen, or one of its options. */
+export async function chooseCallLayout(page: Page, choice: 'Gallery' | 'Speaker' | 'Screen' | 'Move my picture' | 'Hide my own picture' | 'Hide people without video' | 'Hide the gallery' | 'Show the gallery'): Promise<void> {
+  await chooseCallMore(page, choice, 'Layout')
+}
+
+/** The state of a More item, read without choosing it: `aria-checked` for a
+ *  switch or a layout choice, undefined for one that is not a switch, and
+ *  `null` where the menu does not offer it. */
+export async function callMoreState(page: Page, item: CallMoreItem | string, submenu?: 'Layout'): Promise<string | null | undefined> {
+  await openCallMore(page)
+  const named = (name: string) => new RegExp(`^\\s*${escapeRegExp(name)}\\s*$`)
+  if (submenu) await callMoreItems(page).filter({ hasText: named(submenu) }).click()
+  const found = callMoreItems(page, submenu ? '#callMoreMenu .menuSub:not([hidden])' : '#callMoreMenu').filter({ hasText: named(item) })
+  const state = await found.count() === 0 ? null : (await found.first().getAttribute('aria-checked')) ?? undefined
+  await page.keyboard.press('Escape')
+  if (submenu) await page.keyboard.press('Escape')
+  await expect(page.locator('#callMoreMenu')).toBeHidden()
+  return state
+}
+
+/** The Effects panel, open, on its section: Face, Background or Voice. */
+export async function openCallEffects(page: Page, section?: 'Face' | 'Background' | 'Voice'): Promise<void> {
+  if (!(await page.locator('#effects[data-panel="open"]').count())) await chooseCallMore(page, 'Effects…')
+  await expect(page.locator('#effects')).toBeVisible()
+  await expect(page.locator('#effectsHeading')).toBeFocused()
+  if (section) {
+    const id = { Face: '#facePrivacyEffects', Background: '#cameraEffects', Voice: '#voiceEffects' }[section]
+    await page.locator(id).scrollIntoViewIfNeeded()
+  }
+}
+
+/** Effects put away again, if it is open. */
+export async function closeCallEffects(page: Page): Promise<void> {
+  if (await page.locator('#effects[data-panel="open"]').count()) await page.locator('#effects .callPanelClose').click()
+  await expect(page.locator('#effects')).toBeHidden()
+}
+
+/** The meeting controls, open, as Run as a meeting… opens them. */
+export async function openCallMeeting(page: Page): Promise<void> {
+  if (!(await page.locator('#meetingPanel[data-panel="open"]').count())) await chooseCallMore(page, 'Run as a meeting…')
+  await expect(page.locator('#meetingPanel')).toBeVisible()
+}
+
+/** The call bar's Chat button: the conversation or the stage, whichever the
+ *  screen is not showing. On a wide screen it opens or shuts the chat panel;
+ *  on a phone it swaps the stage and the conversation. */
+export async function toggleCallChat(page: Page): Promise<void> {
+  const chat = page.locator('#callChatToggle')
+  await expect(chat).toBeVisible()
+  await chat.click()
+}
+
+/** The phone's conversation, in front of the call bar: Chat from the stage. */
+export async function showCallConversation(page: Page): Promise<void> {
+  if (await page.locator('#roomArea').getAttribute('data-mobile-view') !== 'chat') await toggleCallChat(page)
+  await expect(page.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'chat')
+}
+
+/** The phone's stage, from the conversation: Return, on the one-line call bar over it. */
+export async function showCallStage(page: Page): Promise<void> {
+  if (await page.locator('#roomArea').getAttribute('data-mobile-view') !== 'call') await page.locator('#callChatBarReturn').click()
+  await expect(page.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'call')
 }
 
 /** A temporary invitation sends nothing until the guest chooses to ask. */

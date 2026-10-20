@@ -1,12 +1,10 @@
 /**
  * The call's extra settings, folded until somebody asks for them.
  *
- * Background blur, voice masking and the two-device switches sit under one
- * "More" fold in index.html - with, on a wide screen, the call's view and
- * the desktop window's other ways to share. Physical desktop acceptance
- * showed that opening the effect explanations by default pushed every face
- * and the conversation below the fold. The primary controls stay visible at
- * every size; settings open only after the person chooses More.
+ * More was a `<details>` fold; it is a menu now (app/src/call-more.ts), shut
+ * until it is opened, so there is nothing left to fold. The module stays
+ * because the startup order is pinned around it (`ordinary-startup-entry.ts`
+ * and its guard specs), and it still puts away a fold in an older page.
  */
 
 const fold = document.getElementById('callExtras')

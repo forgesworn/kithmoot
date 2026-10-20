@@ -1,12 +1,12 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_MIC, switchToRoom } from './browser.js'
+import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_MIC, switchToRoom, chooseCallMore } from './browser.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
 
 /** Wait for presence so the viewer joins this call instead of starting another. */
 async function openExistingCall(page: Page): Promise<void> {
-  await expect(page.locator('#callStripAction')).toHaveText('Join call')
+  await expect(page.locator('#callToggle')).toHaveText('Join call')
   await openCall(page)
 }
 
@@ -411,10 +411,9 @@ test('a floating preview window carries the same marks overlay, exercised with a
     await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
 
-    await presenter.locator('#callExtras').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     const floatingToggle = presenter.locator('#toggleFloatingMarks')
-    await expect(floatingToggle).toBeVisible({ timeout: 10_000 })
-    await floatingToggle.click()
+    await expect.poll(async () => await floatingToggle.evaluate(el => !(el as HTMLElement).hidden), { timeout: 10_000 }).toBe(true)
+    await chooseCallMore(presenter, 'Show drawings in a floating window')
     await expect.poll(() => presenter.evaluate(() => (window as unknown as { __pipStub: { wins: unknown[] } }).__pipStub.wins.length)).toBe(1)
     await expect(floatingToggle).toHaveAttribute('data-on', 'true')
 
