@@ -532,7 +532,12 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   // Nothing to apply straight away: the room has no size worth measuring
   // until a call actually puts the layout into its row shape, and
   // `reflowDivider` (from `evaluate`, above) does that the moment it does.
-  new ResizeObserver(() => { if (active) reflowDivider() }).observe(room)
+  // The stage too: a banner over the call (a finished recording, a notice)
+  // pushes the stage down without resizing the room, and a divider left
+  // where the stage used to start would sit over that banner's buttons.
+  const dividerObserver = new ResizeObserver(() => { if (active) reflowDivider() })
+  dividerObserver.observe(room)
+  dividerObserver.observe(stage)
 
   // --- Full screen ------------------------------------------------------------
 

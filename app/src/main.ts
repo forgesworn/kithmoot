@@ -40,7 +40,7 @@ import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
 import { buildMentionCandidates, resolveDraftMentions } from './mention-candidates.js'
 import { playZenChime, startCallRing, stopCallRing, unlockZenChime } from './zen-chime.js'
-import { IncomingCallTracker } from './incoming-call.js'
+import { IncomingCallTracker, ringBannerSeconds } from './incoming-call.js'
 import { callToConverge, callToDeclare } from './call-declare.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
@@ -2946,10 +2946,10 @@ function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, 
   const picture = pictureOf(shown, withAvatarFallback)
   if (picture) run.append(picture)
 
-  // `keyless`: the call, where a key is never printed (design-calm-shell
-  // check 13). A nameless person is "Somebody", as everywhere else a name
-  // is wanted and there is none; two people with one name are told apart by
-  // the "not checked" and "checked" chip on their tiles, not by a code.
+  // `keyless`: the call, where a key is printed only when two people in view
+  // claim the same name (design-calm-shell C7 and check 13). A nameless
+  // person is "Somebody" there, as everywhere else a name is wanted and
+  // there is none, and gets no code.
   const named = shown.name ?? (keyless ? 'Somebody' : undefined)
   if (named !== undefined) {
     const name = document.createElement('span')
@@ -2962,7 +2962,8 @@ function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, 
   // The code, only when it is doing work: no name at all, two people in
   // view making the same claim, or a line whose whole point is "which key
   // is this" - who you are about to go in as, and your own account line.
-  if (!keyless && (withKey || nameCollides(shown.pubkey, shown.name))) {
+  const collides = shown.name !== undefined ? nameCollides(shown.pubkey, shown.name) : !keyless
+  if ((withKey && !keyless) || collides) {
     const key = document.createElement('span')
     key.className = 'pubkey'
     key.textContent = shown.short
@@ -4697,8 +4698,12 @@ function resetIncomingCall(): void {
 // outgoing "Ringing Priya…".
 // ---------------------------------------------------------------------------
 
-function showRingBanner(caller: string): void {
+let ringBannerTimer: ReturnType<typeof setTimeout> | undefined
+
+function showRingBanner(caller: string, forSeconds: number): void {
   const banner = $('ringBanner')
+  clearTimeout(ringBannerTimer)
+  ringBannerTimer = setTimeout(() => { stopCallRing(); hideRingBanner() }, forSeconds * 1000)
   $('ringBannerTitle').textContent = `${caller} is calling`
   // The call does not say whether it is voice or video, so it is a "Call".
   $('ringBannerKind').textContent = 'Call'
@@ -4708,6 +4713,8 @@ function showRingBanner(caller: string): void {
 }
 
 function hideRingBanner(): void {
+  clearTimeout(ringBannerTimer)
+  ringBannerTimer = undefined
   const banner = $('ringBanner')
   if (banner.matches(':popover-open')) banner.hidePopover()
 }
@@ -5130,8 +5137,14 @@ function renderCallState(views: ParticipantView[]): void {
     const settings = notifySettings(deviceStore)
     const roomId = currentRoomId()
     // The banner is for the room on screen, whether or not system
-    // notifications are on: it is the app saying so, not the system.
-    if (roomId && !$('roomArea').hidden && !docked() && !onCall()) showRingBanner(shownAs(callChange.call.caller, starter?.name).name ?? 'Somebody')
+    // notifications are on: it is the app saying so, not the system. Only
+    // for a call that has just started: opening a room where a call has been
+    // going for an hour is not somebody calling, and the room's own banner
+    // already says "Call on" with Join.
+    const ringFor = current ? ringBannerSeconds(current.since, nowSeconds()) : 0
+    if (roomId && ringFor > 0 && !$('roomArea').hidden && !docked() && !onCall()) {
+      showRingBanner(shownAs(callChange.call.caller, starter?.name).name ?? 'Somebody', ringFor)
+    }
     if (settings.enabled && roomId && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId))) {
       void startCallRing()
       const caller = shownAs(callChange.call.caller, starter?.name)
@@ -5179,8 +5192,12 @@ function renderCallState(views: ParticipantView[]): void {
     const starter = on[0]
     const who = starter ? (shownAs(starter.participant, starter.name).name ?? 'Somebody') : 'Somebody'
     const names = on.map(view => shownAs(view.participant, view.name).name ?? 'Somebody')
-    // "Call on · Rowan and Priya": who is on it, three at most by name.
-    const said = names.length <= 1 ? (names[0] ?? who) : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]} and ${names.length - 2} more`
+    // "Call on · Rowan and Priya": who is on it, three at most by name, then
+    // "Rowan, Priya and 2 more".
+    const said = names.length <= 1 ? (names[0] ?? who)
+      : names.length === 2 ? `${names[0]} and ${names[1]}`
+      : names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}`
+      : `${names[0]}, ${names[1]} and ${names.length - 2} more`
     $('callBannerText').textContent = `Call on · ${said}`
   }
 
@@ -6508,8 +6525,10 @@ const AGENTS_HEAR_STORAGE_KEY = 'kithmoot.agents-hear'
  */
 let agentsMayHear = localStorage.getItem(AGENTS_HEAR_STORAGE_KEY) === 'true'
 
-/** This room was joined with "Hide my IP address": its calls go through the relay only. */
-let roomRelayOnly = false
+/** Sessions joined with "Hide my IP address": their calls go through the
+ *  relay only. Kept per session, so a docked call and the room on screen
+ *  never borrow each other's answer. */
+const sessionRelayOnly = new WeakMap<RoomSession, boolean>()
 
 /** Who this device's media goes to: everybody, unless they say they are an
  *  agent and the switch above is off. */
@@ -8625,21 +8644,28 @@ function currentRecordingCapture(s = session): RecordingCaptureNotice | undefine
   return notice?.on && capture?.id === notice.id && capture.version === notice.version ? capture : undefined
 }
 
+/** Who is recording, as their tile says it: the name, with the short key
+ *  only when somebody else in view claims the same name, and "Somebody"
+ *  when there is no name (design-calm-shell C7). */
+function recorderLabel(s: RoomSession | undefined, recorder: string): string {
+  const person = s?.participants().find(view => view.participant === recorder)
+  const shown = shownAs(recorder, person?.name)
+  if (shown.name === undefined) return 'Somebody'
+  return nameCollides(recorder, shown.name) ? `${shown.name} (${shown.short})` : shown.name
+}
+
 function recordingCaptureDescription(s = session): string {
   const live = memberRecordingViews(s)
   if (live.length) return live.map(({ state }) => {
     const capture = state.capture
     if (!capture) return 'Call media may be included.'
-    const person = s?.participants().find(view => view.participant === capture.recorder)
-    const who = shownAs(capture.recorder, person?.name).name ?? shortKey(capture.recorder)
+    const who = recorderLabel(s, capture.recorder)
     const what = { audio: 'call audio', gallery: 'gallery video and call audio', speaker: 'speaker video and call audio', 'screen-camera': 'a screen share with camera and call audio' }[capture.capture]
-    return `${who} (${shortKey(capture.recorder)}) is capturing ${what}.`
+    return `${who} is capturing ${what}.`
   }).join(' ')
   const capture = currentRecordingCapture(s)
   if (!capture) return 'Audio and video you share may be included.'
-  const person = s?.participants().find(view => view.participant === capture.recorder)
-  const name = shownAs(capture.recorder, person?.name).name
-  const who = name ? `${name} (${shortKey(capture.recorder)})` : shortKey(capture.recorder)
+  const who = recorderLabel(s, capture.recorder)
   const what = { audio: 'call audio', gallery: 'gallery video and call audio', speaker: 'speaker video and call audio', 'screen-camera': 'a screen share with camera and call audio' }[capture.capture]
   return `${who} is capturing ${what}.`
 }
@@ -12624,8 +12650,6 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // connect. Capture this room's URLs: a late fetch must not affect another.
     const roomIceUrls = [...iceUrls]
     const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
-    // Said in the call's More menu, so the person can see what they chose at the door. It cannot change on a call.
-    roomRelayOnly = relayOnly
     let resolvedIceServers = relayOnly
       ? await resolveIceServers(roomIceUrls)
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
@@ -12872,6 +12896,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     created = s
     recordingDeviceKeys.set(s, deviceSk)
     sessionConnections.set(s, ownConnections)
+    // Said in the call's More menu, so the person can see what they chose at
+    // the door. It cannot change on a call.
+    sessionRelayOnly.set(s, relayOnly)
     meParticipant = s.participant
 
     s.onChange((views) => {
@@ -15557,7 +15584,7 @@ wireMenu($('roomMenu'), $('roomMoreMenu'), { beforeOpen: renderRoomMenu, sheet: 
 // More, in the call bar: a menu built from the same parts as the room's ⋯.
 installCallMore({
   invitePeople: () => roomMenuModel().invite ? () => openInviteDialog(false, $('callExtras')) : undefined,
-  ipHidden: () => roomRelayOnly,
+  ipHidden: () => { const s = mediaSession(); return !!s && sessionRelayOnly.get(s) === true },
 })
 // The first unmute in a call with an agent in the room asks about hearing.
 installAgentsHear({

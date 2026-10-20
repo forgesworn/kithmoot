@@ -1187,6 +1187,8 @@ test('a call started in the open room rings as a banner over everything: focus o
     // Pinned to the top of the window, in the top layer.
     const b = (await banner.boundingBox())!
     expect(b.y).toBeLessThan(40)
+    const scan = await new AxeBuilder({ page: ada.page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`)).toEqual([])
     await ada.page.keyboard.press('Escape')
     await expect(banner).toBeHidden()
     // Declining joined nothing and said nothing: the room still offers the call, and Ada is not on it.

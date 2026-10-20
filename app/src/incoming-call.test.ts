@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { IncomingCallTracker, QUIET_AFTER_CALL_MS } from './incoming-call.js'
+import { IncomingCallTracker, QUIET_AFTER_CALL_MS, RING_BANNER_SECONDS, ringBannerSeconds } from './incoming-call.js'
 
 const call = { id: 'call-a', caller: 'alice' }
 
@@ -61,4 +61,15 @@ test('a call in another room rings even straight after leaving one', () => {
   tracker.reset()
   const elsewhere = { id: 'call-b', caller: 'alice' }
   expect(tracker.update(elsewhere, 'bob', false, 2_000)).toEqual({ type: 'ring', call: elsewhere })
+})
+
+test('the ring banner is for a call that has just started, and gives up after a minute', () => {
+  const now = 1_000_000
+  expect(ringBannerSeconds(now, now)).toBe(RING_BANNER_SECONDS)
+  expect(ringBannerSeconds(now - 20, now)).toBe(RING_BANNER_SECONDS - 20)
+  // A room opened while a call has been going for a while: nobody is calling.
+  expect(ringBannerSeconds(now - RING_BANNER_SECONDS, now)).toBe(0)
+  expect(ringBannerSeconds(now - 3600, now)).toBe(0)
+  // A caller whose clock runs ahead still rings, for the whole minute.
+  expect(ringBannerSeconds(now + 30, now)).toBe(RING_BANNER_SECONDS)
 })
