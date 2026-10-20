@@ -20,19 +20,35 @@ export function legacyMessageDecrypt(account: SignetSession, selected: () => Sig
           !current() || selected() !== account) throw Error('Legacy decryption is no longer available.')
     }
     return async (peer, ciphertext, current) => {
+      let starts = 0, finished = false, completed = false, provided: unknown
+      let work: Promise<unknown> | undefined
       const boundary: SignerEffectBoundary = {
-        async start<T>(provider: () => Promise<T>): Promise<T> {
-          check(current)
-          const pending = provider() // No await between current check and actual start.
-          const value = await pending
-          check(current)
-          return value
+        start<T>(provider: () => Promise<T>): Promise<T> {
+          if (finished || ++starts !== 1) return Promise.reject(Error('Legacy provider start was repeated or expired.'))
+          const pending = (async () => {
+            check(current)
+            const actual = provider() // No await between current check and actual start.
+            const value = await actual
+            check(current)
+            provided = value; completed = true
+            return value
+          })()
+          work = pending
+          void pending.catch(() => {})
+          return pending
         },
       }
-      check(current)
-      const value = await Reflect.apply(decrypt, crypt, [peer, ciphertext, boundary])
-      check(current)
-      return value
+      try {
+        check(current)
+        const value = await Reflect.apply(decrypt, crypt, [peer, ciphertext, boundary])
+        check(current)
+        if (starts !== 1 || !completed || value !== provided) throw Error('Legacy signer did not preserve the provider-start contract.')
+        return value
+      } finally {
+        finished = true
+        // A caller that fails after starting cannot orphan the provider work.
+        if (work) await work.catch(() => {})
+      }
     }
   } catch { return undefined }
 }

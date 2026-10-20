@@ -156,4 +156,33 @@ describe('legacy receive-only inbox and actual pinned SDK NIP-07 boundary', () =
     expect(legacyMessageDecrypt(f.session, () => f.session)).toBeUndefined()
     f.inbox.close()
   })
+  it('refuses a claimed version-one signer that ignores the supplied provider-start hook', async () => {
+    const f = fixture()
+    f.signer.nip04!.decrypt = async () => 'An unguarded result'
+    const bridge = legacyMessageDecrypt(f.session, () => f.session)!
+    await expect(bridge(author, (await message()).content, () => true)).rejects.toThrow('provider-start contract')
+    expect(f.calls()).toBe(0)
+    f.inbox.close()
+  })
+  it('refuses duplicate provider-start calls before a second provider can run', async () => {
+    const f = fixture(); let starts = 0
+    f.signer.nip04!.decrypt = async (_peer, _ciphertext, boundary) => {
+      await boundary!.start(async () => { starts++; return 'First result' })
+      return boundary!.start(async () => { starts++; return 'Second result' })
+    }
+    const bridge = legacyMessageDecrypt(f.session, () => f.session)!
+    await expect(bridge(author, (await message()).content, () => true)).rejects.toThrow('repeated or expired')
+    expect(starts).toBe(1)
+    f.inbox.close()
+  })
+  it('rejects substituted output after a guarded provider result', async () => {
+    const f = fixture()
+    f.signer.nip04!.decrypt = async (_peer, _ciphertext, boundary) => {
+      await boundary!.start(async () => 'Provider result')
+      return 'Substituted result'
+    }
+    const bridge = legacyMessageDecrypt(f.session, () => f.session)!
+    await expect(bridge(author, (await message()).content, () => true)).rejects.toThrow('provider-start contract')
+    f.inbox.close()
+  })
 })

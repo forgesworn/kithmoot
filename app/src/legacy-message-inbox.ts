@@ -93,7 +93,9 @@ export class LegacyMessageInbox {
   }
   #current(): boolean {
     if (this.#closed) return false
-    const current = this.#options.current()
+    let current = false
+    try { current = this.#options.current() } catch { /* A missing lifetime is a closed view. */ }
+    if (!current) this.close()
     return current && !this.#closed
   }
   #notify(): void { if (this.#current()) this.#options.changed() }
