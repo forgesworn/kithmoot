@@ -55,6 +55,8 @@ export class FollowBook {
   #unsub?: () => void
   #timer?: ReturnType<typeof setTimeout>
   #loading = false
+  /** Whether this account's list has been asked for since it was set. */
+  #asked = false
   #list?: { pubkeys: string[]; createdAt: number }
 
   constructor(opts: FollowBookOptions) {
@@ -68,6 +70,7 @@ export class FollowBook {
     this.#stop()
     this.#account = account
     this.#list = undefined
+    this.#asked = false
     this.#opts.onChange()
   }
 
@@ -77,6 +80,7 @@ export class FollowBook {
     if (enabled === this.#enabled) return
     this.#enabled = enabled
     if (!enabled) { this.#stop(); this.#list = undefined }
+    this.#asked = false
     this.#opts.onChange()
   }
 
@@ -85,6 +89,7 @@ export class FollowBook {
   refresh(): void {
     const account = this.#account
     if (!account || !this.#enabled || this.#loading) return
+    this.#asked = true
     let unsub: () => void
     try {
       this.#pool ??= this.#opts.transport(this.#opts.relays())
@@ -102,6 +107,13 @@ export class FollowBook {
     }, LOOKUP_TIMEOUT_MS)
     ;(this.#timer as unknown as { unref?: () => void }).unref?.()
     this.#opts.onChange()
+  }
+
+  /** Asks once for this account, for a caller other than People: an
+   *  invitation from somebody followed is named before People has ever been
+   *  opened. People itself asks again each time it opens (`refresh`). */
+  ensure(): void {
+    if (!this.#asked) this.refresh()
   }
 
   snapshot(): FollowSnapshot {

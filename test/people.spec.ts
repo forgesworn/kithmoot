@@ -76,6 +76,31 @@ test('People lists the people you follow, and Message starts a private chat with
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 
+test('an invitation from somebody you follow carries their name, before People has ever been opened', async ({ browser, baseURL }) => {
+  const aKey = generateSecretKey(), bKey = generateSecretKey()
+  const a = getPublicKey(aKey), b = getPublicKey(bKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  try {
+    await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
+    // Bob follows Alice, whose profile names her.
+    const now = Math.floor(Date.now() / 1000)
+    await publisher.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', a]], content: '' }, bKey))
+    await publisher.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Alice on Nostr' }) }, aKey))
+    const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
+    await signInAccount(alice, baseURL!)
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await alice.locator('#peopleMessage').click()
+    await expect(alice.locator('#roomArea')).toBeVisible()
+
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const waiting = bob.locator('#chatInvitations li[data-invitation]')
+    await expect(waiting).toContainText('Alice on Nostr invited you to a private chat')
+    await expect(waiting.getByRole('button', { name: 'Accept private chat with Alice on Nostr' })).toBeVisible()
+  } finally { publisher.close(); await ac.close(); await bc.close() }
+})
+
 test('Decline clears an invitation on this device and opens nothing', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const b = getPublicKey(bKey)

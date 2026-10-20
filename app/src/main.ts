@@ -15150,7 +15150,11 @@ function invitationModel(): WaitingInvitation[] {
   const view = grantedContactView
   const signet = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts : []
   // The same list the Chats count reads, so the count never shows rows that are not there.
-  return waitingInvitations().map(invitation => {
+  const waiting = waitingInvitations()
+  // Whether a sender is followed needs the account's own follow list, which
+  // is otherwise fetched only when People opens. Asking for it names nobody.
+  if (waiting.length) queueMicrotask(() => follows.ensure())
+  return waiting.map(invitation => {
     const peer = invitation.sender
     const contact = signet.find(entry => entry.pubkey === peer), card = contactFor(deviceStore, peer)
     const known = !!contact || !!card || follows.follows(peer)
