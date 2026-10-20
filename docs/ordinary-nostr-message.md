@@ -2,8 +2,9 @@
 
 Source preparation for Vennel DG09.6 / G5. **Not compiled, tested, released or
 accepted at runtime.** This candidate integrates the legacy-receive and ordinary
-message feature with KithMoot main `6a3ad696` (desktop release 0.1.94),
-retaining the earlier compatibility integration `02e3f134`. The earlier immutable legacy source
+message feature with KithMoot main `da3ac9b4`, including desktop release
+0.1.94 and the shared-rooms contact page, while retaining the earlier
+compatibility integration `02e3f134`. The earlier immutable legacy source
 `17023aa3` and its frozen qualification producer remain separate and unchanged;
 this integration needs its own exact build/runtime qualification.
 
