@@ -165,7 +165,7 @@ test('account-relay invitation checking is explicit and never substitutes for an
   const catalogueOnly = (frame: unknown[]) => frame.length > 2 && frame.slice(2).every(filter =>
     filter !== null && typeof filter === 'object' && !Array.isArray(filter) && canonical(filter) === canonical(catalogue))
   const potentialOrdinaryRead = (frame: unknown[]) => {
-    if (typeof frame[1] !== 'string' || frame.length <= 2) return true
+    if (typeof frame[1] !== 'string' || frame[1].length === 0 || frame.length <= 2) return true
     return !catalogueOnly(frame) && frame.slice(2).some(filter => {
       // Missing kinds is a wildcard. Unknown/malformed filters must count,
       // rather than disappearing from the no-fallback assertion.
@@ -187,6 +187,7 @@ test('account-relay invitation checking is explicit and never substitutes for an
     expect(potentialOrdinaryRead(['REQ', 'malformed-mixed-control', null, { kinds: [1059] }])).toBe(true)
     expect(potentialOrdinaryRead(['REQ', 'malformed-kinds-control', { kinds: '1059' }])).toBe(true)
     expect(potentialOrdinaryRead(['REQ', 'missing-filter-control'])).toBe(true)
+    expect(potentialOrdinaryRead(['REQ', '', catalogue])).toBe(true)
     expect(potentialOrdinaryRead(['REQ', 'public-notes-control', { kinds: [1] }])).toBe(false)
     const seal = JSON.parse(decrypt(invite.copy.content, getConversationKey(account, invite.copy.pubkey))) as Event
     const opening = () => starts.filter(text => text === invite.copy.content || text === seal.content).length
