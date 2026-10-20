@@ -1108,6 +1108,8 @@ test('the first unmute in a call with an agent asks once whether agents may hear
     await page.locator('#callExtras').click()
     await expect(page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' })).toHaveAttribute('aria-checked', 'false')
     await page.keyboard.press('Escape')
+    // Closed before More is pressed again, or the press closes it instead.
+    await expect(page.locator('#callMoreMenu')).toBeHidden()
     // The same switch, from the menu, shows the ear chip and the agent's tile says so.
     await page.locator('#callExtras').click()
     await page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' }).click()
@@ -1115,6 +1117,7 @@ test('the first unmute in a call with an agent asks once whether agents may hear
     await expect(page.locator('#agentsHearChip')).toBeVisible()
     await expect(page.locator('#agentsHearChip')).toHaveText('Agents hear you')
     await expect(page.locator('#agentsRow')).toContainText('can hear you')
+    await expect(page.locator('#callMoreMenu')).toBeHidden()
     await page.locator('#callExtras').click()
     await page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' }).click()
     await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'false')
