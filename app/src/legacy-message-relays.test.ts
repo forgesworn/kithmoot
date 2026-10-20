@@ -96,7 +96,7 @@ describe('legacy receive through real shared default-relay sockets', () => {
     const owned = selected.pool('default'); close.push(() => owned.close())
     const inbox = new LegacyMessageInbox({ account: identity.pubkey, current: () => true, blocked: () => false, changed: () => {},
       transport: { subscribe: owned.subscribe.bind(owned), close: owned.close.bind(owned) },
-      decrypt: (peer, ciphertext) => decrypt(accountKey, peer, ciphertext) })
+      decrypt: async (peer, ciphertext) => decrypt(accountKey, peer, ciphertext) })
     close.unshift(() => inbox.close()); inbox.open()
     const legacy = finalizeEvent({ kind: 4, created_at: Math.floor(Date.now() / 1000), tags: [['p', identity.pubkey]],
       content: await encrypt(authorKey, identity.pubkey, 'Legacy through approved default relay') }, authorKey)

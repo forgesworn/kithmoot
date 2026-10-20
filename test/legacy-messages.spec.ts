@@ -273,7 +273,7 @@ test('a real delayed sign-in closes the inbox and refuses reopening while the pr
   let pause = false, reached = false, release!: () => void
   const pending = new Promise<void>(resolve => { release = resolve })
   const context = await accountDevice(browser, baseURL!, account, false, async () => { if (pause) { reached = true; await pending } }, {
-    decrypt: (peer, ciphertext) => decrypt(account, peer, ciphertext),
+    decrypt: async (peer, ciphertext) => decrypt(account, peer, ciphertext),
     encrypt: async () => { throw Error('Unexpected legacy encryption') },
   })
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
