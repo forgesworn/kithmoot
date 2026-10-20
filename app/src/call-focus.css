@@ -265,6 +265,17 @@ html[data-call-bar] #deviceControls > .agentsConsent:not([hidden]) {
   border-radius: var(--r-m);
   background: var(--panel);
 }
+/* A phone: over the stage, so asking never pushes the bar off the screen. */
+@media (max-width: 599px) {
+  html[data-call-bar] #deviceControls > .agentsConsent:not([hidden]) {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + .35rem);
+    z-index: 7;
+    box-sizing: border-box;
+  }
+}
 html[data-call-bar] .agentsConsent > p { margin: 0; }
 html[data-call-bar] .agentsConsentTitle { font-weight: 650; }
 html[data-call-bar] .agentsConsentTitle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -469,11 +480,13 @@ html[data-call-bar] #deviceControls .agentsHearChip .i { width: 1rem; height: 1r
     padding: .1rem .3rem;
     gap: 0;
   }
+  html[data-call-bar] #deviceControls #callFullscreen { display: none; }
+  html[data-call-bar] #deviceControls > .agentsConsent:not([hidden]) { position: fixed; left: auto; right: 4.75rem; bottom: .5rem; width: min(24rem, 60vw); }
   html[data-call-bar] #deviceControls .callIcon,
   html[data-call-bar] #deviceControls .callBarButton > svg { width: 18px; height: 18px; }
   html[data-call-bar] #deviceControls > .callBarStatus,
   html[data-call-bar] #deviceControls > #speakingLine { display: none; }
-  html[data-call-bar] #deviceControls > :is(#mediaBlockedNote, #mediaRecoveryNote, #screenAudioNote, #redactionNote, #voiceFailureNotice, #companionNote, #recordingAuthorityHint, .otherDevice, .agentsConsent):not([hidden]) {
+  html[data-call-bar] #deviceControls > :is(#mediaBlockedNote, #mediaRecoveryNote, #screenAudioNote, #redactionNote, #voiceFailureNotice, #companionNote, #recordingAuthorityHint, .otherDevice):not([hidden]) {
     position: fixed;
     right: 4.75rem;
     bottom: .5rem;
@@ -484,8 +497,25 @@ html[data-call-bar] #deviceControls .agentsHearChip .i { width: 1rem; height: 1r
     padding: .35rem .5rem;
   }
   /* On the conversation the call is one short line. */
-  .callChatBar { min-height: 44px; padding-block: .1rem; }
-  .callChatBar .callDockActions button { min-height: 44px; }
+  /* ... and it sits in the header's own row, between the title and the
+     icons, so header, line and composer together stay under a third. */
+  #roomArea > .callChatBar:not([hidden]) {
+    position: absolute;
+    top: 0;
+    right: 6rem;
+    z-index: 3;
+    width: min(30rem, 52%);
+    height: 44px;
+    margin: 0;
+    padding: 0 .25rem;
+    flex-wrap: nowrap;
+    gap: .4rem;
+    background: transparent;
+    box-sizing: border-box;
+  }
+  .callChatBar .callDockActions { flex-wrap: nowrap; gap: .25rem; }
+  .callChatBar .callDockActions button { min-height: 44px; min-width: 0; padding-inline: .5rem; }
+  .callChatBar .callDockLine { flex-wrap: nowrap; white-space: nowrap; gap: .3rem; min-width: 0; }
 }
 
 /* --- More: a menu (app/src/call-more.ts), and the panels it opens ---------- */
@@ -617,3 +647,11 @@ html[data-call-chat-dragging] * { user-select: none; }
 .ringBannerText > span { color: var(--muted); font-size: var(--fs-1); }
 .ringBannerActions { display: flex; gap: .5rem; }
 .ringBannerActions button { margin: 0; min-height: 44px; min-width: 5.5rem; }
+
+/* Leave is the one red control, in the docked bar and over the conversation too. */
+#callDockLeave, #callChatBarLeave {
+  background: var(--call-leave, #b3261e);
+  border-color: var(--call-leave, #b3261e);
+  color: #ffffff;
+  font-weight: 650;
+}

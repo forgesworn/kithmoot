@@ -1257,6 +1257,7 @@ test('on a phone the call bar\'s Chat swaps the stage for the conversation, over
 })
 
 test('at 844 by 390 the call bar is a column on the end edge, and the bars leave the stage most of the height', async ({ browser, baseURL }) => {
+  test.skip(test.info().project.name === 'chromium-desktop', 'The installed window is never narrower than 900 px, so it never has the short landscape phone layout')
   const { context, page } = await visitor(browser, baseURL!, { width: 844, height: 390 }, { touch: true })
   try {
     await startCall(page)
@@ -1279,10 +1280,14 @@ test('at 844 by 390 the call bar is a column on the end edge, and the bars leave
     expect(stage === null || stage.height >= 390 * 0.5).toBe(true)
     // The conversation, with the one-line call over it: header, line and composer under a third.
     await page.locator('#callChatToggle').click()
-    const heights = await page.evaluate(() => ['#roomArea > .roomBar', '#callChatBar', '#chatForm'].map(s => document.querySelector(s)!.getBoundingClientRect().height))
+    const heights = await page.evaluate(() => ['#roomArea > .roomBar', '#chatForm'].map(s => document.querySelector(s)!.getBoundingClientRect().height))
     const total = heights.reduce((a, b) => a + b, 0)
+    // The call line shares the header's row, so it adds no height of its own.
+    const line = (await page.locator('#callChatBar').boundingBox())!
+    const head = (await page.locator('#roomArea > .roomBar').boundingBox())!
+    expect(line.y + line.height).toBeLessThanOrEqual(head.y + head.height + 1)
     console.log(`844x390 chat view bars: ${heights.map(h => h.toFixed(0)).join(' + ')} = ${total.toFixed(0)} of 390 (${(total / 390 * 100).toFixed(0)}%)`)
-    expect(total / 390).toBeLessThanOrEqual(0.4)
+    expect(total / 390, 'header, call line and composer').toBeLessThanOrEqual(1 / 3)
     const log = (await page.locator('#chatLog').boundingBox())!
     expect(log.height).toBeGreaterThan(100)
   } finally { await context.close() }

@@ -14714,7 +14714,7 @@ function renderDock(): void {
   const owner = mediaSession()
   const live = !!owner?.call
   const scope = live ? `${owner!.roomId}:${owner!.call!.id}` : ''
-  if (scope !== callSurfaceScope) { callSurfaceScope = scope; galleryCollapsed = live && innerHeight <= 540 }
+  if (scope !== callSurfaceScope) { callSurfaceScope = scope; galleryCollapsed = false }
   surface.hidden = !c && ($('roomArea').hidden || ($('callBay').hidden && $('whoIsHere').hidden && $('roomArea').dataset.mobileView !== 'call' && import.meta.env.VITE_DESKTOP !== 'true'))
   surface.toggleAttribute('data-live', live)
   surface.toggleAttribute('data-gallery-collapsed', live && galleryCollapsed)
