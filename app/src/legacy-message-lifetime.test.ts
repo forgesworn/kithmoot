@@ -14,6 +14,25 @@ function deferred() {
 }
 
 describe('legacy view lifetime through overlapping account work', () => {
+  it('a failed invalidation refuses account work and still settles its fence', async () => {
+    let dispatched = false
+    const states: boolean[] = []
+    const failure = Error('cleanup refused')
+    const lifetime = new LegacyMessageLifetime(() => { throw failure }, () => { states.push(lifetime.idle) })
+    await expect(lifetime.run(async () => { dispatched = true })).rejects.toBe(failure)
+    expect(dispatched).toBe(false); expect(lifetime.idle).toBe(true); expect(states).toEqual([true])
+  })
+
+  it('a final notification failure cannot strand a completed account transition', async () => {
+    let dispatched = false, fail = true
+    const failure = Error('view notification failed')
+    const lifetime = new LegacyMessageLifetime(() => {}, () => { if (lifetime.idle && fail) throw failure })
+    await expect(lifetime.run(async () => { dispatched = true })).rejects.toBe(failure)
+    expect(dispatched).toBe(true); expect(lifetime.idle).toBe(true)
+    fail = false
+    await expect(lifetime.run(async () => 'subsequent transition')).resolves.toBe('subsequent transition')
+  })
+
   it('refuses a new inbox until both concurrent transitions have settled', async () => {
     const first = deferred(), second = deferred(), invalidated: boolean[] = []
     let entryDisabled = false

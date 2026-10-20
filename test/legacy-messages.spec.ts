@@ -139,6 +139,10 @@ for (const boundary of ['close', 'sign-out', 'home-departure'] as const) {
       await signInAccount(page, baseURL!); await showLegacy(page); await page.locator('#legacyMessagesLoad').click()
       await page.getByRole('button', { name: 'Open message', exact: true }).click()
       await expect.poll(() => calls).toBe(1)
+      if (boundary === 'sign-out') expect(await page.evaluate(() => ({
+        pubkey: localStorage.getItem('signet:login.pubkey'), method: localStorage.getItem('signet:login.method'),
+        hasProof: localStorage.getItem('signet:login.authEvent') !== null,
+      }))).toEqual({ pubkey: getPublicKey(account), method: 'nip07', hasProof: true })
       if (boundary === 'close') await page.locator('#legacyMessagesClose').click()
       // Exercise actual application transitions while a provider is pending.
       // The programmatic click intentionally bypasses modal pointer blocking,
@@ -147,6 +151,13 @@ for (const boundary of ['close', 'sign-out', 'home-departure'] as const) {
       else await page.locator('#createRoomForm').evaluate(form => (form as HTMLFormElement).requestSubmit())
       await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
       await expect(page.locator('#legacyMessagesList')).toBeEmpty()
+      if (boundary === 'sign-out') {
+        await expect(page.locator('#signOut')).toHaveJSProperty('hidden', true)
+        await expect(page.locator('#legacyMessagesEntry')).toHaveJSProperty('hidden', true)
+        await expect(page.locator('#status')).toContainText("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.")
+        expect(await page.evaluate(() => ['signet:login.pubkey', 'signet:login.method', 'signet:login.authEvent']
+          .map(key => localStorage.getItem(key)))).toEqual([null, null, null])
+      }
       release()
       await expect.poll(() => returned).toBe(true)
       await expect.poll(() => page.evaluate(() => (window as typeof window & { testLegacyCompletions?: number }).testLegacyCompletions)).toBe(1)
@@ -156,6 +167,103 @@ for (const boundary of ['close', 'sign-out', 'home-departure'] as const) {
       await expect(page.locator('#legacyMessagesList')).toBeEmpty()
       await expect(page.locator('body')).not.toContainText('Never adopt this late plaintext')
       expect(calls).toBe(1); wire.assertReceiveOnly()
+    } finally { release(); publisher.close(); await context.close() }
+  })
+}
+
+test('extension restore requires explicit legacy loading and opening after the account returns', async ({ browser, baseURL }) => {
+  const account = generateSecretKey(), sender = generateSecretKey()
+  let restoring = false, reached = false, decrypts = 0, release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  const context = await accountDevice(browser, baseURL!, account, false, async () => { if (restoring) { reached = true; await pending } }, {
+    decrypt: async (peer, ciphertext) => { decrypts++; return decrypt(account, peer, ciphertext) },
+    encrypt: async () => { throw Error('Unexpected legacy encryption') },
+  })
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  try {
+    await publishLegacy(publisher, sender, getPublicKey(account), 'Only after explicit restored-account opening')
+    const page = await context.newPage(), wire = observeWire(page)
+    await signInAccount(page, baseURL!); await showLegacy(page); await page.locator('#legacyMessagesLoad').click()
+    await page.getByRole('button', { name: 'Open message', exact: true }).click()
+    await expect(page.locator('.legacyMessageText')).toHaveText('Only after explicit restored-account opening')
+    const before = wire.legacySubscriptions().length
+    restoring = true
+    await page.reload()
+    await expect.poll(() => reached).toBe(true)
+    await expect(page.locator('#legacyMessagesEntry')).toHaveJSProperty('hidden', true)
+    await expect(page.locator('#legacyMessagesList')).toBeEmpty()
+    expect(wire.legacySubscriptions()).toHaveLength(before); expect(decrypts).toBe(1)
+    release()
+    await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
+    await showLegacy(page)
+    await expect(page.locator('#legacyMessagesList')).toBeEmpty()
+    expect(wire.legacySubscriptions()).toHaveLength(before); expect(decrypts).toBe(1)
+    await page.locator('#legacyMessagesLoad').click()
+    const row = page.locator('#legacyMessagesList > li')
+    await expect(row).toHaveCount(1)
+    await expect(row.locator('.legacyMessageAuthor')).toHaveText(npubEncode(getPublicKey(sender)))
+    expect(decrypts).toBe(1)
+    await row.getByRole('button', { name: 'Open message', exact: true }).click()
+    await expect(row.locator('.legacyMessageText')).toHaveText('Only after explicit restored-account opening')
+    await expect(row.locator('.legacyMessageWarning')).toHaveText(warning)
+    expect(decrypts).toBe(2); wire.assertReceiveOnly()
+  } finally { release(); publisher.close(); await context.close() }
+})
+
+for (const confirmForget of [false, true]) {
+  test(`${confirmForget ? 'confirming' : 'cancelling'} Forget cannot adopt a pending old legacy result`, async ({ browser, baseURL }) => {
+    const account = generateSecretKey(), sender = generateSecretKey()
+    let started = false, returned = false, release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    const context = await accountDevice(browser, baseURL!, account, false, async () => {}, {
+      decrypt: async (peer, ciphertext) => { started = true; await pending; const text = await decrypt(account, peer, ciphertext); returned = true; return text },
+      encrypt: async () => { throw Error('Unexpected legacy encryption') },
+    })
+    const publisher = new NostrRelayPool([TEST_RELAY_WS])
+    try {
+      await publishLegacy(publisher, sender, getPublicKey(account), 'The old pending view must stay cleared')
+      const page = await context.newPage(), wire = observeWire(page)
+      await signInAccount(page, baseURL!); await showLegacy(page); await page.locator('#legacyMessagesLoad').click()
+      await page.getByRole('button', { name: 'Open message', exact: true }).click()
+      await expect.poll(() => started).toBe(true)
+      await page.evaluate(() => localStorage.setItem('kithmoot.legacy-journey-sentinel', 'synthetic fixture'))
+      await page.locator('#forgetBrowser').evaluate(button => (button as HTMLButtonElement).click())
+      const decision = page.getByRole('alertdialog', { name: 'Forget this browser?', exact: true })
+      await expect(decision).toBeVisible()
+      await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
+      await expect(page.locator('#legacyMessagesList')).toBeEmpty()
+      await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+      await expect(page.locator('#legacyMessagesEntry')).toBeDisabled()
+      await page.locator('#appSettingsClose').evaluate(button => (button as HTMLButtonElement).click())
+      if (confirmForget) {
+        await page.evaluate(() => { Object.defineProperty(window, 'legacyOriginalDocument', { value: true }) })
+        await decision.locator('#actionConfirm').click()
+        await page.waitForFunction(() => !Object.hasOwn(window, 'legacyOriginalDocument'))
+        await expect(page.locator('html')).toHaveAttribute('data-ordinary-startup', 'ready')
+        await expect(page.locator('#signOut')).toHaveJSProperty('hidden', true)
+        await expect.poll(() => page.evaluate(() => localStorage.getItem('kithmoot.legacy-journey-sentinel'))).toBeNull()
+        await expect(page.locator('#legacyMessagesEntry')).toHaveJSProperty('hidden', true)
+      } else {
+        await decision.locator('#actionCancel').click()
+        await expect(page.locator('#legacyMessagesEntry')).toBeEnabled()
+        await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
+        expect(await page.evaluate(() => localStorage.getItem('kithmoot.legacy-journey-sentinel'))).toBe('synthetic fixture')
+        await showLegacy(page)
+        await page.locator('#legacyMessagesLoad').click()
+        await expect(page.locator('#legacyMessagesList > li')).toHaveCount(1)
+      }
+      release()
+      await expect.poll(() => returned).toBe(true)
+      if (!confirmForget) {
+        await expect.poll(() => page.evaluate(() => (window as typeof window & { testLegacyCompletions?: number }).testLegacyCompletions)).toBe(1)
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+        await expect(page.locator('.legacyMessageText')).toBeHidden()
+        await expect(page.locator('.legacyMessageWarning').last()).toHaveText(warning)
+      }
+      // Confirmation navigates to a new document. No abort or old SDK-return
+      // observation is inferred there; the new page must remain signed out.
+      await expect(page.locator('body')).not.toContainText('The old pending view must stay cleared')
+      wire.assertReceiveOnly()
     } finally { release(); publisher.close(); await context.close() }
   })
 }
