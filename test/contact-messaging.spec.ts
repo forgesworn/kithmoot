@@ -100,8 +100,8 @@ test('Signet contacts start a private conversation without a shared room, delive
     expect(new URL(alice.url()).hash).toBe(invitation)
     await expect(alice.locator('#chatLog')).toContainText('Hello Alice, this is my private reply')
     // Preserve source room ownership and the collaboration controls.
-    await expect(alice.locator('#mobileWorkspaceProjects:visible, #workspaceSharedProjects:visible').first()).toBeVisible()
-    await expect(alice.locator('#mobileWorkspaceWork:visible, #workspaceWork:visible').first()).toHaveText('Boards')
+    await expect(alice.locator('#newMenuButton:visible')).toBeVisible()
+    await expect(alice.locator('#railBoards:visible')).toContainText('Boards')
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 

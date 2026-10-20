@@ -306,6 +306,7 @@ test('failed relay publication leaves creation retryable and never presents a re
     })
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#create').click()
     // M6: every relay rejecting the event collapses to the plain network
     // instruction rather than the relay's own reason ("blocked: test rejection").

@@ -24,3 +24,6 @@
 .taskBoardColumn { flex: 0 0 min(19rem, 85vw); min-width: 0; }
 .taskBoardColumn > h3 { padding: .5rem; }
 .taskBoardColumn .workspaceWorkCard { margin-bottom: .75rem; background: var(--raised); }
+/* The note that nothing matches spans the row; as a flex item of the task
+   boards it was squeezed to a letter wide. */
+#workspaceWorkCards > .workEmpty { flex: 0 0 100%; grid-column: 1 / -1; }

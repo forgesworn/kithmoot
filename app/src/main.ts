@@ -3091,8 +3091,10 @@ function renderContactInbox(): void {
   }
   for (const row of previous.values()) row.remove()
   for (const id of ['roomContacts']) $(id).textContent = invitations.length ? `Contacts (${invitations.length})` : 'Contacts'
-  // The same invitations are rows above the chats, and count on the rail.
-  renderRooms()
+  // The same invitations are rows above the chats, and count on the rail. The
+  // inbox can start before the list's own state exists (at load, restoring a
+  // sign-in), and its first paint then picks them up instead.
+  try { renderRooms() } catch { /* Not drawn yet. */ }
 }
 async function messageContact(peer: string, name?: string): Promise<void> {
   if (startingContactMessage || !mayMessageContact(peer)) return
@@ -15240,7 +15242,13 @@ workspaceWork = new WorkspaceWorkPanel(document, {
   projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
   projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
   agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
-  currentRoomTasks: {available: () => !!session, open: async () => {if (!session) throw new Error('Open a chat before viewing its tasks'); openDestination('chats'); await assignmentPanel.openAssignment()}},
+  currentRoomTasks: {available: () => !!session, open: async () => {
+    if (!session) throw new Error('Open a chat before viewing its tasks')
+    showRoomPane()
+    // Focus comes back to the room's own Boards control when the panel closes.
+    ;[$('mobileWork'), $('openAssignments')].find(button => button.getClientRects().length)?.focus({ preventScroll: true })
+    await assignmentPanel.openAssignment()
+  }},
   signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
   openOrigin: async (room, target) => {
     const account = nostrSession?.pubkey, generation = identityGeneration

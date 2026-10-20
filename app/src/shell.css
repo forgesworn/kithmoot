@@ -321,11 +321,12 @@ html[data-destination='boards'] #roomNav { display: none; }
   #listColumn { grid-row: 2; background: var(--bg); }
   main { grid-row: 1; }
   html[data-level='detail'] main, html[data-destination='boards'] main { grid-row: 1 / span 2; }
-  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main { padding-block: 0; overflow: visible; }
+  /* A docked call, or a call's gallery, stays over the list; it may take up to
+     over half the screen and scrolls inside that. */
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main { padding-block: 0; max-height: 55dvh; overflow-y: auto; }
   html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main > :not(#workspaceContent),
-  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) #workspaceContent > :not(#callSurface),
-  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) #callSurface > :not(#callDock) { display: none; }
-  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main:not(:has(#callDock:not([hidden]))) { display: none; }
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) #workspaceContent > :not(#callSurface) { display: none; }
+  html:not([data-destination='boards'])[data-level='list']:not([data-list='off']) main:not(:has(#callSurface:not([hidden]))) { display: none; }
   html[data-level='detail'] #listColumn, html[data-destination='boards'] #listColumn { display: none; }
   /* Nothing to list yet: the start page is all there is. */
   html[data-list='off'][data-destination='chats'] main { grid-row: 1 / span 2; }

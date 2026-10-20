@@ -189,7 +189,7 @@ test('admitted members crop, share, recover, replace and remove an inline room l
 
     await ada.locator('#roomSheetClose').click()
     await ada.setViewportSize({ width: 1440, height: 900 })
-    await ada.locator('#workspaceBrandHome').click()
+    await leaveToChats(ada)
     const room = keeper.roomId
     const row = ada.locator(`#roomList .roomRow[data-room="${room}"]`)
     await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', red!)
@@ -205,7 +205,7 @@ test('admitted members crop, share, recover, replace and remove an inline room l
     await choose(bob, png, 'End')
     await bob.locator('.logoEditor [data-action=cancel]').click()
     await expect(ada.locator('#roomLogo img')).toHaveAttribute('src', red!)
-    await ada.locator('#workspaceBrandHome').click()
+    await leaveToChats(ada)
     const activity = await row.locator('.roomTime').textContent()
     await bob.getByRole('button', { name: 'Change room logo', exact: true }).click()
     await choose(bob, png, 'End')

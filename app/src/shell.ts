@@ -65,7 +65,7 @@ function render(): void {
   // Below 900 px with the main pane hidden, the list is what a screen reader
   // should find as the page's main landmark. The real main is not rendered
   // then, so there is still exactly one.
-  const dock = el('callDock')
+  const dock = el('callSurface')
   const listIsMain = onePane() && destination !== 'boards' && level === 'list' && !(dock && !dock.hidden)
   const column = el('listColumn')
   if (column) {
@@ -296,7 +296,7 @@ function init(): void {
   const hint = el('searchHint')
   if (hint) hint.textContent = isMac ? '⌘K' : 'Ctrl K'
   // A docked call keeps a strip of the main pane on screen over the list.
-  const dock = el('callDock')
+  const dock = el('callSurface')
   if (dock) new MutationObserver(render).observe(dock, { attributes: true, attributeFilter: ['hidden'] })
   ONE_PANE.addEventListener('change', render)
   COMPACT.addEventListener('change', placeEnd)
