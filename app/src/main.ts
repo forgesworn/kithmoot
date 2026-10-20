@@ -28,6 +28,9 @@ import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import { ContactInbox } from './contact-inbox.js'
+import { FollowBook } from './follow-list.js'
+import { PeopleView, type PeopleModel, type Person } from './people.js'
+import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import type { ContactInvitation } from '../../src/contact-invitation.js'
 import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
 import { showChannelCheckDialog } from './channel-check-dialog.js'
@@ -357,6 +360,9 @@ installIcons()
  * left in history. They live in memory only until the code has been looked up.
  */
 let linkWords: { code: string; words: string } | undefined
+/** Invitations at the top of Chats (invitations.ts), made on first render.
+ *  Declared this early because the list can render before People is set up. */
+let invitationsView: InvitationsView | undefined
 {
   const arrival = readCodeArrival(location.href, href => { try { parseRoomLink(href); return true } catch { return false } })
   if (arrival) {
@@ -2548,7 +2554,9 @@ function callOrigin(owner = mediaSession()): ShareSource['origin'] {
   const roomName = dockedCall?.session === owner ? dockedCall.label : owner === session ? currentRoomLabel() : undefined
   if (!roomName) return undefined
   const project = sharedProjects.forRoom(owner.roomId).find(p => `shared:${p.key}` === callProjectContext(owner))
-  return { roomId: owner.roomId, callId: owner.call?.id, roomName, projectName: project?.definition?.name ?? projectOf({ roomId: owner.roomId }) }
+  const known = knownRoom(roomStore(), owner.roomId)
+  const direct = known ? dmPeerOf(known) !== undefined : false
+  return { roomId: owner.roomId, callId: owner.call?.id, roomName, ...(direct ? { direct } : {}), projectName: project?.definition?.name ?? projectOf({ roomId: owner.roomId }) }
 }
 
 /** Bumped only when this device's call media is torn down, so a capture
@@ -2674,6 +2682,7 @@ const profiles = new ProfileBook({
       repaintActiveChat()
     }
     renderRooms()
+    renderPeople()
   },
 })
 
@@ -2681,6 +2690,17 @@ let profilesEnabled = profilePreference(relayStorage)
 profiles.setEnabled(profilesEnabled)
 let nip05Verify = nip05VerifyPreference(relayStorage)
 profiles.setNip05Automatic(nip05Verify)
+
+/** People (app/src/people.ts), mounted once the shell's containers exist. */
+let people: PeopleView | undefined
+/** The signed-in account's follow list, for People's Following section:
+ *  the same relays and the same switch as profile lookups (follow-list.ts). */
+const follows = new FollowBook({
+  relays: () => PROFILE_RELAYS,
+  transport: urls => relayConnections.pool('follows', urls),
+  onChange: () => { renderPeople(); renderInvitations() },
+})
+follows.setEnabled(profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
 $('roomProfileSettings').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
 $('lookupProfiles').addEventListener('change', () => {
@@ -2688,6 +2708,7 @@ $('lookupProfiles').addEventListener('change', () => {
   profilesEnabled = enabled
   try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
   profiles.setEnabled(enabled)
+  follows.setEnabled(enabled)
   $('roomProfileSettings').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
   if (session) {
     render(session.participants(), meParticipant)
@@ -3011,10 +3032,17 @@ function closeContactInbox(): void {
   ;($('contactsDialog') as HTMLDialogElement).close()
   renderContactInbox()
 }
+/** Who this account may start a private chat with from People: a Signet
+ *  contact it was granted, a contact card read on this device, or someone
+ *  its public follow list names. A block always wins, and a Signet copy
+ *  that cannot be read refuses everyone (`contactIsBlocked`). Incoming
+ *  invitations are filtered by blocks alone, as before. */
 function mayMessageContact(peer: string): boolean {
+  if (!nostrSession?.signer.nip44 || !nostrSession.signer.capabilities.canSignEvents || peer === nostrSession.pubkey) return false
+  if (contactIsBlocked(peer)) return false
   const view = grantedContactView
-  return !!nostrSession?.signer.nip44 && nostrSession.signer.capabilities.canSignEvents && peer !== nostrSession.pubkey
-    && !!view && (view.status === 'ready' || view.status === 'stale') && !view.blocked.has(peer) && view.contacts.some(contact => contact.pubkey === peer)
+  const granted = !!view && (view.status === 'ready' || view.status === 'stale') && view.contacts.some(contact => contact.pubkey === peer)
+  return granted || contactFor(deviceStore, peer) !== undefined || follows.follows(peer)
 }
 async function startContactInbox(account: SignetSession): Promise<void> {
   closeContactInbox()
@@ -3114,9 +3142,12 @@ async function messageContact(peer: string, name?: string): Promise<void> {
   let createdRoom: string | undefined, retained = false
   try {
     const defaults = relayConnections.configuration('default').filter(relay => relay.read || relay.write).map(relay => relay.url)
-    const lists = await lookUpDmRelayLists([account.pubkey, peer], distinctRelays([...defaults, ...RELAYS, ...PROFILE_RELAYS]), [KIND_DM_RELAYS, KIND_RELAY_LIST])
+    // The other person's relay lists are asked for only while public profile
+    // lookups are on, as in a room (`relaysForConversationWith`); without
+    // them the invitation goes to this account's configured relays.
+    const lists = await lookUpDmRelayLists(profilesEnabled ? [account.pubkey, peer] : [account.pubkey], distinctRelays([...defaults, ...RELAYS, ...PROFILE_RELAYS]), [KIND_DM_RELAYS, KIND_RELAY_LIST])
     if (!current()) throw new Error('Your account or contact permission changed.')
-    const own = inboxRelays(lists, account.pubkey), theirs = inboxRelays(lists, peer)
+    const own = inboxRelays(lists, account.pubkey), theirs = profilesEnabled ? inboxRelays(lists, peer) : []
     const dmRelays = relaysForPrivateConversation({ mine: own, theirs, fallback: defaults })
     const secret = generateRoomSecret(), created = createRoomInvitation(true), { roomId } = deriveRoom(secret)
     createdRoom = roomId
@@ -3153,10 +3184,12 @@ function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
-    changed: view => { grantedContactView = view; session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox() },
+    changed: view => { grantedContactView = view; session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
     message: messageContact,
   })
   grantedContactsPanel.reconcile()
+  follows.setAccount(nostrSession?.pubkey)
+  renderPeople()
   const input = $('displayName') as HTMLInputElement
   if (document.activeElement !== input) input.value = typedName
 
@@ -5185,13 +5218,13 @@ function contactsChanged(): void {
   boxDiscovery?.reconcile()
   relayConnections.circleChanged()
   renderContacts()
+  renderPeople()
   repaint()
   renderLaneNote()
 }
 
-function addContact(text: string): boolean {
+function addContact(text: string, status: HTMLElement = $('contactCardStatus')): boolean {
   const r = addContactFromCard(deviceStore, text, nowSeconds())
-  const status = $('contactCardStatus')
   if (!r.ok) {
     status.textContent = `${r.words} (step ${r.step}: ${r.reason})`
     return false
@@ -5206,7 +5239,7 @@ function addContact(text: string): boolean {
  *  made here, no box. Seven days. Signed by whatever holds the identity,
  *  which sees a kind, a time and a content it can read. Handed over, never
  *  posted. */
-async function showMyCard(): Promise<void> {
+async function showMyCard(out = $('myCardOut') as HTMLInputElement, qr = $('myCardQr') as HTMLCanvasElement): Promise<void> {
   const rz = bytesToHex(schnorr.getPublicKey(myRendezvousSecret(deviceStore, () => randomBytes(32))))
   const identity = currentIdentity()
   const card = await buildCardWith(identity.pubkey, (unsigned) => identity.signEvent(unsigned), {
@@ -5218,10 +5251,8 @@ async function showMyCard(): Promise<void> {
     ttlSeconds: 7 * 24 * 3600,
   })
   const link = cardLink(joinLinkBase(), card)
-  const out = $('myCardOut') as HTMLInputElement
   out.value = link
   out.hidden = false
-  const qr = $('myCardQr') as HTMLCanvasElement
   qr.hidden = false
   await renderQr(qr, link)
 }
@@ -6905,6 +6936,12 @@ function renderRoomWho(): void {
   const views = session?.participants() ?? []
   const where = conversationLabel(currentChannel)
   renderAgentActivity()
+  // A private chat says what it is, as the spec draws it (design-calm-shell 6.2).
+  const me = meParticipant || currentParticipant()
+  if (currentChannel === undefined && me && dmPeer(roomPolicy, me)) {
+    line.textContent = isQuietPolicy(roomPolicy) ? 'Quiet chat' : 'Private chat'
+    return
+  }
   if (views.length === 0) {
     line.textContent = where
     return
@@ -9930,7 +9967,10 @@ function conversationTabs(): Array<[string | undefined, string]> {
 }
 
 function conversationMessages(name: string | undefined): ChatMessage[] {
-  return (name === undefined ? session?.chat : channelLogs.get(name))?.messages() ?? []
+  if (name !== undefined) return channelLogs.get(name)?.messages() ?? []
+  // A room that is still joining has no chat yet, and the chats list beside
+  // it counts unread on a timer, so a count taken then is nothing, not a throw.
+  try { return session?.chat.messages() ?? [] } catch { return [] }
 }
 
 function unreadMessageIds(name: string | undefined): Set<string> {
@@ -13124,40 +13164,6 @@ function listHeading(text: string): HTMLLIElement {
   return row
 }
 
-/** One waiting invitation: who asked, and the two answers. Accepting opens
- *  the conversation; declining clears it on this device. */
-function invitationRow(invitation: ReturnType<typeof waitingInvitations>[number]): HTMLLIElement {
-  const peer = invitation.sender
-  const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name ?? shortKey(peer)
-  const row = document.createElement('li')
-  row.className = 'roomRow invitationRow'
-  row.dataset.invitation = invitation.id
-  const text = document.createElement('span')
-  text.className = 'roomText'
-  const title = document.createElement('span')
-  title.className = 'roomName'
-  title.textContent = name
-  const note = document.createElement('span')
-  note.className = 'roomPreview'
-  note.textContent = 'wants a private conversation'
-  text.append(title, note)
-  const accept = document.createElement('button')
-  accept.type = 'button'
-  accept.className = 'primary'
-  accept.dataset.action = 'accept'
-  accept.textContent = 'Accept'
-  accept.setAttribute('aria-label', `Accept private conversation with ${name}`)
-  accept.addEventListener('click', () => { void openContactInvitation(invitation).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) })
-  const decline = document.createElement('button')
-  decline.type = 'button'
-  decline.dataset.action = 'decline'
-  decline.textContent = 'Decline'
-  decline.setAttribute('aria-label', `Decline private conversation with ${name}`)
-  decline.addEventListener('click', () => { void contactInbox?.dismiss(invitation.id).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) })
-  row.append(text, decline, accept)
-  return row
-}
-
 let roomListPress = false, roomListPaintPending = false
 document.addEventListener('pointerdown', event => {
   if ((event.target as Element | null)?.closest('#roomList .open')) roomListPress = true
@@ -13218,6 +13224,7 @@ function renderRooms(): void {
   }
   const invitations = waitingInvitations()
   setCounts({ chats: [...rooms].reduce((total, room) => total + unreadOf(room), 0) + invitations.length })
+  renderInvitations()
   const hidden = disconnectedAccountRooms()
   // A signed-in account keeps the list on screen even before its first room
   // or project arrives: the reconnect banner lives in it, and it must stay
@@ -13298,11 +13305,6 @@ function renderRooms(): void {
   // A repaint must not replace a row between a press and its click.
   if (roomListPress) { roomListPaintPending = true; return }
   list.innerHTML = ''
-  // Invitations sit above everything while any wait.
-  if (invitations.length) {
-    list.append(listHeading('Invitations'))
-    for (const invitation of invitations) list.append(invitationRow(invitation))
-  }
   // Rooms that self-destructed, greyed, naming none (D2), until dismissed or
   // a week has passed: nobody is left wondering where a room went.
   if (!query && listFilter === 'all') for (const tombstone of destroyed) list.append(tombstoneRow(tombstone.id, tombstone.at))
@@ -13497,10 +13499,12 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   if (state.unreadCount > 0) row.classList.add('hasUnread')
   const avatar = document.createElement('span')
   avatar.className = 'roomAvatar'
-  avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(room.roomId))
-  avatar.setAttribute('aria-hidden', 'true')
-  avatar.textContent = avatarInitial(label)
   const peer = dmPeerOf(room)
+  // A private chat wears the person's avatar: their initial and the colour
+  // People gives them.
+  avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(peer ?? room.roomId))
+  avatar.setAttribute('aria-hidden', 'true')
+  avatar.textContent = avatarInitial(peer ? dmPersonName(room, peer) : label)
   if (!peer && !isQuietRoom(room)) renderLogo(avatar, displayedRoomLogo(room.roomId, project), label)
   const picture = peer ? profiles.get(peer)?.picture : undefined
   if (picture) {
@@ -13692,9 +13696,17 @@ function projectRoomName(roomId: string | undefined): string | undefined {
 function knownRoomLabel(room: KnownRoom): string {
   const peer = dmPeerOf(room)
   if (!peer) return roomLabel({ roomId: room.roomId, name: room.name ?? projectRoomName(room.roomId) })
-  // The name remembered when the conversation was started or received, then
-  // whatever a profile says, then the key. A DM link carries no room name.
-  return `${isQuietRoom(room) ? 'Quiet' : 'Private'}: ${room.name ?? shownAs(peer).name ?? shortKey(peer)}`
+  // A private chat is called by the person, as in any messenger (design-calm-shell
+  // 6.2); a quiet one keeps its word, because it works differently.
+  const name = dmPersonName(room, peer)
+  return isQuietRoom(room) ? `Quiet: ${name}` : name
+}
+
+/** The person on the other end of a known private chat: the name remembered
+ *  when the conversation was started or received, then whatever a profile
+ *  says, then the key. A DM link carries no room name. */
+function dmPersonName(room: KnownRoom, peer: string): string {
+  return room.name ?? shownAs(peer).name ?? shortKey(peer)
 }
 
 /** The room this page is in, named the same way. */
@@ -13710,7 +13722,7 @@ function dmPeerName(peer: string): string {
 function currentRoomLabel(): string {
   const me = meParticipant || currentParticipant()
   const peer = me ? dmPeer(roomPolicy, me) : undefined
-  if (peer) return `${isQuietPolicy(roomPolicy) ? 'Quiet' : 'Private'}: ${dmPeerName(peer)}`
+  if (peer) return isQuietPolicy(roomPolicy) ? `Quiet: ${dmPeerName(peer)}` : dmPeerName(peer)
   return roomLabel({ roomId: currentRoomId() ?? '', name: roomName })
 }
 
@@ -14306,7 +14318,8 @@ function renderDock(): void {
   surface.toggleAttribute('data-gallery-collapsed', live && galleryCollapsed)
   $('callSurfaceHeader').hidden = !live
   const origin = callOrigin(owner)
-  const originText = origin ? `Call in ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
+  // A private chat's call is with the person, not in a room.
+  const originText = origin ? `Call ${origin.direct ? 'with' : 'in'} ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
   $('callSurfaceLogo').hidden = !live || !owner
   if (live && owner) {
     const project = callProjectContext(owner)
@@ -15114,6 +15127,253 @@ $('contactInboxRetry').addEventListener('click', () => {
   if (contactInbox?.snapshot().ready) void contactInbox.retry()
   else if (nostrSession) void startContactInbox(nostrSession)
 })
+
+// ---- People ----------------------------------------------------------------
+// The People destination (app/src/people.ts) fills the shell's #peopleList and
+// #peoplePane. Where each person comes from, who may be messaged and what the
+// buttons do are decided here, over the same paths the Contacts dialog uses.
+
+function peopleModel(): PeopleModel {
+  const self = nostrSession?.pubkey
+  const view = grantedContactView
+  const byKey = new Map<string, Person>()
+  const add = (pubkey: string, person: Omit<Person, 'pubkey' | 'picture'>): void => {
+    if (pubkey === self || contactIsBlocked(pubkey) || byKey.has(pubkey)) return
+    const profile = profiles.get(pubkey)
+    byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name, ...(profile?.picture ? { picture: profile.picture } : {}) })
+  }
+  if (view && (view.status === 'ready' || view.status === 'stale')) {
+    for (const contact of view.contacts) add(contact.pubkey, {
+      section: 'contacts', source: 'signet', ...(contact.name ? { name: contact.name } : {}),
+      ...(contact.tier && contact.tier !== 'none' ? { tier: contact.tier } : {}),
+      ...(contact.checks.length ? { checked: true } : {}),
+    })
+  }
+  for (const card of contacts(deviceStore)) add(card.p, { section: 'contacts', source: 'card', ...(card.name ? { name: contactLabel(card) } : {}) })
+  const contactsList = [...byKey.values()]
+  const snapshot = follows.snapshot()
+  // A Nostr address shows only once checked; ProfileBook holds it only then.
+  for (const pubkey of snapshot.pubkeys) {
+    const address = profiles.get(pubkey)?.nip05
+    add(pubkey, { section: 'following', ...(address ? { address } : {}) })
+  }
+  const following = [...byKey.values()].filter(person => person.section === 'following')
+  const contactsNote = view?.status === 'stale' ? 'Open Signet to refresh your contacts. Names may be out of date.'
+    : view?.status === 'lapsed' ? 'Open Signet and unlock your contacts to see their names again.'
+    : view?.status === 'revoked' ? 'Your Signet contact grant was withdrawn.'
+    : view?.status === 'unavailable' ? 'Your contacts need attention. Choose Add a contact, then Link Signet contacts.'
+    : undefined
+  return { contacts: contactsList, following, followStatus: snapshot.status, ...(contactsNote ? { contactsNote } : {}) }
+}
+
+/** Invitations (invitations.ts): the inbox's waiting private-chat requests,
+ *  named by the same rule as People and drawn in the shell's slot. */
+function invitationModel(): WaitingInvitation[] {
+  const view = grantedContactView
+  const signet = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts : []
+  // The same list the Chats count reads, so the count never shows rows that are not there.
+  const waiting = waitingInvitations()
+  // Whether a sender is followed needs the account's own follow list, which
+  // is otherwise fetched only when People opens. Asking for it names nobody.
+  if (waiting.length) queueMicrotask(() => follows.ensure())
+  return waiting.map(invitation => {
+    const peer = invitation.sender
+    const contact = signet.find(entry => entry.pubkey === peer), card = contactFor(deviceStore, peer)
+    const known = !!contact || !!card || follows.follows(peer)
+    // Somebody unknown is never looked up: asking public relays about them
+    // would tell those relays who wrote to this account.
+    if (known) profiles.want([peer])
+    const profile = known ? profiles.get(peer) : undefined
+    return { id: invitation.id, pubkey: peer, sentAt: invitation.sentAt, ...inviterIdentity({
+      ...(contact?.name ? { signetName: contact.name } : {}), ...(card?.name ? { cardName: contactLabel(card) } : {}), known,
+      ...(profile ? { profile: { ...(profile.name ? { name: profile.name } : {}), ...(profile.picture ? { picture: profile.picture } : {}) } } : {}),
+    }) }
+  })
+}
+
+function renderInvitations(): void {
+  const section = document.getElementById('chatInvitations')
+  if (!section) return
+  invitationsView ??= new InvitationsView(section, invitationModel, {
+    accept: async id => {
+      const invitation = waitingInvitations().find(entry => entry.id === id)
+      if (invitation) await openContactInvitation(invitation)
+    },
+    decline: async id => { await contactInbox?.dismiss(id) },
+    when: sentAt => whenWords(sentAt),
+  })
+  invitationsView.render()
+}
+
+function renderPeople(): void {
+  if (people && document.getElementById('peopleList')?.hidden === false) people.render()
+}
+
+function peopleBlockedReason(pubkey: string): string | undefined {
+  if (!nostrSession) return 'Sign in with Nostr to message people.'
+  if (!nostrSession.signer.nip44 || !nostrSession.signer.capabilities.canSignEvents) return 'Your signer cannot encrypt, so it cannot start a private chat.'
+  if (contactIsBlocked(pubkey)) return 'You have blocked this person in Signet.'
+  if (!mayMessageContact(pubkey)) return 'Only your contacts and the people you follow can be messaged from here.'
+  return undefined
+}
+
+/** The private chat with this person this account already has, if any. */
+function privateChatWith(peer: string): KnownRoom | undefined {
+  const self = nostrSession?.pubkey
+  if (!self) return undefined
+  return preferredDm(knownRooms(roomStore()).filter(room => !isQuietRoom(room) && (() => {
+    try { return dmPeer(parseRoomLink(room.link).policy, self) === peer } catch { return false }
+  })()).map(room => ({ room: room.roomId, sentAt: room.openedAt, known: room })))?.known
+}
+
+function inPrivateChatWith(peer: string): boolean {
+  const room = currentRoomId()
+  return !!session && !!room && privateChatWith(peer)?.roomId === room
+}
+
+/** Message: open the private chat, or start one. Returns why not, if it did not open. */
+async function messagePerson(person: Person): Promise<string | undefined> {
+  contactInboxMessage = ''
+  await messageContact(person.pubkey, person.name)
+  if (inPrivateChatWith(person.pubkey)) { openDestination('chats'); return undefined }
+  return contactInboxMessage || 'The private chat did not open. Try again.'
+}
+
+/** Voice and Video: open the private chat, then start a call in it with the
+ *  microphone on, and the camera too for Video. The other person's device
+ *  rings only if it already has this private chat (spec D4); a first call
+ *  reaches them as an invitation to the chat. */
+async function callPerson(person: Person, video: boolean): Promise<string | undefined> {
+  const failed = await messagePerson(person)
+  if (failed) return failed
+  await joinCall()
+  if (!onCall()) return undefined
+  if (!micTrack) await toggleMic()
+  if (video && !cameraTrack) await toggleCamera()
+  return undefined
+}
+
+/** Invite to a room from People: open the private chat with them, then send
+ *  the room there as today's sealed in-room invite. The private inbox
+ *  carries private-chat invitations only, so a group room travels inside a
+ *  room the two of them share, as it does from a member's row. */
+async function invitePerson(person: Person): Promise<string | undefined> {
+  const failed = await messagePerson(person)
+  if (failed) return failed
+  openInviteToRoom(person.pubkey, person.name)
+  return undefined
+}
+
+/** A small sheet built here rather than in index.html, for Add a contact. */
+function peopleSheet(id: string, title: string, opener: HTMLElement, fill: (body: HTMLElement, close: () => void) => void): void {
+  document.getElementById(id)?.remove()
+  const dialog = document.createElement('dialog')
+  dialog.id = id
+  dialog.className = 'profileSettings'
+  dialog.setAttribute('aria-labelledby', `${id}Title`)
+  const head = document.createElement('div')
+  head.className = 'profileSettingsHeader'
+  const heading = document.createElement('h2')
+  heading.id = `${id}Title`
+  heading.textContent = title
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.textContent = 'Close'
+  const done = () => dialog.close()
+  close.addEventListener('click', done)
+  head.append(heading, close)
+  const body = document.createElement('div')
+  dialog.append(head, body)
+  fill(body, done)
+  dialog.addEventListener('close', () => { dialog.remove(); if (opener.isConnected) opener.focus({ preventScroll: true }) })
+  document.body.append(dialog)
+  dialog.showModal()
+}
+
+function pasteContactCard(opener: HTMLElement): void {
+  peopleSheet('peopleCardDialog', 'Add a contact', opener, (body, close) => {
+    const note = document.createElement('p')
+    note.className = 'note'
+    note.textContent = 'Paste the contact card or link the person gave you. Reading it needs nothing from the network.'
+    const form = document.createElement('form')
+    form.className = 'contactCardForm'
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.autocomplete = 'off'
+    input.placeholder = 'Paste a contact card or its link'
+    input.setAttribute('aria-label', 'Contact card or its link')
+    const add = document.createElement('button')
+    add.type = 'submit'
+    add.className = 'primary'
+    add.textContent = 'Add contact'
+    const status = document.createElement('p')
+    status.className = 'note'
+    status.setAttribute('role', 'status')
+    form.append(input, add)
+    form.addEventListener('submit', event => {
+      event.preventDefault()
+      if (addContact(input.value, status)) { input.value = ''; setTimeout(close, 900) }
+    })
+    body.append(note, form, status)
+    queueMicrotask(() => input.focus())
+  })
+}
+
+function showMyCardSheet(opener: HTMLElement): void {
+  peopleSheet('peopleMyCard', 'My card', opener, body => {
+    const note = document.createElement('p')
+    note.className = 'note'
+    note.textContent = 'Hand it to the person it is for. A card lets its holder reach you: never post it to a relay, a profile or a website.'
+    const out = document.createElement('input')
+    out.readOnly = true
+    out.hidden = true
+    out.setAttribute('aria-label', 'My contact card link')
+    const qr = document.createElement('canvas')
+    qr.hidden = true
+    qr.width = qr.height = 320
+    qr.setAttribute('aria-label', 'My contact card as a QR code')
+    const copy = document.createElement('button')
+    copy.type = 'button'
+    copy.textContent = 'Copy card'
+    copy.addEventListener('click', () => { void navigator.clipboard?.writeText(out.value).then(() => { copy.textContent = 'Copied' }) })
+    body.append(note, out, qr, copy)
+    showMyCard(out, qr).catch(error => { note.textContent = describeError(error) })
+  })
+}
+
+function linkSignetContacts(opener: HTMLElement): void {
+  contactsReturn = opener
+  const dialog = $('contactsDialog') as HTMLDialogElement
+  ;($('signetContactsAccess') as HTMLDetailsElement).open = true
+  renderContactInbox()
+  if (!dialog.open) dialog.showModal()
+  $('signetContactsConnect').focus()
+}
+
+{
+  const list = document.getElementById('peopleList'), pane = document.getElementById('peoplePane')
+  if (list && pane) people = new PeopleView(list, pane, peopleModel, {
+    blockedReason: peopleBlockedReason,
+    message: messagePerson,
+    call: callPerson,
+    invite: invitePerson,
+    privateChat: peer => {
+      const room = privateChatWith(peer)
+      return room ? { label: knownRoomLabel(room), open: () => { openDestination('chats'); void switchRoom(room) } } : undefined
+    },
+    want: pubkeys => profiles.want(pubkeys),
+    pasteCard: pasteContactCard,
+    linkSignet: linkSignetContacts,
+    showMyCard: showMyCardSheet,
+    openDetail: openDetail,
+    closeDetail: closeDetail,
+  })
+  document.addEventListener('shell:destination', event => {
+    if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'people') return
+    follows.refresh()
+    people?.render()
+  })
+}
 
 const assignmentPanel = new AssignmentPanel(document, () => {
   return (session?.participants() ?? []).map(p => {

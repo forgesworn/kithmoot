@@ -23,9 +23,9 @@ for (const privateChat of [false, true]) {
         await b!.getByRole('button', { name: /^Message Ada privately/ }).click()
         await expect(a!.locator('#chatLog')).toContainText('started a private conversation with you')
         await b!.getByRole('button', { name: /^Message Ada privately/ }).click()
-        await expect(b!.locator('#roomTitle')).toHaveText('Private: Ada')
-        await a!.locator('#chatLog .system').getByRole('button', { name: 'Open Private: Bob' }).click()
-        await expect(a!.locator('#roomTitle')).toHaveText('Private: Bob')
+        await expect(b!.locator('#roomTitle')).toHaveText('Ada')
+        await a!.locator('#chatLog .system').getByRole('button', { name: 'Open Bob' }).click()
+        await expect(a!.locator('#roomTitle')).toHaveText('Bob')
       }
       await turnOnMedia(a!)
       await expect(b!.locator('#callToggle')).toHaveText('Join call')

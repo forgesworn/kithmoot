@@ -2213,3 +2213,57 @@ stubs (kithmoot-android `app/build.gradle.kts`); it contacts nothing. ZXing,
 already in that app for making QR codes, could also read them and would
 take Google's code out entirely. A link that names only Google's old STUN
 address is still upgraded to this origin's own server (13 September).
+
+## People shows who you follow, 19 October 2026
+
+The owner asked to see their contacts and message them when signed in with
+their Nostr account. People (calm shell stages 2 and 6, `app/src/people.ts`)
+lists Contacts (Signet grants and contact cards) and Following: the account's
+own kind 3 follow list, read only, from the same public relays as profile
+lookups and only while that switch is on (`app/src/follow-list.ts`). Those
+relays learn that this connection asked for this account's follows. The list
+is public already, so asking for the followed people's names afterwards adds
+nothing; they are asked for in batches of a hundred. KithMoot never publishes
+a follow list.
+
+A private chat may now be started with someone the account follows, or whose
+contact card was read on this device, as well as with a granted Signet
+contact (`mayMessageContact`). A block still wins, and a Signet copy that
+cannot be read still refuses everyone. Incoming invitations were already
+filtered by blocks alone; that is unchanged. A message to someone who does
+not use KithMoot reaches nobody, because private chats are not NIP-17 (D8).
+
+Voice and Video open the private chat and start a call in it. The other
+person's device rings only if it already holds that chat (D4). Invite opens
+the private chat and sends the room there as the existing sealed in-room
+invite: the private inbox's reader accepts private-chat invitations only, on
+web and Android, so sending a group room through it would be a wire change.
+
+Under each name, web and Android say the same: tier and "checked" when the
+Signet grant shares them, otherwise where the contact came from ("Signet",
+"Contact card"); for someone followed, their Nostr address once checked,
+otherwise nothing. Starting a private chat now asks for the other person's
+relay lists only while public profile lookups are on, as a room already did
+(spec D9); without them the invitation goes to this account's own relays.
+
+Invitations sit at the top of Chats (spec §6.3, `app/src/invitations.ts`):
+"Bob invited you to a private chat", "Sealed for you · 2 minutes ago",
+Decline and Accept. Only private-chat requests arrive there, because the
+private inbox carries nothing else; an invitation to a group room still
+arrives inside the private chat. The inviter is named by Signet, then their
+contact card, then their own public profile, but that last only for somebody
+already known or followed. A stranger is shown by their key and never looked
+up, so nobody can arrive calling themselves "Mum" and no public relay learns
+who wrote to this account. Decline clears the invitation on this device; the
+sender is not told (D1). Accept opens the private chat straight away, with no
+door. Not built yet: "Decline and block", because web has no block of its
+own, only Signet's. Somebody you follow is named even before People has been
+opened: a waiting invitation fetches the account's own follow list once,
+which names nobody else.
+
+A private chat is called by the person (spec §6.2): "Rowan" in the list, as
+the room title, in "Back to …" and in "Call with …", with their initial and
+the colour People gives them, and "Private chat" under the title. A quiet
+chat keeps "Quiet: Rowan", because it works differently (padded gift wraps,
+two devices per person) and the word is how anyone tells the two apart. The
+⋯ menu's private-chat items wait for stage 3, which rebuilds that menu.
