@@ -133,10 +133,11 @@ test('Decline clears an invitation on this device and opens nothing', async ({ b
 })
 
 test('Invite from People opens the private chat and sends the room there, sealed', async ({ browser, baseURL }) => {
+  test.setTimeout(180_000)
   const aKey = generateSecretKey(), bKey = generateSecretKey()
-  const b = getPublicKey(bKey)
+  const a = getPublicKey(aKey), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey)
+  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
@@ -158,7 +159,51 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await alice.locator('#inviteToRoomList').getByRole('button', { name: 'Saturday walk' }).click()
     await expect(alice.locator('#inviteToRoom')).toBeHidden()
     await expect(alice.locator('#chatLog')).toContainText('You invited Bob on Nostr to Saturday walk.')
-  } finally { publisher.close(); await ac.close() }
+
+    // Bob's page in People says what became of it, worked out on Alice's
+    // device: sent and not joined yet, and no room shared so far.
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    const sent = alice.locator('#peopleSentInvitations')
+    await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Sent, not joined yet, Today' })).toBeVisible()
+    await expect(alice.locator('#peopleSharedRooms')).toHaveCount(0)
+    // The row opens the room, where Alice waits for Bob: the page is then
+    // worked out from the room's own session rather than the list's watch.
+    await sent.getByRole('button', { name: /^Saturday walk/ }).click()
+    await expect(alice.locator('#roomTitle')).toHaveText('Saturday walk')
+    await expect(alice.locator('#roomArea')).toBeVisible({ timeout: 30_000 })
+
+    // Bob accepts the private chat, which puts the room in his list, and joins it.
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await expect(bob.locator('#chatLog')).toContainText('invited you to Saturday walk. It is in your rooms.', { timeout: 30_000 })
+    await bob.locator('#roomList').getByRole('button', { name: 'Open Saturday walk', exact: true }).click()
+    // A room already in the list opens straight in, with no door.
+    await expect(bob.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await bob.locator('#chatInput').fill('Here for the walk')
+    await bob.locator('#chatInput').press('Enter')
+    await expect(bob.locator('#chatLog')).toContainText('Here for the walk')
+
+    await expect(alice.locator('#chatLog')).toContainText('Here for the walk', { timeout: 30_000 })
+
+    // Bob's page now says he came, and lists the room the two of them share.
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Joined, Today' })).toBeVisible({ timeout: 30_000 })
+    await expect(alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' })).toBeVisible()
+    await alice.screenshot({ path: test.info().outputPath('contact-rooms.png') })
+
+    // From the private chat, Saturday walk is a room the list watches, and
+    // Joined has been written down, so the page says the same.
+    await alice.locator('#peoplePane').getByRole('button', { name: 'Bob on Nostr', exact: true }).click()
+    await expect(alice.locator('#roomWho')).toHaveText('Private chat')
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await expect(sent.getByRole('button', { name: 'Saturday walk, You invited Bob on Nostr · Joined, Today' })).toBeVisible()
+    await expect(alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' })).toBeVisible({ timeout: 30_000 })
+    await alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' }).click()
+    await expect(alice.locator('#roomTitle')).toHaveText('Saturday walk')
+  } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 
 test('Voice from People opens the private chat and starts a call in it', async ({ browser, baseURL }) => {
