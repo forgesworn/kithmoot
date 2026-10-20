@@ -20,6 +20,7 @@ export interface NostrMessageReview {
   readonly text: string
   readonly recipientRelays: readonly string[]
   readonly senderRelays: readonly string[]
+  readonly replyTo?: string
 }
 interface Delivery { event: Event; relays: readonly string[]; accepted: boolean }
 interface Options {
@@ -29,6 +30,7 @@ interface Options {
   lookup(authors: string[], current: () => boolean): Promise<Event[]>
   // The embedding must use a carrier that checks current at actual socket writes.
   publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void>
+  rememberCopy?(event: Event, current: () => boolean): Promise<void>
   changed(): void
   now?(): number
 }
@@ -122,10 +124,10 @@ export class NostrMessage {
     return { review: this.#review, busy: this.#busy, attempted: this.#attempted,
       retry: !this.#busy && this.#deliveries.some(row => !row.accepted), status: this.#status }
   }
-  async review(recipient: string, text: string): Promise<void> {
+  async review(recipient: string, text: string, replyTo?: string): Promise<void> {
     if (this.#busy || this.#attempted || !this.#current()) return
     this.#review = undefined
-    if (!HEX.test(recipient) || recipient === this.options.identity.pubkey || this.options.blocked(recipient) ||
+    if (!HEX.test(recipient) || replyTo !== undefined && !HEX.test(replyTo) || recipient === this.options.identity.pubkey || this.options.blocked(recipient) ||
         text.length > NOSTR_MESSAGE_MAX_BYTES || !text.trim() || new TextEncoder().encode(text).byteLength > NOSTR_MESSAGE_MAX_BYTES) {
       this.#status = 'Choose another person and a message of at most 4096 bytes.'; this.#notify(); return
     }
@@ -142,7 +144,8 @@ export class NostrMessage {
           : 'Publish your Nostr inbox relays in account settings first, so you retain an encrypted copy. Nothing was sent.'
         return
       }
-      this.#review = Object.freeze({ recipient, text, recipientRelays: Object.freeze(recipientRelays), senderRelays: Object.freeze(senderRelays) })
+      this.#review = Object.freeze({ recipient, text, recipientRelays: Object.freeze(recipientRelays), senderRelays: Object.freeze(senderRelays),
+        ...(replyTo ? { replyTo } : {}) })
       this.#status = '○ public. This uses ordinary Nostr inbox relays, outside the sheltered conversation. Choose Send public to continue.'
     } catch { if (current()) this.#status = 'Inbox relays could not be checked. Nothing was sent.' }
     finally { this.#busy = false; this.#notify() }
@@ -154,12 +157,19 @@ export class NostrMessage {
     try {
       if (!this.#attempted) {
         const now = this.options.now?.() ?? Math.floor(Date.now() / 1000)
-        const event = { kind: 14, pubkey: this.options.identity.pubkey, created_at: now, tags: [['p', review.recipient]], content: review.text }
+        const event = { kind: 14, pubkey: this.options.identity.pubkey, created_at: now,
+          tags: [['p', review.recipient], ...(review.replyTo ? [['e', review.replyTo]] : [])], content: review.text }
         const rumor = { ...event, id: getEventHash(event) }
         // Prepare both before either leaves the device. A refusal preparing
         // the history copy must not send only the recipient's half silently.
         const recipient = await wrapText(rumor, review.recipient, this.options.identity, now, this.#current)
         const sender = await wrapText(rumor, this.options.identity.pubkey, this.options.identity, now, this.#current)
+        if (!this.#current()) return
+        try { await this.options.rememberCopy?.(sender, this.#current) }
+        catch {
+          if (this.#current()) this.#status = 'Your encrypted message copy could not be kept on this device. Check browser storage and close other inbox tabs. Nothing was sent.'
+          return
+        }
         if (!this.#current()) return
         this.#deliveries = [{ event: recipient, relays: review.recipientRelays, accepted: false },
           { event: sender, relays: review.senderRelays, accepted: false }]

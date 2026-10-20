@@ -28,6 +28,9 @@ import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import { ContactInbox } from './contact-inbox.js'
+import { NostrMessageInboxPanel } from './nostr-message-inbox-panel.js'
+import { rememberOrdinaryCopy } from './nostr-message-history.js'
+import { ordinaryInboxRelays } from './nostr-message-wire.js'
 import { FollowBook } from './follow-list.js'
 import { PeopleView, type PeopleModel, type Person } from './people.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
@@ -1038,13 +1041,15 @@ function participantKey(): Uint8Array {
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
 let nostrMessagePanel: NostrMessagePanel | undefined
+let nostrInboxPanel: NostrMessageInboxPanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
-function closeAccountMessageViews(): void { legacyMessagesPanel?.close(); nostrMessagePanel?.close() }
+function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close() }
 function reconcileAccountMessageViews(): void {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
   ;($('nostrMessageEntry') as HTMLButtonElement).disabled = !nostrMessagePanel?.available
+  ;($('nostrInboxEntry') as HTMLButtonElement).disabled = !nostrInboxPanel?.available
   $('nostrMessageAvailability').hidden = !nostrSession || nostrMessagePanel?.available === true
-  legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
+  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
 }
 const legacyMessageLifetime = new LegacyMessageLifetime(closeAccountMessageViews, reconcileAccountMessageViews)
 /** Deny reopening across every await in an account transition. The counter
@@ -3123,7 +3128,7 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   await switchRoom(room)
 }
 function renderContactInbox(): void {
-  legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
+  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
   const state = contactInbox?.snapshot(), self = nostrSession?.pubkey
   $('contactsSignIn').hidden = !!self
   $('contactInboxStatus').textContent = contactInboxMessage || state?.error || (!self ? 'Sign in to message your contacts.'
@@ -3215,7 +3220,7 @@ function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
-    changed: view => { grantedContactView = view; legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
+    changed: view => { grantedContactView = view; nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
     message: messageContact,
   })
   grantedContactsPanel.reconcile()
@@ -3229,6 +3234,7 @@ function renderIdentity(): void {
   $('dmRelaySettingsOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
   $('nostrMessageEntry').hidden = nostrSession === undefined
+  $('nostrInboxEntry').hidden = nostrSession === undefined
   $('legacyMessagesEntry').hidden = nostrSession === undefined
   reconcileAccountMessageViews()
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
@@ -16348,6 +16354,32 @@ function accountMessageViewEligible(): boolean {
   return currentDestination() === 'settings' && settingsPage === 'account' &&
     legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy
 }
+function acquireOrdinaryMessageHistory(key: string): Promise<() => void> {
+  if (!navigator.locks) return Promise.reject(Error('This browser cannot coordinate saved message copies.'))
+  return new Promise((resolve, reject) => {
+    void navigator.locks.request(key, { ifAvailable: true }, async lock => {
+      if (!lock) throw Error('Ordinary message history is open in another tab.')
+      await new Promise<void>(release => { resolve(release) })
+    }).catch(reject)
+  })
+}
+async function lookUpOrdinaryInboxLists(authors: string[], current: () => boolean): Promise<NostrEvent[]> {
+    if (!current()) throw Error('Account view changed.')
+    const hold = relayConnections.pool('default')
+    const found: NostrEvent[] = []
+    let stop: (() => void) | undefined, timer: ReturnType<typeof setTimeout> | undefined, cancel: ReturnType<typeof setInterval> | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        timer = setTimeout(resolve, 8000)
+        cancel = setInterval(() => { if (!current()) reject(Error('Account view changed.')) }, 25)
+        stop = hold.subscribe([{ kinds: [KIND_DM_RELAYS], authors, limit: 8 }], event => {
+          if (current() && found.length < 64) found.push(event)
+        }, resolve)
+      })
+      if (!current()) throw Error('Account view changed.')
+      return found
+    } finally { clearTimeout(timer); clearInterval(cancel); stop?.(); hold.close() }
+}
 legacyMessagesPanel = new LegacyMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
   // Default account pools bypass the per-room private router. This first
@@ -16364,23 +16396,8 @@ nostrMessagePanel = new NostrMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
   eligible: accountMessageViewEligible,
   blocked: contactIsBlocked,
-  lookup: async (authors, current) => {
-    if (!current()) throw Error('Account view changed.')
-    const hold = relayConnections.pool('default')
-    const found: NostrEvent[] = []
-    let stop: (() => void) | undefined, timer: ReturnType<typeof setTimeout> | undefined, cancel: ReturnType<typeof setInterval> | undefined
-    try {
-      await new Promise<void>((resolve, reject) => {
-        timer = setTimeout(resolve, 8000)
-        cancel = setInterval(() => { if (!current()) reject(Error('Account view changed.')) }, 25)
-        stop = hold.subscribe([{ kinds: [KIND_DM_RELAYS], authors, limit: 8 }], event => {
-          if (current() && found.length < 64) found.push(event)
-        }, resolve)
-      })
-      if (!current()) throw Error('Account view changed.')
-      return found
-    } finally { clearTimeout(timer); clearInterval(cancel); stop?.(); hold.close() }
-  },
+  lookup: lookUpOrdinaryInboxLists,
+  rememberCopy: (event, account, current) => rememberOrdinaryCopy(deviceStore, account.pubkey, event, acquireOrdinaryMessageHistory, current),
   publish: async (event, relays, current) => {
     if (!current()) throw Error('Account view changed.')
     // Explicit hints define this pool; no NIP-65/default destination is added.
@@ -16392,12 +16409,38 @@ nostrMessagePanel = new NostrMessagePanel(document, {
     } finally { hold.close() }
   },
 })
+nostrInboxPanel = new NostrMessageInboxPanel(document, {
+  account: () => nostrSession, epoch: () => identityGeneration, eligible: accountMessageViewEligible,
+  store: deviceStore, acquire: acquireOrdinaryMessageHistory, blocked: contactIsBlocked,
+  receive: async (account, current) => {
+    const statements = await lookUpOrdinaryInboxLists([account.pubkey], current)
+    if (!current() || nostrSession !== account) throw Error('Account view changed.')
+    const relays = ordinaryInboxRelays(statements, account.pubkey, Math.floor(Date.now() / 1000))
+    if (!relays.length) throw Error('No usable published inbox list.')
+    // Receive-only explicit inbox hints. No default destinations or new AUTH
+    // grants are inferred; authentication-required relays may refuse this read.
+    const hold = relayConnections.pool('nostr-inbox', relays.map(url => ({ url, read: true, write: false })))
+    return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
+  },
+  reply: (peer, parent) => {
+    if (accountMessageViewEligible() && nostrMessagePanel?.available && !contactIsBlocked(peer)) {
+      nostrMessagePanel.show($('nostrMessageEntry'), { peer, parent })
+    }
+  },
+})
+$('nostrInboxEntry').addEventListener('click', event => {
+  if (!event.isTrusted || !nostrInboxPanel?.available) return
+  legacyMessagesPanel?.close(); nostrMessagePanel?.close()
+  nostrInboxPanel.show($('nostrInboxEntry'))
+})
 $('nostrMessageEntry').addEventListener('click', event => {
   if (!event.isTrusted || !nostrMessagePanel?.available) return
+  nostrInboxPanel?.close(); legacyMessagesPanel?.close()
   nostrMessagePanel.show($('nostrMessageEntry'))
 })
 $('legacyMessagesEntry').addEventListener('click', event => {
   if (!event.isTrusted || !legacyMessagesPanel?.available) return
+  nostrInboxPanel?.close(); nostrMessagePanel?.close()
   legacyMessagesPanel.show($('legacyMessagesEntry'))
 })
 

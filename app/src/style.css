@@ -4829,3 +4829,7 @@ html[data-call-docked] #mobileCall { display: none !important; }
 #nostrMessageForm textarea { resize: vertical; }
 #nostrMessageSummary { white-space: pre-wrap; overflow-wrap: anywhere; }
 .nostrMessageWarning { font-weight: 600; }
+#nostrInboxList { list-style: none; padding: 0; }
+#nostrInboxList > li { border-top: 1px solid currentColor; margin-top: 1rem; padding-top: 1rem; }
+.ordinaryMessageAuthor { overflow-wrap: anywhere; }
+.ordinaryMessageText { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext; }

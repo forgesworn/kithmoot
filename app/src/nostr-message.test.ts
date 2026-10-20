@@ -4,7 +4,7 @@ import { nip44 } from 'nostr-tools'
 import { unwrapEvent } from 'nostr-tools/nip17'
 import { NostrMessage, nostrMessageRecipient, type NostrMessageIdentity } from './nostr-message.js'
 
-function fixture() {
+function fixture(rememberCopy?: (event: Event, current: () => boolean) => Promise<void>) {
   const sender = generateSecretKey(), recipient = generateSecretKey(), self = getPublicKey(sender), peer = getPublicKey(recipient)
   const now = Math.floor(Date.now() / 1000), wire: Event[] = [], encrypted: string[] = [], signed: number[] = []
   let live = true, blocked = false, reject = false, mode: 'good' | 'forged' | 'refuse-copy' = 'good'
@@ -32,7 +32,7 @@ function fixture() {
       expect(relays).toEqual(event.tags[0]![1] === self ? ['wss://sender.example/'] : ['wss://recipient.example/'])
       wire.push(event)
       if (reject || rejectRecipients.has(event.tags[0]![1]!)) throw Error('lost ACK')
-    }, changed: () => {}, now: () => now })
+    }, rememberCopy, changed: () => {}, now: () => now })
   return { sender, recipient, self, peer, now, wire, encrypted, signed, message, list,
     replace: (rows: Event[]) => { statements = rows }, stop: () => { live = false }, block: () => { blocked = true },
     reject: (value: boolean) => { reject = value }, mode: (value: typeof mode) => { mode = value },
@@ -40,6 +40,29 @@ function fixture() {
     beforeEncrypt: (work: () => Promise<void>) => { beforeEncrypt = work } }
 }
 describe('separate ordinary Nostr text message', () => {
+  it('keeps the exact sender copy before either publish and binds a public reply to its parent rumor', async () => {
+    let kept: Event | undefined, writesAtKeep = -1
+    const f = fixture(async (event, current) => { expect(current()).toBe(true); kept = event; writesAtKeep = f.wire.length })
+    await f.message.review(f.peer, 'An ordinary reply', 'a'.repeat(64)); await f.message.send()
+    expect(writesAtKeep).toBe(0); expect(kept?.id).toBe(f.wire[1]?.id)
+    expect(unwrapEvent(f.wire[0]!, f.recipient).tags).toEqual([['p', f.peer], ['e', 'a'.repeat(64)]])
+  })
+  it('does not publish either prepared envelope when the encrypted-copy write is refused', async () => {
+    const f = fixture(async () => { throw Error('Synthetic quota failure') })
+    await f.message.review(f.peer, 'Held for retained history'); await f.message.send()
+    expect(f.wire).toEqual([]); expect(f.message.snapshot().status).toContain('Nothing was sent')
+  })
+  it('cannot publish after the account closes while its encrypted-copy writer lock is pending', async () => {
+    let release!: () => void, reached!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    const entered = new Promise<void>(resolve => { reached = resolve })
+    const f = fixture(async () => { reached(); await pending })
+    await f.message.review(f.peer, 'Cancelled before publishing')
+    const sending = f.message.send()
+    // Wait for the actual copy callback, not a timing guess about encryption.
+    await entered
+    f.stop(); release(); await sending; expect(f.wire).toEqual([])
+  })
   it('requires explicit send, wraps one unsigned rumor for recipient and sender, and never sends kind4 or an invitation', async () => {
     const f = fixture()
     await f.message.review(f.peer, 'Exact ordinary Nostr text')

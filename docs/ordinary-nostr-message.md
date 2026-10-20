@@ -2,7 +2,8 @@
 
 Source preparation for Vennel DG09.6 / G5. **Not compiled, tested, released or
 accepted at runtime.** This candidate integrates the legacy-receive and ordinary
-message feature with KithMoot main `381364ff`. The earlier immutable legacy source
+message feature with KithMoot main `6a3ad696` (desktop release 0.1.94),
+retaining the earlier compatibility integration `02e3f134`. The earlier immutable legacy source
 `17023aa3` and its frozen qualification producer remain separate and unchanged;
 this integration needs its own exact build/runtime qualification.
 
@@ -24,7 +25,11 @@ this first account view is unavailable inside rooms, calls and account transitio
 Sending creates one unsigned kind-14 text rumor, without application markers or
 room data, then separate kind-13 seals and random-key kind-1059 envelopes for the
 recipient and sender. Both envelopes are prepared before either is published.
-The existing SDK keeps the account key; only ephemeral wrapper keys are local.
+The exact encrypted sender copy is retained under the account history writer
+lock before either envelope is published. A busy, changed or unwritable history
+holds sending with an explicit message. This original copy records neither relay
+acceptance nor recipient delivery. The existing SDK keeps the account key; only
+ephemeral wrapper keys are local.
 NIP-04 encryption and sending are never requested.
 
 The first supported signer path is NIP-07 through the existing pinned
@@ -56,7 +61,7 @@ provider starts, blocking, cancellation, bounds and exact-envelope retry. Both
 asymmetric acknowledgement orders now have source cases: a retry must reuse only
 the exact unconfirmed envelope and must not sign or encrypt again.
 
-Additional source checks use the installed `Nip07Signer` class with a disposable
+Additional source checks import the pinned SDK’s exported `Nip07Signer` class with a disposable
 in-process provider: an account/view change during encryption or signing rejects
 the late handoff; a transient signing retry has both a still-current positive
 control and a cancellation refusal. The class import is not a replacement SDK
@@ -86,17 +91,80 @@ shared-carrier and default-borrower tests remain separate and unchanged.
 
 The browser cases reuse the existing synthetic NIP-07 provider and default-relay
 WebSocket redirection fixture. They are **not** external-client interoperability.
-The separate C04 observer source at Vennel `2b49c3a2` requires unchanged Coracle's
-real receive/decrypt/render path, actual KithMoot sender controls and warning,
-original fresh builds and a separate isolated recipient relay without WebSocket
-replacement or receiver state/event/DOM injection. Its first source pin remains
-KithMoot `b87dc844`; selecting a newer candidate requires explicit pin/provenance
-reconciliation. Neither C04 source preparation nor these regression sources are
-runtime acceptance. Actual app lookup lifetime/boundedness, authenticated shared
-borrower composition, additional transitions/platforms and fresh integrated
-candidate/main runtime acceptance remain qualification obligations.
-All remaining Vennel goals, supported signers/platforms, ordinary receive/history,
-private transport, release, physical and outside-review gates remain open.
+The separate C04 observer source at Vennel `e72989c9` requires unchanged
+Coracle's real receive/decrypt/render path, actual KithMoot sender controls and
+warning, original fresh builds and a separate isolated recipient relay without
+WebSocket replacement or receiver state/event/DOM injection. Its selected source
+is still KithMoot `02e3f134`; its frozen producer `a62f0842` is unchanged by this
+new inbox candidate. Selecting the new candidate and adding the reverse external
+sender journey require explicit pin/provenance reconciliation and qualification.
+Neither observer preparation nor these regression sources is runtime acceptance.
+
+## Incoming ordinary text, replies and saved copies
+
+**Nostr messages** in Settings → Account opens a separate account-only view.
+Opening the dialog performs no storage, relay or signer operation. **Load messages**
+acquires the account's existing browser writer lock, validates saved original
+signed kind-1059 envelopes, and looks up the account's own signed kind-10050 list.
+It reads exactly those inboxes with read-only hints and no default substitution.
+No new relay-authentication grant is inferred. This view is unavailable inside
+rooms, calls, private modes and account transitions; no room data enters it.
+
+The view retains up to 128 original encrypted copies within 2 MiB, in receipt
+order. Its account-scoped DeviceStore record contains the signed wrappers only,
+without opened text, a decrypted sender index or a newly stored secret key.
+Oldest copies may leave the bounded device cache. Unknown, corrupt, differently
+scoped or concurrently changed records are refused without silently resetting
+history. This is bounded local retention, not the full owned Bothy archive.
+
+**Open message** explicitly asks the pinned NIP-07 signer to decrypt the outer
+wrapper, verifies the signed kind-13 seal, checks the author against block policy,
+then explicitly decrypts and validates the unsigned kind-14 text. Each SDK start
+and handoff rechecks account, view, method, expiry and provider boundary. The
+rumor author must match the seal author; its canonical ID and participants must
+be valid for this account. Application invitations remain in their existing
+invitation flow. No invitation marker or room link is required for ordinary text.
+Opened content uses literal text nodes: no links, media, previews or fetching.
+Verified duplicate rumors share one displayed message. Expired or newly blocked
+opened text is removed. Close, navigation, sign-out and account/room transitions
+revoke pending work and clear the view; a late result cannot restore plaintext.
+Rendering failure closes the controller and clears its writer/read lifetime.
+
+**Reply with public message** starts the existing public composer with a blank
+draft and the verified one-to-one peer. It attaches the original rumor ID in an
+`e` tag only while that recipient is retained. Review, visible public-lane warning
+and explicit Send public are still required. Group text can be opened; group
+replies are unavailable in this candidate.
+
+Original encrypted copies can be reopened after a new app lifetime without
+waiting for a successful relay read; the account and signer are required again.
+Plaintext and decrypt results are not persisted. Forget this browser removes the
+local copies through its existing account-data clearing flow; this makes no claim
+about relay deletion. All publication receipts remain separate from history.
+The relay callback may mean timeout or close, so the UI never labels it complete.
+A 30-second read deadline and bounded candidate/accepted input stop this borrowed
+read, including late callbacks, while saved copies remain available.
+
+New unit source covers actual library-generated envelopes, two-layer identity
+binding, block/cancellation boundaries, duplicate rumors, corrupt/concurrent
+cache refusal, no background decryption, offline fresh-controller restoration,
+render-failure cleanup, silent relay timeout, input/notification bounds and expiry.
+Dedicated handoff tests import the pinned SDK’s exported class with a synthetic
+provider; controlled wrapper-only boundary tests are separate. The worktree has
+no installed dependencies; an older root installation is not used as proof of
+the pinned SDK’s API or behaviour. The registered
+browser spec covers built UI literal rendering/reply, original self-copy retention
+at browser send, a page reload with new WebSockets denied, and a synthetic quota
+refusal with no message publication. None of these sources has run.
+
+Actual built-pane pending-provider, account/block/Settings transitions, cross-tab
+writer locking, and both cache-capacity limits still need runtime qualification.
+Authenticated-inbox consent/qualification, additional supported signer/platform
+paths, group replies, pagination/full owned archive, durable pending-publication
+retries and actual reverse external-client receipt remain open. Current-main
+build/runtime, supported-browser/Android, release, physical and outside review
+gates remain open, as do all ten Vennel delivery goals and 39 packages. Production
+MLS and protected member UI remain disabled.
 
 Protocol references: [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md)
 and [NIP-59](https://github.com/nostr-protocol/nips/blob/master/59.md). UI wording

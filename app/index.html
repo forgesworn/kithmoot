@@ -779,6 +779,7 @@
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
           <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>Start public message</button>
+          <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
           <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
           <button id="legacyMessagesEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="legacyMessagesDialog" hidden>Legacy messages</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
@@ -1650,6 +1651,18 @@
         <p id="nostrMessageSummary" class="note"></p>
         <button id="nostrMessageSend" type="button" hidden>Send public</button>
         <p id="nostrMessageStatus" class="note" role="status" aria-live="polite"></p>
+      </div>
+    </dialog>
+
+    <dialog id="nostrInboxDialog" class="sharedProjectsSheet" aria-labelledby="nostrInboxTitle" aria-describedby="nostrInboxHelp">
+      <div class="sheetBar"><h2 id="nostrInboxTitle">Nostr messages</h2><button id="nostrInboxClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p class="nostrMessageWarning">○ public</p>
+        <p id="nostrInboxHelp" class="note">Ordinary Nostr messages use published inbox relays outside your sheltered conversations. Message content stays encrypted. Choose Open message to ask your signer; text and links are displayed literally.</p>
+        <p class="note">This device keeps up to 128 original encrypted copies, within a 2 MiB limit. Closing clears opened text from this view. Saved copies can be reopened after restart with the same account and signer. They do not prove delivery or read status, and older copies may leave this device’s cache. Forget this browser removes these local copies; relay copies are separate.</p>
+        <button id="nostrInboxLoad" type="button">Load messages</button>
+        <p id="nostrInboxStatus" class="note" role="status" aria-live="polite"></p>
+        <ul id="nostrInboxList" aria-label="Ordinary Nostr message copies"></ul>
       </div>
     </dialog>
 

@@ -11,6 +11,7 @@ interface Options {
   blocked(peer: string): boolean
   lookup(authors: string[], current: () => boolean): Promise<Event[]>
   publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void>
+  rememberCopy(event: Event, account: SignetSession, current: () => boolean): Promise<void>
 }
 /** Explicit separate public conversation from the account home. No room
  * message, route, membership or private state enters this component. */
@@ -27,6 +28,7 @@ export class NostrMessagePanel {
   #generation = 0
   #message?: NostrMessage
   #focus?: HTMLElement
+  #reply?: { peer: string; parent: string }
   constructor(private readonly root: Document, private readonly options: Options) {
     const el = (id: string) => root.getElementById(id)!
     this.#dialog = el('nostrMessageDialog') as HTMLDialogElement
@@ -43,7 +45,8 @@ export class NostrMessagePanel {
       const message = this.#message, generation = this.#generation
       try {
         const recipient = nostrMessageRecipient(this.#recipient.value)
-        void message?.review(recipient, this.#text.value).then(() => { if (generation === this.#generation) this.reconcile() })
+        if (this.#reply && this.#reply.peer !== recipient) this.#reply = undefined
+        void message?.review(recipient, this.#text.value, this.#reply?.parent).then(() => { if (generation === this.#generation) this.reconcile() })
       } catch { this.#status.textContent = 'Enter their Nostr public key (npub), not a secret key.' }
     })
     for (const input of [this.#recipient, this.#text]) input.addEventListener('input', () => {
@@ -63,10 +66,12 @@ export class NostrMessagePanel {
     catch { return false }
   }
   #current = (): boolean => this.#dialog.open && this.available && this.#account === this.options.account() && this.#epoch === this.options.epoch()
-  show(focus: HTMLElement): void {
+  show(focus: HTMLElement, reply?: { peer: string; parent: string }): void {
     this.close()
     if (!this.available) return
     this.#account = this.options.account(); this.#epoch = this.options.epoch(); this.#focus = focus
+    this.#reply = reply
+    if (reply) this.#recipient.value = npubEncode(reply.peer)
     this.#dialog.showModal(); this.#replaceMessage(); this.reconcile(); this.#recipient.focus()
   }
   #replaceMessage(): void {
@@ -77,6 +82,7 @@ export class NostrMessagePanel {
     if (!identity) { this.close(); return }
     this.#message = new NostrMessage({ identity, current: () => generation === this.#generation && this.#current(),
       blocked: this.options.blocked, lookup: this.options.lookup, publish: this.options.publish,
+      rememberCopy: (event, current) => this.options.rememberCopy(event, account, current),
       changed: () => this.reconcile() })
   }
   reconcile(): void {
@@ -94,6 +100,7 @@ export class NostrMessagePanel {
   }
   close(restoreFocus = false): void {
     ++this.#generation; this.#message?.close(); this.#message = undefined; this.#account = undefined
+    this.#reply = undefined
     this.#recipient.value = ''; this.#text.value = ''; this.#summary.textContent = ''; this.#status.textContent = ''
     this.#recipient.disabled = false; this.#text.disabled = false; this.#review.disabled = true; this.#send.hidden = true
     const focus = this.#focus; this.#focus = undefined
