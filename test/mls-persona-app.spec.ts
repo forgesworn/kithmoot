@@ -67,6 +67,8 @@ test('the app exposes witness preparation only in development preview and retain
   await page.locator('#forgetBrowser').click()
   await expect(page.locator('#status')).toContainText('Clear MLS keys and complete retirement for every account')
   await expect(page.locator('#actionDialog')).toHaveCount(0)
+  // Forget this browser is on the Account page; the grant workflows are under Connections.
+  await openSettings(page, 'Connections')
   await page.locator('#mlsGrantDevelopmentOpen').click()
   await expect(page.locator('#mlsGrantDevelopment')).toBeVisible()
   // Exercise the actual app's external account invalidation while the modal
