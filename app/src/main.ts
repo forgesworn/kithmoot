@@ -67,7 +67,6 @@ import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import './call-surface.css'
 import './shell.css'
-import { currentTextSize, chooseTextSize } from './text-size.js'
 import { currentDestination, openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
 import { wireMenu, menuItem, menuGroups, menuSubmenu, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
@@ -16437,6 +16436,24 @@ $('homeOpenLink').addEventListener('click', openLinkSheet)
 // builds the menu; this says what the room on screen allows, and does what a
 // chosen item names. The names are the fixed list in desktop/app-menu.mjs and
 // each is one function that something on the page already runs.
+/** The text size chosen on this device, as text-size.ts wrote it on the root. */
+function currentTextSize(): 'standard' | 'large' | 'huge' {
+  const size = document.documentElement.dataset.textSize
+  return size === 'large' || size === 'huge' ? size : 'standard'
+}
+/** Choose a text size through the radios text-size.ts already listens to.
+ *  main.ts must not import text-size.ts: the startup gate loads that module
+ *  on its own, first (ordinary-startup-entry.ts), and a static import here
+ *  would fetch it again once the gate has closed. */
+function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
+  const radio = document.querySelector<HTMLInputElement>(`[data-text-size] input[type=radio][value="${size}"]`)
+  if (!radio) return
+  radio.checked = true
+  // The change bubbles to text-size.ts, which saves and applies it, and to
+  // the listener below that refreshes the desktop menu's radios.
+  radio.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
 // ---------------------------------------------------------------------------
 {
   const desktop = window.kithmootDesktop

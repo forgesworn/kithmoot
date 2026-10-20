@@ -87,9 +87,11 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
       const video = (await tile.locator('video').first().boundingBox())!
       expect(video.height).toBeGreaterThanOrEqual(160)
     }
-    const tools = (await pageA.locator('.conversationTools').boundingBox())!
+    // The tools row shows only when it has something in it (Next unread,
+    // Back to results); when it shows, it must sit above the chat.
+    const tools = await pageA.locator('.conversationTools').boundingBox()
     const chat = (await pageA.locator('#chatViewport').boundingBox())!
-    expect(tools.y + tools.height, 'conversation tools overlap the chat').toBeLessThanOrEqual(chat.y + 1)
+    if (tools && tools.height > 0) expect(tools.y + tools.height, 'conversation tools overlap the chat').toBeLessThanOrEqual(chat.y + 1)
     await pageA.screenshot({ path: testInfo.outputPath('desktop-readable-call.png') })
 
     // Model capture being ended by the OS, independently of the still-live
