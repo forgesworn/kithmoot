@@ -1,27 +1,29 @@
-.workspaceWorkDestinations { display: flex; gap: .4rem; }
-.workspaceWorkDestinations button { flex: 1; min-height: 44px; margin: .25rem 0; }
-#mobileWorkspaceDestinations { display: none; }
-#workspaceWorkPanel { box-sizing: border-box; width: min(62rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--bg); color: var(--text); }
-#workspaceWorkPanel .sheetBar { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 1rem 0 .75rem; }
-#workspaceWorkPanel .sheetBar h2 { font-size: var(--fs-4); text-transform: none; }
+/* Boards, the destination (see shell.css for where it sits). What is inside
+   it: tabs, a project filter, and the cards. */
+#workspaceWorkPanel { overflow-wrap: anywhere; color: var(--text); }
 #workspaceWorkPanel select { box-sizing: border-box; width: 100%; min-height: 44px; margin: .4rem 0; }
 #workspaceWorkPanel button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+#workspaceWorkPanel .workFilters { display: flex; gap: var(--s1); margin: 0 0 var(--s3); }
+#workspaceWorkPanel .workFilters button { margin: 0; }
+#workspaceWorkPanel .workFilters button[aria-pressed='true'] { background: var(--accent); color: var(--on-accent); }
 #workspaceWorkCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: .75rem; }
-.workspaceWorkCard { min-width: 0; padding: 1rem; border: 1px solid var(--border); border-radius: var(--r-m); }
+.workspaceWorkCard { min-width: 0; padding: 1rem; border-radius: var(--r-m); background: var(--surface); }
 .workspaceWorkCard h3 { margin: 0 0 .5rem; font-size: var(--fs-2); }
 .workspaceWorkCard p { white-space: pre-wrap; }
 .workspaceWorkCard button { min-height: 44px; margin-bottom: 0; }
-.workspaceWorkCard:focus-within { border-color: var(--accent); }
+.workspaceWorkCard:focus-within { outline: 2px solid var(--focus); outline-offset: -2px; }
 .workspaceWorkUnavailable { grid-column: 1 / -1; }
 .workspaceWorkUnavailable > summary { min-height: 44px; cursor: pointer; }
 .workspaceWorkUnavailable .workspaceWorkCard { margin-top: .75rem; }
-@media (max-width: 700px) {
-  #mobileWorkspaceDestinations:not([hidden]) { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0; }
-  #mobileWorkspaceDestinations button { flex: 1 1 5rem; min-width: 0; min-height: 44px; margin: 0; font-size: var(--fs-1); white-space: normal; overflow-wrap: anywhere; }
-  #workspaceWorkPanel { width: 100%; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; padding-inline: 1rem; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+@media (forced-colors: active) {
+  .workspaceWorkCard { border: 1px solid CanvasText; }
+  #workspaceWorkPanel .workFilters button[aria-pressed='true'] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
 }
 
 #workspaceWorkCards.taskBoards { display: flex; overflow-x: auto; align-items: start; padding-bottom: 1rem; }
 .taskBoardColumn { flex: 0 0 min(19rem, 85vw); min-width: 0; }
 .taskBoardColumn > h3 { padding: .5rem; }
-.taskBoardColumn .workspaceWorkCard { margin-bottom: .75rem; background: var(--panel, var(--bg)); }
+.taskBoardColumn .workspaceWorkCard { margin-bottom: .75rem; background: var(--raised); }
+/* The note that nothing matches spans the row; as a flex item of the task
+   boards it was squeezed to a letter wide. */
+#workspaceWorkCards > .workEmpty { flex: 0 0 100%; grid-column: 1 / -1; }

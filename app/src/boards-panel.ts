@@ -410,7 +410,7 @@ export class BoardsPanel {
         const returning = detached.context ?? context
         this.closeView(this.#view); this.#view = undefined
         this.closeView(detached); popup.close(); window.focus()
-        this.open(this.#return ?? this.root.getElementById('homeWork')!, returning)
+        this.open(this.#return ?? this.root.getElementById('railBoards')!, returning)
       } catch (error) {report.textContent = errorText(error)}
     })()}
     popup.addEventListener('pagehide', () => detached.abort.abort(new Error('Board window reloading')), {once: true})

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, pinToTestRelays } from './relays.js'
-import { newDeviceContext, openNewRoomForm } from './browser.js'
+import { newDeviceContext, openNewRoomForm, leaveToChats } from './browser.js'
 
 /**
  * Your rooms: the front page remembers the rooms this device has been in.
@@ -65,8 +65,7 @@ test('opening an older conversation keeps its message time and position until a 
       await expect(page.locator('#chatLog')).toContainText(text)
     }
     const home = async () => {
-      await page.locator('#backToRooms').click()
-      await page.locator('#roomSwitcherHome').click()
+      await leaveToChats(page)
       await expect(page.locator('#rooms')).toBeVisible()
     }
     const enter = async (link: string) => {
@@ -138,8 +137,7 @@ test('the front page lists every room this device has been in, with what is new 
     // Back to the front page: both rooms, by name. From the DOOR of a
     // room, which is where this page is. Once you are inside, the room's
     // own bar carries the way out; this is the way out before that.
-    await page.locator('#doorToRooms').click()
-    await page.locator('#roomSwitcherHome').click()
+    await leaveToChats(page)
     await expect(page.locator('#rooms')).toBeVisible()
     const rows = page.locator('#roomList .roomRow')
     await expect(rows).toHaveCount(2)
@@ -190,8 +188,7 @@ test('the front page lists every room this device has been in, with what is new 
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#chatLog')).toContainText('hello town hall', { timeout: 60_000 })
-    await page.locator('#backToRooms').click()
-    await page.locator('#roomSwitcherHome').click()
+    await leaveToChats(page)
     await expect(page.locator('#rooms')).toBeVisible()
     await expect(townHallRow.locator('.unread')).toHaveCount(0, { timeout: 60_000 })
 
@@ -236,8 +233,7 @@ test('rows do not reorder while focus is inside the list', async ({ browser, bas
       links.set(name, link)
     }
 
-    await page.locator('#doorToRooms').click()
-    await page.locator('#roomSwitcherHome').click()
+    await leaveToChats(page)
     await expect(page.locator('#rooms')).toBeVisible()
     const startOrder = await page.locator('#roomList .roomName').allTextContents()
     expect(startOrder.sort()).toEqual(['Room A', 'Room B', 'Room C'])

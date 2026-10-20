@@ -2,9 +2,11 @@
 <html lang="en-GB" data-ordinary-startup="checking">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f1215" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="referrer" content="no-referrer" />
     <meta name="description" content="A workspace nobody owns." />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
@@ -23,43 +25,113 @@
       <div><strong>Update ready</strong><span>Update when you are ready. Your room will reopen.</span></div>
       <button id="updateApp" type="button">Update now</button>
     </aside>
-    <header>
-      <h1><button id="appHome" class="app-brand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="28" height="28" alt="" />KithMoot</button></h1>
-      <button id="headerSignIn" type="button" class="quiet" hidden>Sign in</button>
-      <button id="openAppSettings" type="button" class="quiet" aria-haspopup="dialog" aria-controls="appSettings" hidden>Settings</button>
-    </header>
+    <!-- Skip links come first in the tab order (design-calm-shell, section
+         9.1). They are links, but a real #fragment would overwrite the
+         room's own fragment in the address bar, so `app/src/shell.ts` takes
+         the click and moves focus instead. -->
+    <div id="skipLinks" class="skipLinks">
+      <a href="#chatLog" data-skip="messages" class="skipLink skipRoom">Skip to messages</a>
+      <a href="#chatInput" data-skip="composer" class="skipLink skipRoom">Skip to message box</a>
+      <a href="#homeRoomQuery" data-skip="chats" class="skipLink">Skip to chats</a>
+    </div>
 
-    <!-- The room picker stays inside the current visit. Only selecting a
-         different room or the dashboard leaves it. The dashboard also
-         offers the previous invitation as a way back. -->
-    <nav id="roomNav" hidden>
-      <!-- The way back to the list, at the door of a room and on the list
-           itself. Once you are IN a room the room's own bar carries it, and
-           this goes: two ways back on one screen is one too many. Without
-           this, somebody who followed a link and had not gone in yet was in
-           a room with no way out of it - the same dead end, one screen
-           earlier. -->
-      <button id="doorToRooms" type="button" class="quiet" aria-haspopup="dialog" hidden>Rooms</button>
-      <button id="backToRoom" type="button" class="quiet" hidden></button>
+    <!-- The app shell (design-calm-shell, section 7): a rail of destinations,
+         a list column, and the main pane. `app/src/shell.ts` owns which
+         destination shows; this is its markup. Under 600 px the same
+         buttons are the bottom bar. -->
+    <nav id="rail" aria-label="Main">
+      <button id="appHome" class="railLogo brandHome" type="button" aria-label="KithMoot, start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" /></button>
+      <button id="railChats" class="railItem" type="button" data-destination="chats" aria-current="page"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-chats"/></svg><span id="railChatsCount" class="railCount" hidden></span></span><span class="railLabel">Chats</span></button>
+      <button id="railPeople" class="railItem" type="button" data-destination="people" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg></span><span class="railLabel">People</span></button>
+      <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
+      <div id="railEnd" class="railEnd">
+        <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
+        <button id="openAppSettings" class="railItem" type="button" aria-haspopup="dialog" aria-controls="appSettings"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
+      </div>
     </nav>
 
-    <main>
+    <div id="listColumn">
+      <nav id="rooms" aria-label="Chats" hidden>
+        <div class="listHead">
+          <h2 id="roomsHeading">Chats</h2>
+          <button id="newMenuButton" class="barBtn" type="button" aria-label="New chat or room" data-tip="New chat or room"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-compose"/></svg></button>
+          <div id="newMenu" aria-label="New chat or room">
+            <button id="newMenuRoom" type="button" role="menuitem" tabindex="-1"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-plus"/></svg><span>New room</span></button>
+            <button id="newMenuContact" type="button" role="menuitem" tabindex="-1" hidden><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg><span>Message a contact…</span></button>
+            <button id="newMenuLink" type="button" role="menuitem" tabindex="-1"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-link"/></svg><span>Open an invite link…</span></button>
+            <button id="newMenuCode" type="button" role="menuitem" tabindex="-1"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-qr"/></svg><span>Join with a code…</span></button>
+            <button id="newMenuProject" type="button" role="menuitem" tabindex="-1"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg><span>New project…</span></button>
+            <button id="newMenuProjects" type="button" role="menuitem" tabindex="-1"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg><span>Projects…</span></button>
+          </div>
+        </div>
+        <div id="homeRoomSearch" class="listSearch" role="search">
+          <svg class="i" aria-hidden="true" focusable="false"><use href="#i-search"/></svg>
+          <label for="homeRoomQuery" class="sr-only">Find a chat or room</label>
+          <input id="homeRoomQuery" type="search" placeholder="Find a chat or room" autocomplete="off" spellcheck="false" />
+          <kbd id="searchHint" aria-hidden="true"></kbd>
+          <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
+        </div>
+        <div id="chatFilters" class="chatFilters" role="group" aria-label="Filter chats"></div>
+        <!-- A Nostr account used here whose signer is not in this tab. Its
+             rooms are not listed, and nothing may act for it until it is
+             reconnected. -->
+        <div id="accountReconnect" class="accountReconnect" role="status" hidden>
+          <p id="accountReconnectText" class="note"></p>
+          <button id="accountReconnectButton" type="button" class="primary">Reconnect</button>
+        </div>
+        <!-- Signed in, still looking: mirrors #roomSyncStatus's own text
+             (set where bookmarks reports it) rather than sharing
+             #homeStatus, which holds #status and must not be overwritten. -->
+        <p id="homeSyncStatus" class="note" role="status" hidden></p>
+        <p id="homeRoomResults" class="note" role="status" hidden></p>
+        <p id="roomsEmpty" class="note" hidden></p>
+        <!-- Received invitations: an empty container for now, filled by the
+             People work. Outside the chips, so they show whatever is chosen. -->
+        <section id="chatInvitations" aria-label="Invitations" hidden></section>
+        <ul id="roomList" class="roomList" aria-labelledby="roomsHeading"></ul>
+        <p id="roomsNote" class="note" hidden></p>
+        <p id="workspaceNote" class="note" role="status"></p>
+      </nav>
+      <!-- Filled by whoever builds People (app/src/people.ts); the shell only
+           shows and hides it. -->
+      <section id="peopleList" aria-label="People" hidden>
+        <p class="note">People is coming in this build.</p>
+      </section>
+    </div>
+
+
+
+    <main id="main">
+      <h1 class="sr-only">KithMoot</h1>
+      <nav id="roomNav" aria-label="Back" hidden>
+        <!-- The way back to the list, at the door of a room, where the list
+             and the door do not share the screen. Once you are IN a room the
+             room's own bar carries it, and this goes: two ways back on one
+             screen is one too many. -->
+        <button id="doorToRooms" type="button" class="quiet" hidden>Chats</button>
+        <button id="backToRoom" type="button" class="quiet" hidden></button>
+      </nav>
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
-      <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
-        <button id="workspaceBrandHome" class="workspaceBrand brandHome" type="button" aria-label="Go to start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</button>
-        <button id="workspaceContacts" type="button" class="quiet" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
-        <button id="workspaceSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
-        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="workspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="workspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button></div>
-        <button id="workspaceNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor">New project</button>
-        <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
-        <label class="sr-only" for="workspaceQuery">Filter projects and rooms</label>
-        <input id="workspaceQuery" type="search" placeholder="Filter projects and rooms" autocomplete="off" />
-        <div id="workspaceRooms"></div>
-        <p id="workspaceEmpty" class="note" hidden>No matching rooms.</p>
-        <button id="workspaceHome" type="button" class="quiet">All rooms / Start a room</button>
-        <p id="workspaceNote" class="note"></p>
-      </aside>
       <div id="workspaceContent">
+      <section id="peoplePane" aria-label="Contact" hidden>
+        <p class="note">People is coming in this build.</p>
+      </section>
+      <!-- Boards, a destination of its own: shown in the main pane, not over
+           it (`app/src/shell.ts` moves it there and the stylesheet lays it
+           out). Still a <dialog> element because `WorkspaceWorkPanel` gates
+           everything on it being open; it is opened without showModal(). -->
+      <dialog id="workspaceWorkPanel" aria-labelledby="workspaceWorkTitle">
+        <div class="sheetBar"><h2 id="workspaceWorkTitle" tabindex="-1">Boards</h2><button id="workspaceWorkClose" type="button" hidden>Close</button></div>
+        <div class="workFilters" role="group" aria-label="Boards"><button id="workspaceInboxTab" type="button" aria-pressed="true">Needs you</button><button id="workspaceWorkTab" type="button" aria-pressed="false">All</button></div>
+        <label for="workspaceWorkProject">Project</label><select id="workspaceWorkProject"><option value="*">All projects</option></select>
+        <p id="workspaceWorkStatus" role="status"></p>
+        <button id="workspaceWorkSignIn" type="button">Sign in with Nostr</button>
+        <p id="workspaceWorkCoverage" class="note">Showing recent activity and saved tasks. Older or missing updates may appear when you open a room.</p>
+        <button id="workspaceWorkRefresh" type="button" class="quiet">Refresh recent activity</button>
+        <button id="workspaceBoardsOpen" type="button" class="quiet" aria-haspopup="dialog" aria-controls="boardsPanel">Open a board</button>
+        <div id="workspaceWorkCards"></div>
+      </dialog>
+
       <section id="callSurface" aria-label="Call surface" hidden>
         <div id="callSurfaceHeader" hidden>
           <span id="callSurfaceLogo" class="privateLogo" hidden></span>
@@ -317,8 +389,8 @@
 
         <!-- One line. Back, who and where you are, a call, and the rest. -->
         <div class="roomBar">
-          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher"
-                  aria-label="Rooms" data-tip="Rooms"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
+          <button id="backToRooms" type="button" class="barBtn"
+                  aria-label="Back to chats" data-tip="Back to chats"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
           <!-- The name and the who-is-here line are one control, because
                they answer the same question and a reader who wants more
                about either taps the thing they are looking at. -->
@@ -379,12 +451,6 @@
           <span id="meetingNoticeText"></span>
           <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
         </div>
-        <nav id="mobileWorkspaceDestinations" aria-label="Workspace" hidden>
-          <button id="mobileWorkspaceInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button>
-          <button id="mobileContacts" type="button" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
-          <button id="mobileWorkspaceProjects" type="button" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
-          <button id="mobileWorkspaceWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button>
-        </nav>
         <nav id="mobileRoomViews" aria-label="Room views">
           <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
           <button id="mobileCall" type="button" aria-pressed="false">Call</button>
@@ -541,50 +607,25 @@
       <!-- The dashboard and invitation door share their existing controls;
            boot moves each group into the screen for this visit. -->
       <section id="home" hidden aria-labelledby="homeHeading">
+        <!-- Settings on a phone's first run, where there is no list header
+             for it to sit in (`placeEnd` in app/src/shell.ts). -->
+        <div id="homeHead" class="listHead homeHead"></div>
         <div class="homeIntro">
+          <img class="homeLogo" src="/pwa-192x192.png" width="56" height="56" alt="" />
           <h2 id="homeHeading">Start a room, then send the link.</h2>
-          <p id="homeLede">A workspace nobody owns: messages, files and calls for your people and your agents. No account needed.</p>
+          <p id="homeLede">Messages, files and calls for your people and your agents. No account needed.</p>
         </div>
-        <!-- Signed in, still looking: mirrors #roomSyncStatus's own text
-             (set where bookmarks reports it) rather than sharing
-             #homeStatus, which holds #status and must not be overwritten.
-             A sibling of .homeIntro, not a child of it, since it stays
-             relevant even once #rooms itself is showing. -->
-        <p id="homeSyncStatus" class="note" role="status" hidden></p>
         <div id="homeStatus"></div>
-        <div id="homeRooms"></div>
-        <div id="homeActions"></div>
-        <div id="homeFoot">
-          <details id="openLink">
-            <summary>Open an invite link</summary>
-            <form id="openRoomForm" novalidate>
-              <label for="url">Invite link</label>
-              <input id="url" type="url" inputmode="url" placeholder="https://…#…" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-describedby="linkError" />
-              <button id="openUrl" type="submit">Open</button>
-              <p id="linkError" class="formError" role="alert" hidden></p>
-            </form>
-          </details>
-          <!-- A meeting code a host read out or sent: it looks up the room's
-               invite link and opens the same door, never the room itself.
-               See docs/meeting-codes.md. -->
-          <details id="joinCode">
-            <summary>Join with code</summary>
-            <form id="joinCodeForm" novalidate>
-              <label for="meetingCodeInput">Meeting code</label>
-              <input id="meetingCodeInput" type="text" placeholder="ABC-DEF-GH" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
-              <!-- Shown only when the code carries a password. The words are
-                   used to open the invitation here and are never stored. -->
-              <div id="joinCodePassword" hidden>
-                <label for="meetingCodeWordsInput">Enter the password words you were given</label>
-                <input id="meetingCodeWordsInput" type="text" maxlength="256" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
-              </div>
-              <button id="joinCodeSubmit" type="submit">Join</button>
-              <p id="joinCodeError" class="formError" role="alert" hidden></p>
-              <button id="joinCodeRetry" type="button" hidden>Retry</button>
-            </form>
-          </details>
-          <button id="homeContacts" type="button" class="quiet" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
+        <div id="homeActions" class="homeActions">
+          <button id="newRoom" type="button" class="primary" aria-haspopup="dialog" aria-controls="newRoomDialog">Start a room</button>
+          <button id="homeOpenLink" type="button" class="tonal" aria-haspopup="dialog" aria-controls="openLink">Open an invite link</button>
+          <button id="homeJoinCode" type="button" class="quiet linkish" aria-haspopup="dialog" aria-controls="joinCode">Join with a code</button>
           <button id="homeSignIn" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
+        </div>
+        <!-- Somebody with chats and no room open. -->
+        <div id="homeEmpty" class="homeEmpty">
+          <p>Choose a chat, or start a room.</p>
+          <button id="homeNewRoom" type="button" class="tonal" aria-haspopup="dialog" aria-controls="newRoomDialog"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-plus"/></svg>New room</button>
         </div>
       </section>
 
@@ -703,101 +744,6 @@
         </form>
       </section>
 
-      <section id="rooms" hidden>
-        <!-- One toolbar: the heading, search growing into the space, then
-             Projects, an invite link and New room. See
-             docs/2026-10-05-room-list-sections.md. -->
-        <div id="roomsHead" class="roomsHead">
-          <h2 id="roomsHeading">Rooms</h2>
-          <div id="homeRoomSearch" class="roomSearchRow" hidden>
-            <label for="homeRoomQuery" class="sr-only">Find a room</label>
-            <input id="homeRoomQuery" type="search" placeholder="Find a room" autocomplete="off" spellcheck="false" />
-            <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
-          </div>
-          <div class="roomsHeadActions">
-            <button id="homeInbox" type="button" class="quiet" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button>
-            <button id="homeWork" type="button" class="quiet" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button>
-            <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects" hidden>Projects</button>
-            <button id="homeNewProject" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjectEditor" hidden>New project</button>
-            <button id="homeOpenLink" type="button" class="quiet" aria-controls="openLink" aria-expanded="false" hidden>Open invite link</button>
-            <button id="newRoom" type="button" class="primary" aria-expanded="false" aria-controls="createRoomForm">New room</button>
-          </div>
-        </div>
-        <!-- A Nostr account used here whose signer is not in this tab. Its
-             rooms are not listed, and nothing may act for it until it is
-             reconnected. -->
-        <div id="accountReconnect" class="accountReconnect" role="status" hidden>
-          <p id="accountReconnectText" class="note"></p>
-          <button id="accountReconnectButton" type="button" class="primary">Reconnect</button>
-        </div>
-        <p id="homeRoomResults" class="note" role="status" hidden></p>
-        <p id="roomsEmpty" class="note" hidden></p>
-        <div id="homeProjectFilter" class="projectFilter" hidden>
-          <label for="homeProject">Project</label>
-          <select id="homeProject"><option value="*">All projects</option></select>
-        </div>
-        <ul id="roomList" class="roomList" aria-labelledby="roomsHeading"></ul>
-        <p id="roomsNote" class="note" hidden></p>
-      </section>
-
-      <!-- These actions belong to the dashboard. Following an invitation
-           opens its door directly, including while admission is pending. -->
-      <section id="setup" hidden>
-        <!-- autocomplete off on the form itself: Firefox restores every control
-             on a reload, and the last room started with "Ask me before
-             anyone joins" would quietly make the next one ask too. Each
-             start form begins as written. -->
-        <form id="createRoomForm" autocomplete="off">
-        <h3 id="newRoomHeading">New room</h3>
-        <label for="roomName">Room name <span class="note">(optional)</span></label>
-        <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
-               enterkeyhint="go" aria-label="Room name" />
-        <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> <span>Ask me before anyone joins</span></label>
-        <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
-        <!-- A conference room: a group room that ends on a date and is
-             wiped from relays then. Only for a group: a room that asks
-             before anyone joins is already a meeting. -->
-        <div id="roomEndsRow" class="roomEndsRow">
-          <label for="roomEnds">Ends</label>
-          <select id="roomEnds" aria-describedby="roomEndsHint">
-            <option value="0" selected>Never</option>
-            <option value="1">After 1 day</option>
-            <option value="3">After 3 days</option>
-            <option value="7">After 7 days</option>
-            <option value="duration">Choose a duration</option>
-          </select>
-          <p id="roomEndsHint" class="note" hidden>A conference room. On that date its link stops working and its messages are wiped from relays that honour expiry.</p>
-        </div>
-        <fieldset id="roomDuration" class="roomDuration" hidden>
-          <legend>Room lifetime</legend>
-          <label for="roomDurationDays">Days <output id="roomDurationDaysValue">0</output></label>
-          <input id="roomDurationDays" type="range" min="0" max="30" step="1" value="0" />
-          <label for="roomDurationHours">Hours <output id="roomDurationHoursValue">2</output></label>
-          <input id="roomDurationHours" type="range" min="0" max="23" step="1" value="2" />
-          <label for="roomDurationMinutes">Minutes <output id="roomDurationMinutesValue">0</output></label>
-          <input id="roomDurationMinutes" type="range" min="0" max="59" step="1" value="0" />
-          <p id="roomDurationSummary" class="note" aria-live="polite"></p>
-        </fieldset>
-        <!-- What happens to a dated room's content when it ends: it
-             self-destructs by default (owner decision D1). Shown only when
-             Ends is not Never; a room with no end can still be made to
-             self-destruct from its details (D5). -->
-        <div id="roomWhenEndsRow" class="roomEndsRow" hidden>
-          <label id="roomWhenEndsLabel" for="roomWhenEnds">When it ends</label>
-          <select id="roomWhenEnds" aria-describedby="roomWhenEndsHint">
-            <option value="destruct" selected>Self-destruct</option>
-            <option value="keep">Keep it read-only</option>
-          </select>
-          <p id="roomWhenEndsHint" class="note" hidden></p>
-        </div>
-        <div class="setupButtons">
-          <button id="create" type="submit" class="primary">Start a room</button>
-          <button id="cancelNewRoom" type="button" class="quiet">Cancel</button>
-        </div>
-        <p id="createError" class="formError" role="alert" hidden></p>
-        <p id="roomTypeNote" class="note" hidden></p>
-        </form>
-      </section>
 
       <!-- Below the action, deliberately.
 
@@ -882,27 +828,96 @@
       </div>
     </main>
 
-    <!-- The "is this really them" ritual. A native <dialog> rather than the
-         page's own furniture: this is a moment you have to read carefully
-         before answering, so blocking is right, and showModal() gives the
-         focus trap and Escape-to-close for free. Filled in by
-         showVerification in app/src/main.ts. -->
-    <dialog id="roomSwitcher" aria-labelledby="roomSwitcherTitle">
-      <div class="sheetBar">
-        <h2 id="roomSwitcherTitle">Switch rooms</h2>
-        <button id="roomSwitcherClose" type="button" autofocus>Close</button>
+    <!-- New room, and the two ways of opening a room somebody else made.
+         Each is the form that used to sit on the start page, now a sheet the
+         New menu opens from any screen, in a room or out of one. -->
+    <dialog id="newRoomDialog" class="profileSettings" aria-labelledby="newRoomHeading">
+    <section id="setup">
+      <!-- autocomplete off on the form itself: Firefox restores every control
+           on a reload, and the last room started with "Ask me before
+           anyone joins" would quietly make the next one ask too. Each
+           start form begins as written. -->
+      <form id="createRoomForm" autocomplete="off">
+      <h3 id="newRoomHeading">New room</h3>
+      <label for="roomName">Room name <span class="note">(optional)</span></label>
+      <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
+             enterkeyhint="go" aria-label="Room name" />
+      <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> <span>Ask me before anyone joins</span></label>
+      <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
+      <!-- A conference room: a group room that ends on a date and is
+           wiped from relays then. Only for a group: a room that asks
+           before anyone joins is already a meeting. -->
+      <div id="roomEndsRow" class="roomEndsRow">
+        <label for="roomEnds">Ends</label>
+        <select id="roomEnds" aria-describedby="roomEndsHint">
+          <option value="0" selected>Never</option>
+          <option value="1">After 1 day</option>
+          <option value="3">After 3 days</option>
+          <option value="7">After 7 days</option>
+          <option value="duration">Choose a duration</option>
+        </select>
+        <p id="roomEndsHint" class="note" hidden>A conference room. On that date its link stops working and its messages are wiped from relays that honour expiry.</p>
       </div>
-      <div class="sheetBody">
-        <p id="roomSwitcherNote" class="note"></p>
-        <label for="roomSearch">Find a room</label>
-        <input id="roomSearch" type="search" placeholder="Find a room" autocomplete="off" />
-        <div class="projectFilter"><label for="switcherProject">Project</label><select id="switcherProject"><option value="*">All projects</option></select></div>
-        <ul id="roomSwitcherList" class="roomList"></ul>
-        <button id="switcherSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
-        <div class="workspaceWorkDestinations" aria-label="Workspace activity"><button id="switcherInbox" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Inbox</button><button id="switcherWork" type="button" aria-haspopup="dialog" aria-controls="workspaceWorkPanel">Boards</button></div>
-        <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
-        <button id="roomSwitcherHome" type="button" class="quiet">All rooms / Start a room</button>
+      <fieldset id="roomDuration" class="roomDuration" hidden>
+        <legend>Room lifetime</legend>
+        <label for="roomDurationDays">Days <output id="roomDurationDaysValue">0</output></label>
+        <input id="roomDurationDays" type="range" min="0" max="30" step="1" value="0" />
+        <label for="roomDurationHours">Hours <output id="roomDurationHoursValue">2</output></label>
+        <input id="roomDurationHours" type="range" min="0" max="23" step="1" value="2" />
+        <label for="roomDurationMinutes">Minutes <output id="roomDurationMinutesValue">0</output></label>
+        <input id="roomDurationMinutes" type="range" min="0" max="59" step="1" value="0" />
+        <p id="roomDurationSummary" class="note" aria-live="polite"></p>
+      </fieldset>
+      <!-- What happens to a dated room's content when it ends: it
+           self-destructs by default (owner decision D1). Shown only when
+           Ends is not Never; a room with no end can still be made to
+           self-destruct from its details (D5). -->
+      <div id="roomWhenEndsRow" class="roomEndsRow" hidden>
+        <label id="roomWhenEndsLabel" for="roomWhenEnds">When it ends</label>
+        <select id="roomWhenEnds" aria-describedby="roomWhenEndsHint">
+          <option value="destruct" selected>Self-destruct</option>
+          <option value="keep">Keep it read-only</option>
+        </select>
+        <p id="roomWhenEndsHint" class="note" hidden></p>
       </div>
+      <div class="setupButtons">
+        <button id="create" type="submit" class="primary">Start a room</button>
+        <button id="cancelNewRoom" type="button" class="quiet">Cancel</button>
+      </div>
+      <p id="createError" class="formError" role="alert" hidden></p>
+      <p id="roomTypeNote" class="note" hidden></p>
+      </form>
+    </section>
+    </dialog>
+
+    <dialog id="openLink" class="profileSettings" aria-labelledby="openLinkTitle">
+      <div class="profileSettingsHeader"><h2 id="openLinkTitle">Open an invite link</h2><button id="openLinkClose" type="button" class="quiet">Cancel</button></div>
+        <form id="openRoomForm" novalidate>
+          <label for="url">Invite link</label>
+          <input id="url" type="url" inputmode="url" placeholder="https://…#…" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-describedby="linkError" />
+          <button id="openUrl" type="submit">Open</button>
+          <p id="linkError" class="formError" role="alert" hidden></p>
+        </form>
+    </dialog>
+
+    <!-- A meeting code a host read out or sent: it looks up the room's
+         invite link and opens the same door, never the room itself.
+         See docs/meeting-codes.md. -->
+    <dialog id="joinCode" class="profileSettings" aria-labelledby="joinCodeTitle">
+      <div class="profileSettingsHeader"><h2 id="joinCodeTitle">Join with a code</h2><button id="joinCodeClose" type="button" class="quiet">Cancel</button></div>
+        <form id="joinCodeForm" novalidate>
+          <label for="meetingCodeInput">Meeting code</label>
+          <input id="meetingCodeInput" type="text" placeholder="ABC-DEF-GH" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
+          <!-- Shown only when the code carries a password. The words are
+               used to open the invitation here and are never stored. -->
+          <div id="joinCodePassword" hidden>
+            <label for="meetingCodeWordsInput">Enter the password words you were given</label>
+            <input id="meetingCodeWordsInput" type="text" maxlength="256" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
+          </div>
+          <button id="joinCodeSubmit" type="submit">Join</button>
+          <p id="joinCodeError" class="formError" role="alert" hidden></p>
+          <button id="joinCodeRetry" type="button" hidden>Retry</button>
+        </form>
     </dialog>
 
     <!-- Settings, reached from the rooms list. Everything the home page used
@@ -1138,8 +1153,9 @@
       <div class="keyboardHelpBody" tabindex="0" role="region" aria-label="Shortcut instructions">
       <p>Use Ctrl or Command (⌘).</p>
       <dl>
-        <dt>Control / Command + F6</dt><dd>Move between rooms, room controls, conversations, tools, messages and the composer. Add Shift to move backwards.</dd>
-        <dt>Control / Command + K</dt><dd>Find a room.</dd>
+        <dt>Control / Command + F6</dt><dd>Move between chats, room controls, conversations, tools, messages and the composer. Add Shift to move backwards.</dd>
+        <dt>Control / Command + K</dt><dd>Find a chat or room: moves to the search above your chats. Type to narrow the list, Down to walk it, Enter to open the first match.</dd>
+        <dt>Control / Command + 1, 2, 3</dt><dd>Go to Chats, People or Boards. People is only there when you are signed in with Nostr.</dd>
         <dt>Up / Down in messages</dt><dd>Focus the previous or next message. Up from an empty composer starts at the latest message.</dd>
         <dt>Home / End in messages</dt><dd>Focus the first or last loaded message.</dd>
         <dt>Enter or Shift + F10 on a message</dt><dd>Open its actions. Tab moves through the actions; Escape closes them.</dd>
@@ -1638,17 +1654,6 @@
       </div>
       <p id="dmRelayStatus" class="note" role="status"></p>
       <p class="note">This list is public, as the Nostr standard for it (NIP-17) requires: anyone can see which relays you use for private conversations, though not what is said on them or with whom.</p>
-    </dialog>
-
-    <dialog id="workspaceWorkPanel" aria-labelledby="workspaceWorkTitle">
-      <div class="sheetBar"><h2 id="workspaceWorkTitle" tabindex="-1">Inbox</h2><button id="workspaceWorkClose" type="button">Close</button></div>
-      <div class="workFilters" role="group" aria-label="Workspace activity"><button id="workspaceInboxTab" type="button" aria-pressed="true">Inbox</button><button id="workspaceWorkTab" type="button" aria-pressed="false">Boards</button></div>
-      <label for="workspaceWorkProject">Project</label><select id="workspaceWorkProject"><option value="*">All projects</option></select>
-      <p id="workspaceWorkStatus" role="status"></p>
-      <button id="workspaceWorkSignIn" type="button">Sign in with Nostr</button>
-      <p id="workspaceWorkCoverage" class="note">Showing recent activity and saved tasks. Older or missing updates may appear when you open a room.</p>
-      <button id="workspaceWorkRefresh" type="button" class="quiet">Refresh recent activity</button>
-      <div id="workspaceWorkCards"></div>
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">

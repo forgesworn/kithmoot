@@ -11,8 +11,10 @@ import { TEST_RELAY_WS } from './browser.js'
 /** Actual grant handshake and encrypted projection through the fixture relay.
  * No app-side hook grants contacts or skips the Signet confirmation step. */
 async function shareContacts(page: Page, account: string, contacts: { pubkey: string; name: string }[], publisher: NostrRelayPool) {
-  const opener = await page.locator('#home').isVisible() ? '#homeContacts' : '#mobileContacts:visible, #workspaceContacts:visible'
-  await page.locator(opener).click()
+  // The Contacts button left the start page and the sidebar with the shell
+  // (People takes its place in stage 6); the sheet is still the same one, so
+  // it is opened through the control that remains, in a room's details.
+  await page.locator('#roomContacts').evaluate(button => (button as HTMLButtonElement).click())
   await page.locator('#signetContactsAccess').evaluate(el => { (el as HTMLDetailsElement).open = true })
   await expect(page.locator('#signetContactsConnect')).toBeEnabled()
   await page.locator('#signetContactsConnect').click()
@@ -66,15 +68,15 @@ test('Signet contacts start a private conversation without a shared room, delive
     await alice.locator('#chatInput').fill('Hello Bob, sent before you opened KithMoot')
     await alice.locator('#chatInput').press('Enter')
     await expect(alice.locator('#chatLog')).toContainText('Hello Bob, sent before you opened KithMoot')
-    await alice.locator('#mobileContacts:visible, #workspaceContacts:visible').first().click()
+    await alice.locator('#roomContacts').evaluate(button => (button as HTMLButtonElement).click())
     await expect(alice.locator('#contactInboxStatus')).toHaveText('')
     await alice.close()
     // Alice is offline too. Bob has never loaded this app or joined a room.
     const bob = await bc.newPage(); await signInAccount(bob, baseURL!)
-    await bob.locator('#homeContacts').click()
-    await expect(bob.locator('#contactInvites li')).toHaveCount(1)
+    const invitations = bob.getByRole('navigation', { name: 'Chats' }).locator('li[data-invitation]')
+    await expect(invitations).toHaveCount(1)
     await bob.screenshot({ path: test.info().outputPath('contacts-phone.png') })
-    await bob.getByRole('button', { name: /^Open conversation with/ }).click()
+    await invitations.locator('button[data-action="accept"]').click()
     await expect(bob.locator('#roomArea')).toBeVisible()
     expect(new URL(bob.url()).hash).toBe(invitation)
     await expect(bob.locator('#chatLog')).toContainText('Hello Bob, sent before you opened KithMoot')
@@ -85,21 +87,21 @@ test('Signet contacts start a private conversation without a shared room, delive
     await expect(alice.locator('#join')).toBeEnabled()
     await alice.locator('#join').click()
     await expect(alice.locator('#chatLog')).toContainText('Hello Alice, this is my private reply')
-    await alice.locator('#mobileContacts:visible, #workspaceContacts:visible').click()
+    await alice.locator('#roomContacts').evaluate(button => (button as HTMLButtonElement).click())
     await alice.getByRole('button', { name: 'Message Bob from Signet', exact: true }).click()
     expect(new URL(alice.url()).hash).toBe(invitation)
     await alice.reload()
     await expect(alice.locator('#join')).toBeEnabled()
     await alice.locator('#join').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
-    await alice.locator('#mobileContacts:visible, #workspaceContacts:visible').click()
+    await alice.locator('#roomContacts').evaluate(button => (button as HTMLButtonElement).click())
     await expect(alice.getByRole('button', { name: 'Message Bob from Signet', exact: true })).toBeVisible()
     await alice.getByRole('button', { name: 'Message Bob from Signet', exact: true }).click()
     expect(new URL(alice.url()).hash).toBe(invitation)
     await expect(alice.locator('#chatLog')).toContainText('Hello Alice, this is my private reply')
     // Preserve source room ownership and the collaboration controls.
-    await expect(alice.locator('#mobileWorkspaceProjects:visible, #workspaceSharedProjects:visible').first()).toBeVisible()
-    await expect(alice.locator('#mobileWorkspaceWork:visible, #workspaceWork:visible').first()).toHaveText('Boards')
+    await expect(alice.locator('#newMenuButton:visible')).toBeVisible()
+    await expect(alice.locator('#railBoards:visible')).toContainText('Boards')
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 

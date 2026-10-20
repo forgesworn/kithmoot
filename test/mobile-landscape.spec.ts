@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type BrowserContext } from '@playwright/test'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
-import { openCall } from './browser.js'
+import { openCall, switchToRoom } from './browser.js'
 
 // B3 and M1: a phone turned sideways used to give the conversation 30% of
 // the screen (117 of 390px) because the fixed chrome above it took the
@@ -49,8 +49,7 @@ test('M1: a docked call in landscape never draws over the room bar', async ({ br
     await openCall(page)
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
-    await page.locator('#backToRooms').click()
-    await page.locator('#roomSwitcherList').getByRole('button', { name: `Switch to ${rooms[1].name}`, exact: true }).click()
+    await switchToRoom(page, `${rooms[1].name}`)
     await expect(page.locator('#roomTitle')).toHaveText(rooms[1].name)
     // The title is rendered while entry is still preparing the room. Measure
     // the committed conversation, rather than its temporarily hidden bar.

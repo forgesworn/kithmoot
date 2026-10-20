@@ -51,10 +51,12 @@ export const CALL_MIN_WIDTH_PX = 240
 export const WORK_MAX_PX = 448
 export const WORK_MIN_PX = 320
 
-/** The rooms rail, open and collapsed. 13rem and 3.5rem, mirrored by
- *  `--rail-w` in desktop.css and by desktop-projects-rail.ts. */
-export const RAIL_WIDTH_PX = 208
-export const RAIL_COLLAPSED_PX = 56
+/** Everything to the left of the room: the rail (76) and the list column
+ *  (300). Mirrored by `--rail-w` in desktop.css. The rail the window used to
+ *  be able to collapse is gone, so the collapsed width below is kept only as
+ *  the narrowest a first-run window (no list) can be. */
+export const RAIL_WIDTH_PX = 376
+export const RAIL_COLLAPSED_PX = 76
 
 /** Everything the room area never gets: the window's own padding on both
  *  sides, and the gap between the rail and the room. */

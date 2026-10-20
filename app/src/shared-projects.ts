@@ -49,9 +49,10 @@ export class SharedProjectsPanel {
   }) {
     this.dialog = this.el('sharedProjects') as HTMLDialogElement
     this.editor = this.el('sharedProjectEditor') as HTMLDialogElement
-    for (const id of ['homeSharedProjects', 'workspaceSharedProjects', 'switcherSharedProjects']) this.el(id).addEventListener('click', () => this.open(this.el(id)))
-    for (const id of ['homeNewProject', 'workspaceNewProject']) this.el(id).addEventListener('click', () => {
-      this.open(this.el(id)); this.edit()
+    // Both live in the New menu; focus goes back to the button that opened it.
+    this.el('newMenuProjects').addEventListener('click', () => this.open(this.el('newMenuButton')))
+    this.el('newMenuProject').addEventListener('click', () => {
+      this.open(this.el('newMenuButton')); this.edit()
     })
     this.el('sharedProjectsClose').addEventListener('click', () => this.dialog.close())
     this.el('sharedProjectsSignIn').addEventListener('click', () => { this.dialog.close(); this.options.signIn() })
@@ -163,7 +164,7 @@ export class SharedProjectsPanel {
       projects.push(project); this.#roomProjects.set(room.room, projects)
     }
     const invitations = state?.projects.filter(p => !p.joined && !p.withdrawn && !p.conflicted && !p.definition?.archived).length ?? 0
-    for (const id of ['homeSharedProjects', 'workspaceSharedProjects', 'switcherSharedProjects']) this.el(id).textContent = invitations ? `Projects · ${invitations} invitation${invitations === 1 ? '' : 's'}` : 'Projects'
+    this.el('newMenuProjects').querySelector('span')!.textContent = invitations ? `Projects · ${invitations} invitation${invitations === 1 ? '' : 's'}` : 'Projects…'
     this.el('sharedProjectsSignIn').hidden = !!this.#identity
     this.el('sharedProjectsRetry').hidden = !this.#identity || !!state?.ready && !state.pendingSends
     ;(this.el('sharedProjectNew') as HTMLButtonElement).disabled = !this.#identity || this.#busy

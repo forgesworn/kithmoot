@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { open, TEST_RELAY_WS } from './browser.js'
+import { open, TEST_RELAY_WS, openNewRoomForm, showChats } from './browser.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 
 test('room cards carry a question and exact-result review through reload at phone width', async ({ browser, baseURL }, testInfo) => {
@@ -104,6 +104,7 @@ test('two people go from creating and sharing a room to an accepted result witho
   for (const { page } of [ada, grace]) page.on('dialog', dialog => { native.push(dialog.type()); void dialog.dismiss() })
   try {
     await ada.page.goto(baseURL!)
+    await openNewRoomForm(ada.page)
     await ada.page.locator('#roomName').fill('Release workshop')
     await ada.page.locator('#create').click()
     await ada.page.locator('#displayName').fill('Ada')
@@ -200,17 +201,17 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.locator('#assignmentCreate [name=criteria]').fill('Keep its acceptance criteria here')
     await owner(page, 'Ada')
     await page.keyboard.press('Escape')
-    await page.locator('#backToRooms').click()
-    await page.getByRole('button', { name: 'Switch to Planning', exact: true }).click()
+    await showChats(page)
+    await page.locator('#roomList').getByRole('button', { name: 'Open Planning', exact: true }).click()
     await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
     await page.getByText('New assignment', { exact: true }).click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('')
     await expect(page.locator('#assignmentCreate [name=criteria]')).toHaveValue('')
     await page.locator('#assignmentCreate [name=objective]').fill('A separate planning assignment')
     await page.keyboard.press('Escape')
-    await page.locator('#backToRooms').click()
-    await expect(page.locator('#roomSwitcherHome')).toBeDisabled()
-    await page.getByRole('button', { name: 'Switch to Workshop', exact: true }).click()
+    await showChats(page)
+    await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'true')
+    await page.locator('#roomList').getByRole('button', { name: 'Open Workshop', exact: true }).click()
     await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('An unfinished workshop assignment')
     await expect(page.locator('#assignmentCreate [name=criteria]')).toHaveValue('Keep its acceptance criteria here')
@@ -227,8 +228,8 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.locator('#actionConfirm').click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('')
     await page.keyboard.press('Escape')
-    await page.locator('#backToRooms').click()
-    await page.getByRole('button', { name: 'Switch to Planning', exact: true }).click()
+    await showChats(page)
+    await page.locator('#roomList').getByRole('button', { name: 'Open Planning', exact: true }).click()
     await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('A separate planning assignment')
   } finally { await context.close() }

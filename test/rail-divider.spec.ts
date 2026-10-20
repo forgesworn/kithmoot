@@ -2,17 +2,17 @@ import { test, expect, type Page } from '@playwright/test'
 import { createRoom, newDeviceContext, open } from './browser.js'
 
 /**
- * The drag line on the rooms rail, in the installed window.
+ * The drag line on the chats list's edge, at 900 px and up.
  *
  * The owner's words: "you added the numbers of unread on the desktop, but
  * now it's too squashed - we need a drag line like we have between video
  * and chat." This drives the rail's divider with a mouse and the keyboard
- * and checks the rail widens, clamps, is remembered, and resets.
+ * and checks the list widens, clamps, is remembered, and resets.
  */
 
 test.use({ actionTimeout: 30_000 })
 
-const railWidth = async (page: Page): Promise<number> => (await page.locator('#workspaceNav').boundingBox())!.width
+const railWidth = async (page: Page): Promise<number> => (await page.locator('#listColumn').boundingBox())!.width
 
 async function drag(page: Page, dx: number): Promise<void> {
   const box = (await page.locator('#railDivider').boundingBox())!
@@ -36,7 +36,6 @@ test('the rooms rail drags, keys, clamps, is remembered and resets', async ({ br
     await open(page, url, 'Ada')
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await expect(page.locator('html')).toHaveAttribute('data-rail', 'open')
 
     const divider = page.locator('#railDivider')
     await expect(divider).toBeVisible()
@@ -44,8 +43,7 @@ test('the rooms rail drags, keys, clamps, is remembered and resets', async ({ br
     await expect(divider).toHaveAttribute('aria-orientation', 'vertical')
     expect(await divider.evaluate(el => getComputedStyle(el).cursor)).toBe('col-resize')
     const initial = await railWidth(page)
-    expect(initial).toBeGreaterThan(200)
-    expect(initial).toBeLessThan(216)
+    expect(Math.round(initial)).toBe(300)
 
     // Dragging right widens the rail, and the room beside it gives way.
     const roomBefore = (await page.locator('#roomArea').boundingBox())!.width
@@ -56,17 +54,17 @@ test('the rooms rail drags, keys, clamps, is remembered and resets', async ({ br
 
     // It clamps both ways rather than swallowing the room or vanishing.
     await drag(page, 2000)
-    expect(await railWidth(page)).toBeLessThanOrEqual(Math.min(512, 1440 * 0.4) + 1)
+    expect(Math.round(await railWidth(page))).toBe(480)
     await drag(page, -2000)
-    expect(await railWidth(page)).toBeGreaterThanOrEqual(175)
+    expect(Math.round(await railWidth(page))).toBe(240)
 
     // The keyboard, from the floor.
     await divider.focus()
     await page.keyboard.press('ArrowRight')
-    await expect.poll(() => railWidth(page)).toBeGreaterThan(190)
+    await expect.poll(() => railWidth(page)).toBeGreaterThan(250)
     await page.keyboard.press('Shift+ArrowRight')
     const keyed = await railWidth(page)
-    expect(keyed).toBeGreaterThan(250)
+    expect(keyed).toBeGreaterThan(300)
     await expect(divider).toHaveAttribute('aria-valuenow', String(Math.round(keyed)))
 
     // Remembered on this device.
@@ -75,12 +73,18 @@ test('the rooms rail drags, keys, clamps, is remembered and resets', async ({ br
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect.poll(() => railWidth(page)).toBeGreaterThan(keyed - 2)
 
-    // A double-click puts it back.
+    // Home puts it back, and so does a double-click.
+    await divider.focus()
+    await page.keyboard.press('Home')
+    await expect.poll(async () => Math.round(await railWidth(page))).toBe(300)
+    await divider.focus()
+    await page.keyboard.press('End')
+    await expect.poll(async () => Math.round(await railWidth(page))).toBe(480)
     await divider.dblclick()
-    await expect.poll(() => railWidth(page)).toBeLessThan(216)
+    await expect.poll(async () => Math.round(await railWidth(page))).toBe(300)
 
-    // Collapsed, there is nothing to drag.
-    await page.locator('#projectsRailToggle').click()
+    // Below 900 px the list is not beside the room, so there is nothing to drag.
+    await page.setViewportSize({ width: 820, height: 900 })
     await expect(divider).toBeHidden()
   } finally {
     await context.close()

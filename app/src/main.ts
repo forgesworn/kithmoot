@@ -43,7 +43,6 @@ import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
 import { dockSummary, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
-import { setProjectsRailUnread } from './desktop-projects-rail.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
@@ -64,6 +63,9 @@ import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import './call-surface.css'
+import './shell.css'
+import { currentDestination, openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
+import { wireMenu, menuItem, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -105,7 +107,7 @@ import { destructDue, endLapsedConferences, forgetRoom, knownRoom, knownRooms, m
 import { showDestructEffect } from './destruct-effect.js'
 import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countdown, countdownClock, fuseRemaining, countdownStage, dismissTombstone, finalBannerText, headsUpText, stageAnnouncement, tombstoneText, tombstones, type CountdownStage } from './self-destruct.js'
 import { scrubStore } from './storage-scrub.js'
-import { FOLDABLE, avatarInitial, avatarSlot, groupRooms, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
+import { FOLDABLE, SECTION_THRESHOLD, avatarInitial, avatarSlot, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
 import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, openInvitation, parseMeetingCode, parsePasswordWords, readCodeArrival, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
 import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
@@ -328,7 +330,7 @@ import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
 import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
 import { closeCataloguesBeforeAccountAdoption, closeFailedRoomWithCatalogues } from './room-board-lifecycle.js'
-import { WorkspaceWorkPanel, type WorkspaceObservation } from './workspace-work.js'
+import { WorkspaceWorkPanel, workspaceMentions, type WorkspaceObservation } from './workspace-work.js'
 import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { credentialSeal } from '../../src/seal.js'
@@ -584,7 +586,6 @@ function switchingBlocked(): boolean {
 
 function refreshRoomNavigation(): void {
   renderWorkspace()
-  if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
 }
 let navigationApproved = false
 function approvedReload(): void {
@@ -1614,7 +1615,6 @@ function startRoomBookmarks(account: SignetSession): void {
     }
     renderWorkspace()
     renderContactInbox()
-    if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   }, message => {
     $('roomSyncStatus').textContent = message
     renderHomeSyncStatus()
@@ -3090,7 +3090,11 @@ function renderContactInbox(): void {
     index++
   }
   for (const row of previous.values()) row.remove()
-  for (const id of ['homeContacts', 'workspaceContacts', 'mobileContacts', 'roomContacts']) $(id).textContent = invitations.length ? `Contacts (${invitations.length})` : 'Contacts'
+  for (const id of ['roomContacts']) $(id).textContent = invitations.length ? `Contacts (${invitations.length})` : 'Contacts'
+  // The same invitations are rows above the chats, and count on the rail. The
+  // inbox can start before the list's own state exists (at load, restoring a
+  // sign-in), and its first paint then picks them up instead.
+  try { renderRooms() } catch { /* Not drawn yet. */ }
 }
 async function messageContact(peer: string, name?: string): Promise<void> {
   if (startingContactMessage || !mayMessageContact(peer)) return
@@ -4496,7 +4500,6 @@ function renderDoorBothyRecovery(): void {
  */
 function showRoomUi(): void {
   renderDoorBothyRecovery()
-  $('openAppSettings').hidden = true
   $('home').hidden = true
   $('identity').hidden = false
   $('identityMore').hidden = false
@@ -4506,9 +4509,10 @@ function showRoomUi(): void {
   $('nostrOption').hidden = nostrSession === undefined
   $('nostrOption').append($('accountHome'))
   $('accountHome').hidden = false
-  $('setup').hidden = true
   $('notify').hidden = true
   hideRoomsList()
+  // A room, or its door, is the main pane: below 900 px it sits over the list.
+  showRoomPane()
   // At the door of a room the way back to the list is here, because the
   // room's own bar does not exist until you are inside. The way back INTO a
   // room has been taken.
@@ -4546,7 +4550,6 @@ function showRoomTools(): void {
   // In the room now, and the room's own bar carries the way out of it.
   $('roomNav').hidden = true
   $('doorToRooms').hidden = true
-  $('workspaceNav').hidden = false
   $('invitePeople').hidden = Boolean(roomPolicy?.members?.length)
   $('inviteQr').hidden = Boolean(roomPolicy?.members?.length)
   renderWorkspace()
@@ -9826,7 +9829,6 @@ function draftChanged(draft: ConversationDraft): void {
     renderComposer()
   }
   renderDraftBadges()
-  if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (pendingRecording) renderRecording()
 }
@@ -12852,14 +12854,13 @@ function attachRoomBoards(s: RoomSession): void {
     .catch(error=>{if(current())setStatus(describeError(error))})
 }
 let roomsTimer: ReturnType<typeof setInterval> | undefined
-/** Whether the list is what is on screen. Nothing below draws, or keeps a
- *  relay open, when it is not. */
+/** Whether the start page (no room open) is what the main pane shows. The
+ *  list column itself is on screen whenever there is anything to list. */
 let roomsListShown = false
 
-/** Whether the inline "New room" form is open under 1100px in the
- *  returning state. Always effectively open, and its own toggle hidden, in
- *  the cold state and at 1100px and up - see the CSS for `#setup`. */
-let newRoomOpen = false
+/** The chip chosen above the list: everything, what has unread messages,
+ *  what mentions you, or one project's key (see `projectChoices`). */
+let listFilter = 'all'
 
 /** The room secret behind a known room, when this device holds it: the
  *  creator's record, this tab's admission, or one the person chose to
@@ -12875,6 +12876,8 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
 }
 
 function watchKnownRoom(room: KnownRoom): void {
+  // The room on screen, or at its door, is not watched a second time.
+  if (room.roomId === currentRoomId()) return
   if (roomWatches.has(room.roomId) || room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) return
   let link: RoomLink
   try {
@@ -12970,9 +12973,27 @@ function watchKnownRoom(room: KnownRoom): void {
 function stopWatching(roomId: string): void {
   const watched = roomWatches.get(roomId)
   if (!watched) return
-  watched.watch.close()
-  watched.pool.close()
   roomWatches.delete(roomId)
+  // A socket that is already going down must not stop the list drawing.
+  try { watched.watch.close() } catch { /* Closing a closed watch is not news. */ }
+  try { watched.pool.close() } catch { /* Nor is closing its pool. */ }
+}
+
+/** Chats the list is watching: a relay connection each, so the previews,
+ *  times and counts are the room's own and not a guess. Run from the start
+ *  page and from inside a room alike, because the list is in both. */
+function startListWatches(): void {
+  const rooms = navigationRooms()
+  const ids = new Set(rooms.map(room => room.roomId))
+  for (const roomId of roomWatches.keys()) if (!ids.has(roomId)) stopWatching(roomId)
+  for (const room of rooms) {
+    // The room on screen has a session of its own.
+    if (room.roomId === currentRoomId()) stopWatching(room.roomId)
+    else watchKnownRoom(room)
+  }
+  // Presence lapses by the clock, not by an event, so the list is redrawn
+  // on a timer as well as on every change.
+  if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
 }
 
 function showRoomsList(): void {
@@ -12981,53 +13002,30 @@ function showRoomsList(): void {
   $('home').hidden = false
   $('identity').hidden = true
   $('identityMore').hidden = true
-  $('homeRooms').append($('rooms'))
-  $('homeActions').append($('setup'))
-  $('openAppSettings').hidden = false
   $('homeStatus').append($('status'))
   // Notifications & sound lives in Settings now, not loose on the page -
   // see openAppSettings, which is the only thing that ever unhides it here.
   $('notify').hidden = true
   roomsListShown = true
-  newRoomOpen = false
-  // renderRooms offers notifications when there are saved rooms to follow.
+  // The start page is the list level: below 900 px it is what shows.
+  closeDetail()
   renderWayBack()
-  const rooms = knownRooms(roomStore())
-  for (const room of rooms) watchKnownRoom(room)
+  startListWatches()
   renderRooms()
-  // Presence lapses by the clock, not by an event, so the list is redrawn
-  // on a timer as well as on every change.
-  if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
 }
 
-/** The list goes away when a room comes on screen, and takes its relay
- *  connections with it: a page in a room watches nothing else. */
+/** A room is on screen, or its door. The list stays: it is a column of the
+ *  shell, not a page, and it keeps watching what it lists. */
 function hideRoomsList(): void {
   roomsListShown = false
-  $('rooms').hidden = true
-  if (roomsTimer !== undefined) {
-    clearInterval(roomsTimer)
-    roomsTimer = undefined
-  }
-  if (!window.kithmootDesktop) for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+  $('home').hidden = true
+  startListWatches()
+  renderRooms()
 }
 
 /** The order the list last drew in, held while focus or the pointer is
  *  inside it (spec section 7: "rows never reorder under the user"). */
 let lastRoomOrder: string[] | undefined
-/** The section each room was drawn in, held with the order: reading a room
- *  moves it from Unread to Recent, which is a reorder like any other. */
-let lastRoomSections: Map<string, RoomSection> | undefined
-const FOLD_PREFIX = 'kithmoot.home.fold.'
-
-function sectionFolded(section: RoomSection): boolean {
-  if (!FOLDABLE[section]) return false
-  try { return localStorage.getItem(FOLD_PREFIX + section) !== 'open' } catch { return true }
-}
-
-function setSectionFolded(section: RoomSection, folded: boolean): void {
-  try { localStorage.setItem(FOLD_PREFIX + section, folded ? 'closed' : 'open') } catch { /* Folding still works for this visit. */ }
-}
 
 function roomIsEnded(room: KnownRoom): boolean {
   return room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())
@@ -13040,28 +13038,138 @@ function roomUnreadPeople(room: KnownRoom): number {
   return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName(), room.readIds).people
 }
 
-// Account recovery can move Projects from the welcome footer to the rooms
-// toolbar. Finish an in-flight press before changing that navigation layout.
-let homeProjectPress: number | undefined
-let homeProjectPaintPending = false
+/** Whether a message since this room was last read names the viewer or
+ *  replies to them: the Mentions chip and the @ on the row. */
+function roomHasMention(room: KnownRoom): boolean {
+  const watched = roomWatches.get(room.roomId)
+  const self = meParticipant || currentParticipant() || ''
+  if (!watched?.watch.readsChat || !self) return false
+  const roster = [...watched.watch.present(), { participant: self, name: joiningName() }]
+  return workspaceMentions(watched.watch.messages(), self, room, roster).length > 0
+}
+
+/** Private conversations somebody has asked this account for, shown above
+ *  every chat while they wait. The same filter the contacts sheet uses. */
+function waitingInvitations() {
+  const state = contactInbox?.snapshot(), self = nostrSession?.pubkey
+  if (!state || !self) return []
+  return state.invitations.filter(invitation => invitation.sender !== self && !bookmarks?.forgotten(invitation.room) && !knownRoom(roomStore(), invitation.room))
+}
+
+/** The chips above the list. Projects stop being sections: each one is a
+ *  chip, and only when some exist (Q6). Drawn only when the set changes, so
+ *  a chip a person is pressing is never replaced under them. */
+function renderChatFilters(projects: Array<{ key: string; name: string }>): void {
+  const group = $('chatFilters')
+  const wanted: Array<[string, string]> = [['all', 'All'], ['unread', 'Unread'], ['mentions', 'Mentions'], ...projects.map(p => [p.key, p.name] as [string, string])]
+  if (!wanted.some(([key]) => key === listFilter)) listFilter = 'all'
+  const shape = JSON.stringify(wanted)
+  if (group.dataset.shape !== shape) {
+    group.dataset.shape = shape
+    group.replaceChildren(...wanted.map(([key, label]) => {
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = 'chip'
+      chip.dataset.filter = key
+      chip.textContent = label
+      chip.addEventListener('click', () => { listFilter = key; lastRoomOrder = undefined; renderRooms() })
+      return chip
+    }))
+  }
+  for (const chip of group.querySelectorAll<HTMLButtonElement>('.chip')) chip.setAttribute('aria-pressed', String(chip.dataset.filter === listFilter))
+}
+
+const FOLD_PREFIX = 'kithmoot.home.fold.'
+
+function sectionFolded(section: RoomSection): boolean {
+  if (!FOLDABLE[section]) return false
+  try { return localStorage.getItem(FOLD_PREFIX + section) !== 'open' } catch { return true }
+}
+
+function setSectionFolded(section: RoomSection, folded: boolean): void {
+  try { localStorage.setItem(FOLD_PREFIX + section, folded ? 'closed' : 'open') } catch { /* Folding still works for this visit. */ }
+}
+
+/** The section each room was drawn in, held with the order while the pointer
+ *  or focus is in the list: reading a room moves it between sections, which
+ *  is a reorder like any other. */
+let lastRoomSections: Map<string, RoomSection> | undefined
+
+function sectionHead(section: RoomSection, count: number, folded: boolean): HTMLLIElement {
+  const row = document.createElement('li')
+  row.className = 'roomSection'
+  row.dataset.section = section
+  const heading = document.createElement('h3')
+  if (FOLDABLE[section]) {
+    const fold = document.createElement('button')
+    fold.type = 'button'
+    fold.className = 'sectionFold'
+    fold.dataset.section = section
+    fold.setAttribute('aria-expanded', String(!folded))
+    fold.textContent = sectionHeading(section, count, folded)
+    heading.append(fold)
+  } else {
+    heading.textContent = sectionHeading(section, count, false)
+  }
+  row.append(heading)
+  return row
+}
+
+function listHeading(text: string): HTMLLIElement {
+  const row = document.createElement('li')
+  row.className = 'roomSection'
+  const heading = document.createElement('h3')
+  heading.textContent = text
+  row.append(heading)
+  return row
+}
+
+/** One waiting invitation: who asked, and the two answers. Accepting opens
+ *  the conversation; declining clears it on this device. */
+function invitationRow(invitation: ReturnType<typeof waitingInvitations>[number]): HTMLLIElement {
+  const peer = invitation.sender
+  const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name ?? shortKey(peer)
+  const row = document.createElement('li')
+  row.className = 'roomRow invitationRow'
+  row.dataset.invitation = invitation.id
+  const text = document.createElement('span')
+  text.className = 'roomText'
+  const title = document.createElement('span')
+  title.className = 'roomName'
+  title.textContent = name
+  const note = document.createElement('span')
+  note.className = 'roomPreview'
+  note.textContent = 'wants a private conversation'
+  text.append(title, note)
+  const accept = document.createElement('button')
+  accept.type = 'button'
+  accept.className = 'primary'
+  accept.dataset.action = 'accept'
+  accept.textContent = 'Accept'
+  accept.setAttribute('aria-label', `Accept private conversation with ${name}`)
+  accept.addEventListener('click', () => { void openContactInvitation(invitation).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) })
+  const decline = document.createElement('button')
+  decline.type = 'button'
+  decline.dataset.action = 'decline'
+  decline.textContent = 'Decline'
+  decline.setAttribute('aria-label', `Decline private conversation with ${name}`)
+  decline.addEventListener('click', () => { void contactInbox?.dismiss(invitation.id).catch(error => { contactInboxMessage = describeError(error); renderContactInbox() }) })
+  row.append(text, decline, accept)
+  return row
+}
+
+let roomListPress = false, roomListPaintPending = false
 document.addEventListener('pointerdown', event => {
-  if ((event.target as Element | null)?.closest('#homeSharedProjects, #homeNewProject')) homeProjectPress = event.pointerId
-}, { passive: true })
-const releaseHomeProjectPress = (event: PointerEvent) => {
-  if (event.pointerId !== homeProjectPress) return
-  const pressed = homeProjectPress
+  if ((event.target as Element | null)?.closest('#roomList .open')) roomListPress = true
+}, { capture: true, passive: true })
+const releaseRoomListPress = (): void => {
   setTimeout(() => {
-    if (homeProjectPress !== pressed) return
-    homeProjectPress = undefined
-    if (homeProjectPaintPending) { homeProjectPaintPending = false; renderRooms() }
+    roomListPress = false
+    if (roomListPaintPending) { roomListPaintPending = false; renderRooms() }
   }, 0)
 }
-document.addEventListener('pointerup', releaseHomeProjectPress, { passive: true })
-document.addEventListener('pointercancel', releaseHomeProjectPress, { passive: true })
-window.addEventListener('blur', () => {
-  homeProjectPress = undefined
-  if (homeProjectPaintPending) { homeProjectPaintPending = false; renderRooms() }
-})
+for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, releaseRoomListPress, { capture: true })
+window.addEventListener('blur', releaseRoomListPress)
 
 function renderRooms(): void {
   // A conference room ends by the clock, with no event to say so. The list
@@ -13075,55 +13183,45 @@ function renderRooms(): void {
   retryFileDeletes()
   workspaceWork?.sync()
   boardsPanel?.sync()
-  if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
-  renderWorkspace()
-  if (!roomsListShown) return
-  if (homeProjectPress !== undefined) { homeProjectPaintPending = true; return }
+  updateDesktopUnread()
+  // People is for somebody signed in with Nostr, and nobody else (Q14).
+  setPeopleAvailable(!!nostrSession)
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
   const rooms = navigationRooms()
   profiles.want(rooms.flatMap(room => { const peer = dmPeerOf(room); return peer ? [peer] : [] }))
-  const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
-  fillProjectFilter('homeProject', rooms)
-  const project = ($('homeProject') as HTMLSelectElement).value
-  const matched = rooms.filter(room => matchesRoom(room, query, project))
+  const queryField = $('homeRoomQuery') as HTMLInputElement
+  const query = queryField.value.trim().toLocaleLowerCase()
+  const projects = projectChoices(rooms)
+  renderChatFilters(projects)
+  const project = listFilter.startsWith('shared:') || listFilter.startsWith('project:') ? listFilter : '*'
   const activityOf = (room: KnownRoom): number => activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? [])
+  const unreadOf = (room: KnownRoom): number => session && room.roomId === currentRoomId() ? currentRoomUnreadSplit().people : roomUnreadPeople(room)
+  const passes = (room: KnownRoom): boolean =>
+    listFilter === 'unread' ? unreadOf(room) > 0 : listFilter === 'mentions' ? roomHasMention(room) : true
+  const matched = rooms.filter(room => matchesRoom(room, query, project) && passes(room))
   const pins = loadPins(localStorage)
   const pinned = (room: KnownRoom) => pins.has(room.roomId)
   const sorted = pinnedFirst(sortByActivity(matched, activityOf), pinned)
   const list = $('roomList')
   const held = list.contains(document.activeElement) || list.matches(':hover')
   let filtered = sorted
-  const now = nowSeconds()
-  const freshSection = (room: KnownRoom): RoomSection =>
-    sectionOf({ pinned: pinned(room), ended: roomIsEnded(room), unread: roomUnreadPeople(room), activity: activityOf(room) }, now)
-  let sectionFor = freshSection
+  if (!held) lastRoomSections = undefined
   if (held && lastRoomOrder) {
     const byId = new Map(sorted.map(room => [room.roomId, room]))
     const inOrder = lastRoomOrder.map(id => byId.get(id)).filter((room): room is KnownRoom => room !== undefined)
     const seen = new Set(inOrder.map(room => room.roomId))
     filtered = [...inOrder, ...sorted.filter(room => !seen.has(room.roomId))]
-    const kept = lastRoomSections
-    if (kept) sectionFor = room => kept.get(room.roomId) ?? freshSection(room)
   } else {
     lastRoomOrder = sorted.map(room => room.roomId)
-    lastRoomSections = undefined
   }
-  const groups = groupRooms(filtered, sectionFor, !!query)
-  if (groups && !(held && lastRoomSections)) {
-    lastRoomSections = new Map(groups.flatMap(group => group.rooms.map(room => [room.roomId, group.section] as const)))
-  }
-  $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
-  // Project creation stays reachable before the first room or project exists.
-  // The panel explains which signer and sync support is needed to save.
-  $('homeSharedProjects').hidden = false
-  $('homeNewProject').hidden = false
+  const invitations = waitingInvitations()
+  setCounts({ chats: [...rooms].reduce((total, room) => total + unreadOf(room), 0) + invitations.length })
   const hidden = disconnectedAccountRooms()
-  // A signed-in account keeps #rooms on screen even before its first room
-  // or project arrives: Projects (organising()) and the reconnect banner
-  // both live inside it, and both must stay reachable from the first
-  // moment somebody who can use them is signed in.
+  // A signed-in account keeps the list on screen even before its first room
+  // or project arrives: the reconnect banner lives in it, and it must stay
+  // reachable from the first moment somebody who can use it is signed in.
   // A sign-in from an earlier visit is restored after the first paint, and
   // a bunker can take seconds. Until it lands this is somebody whose rooms
   // are on their way, not a stranger to welcome, and the rooms this browser
@@ -13132,43 +13230,55 @@ function renderRooms(): void {
   const destroyed = tombstones(deviceStore, nowSeconds())
   const returning = rooms.length > 0 || destroyed.length > 0 || !!nostrSession || accountDisconnected() || restoring
   $('home').dataset.state = returning ? 'returning' : 'cold'
-  $('home').setAttribute('aria-labelledby', returning ? 'roomsHeading' : 'homeHeading')
+  $('home').setAttribute('aria-labelledby', 'homeHeading')
   $('rooms').hidden = !returning
-  // First-time visitors need the same route into Projects and its sign-in help.
-  const projectActions = returning ? $('homeOpenLink').parentElement! : $('homeFoot')
-  for (const id of ['homeSharedProjects', 'homeNewProject']) if ($(id).parentElement !== projectActions) {
-    if (returning) projectActions.insertBefore($(id), $('homeOpenLink'))
-    else projectActions.append($(id))
-  }
+  document.documentElement.dataset.list = returning ? 'on' : 'off'
   renderHomeSyncStatus()
   $('accountReconnect').hidden = !accountDisconnected()
   $('homeSignIn').hidden = !!nostrSession || restoring || returning
-  // A returning list keeps its rooms at the top: signing in and opening an
-  // invite are one tap away there, not under the last room.
+  // A returning list keeps the way to sign in on the rail, where Settings is.
   $('headerSignIn').hidden = !!nostrSession || restoring || !returning
-  $('homeOpenLink').hidden = !returning
-  if (returning && $('openLink').parentElement !== $('rooms')) $('roomsHead').after($('openLink'))
-  if (!returning && $('openLink').parentElement !== $('homeFoot')) $('homeFoot').prepend($('openLink'))
-  $('homeOpenLink').setAttribute('aria-expanded', String(($('openLink') as HTMLDetailsElement).open))
   list.hidden = restoring
-  $('roomsEmpty').textContent = restoring ? 'Loading your rooms…' : ''
+  $('roomsEmpty').textContent = restoring ? 'Loading your chats…' : ''
   $('roomsEmpty').hidden = !restoring
   if (accountDisconnected()) {
     const signer = signerLabel(expectedMethod)
-    const kept = hidden.filter(room => !knownRoom(deviceStore, room.roomId)).length
+    const kept = hidden.filter(room => !knownRoom(roomStore(), room.roomId)).length
     $('accountReconnectText').textContent = `Your Nostr account (${npubEncode(expectedAccount!)}) is not connected in this tab. `
       + (kept ? `${kept === 1 ? 'One room' : `${kept} rooms`} saved to it ${kept === 1 ? 'is' : 'are'} not shown until you reconnect ${signer}.`
         : `Rooms saved to it are not shown until you reconnect ${signer}.`)
     $('accountReconnectButton').textContent = expectedMethod === 'nip07' ? 'Reconnect extension' : 'Reconnect'
   }
-  $('homeRoomSearch').hidden = rooms.length < 8
   $('clearHomeRoomQuery').hidden = !query
-  $('homeRoomResults').hidden = !query && project === '*'
-  $('homeRoomResults').textContent = matched.length
-    ? `${matched.length} ${matched.length === 1 ? 'room' : 'rooms'} found`
-    : `No rooms match “${($('homeRoomQuery') as HTMLInputElement).value.trim()}”.`
-  $('newRoom').setAttribute('aria-expanded', String(newRoomOpen))
-  $('setup').classList.toggle('collapsed', returning && !newRoomOpen)
+  // Nothing matches: say so, with a way back to everything.
+  const filtering = !!query || listFilter !== 'all'
+  const noMatch = filtering && !filtered.length && !invitations.length && rooms.length > 0
+  const results = $('homeRoomResults')
+  results.hidden = !noMatch
+  results.replaceChildren()
+  if (noMatch) {
+    results.append('No chats match. ')
+    const clear = document.createElement('button')
+    clear.type = 'button'
+    clear.className = 'quiet linkish'
+    clear.dataset.action = 'clear-filters'
+    clear.textContent = 'Clear'
+    clear.addEventListener('click', () => {
+      queryField.value = ''
+      listFilter = 'all'
+      lastRoomOrder = undefined
+      renderRooms()
+      queryField.focus({ preventScroll: true })
+    })
+    results.append(clear)
+  }
+  const busy = switchingBlocked()
+  // Leaving for the start page ends the room's session, which unsent work would not survive.
+  $('appHome').setAttribute('aria-disabled', String(hasUnsentWork()))
+  $('workspaceNote').textContent = !session ? ''
+    : busy ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
+    : callIsLive() || onCall() ? 'Your call carries on while you visit other rooms. Choose its room again, or Back to the call, to return.'
+    : hasUnsentWork() ? 'Your drafts stay here while you switch.' : ''
   const focused = document.activeElement as HTMLElement | null
   const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
   const action = focused?.dataset.action
@@ -13185,20 +13295,61 @@ function renderRooms(): void {
     }
     return
   }
+  // A repaint must not replace a row between a press and its click.
+  if (roomListPress) { roomListPaintPending = true; return }
   list.innerHTML = ''
+  // Invitations sit above everything while any wait.
+  if (invitations.length) {
+    list.append(listHeading('Invitations'))
+    for (const invitation of invitations) list.append(invitationRow(invitation))
+  }
   // Rooms that self-destructed, greyed, naming none (D2), until dismissed or
   // a week has passed: nobody is left wondering where a room went.
-  if (!query) for (const tombstone of destroyed) list.append(tombstoneRow(tombstone.id, tombstone.at))
-  if (!groups) for (const room of filtered) list.append(roomRow(room, project))
-  else for (const group of groups) {
-    const folded = sectionFolded(group.section)
-    list.append(sectionHead(group.section, group.rooms.length, folded))
-    if (!folded) for (const room of group.rooms) list.append(roomRow(room, project))
+  if (!query && listFilter === 'all') for (const tombstone of destroyed) list.append(tombstoneRow(tombstone.id, tombstone.at))
+  // Pinned, then one group of chats, then Older and Ended folded away. A
+  // search, a chip, or a short list is one flat list with the pinned first,
+  // and never hides a match in a closed fold.
+  const flat = !!query || listFilter !== 'all' || rooms.length <= SECTION_THRESHOLD
+  if (flat) {
+    const heads = filtered.some(pinned) || invitations.length > 0
+    let section = ''
+    for (const room of filtered) {
+      const here = pinned(room) ? 'Pinned' : 'Chats'
+      if (heads && here !== section) { section = here; list.append(listHeading(here)) }
+      list.append(roomRow(room, project))
+    }
+  } else {
+    const now = nowSeconds()
+    const freshSection = (room: KnownRoom): RoomSection =>
+      sectionOf({ pinned: pinned(room), ended: roomIsEnded(room), unread: roomUnreadPeople(room), activity: activityOf(room) }, now)
+    let sectionFor = freshSection
+    const kept = lastRoomSections
+    if (held && kept) sectionFor = room => kept.get(room.roomId) ?? freshSection(room)
+    else lastRoomSections = new Map(filtered.map(room => [room.roomId, freshSection(room)] as const))
+    const where = (room: KnownRoom): RoomSection => sectionFor(room)
+    const pinnedRooms = filtered.filter(room => where(room) === 'pinned')
+    const chats = filtered.filter(room => ['unread', 'recent', 'other'].includes(where(room)))
+    if (pinnedRooms.length) { list.append(listHeading('Pinned')); for (const room of pinnedRooms) list.append(roomRow(room, project)) }
+    if (chats.length) { list.append(listHeading('Chats')); for (const room of chats) list.append(roomRow(room, project)) }
+    for (const fold of ['older', 'ended'] as const) {
+      const members = filtered.filter(room => where(room) === fold)
+      if (!members.length) continue
+      const folded = sectionFolded(fold)
+      list.append(sectionHead(fold, members.length, folded))
+      if (!folded) for (const room of members) list.append(roomRow(room, project))
+    }
   }
+  // The list is one tab stop. Arrow keys move between rows; the row in the
+  // room that is open, or the one the person was on, is the stop.
+  const opens = Array.from(list.querySelectorAll<HTMLButtonElement>('.roomRow .open'))
+  const stop = opens.find(open => open.closest<HTMLElement>('[data-room]')?.dataset.room === focusedRoom)
+    ?? opens.find(open => open.getAttribute('aria-current') === 'true') ?? opens[0]
+  for (const open of opens) open.tabIndex = open === stop ? 0 : -1
+  for (const menu of list.querySelectorAll<HTMLElement>('.rowMenu')) menu.tabIndex = -1
   if (focusedRoom && action) {
     const row = Array.from(list.children).find(row => (row as HTMLElement).dataset.room === focusedRoom)
     const replacement = row?.querySelector<HTMLElement>(`[data-action="${action}"]`)
-    ;(replacement ?? $('homeRoomQuery')).focus({ preventScroll: true })
+    ;(replacement ?? queryField).focus({ preventScroll: true })
   }
 }
 
@@ -13248,10 +13399,14 @@ interface RoomRowState {
   agentCount: number
   presence?: { visible: string; spoken: string }
   presenceCount: number
+  /** A message since the room was last read names the viewer. */
+  mention?: boolean
   description: string
 }
 
 const NO_MESSAGES = 'No messages yet'
+/** A room whose history this device has not loaded has no last line to show. */
+const CATCH_UP = 'Open it to catch up.'
 /** A drawing pin, in the text's own colour: an emoji pin is red in every theme. */
 function pinIcon(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -13266,7 +13421,10 @@ function pinIcon(): SVGSVGElement {
 }
 
 function roomRowState(room: KnownRoom): RoomRowState {
-  const time = formatActivityTime(activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? []))
+  // The room on screen is read from its own session, not from a second
+  // connection the list would hold to it.
+  const here = !!session && room.roomId === currentRoomId()
+  const time = formatActivityTime(activityAt(room, here ? conversationMessages(undefined) : roomWatches.get(room.roomId)?.watch.messages() ?? []))
   if (room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) {
     const preview = room.endsAt !== undefined && room.endsAt <= (room.endedAt ?? room.endsAt)
       ? `Conference room. Ended ${formatConferenceEnd(room.endsAt)}.`
@@ -13274,11 +13432,11 @@ function roomRowState(room: KnownRoom): RoomRowState {
     return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
   }
   const watched = roomWatches.get(room.roomId)
-  if (!watched) {
-    const preview = 'Open it to catch up.'
+  if (!watched && !here) {
+    const preview = CATCH_UP
     return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
   }
-  if (!watched.watch.readsChat) {
+  if (watched && !watched.watch.readsChat && !here) {
     // A quiet room's chat is not read from the list: it would cost the whole
     // gift-wrap stream per room in the background. Open it to read.
     const preview = 'Quiet room. Open it to read.'
@@ -13286,45 +13444,26 @@ function roomRowState(room: KnownRoom): RoomRowState {
   }
 
   const self = meParticipant || currentParticipant() || ''
-  const messages = watched.watch.messages()
+  const messages = here ? conversationMessages(undefined) : watched!.watch.messages()
   const latest = messages.reduce<ChatMessage | undefined>((best, m) => (!best || m.sentAt > best.sentAt ? m : best), undefined)
   const nameOf = (participant: string): string =>
     shownAs(participant, messages.find((m) => m.participant === participant)?.name).name ?? shortKey(participant)
   const preview = (latest && previewLine(latest, self, nameOf)) ?? NO_MESSAGES
 
-  const split = watched.watch.unread(room.readAt, self, joiningName(), room.readIds)
-  const unreadVisible = split.people > 0 ? String(split.people) : undefined
+  // The room on screen counts what is unread in every one of its
+  // conversations, including a call's hidden chat; the rest count from
+  // their watch against the saved read position.
+  const split = here ? currentRoomUnreadSplit() : watched!.watch.unread(room.readAt, self, joiningName(), room.readIds)
+  const mention = !here && roomHasMention(room)
+  const unreadVisible = split.people > 0 ? (split.people > 99 ? '99+' : String(split.people)) : undefined
   const unreadSpoken = split.people > 0 ? `${split.people} unread` : undefined
 
-  const present = watched.watch.present()
+  const present = here ? [] : watched!.watch.present()
   const presence = present.length > 0 ? presenceText(present) : undefined
   if (present.length) profiles.want(present.map((p) => p.participant))
 
-  const description = [unreadSpoken, preview, time, presence?.spoken].filter(Boolean).join('. ')
-  return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, description }
-}
-
-/** A section's heading row: a plain heading, or a fold button for the
- *  sections a person can put away. Not a `.open` button, so the arrow keys
- *  still walk rooms only. */
-function sectionHead(section: RoomSection, count: number, folded: boolean): HTMLLIElement {
-  const row = document.createElement('li')
-  row.className = 'roomSection'
-  row.dataset.section = section
-  const heading = document.createElement('h3')
-  if (FOLDABLE[section]) {
-    const fold = document.createElement('button')
-    fold.type = 'button'
-    fold.className = 'sectionFold'
-    fold.dataset.section = section
-    fold.setAttribute('aria-expanded', String(!folded))
-    fold.textContent = sectionHeading(section, count, folded)
-    heading.append(fold)
-  } else {
-    heading.textContent = sectionHeading(section, count, false)
-  }
-  row.append(heading)
-  return row
+  const description = [unreadSpoken, mention ? 'Mentions you' : '', preview, time, presence?.spoken].filter(Boolean).join('. ')
+  return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, mention, description }
 }
 
 /** One row of the rooms list: the whole name and preview area is a single
@@ -13347,6 +13486,10 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   open.dataset.action = 'open'
   open.setAttribute('aria-label', `Open ${label}`)
   open.setAttribute('aria-describedby', descId)
+  // Nothing is switched while a send or an upload is in flight.
+  open.disabled = switchingBlocked() && room.roomId !== currentRoomId()
+  // The chat on screen is the selected row.
+  if (room.roomId === currentRoomId()) open.setAttribute('aria-current', 'true')
   open.addEventListener('click', () => { void switchRoom(room, project) })
 
   const ended = roomIsEnded(room)
@@ -13377,7 +13520,7 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   text.append(name)
   // An empty room is one line: "No messages yet" under every quiet room was
   // most of what a long list said. The description below still says it.
-  if (state.preview !== NO_MESSAGES) {
+  if (state.preview !== NO_MESSAGES && state.preview !== CATCH_UP) {
     const preview = document.createElement('span')
     preview.className = 'roomPreview'
     preview.textContent = state.preview
@@ -13405,6 +13548,13 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   }
   time.append(state.time)
   aside.append(time)
+  if (state.mention) {
+    const at = document.createElement('span')
+    at.className = 'mentionMark'
+    at.textContent = '@'
+    at.setAttribute('aria-label', 'Mentions you')
+    aside.append(at)
+  }
   if (state.unreadVisible) {
     const pill = document.createElement('span')
     pill.className = 'unread'
@@ -13429,7 +13579,15 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   const spokenFuse = countingDown ? fuseSpoken(room) : undefined
   description.textContent = [pinned ? 'Pinned.' : '', spokenFuse ? `${spokenFuse}.` : '', state.description].filter(Boolean).join(' ')
 
-  row.append(open, aside, ...roomRowMenu(room, label))
+  const [menuOpener, menu] = roomRowMenu(room, label)
+  row.append(open, aside, menuOpener, menu)
+  // Right-click, and the Menu key or Shift+F10 on the focused row, open the
+  // same menu where the pointer is (or the row, for a key).
+  row.addEventListener('contextmenu', event => {
+    event.preventDefault()
+    const at = event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : { x: row.getBoundingClientRect().left + 16, y: row.getBoundingClientRect().bottom }
+    rowMenuHandles.get(menu)?.openAt(at.x, at.y)
+  })
   row.append(description)
   return row
 }
@@ -13457,11 +13615,11 @@ function tombstoneRow(id: string, at: number): HTMLLIElement {
   return row
 }
 
-/** The row's `⋯` menu: a native popover, so Escape and outside-click close
- *  it for free and it reaches every screen reader that knows `role="menu"`.
- *  Copy invite link is here because getting a friend in is one of the five
- *  stranger-test tasks and the link already sits on the row; Forget keeps
- *  its existing confirmation. */
+/** The row's `⋯` menu, on the shared menu helper (app/src/menu.ts): a native
+ *  popover with the full keyboard model. Copy invite link is here because
+ *  getting a friend in is one of the five stranger-test tasks and the link
+ *  already sits on the row; Forget keeps its existing confirmation. Right-
+ *  click, and the Menu key on the focused row, open the same menu. */
 function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDivElement] {
   const id = `roomMenu-${room.roomId}`
   const opener = document.createElement('button')
@@ -13469,63 +13627,37 @@ function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDi
   opener.className = 'rowMenu'
   opener.textContent = '⋯'
   opener.setAttribute('aria-label', `More for ${label}`)
-  opener.setAttribute('aria-haspopup', 'menu')
-  opener.setAttribute('popovertarget', id)
 
   const menu = document.createElement('div')
   menu.id = id
   menu.className = 'rowMenuPopover'
-  menu.popover = 'auto'
-  menu.setAttribute('role', 'menu')
-  menu.addEventListener('toggle', (event) => {
-    if ((event as ToggleEvent).newState === 'open') positionRowMenu(menu, opener)
-  })
-
-  const item = (text: string, action: () => void, danger = false): HTMLButtonElement => {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.setAttribute('role', 'menuitem')
-    if (danger) button.className = 'danger'
-    button.textContent = text
-    button.addEventListener('click', () => { menu.hidePopover(); action() })
-    return button
-  }
 
   const pinned = loadPins(localStorage).has(room.roomId)
-  const pin = item(pinned ? 'Unpin' : 'Pin', () => {
+  menuItem(menu, pinned ? 'Unpin' : 'Pin', () => {
     setPinned(localStorage, room.roomId, !pinned)
     // The row moves; focus goes with it, to its ⋯ button.
     lastRoomOrder = undefined
     lastRoomSections = undefined
     renderRooms()
     $('roomList').querySelector<HTMLElement>(`[data-room="${room.roomId}"] .rowMenu`)?.focus({ preventScroll: false })
-  })
-  pin.dataset.action = 'pin'
-  menu.append(pin)
-  menu.append(item('Copy invite link', () => {
+  }, { action: 'pin' })
+  menuItem(menu, 'Copy invite link', () => {
     navigator.clipboard.writeText(room.link)
       .then(() => setStatus('Invite link copied.'))
       .catch((err) => setStatus(describeError(err)))
-  }))
-  menu.append(item('Add to a project', () => openProjectEditor(room, opener)))
-  menu.append(item(roomProject(deviceStore, nostrSession?.pubkey, room.roomId) ? 'Change local group' : 'Group on this browser', () => openLocalGroupEditor(room, opener)))
-  const forget = item('Forget this room', () => forgetKnownRoom(room), true)
-  forget.dataset.action = 'forget'
-  menu.append(forget)
+  })
+  if (room.roomId !== currentRoomId()) menuItem(menu, 'Open in a new tab', () => {
+    window.open(joinLinkBase() + new URL(room.link, location.href).hash, '_blank', 'noopener,noreferrer')
+  }, { action: 'new-tab' })
+  menuItem(menu, 'Add to a project', () => openProjectEditor(room, opener))
+  menuItem(menu, roomProject(deviceStore, nostrSession?.pubkey, room.roomId) ? 'Change local group' : 'Group on this browser', () => openLocalGroupEditor(room, opener))
+  // The room on screen is left first; forgetting it from under the person would strand the conversation they are reading.
+  if (room.roomId !== currentRoomId()) menuItem(menu, 'Forget this room', () => forgetKnownRoom(room), { danger: true, action: 'forget' })
 
+  rowMenuHandles.set(menu, wireMenu(opener, menu))
   return [opener, menu]
 }
-
-/** Below its `⋯` button where there is room, flipped above it where there
- *  is not - the same clamped placement `positionReactionDetails` uses for
- *  the chat log's reaction list. */
-function positionRowMenu(menu: HTMLElement, opener: HTMLElement): void {
-  const anchor = opener.getBoundingClientRect()
-  const bounds = menu.getBoundingClientRect()
-  menu.style.left = `${Math.max(8, Math.min(anchor.right - bounds.width, innerWidth - bounds.width - 8))}px`
-  const below = anchor.bottom + 4
-  menu.style.top = `${below + bounds.height <= innerHeight - 8 ? below : Math.max(8, anchor.top - bounds.height - 4)}px`
-}
+const rowMenuHandles = new WeakMap<HTMLElement, MenuHandle>()
 
 /** Opening a room from the list is opening its link. */
 /** The other member of a direct message this identity is in, off the
@@ -13679,7 +13811,7 @@ function openProjectEditor(room: KnownRoom, opener: HTMLElement): void {
 function openLocalGroupEditor(room: KnownRoom, opener: HTMLElement): void {
   projectRoom = room
   projectReturn = opener
-  projectReturnList = opener.closest<HTMLElement>('#workspaceRooms, #roomSwitcherList, #roomList') ?? undefined
+  projectReturnList = opener.closest<HTMLElement>('#roomList') ?? undefined
   $('projectRoomName').textContent = knownRoomLabel(room)
   ;($('projectName') as HTMLInputElement).value = roomProject(deviceStore, nostrSession?.pubkey, room.roomId) ?? ''
   $('projectSuggestions').replaceChildren(...projectNames(navigationRooms()).map(name => new Option(name, name)))
@@ -13688,259 +13820,15 @@ function openLocalGroupEditor(room: KnownRoom, opener: HTMLElement): void {
   $('projectName').focus()
 }
 
-/** The rail's section of pinned rooms; not a project key anything else uses. */
-const PINNED_GROUP = 'pinned:'
-/** The rail's order as last drawn, held while the person is in it. */
-let lastRailOrder: string[] | undefined
-
-/** Keep unchanged rail children attached: a watch update can arrive between
- *  pressing a room action and releasing it. Only move actual order changes. */
-function reconcileRailChildren(parent: HTMLElement, children: HTMLElement[]): void {
-  const wanted = new Set(children)
-  for (const child of Array.from(parent.children)) if (!wanted.has(child as HTMLElement)) child.remove()
-  let next = parent.firstChild
-  for (const child of children) {
-    if (child === next) next = next.nextSibling
-    else parent.insertBefore(child, next)
-  }
-}
-
+/** Everything that draws from what the app knows of its rooms: the list, its
+ *  counts, the rail. One list now, so one renderer; callers that said
+ *  "workspace" before still mean this. */
 function renderWorkspace(): void {
-  updateDesktopUnread()
-  if ($('workspaceNav').hidden) return
-  const list = $('workspaceRooms')
-  const focused = document.activeElement as HTMLElement | null
-  const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
-  const action = focused?.dataset.action
-  const query = ($('workspaceQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
-  const rooms = navigationRooms().filter(room => matchesRoom(room, query))
-  const current = currentRoomId()
-  const busy = switchingBlocked()
-  // Newest activity first, and pinned rooms in a section of their own
-  // above the rest, newest first there too. Nothing moves while the
-  // pointer or focus is in the rail, as on the rooms list.
-  const pins = loadPins(localStorage)
-  const held = list.contains(document.activeElement) || list.matches(':hover')
-  const activityOf = (room: KnownRoom): number => activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? [])
-  const arranged = arrangeRooms(rooms, pins, activityOf, held ? lastRailOrder : undefined)
-  lastRailOrder = [...arranged.pinned, ...arranged.rest].map(room => room.roomId)
-  const unpinned = arranged.rest
-  const groups = [
-    ...(arranged.pinned.length ? [{ key: PINNED_GROUP, name: 'Pinned' }] : []),
-    ...projectChoices(unpinned),
-    ...(unpinned.some(room => !projectOf(room)) ? [{ key: '', name: 'No project' }] : []),
-  ]
-  const self = meParticipant || currentParticipant() || ''
-  const selfName = joiningName()
-  const existingGroups = new Map(Array.from(list.children, group => [(group as HTMLElement).dataset.project, group as HTMLElement]))
-  const sections: HTMLElement[] = []
-  for (const project of groups) {
-    const group = existingGroups.get(project.key) ?? document.createElement('section')
-    // A shared room can appear in more than one project. Its row belongs
-    // to this section, rather than to a single global room-id cache.
-    const existingRows = new Map(Array.from(group.querySelectorAll<HTMLElement>('.workspaceRoom'), row => [row.dataset.room, row]))
-    const heading = group.querySelector('h3') ?? document.createElement('h3')
-    const projectIcon = heading.querySelector<HTMLElement>('.privateLogo') ?? document.createElement('span')
-    projectIcon.className = 'privateLogo workspaceProjectLogo'
-    const sharedProject = sharedProjects.joined().find(p => `shared:${p.key}` === project.key)
-    renderLogo(projectIcon, sharedProject?.logo, project.name)
-    projectIcon.hidden = !sharedProject
-    const projectName = heading.querySelector<HTMLElement>('.workspaceProjectName') ?? document.createElement('span')
-    projectName.className = 'workspaceProjectName'
-    if (projectName.textContent !== project.name) projectName.textContent = project.name
-    reconcileRailChildren(heading, [projectIcon, projectName])
-    heading.hidden = groups.length === 1 && !project.key
-    group.dataset.project = project.key
-    const rows: HTMLElement[] = [heading]
-    const members = project.key === PINNED_GROUP ? arranged.pinned : unpinned.filter(room => matchesRoom(room, '', project.key))
-    for (const room of members) {
-      const row = existingRows.get(room.roomId) ?? document.createElement('div')
-      row.className = 'workspaceRoom'
-      row.dataset.room = room.roomId
-      const button = row.querySelector<HTMLButtonElement>('[data-action="switch"]') ?? document.createElement('button')
-      button.type = 'button'
-      button.className = 'workspaceRoomLink'
-      button.dataset.action = 'switch'
-      const icon = button.querySelector<HTMLElement>('.privateLogo') ?? document.createElement('span')
-      icon.className = 'privateLogo workspaceRoomLogo'
-      icon.hidden = !!dmPeerOf(room) || isQuietRoom(room)
-      if (!icon.hidden) renderLogo(icon, displayedRoomLogo(room.roomId, project.key), knownRoomLabel(room))
-      else clearLogo(icon)
-      const roomName = button.querySelector<HTMLElement>('.workspaceRoomName') ?? document.createElement('span')
-      roomName.className = 'workspaceRoomName'
-      if (roomName.textContent !== knownRoomLabel(room)) roomName.textContent = knownRoomLabel(room)
-      reconcileRailChildren(button, [icon, roomName])
-      button.title = `${knownRoomLabel(room)} · ${shortKey(room.roomId)}`
-      if (room.roomId === current) button.setAttribute('aria-current', 'true')
-      else button.removeAttribute('aria-current')
-      // Switching retains each room's draft collection in this tab.
-      button.onclick = () => {
-        void switchRoom(room, project.key)
-      }
-      const children: HTMLElement[] = [button]
-      if (room.endsAt !== undefined && !roomIsEnded(room)) children.push(fusePill(room.endsAt, room.startsAt, !!room.destruct, row.querySelector<HTMLElement>('.fusePill') ?? undefined))
-      // Match the window badge: the open room may still have unread chat
-      // hidden by its call or another conversation. Other rooms use their
-      // watch against the saved read position.
-      // Beside the button rather than in it, so its name stays the room's.
-      const watched = room.roomId === current ? undefined : roomWatches.get(room.roomId)
-      const split = session && room.roomId === current ? currentRoomUnreadSplit()
-        : watched?.watch.readsChat ? watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds) : undefined
-      row.classList.remove('hasUnread')
-      if (split) {
-        const label = knownRoomLabel(room)
-        row.classList.toggle('hasUnread', split.people > 0)
-        if (split.people > 0) children.push(unreadBadge('unread', split.people, `${split.people} unread in ${label}`, { standalone: true }))
-        if (split.agents > 0) children.push(unreadBadge('unread agent', split.agents, `${split.agents} from agents in ${label}`, { standalone: true }))
-      }
-      const pinned = pins.has(room.roomId)
-      const pin = row.querySelector<HTMLButtonElement>('[data-action="pin"]') ?? document.createElement('button')
-      pin.type = 'button'
-      pin.className = 'pinRoom'
-      pin.dataset.action = 'pin'
-      if (pin.textContent !== (pinned ? '★' : '☆')) pin.textContent = pinned ? '★' : '☆'
-      pin.setAttribute('aria-pressed', String(pinned))
-      pin.setAttribute('aria-label', `${pinned ? 'Unpin' : 'Pin'} ${knownRoomLabel(room)}`)
-      pin.title = pinned ? 'Unpin: back among the other rooms' : 'Pin: keep this room in Pinned, at the top'
-      pin.onclick = () => {
-        setPinned(localStorage, room.roomId, !loadPins(localStorage).has(room.roomId))
-        renderWorkspace()
-      }
-      children.push(pin)
-      if (organising()) {
-        const organise = row.querySelector<HTMLButtonElement>('[data-action="project"]') ?? document.createElement('button')
-        organise.type = 'button'
-        organise.className = 'quiet organiseRoom'
-        organise.dataset.action = 'project'
-        organise.textContent = '⋯'
-        const shared = !!nostrSession?.signer.nip44
-        organise.setAttribute('aria-label', shared ? `Add ${knownRoomLabel(room)} to a project` : `Set local group for ${knownRoomLabel(room)}`)
-        organise.onclick = () => shared ? openProjectEditor(room, organise) : openLocalGroupEditor(room, organise)
-        children.push(organise)
-      }
-      // The room on screen is left first; forgetting it from under the
-      // person would strand the conversation they are reading.
-      if (room.roomId !== current) {
-        const forget = row.querySelector<HTMLButtonElement>('[data-action="forget"]') ?? document.createElement('button')
-        forget.type = 'button'
-        forget.className = 'forget quiet'
-        forget.dataset.action = 'forget'
-        forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
-        forget.title = `Forget ${knownRoomLabel(room)}`
-        forget.textContent = '×'
-        forget.onclick = () => forgetKnownRoom(room)
-        forget.disabled = busy
-        children.push(forget)
-      }
-      reconcileRailChildren(row, children)
-      rows.push(row)
-    }
-    reconcileRailChildren(group, rows)
-    sections.push(group)
-  }
-  reconcileRailChildren(list, sections)
-  $('workspaceEmpty').hidden = rooms.length > 0
-  $('workspaceNote').textContent = busy ? 'Finish sending or stop adding files before switching rooms.' : organising() ? 'Use ⋯ to organise rooms into projects.' : ''
-  if (focusedRoom && action) {
-    const row = Array.from(list.querySelectorAll<HTMLElement>('[data-room]')).find(row => row.dataset.room === focusedRoom)
-    ;(row?.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? $('workspaceQuery')).focus({ preventScroll: true })
-  }
+  renderRooms()
 }
 
-let roomSwitcherReturn: HTMLElement | undefined
 let previousRoom: KnownRoom | undefined
 let switchDestination: KnownRoom | undefined
-let roomSwitcherPress = false, roomSwitcherPaintPending = false
-$('roomSwitcherList').addEventListener('pointerdown', () => {roomSwitcherPress = true}, {capture: true})
-const releaseRoomSwitcherPress = () => {setTimeout(() => {
-  roomSwitcherPress = false
-  if (roomSwitcherPaintPending) {roomSwitcherPaintPending = false; renderRoomSwitcher()}
-}, 0)}
-for (const event of ['pointerup', 'pointercancel']) window.addEventListener(event, releaseRoomSwitcherPress, {capture: true})
-window.addEventListener('blur', releaseRoomSwitcherPress)
-
-function openRoomSwitcher(event?: Event): void {
-  const dialog = $('roomSwitcher') as HTMLDialogElement
-  if (dialog.open) return
-  roomSwitcherReturn = event?.currentTarget instanceof HTMLElement ? event.currentTarget : document.activeElement instanceof HTMLElement ? document.activeElement : undefined
-  ;($('roomSearch') as HTMLInputElement).value = ''
-  renderRoomSwitcher()
-  dialog.showModal()
-  $('roomSearch').focus()
-}
-
-function renderRoomSwitcher(): void {
-  // An acknowledgement or roster repaint must not replace a pressed room
-  // button before its native click. The switch itself rechecks permission.
-  if (roomSwitcherPress) {roomSwitcherPaintPending = true; return}
-  const current = currentRoomId()
-  const rooms = navigationRooms()
-  const query = ($('roomSearch') as HTMLInputElement).value.trim().toLocaleLowerCase()
-  fillProjectFilter('switcherProject', rooms)
-  const project = ($('switcherProject') as HTMLSelectElement).value
-  const filtered = rooms.filter(room => matchesRoom(room, query, project))
-  const busy = switchingBlocked()
-  $('roomSwitcherNote').textContent = busy
-    ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
-    : callIsLive() || onCall()
-      ? 'Your call carries on while you visit other rooms. Choose its room again, or Back to the call, to return.'
-      : hasUnsentWork()
-        ? 'Your drafts stay here while you switch.'
-        : ''
-  const list = $('roomSwitcherList')
-  const focused = document.activeElement as HTMLElement | null
-  const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
-  const focusedAction = focused?.dataset.action
-  list.replaceChildren()
-  for (const room of filtered) {
-    const row = document.createElement('li')
-    row.className = 'roomRow'
-    row.dataset.room = room.roomId
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'switchRoom'
-    button.dataset.action = 'switch'
-    button.setAttribute('aria-label', `Switch to ${knownRoomLabel(room)}`)
-    const name = document.createElement('span')
-    name.textContent = knownRoomLabel(room)
-    const detail = document.createElement('span')
-    detail.className = 'switchRoomCode'
-    detail.textContent = [organising() ? projectOf(room) ?? 'No project' : '', room.roomId === current ? 'Current room' : ''].filter(Boolean).join(' · ')
-    const icon = document.createElement('span'); icon.className = 'privateLogo switcherRoomLogo'
-    icon.hidden = !!dmPeerOf(room) || isQuietRoom(room)
-    if (!icon.hidden) renderLogo(icon, displayedRoomLogo(room.roomId, project), knownRoomLabel(room))
-    button.append(icon, name, detail)
-    if (room.roomId === current) button.setAttribute('aria-current', 'true')
-    button.disabled = busy && room.roomId !== current
-    button.addEventListener('click', () => switchRoom(room, project))
-    row.append(button)
-    if (room.roomId !== current) {
-      const link = document.createElement('a')
-      link.className = 'switchRoomNewTab'
-      link.dataset.action = 'new-tab'
-      link.href = joinLinkBase() + new URL(room.link, location.href).hash
-      link.target = '_blank'
-      link.rel = 'noopener noreferrer'
-      link.textContent = 'New tab'
-      link.setAttribute('aria-label', `Open ${knownRoomLabel(room)} in a new tab`)
-      row.append(link)
-    }
-    if (organising()) row.append(projectButton(room))
-    if (room.roomId !== current) {
-      const forget = forgetButton(room, 'Forget')
-      forget.disabled = busy
-      row.append(forget)
-    }
-    list.append(row)
-  }
-  if (focusedRoom && focusedAction) {
-    const row = Array.from(list.children).find(row => (row as HTMLElement).dataset.room === focusedRoom)
-    ;(row?.querySelector<HTMLElement>(`[data-action="${focusedAction}"]`) ?? $('roomSearch')).focus({ preventScroll: true })
-  }
-  $('roomSwitcherEmpty').hidden = filtered.length > 0
-  // A trip to the dashboard must not silently discard unfinished work.
-  ;($('roomSwitcherHome') as HTMLButtonElement).disabled = hasUnsentWork()
-}
 
 /** How long a room may take to open before the way out is offered. */
 const STOP_OPENING_AFTER_MS = 8_000
@@ -13989,17 +13877,24 @@ function showOpening(room: KnownRoom): void {
   $('arrivalActions').hidden = true
 }
 
+/** A room was asked for: show the chats destination, and below 900 px push
+ *  the room over the list. */
+function showRoomPane(): void {
+  if (currentDestination() !== 'chats') openDestination('chats')
+  openDetail()
+}
+
 async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   if (switchingRoom) return
   if (session && room.roomId === currentRoomId()) {
     if (project !== undefined) { roomProjectContext = project; renderCurrentRoomLogo(); renderRoomLogoControls() }
-    ;($('roomSwitcher') as HTMLDialogElement).close()
+    showRoomPane()
     chatScroll.latest()
     markConversationRead()
     renderConversationNav()
     return
   }
-  if (switchingBlocked()) { openRoomSwitcher(); renderRoomSwitcher(); return }
+  if (switchingBlocked()) { renderRooms(); return }
   // Nothing a person navigates to ends a call. See `DockedCall`.
   let intent = switchIntent({ onCall: callIsLive() || onCall(), dockedRoomId: dockedCall?.room.roomId, destination: room.roomId })
   const dockRoom = intent === 'dock' ? dockableRoom() : undefined
@@ -14008,7 +13903,8 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     if (!await confirmRoomAction({ title: `Switch to ${knownRoomLabel(room)}?`, message: 'This leaves your current call. Your microphone and camera will be off in the other room.', confirmLabel: 'Leave call and switch' })) return
     intent = 'plain'
   }
-  if (switchingRoom || switchingBlocked()) { renderRoomSwitcher(); return }
+  if (switchingRoom || switchingBlocked()) { renderRooms(); return }
+  showRoomPane()
   const account = nostrSession?.pubkey
   const identity = identityGeneration
   if (session) previousRoom = navigationRooms().find(room => room.roomId === currentRoomId())
@@ -14023,9 +13919,9 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     $('roomSwitchProgress').hidden = false
     $('roomArea').setAttribute('aria-busy', 'true')
   }
-  $('roomArea').inert = $('workspaceNav').inert = true
+  $('roomArea').inert = $('rooms').inert = true
   $('joinRoomForm').inert = $('accountHome').inert = true
-  ;($('workspaceQuery') as HTMLInputElement).disabled = true
+  ;($('homeRoomQuery') as HTMLInputElement).disabled = true
   try {
     if (intent === 'dock' && dockRoom) dockCall(dockRoom)
     await closeRoomSession({ backgroundFarewell: true })
@@ -14061,7 +13957,6 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     showArrivalFailure(error)
     // Keep the room list within reach when admission fails. Drafts in the
     // previous room remain in memory and return with its next successful join.
-    $('workspaceNav').hidden = false
   } finally {
     disarmStopOpening()
     switchingRoom = false
@@ -14069,9 +13964,9 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     if (import.meta.env.VITE_DESKTOP === 'true') $('roomSwitchProgress').hidden = true
     $('roomArea').removeAttribute('aria-busy')
     if (!session) $('roomArea').hidden = true
-    $('roomArea').inert = $('workspaceNav').inert = false
+    $('roomArea').inert = $('rooms').inert = false
     $('joinRoomForm').inert = $('accountHome').inert = false
-    ;($('workspaceQuery') as HTMLInputElement).disabled = false
+    ;($('homeRoomQuery') as HTMLInputElement).disabled = false
     renderWorkspace()
     if (session) previousRoom = switchDestination = undefined
     const back = $('returnToPreviousRoom')
@@ -14698,8 +14593,6 @@ async function homeKeepingCall(): Promise<void> {
     resetRoomState()
     history.replaceState(null, '', joinLinkBase())
     $('roomArea').hidden = true
-    $('workspaceNav').hidden = true
-    $('setup').hidden = false
     showRoomsList()
     renderDock()
   } finally {
@@ -14755,9 +14648,6 @@ function updateDesktopUnread(): void {
     people += split.people
     agents += split.agents
   }
-  // The same totals the badge carries, on the collapsed rooms rail: putting
-  // the rail away must not mean losing sight of a room that is talking.
-  setProjectsRailUnread(people, agents)
   // The bell still rings for a tag: it is addressed to this person, unlike
   // the agent chatter that never reaches this count at all.
   const count = people + agents
@@ -15052,8 +14942,15 @@ installCallShortcuts(document, window, {
   toggleCamera: cameraToggleFromShortcut,
   micMuted: () => !micTrack?.enabled,
 })
-$('backToRooms').addEventListener('click', openRoomSwitcher)
-$('doorToRooms').addEventListener('click', openRoomSwitcher)
+/** Back to the list, below 900 px where the list and the room do not share
+ *  the screen. The room stays open behind it, call and drafts and all. */
+function backToList(): void {
+  closeDetail()
+  const current = $('roomList').querySelector<HTMLElement>('.open[aria-current="true"]')
+  ;(current ?? $('homeRoomQuery')).focus({ preventScroll: true })
+}
+$('backToRooms').addEventListener('click', backToList)
+$('doorToRooms').addEventListener('click', backToList)
 $('watchAgents').addEventListener('click', () => selectChannel(AGENT_CHANNEL))
 $('nextUnread').addEventListener('click', () => {
   const next = nextUnreadConversation()
@@ -15093,27 +14990,24 @@ $('conversationNav').addEventListener('keydown', event => {
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
   buttons[next]?.focus()
 })
-$('workspaceSwitch').addEventListener('click', openRoomSwitcher)
-$('workspaceQuery').addEventListener('input', renderWorkspace)
+/** Leave the room for the start page. A reload, because a reload is what
+ *  ends a room's session cleanly; a call is kept docked instead. */
+function goHome(): void {
+  if (hasUnsentWork()) { setStatus('Your drafts stay in this tab while you switch chats. Send or discard them before leaving for the start page.'); renderRooms(); return }
+  if (callIsLive() || onCall()) { void homeKeepingCall(); return }
+  void backToRooms()
+}
 function goToStartPage(): void {
   if (roomsListShown && !pendingJoin) return
-  if (hasUnsentWork()) { openRoomSwitcher(); return }
-  $('roomSwitcherHome').click()
+  goHome()
 }
 $('appHome').addEventListener('click', goToStartPage)
-$('workspaceBrandHome').addEventListener('click', goToStartPage)
-$('workspaceHome').addEventListener('click', () => {
-  if (hasUnsentWork()) { openRoomSwitcher(); return }
-  $('roomSwitcherHome').click()
-})
-$('homeProject').addEventListener('change', renderRooms)
-$('switcherProject').addEventListener('change', renderRoomSwitcher)
 $('projectCancel').addEventListener('click', () => ($('projectEditor') as HTMLDialogElement).close())
 $('projectEditor').addEventListener('close', () => {
   if (projectReturn?.isConnected) { projectReturn.focus({ preventScroll: true }); return }
   const row = Array.from(projectReturnList?.querySelectorAll<HTMLElement>('[data-room]') ?? []).find(row => row.dataset.room === projectRoom?.roomId)
   const target = row?.querySelector<HTMLElement>('[data-action=project]')
-  ;(target ?? (($('roomSwitcher') as HTMLDialogElement).open ? $('roomSearch') : !$('workspaceNav').hidden && $('workspaceNav').offsetWidth ? $('workspaceQuery') : $('homeRoomQuery'))).focus({ preventScroll: true })
+  ;(target ?? $('homeRoomQuery')).focus({ preventScroll: true })
 })
 $('projectForm').addEventListener('submit', event => {
   event.preventDefault()
@@ -15127,40 +15021,8 @@ $('projectForm').addEventListener('submit', event => {
     $('projectError').hidden = false
   }
 })
-document.addEventListener('keydown', event => {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'k') return
-  if (document.querySelector('dialog[open]')) return
-  if (!session && !currentRoomId()) {
-    // On the rooms list rather than in a room: the same shortcut jumps
-    // straight to Find a room when there is one, or the first row.
-    if (!roomsListShown) return
-    event.preventDefault()
-    if (!$('homeRoomSearch').hidden) $('homeRoomQuery').focus()
-    else $('roomList').querySelector<HTMLButtonElement>('.open')?.focus()
-    return
-  }
-  event.preventDefault()
-  openRoomSwitcher()
-})
 window.addEventListener('storage', event => {
   if (event.key?.startsWith('kithmoot.project.v1.')) renderRooms()
-})
-$('roomSwitcher').addEventListener('close', () => {
-  if (roomSwitcherReturn?.isConnected) roomSwitcherReturn.focus({ preventScroll: true })
-})
-$('roomSwitcherClose').addEventListener('click', () => ($('roomSwitcher') as HTMLDialogElement).close())
-$('roomSearch').addEventListener('input', renderRoomSwitcher)
-$('roomSwitcherHome').addEventListener('click', async () => {
-  if (hasUnsentWork()) { renderRoomSwitcher(); return }
-  if (callIsLive() || onCall()) {
-    ;($('roomSwitcher') as HTMLDialogElement).close()
-    void homeKeepingCall()
-    return
-  }
-  backToRooms()
-})
-$('roomSwitcher').addEventListener('click', event => {
-  if (event.target === $('roomSwitcher')) ($('roomSwitcher') as HTMLDialogElement).close()
 })
 $('roomIdentity').addEventListener('click', openRoomSheet)
 $('roomMenu').addEventListener('click', openRoomSheet)
@@ -15233,7 +15095,7 @@ const sharedProjects = new SharedProjectsPanel(document, {
   signIn: () => { void signInWithNostr().catch(e => setStatus(e instanceof Error ? e.message : 'Sign-in did not finish.')) },
 })
 
-for (const id of ['homeContacts', 'workspaceContacts', 'mobileContacts', 'roomContacts']) $(id).addEventListener('click', () => {
+for (const id of ['roomContacts']) $(id).addEventListener('click', () => {
   contactsReturn = $(id)
   closeRoomSheet()
   const dialog = $('contactsDialog') as HTMLDialogElement
@@ -15311,7 +15173,7 @@ boardsPanel = new BoardsPanel(document, {
   currentProject: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); const choice = room && projectChoices([room]).find(p => !roomProjectContext || p.key === roomProjectContext); return choice ? {id: choice.key, name: choice.name} : undefined},
   signIn: () => {void signInWithNostr().catch(error => setStatus(describeError(error)))},
   showChat: () => {if (session) {showMobileRoomView('chat'); const drawer = document.getElementById('chatDrawerToggle'); if (drawer?.getAttribute('aria-expanded') === 'false') drawer.click()}},
-  roomTasks: from => workspaceWork?.open('work', from),
+  roomTasks: from => { openDestination('boards'); workspaceWork?.open('work', from) },
   roomInvitation: id => workspaceActivityRooms().find(room => room.roomId === id)?.link,
   agentRoom: async id => {
     const account = nostrSession
@@ -15361,19 +15223,32 @@ boardsPanel = new BoardsPanel(document, {
     setStatus(`Card title and link added to your draft in ${knownRoomLabel(room)}. Review it before sending to the room.`)
   },
 })
-for (const id of ['workspaceWork', 'homeWork', 'switcherWork', 'mobileWorkspaceWork', 'openAssignments', 'mobileWork', 'workspaceWorkTab']) {
-  const button = $(id); (button.querySelector('.barWord') ?? button).textContent = 'Boards'; button.setAttribute('aria-controls', 'boardsPanel')
-  button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); ($('roomSwitcher') as HTMLDialogElement).close(); ($('workspaceWorkPanel') as HTMLDialogElement).close(); boardsPanel!.open(button)}, {capture: true})
+for (const id of ['openAssignments', 'mobileWork', 'workspaceBoardsOpen']) {
+  const button = $(id)
+  if (id !== 'workspaceBoardsOpen') (button.querySelector('.barWord') ?? button).textContent = 'Boards'
+  button.setAttribute('aria-controls', 'boardsPanel')
+  button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); boardsPanel!.open(button)}, {capture: true})
 }
+// Boards is a destination: the panel of what needs you and what is on the
+// boards sits in the main pane, and is open for as long as it is showing.
+document.addEventListener('shell:destination', event => {
+  const destination = (event as CustomEvent<{ destination: string }>).detail.destination
+  if (destination === 'boards') workspaceWork?.show($('railBoards'))
+  else if (destination !== 'settings') workspaceWork?.hide()
+})
 
 workspaceWork = new WorkspaceWorkPanel(document, {
   account: () => nostrSession?.pubkey, rooms: workspaceActivityRooms, label: knownRoomLabel,
   projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
   projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
   agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
-  showMobileNavigation: () => !!nostrSession && workspaceActivityRooms().some(room => room.roomId === currentRoomId()),
-  openProjects: from => sharedProjects.open(from),
-  currentRoomTasks: {available: () => !!session, open: async () => {if (!session) throw new Error('Open a chat before viewing its tasks'); await assignmentPanel.openAssignment()}},
+  currentRoomTasks: {available: () => !!session, open: async () => {
+    if (!session) throw new Error('Open a chat before viewing its tasks')
+    showRoomPane()
+    // Focus comes back to the room's own Boards control when the panel closes.
+    ;[$('mobileWork'), $('openAssignments')].find(button => button.getClientRects().length)?.focus({ preventScroll: true })
+    await assignmentPanel.openAssignment()
+  }},
   signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
   openOrigin: async (room, target) => {
     const account = nostrSession?.pubkey, generation = identityGeneration
@@ -15869,6 +15744,8 @@ $('createRoomForm').addEventListener('submit', async event => {
   $('createError').hidden = true
   try {
     await startNewRoom()
+    // The sheet that asked for the room has done its job: the door is next.
+    newRoomDialog.close()
     linkArrivalOver = true
     setStatus('')
     showRoomUi()
@@ -16031,21 +15908,41 @@ $('clearHomeRoomQuery').addEventListener('click', () => {
   renderRooms()
   $('homeRoomQuery').focus()
 })
-function openNewRoom(): void {
-  newRoomOpen = true
-  renderRooms()
-  $('roomName').focus()
+/** The three forms that used to sit on the start page are sheets now, and
+ *  open from anywhere: the first-run buttons, the empty main pane, and the
+ *  New menu. Opening one from the menu hands focus on from the item, which
+ *  is gone by then; closing gives it back to the button that is on screen. */
+function openSheet(dialog: HTMLDialogElement, field: string): void {
+  if (!dialog.open) dialog.showModal()
+  $(field).focus()
 }
-function closeNewRoom(): void {
-  newRoomOpen = false
-  renderRooms()
-  $('newRoom').focus()
+const newRoomDialog = $('newRoomDialog') as HTMLDialogElement
+function openNewRoom(): void { openSheet(newRoomDialog, 'roomName') }
+function closeNewRoom(): void { newRoomDialog.close() }
+for (const id of ['newRoomDialog', 'openLink', 'joinCode']) {
+  const dialog = $(id) as HTMLDialogElement
+  dialog.addEventListener('close', () => {
+    const back = ['newRoom', 'homeOpenLink', 'homeJoinCode', 'homeNewRoom', 'newMenuButton'].map($).find(button => button.getClientRects().length)
+    if (!document.activeElement || document.activeElement === document.body) back?.focus({ preventScroll: true })
+  })
 }
 $('newRoom').addEventListener('click', openNewRoom)
+$('homeNewRoom').addEventListener('click', openNewRoom)
 $('cancelNewRoom').addEventListener('click', closeNewRoom)
-$('createRoomForm').addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && newRoomOpen) closeNewRoom()
-})
+$('openLinkClose').addEventListener('click', () => ($('openLink') as HTMLDialogElement).close())
+$('joinCodeClose').addEventListener('click', () => ($('joinCode') as HTMLDialogElement).close())
+const openLinkSheet = () => openSheet($('openLink') as HTMLDialogElement, 'url')
+const joinCodeSheet = () => openSheet($('joinCode') as HTMLDialogElement, 'meetingCodeInput')
+$('homeOpenLink').addEventListener('click', openLinkSheet)
+$('homeJoinCode').addEventListener('click', joinCodeSheet)
+
+// The New menu: everything that starts a chat or brings one in. The same
+// menu helper as a chat row's ⋯ (app/src/menu.ts).
+wireMenu($('newMenuButton'), $('newMenu'), { beforeOpen: () => { $('newMenuContact').hidden = !nostrSession } })
+$('newMenuRoom').addEventListener('click', openNewRoom)
+$('newMenuContact').addEventListener('click', () => openDestination('people'))
+$('newMenuLink').addEventListener('click', openLinkSheet)
+$('newMenuCode').addEventListener('click', joinCodeSheet)
 $('roomAsk').addEventListener('change', () => {
   const ask = ($('roomAsk') as HTMLInputElement).checked
   $('roomAskHint').hidden = !ask
@@ -16105,12 +16002,6 @@ $('homeSignIn').addEventListener('click', () => {
 $('headerSignIn').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
 })
-$('homeOpenLink').addEventListener('click', () => {
-  const details = $('openLink') as HTMLDetailsElement
-  details.open = !details.open
-  $('homeOpenLink').setAttribute('aria-expanded', String(details.open))
-  if (details.open) ($('url') as HTMLInputElement).focus()
-})
 $('roomList').addEventListener('click', (event) => {
   const fold = (event.target as HTMLElement).closest<HTMLButtonElement>('.sectionFold')
   if (!fold) return
@@ -16119,13 +16010,25 @@ $('roomList').addEventListener('click', (event) => {
   renderRooms()
   $('roomList').querySelector<HTMLElement>(`.sectionFold[data-section="${section}"]`)?.focus()
 })
-// ArrowUp/ArrowDown/Home/End move focus between rows' open buttons, the
-// same shape as the chat log's own message navigation.
+// The chats are one tab stop. Up and Down, Home and End move between rows
+// (the same shape as the chat log's own message navigation), Right goes to
+// a row's ⋯ and Left back, and Enter opens the row, which is its button.
 $('roomList').addEventListener('keydown', (event) => {
-  if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-  const rows = Array.from($('roomList').querySelectorAll<HTMLButtonElement>('.open'))
-  if (!rows.length) return
   const active = document.activeElement as HTMLElement | null
+  if (active?.classList.contains('rowMenu') && event.key === 'ArrowLeft') {
+    event.preventDefault()
+    active.closest('li')?.querySelector<HTMLElement>('.open')?.focus()
+    return
+  }
+  if (active?.classList.contains('open') && event.key === 'ArrowRight') {
+    const more = active.closest('li')?.querySelector<HTMLElement>('.rowMenu')
+    if (more) { event.preventDefault(); more.focus() }
+    return
+  }
+  if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+  if (active?.closest('.rowMenuPopover')) return
+  const rows = Array.from($('roomList').querySelectorAll<HTMLButtonElement>('.roomRow .open'))
+  if (!rows.length) return
   const index = active ? rows.indexOf(active as HTMLButtonElement) : -1
   let next: number
   if (event.key === 'ArrowUp') next = index < 0 ? rows.length - 1 : Math.max(0, index - 1)
@@ -16134,6 +16037,24 @@ $('roomList').addEventListener('keydown', (event) => {
   else next = rows.length - 1
   event.preventDefault()
   rows[next]?.focus()
+})
+// Whichever row has focus is the list's one tab stop.
+$('roomList').addEventListener('focusin', (event) => {
+  const open = (event.target as HTMLElement).closest<HTMLButtonElement>('.roomRow .open')
+  if (!open) return
+  for (const other of $('roomList').querySelectorAll<HTMLButtonElement>('.roomRow .open')) other.tabIndex = other === open ? 0 : -1
+})
+// In the search field, Down walks into the list, Enter opens the first
+// match and Escape clears what was typed.
+$('homeRoomQuery').addEventListener('keydown', (event) => {
+  const first = $('roomList').querySelector<HTMLButtonElement>('.roomRow .open')
+  if (event.key === 'ArrowDown' && first) { event.preventDefault(); first.focus() }
+  else if (event.key === 'Enter' && first) { event.preventDefault(); first.click() }
+  else if (event.key === 'Escape' && ($('homeRoomQuery') as HTMLInputElement).value) {
+    event.preventDefault()
+    ;($('homeRoomQuery') as HTMLInputElement).value = ''
+    renderRooms()
+  }
 })
 $('returnToPreviousRoom').addEventListener('click', () => {
   if (previousRoom) void switchRoom(previousRoom)
@@ -18635,7 +18556,6 @@ roomArrival
   .then((found) => {
     if (!found) {
       // No link: the front page, with the rooms this device has been in.
-      $('setup').hidden = false
       showRoomsList()
       // kithmoot.app/c/<code> arrives here as ?c=<code>: the same path as
       // typing it into Join with code, so it reaches the door and no further.
@@ -18643,7 +18563,7 @@ roomArrival
       // already out of the address bar) open a sealed code without a prompt.
       const code = new URL(location.href).searchParams.get('c')
       if (code !== null) {
-        ;($('joinCode') as HTMLDetailsElement).open = true
+        ;($('joinCode') as HTMLDialogElement).showModal()
         ;($('meetingCodeInput') as HTMLInputElement).value = code
         void joinWithCode(code)
       }

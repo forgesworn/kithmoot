@@ -4,7 +4,7 @@
 // test/desktop-room-layout.spec.ts; this pins the arithmetic they mirror.
 import { expect, test } from 'vitest'
 import {
-  CALL_MIN_WIDTH_PX, CALL_PANE_FLOOR_PX, CHAT_DIVIDER_DEFAULT_FRACTION, CHAT_MIN_WIDTH_PX, RAIL_COLLAPSED_PX,
+  CALL_MIN_WIDTH_PX, CALL_PANE_FLOOR_PX, CHAT_DIVIDER_DEFAULT_FRACTION, CHAT_MIN_WIDTH_PX, RAIL_COLLAPSED_PX, RAIL_WIDTH_PX,
   WORK_MAX_PX, WORK_MIN_PX,
   callPaneWidth, chatColumnWidth, chatDividerFraction, chatDividerWidth, chatDrawerWidth, chatIsDrawer,
   roomAreaWidth, workPanelWidth,
@@ -14,16 +14,16 @@ import {
 const WINDOWS = [{ width: 1320, height: 880 }, { width: 1100, height: 700 }, { width: 1600, height: 1000 }]
 
 test('with Work open and room to spare, Work gets what it asked for', () => {
+  expect(workPanelWidth(1700)).toBe(WORK_MAX_PX)
   expect(workPanelWidth(1600)).toBe(WORK_MAX_PX)
-  expect(workPanelWidth(1320)).toBe(WORK_MAX_PX)
 })
 
 test('Work is the panel that narrows when the window cannot hold all three', () => {
-  // 1280 is where the fixed Work panel appears at all, and it is already
-  // 24px short of everybody having what they want.
-  expect(workPanelWidth(1280)).toBe(1280 - 208 - 360 - 240 - 48)
-  expect(workPanelWidth(1280)).toBeLessThan(WORK_MAX_PX)
-  expect(workPanelWidth(1280)).toBeGreaterThanOrEqual(WORK_MIN_PX)
+  // With the rail and the list column beside the room (376px between them),
+  // Work is short of what it asked for until the window is about 1450.
+  expect(workPanelWidth(1400)).toBe(1400 - RAIL_WIDTH_PX - 360 - 240 - 48)
+  expect(workPanelWidth(1400)).toBeLessThan(WORK_MAX_PX)
+  expect(workPanelWidth(1400)).toBeGreaterThanOrEqual(WORK_MIN_PX)
   // And it never disappears into a sliver, however narrow the window gets.
   expect(workPanelWidth(900)).toBe(WORK_MIN_PX)
 })
@@ -46,8 +46,8 @@ test('the conversation grows past its floor once there is room for it', () => {
 })
 
 test('the call pane takes what is left, and the conversation never pays for it', () => {
-  // 1280 is the tight case: everybody is exactly on their floor.
-  const tight = roomAreaWidth(1280, { work: true })
+  // 1400 is the tight case: everybody is exactly on their floor.
+  const tight = roomAreaWidth(1400, { work: true })
   expect(chatDrawerWidth(tight)).toBe(CHAT_MIN_WIDTH_PX)
   expect(callPaneWidth(tight)).toBe(CALL_MIN_WIDTH_PX)
   // Narrower still, and it is the call pane that goes below its floor.
@@ -78,8 +78,8 @@ test('the drawer comes back only when the call pane has something in it', () => 
 })
 
 test('with Work shut, the room area is the window less the rail and the gutter', () => {
-  expect(roomAreaWidth(1320, { work: false })).toBe(1320 - 208 - 48)
-  expect(roomAreaWidth(1320, { work: false, railWidth: RAIL_COLLAPSED_PX })).toBe(1320 - 56 - 48)
+  expect(roomAreaWidth(1320, { work: false })).toBe(1320 - RAIL_WIDTH_PX - 48)
+  expect(roomAreaWidth(1320, { work: false, railWidth: RAIL_COLLAPSED_PX })).toBe(1320 - 76 - 48)
 })
 
 test('chatDrawerWidth takes a dragged fraction instead of the default share', () => {

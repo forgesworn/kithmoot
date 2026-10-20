@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm, requestAdmission } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 // A private room: a room that asks first, whose link is never handed out.
@@ -25,8 +25,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
     await expect(ada.locator('#roomArea')).toBeVisible()
 
     // The shared room, where Ada and Rowan meet.
-    await ada.locator('#backToRooms').click()
-    await ada.locator('#roomSwitcherHome').click()
+    await leaveToChats(ada)
     await openNewRoomForm(ada)
     await ada.locator('#roomName').fill('Shared')
     await ada.locator('#create').click()
@@ -58,15 +57,13 @@ test('somebody invited from a shared room is let straight into a room that asks 
     // link. Once the invite has been confirmed sent, or switching asks
     // about unsent work.
     await expect(ada.locator('#outbox')).toBeHidden({ timeout: 60_000 })
-    await ada.locator('#backToRooms').click()
-    await ada.locator('#roomSwitcherHome').click()
+    await leaveToChats(ada)
     await ada.getByRole('button', { name: 'Open Private build', exact: true }).click()
     await expect(ada.locator('#roomTitle')).toHaveText('Private build', { timeout: 60_000 })
     await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 
     // Rowan opens it from their rooms and is let straight in: no card.
-    await rowan.locator('#backToRooms').click()
-    await rowan.locator('#roomSwitcherHome').click()
+    await leaveToChats(rowan)
     await rowan.getByRole('button', { name: 'Open Private build', exact: true }).click()
     await requestAdmission(rowan)
     // Saved rooms now join automatically. Verify admitted membership and

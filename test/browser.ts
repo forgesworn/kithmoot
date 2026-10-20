@@ -341,19 +341,79 @@ export async function newDeviceContext(browser: Browser, baseURL: string, option
   return context
 }
 
-/** Home's start form collapses behind "New room" once this browser already
- *  knows a room, under 1100px - open it first if that is where the page
- *  is, so `#roomName` and `#create` are the ones actually on screen. A
- *  no-op on the cold, first-visit layout, where the form is already open
- *  and `#newRoom` does not exist on screen to click. */
+/** Open the New room sheet, from wherever the page is. On a first run it is
+ *  the start page's own "Start a room"; once there are chats it is the New
+ *  menu's first item. Either way `#roomName` and `#create` are on screen. */
 export async function openNewRoomForm(page: Page): Promise<void> {
-  // Home may still be drawing: wait until it shows either the form itself
-  // (first visit) or the rooms list's New room button, then open the form.
-  const newRoom = page.locator('#newRoom')
   const name = page.locator('#roomName')
-  await expect(page.locator('#newRoom:visible, #roomName:visible').first()).toBeVisible({ timeout: 30_000 })
-  if (!await name.isVisible()) await newRoom.click()
+  await expect(page.locator('#newRoom:visible, #newMenuButton:visible').first()).toBeVisible({ timeout: 30_000 })
+  if (await name.isVisible()) return
+  if (await page.locator('#newRoom').isVisible()) await page.locator('#newRoom').click()
+  else {
+    await page.locator('#newMenuButton').click()
+    await page.locator('#newMenuRoom').click()
+  }
   await expect(name).toBeVisible()
+}
+
+/** The list of chats, on screen. Below 900 px the list and the room do not
+ *  share the screen, and a room is left for the list with its back arrow;
+ *  wider, the list is always there. */
+export async function showChats(page: Page): Promise<void> {
+  // Out of Boards or People first, if that is where the page is.
+  const chats = page.locator('#railChats')
+  if (await chats.isVisible() && (await chats.getAttribute('aria-current')) !== 'page') await chats.click()
+  const back = page.locator('#backToRooms')
+  await expect(page.locator('#rooms:visible, #backToRooms:visible').first()).toBeVisible()
+  if (await back.isVisible()) await back.click()
+  await expect(page.locator('#rooms')).toBeVisible()
+}
+
+/** Open the Projects sheet, from the New menu. */
+export async function openProjects(page: Page): Promise<void> {
+  await showChats(page)
+  await page.locator('#newMenuButton').click()
+  await page.locator('#newMenuProjects').click()
+}
+
+/** Open the New project form, from the New menu. */
+export async function openNewProject(page: Page): Promise<void> {
+  await showChats(page)
+  await page.locator('#newMenuButton').click()
+  await page.locator('#newMenuProject').click()
+}
+
+/** The Boards destination: what needs you, and what is on the boards. */
+export async function openBoardsDestination(page: Page): Promise<void> {
+  // Inside a room on a phone the bar is gone: back to the list level first.
+  if (!await page.locator('#railBoards').isVisible()) await page.locator('#backToRooms').click()
+  await page.locator('#railBoards:visible').click()
+  await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
+}
+
+/** Open a board (the embedded boards panel) from the Boards destination. */
+export async function openBoardsPanel(page: Page): Promise<void> {
+  await openBoardsDestination(page)
+  await page.locator('#workspaceBoardsOpen').click()
+}
+
+/** Switch to a known room from the list, whatever the window size. */
+export async function switchToRoom(page: Page, name: string): Promise<void> {
+  await showChats(page)
+  await page.locator('#roomList').getByRole('button', { name: `Open ${name}`, exact: true }).click()
+}
+
+/** Leave the open room for the start page, as the logo in the rail does.
+ *  Not needed to see the list (use `showChats`): this is the way out of a
+ *  room that ends its session, and keeps a call docked. */
+export async function leaveToChats(page: Page): Promise<void> {
+  const logo = page.locator('#appHome')
+  // Under 600 px the rail is the bottom bar and has no logo: the same handler
+  // is reached by script, which is what a back-to-start gesture would be.
+  if (await logo.isVisible()) await logo.click()
+  else await logo.evaluate(button => (button as HTMLButtonElement).click())
+  // The start page is the main pane where it shows, and the list where it is the only pane.
+  await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
 }
 
 export async function createRoom(page: Page, baseURL: string, relays = testRelays()): Promise<string> {

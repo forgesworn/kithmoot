@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { base64urlnopad } from '@scure/base'
 import { openRoomUrl, pinToTestRelays, testRelays, withRelays } from './relays.js'
+import { openNewRoomForm } from './browser.js'
 
 /**
  * Automated version of the acceptance test documented in README.md: two
@@ -99,6 +100,7 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
   // #iceServers sits inside a collapsed <details> and is left blank, which
   // is the app's own default (app/index.html, app/src/ice-defaults.ts) -
   // nothing to change here.
+  await openNewRoomForm(page)
   await page.locator('#create').click()
   // The room's own link exists as soon as the room does, but the drawer
   // holding it stays shut until somebody has gone in - the entry page shows

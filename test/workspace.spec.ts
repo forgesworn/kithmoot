@@ -9,6 +9,7 @@ import { createRoomInvitation } from '../src/invitation.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
 import { KINDS } from '../src/kinds.js'
+import { leaveToChats, showChats, switchToRoom } from './browser.js'
 
 async function setup(browser: Browser, base: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
@@ -49,32 +50,18 @@ async function reenter(page: Page, link: string) {
 }
 
 async function project(page: Page, room: string, name: string) {
-  await page.getByRole('button', { name: `Set local group for ${room}`, exact: true }).click()
+  await page.getByRole('button', { name: `More for ${room}`, exact: true }).click()
+  await page.getByRole('menuitem', { name: /Group on this browser|Change local group/ }).click()
   await page.locator('#projectName').fill(name)
   await page.getByRole('button', { name: 'Save local group', exact: true }).click()
   await expect(page.locator('#projectEditor')).not.toBeVisible()
 }
 
-test('a room title press survives a rail update before pointer release', async ({ browser, baseURL }) => {
+test('local groups organise rooms into chips, filter by name, survive reload and remain reachable on mobile', async ({ browser, baseURL }, testInfo) => {
   const { context, page, rooms } = await setup(browser, baseURL!)
   try {
     await join(page, rooms[0]!.link)
-    const target = page.locator('#workspaceRooms .workspaceRoomName').filter({ hasText: rooms[1]!.name })
-    const node = await target.elementHandle()
-    await target.hover(); await page.mouse.down()
-    try {
-      await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'kithmoot.project.v1.arriving' })))
-      expect(await node!.evaluate(element => element.isConnected)).toBe(true)
-    } finally { await page.mouse.up() }
-    await expect(page.locator('#roomTitle')).toHaveText(rooms[1]!.name)
-  } finally { await context.close() }
-})
-
-test('local groups organise rooms, filter by name, survive reload and remain reachable on mobile', async ({ browser, baseURL }, testInfo) => {
-  const { context, page, rooms } = await setup(browser, baseURL!)
-  try {
-    await join(page, rooms[0]!.link)
-    await expect(page.getByRole('complementary', { name: 'Projects and rooms' })).toBeVisible()
+    await expect(page.getByRole('navigation', { name: 'Chats' })).toBeVisible()
     // No agent here yet, so no Agents tab; Room details lists it.
     await page.locator('#roomMenu').click()
     await page.locator('#channelBar button[data-channel=agents]').click()
@@ -82,43 +69,39 @@ test('local groups organise rooms, filter by name, survive reload and remain rea
     await expect(page.locator('#manageAgents')).toBeVisible()
     await project(page, 'Design workshop', 'KithMoot')
     await project(page, 'Release planning', 'KithMoot')
-    const group = page.locator('#workspaceRooms section', { has: page.getByRole('heading', { name: 'KithMoot', exact: true }) })
-    await expect(group.locator('.workspaceRoom')).toHaveCount(2)
-    await page.locator('#workspaceQuery').fill('kithmoot')
-    await expect(page.locator('#workspaceRooms .workspaceRoom')).toHaveCount(2)
-    await group.getByRole('button', { name: 'Design workshop', exact: true }).click()
+    const chip = page.locator('#chatFilters').getByRole('button', { name: 'KithMoot', exact: true })
+    await chip.click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(2)
+    await page.locator('#homeRoomQuery').fill('kithmoot')
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(2)
+    await page.locator('#roomList').getByRole('button', { name: 'Open Design workshop', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Design workshop')
-    await expect(page.locator('#workspaceRooms [aria-current=true]')).toHaveAccessibleName('Design workshop')
-    await expect(page.locator('#workspaceQuery')).toHaveValue('kithmoot')
-    await page.locator('#workspaceQuery').fill('')
-    await expect(page.locator('#workspaceRooms h3')).toContainText(['KithMoot', 'No project'])
-    await page.locator('#workspaceRooms').getByRole('button', { name: 'Town hall', exact: true }).click()
+    await expect(page.locator('#roomList .open[aria-current=true]')).toHaveAccessibleName('Open Design workshop')
+    await expect(page.locator('#homeRoomQuery')).toHaveValue('kithmoot')
+    await page.locator('#homeRoomQuery').fill('')
+    await page.locator('#chatFilters').getByRole('button', { name: 'All', exact: true }).click()
+    await page.locator('#roomList').getByRole('button', { name: 'Open Town hall', exact: true }).click()
     await expect(page.locator('#conversationNav button[data-channel=agents]')).toHaveAttribute('aria-pressed', 'true')
-    await page.locator('#workspaceRooms').getByRole('button', { name: 'Design workshop', exact: true }).click()
+    await page.locator('#roomList').getByRole('button', { name: 'Open Design workshop', exact: true }).click()
     await page.locator('#chatInput').fill('Keep this draft in Design workshop')
-    await page.locator('#workspaceRooms').getByRole('button', { name: 'Town hall', exact: true }).click()
+    await page.locator('#roomList').getByRole('button', { name: 'Open Town hall', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await expect(page.locator('#chatInput')).toHaveValue('')
-    await page.locator('#workspaceRooms').getByRole('button', { name: 'Design workshop', exact: true }).click()
+    await page.locator('#roomList').getByRole('button', { name: 'Open Design workshop', exact: true }).click()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this draft in Design workshop')
     await page.locator('#chatInput').fill('')
     await page.keyboard.press('Control+k')
-    await expect(page.locator('#roomSearch')).toBeFocused()
-    await page.locator('#switcherProject').selectOption({ label: 'KithMoot' })
-    await expect(page.locator('#roomSwitcherList .roomRow')).toHaveCount(2)
-    await page.keyboard.press('Escape')
+    await expect(page.locator('#homeRoomQuery')).toBeFocused()
     await page.setViewportSize({ width: 390, height: 740 })
-    await expect(page.locator('#workspaceNav')).not.toBeVisible()
-    await page.locator('#backToRooms').click()
-    await expect(page.locator('#roomSwitcherList .roomRow')).toHaveCount(2)
+    await showChats(page)
+    await chip.click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(2)
     await page.screenshot({ path: testInfo.outputPath('mobile-project-picker.png') })
     await project(page, 'Design workshop', '')
-    await expect(page.locator('#roomSwitcherList .roomRow')).toHaveCount(1)
-    await page.locator('#switcherProject').selectOption('')
-    await expect(page.locator('#roomSwitcherList .roomRow')).toHaveCount(2)
-    await page.locator('#roomSwitcherHome').click()
-    await expect(page.locator('#home')).toBeVisible()
-    await page.locator('#homeProject').selectOption({ label: 'KithMoot' })
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
+    await leaveToChats(page)
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
+    await page.locator('#chatFilters').getByRole('button', { name: 'KithMoot', exact: true }).click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await expect(page.locator('#roomList')).toContainText('Release planning')
   } finally { await context.close() }
@@ -450,8 +433,7 @@ test(`switching rooms opens the latest messages through delayed history and hono
     return { id: anchor?.dataset.messageId, offset: anchor ? anchor.getBoundingClientRect().top - edge : 0 }
   })
   const switchTo = async (name: string) => {
-    await page.locator('#backToRooms').click()
-    await page.getByRole('button', { name: `Switch to ${name}`, exact: true }).click()
+    await switchToRoom(page, name)
     await expect(page.locator('#roomTitle')).toHaveText(name)
     await expect(page.locator('#roomArea')).toBeVisible()
   }
@@ -534,7 +516,7 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
     await input.fill('Keep this unfinished draft')
     await input.evaluate(el => (el as HTMLTextAreaElement).setSelectionRange(5, 9))
     await page.keyboard.press('Control+F6')
-    await expect(page.locator('#workspaceQuery')).toBeFocused()
+    await expect(page.locator('#homeRoomQuery')).toBeFocused()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()
     // The tab row exists only when there is more than Chat to show; a
@@ -685,19 +667,19 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     await page.evaluate(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), {
       roomId: keeper.session.roomId, name: 'Planning room', link: withRelays(keeper.url, [relay]), openedAt: 1, readAt: 0,
     })
-    const rail = page.locator('#workspaceRooms')
-    const planning = rail.locator('.workspaceRoom', { has: page.getByRole('button', { name: 'Planning room', exact: true }) })
+    const rail = page.locator('#roomList')
+    const planning = rail.locator('.roomRow', { has: page.getByRole('button', { name: 'Open Planning room', exact: true }) })
     await reenter(page, withRelays(here.url, [relay]))
     // In the planning room once, as a device is before the room is on its
     // rail: it holds a device key for the room from then on, and the
     // keeper has seen its credential.
-    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
+    await planning.getByRole('button', { name: 'Open Planning room', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Planning room')
     await keeper.chat.send('Before the key turned.')
     await expect(page.locator('#chatLog')).toContainText('Before the key turned.')
     await expect.poll(() => keeper.session.participants().some(view => view.name === 'Ada')).toBe(true)
     const pageDevice = keeper.session.participants().find(view => view.name === 'Ada')!.devices[0]!
-    await page.getByRole('button', { name: 'Reading room', exact: true }).click()
+    await page.getByRole('button', { name: 'Open Reading room', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Reading room')
     await expect(planning.locator('.unread')).toHaveCount(0)
 
@@ -719,7 +701,7 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     // Opening it: both sides of the turn are there, the lock says it has
     // changed, and nothing in the chat says so.
     const notices = page.locator('#chatLog > .system:not(.intro)')
-    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
+    await planning.getByRole('button', { name: 'Open Planning room', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Planning room')
     await expect(page.locator('#chatLog')).toContainText('Before the key turned.')
     await expect(page.locator('#chatLog')).toContainText('After the key turned.')
@@ -738,12 +720,14 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
   } finally { here.leave(); keeper.leave(); await context.close() }
 })
 
-test('rooms can be forgotten from the sidebar and the switcher, but not the one on screen', async ({ browser, baseURL }) => {
+test('rooms can be forgotten from the list, but not the one on screen', async ({ browser, baseURL }) => {
   const { context, page, rooms } = await setup(browser, baseURL!)
   try {
     await join(page, rooms[0]!.link)
-    const sidebar = page.locator('#workspaceRooms')
-    await expect(sidebar.getByRole('button', { name: 'Forget Town hall', exact: true })).toHaveCount(0)
+    const sidebar = page.locator('#roomList')
+    await sidebar.getByRole('button', { name: 'More for Town hall', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: 'Forget this room' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
     // Its keys as this device would hold them: forgetting takes them too.
     const planning = rooms[2]!.roomId
     const keysOf = (roomId: string) => page.evaluate(id => ['kithmoot.device.', 'kithmoot.room-epoch.v1.', 'kithmoot.room-epoch.v2.'].map(prefix => localStorage.getItem(prefix + id)), roomId)
@@ -752,19 +736,17 @@ test('rooms can be forgotten from the sidebar and the switcher, but not the one 
       localStorage.setItem('kithmoot.room-epoch.v1.' + id, JSON.stringify({ epoch: 2, id: '22'.repeat(32), key: '33'.repeat(32) }))
       localStorage.setItem('kithmoot.room-epoch.v2.' + id, JSON.stringify({ epoch: 2, secret: '44'.repeat(32), past: [{ epoch: 1, secret: '55'.repeat(32), leftAt: Math.floor(Date.now() / 1000) }], removed: [], members: [] }))
     }, planning)
-    await sidebar.getByRole('button', { name: 'Forget Release planning', exact: true }).click()
+    await sidebar.getByRole('button', { name: 'More for Release planning', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Forget this room' }).click()
     await page.getByRole('button', { name: 'Forget room', exact: true }).click()
-    await expect(sidebar.getByRole('button', { name: 'Release planning', exact: true })).toHaveCount(0)
+    await expect(sidebar.getByRole('button', { name: 'Open Release planning', exact: true })).toHaveCount(0)
     expect(await keysOf(planning)).toEqual([null, null, null])
     expect((await keysOf(rooms[0]!.roomId))[0]).not.toBeNull()
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
-    await page.keyboard.press('Control+k')
-    const switcher = page.locator('#roomSwitcherList')
-    await expect(switcher.getByRole('button', { name: 'Forget Town hall', exact: true })).toHaveCount(0)
-    await switcher.getByRole('button', { name: 'Forget Design workshop', exact: true }).click()
+    await sidebar.getByRole('button', { name: 'More for Design workshop', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Forget this room' }).click()
     await page.getByRole('button', { name: 'Forget room', exact: true }).click()
-    await expect(switcher.locator('.roomRow')).toHaveCount(1)
-    await expect(sidebar.locator('.workspaceRoom')).toHaveCount(1)
+    await expect(sidebar.locator('.roomRow')).toHaveCount(1)
   } finally { await context.close() }
 })
 
@@ -817,7 +799,7 @@ test('a call with chat closed keeps incoming messages unread in the desktop badg
     await expect(page.locator('#chatLog')).toContainText('Unread while you are looking at the call.')
     await expect.poll(count).toBe(1)
     await expect(page).toHaveTitle('(1) KithMoot')
-    const callRoom = page.locator('#workspaceRooms .workspaceRoom', { has: page.getByRole('button', { name: 'Call unread', exact: true }) })
+    const callRoom = page.locator('#roomList .roomRow', { has: page.getByRole('button', { name: 'Open Call unread', exact: true }) })
     await expect(callRoom.locator('.unread:not(.agent)')).toHaveText('1')
     // Real per-person spam protection allows 30 messages a minute. Four
     // synthetic people exercise the count cap without disabling that guard.
@@ -828,11 +810,11 @@ test('a call with chat closed keeps incoming messages unread in the desktop badg
     await expect(callRoom.locator('.unread:not(.agent)')).toHaveText('99+')
     await expect(page.locator('#callChatToggle .callChatUnread')).toHaveText('99+')
     await expect(page).toHaveTitle('(100) KithMoot')
-    await page.locator('#workspaceRooms').getByRole('button', { name: rooms[0]!.name, exact: true }).click()
+    await page.locator('#roomList').getByRole('button', { name: `Open ${rooms[0]!.name}`, exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText(rooms[0]!.name)
     await expect(callRoom.locator('.unread:not(.agent)')).toHaveText('99+')
     await expect.poll(count).toBe(100)
-    await callRoom.getByRole('button', { name: 'Call unread', exact: true }).click()
+    await callRoom.getByRole('button', { name: 'Open Call unread', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Call unread')
     await expect(page.locator('#chatLog')).toBeHidden()
     await expect.poll(count).toBe(100)
@@ -843,83 +825,4 @@ test('a call with chat closed keeps incoming messages unread in the desktop badg
     await expect(page).toHaveTitle('KithMoot')
     await expect(callRoom.locator('.unread')).toHaveCount(0)
   } finally { await context.close(); await Promise.all(extraWriters.map(writer => writer.leave())); await rowan.leave() }
-})
-
-test('the installed window shows each other room\'s unread messages in the rail, and clears them on reading', async ({ browser, baseURL }) => {
-  const { context, page, relay } = await setup(browser, baseURL!)
-  // The installed window's bridge, as far as this needs it: its presence is
-  // what keeps every room watched while one is on screen.
-  await context.addInitScript(() => {
-    const known: Record<string, unknown> = { updateState: async () => ({ phase: 'disabled' }), installUpdate: async () => false }
-    Object.assign(window, { kithmootDesktop: new Proxy(known, {
-      get: (target, key) => key in target ? target[key as string]
-        : String(key).startsWith('supports') || key === 'shareAreaMode' ? undefined
-        : String(key).startsWith('on') ? () => () => {} : () => undefined,
-    }) })
-  })
-  const here = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', ...agentRelaysFor(baseURL!), agent: false })
-  const elsewhere = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', ...agentRelaysFor(baseURL!), agent: false })
-  try {
-    await join(page, withRelays(here.url, [relay]))
-    await page.evaluate(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), {
-      roomId: elsewhere.session.roomId, name: 'Planning room', link: withRelays(elsewhere.url, [relay]), openedAt: 1, readAt: 0,
-    })
-    const rail = page.locator('#workspaceRooms')
-    const planning = rail.locator('.workspaceRoom', { has: page.getByRole('button', { name: 'Planning room', exact: true }) })
-    const reading = rail.locator('.workspaceRoom', { has: page.getByRole('button', { name: 'Reading room', exact: true }) })
-    // Visited once, as a room is before it is on anybody's rail: that is
-    // how this device comes to hold its key, and watching needs the key.
-    await reenter(page, withRelays(here.url, [relay]))
-    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
-    await expect(page.locator('#roomTitle')).toHaveText('Planning room')
-    await page.getByRole('button', { name: 'Reading room', exact: true }).click()
-    await expect(page.locator('#roomTitle')).toHaveText('Reading room')
-    await expect(planning.locator('.unread')).toHaveCount(0)
-
-    await elsewhere.chat.send('Are we still on for Thursday?')
-    await elsewhere.chat.send('I have moved the review to the afternoon.')
-    await expect(planning.locator('.unread:not(.agent)')).toHaveText('2', { timeout: 30_000 })
-    await expect(planning.locator('.unread:not(.agent)')).toHaveAttribute('aria-label', '2 unread in Planning room')
-    await expect(planning).toHaveClass(/hasUnread/)
-    // The room on screen carries no count of its own in the rail.
-    await expect(reading.locator('.unread')).toHaveCount(0)
-
-    // Reading it clears it.
-    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
-    await expect(page.locator('#roomTitle')).toHaveText('Planning room')
-    await expect(page.locator('#chatLog .msg', { hasText: 'afternoon' })).toHaveCount(1)
-    await page.getByRole('button', { name: 'Reading room', exact: true }).click()
-    await expect(page.locator('#roomTitle')).toHaveText('Reading room')
-    await expect(planning.locator('.unread')).toHaveCount(0, { timeout: 15_000 })
-
-    // Pinned: a section of its own at the top, kept across a reload.
-    await expect(rail.locator('h3', { hasText: 'Pinned' })).toHaveCount(0)
-    await planning.getByRole('button', { name: 'Pin Planning room', exact: true }).click()
-    const pinnedSection = rail.locator('section[data-project="pinned:"]')
-    await expect(rail.locator('section').first()).toHaveAttribute('data-project', 'pinned:')
-    await expect(pinnedSection.locator('h3')).toHaveAccessibleName('Pinned')
-    await expect(pinnedSection.locator('.workspaceRoomName')).toHaveText(['Planning room'])
-    await reenter(page, withRelays(here.url, [relay]))
-    await expect(pinnedSection.locator('.workspaceRoomName')).toHaveText(['Planning room'])
-    // A real watched message can redraw the rail between pointer down and
-    // up. Keep its section, row and pressed action connected while still
-    // showing the new unread count immediately; releasing must unpin it.
-    const unpin = pinnedSection.getByRole('button', { name: 'Unpin Planning room', exact: true })
-    const sectionNode = await pinnedSection.elementHandle()
-    const rowNode = await planning.elementHandle()
-    const pinNode = await unpin.elementHandle()
-    await unpin.hover()
-    await page.mouse.down()
-    try {
-      await elsewhere.chat.send('One more update while the pin is pressed.')
-      await expect(planning.locator('.unread:not(.agent)')).toHaveText('1')
-      await expect(planning.locator('.unread:not(.agent)')).toHaveAttribute('aria-label', '1 unread in Planning room')
-      await expect(planning).toHaveClass(/hasUnread/)
-      expect(await sectionNode!.evaluate(node => node.isConnected && node === document.querySelector('#workspaceRooms section[data-project="pinned:"]'))).toBe(true)
-      expect(await rowNode!.evaluate(node => node.isConnected && node === document.querySelector('#workspaceRooms section[data-project="pinned:"] .workspaceRoom'))).toBe(true)
-      expect(await pinNode!.evaluate(node => node.isConnected && node === document.querySelector('#workspaceRooms section[data-project="pinned:"] [data-action="pin"]'))).toBe(true)
-    } finally { await page.mouse.up() }
-    await expect(pinnedSection).toHaveCount(0)
-    await expect(planning.getByRole('button', { name: 'Pin Planning room', exact: true })).toHaveAttribute('aria-pressed', 'false')
-  } finally { here.leave(); elsewhere.leave(); await context.close() }
 })

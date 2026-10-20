@@ -66,8 +66,11 @@ async function codeService(context: BrowserContext, lookups: Record<string, { st
 }
 
 async function joinWithCode(page: Page, code: string): Promise<void> {
-  const details = page.locator('#joinCode')
-  if (!await details.evaluate(el => (el as HTMLDetailsElement).open)) await page.locator('#joinCode > summary').click()
+  // The code sheet opens from the start page, or from the New menu once there are chats.
+  if (!await page.locator('#joinCode').evaluate(el => (el as HTMLDialogElement).open)) {
+    if (await page.locator('#homeJoinCode').isVisible()) await page.locator('#homeJoinCode').click()
+    else { await page.locator('#newMenuButton').click(); await page.locator('#newMenuCode').click() }
+  }
   await page.locator('#meetingCodeInput').fill(code)
   await page.locator('#meetingCodeInput').press('Enter')
 }
@@ -80,7 +83,7 @@ test('Join with code opens the invitation door and does not join', async ({ brow
     const seen = await codeService(context, { K7M2Q9TX: { status: 200, body: { link, expires: Math.floor(Date.now() / 1000) + 3600 } } })
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await joinWithCode(page, ' k7m-2q9-tx ')
     // The door, with the same fragment, on this app's own join page.
     await expect(page.locator('#join')).toBeVisible()
@@ -108,7 +111,7 @@ test('each refusal says what happened, and a network failure offers Retry', asyn
     })
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     const error = page.locator('#joinCodeError')
 
     await joinWithCode(page, 'END-ED2-34')
@@ -128,7 +131,7 @@ test('each refusal says what happened, and a network failure offers Retry', asyn
     await context.route(/\/codes(\/[^/?#]*)?$/, route => route.abort('internetdisconnected'))
     await joinWithCode(page, 'ABCDEFGH')
     await expect(page.locator('#joinCodeRetry')).toBeVisible()
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await expect(page.locator('#roomArea')).toBeHidden()
   } finally { await context.close() }
 })
@@ -403,7 +406,7 @@ test('a code with a password: the link carries the words, the guest needs nothin
     const typedSeen = await codeService(typed, {}, vault)
     const hand = await typed.newPage()
     await hand.goto(baseURL!)
-    await expect(hand.locator('#home')).toBeVisible()
+    await expect(hand.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await joinWithCode(hand, 'k7m-2q9-tx')
     await expect(hand.locator('#joinCodePassword')).toBeVisible()
     await expect(hand.locator('label[for="meetingCodeWordsInput"]')).toHaveText('Enter the password words you were given')
@@ -413,7 +416,7 @@ test('a code with a password: the link carries the words, the guest needs nothin
     await hand.locator('#meetingCodeWordsInput').fill(wrongWords)
     await hand.locator('#meetingCodeWordsInput').press('Enter')
     await expect(hand.locator('#joinCodeError')).toHaveText('Those words do not match. Check them and try again.')
-    await expect(hand.locator('#home')).toBeVisible()
+    await expect(hand.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await expect(hand.locator('#join')).toBeHidden()
     await hand.locator('#meetingCodeWordsInput').fill(words.replace(/^./, c => c === 'q' ? 'z' : 'q'))
     await hand.locator('#meetingCodeWordsInput').press('Enter')

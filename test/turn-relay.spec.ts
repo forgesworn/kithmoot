@@ -1,6 +1,6 @@
 import { testRelays } from './relays.js'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { fakeMicMakesSound, inbound, remoteAudioCount, remotePictures } from './browser.js'
+import { fakeMicMakesSound, inbound, openNewRoomForm, remoteAudioCount, remotePictures } from './browser.js'
 
 /**
  * The regression test for the failure that made this whole TURN deployment
@@ -262,6 +262,7 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
     await page.evaluate(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
     await page.reload()
   }
+  await openNewRoomForm(page)
   await page.locator('#create').click()
   // The link, not the box it used to sit in. The entry page was rebuilt to
   // put the conversation first and the drawer holding the link stays shut

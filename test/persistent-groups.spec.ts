@@ -3,7 +3,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { openNewRoomForm, requestAdmission, openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { openNewRoomForm, requestAdmission, openRoomDetails, TEST_RELAY_WS, leaveToChats } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
 import { openRoomUrl } from './relays.js'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
@@ -285,8 +285,7 @@ test('the creator can turn an existing temporary meeting into a group without ch
     expect(await arrival.evaluate(() => Object.keys(localStorage)
       .filter(key => key.startsWith('kithmoot.admission-kept.'))
       .map(key => JSON.parse(localStorage.getItem(key)!)).some(record => record.persistent === true))).toBe(true)
-    await arrival.locator('#backToRooms').click()
-    await arrival.locator('#roomSwitcherHome').click()
+    await leaveToChats(arrival)
     await arrival.locator('#roomList .rowMenu').click()
     await arrival.getByRole('menuitem', { name: 'Forget this room' }).click()
     await arrival.locator('#actionConfirm').click()
@@ -307,12 +306,13 @@ test('failed relay publication leaves creation retryable and never presents a re
     })
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#create').click()
     // M6: every relay rejecting the event collapses to the plain network
     // instruction rather than the relay's own reason ("blocked: test rejection").
     await expect(page.locator('#createError')).toContainText('Could not reach the network')
     await expect(page.locator('#create')).toBeEnabled()
-    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     expect(new URL(page.url()).hash).toBe('')
     await expect(page.locator('#shareUrl')).toHaveValue('')
   } finally { await context.close() }

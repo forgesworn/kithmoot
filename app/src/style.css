@@ -265,22 +265,8 @@ svg.i {
 body {
   font-family: system-ui, sans-serif;
   margin: 0;
-  padding: 1rem clamp(1rem, 3vw, 2.5rem);
-  /* Clear of a notch, a rounded corner and a home indicator.
-
-     Nothing in the sheet knew about these. On a phone held upright the
-     browser keeps the page clear of them by itself, so this changes
-     nothing there; landscape on a notched phone is where the left edge
-     would otherwise sit under the sensor housing. `max` rather than a
-     plain `env`, so the ordinary margin is never made SMALLER by a device
-     that reports no inset at all. */
-  padding-left: max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-left));
-  padding-right: max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-right));
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
   background: var(--bg);
   color: var(--text);
-  max-width: 1500px;
-  margin-inline: auto;
   font-size: var(--fs-2);
   line-height: var(--lh-2);
 }
@@ -297,10 +283,6 @@ main > p {
   max-width: 72ch;
 }
 
-/* The app bar is quiet chrome throughout: one row, a small logo, the
-   wordmark at 1.25rem/600 and (on the home page) a Settings button. It is
-   not sticky, so it scrolls away with the rest of the page rather than
-   taking a share of a short landscape phone. */
 h1 {
   font-size: var(--fs-4);
   font-weight: 600;
@@ -308,21 +290,6 @@ h1 {
   overflow-wrap: anywhere;
   margin: 0;
 }
-
-header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-height: 56px;
-  padding-block: 0.5rem;
-}
-
-.app-brand, .workspaceBrand { display: flex; align-items: center; gap: .6rem; min-width: 0; }
-.app-brand img, .workspaceBrand img { flex: 0 0 auto; border-radius: var(--r-m); }
-
-#openAppSettings { margin: 0; flex: 0 0 auto; }
 
 h2 {
   font-size: var(--fs-2);
@@ -338,17 +305,6 @@ button, input, textarea, select {
 /* Two weights in the app, 400 and 600; the browser's own bold is 700. */
 h2, h3, h4, strong, b, th, summary, legend {
   font-weight: 600;
-}
-
-/* In a room, the masthead steps back further still: the room's own bar
-   carries the way out and back, and the header would otherwise cost a
-   short landscape phone a second row it cannot spare. */
-body:has(#roomArea:not([hidden])) h1 {
-  font-size: var(--fs-3);
-}
-
-@media (max-height: 500px) and (orientation: landscape) {
-  header { min-height: 44px; }
 }
 
 /* A button is a tonal patch, never a box with a line round it: grouping is
@@ -753,9 +709,6 @@ details#appConnections button { display: block; }
    beside it, in a narrow rail, it squeezed the name to a letter a line. The
    zero-height item before it breaks the line; the name, the unread count and
    the row's buttons keep the first. */
-.workspaceRoom:has(> .fusePill) { flex-wrap: wrap; }
-.workspaceRoom:has(> .fusePill)::after { content: ''; order: 1; flex-basis: 100%; height: 0; }
-.workspaceRoom .fusePill { order: 2; flex: 0 1 auto; min-width: 0; max-width: calc(100% - .6rem); margin: -.3rem 0 .25rem .6rem; font-size: var(--fs-1); }
 
 /* The final minute, across the chat. A slow pulse, unless the reader asked
    for less motion. */
@@ -2706,60 +2659,6 @@ label.note {
 
    What is left here is genuinely about a narrow screen. */
 @media (max-width: 700px) {
-  /* The room fills the screen, worked out by the layout rather than by a
-     measurement.
-
-     This used to be `height: calc(100svh - var(--shell-top) - 1rem)`, where
-     `--shell-top` was how far down the page the room began, measured in
-     JavaScript and written into a custom property. It was one more thing to
-     keep current, and when it went stale - which it did, because the
-     masthead changes height at the moment you go in - the room was sized
-     against a page that no longer existed. Letting the body be a column and
-     the room be the part that grows is the same answer with nothing to keep
-     current. */
-  body:has(#roomArea:not([hidden])) {
-    min-height: 100vh;
-    min-height: 100svh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  body:has(#roomArea:not([hidden])) > main {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-
-  /* In a room, the room's bar is the top of the screen.
-
-     The masthead above it is the app introducing itself, which is worth a
-     line on the way in and worth nothing at all once you are reading a
-     conversation - and on a phone it is a line the conversation pays for.
-     Every messaging app does this: the thread has its own header and the
-     product name is nowhere on it. */
-  body:has(#roomArea:not([hidden])) > header {
-    display: none;
-  }
-
-  main {
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* A flex container does not collapse the margins between its children, so
-     the gaps the block layout used to fold together would otherwise stack up.
-     One explicit gap instead, and the section margins that fed the old
-     collapsing are dropped. */
-  main > section,
-  main > p,
-  main > #workspaceContent > section,
-  main > #workspaceContent > p {
-    margin-block: 0;
-  }
-
-  main {
-    gap: 1.25rem;
-  }
-
   /* A log that can only ever be 220px tall wastes a phone screen, and one
      that grows without limit pushes its own input off the bottom. Half the
      viewport, which is about six exchanges. */
@@ -2891,74 +2790,6 @@ label.note {
 }
 
 /* ---------------------------------------------------------------------------
-   Wide screens
-
-   A single column, centred, the height of the window.
-
-   This used to be two columns: the room on the left and a sidebar of
-   controls on the right. There is no sidebar any more - the controls are
-   in the room's details - so what is left is the thing every messaging app
-   shows on a wide screen, which is one conversation with room to breathe
-   and nothing beside it. The measure is capped because a line of chat two
-   thousand pixels wide is not easier to read, it is harder.
-
-   Only when there is a room to show. `:has()` keeps the front page as the
-   ordinary flowing page it should be. */
-@media (min-width: 1000px) {
-  main:has(#roomArea:not([hidden])) {
-    max-width: 56rem;
-    margin-inline: auto;
-  }
-
-  /* The masthead lines up with the column under it rather than sitting off
-     to one side of it. `width: 100%` because the body is a flex column
-     here, and an auto inline margin turns off the stretch a block would
-     otherwise get - which shrink-wraps the masthead to the width of the
-     word in it and centres that. */
-  body:has(#roomArea:not([hidden])) > header,
-  body:has(#roomArea:not([hidden])) > nav {
-    width: 100%;
-    max-width: 56rem;
-    margin-inline: auto;
-  }
-
-  /* Same as the phone: the body is a column and the room is the part that
-     grows, so nothing has to measure where the room starts. */
-  body:has(#roomArea:not([hidden])) {
-    min-height: 100vh;
-    min-height: 100svh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  body:has(#roomArea:not([hidden])) > main {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-
-  main:has(#roomArea:not([hidden])) {
-    display: flex;
-    flex-direction: column;
-  }
-
-  main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea {
-    display: flex;
-    flex-direction: column;
-    margin-top: 0;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-
-  main:has(#roomArea:not([hidden])) #chatViewport {
-    /* The conversation takes what is left of the column, not what its own
-       history would like. */
-    flex: 1 1 0;
-    height: auto;
-    min-height: 10rem;
-  }
-}
-
-/* ---------------------------------------------------------------------------
    Channels
 
    A room's conversations, as a row of tabs above the chat. The main chat is
@@ -3069,7 +2900,6 @@ label.note {
    scrolling, so it cannot bring back the collapsing-address-bar trouble
    that pinning anything to the page itself would. */
 #roomSheet,
-#roomSwitcher,
 #appSettings,
 #contextPanel,
 #conversationSearch {
@@ -3088,7 +2918,6 @@ label.note {
 }
 
 #roomSheet::backdrop,
-#roomSwitcher::backdrop,
 #appSettings::backdrop,
 #contextPanel::backdrop,
 #conversationSearch::backdrop {
@@ -3289,7 +3118,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
    close control is where a thumb expects it. */
 @media (max-width: 700px) {
   #roomSheet,
-  #roomSwitcher,
   #conversationSearch {
     width: 100%;
     max-width: 100%;
@@ -3376,14 +3204,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .profileChoice { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
 #lookupProfiles { min-height: 0; width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
 
-.switchRoom { display: flex; flex-direction: column; align-items: flex-start; text-align: left; flex: 1 1 12rem; min-width: 0; margin: 0; gap: .3rem; }
-.switchRoom span { overflow-wrap: anywhere; }
-.switchRoom[aria-current='true'] { border-color: var(--accent); }
-.switchRoomCode { color: var(--muted); font-size: var(--fs-1); }
-.switchRoomNewTab { flex: 0 0 auto; padding: .6rem; color: var(--accent); }
-#roomSwitcherList .roomRow { align-items: center; flex-wrap: wrap; }
-#roomSwitcherList .forget { flex: 0 0 auto; margin: 0; }
-
 /* Search uses the room's sheet so opening it never interrupts the call. */
 #searchConversation { margin-bottom: 1rem; }
 .searchFileFilter { display: flex; align-items: center; gap: .6rem; margin-block: .8rem; min-height: 44px; }
@@ -3421,25 +3241,9 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .searchFiles { color: var(--accent); font-size: var(--fs-2); }
 #chatLog .searchTarget { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-m); }
 
-/* Give the dashboard and invitation a reading width on a desktop. */
-body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
-
 /* Home is your rooms: one screen, two states, no boxes. Hierarchy comes
    from size, weight and space - proximity says what belongs together, not
    a card round it. See docs/handover/design-start-page.md sections 4 to 8. */
-/* Full width under 600px: `<main>` is a column flex container, and an auto
-   inline margin on a flex child is resolved before stretch even applies,
-   so pairing max-width with margin-inline:auto here unconditionally shrank
-   #home to its content width and centred it - the extra ~57px gutter each
-   side that ate a fifth of a phone screen. Centring is a medium-and-up
-   read (section 5); compact stays flush with the app bar's own edge. */
-#home { width: 100%; }
-@media (min-width: 600px) {
-  #home { max-width: 40rem; margin-inline: auto; }
-  /* A list of rooms is worth more of a wide window than a welcome is. */
-  #home[data-state='returning'] { max-width: 47.5rem; }
-}
-.homeIntro { margin: 1.5rem 0 2rem; max-width: 32rem; }
 #homeHeading, #arrivalTitle {
   margin: 0 0 .65rem;
   color: var(--text);
@@ -3449,17 +3253,13 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   text-transform: none;
   overflow-wrap: anywhere;
 }
-#home[data-state='returning'] .homeIntro { display: none; }
 .homeIntro p { margin: 0; color: var(--muted); max-width: 60ch; }
 
 /* The start form: one field, one checkbox, one filled button. No card.
    Top margin only: the gap under it is #homeFoot's own margin-top, so the
    two quiet lines sit one consistent section gap below the form rather
    than stacking #setup's bottom margin on top of #homeFoot's. */
-#setup { margin: 1.5rem 0 0; }
-#setup.collapsed { display: none; }
 #newRoomHeading { margin: 0 0 1rem; font-size: var(--fs-4); font-weight: 600; text-transform: none; color: var(--text); }
-#home[data-state='cold'] #newRoomHeading { display: none; }
 #createRoomForm label { display: block; margin: 0 0 .4rem; font-weight: 600; }
 #createRoomForm input { font-family: inherit; }
 /* Beats "#createRoomForm label" above on specificity, not just source
@@ -3486,16 +3286,8 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #roomEndsHint, #roomWhenEndsHint { flex-basis: 100%; margin: 0; max-width: 60ch; }
 .setupButtons { display: flex; align-items: center; gap: .75rem; margin-top: .8rem; }
 .setupButtons button { margin: 0; }
-/* Cancel only makes sense once returning to a list it can cancel back to;
-   the cold, first-visit form has nothing to cancel out of. */
-#home[data-state='cold'] #cancelNewRoom { display: none; }
 #setup #create.primary { font-size: var(--fs-2); font-weight: 600; }
 
-/* The two quiet lines at the foot: never a card, never as loud as the
-   primary action above them. */
-#homeFoot { margin-top: 1.5rem; }
-#homeFoot summary, #homeFoot > button.linkish { min-height: 44px; display: flex; align-items: center; color: var(--muted); cursor: pointer; }
-#homeFoot summary:hover, #homeFoot > button.linkish:hover { color: var(--text); }
 #openLink form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 .75rem; }
 #openLink input { flex: 1 1 16rem; min-width: 0; font-family: inherit; }
 #openLink button { margin: 0; }
@@ -3515,33 +3307,9 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .meetingCodeAloud summary { cursor: pointer; }
 #homeSignIn { border: 0; background: transparent; padding: 0; }
 
-.roomsHead { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 1.5rem 0 .75rem; }
-#home #roomsHeading { margin: 0; font-size: var(--fs-4); font-weight: 600; text-transform: none; color: var(--text); }
-.roomsHead .roomSearchRow { flex: 1 1 12rem; margin: 0; }
-.roomsHead .roomSearchRow input { flex: 1 1 auto; width: 100%; margin: 0; }
-.roomsHeadActions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-left: auto; }
-.roomsHeadActions button { margin: 0; }
-/* Below 560px: the heading and New room, then the search across the whole
-   width, then Projects and the invite link. Four buttons and a heading do
-   not fit one phone line, and New room is the one that must not move. */
-@media (max-width: 559px) {
-  .roomsHeadActions { display: contents; }
-  #home #newRoom { order: 1; margin-left: auto; }
-  .roomsHead .roomSearchRow { order: 2; flex-basis: 100%; }
-  #homeSharedProjects, #homeOpenLink { order: 3; }
-}
-#home[data-state='returning'] #openLink { margin: 0 0 .75rem; }
-#home[data-state='returning'] #openLink > summary { display: none; }
-#headerSignIn { margin-left: auto; }
-#headerSignIn + #openAppSettings { margin-left: .5rem; }
-#newRoom { margin: 0; }
-.roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
-.roomSearchRow label { font-weight: 600; }
 .accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border-radius: var(--r-m); background: var(--panel); }
 .accountReconnect[hidden] { display: none; }
 .accountReconnect .note { flex: 1 1 16rem; margin: 0; }
-.roomSearchRow input { min-width: 0; }
-.roomSearchRow button { margin: 0; }
 
 /* The rows themselves: an initial, the name and preview, then time and pill
    and presence, and the `⋯` menu in a fixed column. No dividers: the hover
@@ -3625,15 +3393,6 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #roomList .roomSection { list-style: none; margin: 1rem 0 .25rem; padding: 0 .5rem; }
 #roomList .roomSection:first-child { margin-top: 0; }
 #roomList .roomSection h3 { margin: 0; font-size: var(--fs-1); font-weight: 600; text-transform: none; color: var(--muted); }
-#roomList .sectionFold {
-  display: inline-flex; align-items: center; gap: .35rem;
-  min-height: 32px; margin: 0; padding: 0; border: 0; background: transparent;
-  font: inherit; color: inherit; cursor: pointer;
-}
-#roomList .sectionFold::before { content: '▸'; font-size: var(--fs-1); transition: transform .15s; }
-#roomList .sectionFold[aria-expanded='true']::before { transform: rotate(90deg); }
-#roomList .sectionFold:hover { color: var(--text); }
-@media (prefers-reduced-motion: reduce) { #roomList .sectionFold::before { transition: none; } }
 #roomList .roomAside {
   grid-column: 2;
   display: flex;
@@ -3731,7 +3490,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
     color: HighlightText;
     border-color: Highlight;
   }
-  #roomList .unread, #roomList .unread.agent, .workspaceRoom .unread { border: 1px solid transparent; }
+  #roomList .unread, #roomList .unread.agent { border: 1px solid transparent; }
   .bubble,
   .composerField,
   .messageActionPanel,
@@ -3765,28 +3524,6 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 
 @media (display-mode: standalone) {
   html, body { overscroll-behavior: none; }
-}
-
-/* Landscape phone, the hardest layout: the start form sits beside the lede
-   rather than under it, so Start a room is never below the fold. */
-@media (max-height: 500px) and (orientation: landscape) and (min-width: 640px) {
-  /* .homeIntro, #homeStatus, #homeRooms, #homeActions and #homeFoot are the
-     grid items here (direct children of #home); #setup and #rooms are their
-     nested content and take no grid-column of their own. */
-  #home[data-state='cold'] {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 2rem;
-    align-items: start;
-    max-width: none;
-  }
-  #home[data-state='cold'] .homeIntro { margin: 1rem 0 0; grid-column: 1; }
-  #home[data-state='cold'] #homeHeading { font-size: var(--fs-5); }
-  #home[data-state='cold'] #homeStatus,
-  #home[data-state='cold'] #homeRooms { grid-column: 1; }
-  #home[data-state='cold'] #homeActions { grid-column: 2; grid-row: 1 / span 4; }
-  #home[data-state='cold'] #homeActions #setup { margin-top: 0; }
-  #home[data-state='cold'] #homeFoot { grid-column: 1; margin-top: .5rem; }
 }
 
 /* One centred column at every width, the same shape as the window grows
@@ -3941,9 +3678,6 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .agentActivity strong, .agentActivity span { display: block; overflow-wrap: anywhere; }
 .agentActivity span { color: var(--muted); }
 .agentActivity button { margin: 0; min-height: 44px; font-size: var(--fs-1); }
-.projectFilter { display: flex; gap: .7rem; align-items: center; margin: .7rem 0; }
-.projectFilter label { margin: 0; flex: 0 0 auto; }
-.projectFilter select { flex: 1; min-width: 0; max-width: 100%; }
 select {
   font: inherit;
   min-height: 44px;
@@ -3970,9 +3704,6 @@ select {
 .sharedProjectHeading { display: flex; align-items: center; gap: .65rem; margin-bottom: .4rem; }
 .sharedProjectHeading h3 { margin: 0; }
 .sharedProjectLogo { flex: 0 0 2.25rem; }
-.workspaceProjectLogo, .workspaceRoomLogo, .switcherRoomLogo { --logo-size: 1.5rem; width: 1.5rem; height: 1.5rem; flex: 0 0 1.5rem; font-size: var(--fs-1); margin-inline-end: .4rem; }
-.workspaceRoomLink { display: flex; align-items: center; }
-.workspaceRoomName, .workspaceProjectName { min-width: 0; overflow-wrap: anywhere; }
 .sharedProjectCard p { margin: .4rem 0 .8rem; }
 .sharedProjectRooms { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; }
 .sharedProjectRooms button { text-align: left; margin: 0; }
@@ -3984,68 +3715,10 @@ select {
 .sharedProjectContactRow input { flex: 1 1 12rem; min-width: 0; margin: 0; }
 .sharedProjectContactRow button, .sharedProjectContactRow select { margin: 0; }
 #sharedProjectReview { overflow-wrap: anywhere; }
-#workspaceNav { display: none; }
-
-/* At intermediate widths the conversation still uses the available height. */
-body:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; min-height: 100svh; }
-body:has(#roomArea:not([hidden])) > main { flex: 1 1 auto; min-width: 0; width: 100%; }
-main:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; }
+/* The room fills its pane: the conversation takes what is left of the
+   column, and nothing else on the page moves. */
 #roomArea { min-width: 0; }
-main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min-height: 10rem; }
-
-@media (min-width: 1100px) {
-  body:has(#roomArea:not([hidden])) > header { display: none; }
-  body:has(#roomArea:not([hidden])) { padding-top: 1.25rem; }
-  main:has(#roomArea:not([hidden])) {
-    max-width: none;
-    display: grid;
-    grid-template-columns: 16rem minmax(0, 1fr);
-    gap: 1.5rem;
-    align-items: stretch;
-  }
-  /* A room that would not open leaves the sidebar up with no room beside
-     it (the list is kept within reach). Give that page the same two
-     columns rather than stacking the sidebar across the top of it. */
-  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) {
-    max-width: none;
-    display: grid;
-    grid-template-columns: 16rem minmax(0, 1fr);
-    gap: 1.5rem;
-    align-items: start;
-  }
-  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > #workspaceNav { grid-column: 1; grid-row: 1 / span 20; }
-  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > :not(#workspaceNav) { grid-column: 2; }
-  #workspaceNav:not([hidden]) { display: flex; flex-direction: column; min-width: 0; padding-right: 1rem; border-right: 1px solid var(--border); }
-  .workspaceBrand { font-size: var(--fs-4); font-weight: 600; margin: .2rem 0 1.25rem; }
-  #workspaceSwitch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .3rem; margin: 0 0 .75rem; font-size: var(--fs-2); }
-  #workspaceSwitch kbd { font: var(--fs-1) system-ui, sans-serif; color: var(--muted); }
-  #workspaceQuery { font: var(--fs-2) system-ui, sans-serif; margin-bottom: .75rem; }
-  #workspaceRooms { flex: 1; }
-  #workspaceRooms section { margin: 0 0 1rem; }
-  #workspaceRooms h3 { font-size: var(--fs-1); color: var(--muted); overflow-wrap: anywhere; margin: .65rem .5rem; }
-  .workspaceRoom { display: flex; align-items: center; gap: .2rem; margin-bottom: .15rem; }
-  /* A room with something waiting: its name in bold and a count beside it,
-     the same pill the rooms list uses. */
-  .workspaceRoom.hasUnread .workspaceRoomLink { font-weight: 600; color: var(--text); }
-  .workspaceRoom .unread {
-    display: inline-flex; align-items: center; justify-content: center; flex: none;
-    min-width: 1.3rem; height: 1.3rem; padding: 0 .35rem; border-radius: var(--r-full);
-    font-size: var(--fs-1); font-weight: 600; color: var(--on-accent); background: var(--accent);
-  }
-  .workspaceRoom .unread.agent { color: var(--on-agent); background: var(--agent-fill); }
-  .workspaceRoomLink { flex: 1; min-width: 0; text-align: left; margin: 0; border-color: transparent; background: transparent; font-size: var(--fs-2); padding: .55rem .6rem; overflow-wrap: anywhere; }
-  .workspaceRoomLink[aria-current='true'] { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); font-weight: 600; }
-  .workspaceRoom .organiseRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; }
-  .workspaceRoom .pinRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; margin: 0; color: var(--muted); }
-  .workspaceRoom .pinRoom[aria-pressed='true'] { color: var(--accent); }
-  /* An unpinned room's star waits until the row is pointed at or focused,
-     so a rail of rooms is not a column of stars. */
-  .workspaceRoom:not(:hover, :focus-within) .pinRoom[aria-pressed='false'] { opacity: 0; }
-  .workspaceRoom .forget { border: 0; background: transparent; padding: .3rem; min-width: 32px; margin: 0; color: var(--muted); }
-  #workspaceHome { font-size: var(--fs-1); margin-top: 1rem; }
-  #workspaceNote { font-size: var(--fs-1); margin: .5rem 0; }
-}
 
 @media (max-width: 540px) {
   /* Keep the room bar on one line where it fits. The accessible name and
@@ -4062,9 +3735,6 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   .roomBar { flex-wrap: wrap; }
   .roomIdentity { flex-basis: 6rem; }
   main:has(#roomArea:not([hidden])) #chatViewport { min-height: 6rem; }
-}
-@media (min-width: 1100px) {
-  #workspaceRooms { overflow-y: auto; max-height: calc(100svh - 18rem); }
 }
 @media (max-width: 700px) and (max-height: 600px) {
   /* Wrapped room actions must leave the composer reachable on short phones. */
@@ -4777,9 +4447,6 @@ input[type="search"] { font-family: inherit; }
    whole screen before the chat began. Held to the screen, the call area and
    the conversation are the two parts that give way, and neither gives way
    below its floor. */
-@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  body:has(#roomArea:not([hidden])) { height: 100vh; height: 100svh; }
-}
 
 /* The call on a phone: two short strips, and the conversation keeps the rest.
 
@@ -4967,14 +4634,12 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 #mobileCallSettings { width: min(34rem, calc(100vw - 1rem)); max-height: 85dvh; padding: 0; }
 #mobileCallSettings .sheetBody { padding: 1rem; overflow-y: auto; }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  body:has(#roomArea:not([hidden])) { height: 100dvh; padding: max(.35rem, env(safe-area-inset-top)) .65rem max(.35rem, env(safe-area-inset-bottom)); overflow: hidden; }
-  body:has(#roomArea:not([hidden])) > header { display: none; }
   main:has(#roomArea:not([hidden])) { min-height: 0; overflow: hidden; }
   main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { padding: 0; margin: 0; min-height: 0; overflow: hidden; }
   .roomBar { flex-shrink: 0; margin: 0; padding: 0 0 .3rem; }
   .roomBar #callToggle, .roomBar #openAssignments { display: none; }
   #mobileRoomViews { display: flex; flex-shrink: 0; gap: .25rem; padding: .25rem 0 .45rem; }
-  #mobileRoomViews button { flex: 1; min-height: 44px; margin: 0; border: 0; background: transparent; border-radius: var(--r-m); color: var(--muted); }
+  #mobileRoomViews button { flex: 1 1 0; min-width: 0; min-height: 44px; margin: 0; padding-inline: .25rem; border: 0; background: transparent; border-radius: var(--r-m); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #mobileRoomViews button[aria-pressed="true"] { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px var(--accent); font-weight: 600; }
   #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#attachStaged,#attachPanel,#agentActivity,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
@@ -5047,11 +4712,6 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
      The dock keeps its own full-width strip at the very top; the bar (and
      the tabs beside it) move down to sit under it, never on it. */
   #callDock:not([hidden]) { flex-wrap: nowrap; margin: 0; padding: 0 .5rem; height: 44px; border-radius: 0; border-width: 0 0 1px; }
-}
-@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-}
-@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  body:has(#roomArea:not([hidden])) { height: var(--room-viewport-height, 100dvh); min-height: 0; padding-inline: max(.65rem, env(safe-area-inset-left)) max(.65rem, env(safe-area-inset-right)); }
 }
 
 #notificationSettings #notify > h3 { display: none; }
