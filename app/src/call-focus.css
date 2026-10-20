@@ -460,6 +460,20 @@ html[data-call-bar] #deviceControls .agentsHearChip .i { width: 1rem; height: 1r
   html[data-call-bar] #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage { flex-direction: row; align-items: stretch; gap: .35rem; }
   html[data-call-bar] #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #whoIsHere:not([hidden]) { min-width: 0; }
   html[data-call-bar] #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #callBay { order: 1; flex: 0 0 auto; position: relative; padding: 0; margin-left: auto; }
+  /* The camera notice ("Others see a full blur, not you") would be a column
+     of its own in this row, as tall as the stage. It floats over the top of
+     the pictures instead, beside the bar, on a solid ground so it reads over
+     video. */
+  html[data-call-bar] #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #cameraPrivacyNotices:has(> :not([hidden])) {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 3.5rem);
+    right: 4.75rem;
+    width: min(24rem, 60vw);
+    z-index: 6;
+    margin: 0;
+    align-content: start;
+  }
+  html[data-call-bar] #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #cameraPrivacyNotices > .indicator { background: var(--panel); }
   html[data-call-bar] #deviceControls:not([hidden]) {
     flex-direction: column;
     flex-wrap: nowrap;
