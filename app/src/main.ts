@@ -31,6 +31,7 @@ import { ContactInbox } from './contact-inbox.js'
 import { FollowBook } from './follow-list.js'
 import { PeopleView, type PeopleModel, type Person } from './people.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
+import { NostrMessagePanel } from './nostr-message-panel.js'
 import { LegacyMessagePanel } from './legacy-message-panel.js'
 import { LegacyMessageLifetime } from './legacy-message-lifetime.js'
 import type { ContactInvitation } from '../../src/contact-invitation.js'
@@ -1032,9 +1033,12 @@ function participantKey(): Uint8Array {
  *  signet-login persists whatever it needs to reconnect (a bunker URI, a
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
+let nostrMessagePanel: NostrMessagePanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
-const legacyMessageLifetime = new LegacyMessageLifetime(() => legacyMessagesPanel?.close(), () => {
+function closeAccountMessageViews(): void { legacyMessagesPanel?.close(); nostrMessagePanel?.close() }
+const legacyMessageLifetime = new LegacyMessageLifetime(() => closeAccountMessageViews(), () => {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
+  ;($('nostrMessageEntry') as HTMLButtonElement).disabled = !nostrMessagePanel?.available
 })
 /** Deny reopening across every await in an account transition. The counter
  * composes account and room transitions; it grants no account authority. */
@@ -3114,7 +3118,7 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   await switchRoom(room)
 }
 function renderContactInbox(): void {
-  legacyMessagesPanel?.reconcile()
+  legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
   const state = contactInbox?.snapshot(), self = nostrSession?.pubkey
   $('contactsSignIn').hidden = !!self
   $('contactInboxStatus').textContent = contactInboxMessage || state?.error || (!self ? 'Sign in to message your contacts.'
@@ -3206,7 +3210,7 @@ function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
-    changed: view => { grantedContactView = view; legacyMessagesPanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
+    changed: view => { grantedContactView = view; legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
     message: messageContact,
   })
   grantedContactsPanel.reconcile()
@@ -3219,9 +3223,12 @@ function renderIdentity(): void {
   // A DM relay list is the account's to publish; a visitor has none.
   $('dmRelaySettingsOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
+  $('nostrMessageEntry').hidden = nostrSession === undefined
+  $('nostrMessageAvailability').hidden = !nostrSession || nostrMessagePanel?.available === true
   $('legacyMessagesEntry').hidden = nostrSession === undefined
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
-  legacyMessagesPanel?.reconcile()
+  ;($('nostrMessageEntry') as HTMLButtonElement).disabled = !nostrMessagePanel?.available
+  legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
   $('retryRoomSync').hidden = nostrSession === undefined
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
@@ -12244,7 +12251,7 @@ function isUnreachableRelayFailure(error: unknown): boolean {
 async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
   if (!retry && (joining || session || loginBusy)) return
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   const requestedMedia = entryMediaChoice()
   // Beside a docked call this room is for reading and writing: it never
   // carries this device's microphone, camera or relaying.
@@ -13085,7 +13092,7 @@ function showRoomsList(): void {
 /** A room is on screen, or its door. The list stays: it is a column of the
  *  shell, not a page, and it keeps watching what it lists. */
 function hideRoomsList(): void {
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   roomsListShown = false
   $('home').hidden = true
   startListWatches()
@@ -13927,7 +13934,7 @@ function showRoomPane(): void {
 
 async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   if (switchingRoom) return
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   if (session && room.roomId === currentRoomId()) {
     if (project !== undefined) { roomProjectContext = project; renderCurrentRoomLogo(); renderRoomLogoControls() }
     showRoomPane()
@@ -14230,7 +14237,7 @@ function dockableRoom(): KnownRoom | undefined {
  *  caller closes the room on screen next; everything the call needs has
  *  been taken out of the globals that closing clears. */
 function dockCall(room: KnownRoom): void {
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   dockedCall = {
     session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer, conferenceEndTimer,
     room, label: currentRoomLabel(), me: meParticipant, ui: captureRoomUi(),
@@ -14245,7 +14252,7 @@ function dockCall(room: KnownRoom): void {
 function resumeDockedCall(): void {
   const c = dockedCall
   if (!c) return
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
   restoreRoomUi(c.ui)
@@ -15917,6 +15924,43 @@ legacyMessagesPanel = new LegacyMessagePanel(document, {
     return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
   },
 })
+nostrMessagePanel = new NostrMessagePanel(document, {
+  account: () => nostrSession, epoch: () => identityGeneration,
+  eligible: () => legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy,
+  blocked: contactIsBlocked,
+  lookup: async (authors, current) => {
+    if (!current()) throw Error('Account view changed.')
+    const hold = relayConnections.pool('default')
+    const found: NostrEvent[] = []
+    let stop: (() => void) | undefined, timer: ReturnType<typeof setTimeout> | undefined, cancel: ReturnType<typeof setInterval> | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        timer = setTimeout(resolve, 8000)
+        cancel = setInterval(() => { if (!current()) reject(Error('Account view changed.')) }, 25)
+        stop = hold.subscribe([{ kinds: [KIND_DM_RELAYS], authors, limit: 8 }], event => {
+          if (current() && found.length < 64) found.push(event)
+        }, resolve)
+      })
+      if (!current()) throw Error('Account view changed.')
+      return found
+    } finally { clearTimeout(timer); clearInterval(cancel); stop?.(); hold.close() }
+  },
+  publish: async (event, relays, current) => {
+    if (!current()) throw Error('Account view changed.')
+    // Explicit hints define this pool; no NIP-65/default destination is added.
+    // The caller independently guards every queued socket write/retry.
+    const hold = relayConnections.pool('nostr-message', relays.map(url => ({ url, read: false, write: true })))
+    try {
+      if (!hold.publishGuarded) throw Error('A guarded public carrier is unavailable.')
+      await hold.publishGuarded(event, current)
+    } finally { hold.close() }
+  },
+})
+$('nostrMessageEntry').addEventListener('click', event => {
+  if (!event.isTrusted || !nostrMessagePanel?.available) return
+  ;($('appSettings') as HTMLDialogElement).close()
+  nostrMessagePanel.show($('openAppSettings'))
+})
 $('legacyMessagesEntry').addEventListener('click', event => {
   if (!event.isTrusted || !legacyMessagesPanel?.available) return
   ;($('appSettings') as HTMLDialogElement).close()
@@ -15964,7 +16008,7 @@ $('appSettings').addEventListener('close', () => {
     for (const home of appSettingsHomes) { home.parent.insertBefore(home.el, home.next); home.el.hidden = home.hidden }
     appSettingsHomes = undefined
   }
-  if (!reopenAppSettings && !($('legacyMessagesDialog') as HTMLDialogElement).open) $('openAppSettings').focus({ preventScroll: true })
+  if (!reopenAppSettings && !($('legacyMessagesDialog') as HTMLDialogElement).open && !($('nostrMessageDialog') as HTMLDialogElement).open) $('openAppSettings').focus({ preventScroll: true })
 })
 
 $('toggleNotify').addEventListener('click', () => {
