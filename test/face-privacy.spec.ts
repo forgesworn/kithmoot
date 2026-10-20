@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, pinToTestRelays } from './relays.js'
+import { closeCallEffects, openCallEffects } from './browser.js'
 
 let fixtureCode = ''
 test.beforeAll(async () => {
@@ -112,11 +113,9 @@ async function enter(page: Page): Promise<void> {
 
 test('avatar can be chosen before capture and stays covered across camera restarts', async ({ page }) => {
   await enter(page)
-  await page.locator('#facePrivacyEffects').evaluate(element => {
-    let node: HTMLElement | null = element as HTMLElement
-    while (node) { if (node instanceof HTMLDetailsElement) node.open = true; node = node.parentElement }
-  })
+  await openCallEffects(page, 'Face')
   await page.locator('[data-privacy="avatar"]').click()
+  await closeCallEffects(page)
   for (let cycle = 0; cycle < 2; cycle++) {
     await page.locator('#toggleCamera').click()
     await expect(page.locator('.media.mine video')).toBeVisible()

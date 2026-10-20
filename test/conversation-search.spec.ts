@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { goToConversation, openCall, openRoomDetails, TEST_RELAY_WS, openRoomSearch, openRoomInfoPage } from './browser.js'
+import { goToConversation, openCall, openRoomDetails, TEST_RELAY_WS, openRoomSearch, openRoomInfoPage, showCallConversation } from './browser.js'
 import { withRelays } from './relays.js'
 
 async function setup(browser: Browser, baseURL: string, namedConversations = false) {
@@ -289,7 +289,7 @@ test('searching while the microphone is on keeps the call live', async ({ browse
     await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
     await writer.chat.send('Still in the call')
     await expect(page.locator('#chatLog')).toContainText('Still in the call')
-    await page.locator('#mobileChat').click()
+    await showCallConversation(page)
     await search(page, 'call')
     await expect(page.locator('#messageSearchResults li')).toHaveCount(1)
     await page.locator('#messageSearchClose').click()

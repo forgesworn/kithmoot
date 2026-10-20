@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { withRelays } from './relays.js'
-import { SYNTHETIC_MIC, createRoom, goToConversation, joinWithMedia, newDeviceContext, startRelay } from './browser.js'
+import { SYNTHETIC_MIC, createRoom, goToConversation, joinWithMedia, newDeviceContext, startRelay, chooseCallMore } from './browser.js'
 import { RoomAgent } from '../src/agent.js'
 import { AgentRuntime } from '../src/node/runtime.js'
 import type { RuntimeEvent } from '../src/node/runtime.js'
@@ -85,9 +85,7 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     // She turns it on: her microphone's tone reaches the agent, is cut into
     // utterances, and comes back as transcript lines she can read. The
     // switch is folded under "Two devices, mirror, agents" in the call controls.
-    await page.locator('#callExtras').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
-    await page.locator('#callMore').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
-    await page.locator('#toggleAgentsHear').click()
+    await chooseCallMore(page, 'Let agents hear me')
     await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'true')
     await expect
       .poll(() => transcriber.heard.length, { message: 'the agent never heard an utterance', timeout: 90_000 })
@@ -96,7 +94,8 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     await expect(page.locator('#chatLog')).toContainText('said')
 
     // And off again: the tracks are removed, and the utterances stop.
-    await page.locator('#toggleAgentsHear').click()
+    await chooseCallMore(page, 'Let agents hear me')
+    await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'false')
     await page.waitForTimeout(3_000)
     const heardAtOff = transcriber.heard.length
     await page.waitForTimeout(8_000)

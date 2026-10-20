@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, openCall } from './browser.js'
+import { createRoom, joinWithMedia, openCall, openCallEffects } from './browser.js'
 
 /**
  * A remembered call choice survives a reload and is applied the next time
@@ -16,8 +16,7 @@ test('a background effect choice and its blur strength survive a reload and reap
 
   // Reveal the effect controls, which only exist once a camera is running,
   // and turn the effect off with a blur strength that is not the default.
-  await page.locator('#callExtras > summary').click()
-  await page.locator('#cameraEffects > summary').click()
+  await openCallEffects(page, 'Background')
   await page.locator('#effectModes button[data-mode="off"]').click()
   await expect(page.locator('#effectMode')).toHaveText('off')
   await page.locator('#blurStrength').evaluate((el) => {
@@ -57,8 +56,7 @@ test('a voice preset survives a reload and reapplies the next time the microphon
   const url = await createRoom(page, baseURL!)
   await joinWithMedia(page, url, 'Ada')
 
-  await page.locator('#callExtras > summary').click()
-  await page.locator('#voiceEffects > summary').click()
+  await openCallEffects(page, 'Voice')
   await page.locator('#voicePresets button[data-preset="deep"]').click()
   await expect(page.locator('#voiceMode')).toHaveText('deep')
   await expect

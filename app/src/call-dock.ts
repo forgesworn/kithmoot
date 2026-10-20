@@ -24,3 +24,21 @@ export function dockSummary(room: string, others: string[]): string {
   const named = others.slice(0, 3).join(', ')
   return `On a call in ${room} with ${named}${others.length > 3 ? ` and ${others.length - 3} more` : ''}.`
 }
+
+/** The dock's line: where the call is. The time on it is `callElapsed`, in
+ *  its own element so it can change every second without being read out. */
+export function dockLabel(room: string): string {
+  return `On a call in ${room}`
+}
+
+/** How long a call has been going, as a clock: 12:03, or 1:02:03 past the
+ *  hour. Never negative, so a clock that is a little behind a call's own
+ *  start reads 0:00 rather than a minus sign. */
+export function callElapsed(startedAt: number, now: number): string {
+  const total = Math.max(0, Math.floor(now - startedAt))
+  const seconds = total % 60
+  const minutes = Math.floor(total / 60) % 60
+  const hours = Math.floor(total / 3600)
+  const two = (n: number): string => String(n).padStart(2, '0')
+  return hours > 0 ? `${hours}:${two(minutes)}:${two(seconds)}` : `${two(minutes)}:${two(seconds)}`
+}

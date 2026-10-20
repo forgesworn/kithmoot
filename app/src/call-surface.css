@@ -36,6 +36,18 @@ html[data-call-docked] #whoIsHere > #room[data-layout] { flex: 1 1 0; min-height
 html[data-call-docked] #room .participant h3 { font-size: .8rem; }
 html[data-call-docked] #callDockRecordingNotice { font-size: .85rem; color: var(--muted); }
 
+/* A call in this room that this device is not on, in a browser window: its
+   pictures are a bounded strip over the room, as a docked call's are, so the
+   conversation and "Call on · Rowan" with Join stay on screen. Unbounded,
+   the pictures took 894 of 900 px at 1440 and left the room 20. The desktop
+   app bounds the same pane its own way (desktop.css), and a phone shows the
+   room, not the pane. */
+@media (min-width: 600px) {
+  html[data-call-pane="live"]:not([data-desktop]):not([data-call-first]):not([data-call-docked]):not([data-call-bar]) #callSurface > #callStage { display: flex; flex-direction: column; min-height: 0; max-height: none; height: clamp(180px, 34dvh, 340px); overflow: hidden; }
+  html[data-call-pane="live"]:not([data-desktop]):not([data-call-first]):not([data-call-docked]):not([data-call-bar]) #callStage > #whoIsHere:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; margin: 0; overflow: hidden; }
+  html[data-call-pane="live"]:not([data-desktop]):not([data-call-first]):not([data-call-docked]):not([data-call-bar]) #whoIsHere > #room[data-layout] { flex: 1 1 0; min-height: 0; height: auto; }
+}
+
 /* Docked in a wide window the call is a strip over the conversation, not a
    page of its own: at 1327x850 it and the room chrome left the log 160px, and
    70px once a room showed its channel tabs and agents card. The header's

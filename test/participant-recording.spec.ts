@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
-import { newDeviceContext, open, openCall, turnOnMedia, leaveToChats, openMember } from './browser.js'
+import { newDeviceContext, open, openCall, turnOnMedia, leaveToChats, openMember, chooseCallMore } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
@@ -34,7 +34,7 @@ for (const privateChat of [false, true]) {
         await openCall(page)
         await expect(page.locator('#recordToggle')).toBeEnabled()
         await expect(page.locator('#recordingAuthorityHint')).toBeHidden()
-        await page.locator('#recordToggle').click()
+        await chooseCallMore(page, 'Record call…')
         await page.locator('input[name="recording-layout"][value="audio"]').check()
         await page.locator('#actionConfirm').click()
         await expect(page.locator('#recordingBannerText')).toContainText('You are recording')
@@ -101,7 +101,7 @@ for (const phone of [false, true]) {
         await open(page, url, 'Ada'); await page.locator('#join').click()
         await expect(page.locator('#roomArea')).toBeVisible()
         await turnOnMedia(page)
-        await page.locator('#recordToggle').click()
+        await chooseCallMore(page, 'Record call…')
         await page.locator('input[name="recording-layout"][value="audio"]').check()
         await page.locator('#actionConfirm').click()
         await expect(page.locator('#recordingBannerText')).toContainText('You are recording')

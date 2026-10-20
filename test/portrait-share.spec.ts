@@ -55,7 +55,7 @@ async function enter(page: Page, url: string, name: string, existingCall = false
   await open(page, url, name)
   await page.locator('#join').click()
   await expect(page.locator('#roomArea')).toBeVisible()
-  if (existingCall) await expect(page.locator('#callStripAction')).toHaveText('Join call')
+  if (existingCall) await expect(page.locator('#callToggle')).toHaveText('Join call')
   await openCall(page)
 }
 
@@ -179,7 +179,7 @@ test('a person on two devices, one sharing portrait and one with only a micropho
     await pageLaptop.locator('#toggleMic').click()
     await expect(pageLaptop.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     // The phone: sharing a portrait screen, no camera.
-    await expect(pagePhone.locator('#callStripAction')).toHaveText('Join call')
+    await expect(pagePhone.locator('#callToggle')).toHaveText('Join call')
     await openCall(pagePhone)
     await pagePhone.locator('#toggleScreen').click()
     await expect(pagePhone.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')

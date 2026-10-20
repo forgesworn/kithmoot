@@ -26,6 +26,24 @@ export type IncomingCallChange =
 export const QUIET_AFTER_CALL_MS = 60_000
 
 /**
+ * How long a new call rings with the banner up, counted from when it
+ * started. A call nobody answers in a minute stops asking, as a phone does,
+ * and a room opened while a call has been going for an hour does not say
+ * somebody is calling: the room's own banner already offers Join.
+ */
+export const RING_BANNER_SECONDS = 60
+
+/**
+ * Seconds the ring banner stays up for a call that started at `since`
+ * (seconds), or 0 when the call is too old to ring. A caller whose clock is
+ * ahead of this one counts as having just started.
+ */
+export function ringBannerSeconds(since: number, now: number): number {
+  const age = Math.max(0, now - since)
+  return age < RING_BANNER_SECONDS ? RING_BANNER_SECONDS - age : 0
+}
+
+/**
  * Turns the room's repeated presence snapshots into one incoming-call edge.
  * A recipient's device rings once per call id, stops when that device joins
  * or the call ends, and never rings for a call started by another device of

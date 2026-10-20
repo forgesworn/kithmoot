@@ -342,7 +342,8 @@ test('an empty call pane costs nothing, and the call control says what it does',
       observer.observe(banner, { attributes: true, attributeFilter: ['hidden'] })
       Object.assign(window as unknown as Record<string, unknown>, { joinDoorSeen: seen, stopJoinDoor: () => observer.disconnect() })
     })
-    await toggle.click()
+    // The room bar's button steps aside on a call; Leave is the bar's.
+    await page.locator('#leaveCall').click()
     await expect(toggle).toHaveText('Start call')
     await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'resting')
     await expect(page.locator('#callBay')).toBeHidden()
@@ -376,7 +377,7 @@ test('an empty call pane costs nothing, and the call control says what it does',
     await expect(page.locator('#callBanner')).toBeHidden()
     // Off it again with Bob still on it: the door is the honest answer now,
     // so it comes back rather than being suppressed for ever.
-    await toggle.click()
+    await page.locator('#leaveCall').click()
     await expect(toggle).toHaveText('Join call', { timeout: 60_000 })
   } finally {
     await a.close()

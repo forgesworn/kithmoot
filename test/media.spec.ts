@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, withRelays } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia, chooseCallMore } from './browser.js'
 
 /**
  * Can you actually see and hear the other person?
@@ -186,9 +186,7 @@ test('a nearby device can silence feedback without losing its camera', async ({ 
     await expectToSeeAndHear(pagePhone, 'Phone')
 
     // The switch is folded under "Two devices, mirror, agents" in the call controls.
-    await pagePhone.locator('#callExtras').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
-    await pagePhone.locator('#callMore').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
-    await pagePhone.locator('#toggleCompanion').click()
+    await chooseCallMore(pagePhone, 'Use beside another device')
     await expect(pagePhone.locator('#toggleCompanion')).toHaveAttribute('aria-pressed', 'true')
     await expect(pagePhone.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
     await expect(pagePhone.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
