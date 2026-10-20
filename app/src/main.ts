@@ -67,6 +67,7 @@ import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import './call-surface.css'
 import './shell.css'
+import './room-info.css'
 import { currentDestination, openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
 import { wireMenu, menuItem, menuGroups, menuSubmenu, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
@@ -2705,14 +2706,12 @@ const follows = new FollowBook({
 })
 follows.setEnabled(profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
-$('roomProfileSettings').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
 $('lookupProfiles').addEventListener('change', () => {
   const enabled = ($('lookupProfiles') as HTMLInputElement).checked
   profilesEnabled = enabled
   try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
   profiles.setEnabled(enabled)
   follows.setEnabled(enabled)
-  $('roomProfileSettings').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
@@ -3284,7 +3283,8 @@ function renderIdentity(): void {
       })
     }
     sending.append(choice)
-  }
+    setInfoSub('infoSubAppear', `${shown.name ?? label} · ${visitor ? 'just a name' : 'Nostr account'}`)
+  } else setInfoSub('infoSubAppear', '')
   // Said once you are in, in Room details, where "how am I in here" is a
   // question somebody actually asks. At the door it was three lines between
   // the person and the name field.
@@ -5127,23 +5127,213 @@ function renderCallState(views: ParticipantView[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Room details
+// Room info (design-calm-shell 5.4)
 //
-// A modal dialog rather than a panel on the page: it traps focus, Escape
-// closes it, and the browser draws the backdrop. Everything that used to
-// compete with the conversation is in here, one tap from the bar.
+// One short panel with a row for each place the room's details live; a row
+// opens a subpage inside the same panel. A window 900 px wide or more gets it
+// as a side panel on the end edge, non-modal, so the conversation stays in
+// use beside it (and narrows to make room from 1280 px). Anything narrower
+// gets a full screen modal with a back arrow. It is the same `<dialog>` either
+// way, so `open` still says whether it is showing.
 // ---------------------------------------------------------------------------
 
-function openRoomSheet(): void {
-  const sheet = $('roomSheet') as HTMLDialogElement
-  if (sheet.open) return
+const INFO_SIDE_PANEL = window.matchMedia('(min-width: 900px)')
+const INFO_PUSHES = window.matchMedia('(min-width: 1280px)')
+/** Which subpage the panel is on: `main` or a `data-info-page` name. */
+let infoPage = 'main'
+/** What had the focus when the panel opened, to hand it back on close. */
+let infoOpener: HTMLElement | undefined
+/** The row that opened the subpage on screen, for the back arrow to return to. */
+let infoRow: HTMLElement | undefined
+/** Where the admission requests sit when the panel is not carrying them. */
+let infoApprovalsHome: { parent: Node; next: Node | null } | undefined
+/** Set while the panel is closed and opened again to change its mode. */
+let infoReopening = false
+
+function infoSheet(): HTMLDialogElement {
+  return $('roomSheet') as HTMLDialogElement
+}
+
+/** The text a row shows under its title. */
+function setInfoSub(id: string, text: string): void {
+  const el = $(id)
+  el.textContent = text
+  el.hidden = !text
+}
+
+/** Fill the rows with the state they report. Cheap; it runs when the panel
+ *  opens, when it returns to its first page and when who is here changes. */
+function renderRoomInfo(): void {
+  const roomId = currentRoomId()
+  if (!roomId) return
+  const me = meParticipant || currentParticipant()
+  const peer = me ? dmPeer(roomPolicy, me) : undefined
+  renderLogo($('infoAvatar'), displayedRoomLogo(roomId, roomProjectContext), currentRoomLabel())
+  $('infoName').textContent = currentRoomLabel()
+  const views = session?.participants() ?? []
+  const agents = views.filter(view => view.agent).length
+  const people = views.length - agents
+  const who = views.length === 0 ? '' : `${people} ${people === 1 ? 'person' : 'people'}${agents ? `, ${agents} agent${agents === 1 ? '' : 's'}` : ''}`
+  const admits = peer ? 'Only members can join' : roomPolicy?.members?.length ? 'Only members can join' : 'Anyone with the link can join'
+  $('infoWho').textContent = peer ? (isQuietPolicy(roomPolicy) ? 'Quiet chat · Only members can join' : 'Private chat · Only members can join') : [who, admits].filter(Boolean).join(' · ')
+  // "Ends in 3 days · Self-destructs", from the header's own words.
+  const ends = $('infoEnds')
+  const endsText = roomEndsAt === undefined ? '' : conferenceEndsLine(roomEndsAt)
+  ends.textContent = [endsText, roomDestruct ? 'Self-destructs' : ''].filter(Boolean).join(' · ')
+  if (!endsText && roomDestruct) ends.textContent = 'Self-destructs if it is ended for everyone'
+  ends.hidden = !ends.textContent
+
+  const model = roomMenuModel()
+  $('infoInvite').hidden = !model.invite
+  const callButton = $('callToggle')
+  $('infoCall').hidden = callButton.hidden || (callButton.getAttribute('aria-label') ?? '') === ''
+  const callLabel = callButton.getAttribute('aria-label') ?? 'Call'
+  $('infoCall').querySelector('span')!.textContent = /^(start|join) call$/i.test(callLabel) ? 'Call' : callLabel
+  $('infoRowInvite').hidden = !model.invite || roomUsesBothy
+  const knock = $('toggleKnock').dataset.on === 'true'
+  setInfoSub('infoSubInvite', $('knockRow').hidden ? '' : `Ask before letting people in: ${knock ? 'on' : 'off'}`)
+  // The conversations every room has are not worth listing; the ones somebody opened are.
+  const opened = Array.from($('channelBar').querySelectorAll<HTMLElement>('button[data-channel]'), tab => tab.dataset.channel!).filter(name => name && !['agents', 'transcript', 'minutes'].includes(name))
+  setInfoSub('infoSubConversations', opened.join(', '))
+  const board = boardTab()
+  $('infoRowBoard').hidden = !board
+  setInfoSub('infoSubBoard', board ? (board.needsYou ? `${board.needsYou} need${board.needsYou === 1 ? 's' : ''} you` : '') : '')
+  const modeLabel = { all: 'Every message', off: 'Nothing', inherit: 'Your default', mentions: 'Mentions and replies' } as const
+  setInfoSub('infoSubNotifications', model.notify ? modeLabel[model.notify as keyof typeof modeLabel] ?? '' : '')
+  const route = roomUsesBothy ? 'Bothy route' : 'public relays'
+  setInfoSub('infoSubPrivacy', `Encrypted · ${route}`)
+  setInfoSub('infoSubName', $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
+  $('infoRowName').hidden = $('roomRename').hidden && $('roomLogoControls').hidden
+  setInfoSub('infoSubPhone', '')
+  $('infoRowPhone').hidden = isPairedSecondary(deviceStore)
+  setInfoSub('infoSubCards', contacts(deviceStore).length ? `${contacts(deviceStore).length} saved` : '')
+  $('leave').textContent = peer ? 'Leave private chat…' : 'Leave room…'
+  $('roomRelaySettings').hidden = roomUsesBothy
+  $('roomBothySettings').hidden = !roomUsesBothy
+}
+
+/** Show one page of the panel. The heading is the panel's title and takes the
+ *  focus, so a screen reader hears where it is; the back arrow shows below the
+ *  first page. */
+function showInfoPage(name: string, row?: HTMLElement): void {
+  const sheet = infoSheet()
+  const previous = infoPage
+  infoPage = name
+  if (name !== 'main' && row) infoRow = row
+  for (const page of sheet.querySelectorAll<HTMLElement>('[data-info-page]')) page.hidden = page.dataset.infoPage !== name
+  const title = name === 'main' ? 'Room info' : sheet.querySelector<HTMLElement>(`[data-info-page="${name}"]`)?.dataset.infoTitle ?? 'Room info'
+  $('roomSheetTitle').textContent = title
+  $('roomInfoBack').hidden = name === 'main'
+  sheet.dataset.page = name
+  if (name === 'main') renderRoomInfo()
+  if (name === 'invite') {
+    $('inviteStatus').textContent = ''
+    $('meetingCodeStatus').textContent = ''
+    meetingCodePasswordTouched = false
+    renderInviteEnds()
+    renderMeetingCode()
+  }
+  sheet.scrollTop = 0
+  if (name === 'main' && previous !== 'main' && infoRow?.isConnected && !infoRow.hidden) infoRow.focus({ preventScroll: true })
+  else $('roomSheetTitle').focus({ preventScroll: true })
+}
+
+function openRoomSheet(page = 'main', from?: HTMLElement): void {
+  const sheet = infoSheet()
+  if (sheet.open) {
+    if (page !== 'main' && page !== infoPage) showInfoPage(page, infoRow)
+    else if (page === 'main' && infoPage !== 'main') showInfoPage('main')
+    else $('roomSheetTitle').focus({ preventScroll: true })
+    return
+  }
+  const active = document.activeElement
+  infoOpener = from ?? (active instanceof HTMLElement && active !== document.body && !active.closest('#roomMoreMenu') && !active.closest('dialog') ? active : $('roomIdentity'))
+  // A hover card left open in the log would sit over a panel that is not modal.
+  for (const card of document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open')) card.hidePopover()
   if (session) renderSheetRoster(session.participants(), meParticipant)
   renderSheetRoom()
   renderChannels()
   renderContacts()
-  sheet.showModal()
-  sheet.scrollTop = 0
+  // Admission requests lead the member list while the panel is open.
+  const approvals = $('approvals')
+  if (!infoApprovalsHome) infoApprovalsHome = { parent: approvals.parentNode!, next: approvals.nextSibling }
+  $('infoApprovalsHome').append(approvals)
+  const side = INFO_SIDE_PANEL.matches
+  sheet.dataset.mode = side ? 'panel' : 'sheet'
+  if (side) {
+    document.documentElement.dataset.roomInfo = INFO_PUSHES.matches ? 'push' : 'over'
+    sheet.show()
+  } else sheet.showModal()
+  infoRow = undefined
+  infoPage = ''
+  showInfoPage(page)
 }
+
+/** Open the panel on one of its subpages, as a menu item or a quick action does. */
+function openRoomInfoPage(page: string): void {
+  openRoomSheet()
+  const row = infoSheet().querySelector<HTMLElement>(`[data-info-open="${page}"]`) ?? undefined
+  showInfoPage(page, row)
+}
+
+function closeRoomSheet(): void {
+  const sheet = infoSheet()
+  if (sheet.open) sheet.close()
+}
+
+infoSheet().addEventListener('close', () => {
+  const sheet = infoSheet()
+  delete document.documentElement.dataset.roomInfo
+  if (infoApprovalsHome) {
+    const approvals = $('approvals')
+    infoApprovalsHome.parent.insertBefore(approvals, infoApprovalsHome.next)
+    infoApprovalsHome = undefined
+  }
+  if (infoReopening) return
+  infoPage = 'main'
+  delete sheet.dataset.page
+  // A non-modal dialog does not hand the focus back by itself. Take it only
+  // if it is still on the panel (or nowhere): a click on something else, or
+  // a thing that has just opened over it, keeps what it asked for.
+  const active = document.activeElement
+  const opener = infoOpener
+  infoOpener = undefined
+  if (opener?.isConnected && (!active || active === document.body || sheet.contains(active)) && opener.getClientRects().length) opener.focus({ preventScroll: true })
+})
+infoSheet().querySelectorAll<HTMLElement>('[data-info-open]').forEach(row => {
+  row.addEventListener('click', () => showInfoPage(row.dataset.infoOpen!, row))
+})
+$('roomInfoBack').addEventListener('click', () => showInfoPage('main'))
+document.addEventListener('keydown', event => {
+  const sheet = infoSheet()
+  if (event.key !== 'Escape' || event.defaultPrevented || !sheet.open || sheet.matches(':modal')) return
+  const active = document.activeElement
+  if (!(active && sheet.contains(active)) || document.querySelector('dialog:modal, [popover]:popover-open')) return
+  event.preventDefault()
+  closeRoomSheet()
+})
+// A window resized across 900 px, or turned, changes which kind of panel it
+// should be. Close it and open it again on the same page rather than leave a
+// modal where a side panel belongs.
+function infoModeChanged(): void {
+  const sheet = infoSheet()
+  if (!sheet.open) return
+  const side = INFO_SIDE_PANEL.matches
+  if (side !== (sheet.dataset.mode === 'panel')) {
+    const page = infoPage, row = infoRow, opener = infoOpener
+    infoReopening = true
+    sheet.close()
+    infoReopening = false
+    infoOpener = opener
+    // A modal of its own is open over the panel (a confirmation): do not stack
+    // a second one on top of it, which would hide the question.
+    if (!side && document.querySelector('dialog:modal')) { delete document.documentElement.dataset.roomInfo; return }
+    openRoomSheet(page === 'main' ? 'main' : page)
+    infoRow = row
+  } else if (side) document.documentElement.dataset.roomInfo = INFO_PUSHES.matches ? 'push' : 'over'
+}
+INFO_SIDE_PANEL.addEventListener('change', infoModeChanged)
+INFO_PUSHES.addEventListener('change', infoModeChanged)
 
 // ---------------------------------------------------------------------------
 // The contact book: cards this browser holds. See app/src/contact-store.ts.
@@ -5261,11 +5451,6 @@ async function showMyCard(out = $('myCardOut') as HTMLInputElement, qr = $('myCa
   out.hidden = false
   qr.hidden = false
   await renderQr(qr, link)
-}
-
-function closeRoomSheet(): void {
-  const sheet = $('roomSheet') as HTMLDialogElement
-  if (sheet.open) sheet.close()
 }
 
 /** Who invited you, and to what, in the one sentence somebody needs before
@@ -6528,7 +6713,10 @@ function render(views: ParticipantView[], me: string): void {
   renderDock()
   renderAgentsExplain(views)
   renderRoomWho()
-  if (($('roomSheet') as HTMLDialogElement).open) renderSheetRoster(views, me)
+  if (($('roomSheet') as HTMLDialogElement).open) {
+    renderSheetRoster(views, me)
+    if (infoPage === 'main') renderRoomInfo()
+  }
 
   // Which tabs are worth showing depends on who is here (Agents appears
   // when an agent does), so a roster change can change the row.
@@ -6992,16 +7180,23 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     const row = child as HTMLElement
     return [row.dataset.participant, row] as const
   }))
-  for (const [index, view] of views.entries()) {
+  // People first, then agents.
+  const ordered = [...views.filter(view => !view.agent), ...views.filter(view => view.agent)]
+  for (const [index, view] of ordered.entries()) {
     let row = previous.get(view.participant)
     previous.delete(view.participant)
     if (!row) {
-      row = document.createElement('div')
+      // A member is a row that opens: the name and its badges show, and what
+      // can be done with them (volume, message, invite, check) is one tap in.
+      row = document.createElement('details')
       row.className = 'rosterRow'
       row.dataset.participant = view.participant
+      const summary = document.createElement('summary')
+      summary.className = 'rosterSummary'
       const identity = document.createElement('span')
       identity.className = 'rosterIdentity'
-      row.append(identity)
+      summary.append(identity)
+      row.append(summary)
     }
     const identity = row.querySelector<HTMLElement>('.rosterIdentity')!
     identity.replaceChildren()
@@ -7025,6 +7220,15 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     const existingCheck = row.querySelector<HTMLButtonElement>('.verifyChip')
     if (view.participant !== me) {
       const check = verifyChip(view, shown.name ?? '', existingCheck ?? undefined)
+      // Said as the question it answers, not as a state: "not checked" was the
+      // most common label in the room and told nobody anything.
+      if (check.classList.contains('unknown') && check.textContent === 'not checked') check.textContent = 'Is this really them?'
+      if (check.classList.contains('verified')) {
+        const badge = document.createElement('span')
+        badge.className = 'badge checked'
+        badge.textContent = 'Checked'
+        identity.append(badge)
+      }
       if (!existingCheck) row.append(check)
     } else existingCheck?.remove()
     const card = view.participant !== me ? contactFor(deviceStore, view.participant) : undefined
@@ -15136,7 +15340,7 @@ $('projectForm').addEventListener('submit', event => {
 window.addEventListener('storage', event => {
   if (event.key?.startsWith('kithmoot.project.v1.')) renderRooms()
 })
-$('roomIdentity').addEventListener('click', openRoomSheet)
+$('roomIdentity').addEventListener('click', () => openRoomSheet())
 
 // ---------------------------------------------------------------------------
 // The room's ⋯ menu (design-calm-shell 5.3). A short list of verbs: what this
@@ -15224,7 +15428,8 @@ function roomMenuModel(): RoomMenuModel {
 
 /** Invite an agent: the room's details, open on the place that does it. */
 function addAnAgent(): void {
-  openRoomSheet()
+  openRoomSheet('main', $('roomMenu'))
+  showInfoPage('main')
   ;($('inviteAgents') as HTMLDetailsElement).open = true
   $('inviteAgents').scrollIntoView({ block: 'start' })
   $('inviteAgents').querySelector('summary')?.focus()
@@ -15246,7 +15451,7 @@ function renderRoomMenu(): void {
   const groups: Array<(menu: HTMLElement) => void> = [
     menu => {
       if (callButtonInMenu() && $('callToggle').getAttribute('aria-label')) menuItem(menu, $('callToggle').getAttribute('aria-label')!, () => $('callToggle').click(), { icon: 'phone', action: 'call' })
-      menuItem(menu, 'Room info', openRoomSheet, { icon: 'info', shortcut: ROOM_INFO_KEYS, action: 'info' })
+      menuItem(menu, 'Room info', () => openRoomSheet('main', $('roomMenu')), { icon: 'info', shortcut: ROOM_INFO_KEYS, action: 'info' })
       if (window.matchMedia(NARROW_ROOM_BAR).matches) menuItem(menu, 'Search in room', () => conversationSearch.open($('roomMenu')), { icon: 'search', action: 'search' })
       if (model.invite) menuItem(menu, 'Invite people…', () => openInviteDialog(false), { icon: 'personAdd', action: 'invite' })
       if (model.agent) menuItem(menu, 'Add an agent…', addAnAgent, { icon: 'agent', action: 'agent' })
@@ -15266,6 +15471,10 @@ function renderRoomMenu(): void {
 }
 wireMenu($('roomMenu'), $('roomMoreMenu'), { beforeOpen: renderRoomMenu, sheet: NARROW_ROOM_BAR })
 $('roomSheetClose').addEventListener('click', closeRoomSheet)
+$('infoCall').addEventListener('click', () => { closeRoomSheet(); $('callToggle').click() })
+$('infoInvite').addEventListener('click', () => openInviteDialog(false, $('infoInvite')))
+$('infoRowBoard').addEventListener('click', () => openRoomBoard($('infoRowBoard')))
+$('roomInfoSettings').addEventListener('click', () => { closeRoomSheet(); $('openAppSettings').click() })
 $('searchConversation').addEventListener('click', () => {
   const sheet = $('roomSheet') as HTMLDialogElement
   if (sheet.open) {
@@ -15279,6 +15488,9 @@ let inviteOpener: HTMLElement = $('roomMenu')
 function openInviteDialog(qrFirst: boolean, from: HTMLElement = $('roomMenu')): void {
   if (roomUsesBothy) { setStatus('New invitations are unavailable on this Bothy text route.'); return }
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
+  // The link and its controls are one set of elements: on loan to this sheet,
+  // they cannot also be showing on Room info's Invite link page.
+  if (infoSheet().open && infoPage === 'invite') showInfoPage('main')
   $('inviteStatus').textContent = ''
   $('meetingCodeStatus').textContent = ''
   meetingCodePasswordTouched = false
@@ -15778,7 +15990,6 @@ function openProfileSettings(from: HTMLElement): void {
   ;($('profileSettings') as HTMLDialogElement).showModal()
   $('lookupProfiles').focus()
 }
-$('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
 const browserLinkPanel = new BrowserLinkPanel(() => nostrSession?.pubkey, document, browserLink,
   async () => !(await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired'))
 const browserRoomActivation = new BrowserRoomActivation(() => nostrSession?.signer, browserLink, browserRoomRoutes.store, browserRoomRoutes.barrier)
@@ -16009,7 +16220,7 @@ $('relaySettings').addEventListener('close', () => {
 // dialog element itself fills the screen, so a click that lands ON the
 // dialog and not on anything inside it is a click on the backdrop.
 $('roomSheet').addEventListener('click', (event) => {
-  if (event.target === $('roomSheet')) closeRoomSheet()
+  if (event.target === $('roomSheet') && infoSheet().matches(':modal')) closeRoomSheet()
 })
 // The button does what it says. It said "On call" and did neither of the
 // two things a person on a call might want; now it reads Start call, Join
@@ -16086,24 +16297,6 @@ $('toggleNotifyBell').addEventListener('click', () => {
 $('previewNotifyBell').addEventListener('click', () => { void playZenChime(true) })
 
 let notificationHome: { parent: Node; next: Node | null; hidden: boolean } | undefined
-function openNotificationSettings(): void {
-  closeRoomSheet()
-  renderNotifyChoice()
-  const controls = $('notify')
-  notificationHome = { parent: controls.parentNode!, next: controls.nextSibling, hidden: controls.hidden }
-  controls.hidden = false
-  $('notificationSettingsBody').append(controls)
-  ;($('notificationSettings') as HTMLDialogElement).showModal()
-}
-$('roomNotifications').addEventListener('click', openNotificationSettings)
-$('notificationSettingsClose').addEventListener('click', () => ($('notificationSettings') as HTMLDialogElement).close())
-$('notificationSettings').addEventListener('close', () => {
-  if (!notificationHome) return
-  notificationHome.parent.insertBefore($('notify'), notificationHome.next)
-  $('notify').hidden = notificationHome.hidden
-  notificationHome = undefined
-})
-
 /** Settings, reached from the rooms list: everything the home page used to
  *  carry on its own face, moved into one sheet with the same shape as Room
  *  details' own Settings. `#notify` reuses `notificationHome` above - the
@@ -16225,7 +16418,7 @@ $('searchImportedHistory').addEventListener('click', () => { void searchImported
 $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
-for (const id of ['forgetBrowser', 'forgetBrowserRoom']) {
+for (const id of ['forgetBrowser']) {
   $(id).addEventListener('click', () => {
     forgetThisBrowser().catch((err) => setStatus(describeError(err)))
   })
@@ -16980,12 +17173,11 @@ $('shareMeetingCode').addEventListener('click', async () => {
 })
 $('endRoom').addEventListener('click', async () => {
   if (!await confirmRoomAction({
-    title: 'End this room for everyone?',
+    title: `End ${currentRoomLabel()} for everyone?`,
     message: roomDestruct
-      ? 'Everyone is taken out of the room and off the call, every invite link to it stops working, and the room self-destructs on every member’s device. '
+      ? 'Everyone is taken out and every invite link stops working, and the room self-destructs on every member’s device. '
         + `${DESTRUCT_PROMISE} This cannot be undone.`
-      : 'Everyone is taken out of the room and off the call, and every invite link to it stops working. '
-        + 'People keep what they already received, and relays keep the encrypted history. This cannot be undone.',
+      : 'Everyone is taken out and every invite link stops working. People keep what they already received.',
     confirmLabel: 'End room',
     danger: true,
   })) return
@@ -17479,7 +17671,6 @@ async function runRoomTidyUp(): Promise<void> {
   }
 }
 
-$('tidyUpRoom').addEventListener('click', () => { void openTidyUp() })
 $('tidyUpTombstone').addEventListener('change', renderTidyUpPlan)
 $('tidyUpEnd').addEventListener('change', renderTidyUpPlan)
 $('tidyUpCancel').addEventListener('click', () => { if (!tidyUpRunning) ($('tidyUpDialog') as HTMLDialogElement).close() })
@@ -17933,8 +18124,28 @@ window.addEventListener('storage', event => {
   void leaveForTidyUp()
 })
 
+/** Leaving, asked once (design-calm-shell 11). The box folds the old "Leave and
+ *  tidy up" in: ticked, the tidy-up flow runs in place of a plain leave and
+ *  shows its own steps and report; unticked it is just leaving. Unsent work is
+ *  still asked about first, as it always was. */
 $('leave').addEventListener('click', async () => {
   if (hasUnsentWork() && !await confirmDiscardAndLeave()) return
+  const me = meParticipant || currentParticipant()
+  const chat = Boolean(me && dmPeer(roomPolicy, me))
+  const tidy = document.createElement('label')
+  tidy.className = 'leaveTidy'
+  const box = document.createElement('input')
+  box.type = 'checkbox'
+  box.id = 'leaveTidyBox'
+  tidy.append(box, document.createTextNode('Also ask relays and the file server to delete what I left'))
+  if (!await confirmRoomAction({
+    title: chat ? 'Leave this private chat?' : `Leave ${currentRoomLabel()}?`,
+    message: 'You stop getting its messages. You can come back with the link.',
+    confirmLabel: 'Leave',
+    danger: true,
+    content: tidy,
+  })) return
+  if (box.checked) { await openTidyUp(); return }
   void leaveRoom()
 })
 

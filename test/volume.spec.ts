@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, offerPairing, open, openCall, openRoomDetails } from './browser.js'
+import { createRoom, newDeviceContext, offerPairing, open, openCall, openMember } from './browser.js'
 
 /**
  * The per-person volume slider (2026-09-13 dogfood feedback, item 6): one
@@ -86,7 +86,7 @@ test('one slider governs every device of a paired person, and nobody else change
     await expect(grouped.locator('h3')).toContainText('2 devices')
     await expect(grouped.locator('audio')).toHaveCount(2, { timeout: 60_000 })
 
-    await openRoomDetails(pageCara)
+    await openMember(pageCara, 'Ada')
     // Exactly one slider for Ada - the roster already groups her by
     // participant, not by device, and this is the same claim restated at
     // the control a person actually touches.
@@ -131,7 +131,7 @@ test('a level survives a track handed over on renegotiation, and a reload', asyn
     const bobAudio = pageA.locator('#room .participant audio').first()
     await expect(pageA.locator('#room .participant audio')).toHaveCount(1, { timeout: 60_000 })
 
-    await openRoomDetails(pageA)
+    await openMember(pageA, 'Bob')
     await setSlider(pageA, 'Volume for Bob', 50)
     await pageA.locator('#roomSheetClose').click()
 
@@ -161,7 +161,7 @@ test('a level survives a track handed over on renegotiation, and a reload', asyn
     await pageA.locator('#join').click()
     await expect(pageA.locator('#roomArea')).toBeVisible()
 
-    await openRoomDetails(pageA)
+    await openMember(pageA, 'Bob')
     await expect(pageA.getByRole('slider', { name: 'Volume for Bob' })).toHaveValue('50', { timeout: 30_000 })
   } finally {
     await deviceA.close()
@@ -192,7 +192,7 @@ test('a 200% level reaches the gain path for real, and Leave still outranks a cu
     // about the one-speaker rule either way; that the rule still zeroes the
     // gain node itself, whatever the level, is what remote-volume.test.ts
     // proves directly.
-    await openRoomDetails(pageA)
+    await openMember(pageA, 'Bob')
     await setSlider(pageA, 'Volume for Bob', 200)
     await pageA.locator('#roomSheetClose').click()
     await expect.poll(() => bobAudio.evaluate((el) => (el as HTMLAudioElement).muted)).toBe(true)
@@ -200,7 +200,7 @@ test('a 200% level reaches the gain path for real, and Leave still outranks a cu
     // Back to a level the plain `.volume` path carries, where `.muted` is
     // the rule's own direct answer - the observable case for what Leave has
     // to override.
-    await openRoomDetails(pageA)
+    await openMember(pageA, 'Bob')
     await setSlider(pageA, 'Volume for Bob', 50)
     await pageA.locator('#roomSheetClose').click()
     await expect.poll(() => bobAudio.evaluate((el) => (el as HTMLAudioElement).muted)).toBe(false)

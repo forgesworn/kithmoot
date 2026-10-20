@@ -4,7 +4,7 @@ import type { Event } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { KINDS } from '../src/kinds.js'
-import { openRoomDetails, allowTestFileStorage, TEST_RELAY_WS, leaveToChats } from './browser.js'
+import { allowTestFileStorage, TEST_RELAY_WS, leaveToChats, openMember, openRoomInfoPage } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
@@ -46,7 +46,7 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
     await rowan.locator('#displayName').fill('Rowan'); await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
     await expect(rowan.locator('#status')).toContainText(/Quiet conversation with Ada/, { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('started a quiet conversation with you', { timeout: 30_000 })
@@ -54,7 +54,7 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
     // Rowan goes in by the same button, while Ada is still on his roster;
     // Ada by the way the statement offers.
     await rowan.locator('#roomSheetClose').click()
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Quiet: Ada', { timeout: 30_000 })
     await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Quiet: Rowan' }).click()
@@ -64,7 +64,7 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
     // steps aside at phone width, see style.css) and on its sheet.
     await expect(rowan.locator('#laneNote .chip.quiet')).toBeAttached()
     await expect(rowan.locator('#laneNote .chip.quiet')).toHaveText(/quiet/)
-    await openRoomDetails(rowan)
+    await openRoomInfoPage(rowan, 'Privacy and connection')
     await expect(rowan.locator('#quietState')).toContainText('cannot tell whether anything was said')
     await rowan.locator('#roomSheetClose').click()
 
@@ -149,7 +149,7 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
     await rowan.locator('#displayName').fill('Rowan'); await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
     await expect(rowan.locator('#status')).toContainText(/Quiet conversation with Ada/, { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('started a quiet conversation with you', { timeout: 30_000 })
@@ -161,7 +161,7 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
     // sheet left open makes everything behind it, including the attach
     // button used below, unclickable.
     await rowan.locator('#roomSheetClose').click()
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Quiet: Ada', { timeout: 30_000 })
     await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Quiet: Rowan' }).click()
@@ -247,12 +247,12 @@ test('a quiet room does not leak a file announcement if this device leaves while
     await rowan.locator('#displayName').fill('Rowan'); await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
     await expect(rowan.locator('#status')).toContainText(/Quiet conversation with Ada/, { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('started a quiet conversation with you', { timeout: 30_000 })
     await rowan.locator('#roomSheetClose').click()
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Quiet: Ada', { timeout: 30_000 })
     await expect.poll(() => seen.length).toBeGreaterThan(0)
@@ -269,8 +269,9 @@ test('a quiet room does not leak a file announcement if this device leaves while
     // Leave now, with the upload still pending. Rowan's own device does
     // this here, but the code path is the same one a keeper closing the
     // room or removing this member reaches on its own.
-    await openRoomDetails(rowan)
-    await rowan.locator('#leave').click()
+    await rowan.evaluate(() => (document.getElementById('leave') as HTMLButtonElement).click())
+    // The unsent upload is asked about first, then the leave itself.
+    await rowan.locator('#actionConfirm').click()
     await rowan.locator('#actionConfirm').click()
     // Only now let the held response through, so the room change is not a
     // race against the network but has already happened.

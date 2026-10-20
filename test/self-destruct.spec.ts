@@ -1,6 +1,6 @@
 import { test, expect, request as playwrightRequest, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { verifyEvent, type Event } from 'nostr-tools/pure'
-import { allowTestFileStorage, openNewRoomForm, openRoomDetails, TEST_RELAY_HTTP } from './browser.js'
+import { allowTestFileStorage, openNewRoomForm, openRoomDetails, leaveRoom, TEST_RELAY_HTTP } from './browser.js'
 import { openRoomUrl } from './relays.js'
 import { parseRoomLink } from '../src/link.js'
 import { deriveInvitationId } from '../src/invitation.js'
@@ -532,8 +532,7 @@ test('Leave and tidy up deletes the files this device shared, and tries again at
 
     // The file server is down for the tidy-up.
     await context.route(url => url.pathname.startsWith('/blossom/'), route => route.request().method() === 'DELETE' ? route.abort('connectionrefused') : route.fallback())
-    await openRoomDetails(page)
-    await page.locator('#tidyUpRoom').click()
+    await leaveRoom(page, { tidy: true })
     await expect(page.locator('#tidyUpLead')).toContainText('ask the file server to delete the files this device shared')
     await expect(page.locator('#tidyUpSteps li[data-step="files"]')).toContainText('Ask the file server to delete the files this device shared in the room')
     await expect(page.locator('#tidyUpLimits')).toContainText('Files other members shared are theirs')
@@ -589,7 +588,7 @@ for (const failure of ['quota', 'malformed-journal', 'unsigned-old-operator'] as
       return {roomId,uploadKey,deviceKey,uploads,key}
     },failure)
     expect(before.key).toBeTruthy(); expect(before.uploads).toBeTruthy()
-    await openRoomDetails(page);await page.locator('#tidyUpRoom').click();await page.locator('#tidyUpRun').click()
+    await leaveRoom(page, { tidy: true });await page.locator('#tidyUpRun').click()
     await expect(page.locator('#tidyUpResults h3')).toHaveText('Tidy-up paused',{timeout:60_000})
     await expect(page.locator('#tidyUpResults')).toContainText('Local room keys and upload records were retained')
     await expect(page.locator('#tidyUpDone')).toBeHidden();await expect(page.locator('#tidyUpCancel')).toHaveText('Close')

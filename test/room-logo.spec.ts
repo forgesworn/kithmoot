@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
-import { newDeviceContext, open, openRoomDetails, leaveToChats } from './browser.js'
+import { newDeviceContext, open, leaveToChats, openRoomInfoPage } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 import { createLogoImage, logoFromCanvasEncoding, type LogoImage } from '../src/logo-image.js'
 import { followRoomLogo } from '../src/room-logo.js'
@@ -75,7 +75,7 @@ for (const scheme of ['light', 'dark'] as const) test(`an unusable signed room l
     page.on('request', request => {
       if (request.resourceType() === 'image' && /^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(baseURL!).origin) externalImages.push(request.url())
     })
-    await enter(page); await openRoomDetails(page)
+    await enter(page); await openRoomInfoPage(page, 'Name and picture')
     await page.locator('#roomRenameInput').fill('Workshop'); await page.locator('#roomRenameSave').click()
     await page.locator('#roomSheetClose').click()
     const replacement = await solidLogo(page, '#008000')
@@ -172,7 +172,7 @@ test('admitted members crop, share, recover, replace and remove an inline room l
   try {
     const ada = await a.newPage(), bob = await b.newPage()
     await enter(ada); await enter(bob)
-    await openRoomDetails(ada)
+    await openRoomInfoPage(ada, 'Name and picture')
     await ada.locator('#roomRenameInput').fill('Workshop'); await ada.locator('#roomRenameSave').click()
     await expect(bob.locator('#roomTitle')).toHaveText('Workshop')
     const png = await splitImage(ada)
@@ -200,7 +200,7 @@ test('admitted members crop, share, recover, replace and remove an inline room l
     await expect(ada.locator('#roomArea')).toBeVisible()
     await expect(ada.locator('#roomLogo img')).toHaveAttribute('src', red!)
 
-    await openRoomDetails(bob)
+    await openRoomInfoPage(bob, 'Name and picture')
     await bob.getByRole('button', { name: 'Change room logo', exact: true }).click()
     await choose(bob, png, 'End')
     await bob.locator('.logoEditor [data-action=cancel]').click()
@@ -232,7 +232,7 @@ test('admitted members crop, share, recover, replace and remove an inline room l
 test('cancelling while local image decoding completes releases its bitmap and shares nothing', async ({ browser, baseURL }) => {
   const context = await newDeviceContext(browser, baseURL!)
   try {
-    const page = await context.newPage(); await enter(page); await openRoomDetails(page)
+    const page = await context.newPage(); await enter(page); await openRoomInfoPage(page, 'Name and picture')
     await page.getByRole('button', { name: 'Change room logo', exact: true }).click()
     const png = await splitImage(page)
     await page.evaluate(() => {
@@ -260,7 +260,7 @@ for (const scheme of ['light', 'dark'] as const) test(`the ${scheme} phone edito
   const context = await newDeviceContext(browser, baseURL!)
   try {
     const page = await context.newPage(); await page.setViewportSize({ width: 320, height: 640 }); await page.emulateMedia({ colorScheme: scheme })
-    await enter(page); await openRoomDetails(page)
+    await enter(page); await openRoomInfoPage(page, 'Name and picture')
     await page.getByRole('button', { name: 'Change room logo', exact: true }).click()
     const requests: string[] = []; page.on('request', request => requests.push(request.url()))
     const input = page.locator('.logoEditor input[type=file]')

@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page, type Request } from '@playwright/test'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { openNewRoomForm, openRoomDetails, openInvite } from './browser.js'
+import { openNewRoomForm, openRoomDetails, openInvite, openRoomInfoPage } from './browser.js'
 
 // Meeting codes (docs/meeting-codes.md) against a mocked /codes service:
 // a code reaches the invitation door and never further, each refusal says
@@ -238,7 +238,7 @@ test('New link deletes the old code', async ({ browser, baseURL }) => {
     await expect(page.locator('#meetingCode')).toHaveText('K7M-2Q9-TX')
     const first = await page.locator('#shareUrl').inputValue()
     await page.locator('#inviteClose').click()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Invite link')
     await page.locator('#rotateShare').click()
     await page.locator('#actionConfirm').click()
     await expect.poll(() => page.locator('#shareUrl').inputValue(), { timeout: 60_000 }).not.toBe(first)

@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
-import { createRoom, expectToSeeAndHear, joinWithMedia, newDeviceContext, open, startRelay, turnOnMedia, openRoomDetails } from './browser.js'
+import { createRoom, expectToSeeAndHear, joinWithMedia, newDeviceContext, open, startRelay, turnOnMedia, openRoomInfoPage } from './browser.js'
 import { TEST_RELAY_PORT, testRelaysFor, withRelays } from './relays.js'
 
 /**
@@ -28,7 +28,7 @@ async function fakeRelay(context: BrowserContext, frames: unknown[][]): Promise<
 }
 
 async function openRelaySettings(page: Page): Promise<void> {
-  await openRoomDetails(page)
+  await openRoomInfoPage(page, 'Privacy and connection')
   await page.locator('#roomRelaySettings').click()
   await expect(page.locator('#relaySettings')).toBeVisible()
 }

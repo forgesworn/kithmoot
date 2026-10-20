@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { TEST_RELAY_WS, openRoomDetails } from './browser.js'
+import { TEST_RELAY_WS, setTextSize } from './browser.js'
 
 // Somebody on a phone during a live call could not read the chat. These are
 // the measurements that were wrong, taken the way that person met them: a
@@ -137,9 +137,9 @@ test('a phone reads the conversation: size, width, contrast and no sideways scro
     }
 
     // Huge text, chosen in Room details and kept on this device.
-    await openRoomDetails(page)
-    await page.locator('#roomSheet').getByRole('radio', { name: 'Huge' }).check()
-    await page.locator('#roomSheetClose').click()
+    await setTextSize(page, 'Huge')
+    
+    
     await expect.poll(() => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))).toBe(24)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     expect(await page.locator('#chatLog').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)

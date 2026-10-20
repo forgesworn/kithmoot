@@ -15,7 +15,7 @@ import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/
 import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects } from './browser.js'
+import { openNewRoomForm, leaveRoom, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects, openProfileSettings, openMember, openRoomInfoPage, closeProfileSettings } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
@@ -67,9 +67,9 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     await expect(page.locator('#whoami')).toContainText(npubEncode(pubkey).slice(0, 12))
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page); await page.locator('#roomProfileSettings').click()
+    await openProfileSettings(page)
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
-    await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
+    await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
     await expect(page.locator('#whoami')).toContainText('alice@profile.example')
     expect(addressRequests).toBeGreaterThan(0)
     await page.locator('#chatInput').fill('Tally, this is my account')
@@ -329,7 +329,7 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
     await expect(page.locator('#sendingIdentity')).not.toContainText('visitor')
     await page.locator('#roomSheetClose').click()
@@ -359,8 +359,7 @@ test('a room joined as the account opens again as that account while its signer 
     await page.reload()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page)
-    await page.locator('#leave').click()
+    await leaveRoom(page)
     if (await page.locator('#actionConfirm').isVisible()) await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomArea')).toBeHidden()
 
@@ -379,7 +378,7 @@ test('a room joined as the account opens again as that account while its signer 
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#status')).toContainText('signer is not connected')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
     await page.locator('#roomSheetClose').click()
     await page.locator('#chatInput').fill('Tally, back on the pass')
@@ -425,7 +424,7 @@ test('a private conversation is started on the relays its starter listed for pri
     await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
-    await openRoomDetails(page)
+    await openMember(page, 'Rowan')
     await page.getByRole('button', { name: /^Message Rowan privately/ }).click()
     await expect(page.locator('#status')).toContainText(/Private conversation with Rowan/, { timeout: 30_000 })
     // A signed-in account's rooms are kept under its own prefix.
@@ -457,7 +456,7 @@ for (const width of [390, 1440]) {
       await page.reload()
       await page.locator('#join').click()
       await expect(page.locator('#roomArea')).toBeVisible()
-      await openRoomDetails(page)
+      await openMember(page, 'Rowan')
       const button = page.getByRole('button', { name: 'Message Rowan privately', exact: true })
       await expect(button).toBeVisible()
       await button.scrollIntoViewIfNeeded()
@@ -618,8 +617,7 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
     // on relays that forget, so there may be several copies; tidying deletes them all.
     expect((await relayHolds({ authors: [inviterPub], kinds: [1463] })).length).toBeGreaterThanOrEqual(1)
 
-    await openRoomDetails(page)
-    await page.locator('#tidyUpRoom').click()
+    await leaveRoom(page, { tidy: true })
     const dialog = page.locator('#tidyUpDialog')
     await expect(dialog).toBeVisible()
     await expect(page.locator('#tidyUpSteps li')).toHaveCount(9)
@@ -679,7 +677,7 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
     await page.locator('#joinVisitor').click()
     await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as visitor/)
     await expect(page.locator('#sendingIdentity')).toContainText('Same familiar name')
     await page.locator('#sendingIdentity button').click()

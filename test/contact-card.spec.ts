@@ -9,7 +9,7 @@ import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
 import { matchFilters, type Filter } from 'nostr-tools/filter'
 import { boxFixture } from './box-status-fixture.js'
-import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS, openRoomInfoPage } from './browser.js'
 
 /**
  * A contact card, as a person meets it: pasted into Room details, or opened
@@ -54,6 +54,7 @@ test('a contact card marks its holder without treating its transport relay as sh
     await expect(rowanRow).toBeVisible()
     await expect(rowanRow.locator('.badge.card')).toHaveCount(0)
 
+    await openRoomInfoPage(page, 'Contact cards')
     // A card that is not one is refused with the step that failed.
     await page.locator('#contactCardIn').fill('https://kithmoot.test/j/#not-a-card')
     await page.locator('#contactCardAdd').click()
@@ -82,7 +83,7 @@ test('a contact card marks its holder without treating its transport relay as sh
 
     // Ada's own card, signed by whatever holds her identity, reads back
     // under her key with the relay this room uses.
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Contact cards')
     await page.locator('#myCardShow').click()
     const mine = page.locator('#myCardOut')
     await expect(mine).toBeVisible()
@@ -100,7 +101,7 @@ test('a contact card marks its holder without treating its transport relay as sh
     await page.locator('#roomSheetClose').click()
 
     // Forgetting the card removes its holder badge; the relay stays public.
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Contact cards')
     await page.getByRole('button', { name: "Forget Rowan's card" }).click()
     await page.getByRole('button', { name: 'Forget card' }).click()
     await expect(page.locator('#contactList')).toContainText('No contact cards yet')
@@ -165,7 +166,7 @@ test('explicit box discovery verifies endpoints, removes stale trust and closes 
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Contact cards')
     await page.locator('#contactCardIn').fill(fixture.contactCard); await page.locator('#contactCardAdd').click()
     await expect(page.locator('#contactList')).toContainText('Box status is not being checked.')
     expect(queries).toHaveLength(0)
@@ -186,7 +187,7 @@ test('explicit box discovery verifies endpoints, removes stale trust and closes 
     const retired = finalizeEvent({ ...fixture.claim, created_at: fixture.now + 3, tags: fixture.claim.tags.filter(t => !(t[0] === 'p' && t[3] === 'stash')).map(t => t[0] === 'status' ? ['status', 'retired'] : t) }, fixture.masterKey)
     for (const reader of readers) reader.send(retired)
     await expect(page.locator('#laneNote .chip.lane')).toHaveText(/public/)
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Contact cards')
     await expect(page.locator('#contactList')).toContainText('retired')
     await page.getByRole('button', { name: "Forget Rowan's card", exact: true }).click()
     await page.getByRole('button', { name: 'Forget card', exact: true }).click()

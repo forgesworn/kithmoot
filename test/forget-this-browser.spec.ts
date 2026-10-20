@@ -1,5 +1,5 @@
 import { test, expect, type Browser } from '@playwright/test'
-import { openCall, openNewRoomForm, openRoomDetails } from './browser.js'
+import { openCall, openNewRoomForm, openSettings } from './browser.js'
 
 /** A visitor device: no signer, no Nostr account, only what a name-only
  *  join and a kept room leave in this browser. Trimmed from home.spec.ts's
@@ -89,8 +89,8 @@ test('Forget this browser, offered from Room details too, refuses while on a cal
 
     // Room details stays reachable through a live call - that is exactly
     // where this has to refuse rather than silently dropping it.
-    await openRoomDetails(page)
-    await page.locator('#forgetBrowserRoom').click()
+    await openSettings(page)
+    await page.locator('#forgetBrowser').click()
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
     await expect(page.locator('#status')).toContainText('Leave the call before forgetting this browser.')
     await expect(page.locator('#roomArea')).toBeVisible()

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { newDeviceContext, open, openRoomDetails, startRelay } from './browser.js'
+import { newDeviceContext, open, startRelay, openRoomInfoPage } from './browser.js'
 import { RoomAgent } from '../src/agent.js'
 
 /**
@@ -37,7 +37,7 @@ test.describe('room name', () => {
       await open(bob, keeper.url, 'Bob')
       await bob.locator('#join').click()
 
-      await openRoomDetails(ada)
+      await openRoomInfoPage(ada, 'Name and picture')
       await expect(ada.locator('#roomRename')).toBeVisible({ timeout: 60_000 })
       await ada.locator('#roomRenameInput').fill('Book club')
       await ada.locator('#roomRenameSave').click()

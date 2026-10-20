@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { goToConversation, openCall, openRoomDetails, TEST_RELAY_WS, openRoomSearch } from './browser.js'
+import { goToConversation, openCall, openRoomDetails, TEST_RELAY_WS, openRoomSearch, openRoomInfoPage } from './browser.js'
 import { withRelays } from './relays.js'
 
 async function setup(browser: Browser, baseURL: string, namedConversations = false) {
@@ -31,7 +31,7 @@ async function setup(browser: Browser, baseURL: string, namedConversations = fal
 
 async function search(page: Page, query: string) {
   await openRoomDetails(page)
-  await page.getByRole('button', { name: 'Search this conversation', exact: true }).click()
+  await page.locator('#searchConversation').click()
   await expect(page.getByRole('dialog', { name: 'Search messages' })).toBeVisible()
   await expect(page.locator('#messageSearchQuery')).toBeFocused()
   await page.locator('#messageSearchQuery').fill(query)
@@ -76,7 +76,7 @@ test('search finds literal text and people, jumps to context and preserves a dra
     await expect(page.locator('#roomMenu')).toBeFocused()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this draft here')
     expect(await page.locator('#messageSearchQuery').inputValue()).toBe('')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     const agents = page.locator('#channelBar button[data-channel="agents"]')
     await agents.focus()
     await writer.chat.send('One more message while the conversation picker has focus')

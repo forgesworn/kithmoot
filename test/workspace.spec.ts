@@ -9,7 +9,7 @@ import { createRoomInvitation } from '../src/invitation.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
 import { KINDS } from '../src/kinds.js'
-import { leaveToChats, showChats, switchToRoom, openRoomDetails, openRoomMenu, roomMenuItem } from './browser.js'
+import { leaveToChats, showChats, switchToRoom, openRoomDetails, openRoomMenu, roomMenuItem, openProfileSettings, openRoomInfoPage, openSettings } from './browser.js'
 
 async function setup(browser: Browser, base: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
@@ -63,7 +63,7 @@ test('local groups organise rooms into chips, filter by name, survive reload and
     await join(page, rooms[0]!.link)
     await expect(page.getByRole('navigation', { name: 'Chats' })).toBeVisible()
     // No agent here yet, so no Agents tab; Room details lists it.
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#channelBar button[data-channel=agents]').click()
     // Inviting the first agent is a verb in the room's menu, not a strip.
     await openRoomMenu(page)
@@ -193,7 +193,7 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await agent.session.channel('agents').send('@Ada, the next update should be visible from Chat.')
     await expect(agents.locator('.conversationUnread.agent')).toHaveText('1')
     // Transcript has no tab until a call has written to it; Room details lists it.
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#channelBar button[data-channel=transcript]').click()
     await expect(page.locator('#chatForm')).toBeHidden()
     await expect(page.locator('#readOnlyNote')).toBeVisible()
@@ -291,7 +291,7 @@ test('catching up starts at unread messages and keeps your place across conversa
     await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveCount(0)
     await log.evaluate(el => { el.scrollTop = 100 })
     const agentPlace = await readingPlace()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#channelBar button[data-channel=transcript]').click()
     await expect(page.locator('#chatForm')).toBeHidden()
     await page.locator('#conversationNav button[data-channel=agents]').click()
@@ -317,8 +317,8 @@ test('catching up starts at unread messages and keeps your place across conversa
     await expect(page.locator('#conversationNav button[aria-pressed=true]')).toHaveAttribute('data-channel', channel)
     const finalComposer = await page.locator('#chatForm').boundingBox()
     expect(finalComposer!.y + finalComposer!.height).toBeLessThanOrEqual(540)
-    await openRoomDetails(page)
-    await page.locator('#roomProfileSettings').click()
+    await openProfileSettings(page)
+    
     await expect(page.locator('#profileSettings')).toBeVisible()
   } finally { writer.leave(); await context.close() }
 })
@@ -363,7 +363,7 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
       await expect(page.locator('#chatLog')).toContainText(message)
       await expect(notices).toHaveCount(0)
       expect(keeper.session.epoch).toBe(epoch)
-      await openRoomDetails(page)
+      await openRoomInfoPage(page, 'Privacy and connection')
       await expect(page.locator('#roomLockState')).toContainText(epoch === 1 ? 'changed once' : `changed ${epoch} times`)
       await page.locator('#roomSheetClose').click()
     }
@@ -501,7 +501,7 @@ test(`switching rooms opens the latest messages through delayed history and hono
     await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
     await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
     if (unavailableStorage) {
-      await openRoomDetails(page)
+      await openRoomInfoPage(page, 'Conversations')
       await expect(page.locator('#archiveStorageNotice')).toBeVisible()
       await expect(page.locator('#archiveStorageNotice')).toContainText('after closing it')
       await page.locator('#roomSheetClose').click()
@@ -550,14 +550,14 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
     await expect(input).toBeFocused()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#channelBar button[data-channel=minutes]').click()
     await page.locator('#chatLog').focus()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()
-    await openRoomDetails(page)
+    await openSettings(page, 'Keyboard shortcuts')
     await page.locator('#keyboardHelp').click()
-    await expect(page.locator('#roomSheet')).not.toBeVisible()
+    
     await expect(page.locator('#keyboardShortcuts')).toBeVisible()
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
@@ -573,8 +573,8 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
       await page.screenshot({ path: testInfo.outputPath(`keyboard-help-${colorScheme}.png`) })
     }
     await page.keyboard.press('Escape')
-    // Help was opened from Room info, which the room's name opens.
-    await expect(page.locator('#roomIdentity')).toBeFocused()
+    // Help was opened from Settings, so the focus goes back to its button.
+    await expect(page.locator('#keyboardHelp')).toBeFocused()
   } finally { await context.close() }
 })
 
@@ -715,7 +715,7 @@ test('a scheduled rekey moves a room on without a word, and the rail follows it 
     expect(keeper.session.epoch).toBe(2)
     await keeper.chat.send('Two turns on.')
     await expect(page.locator('#chatLog')).toContainText('Two turns on.')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Privacy and connection')
     await expect(page.locator('#roomLockState')).toContainText('changed 2 times')
     await page.locator('#roomSheetClose').click()
     await expect(notices.filter({ hasText: 'moved to epoch' })).toHaveCount(0)

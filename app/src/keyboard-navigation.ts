@@ -55,7 +55,7 @@ export function installKeyboardNavigation(root: Document): void {
   }
   root.addEventListener('keydown', event => {
     if (event.defaultPrevented || event.isComposing || event.altKey || !available(get('roomArea')) ||
-      root.querySelector('dialog[open], [popover]:popover-open')) return
+      root.querySelector('dialog:modal, dialog[open]:not(#roomSheet), [popover]:popover-open')) return
     const active = root.activeElement as HTMLElement | null
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === '/') {
       event.preventDefault(); showHelp(active ?? log); return
