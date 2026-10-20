@@ -61,6 +61,10 @@ export interface PeopleActions {
   invite(person: Person): Promise<string | undefined>
   /** The private chat already open with this person, if there is one. */
   privateChat(pubkey: string): { label: string; open(): void } | undefined
+  /** Whether this person's key was checked, and the line that says so. */
+  check(person: Person): { status: 'verified' | 'unknown' | 'key-changed'; line: string }
+  /** Open the private chat and start comparing words there. */
+  checkWords(person: Person): Promise<string | undefined>
   /** Rooms this device has seen this person in, worked out here alone. */
   sharedRooms(pubkey: string): SharedRoom[]
   /** Rooms this device invited this person to, and whether they came. */
@@ -319,10 +323,11 @@ export class PeopleView {
     const person = [...model.contacts, ...model.following].find(entry => entry.pubkey === this.#selected)
     const shared = person ? this.#actions.sharedRooms(person.pubkey) : []
     const sent = person ? this.#actions.sentInvitations(person.pubkey) : []
+    const check = person ? this.#actions.check(person) : undefined
     // Only what is drawn goes in: a day word changes at midnight, not every tick.
     const today = Date.now()
     const shown = person ? JSON.stringify([person, this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label,
-      shared.map(room => [room.roomId, room.label]), sent.map(invite => [invite.roomId, invite.label, invite.joined, invite.at === undefined ? '' : dayWords(invite.at, today)])]) : 'none'
+      check, shared.map(room => [room.roomId, room.label]), sent.map(invite => [invite.roomId, invite.label, invite.joined, invite.at === undefined ? '' : dayWords(invite.at, today)])]) : 'none'
     if (shown === this.#painted && this.#pane.childElementCount) return
     this.#painted = shown
     if (!person) {
@@ -447,6 +452,24 @@ export class PeopleView {
         list.items.append(listItem(open))
       }
       card.append(list.section)
+    }
+    if (check) {
+      // Words are compared in the private chat, so the row is off whenever Message is.
+      const section = document.createElement('div')
+      section.className = 'contactSection'
+      const compare = contactLinkButton('Check words together', () => {
+        this.#busy = true
+        this.#paintPane()
+        void this.#actions.checkWords(person!).then(note => { this.#note = note ?? '' }, error => { this.#note = error instanceof Error ? error.message : String(error) })
+          .finally(() => { this.#busy = false; this.render() })
+      }, check.line)
+      compare.id = 'peopleCheckWords'
+      compare.prepend(icon('shield'))
+      compare.classList.add(`check-${check.status}`)
+      compare.disabled = this.#busy || !!reason
+      compare.setAttribute('aria-label', `Check words together, ${check.line}`)
+      section.append(compare)
+      card.append(section)
     }
     const focusHeading = this.#pane.contains(document.activeElement) && document.activeElement !== heading
     this.#pane.replaceChildren(back, card)
