@@ -1,9 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { encrypt, decrypt } from 'nostr-tools/nip04'
+import { npubEncode } from 'nostr-tools/nip19'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS } from './browser.js'
+import { shareContacts } from './contacts-grant.js'
 
 const warning = 'Legacy NIP-04 encryption. Relays can see the sender and recipient. Use a modern private conversation for sensitive messages.'
 
@@ -52,6 +54,7 @@ test('legacy reception is explicit, literal, warned and receive-only without NIP
     await page.getByRole('button', { name: 'Load legacy messages', exact: true }).click()
     const row = page.locator('#legacyMessagesList > li')
     await expect(row).toHaveCount(1)
+    await expect(row.locator('.legacyMessageAuthor')).toHaveText(npubEncode(getPublicKey(sender)))
     await expect(row.locator('.legacyMessageWarning')).toBeVisible()
     await expect(row.locator('.legacyMessageWarning')).toHaveText(warning)
     expect(decrypts).toBe(0)
@@ -154,5 +157,93 @@ for (const boundary of ['close', 'sign-out', 'home-departure'] as const) {
       await expect(page.locator('body')).not.toContainText('Never adopt this late plaintext')
       expect(calls).toBe(1); wire.assertReceiveOnly()
     } finally { release(); publisher.close(); await context.close() }
+  })
+}
+
+test('a real delayed sign-in closes the inbox and refuses reopening while the provider is pending', async ({ browser, baseURL }) => {
+  const account = generateSecretKey(), sender = generateSecretKey()
+  let pause = false, reached = false, release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  const context = await accountDevice(browser, baseURL!, account, false, async () => { if (pause) { reached = true; await pending } }, {
+    decrypt: (peer, ciphertext) => decrypt(account, peer, ciphertext),
+    encrypt: async () => { throw Error('Unexpected legacy encryption') },
+  })
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  try {
+    await publishLegacy(publisher, sender, getPublicKey(account), 'Clear before sign-in finishes')
+    const page = await context.newPage(), wire = observeWire(page)
+    await signInAccount(page, baseURL!); await showLegacy(page); await page.locator('#legacyMessagesLoad').click()
+    await page.getByRole('button', { name: 'Open message', exact: true }).click()
+    await expect(page.locator('.legacyMessageText')).toHaveText('Clear before sign-in finishes')
+    pause = true
+    // Invoke the app's real sign-in handler while its legacy dialog is open.
+    await page.locator('#signIn').evaluate(button => (button as HTMLButtonElement).click())
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect.poll(() => reached).toBe(true)
+    await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
+    await expect(page.locator('#legacyMessagesList')).toBeEmpty()
+    const before = wire.legacySubscriptions().length
+    // Re-render actual Settings while the selected provider has not returned.
+    await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+    await expect(page.locator('#legacyMessagesEntry')).toBeDisabled()
+    await page.locator('#legacyMessagesEntry').evaluate(button => (button as HTMLButtonElement).click())
+    await expect(page.locator('#legacyMessagesDialog')).not.toBeVisible()
+    expect(wire.legacySubscriptions()).toHaveLength(before)
+    await page.locator('#appSettingsClose').evaluate(button => (button as HTMLButtonElement).click())
+    release()
+    await expect(page.locator('#legacyMessagesEntry')).toBeEnabled()
+    wire.assertReceiveOnly()
+  } finally { release(); publisher.close(); await context.close() }
+})
+
+for (const laterRenderThrows of [false, true]) {
+  test(`an authenticated block removes opened legacy plaintext${laterRenderThrows ? ' before a later render throws' : ''}`, async ({ browser, baseURL }) => {
+    const accountKey = generateSecretKey(), sender = generateSecretKey(), account = getPublicKey(accountKey), peer = getPublicKey(sender)
+    let decrypts = 0
+    const context = await accountDevice(browser, baseURL!, accountKey, true, async () => {}, {
+      decrypt: async (author, ciphertext) => { decrypts++; return decrypt(accountKey, author, ciphertext) },
+      encrypt: async () => { throw Error('Unexpected legacy encryption') },
+    })
+    const publisher = new NostrRelayPool([TEST_RELAY_WS])
+    try {
+      const page = await context.newPage(), wire = observeWire(page)
+      await signInAccount(page, baseURL!)
+      const grant = await shareContacts(page, account, [{ pubkey: peer, name: 'Later blocked sender' }], publisher)
+      await page.locator('#contactsClose').click()
+      await publishLegacy(publisher, sender, account, 'Remove this opened text when blocked')
+      await showLegacy(page); await page.locator('#legacyMessagesLoad').click()
+      await page.getByRole('button', { name: 'Open message', exact: true }).click()
+      await expect(page.locator('.legacyMessageText')).toHaveText('Remove this opened text when blocked')
+      if (laterRenderThrows) await page.evaluate(({ account, peer }) => {
+        const list = document.getElementById('contactList')!, replace = list.replaceChildren.bind(list)
+        const state = window as typeof window & { legacyRenderFault?: { thrown: boolean; cleared: boolean } }
+        list.replaceChildren = (...nodes: (Node | string)[]) => {
+          // Fault only after the actual authenticated SDK projection has
+          // persisted this block. The pre-refresh expiry notification and
+          // unrelated renders cannot satisfy this test's positive control.
+          const blocked = Object.keys(localStorage).some(key => {
+            if (!key.startsWith(`kithmoot.contacts.v2.${account}.signet-contacts:state:`)) return false
+            try { return (JSON.parse(localStorage.getItem(key)!) as { blockedPubkeys?: string[] }).blockedPubkeys?.includes(peer) === true } catch { return false }
+          })
+          if (blocked && !state.legacyRenderFault?.thrown) {
+            state.legacyRenderFault = { thrown: true, cleared: document.getElementById('legacyMessagesList')!.childElementCount === 0 }
+            throw Error('test: later contact render failed')
+          }
+          replace(...nodes)
+        }
+      }, { account, peer })
+      await grant.publish({ ...grant.projection, frontier: { ...grant.projection.frontier, maxClock: 2 },
+        contacts: grant.projection.contacts.map(contact => ({ ...contact, blocked: true })) })
+      // Refresh is the real SDK path; this click only bypasses the modal's
+      // pointer barrier so the legacy text can remain on screen for the test.
+      await page.locator('#signetContactsRefresh').evaluate(button => (button as HTMLButtonElement).click())
+      await expect(page.locator('#legacyMessagesList')).toBeEmpty()
+      if (laterRenderThrows) await expect.poll(() => page.evaluate(() =>
+        (window as typeof window & { legacyRenderFault?: unknown }).legacyRenderFault)).toEqual({ thrown: true, cleared: true })
+      await publishLegacy(publisher, sender, account, 'A blocked sender stays absent')
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      await expect(page.locator('#legacyMessagesList')).toBeEmpty()
+      expect(decrypts).toBe(1); wire.assertReceiveOnly()
+    } finally { publisher.close(); await context.close() }
   })
 }

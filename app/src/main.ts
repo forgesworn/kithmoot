@@ -32,6 +32,7 @@ import { FollowBook } from './follow-list.js'
 import { PeopleView, type PeopleModel, type Person } from './people.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { LegacyMessagePanel } from './legacy-message-panel.js'
+import { LegacyMessageLifetime } from './legacy-message-lifetime.js'
 import type { ContactInvitation } from '../../src/contact-invitation.js'
 import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
 import { showChannelCheckDialog } from './channel-check-dialog.js'
@@ -1032,18 +1033,13 @@ function participantKey(): Uint8Array {
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
-let legacyViewTransitions = 0
+const legacyMessageLifetime = new LegacyMessageLifetime(() => legacyMessagesPanel?.close(), () => {
+  ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
+})
 /** Deny reopening across every await in an account transition. The counter
  * composes account and room transitions; it grants no account authority. */
 async function withLegacyMessagesClosed<T>(work: () => Promise<T>): Promise<T> {
-  legacyViewTransitions++
-  ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = true
-  legacyMessagesPanel?.close()
-  try { return await work() }
-  finally {
-    legacyViewTransitions--
-    ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
-  }
+  return legacyMessageLifetime.run(work)
 }
 let browserRendezvousVault: RendezvousVault | undefined
 let historyRecoveryBusy = false
@@ -15913,7 +15909,7 @@ legacyMessagesPanel = new LegacyMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
   // Default account pools bypass the per-room private router. This first
   // compatibility view is deliberately available only on the ordinary home.
-  eligible: () => !legacyViewTransitions && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy,
+  eligible: () => legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy,
   blocked: contactIsBlocked,
   borrowDefault: () => {
     const hold = relayConnections.pool('default')
