@@ -326,7 +326,7 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
     await page.locator('#displayName').fill('Ada')
     await page.locator('#join').click()
     await expect(page.locator('#roomMenu')).toBeVisible()
-    await expect(page.locator('#chatLog')).toContainText('Use Invite people')
+    await expect(page.locator('#chatLog')).toContainText('Write a message below to start the conversation.')
     await page.locator('#chatInput').fill('Keep this unfinished welcome')
     // By keyboard: Enter on the ⋯ opens the menu, the item is chosen with Enter.
     await page.locator('#roomMenu').focus()

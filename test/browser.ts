@@ -335,18 +335,19 @@ export async function openRoomSearch(page: Page): Promise<void> {
   await expect(page.locator('#conversationSearch')).toBeVisible()
 }
 
-/** The room's board, from its tab. Only there once the room has tasks or a
- *  shared board; see `boardTab` in app/src/main.ts. */
+/** The room's board, from its tab, which is there once the room has tasks or a
+ *  shared board; before that, from the menu's New task…. */
 export async function openRoomBoard(page: Page): Promise<void> {
-  await page.locator('#conversationNav button[data-board]').click()
-  await expect(page.locator('#boardsPanel')).toBeVisible()
+  const tab = page.locator('#conversationNav button[data-board]')
+  if (await tab.isVisible()) await tab.click()
+  else await roomMenuItem(page, 'New task…')
+  await expect(page.locator('dialog[open]:is(#boardsPanel, #assignmentPanel)')).toBeVisible()
 }
 
 /** The boards panel for the room on screen: from the room's Board tab where it
  *  has one, else from the Boards destination, which opens on the room in view. */
 export async function openRoomBoards(page: Page): Promise<void> {
-  if (await page.locator('#conversationNav button[data-board]').isVisible()) await openRoomBoard(page)
-  else await openBoardsPanel(page)
+  await openRoomBoard(page)
   await expect(page.locator('#boardsPanel')).toBeVisible()
 }
 

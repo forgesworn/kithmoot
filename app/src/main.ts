@@ -10104,19 +10104,17 @@ let renderedTabKey = ''
 /** What this room's tasks come to, kept by the assignment panel and read by
  *  the Board tab. Starts empty so the tabs can draw before the panel exists. */
 let assignmentSummary: BoardSummary = { total: 0, active: 0, needsYou: 0 }
-/** Whether the last tick found boards available, so the tab follows a sign-in. */
-let boardTabAvailable = false
 
 /** The Board tab's state: undefined when this room has no board to open and
  *  none to make, else how many things on it wait for this person. A room has
- *  one when it holds tasks or a shared board, or boards are available to this
- *  person; a visitor's first task is "New task…" in the menu. */
+ *  one when it holds tasks or a shared board; the first is "New task…" in the
+ *  menu. */
 function boardTab(): { needsYou: number } | undefined {
   if (!session) return undefined
   const shared = roomBoards.get(session)?.boards.length ?? 0
-  // Boards are available once this person is signed in with a signer that can
-  // encrypt (see `attachRoomBoards`); then the tab is the way to the first one.
-  if (assignmentSummary.total === 0 && shared === 0 && !nostrSession?.signer.nip44) return undefined
+  // Only when there is something to show; the first task or board is made from
+  // the ⋯ menu's New task….
+  if (assignmentSummary.total === 0 && shared === 0) return undefined
   return { needsYou: assignmentSummary.needsYou }
 }
 /** A small unread badge, capped at "99+" so a busy agent channel does not
@@ -10300,7 +10298,7 @@ function introLines(): DocumentFragment {
   const said = name === undefined ? (session?.chat.messages().length ?? 0) : (channelCounts.get(name) ?? 0)
   const empty =
     name === undefined
-      ? roomPolicy?.members?.length ? ' Write a message below to start the conversation.' : ' Use Invite people to bring others in, or write a message below.'
+      ? ' Write a message below to start the conversation.'
       : ' Nothing has been said here yet.'
   const p = document.createElement('p')
   p.className = 'system intro'
@@ -13256,7 +13254,6 @@ function renderRooms(): void {
   // People is for somebody signed in with Nostr, and nobody else (Q14).
   setPeopleAvailable(!!nostrSession)
   publishDesktopMenu()
-  if (boardTabAvailable !== Boolean(nostrSession?.signer.nip44)) { boardTabAvailable = Boolean(nostrSession?.signer.nip44); if (session) renderConversationNav() }
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
@@ -15234,6 +15231,14 @@ function addAnAgent(): void {
   $('inviteAgents').querySelector('summary')?.focus()
 }
 
+/** New task…: in a room with no tasks or board yet, where boards are available,
+ *  the room's board panel opens so the first board is one step away; otherwise
+ *  the tasks form opens. */
+function newTask(): void {
+  if (nostrSession?.signer.nip44 && boardsPanel && !boardTab()) openRoomBoard($('roomMenu'))
+  else assignmentPanel.newTask()
+}
+
 function renderRoomMenu(): void {
   const menu = $('roomMoreMenu')
   const model = roomMenuModel()
@@ -15249,7 +15254,7 @@ function renderRoomMenu(): void {
     },
     menu => {
       if (roomId) notificationsSubmenu(menu, roomId)
-      if (model.task) menuItem(menu, 'New task…', () => assignmentPanel.newTask(), { icon: 'task', action: 'task' })
+      if (model.task) menuItem(menu, 'New task…', newTask, { icon: 'task', action: 'task' })
       if (room) menuItem(menu, model.pinned ? 'Unpin' : 'Pin', () => togglePinned(room), { icon: 'pin', action: 'pin' })
       if (room && model.project) menuItem(menu, 'Add to project…', () => openProjectEditor(room, $('roomMenu')), { icon: 'folder', action: 'project' })
     },
