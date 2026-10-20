@@ -4,7 +4,7 @@ import { buildFileEvent } from '../src/attachment.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
-import { goToConversation, openRoomDetails, allowTestFileStorage, TEST_RELAY_WS } from './browser.js'
+import { goToConversation, openRoomDetails, allowTestFileStorage, TEST_RELAY_WS, showChats } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
@@ -205,10 +205,10 @@ test('unsent work in another conversation still protects room changes and can be
     await page.locator('#chatInput').fill('Do not lose this hidden draft')
     await goToConversation(page, 'Agents')
     await expect(page.locator('#chatInput')).toHaveValue('')
-    await page.locator('#backToRooms').click()
+    await showChats(page)
     await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'true')
     await expect(page.locator('#workspaceNote')).toContainText('drafts')
-    await page.locator('#roomSwitcherClose').click()
+    await page.locator('#roomList .open[aria-current="true"]').click()
     await goToConversation(page, 'Chat')
     await openRoomDetails(page)
     await page.locator('#discardDraft').click()
@@ -220,7 +220,7 @@ test('unsent work in another conversation still protects room changes and can be
     await page.locator('#actionConfirm').click()
     await page.locator('#roomSheetClose').click()
     await expect(page.locator('#chatInput')).toHaveValue('')
-    await page.locator('#backToRooms').click()
+    await showChats(page)
     await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'false')
     expect(await page.evaluate(() => Object.values(localStorage).some(value => value.includes('Do not lose this hidden draft')))).toBe(false)
   } finally { await context.close() }

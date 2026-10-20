@@ -8,7 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { turnOnMedia, leaveToChats } from './browser.js'
+import { turnOnMedia, leaveToChats, openProjects, openBoardsPanel } from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -74,8 +74,7 @@ async function openBoards(page: Page): Promise<Frame> {
   // inspect its sign-out control's state rather than ancestor visibility.
   await expect(page.locator('html')).toHaveAttribute('data-ordinary-startup', 'ready')
   await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
-  await expect(page.locator('#homeWork')).toHaveAttribute('aria-controls', 'boardsPanel')
-  await page.locator('#homeWork').click()
+  await openBoardsPanel(page)
   await expect(page.locator('#boardsPanel')).toBeVisible()
   await expect(page.locator('#boardsPanel iframe')).toBeVisible()
   // Locator.contentFrame returns a FrameLocator in current Playwright; obtain
@@ -334,7 +333,7 @@ test('Boards replaces Work, edits durable cards and opens several independently 
   await page.reload()
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   try {
-    await page.locator('#homeSharedProjects').click()
+    await openProjects(page)
     for (const [i, name] of ['Design project', 'Release project'].entries()) {
       await page.locator('#sharedProjectNew').click(); await page.locator('#sharedProjectName').fill(name)
       await page.locator('#sharedProjectNpub').fill(npubEncode(keepers[i]!.participant)); await page.locator('#sharedProjectAddPerson').click()
@@ -342,7 +341,7 @@ test('Boards replaces Work, edits durable cards and opens several independently 
       await page.locator('#sharedProjectSave').click(); await expect(page.locator('#sharedProjectEditor')).toBeHidden()
     }
     await page.locator('#sharedProjectsClose').click()
-    await expect(page.locator('#homeWork')).toHaveText('Boards')
+    await expect(page.locator('#railBoards')).toContainText('Boards')
     let frame = await openBoards(page)
     await createBoard(frame, 'Design board'); await addCard(frame, 'Review the design')
     await page.locator('#boardsProject').selectOption({label: 'Design project'}); await page.locator('#boardsRoom').selectOption({label: 'Design chat'}); await page.locator('#boardsAssociate').click()
@@ -354,7 +353,7 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     await expect(one.getByRole('heading', {name: 'Design board', exact: true})).toBeVisible()
     await expect.poll(() => first.locator('iframe').evaluate(frame => Math.abs(frame.getBoundingClientRect().width - innerWidth) < 2), {message: 'The popped-out board must fill its window after the host styles load'}).toBe(true).catch(async error => {console.log('Board window bounds', await first.evaluate(() => JSON.stringify({viewport: innerWidth, body: document.body.getBoundingClientRect().toJSON(), frame: document.querySelector('iframe')?.getBoundingClientRect().toJSON(), maxWidth: getComputedStyle(document.body).maxWidth, width: getComputedStyle(document.body).width, padding: getComputedStyle(document.body).padding}))); throw error})
     await expect(page.locator('#boardsPanel')).toBeHidden()
-    await page.locator('#homeWork').click()
+    await openBoardsPanel(page)
     frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Release board'); await addCard(frame, 'Check release evidence')
     await page.locator('#boardsProject').selectOption({label: 'Release project'}); await page.locator('#boardsRoom').selectOption({label: 'Release chat'}); await page.locator('#boardsAssociate').click()
@@ -362,7 +361,7 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     await expect(second).toHaveTitle('KithMoot · Release project · Release chat · Release board')
     await expect(first).toHaveTitle('KithMoot · Design project · Design chat · Design board')
     await expect(page.locator('#boardsPanel')).toBeHidden()
-    await page.locator('#homeSharedProjects').click()
+    await openProjects(page)
     await page.locator('.sharedProjectCard').filter({has: page.getByRole('heading', {name: 'Release project', exact: true})}).getByRole('button', {name: 'Release chat', exact: true}).click()
     if (await page.locator('#displayName').isVisible()) {await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()}
     await expect(page.locator('#chatInput')).toBeEditable()
@@ -389,12 +388,10 @@ test('Boards replaces Work, edits durable cards and opens several independently 
     await expect(page.locator('#chatInput')).toHaveValue(/Review the design\nhttps:.*#\/b\/.*\/c\//)
     expect(keepers[0]!.chat.messages().some(message => message.text?.includes('Review the design'))).toBe(false)
     await page.locator('#chatInput').fill('')
-    await page.locator('#backToRooms').click()
-    await page.locator('#switcherSharedProjects').click()
+    await openProjects(page)
     await page.locator('.sharedProjectCard').filter({has: page.getByRole('heading', {name: 'Release project', exact: true})}).getByRole('button', {name: 'Release chat', exact: true}).click()
     await expect(page.locator('#chatInput')).toHaveValue('Keep the release chat draft')
     await page.locator('#chatInput').fill('')
-    await page.locator('#backToRooms').click()
     await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'false')
     await leaveToChats(page)
     await page.locator('#openAppSettings').click(); await page.locator('#signOut').click()
@@ -477,9 +474,10 @@ test('two agents handle separate cards while a second person edits the shared bo
       const panel = page.locator('#boardsPanel')
       if (!await panel.isVisible()) {
         const roomBoards = page.locator('#openAssignments')
-        const open = await roomBoards.isVisible() ? roomBoards : page.locator('#homeWork')
-        await expect(open).toHaveAttribute('aria-controls', 'boardsPanel')
-        await open.click()
+        if (await roomBoards.isVisible()) {
+          await expect(roomBoards).toHaveAttribute('aria-controls', 'boardsPanel')
+          await roomBoards.click()
+        } else await openBoardsPanel(page)
       }
       await expect(panel).toBeVisible()
       await expect(panel.locator('iframe')).toBeVisible()

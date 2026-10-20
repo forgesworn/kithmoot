@@ -6,7 +6,7 @@ import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
 import { writeFile } from 'node:fs/promises'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, openProjects, openNewProject } from './browser.js'
 
 test('project logos recover privately and follow explicit room and call contexts', async ({ browser, baseURL }, info) => {
   const owner = await signedDevice(browser, baseURL!), member = await signedDevice(browser, baseURL!)
@@ -29,7 +29,7 @@ test('project logos recover privately and follow explicit room and call contexts
     // picker can close before the app attaches that account; wait for the
     // signed-in identity controls before selecting its private project directory.
     await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
-    await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible, #switcherSharedProjects:visible').first().click()
+    await openProjects(page)
     await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
   }
@@ -78,11 +78,9 @@ test('project logos recover privately and follow explicit room and call contexts
     await b!.locator('#sharedProjectsClose').click()
     const row = b!.locator(`#roomList [data-room="${saved.roomId}"]`)
     await expect(row.locator('.roomAvatar img')).toHaveCount(0)
-    const filters = b!.locator('#homeProject')
-    const options = await filters.locator('option').evaluateAll(options => options.map(option => ({ value: (option as HTMLOptionElement).value, text: option.textContent })))
-    const red = options.find(option => option.text === 'Red project')!.value, blue = options.find(option => option.text === 'Blue project')!.value
-    await filters.selectOption(red); await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', sources.get('Red project')!)
-    await filters.selectOption(blue); await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', sources.get('Blue project')!)
+    const chip = (name: string) => b!.locator('#chatFilters').getByRole('button', { name, exact: true })
+    await chip('Red project').click(); await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', sources.get('Red project')!)
+    await chip('Blue project').click(); await expect(row.locator('.roomAvatar img')).toHaveAttribute('src', sources.get('Blue project')!)
     await row.getByRole('button', { name: `Open ${saved.name}`, exact: true }).click()
     if (await b!.locator('#displayName').isVisible()) { await b!.locator('#displayName').fill('Member'); await b!.locator('#join').click() }
     await expect(b!.locator('#roomArea')).toBeVisible()
@@ -193,25 +191,6 @@ async function signedDevice(browser: Browser, base: string, nip44 = true, key = 
   return { context, pubkey, relay: relay.href, key }
 }
 
-test('a Projects press survives rooms arriving before pointer release', async ({ browser, baseURL }) => {
-  const device = await signedDevice(browser, baseURL!)
-  try {
-    const page = await device.context.newPage()
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto(baseURL!)
-    const opener = page.locator('#homeSharedProjects')
-    await opener.hover(); await page.mouse.down()
-    try {
-      await page.evaluate(() => {
-        const roomId = 'a'.repeat(64)
-        localStorage.setItem(`kithmoot.room.${roomId}`, JSON.stringify({ roomId, name: 'Arriving room', link: location.href, openedAt: 1, readAt: 0 }))
-        window.dispatchEvent(new StorageEvent('storage', { key: 'kithmoot.project.v1.arriving' }))
-      })
-    } finally { await page.mouse.up() }
-    await expect(page.locator('#sharedProjects')).toBeVisible()
-  } finally { await device.context.close() }
-})
-
 for (const nip44 of [true, false]) test(`Projects opened as sign-in finishes stays available with ${nip44 ? 'an encrypted-project' : 'an incompatible'} signer`, async ({ browser, baseURL }) => {
   const device = await signedDevice(browser, baseURL!, nip44)
   try {
@@ -224,7 +203,7 @@ for (const nip44 of [true, false]) test(`Projects opened as sign-in finishes sta
         if (document.getElementById('signet-login-dialog')) sawPicker = true
         else if (sawPicker && !opened) {
           opened = true; observer.disconnect()
-          document.getElementById('homeSharedProjects')?.click()
+          document.getElementById('newMenuProjects')?.click()
         }
       })
       observer.observe(document, { subtree: true, childList: true })
@@ -250,7 +229,7 @@ test('project navigation stays available after initial sign-in', async ({ browse
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
-    await page.locator('#homeSharedProjects:visible').click()
+    await openProjects(page)
     await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
     await page.locator('#sharedProjectNew').click()
@@ -283,7 +262,7 @@ test('three projects deliver only intended human and agent memberships to fresh 
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#signOut')).toHaveJSProperty('hidden', false)
-    await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    await openProjects(page)
     await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
     return page
@@ -330,7 +309,7 @@ test('three projects deliver only intended human and agent memberships to fresh 
     await phone.setViewportSize({ width: 390, height: 844 })
     await phone.goto(baseURL! + '?signin=nostr')
     await phone.getByRole('button', { name: /Browser extension/ }).click()
-    await phone.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    await openProjects(phone)
     await expect(names(phone)).toHaveText(['Private project', 'Release project'])
     await expect(phone.getByRole('button', { name: 'Review and join' })).toHaveCount(0)
     await expect(phone.locator('.sharedProjectRooms')).toContainText(['Private conversation', 'Release conversation'])
@@ -345,7 +324,7 @@ test('three projects deliver only intended human and agent memberships to fresh 
     const enter = async (project: string, room: string) => {
       if (!await phone.locator('#sharedProjects').isVisible()) {
         await phone.locator('#backToRooms').click()
-        await phone.locator('#switcherSharedProjects').click()
+        await openProjects(phone)
       }
       const started = Date.now()
       await phone.locator('.sharedProjectCard').filter({ has: phone.getByRole('heading', { name: project, exact: true }) })
@@ -398,7 +377,7 @@ test('create an empty project, add a room to that existing project, and restore 
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#sharedProjectNew')).toBeEnabled()
-    await page.locator('#homeNewProject:visible, #workspaceNewProject:visible').first().click()
+    await openNewProject(page)
     await expect(page.locator('#sharedProjectEditor')).toBeVisible()
     await page.locator('#sharedProjectName').fill('Work project')
     await page.locator('#sharedProjectNpub').fill(npubEncode(getPublicKey(generateSecretKey())))
@@ -424,55 +403,10 @@ test('create an empty project, add a room to that existing project, and restore 
     await page.close()
     const reopened = await context.newPage()
     await reopened.goto(baseURL!)
-    await reopened.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
+    await openProjects(reopened)
     await expect(reopened.locator('.sharedProjectCard')).toHaveCount(1)
     await expect(reopened.locator('.sharedProjectCard')).toContainText('2 people · 0 agents · 1 room')
     await expect(reopened.locator('.sharedProjectCard')).toContainText('Assignment room')
-  } finally { await context.close(); await keeper.leave() }
-})
-
-test('one room retains a separate rail row in each shared project after a chat refresh', async ({ browser, baseURL }) => {
-  const { context, pubkey, relay } = await signedDevice(browser, baseURL!)
-  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Shared planning', ...agentRelaysFor(baseURL!) })
-  const saved = { roomId: keeper.roomId, name: 'Shared planning', link: encodeRoomLink(baseURL!, { ...keeper.link, relays: [relay] }), openedAt: 1, readAt: 0 }
-  await context.addInitScript(({ saved, pubkey }) => {
-    localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${saved.roomId}`, JSON.stringify(saved))
-  }, { saved, pubkey })
-  try {
-    const page = await context.newPage()
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto(baseURL! + '?signin=nostr')
-    await page.getByRole('button', { name: /Browser extension/ }).click()
-    await page.locator('#homeSharedProjects:visible, #workspaceSharedProjects:visible').first().click()
-    for (const name of ['Design team', 'Release team']) {
-      await page.locator('#sharedProjectNew').click()
-      await page.locator('#sharedProjectName').fill(name)
-      await page.locator('#sharedProjectRooms').getByRole('checkbox', { name: 'Shared planning', exact: true }).check()
-      await page.locator('#sharedProjectSave').click()
-      await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
-    }
-    await page.locator('#sharedProjectsClose').click()
-    await page.getByRole('button', { name: 'Open Shared planning', exact: true }).click()
-    await expect(page.locator('#roomArea:visible, #displayName:visible').first()).toBeVisible()
-    if (await page.locator('#displayName').isVisible()) {
-      await page.locator('#displayName').fill('Ada')
-      await page.locator('#join').click()
-    }
-    await expect(page.locator('#roomArea')).toBeVisible()
-    const rail = page.locator('#workspaceRooms')
-    const groups = ['Design team', 'Release team'].map(name => rail.locator('section', { has: page.getByRole('heading', { name, exact: true }) }))
-    for (const group of groups) await expect(group.getByRole('button', { name: 'Shared planning', exact: true })).toHaveCount(1)
-    const buttons = await Promise.all(groups.map(group => group.getByRole('button', { name: 'Shared planning', exact: true }).elementHandle()))
-    await keeper.chat.send('This planning update belongs to both teams.')
-    await expect(page.locator('#chatLog')).toContainText('This planning update belongs to both teams.')
-    // Draft changes also refresh the real rail; neither association may
-    // borrow the other section's row during reconciliation.
-    await page.locator('#chatInput').fill('A draft for both teams')
-    for (let i = 0; i < groups.length; i++) {
-      const button = groups[i]!.getByRole('button', { name: 'Shared planning', exact: true })
-      await expect(button).toHaveCount(1)
-      expect(await button.evaluate((node, original) => node === original && node.isConnected, buttons[i]!)).toBe(true)
-    }
   } finally { await context.close(); await keeper.leave() }
 })
 
@@ -482,7 +416,7 @@ test('project creation stays discoverable and explains an incompatible signer', 
     const page = await context.newPage()
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
-    await page.locator('#homeNewProject:visible, #workspaceNewProject:visible').first().click()
+    await openNewProject(page)
     await expect(page.locator('#sharedProjects')).toBeVisible()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('NIP-44')
     await expect(page.locator('#sharedProjectNew')).toBeDisabled()
@@ -492,16 +426,3 @@ test('project creation stays discoverable and explains an incompatible signer', 
 })
 
 
-test('a first-time visitor can find New project and sign in from its panel', async ({ browser, baseURL }) => {
-  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
-  try {
-    const page = await context.newPage()
-    await page.goto(baseURL!)
-    await expect(page.locator('#homeNewProject')).toBeVisible()
-    await page.locator('#homeNewProject').click()
-    await expect(page.locator('#sharedProjects')).toBeVisible()
-    await expect(page.locator('#sharedProjectsStatus')).toContainText('Sign in')
-    await expect(page.locator('#sharedProjectsSignIn')).toBeVisible()
-    await expect(page.locator('#sharedProjectNew')).toBeDisabled()
-  } finally { await context.close() }
-})

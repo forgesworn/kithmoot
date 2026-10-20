@@ -13453,7 +13453,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
   // their watch against the saved read position.
   const split = here ? currentRoomUnreadSplit() : watched!.watch.unread(room.readAt, self, joiningName(), room.readIds)
   const mention = !here && roomHasMention(room)
-  const unreadVisible = split.people > 0 ? String(split.people) : undefined
+  const unreadVisible = split.people > 0 ? (split.people > 99 ? '99+' : String(split.people)) : undefined
   const unreadSpoken = split.people > 0 ? `${split.people} unread` : undefined
 
   const present = here ? [] : watched!.watch.present()
@@ -13649,7 +13649,8 @@ function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDi
   }, { action: 'new-tab' })
   menuItem(menu, 'Add to a project', () => openProjectEditor(room, opener))
   menuItem(menu, roomProject(deviceStore, nostrSession?.pubkey, room.roomId) ? 'Change local group' : 'Group on this browser', () => openLocalGroupEditor(room, opener))
-  menuItem(menu, 'Forget this room', () => forgetKnownRoom(room), { danger: true, action: 'forget' })
+  // The room on screen is left first; forgetting it from under the person would strand the conversation they are reading.
+  if (room.roomId !== currentRoomId()) menuItem(menu, 'Forget this room', () => forgetKnownRoom(room), { danger: true, action: 'forget' })
 
   rowMenuHandles.set(menu, wireMenu(opener, menu))
   return [opener, menu]

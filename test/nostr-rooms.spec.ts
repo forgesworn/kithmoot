@@ -15,7 +15,7 @@ import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/
 import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS, leaveToChats, switchToRoom } from './browser.js'
+import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
@@ -725,7 +725,7 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
     // History restores the home heading and room list. Wait for that state
     // before clicking: its layout can move this button during a pointer tap.
     await expect(page.locator('#sharedProjectNew')).toBeEnabled()
-    await page.locator('#homeSharedProjects').click()
+    await openProjects(page)
     await expect(page.locator('#sharedProjects')).toBeVisible()
   }
   async function createProject(name: string, room: string, members: [string, 'person' | 'agent'][]) {
@@ -777,7 +777,7 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
     await roomButton.focus()
     await renameKithmoot('Kithmoot updated')
     await expect(roomButton).toBeFocused()
-    await expect(b.locator('#homeProject option[value^="shared:"]')).toHaveText(['Kithmoot updated'])
+    await expect(b.locator('#chatFilters .chip[data-filter^="shared:"]')).toHaveText(['Kithmoot updated'])
     await renameKithmoot('Kithmoot')
     await expect(roomButton).toBeFocused()
     await b.screenshot({ path: testInfo.outputPath('shared-project-phone.png') })
@@ -799,12 +799,12 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
 
     await a.locator('#sharedProjectsList').getByRole('button', { name: 'Kithmoot room', exact: true }).click()
     await expect(a.locator('#roomArea')).toBeVisible()
-    await expect(a.locator('#workspaceRooms .workspaceProjectName')).toHaveText(['Bothy', 'Kithmoot', 'Research'])
+    await expect(a.locator('#chatFilters .chip').filter({ hasNotText: /^(All|Unread|Mentions)$/ })).toHaveText(['Bothy', 'Kithmoot', 'Research'])
     await a.locator('#chatInput').fill('Keep this draft in Kithmoot')
-    await a.locator('#workspaceRooms').getByRole('button', { name: 'Bothy room', exact: true }).click()
+    await a.locator('#roomList').getByRole('button', { name: 'Open Bothy room', exact: true }).click()
     await expect(a.locator('#roomTitle')).toHaveText('Bothy room')
     await expect(a.locator('#chatInput')).toHaveValue('')
-    await a.locator('#workspaceRooms').getByRole('button', { name: 'Kithmoot room', exact: true }).click()
+    await a.locator('#roomList').getByRole('button', { name: 'Open Kithmoot room', exact: true }).click()
     await expect(a.locator('#chatInput')).toHaveValue('Keep this draft in Kithmoot')
     await a.screenshot({ path: testInfo.outputPath('shared-project-desktop.png') })
     expect(await a.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)

@@ -6,7 +6,7 @@ import { localIdentity } from '../src/identity.js'
 import { npubEncode } from 'nostr-tools/nip19'
 import { encodeRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
-import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats } from './browser.js'
+import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats, openProjects, openBoardsDestination, showChats } from './browser.js'
 
 for (const retainCall of [false, true]) {
 test(`cross-project Inbox routes a question, human mention, reply and exact-result review to their origins${retainCall ? ' while a signed-project call stays live' : ''}`, async ({ browser, baseURL }, info) => {
@@ -92,28 +92,23 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     for (const index of [0, 2]) expect(keepers[index]!.session.participants().some(person => person.call)).toBe(false)
     await expect(callPeer.locator('#chatLog')).not.toContainText('Ada left.')
   }
-  const openProjects = async () => {
-    if (!await page.locator('#sharedProjects').isVisible()) {
-      if (await page.locator('#roomArea').isVisible()) { await page.locator('#backToRooms').click(); await page.locator('#switcherSharedProjects').click() }
-      else await page.locator('#homeSharedProjects').click()
-    }
+  const showProjects = async () => {
+    if (!await page.locator('#sharedProjects').isVisible()) await openProjects(page)
   }
   const enter = async (project: string, room: string) => {
-    await openProjects()
+    await showProjects()
     await page.locator('.sharedProjectCard').filter({ has: page.getByRole('heading', { name: project, exact: true }) }).getByRole('button', { name: room, exact: true }).click()
     if (await page.locator('#displayName').isVisible()) { await page.locator('#displayName').fill('Ada'); await page.locator('#join').click() }
     await expect(page.locator('#chatInput')).toBeEditable()
   }
   const inbox = async () => {
-    if (await page.locator('#mobileWorkspaceInbox').isVisible()) await page.locator('#mobileWorkspaceInbox').click()
-    else if (await page.locator('#workspaceInbox').isVisible()) await page.locator('#workspaceInbox').click()
-    else { await page.locator('#backToRooms').click(); await page.locator('#switcherInbox').click() }
-    await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
+    await openBoardsDestination(page)
+    await page.locator('#workspaceInboxTab').click()
   }
   try {
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
-    await openProjects()
+    await showProjects()
     await expect(page.locator('#sharedProjectsStatus')).toContainText('Shared with')
     for (const [i, project] of ['Design project', 'Release project', 'Research project', 'Unjoined project'].entries()) {
       await page.locator('#sharedProjectNew').click(); await page.locator('#sharedProjectName').fill(project)
@@ -179,7 +174,7 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     await continuousCall()
     await expect(page.locator('#workspaceWorkCards')).not.toContainText('Private unjoined work')
     await expect(page.locator('#workspaceWorkCards')).toContainText('Join this room before viewing its work')
-    await page.locator('#workspaceWorkTab').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click()
+    await page.locator('#workspaceBoardsOpen').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click()
     await expect(card).toContainText('Responsible:')
     await expect(card).toContainText('(agent)')
     await expect(card).toContainText('blocked')
@@ -211,7 +206,6 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
       await page.setViewportSize({ width, height: 844 })
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
       expect(await page.locator('#workspaceWorkPanel').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
-      if (width <= 700) expect(await page.locator('#mobileWorkspaceDestinations').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     }
     await page.evaluate(() => { document.documentElement.style.fontSize = '' })
     await page.setViewportSize(originalViewport)
@@ -276,16 +270,15 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     await page.locator('#workspaceWorkRefresh').click()
     await expect(page.locator(`#workspaceWorkCards [data-room="${saved[0]!.roomId}"]`)).toHaveCount(0)
     await expect(page.locator('#workspaceWorkCards')).not.toContainText('Private unjoined work')
-    await page.locator('#workspaceWorkClose').click()
     await leaveToChats(page)
-    await expect(page.locator('#homeInbox')).toBeVisible()
-    await page.locator('#homeInbox').click()
+    await inbox()
     await expect(page.locator('#workspaceWorkStatus')).not.toContainText('Sign in')
-    await page.locator('#workspaceWorkClose').click()
+    await showChats(page)
     await page.locator('#openAppSettings').click()
     await page.locator('#signOut').click()
     await page.locator('#appSettingsClose').click()
-    await page.locator('#homeInbox').click()
+    await page.locator('#railChats:visible').click()
+    await inbox()
     await expect(page.locator('#workspaceWorkStatus')).toContainText('Sign in with Nostr')
     await expect(page.locator('#workspaceWorkCards .workspaceWorkCard')).toHaveCount(0)
   } finally { await human?.leave(); await callContext?.close(); await context.close(); await Promise.all(keepers.map(keeper => keeper.leave())) }

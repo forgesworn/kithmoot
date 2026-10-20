@@ -5,7 +5,7 @@ import { RoomAgent } from '../src/agent.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
-import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS, showChats } from './browser.js'
 
 /**
  * The message layer, as a person meets it: a reply that sits under the
@@ -191,13 +191,12 @@ test('a private conversation is started from a person and reaches them inside th
     await expect(rowan.locator('#chatLog .msg')).toHaveCount(0)
     await expect(ada.locator('#chatLog .msg')).toHaveCount(0)
     // The room is on both lists, named for the other person.
-    await ada.locator('#backToRooms').click()
-    await expect(ada.locator('#roomSwitcherList')).toContainText('Private: Rowan', { timeout: 30_000 })
-    await ada.locator('#roomSwitcherClose').click()
+    await showChats(ada)
+    await expect(ada.locator('#roomList')).toContainText('Private: Rowan', { timeout: 30_000 })
     await rowan.locator('#roomSheetClose').click()
-    await rowan.locator('#backToRooms').click()
-    await expect(rowan.locator('#roomSwitcherList')).toContainText('Private: Ada', { timeout: 30_000 })
-    await rowan.locator('#roomSwitcherClose').click()
+    await showChats(rowan)
+    await expect(rowan.locator('#roomList')).toContainText('Private: Ada', { timeout: 30_000 })
+    await rowan.locator('#roomList .open[aria-current="true"]').click()
     // Started again from the same person, it is the same room, not a second
     // one - and it opens. Done while Ada is still on Rowan's roster: once
     // either of them leaves the workshop for the private room, the other's
@@ -205,10 +204,11 @@ test('a private conversation is started from a person and reaches them inside th
     await openRoomDetails(rowan)
     await rowan.getByRole('button', { name: /^Message Ada privately/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Private: Ada', { timeout: 30_000 })
-    await rowan.locator('#backToRooms').click()
-    await expect(rowan.locator('#roomSwitcherList .switchRoom').filter({ hasText: 'Private: Ada' })).toHaveCount(1)
+    await showChats(rowan)
+    await expect(rowan.locator('#roomList .roomRow').filter({ hasText: 'Private: Ada' })).toHaveCount(1)
     // "It is in your rooms" comes with the way there. Inside, the room is
     // titled for the other person and says who can read it.
+    await ada.locator('#roomList .open[aria-current="true"]').click()
     await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Private: Rowan' }).click()
     await expect(ada.locator('#roomTitle')).toHaveText('Private: Rowan', { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')

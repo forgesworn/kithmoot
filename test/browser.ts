@@ -360,10 +360,41 @@ export async function openNewRoomForm(page: Page): Promise<void> {
  *  share the screen, and a room is left for the list with its back arrow;
  *  wider, the list is always there. */
 export async function showChats(page: Page): Promise<void> {
+  // Out of Boards or People first, if that is where the page is.
+  const chats = page.locator('#railChats')
+  if (await chats.isVisible() && (await chats.getAttribute('aria-current')) !== 'page') await chats.click()
   const back = page.locator('#backToRooms')
   await expect(page.locator('#rooms:visible, #backToRooms:visible').first()).toBeVisible()
   if (await back.isVisible()) await back.click()
   await expect(page.locator('#rooms')).toBeVisible()
+}
+
+/** Open the Projects sheet, from the New menu. */
+export async function openProjects(page: Page): Promise<void> {
+  await showChats(page)
+  await page.locator('#newMenuButton').click()
+  await page.locator('#newMenuProjects').click()
+}
+
+/** Open the New project form, from the New menu. */
+export async function openNewProject(page: Page): Promise<void> {
+  await showChats(page)
+  await page.locator('#newMenuButton').click()
+  await page.locator('#newMenuProject').click()
+}
+
+/** The Boards destination: what needs you, and what is on the boards. */
+export async function openBoardsDestination(page: Page): Promise<void> {
+  // Inside a room on a phone the bar is gone: back to the list level first.
+  if (!await page.locator('#railBoards').isVisible()) await page.locator('#backToRooms').click()
+  await page.locator('#railBoards:visible').click()
+  await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
+}
+
+/** Open a board (the embedded boards panel) from the Boards destination. */
+export async function openBoardsPanel(page: Page): Promise<void> {
+  await openBoardsDestination(page)
+  await page.locator('#workspaceBoardsOpen').click()
 }
 
 /** Switch to a known room from the list, whatever the window size. */

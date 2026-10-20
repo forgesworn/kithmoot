@@ -66,8 +66,11 @@ async function codeService(context: BrowserContext, lookups: Record<string, { st
 }
 
 async function joinWithCode(page: Page, code: string): Promise<void> {
-  const details = page.locator('#joinCode')
-  if (!await details.evaluate(el => (el as HTMLDetailsElement).open)) await page.locator('#joinCode > summary').click()
+  // The code sheet opens from the start page, or from the New menu once there are chats.
+  if (!await page.locator('#joinCode').evaluate(el => (el as HTMLDialogElement).open)) {
+    if (await page.locator('#homeJoinCode').isVisible()) await page.locator('#homeJoinCode').click()
+    else { await page.locator('#newMenuButton').click(); await page.locator('#newMenuCode').click() }
+  }
   await page.locator('#meetingCodeInput').fill(code)
   await page.locator('#meetingCodeInput').press('Enter')
 }
