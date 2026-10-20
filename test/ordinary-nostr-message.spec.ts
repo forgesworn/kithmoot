@@ -23,15 +23,16 @@ function publishedWraps(page: Page) {
   }))
   return events
 }
-async function inbox(pool: NostrRelayPool, key: Uint8Array) {
+async function inbox(pool: NostrRelayPool, key: Uint8Array, baseURL: string) {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   await pool.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), content: '',
-    tags: [['relay', TEST_RELAY_WS]] }, key))
+    tags: [['relay', relay.href]] }, key))
 }
 test('public message requires review and visible downgrade, then sends ordinary text and an encrypted sender copy', async ({ browser, baseURL }) => {
   const sender = generateSecretKey(), recipient = generateSecretKey(), context = await accountDevice(browser, baseURL!, sender)
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
-    await inbox(pool, sender); await inbox(pool, recipient)
+    await inbox(pool, sender, baseURL!); await inbox(pool, recipient, baseURL!)
     const page = await context.newPage(), events = publishedWraps(page)
     await signInAccount(page, baseURL!); await showComposer(page)
     await expect(page.locator('#nostrMessageLane')).toHaveText('○ public')
@@ -61,7 +62,7 @@ test('missing recipient inbox holds the message and editing a reviewed draft rem
   const sender = generateSecretKey(), recipient = generateSecretKey(), context = await accountDevice(browser, baseURL!, sender)
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
-    await inbox(pool, sender)
+    await inbox(pool, sender, baseURL!)
     const page = await context.newPage(), events = publishedWraps(page)
     await signInAccount(page, baseURL!); await showComposer(page)
     await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(recipient)))
@@ -69,7 +70,7 @@ test('missing recipient inbox holds the message and editing a reviewed draft rem
     await page.getByRole('button', { name: 'Review public message', exact: true }).click()
     await expect(page.locator('#nostrMessageStatus')).toContainText('No usable published NIP-17 inbox')
     await expect(page.locator('#nostrMessageSend')).toBeHidden(); expect(events).toEqual([])
-    await inbox(pool, recipient)
+    await inbox(pool, recipient, baseURL!)
     await page.getByRole('button', { name: 'Review public message', exact: true }).click()
     await expect(page.locator('#nostrMessageSend')).toBeVisible()
     await page.locator('#nostrMessageText').fill('A changed draft needs a new review')
