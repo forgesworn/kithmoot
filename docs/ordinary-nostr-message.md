@@ -49,19 +49,47 @@ erasure guarantee or a persistent outbox/recovery implementation.
 
 Written regression sources cover ordinary rumor contents and sender copies,
 missing/newly empty/forged inbox lists, signer refusal or substitution, stale
-provider starts, blocking, cancellation, bounds and exact-envelope retry. Three
-built-client browser cases use the existing synthetic provider/relay fixture and
-are registered in the existing browser selections. The sign-out case closes the
-view first; it does not prove invalidation of an open or pending send. Deferred
-provider handoff, actual socket cancellation and asymmetric partial-ACK retry
-still need targeted runtime qualification. These browser cases are **not** actual
-external-client interoperability and have not run.
+provider starts, blocking, cancellation, bounds and exact-envelope retry. Both
+asymmetric acknowledgement orders now have source cases: a retry must reuse only
+the exact unconfirmed envelope and must not sign or encrypt again.
 
-C04 still requires the unchanged Coracle app's real receive/decrypt/render path,
-actual KithMoot sender controls and warning, exact builds and original protocol
-outcomes on a separate isolated recipient relay. No storage/event/DOM injection or
-fake response may establish external-client receipt. Coracle's existing signer
-login, message opt-in and WRAP subscription paths are source-identified only.
+Additional source checks use the installed `Nip07Signer` class with a disposable
+in-process provider: an account/view change during encryption or signing rejects
+the late handoff; a transient signing retry has both a still-current positive
+control and a cancellation refusal. The class import is not a replacement SDK
+implementation, but these sources have not executed and establish no installed
+artifact equivalence or actual extension acceptance.
+
+The built-client browser source now includes pending encryption and seal results
+across close, sign-out and home departure. A new draft must survive an old result.
+The exact ciphertext or seal ID must reach the browser provider completion log
+before the SDK return path is checked. Sign-out and home-departure cases invoke
+actual root DOM handlers programmatically while the modal is open, explicitly
+bypassing pointer modal blocking. They do not replace account state or call a
+private app API. The original post-close sign-out control is retained separately.
+All cases stay in the existing registered browser spec and have not run.
+
+`nostr-message-relays.test.ts` supplies signed inbox statements in-process, then
+uses the actual message controller, `RelayConnections` and guarded carrier against
+real loopback WebSockets. A delayed HTTP upgrade has a successful-send control;
+close, account change and recipient block must leave both inboxes without message
+writes. It checks the composed cancellation mechanism, not which of the write
+guard or cancellation poll wins a race. Defaults must not be contacted and relay
+challenges must not create new AUTH grants. This is not an actual app lookup/UI,
+external-client receipt, raw network privacy or persistent-retry proof. Existing
+shared-carrier and default-borrower tests remain separate and unchanged.
+
+The browser cases reuse the existing synthetic NIP-07 provider and default-relay
+WebSocket redirection fixture. They are **not** external-client interoperability.
+The separate C04 observer source at Vennel `2b49c3a2` requires unchanged Coracle's
+real receive/decrypt/render path, actual KithMoot sender controls and warning,
+original fresh builds and a separate isolated recipient relay without WebSocket
+replacement or receiver state/event/DOM injection. Its first source pin remains
+KithMoot `b87dc844`; selecting a newer candidate requires explicit pin/provenance
+reconciliation. Neither C04 source preparation nor these regression sources are
+runtime acceptance. Actual app lookup lifetime/boundedness, authenticated shared
+borrower composition, additional transitions/platforms and fresh candidate/main
+integration remain qualification obligations.
 All remaining Vennel goals, supported signers/platforms, ordinary receive/history,
 private transport, release, physical and outside-review gates remain open.
 

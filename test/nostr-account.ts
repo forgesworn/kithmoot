@@ -1,15 +1,16 @@
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 
 /** A test NIP-07 provider: signing keys stay in Node, never in the app. */
 export async function accountDevice(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {},
-  nip04?: { decrypt(peer: string, ciphertext: string): Promise<string>; encrypt(peer: string, text: string): Promise<string> }): Promise<BrowserContext> {
+  nip04?: { decrypt(peer: string, ciphertext: string): Promise<string>; encrypt(peer: string, text: string): Promise<string> },
+  effects?: { encrypt(peer: string, text: string): Promise<string>; sign(template: EventTemplate): Promise<Event> }): Promise<BrowserContext> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const pubkey = getPublicKey(secret)
   await context.exposeFunction('testPublicKey', async () => { await beforePublicKey(); return pubkey })
-  await context.exposeFunction('testSign', (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, secret))
-  await context.exposeFunction('testEncrypt', (peer: string, plaintext: string) => encrypt(plaintext, getConversationKey(secret, peer)))
+  await context.exposeFunction('testSign', (template: EventTemplate) => effects ? effects.sign(template) : finalizeEvent(template, secret))
+  await context.exposeFunction('testEncrypt', (peer: string, plaintext: string) => effects ? effects.encrypt(peer, plaintext) : encrypt(plaintext, getConversationKey(secret, peer)))
   await context.exposeFunction('testDecrypt', (peer: string, ciphertext: string) => decrypt(ciphertext, getConversationKey(secret, peer)))
   if (nip04) {
     await context.exposeFunction('testLegacyDecrypt', (peer: string, ciphertext: string) => nip04.decrypt(peer, ciphertext))
@@ -22,10 +23,19 @@ export async function accountDevice(browser: Browser, baseURL: string, secret = 
       testEncrypt(peer: string, text: string): Promise<string>; testDecrypt(peer: string, text: string): Promise<string>;
       testLegacyEncrypt(peer: string, text: string): Promise<string>; testLegacyDecrypt(peer: string, text: string): Promise<string>;
       testLegacyCompletions?: number;
+      testMessageEncryptCompletions?: number; testMessageSealCompletions?: number;
+      testMessageEncryptResults?: string[]; testMessageSealResults?: string[];
     }
     Object.defineProperty(window, 'nostr', { configurable: true, value: {
       getPublicKey: () => testWindow.testPublicKey(),
-      signEvent: (event: unknown) => testWindow.testSign(event),
+      signEvent: async (event: unknown) => {
+        try {
+          const result = await testWindow.testSign(event)
+          if ((event as { kind?: number }).kind === 13) (testWindow.testMessageSealResults ??= []).push((result as { id: string }).id)
+          return result
+        }
+        finally { if ((event as { kind?: number }).kind === 13) testWindow.testMessageSealCompletions = (testWindow.testMessageSealCompletions ?? 0) + 1 }
+      },
       ...(nip04 ? { nip04: {
         encrypt: (peer: string, text: string) => testWindow.testLegacyEncrypt(peer, text),
         decrypt: async (peer: string, text: string) => {
@@ -34,7 +44,14 @@ export async function accountDevice(browser: Browser, baseURL: string, secret = 
         },
       } } : {}),
       ...(nip44 ? { nip44: {
-        encrypt: (peer: string, text: string) => testWindow.testEncrypt(peer, text),
+        encrypt: async (peer: string, text: string) => {
+          try {
+            const result = await testWindow.testEncrypt(peer, text)
+            ;(testWindow.testMessageEncryptResults ??= []).push(result)
+            return result
+          }
+          finally { testWindow.testMessageEncryptCompletions = (testWindow.testMessageEncryptCompletions ?? 0) + 1 }
+        },
         decrypt: (peer: string, text: string) => testWindow.testDecrypt(peer, text),
       } } : {}),
     } })

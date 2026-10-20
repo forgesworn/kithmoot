@@ -9,6 +9,7 @@ function fixture() {
   const now = Math.floor(Date.now() / 1000), wire: Event[] = [], encrypted: string[] = [], signed: number[] = []
   let live = true, blocked = false, reject = false, mode: 'good' | 'forged' | 'refuse-copy' = 'good'
   let beforeEncrypt = async () => {}
+  const rejectRecipients = new Set<string>()
   const list = (author: Uint8Array, url: string, at = now) => finalizeEvent({ kind: 10050, created_at: at,
     content: '', tags: url ? [['relay', url]] : [] }, author)
   let statements = [list(sender, 'wss://sender.example'), list(recipient, 'wss://recipient.example')]
@@ -30,11 +31,12 @@ function fixture() {
       if (!current()) throw Error('cancelled')
       expect(relays).toEqual(event.tags[0]![1] === self ? ['wss://sender.example/'] : ['wss://recipient.example/'])
       wire.push(event)
-      if (reject) throw Error('lost ACK')
+      if (reject || rejectRecipients.has(event.tags[0]![1]!)) throw Error('lost ACK')
     }, changed: () => {}, now: () => now })
   return { sender, recipient, self, peer, now, wire, encrypted, signed, message, list,
     replace: (rows: Event[]) => { statements = rows }, stop: () => { live = false }, block: () => { blocked = true },
     reject: (value: boolean) => { reject = value }, mode: (value: typeof mode) => { mode = value },
+    rejectRecipient: (key: string, value: boolean) => { if (value) rejectRecipients.add(key); else rejectRecipients.delete(key) },
     beforeEncrypt: (work: () => Promise<void>) => { beforeEncrypt = work } }
 }
 describe('separate ordinary Nostr text message', () => {
@@ -100,6 +102,20 @@ describe('separate ordinary Nostr text message', () => {
   it('clears draft and retry state when closed', async () => {
     const f = fixture(); await f.message.review(f.peer, 'Ephemeral draft'); f.message.close(); await f.message.send()
     expect(f.wire).toEqual([]); expect(f.message.snapshot().review).toBeUndefined()
+  })
+  for (const uncertain of ['recipient', 'sender'] as const) it(`retries only the exact unconfirmed ${uncertain} copy after asymmetric acknowledgement`, async () => {
+    const f = fixture(), target = uncertain === 'recipient' ? f.peer : f.self
+    f.rejectRecipient(target, true)
+    await f.message.review(f.peer, 'One accepted copy, one uncertain copy'); await f.message.send()
+    const first = [...f.wire], pending = first.find(event => event.tags[0]![1] === target)!
+    expect(first).toHaveLength(2); expect(f.message.snapshot().retry).toBe(true)
+    expect(f.message.snapshot().status).toContain(uncertain === 'recipient' ? 'It may have arrived' : 'your encrypted history copy is unconfirmed')
+    f.rejectRecipient(target, false); await f.message.send()
+    expect(f.wire.slice(2)).toEqual([pending]); expect(f.wire[2]).toBe(pending)
+    expect(f.encrypted).toHaveLength(2); expect(f.signed).toEqual([13, 13])
+    expect(unwrapEvent(first[0]!, f.recipient)).toEqual(unwrapEvent(first[1]!, f.sender))
+    expect(f.message.snapshot().retry).toBe(false); expect(f.message.snapshot().status).toContain('does not confirm')
+    await f.message.send(); expect(f.wire).toHaveLength(3)
   })
   it('refuses self-messages, empty text and a multibyte payload exceeding the byte limit', async () => {
     const f = fixture()

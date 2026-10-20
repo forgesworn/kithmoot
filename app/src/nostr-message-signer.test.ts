@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest'
-import type { SignerEffectBoundary, SignetSession } from 'signet-login'
+import { expect, it, vi } from 'vitest'
+import { Nip07Signer, type SignerEffectBoundary, type SignetSession } from 'signet-login'
 import { generateSecretKey, getPublicKey, finalizeEvent, type EventTemplate } from 'nostr-tools/pure'
 import { nostrMessageIdentity } from './nostr-message-signer.js'
 
@@ -35,4 +35,51 @@ it('checks view lifetime at actual start even while the account remains selected
 it('refuses unsupported signer transports rather than omitting provider guards', () => {
   const f = fixture(), account = { ...f.account, method: 'nip46' } as SignetSession
   expect(nostrMessageIdentity(account, () => account)).toBeUndefined()
+})
+
+// Exercise the installed SDK class, not a replacement implementation of its
+// provider boundary. Still an in-process synthetic provider, not extension UI.
+for (const operation of ['encrypt', 'seal'] as const) for (const boundary of ['account', 'view'] as const) {
+  it(`rejects actual SDK ${operation} handoff after ${boundary} changes while the provider is running`, async () => {
+    const key = generateSecretKey(), pubkey = getPublicKey(key)
+    let release!: () => void, entered!: () => void, calls = 0, current = true
+    const waiting = new Promise<void>(resolve => { release = resolve }), started = new Promise<void>(resolve => { entered = resolve })
+    const provider = { getPublicKey: async () => pubkey,
+      signEvent: async (template: EventTemplate) => { calls++; entered(); await waiting; return finalizeEvent(template, key) },
+      nip44: { encrypt: async () => { calls++; entered(); await waiting; return 'actual provider result' }, decrypt: async () => '' },
+    }
+    const signer = new Nip07Signer(pubkey, provider), account = { pubkey, method: 'nip07', signer } as SignetSession
+    let selected: SignetSession | undefined = account
+    const identity = nostrMessageIdentity(account, () => selected)!
+    const pending = operation === 'encrypt' ? identity.encrypt(pubkey, 'synthetic text', () => current)
+      : identity.signEvent({ kind: 13, created_at: 1, tags: [], content: 'synthetic ciphertext' }, () => current)
+    const rejected = expect(pending).rejects.toThrow('no longer available')
+    try {
+      await started; expect(calls).toBe(1)
+      if (boundary === 'account') selected = undefined; else current = false
+      release(); await rejected; expect(calls).toBe(1)
+    } finally { release(); await signer.close() }
+  })
+}
+
+for (const cancel of [false, true]) it(`actual SDK transient signing retry ${cancel ? 'cannot restart after cancellation' : 'works while the view remains current'}`, async () => {
+  vi.useFakeTimers()
+  const key = generateSecretKey(), pubkey = getPublicKey(key)
+  let calls = 0, current = true
+  const signer = new Nip07Signer(pubkey, { getPublicKey: async () => pubkey,
+    signEvent: async (template: EventTemplate) => { if (++calls === 1) throw Error('Extension context invalidated'); return finalizeEvent(template, key) },
+    nip44: { encrypt: async () => 'unused', decrypt: async () => '' },
+  })
+  const account = { pubkey, method: 'nip07', signer } as SignetSession, identity = nostrMessageIdentity(account, () => account)!
+  try {
+    const pending = identity.signEvent({ kind: 13, created_at: 1, tags: [], content: 'synthetic ciphertext' }, () => current)
+    // Attach both outcomes before advancing time; a cancellation is expected.
+    const settled = pending.then(value => ({ value, error: undefined }), error => ({ value: undefined, error }))
+    await vi.advanceTimersByTimeAsync(0); expect(calls).toBe(1)
+    if (cancel) current = false
+    await vi.advanceTimersByTimeAsync(300)
+    const result = await settled
+    if (cancel) { expect(result.error).toBeInstanceOf(Error); expect(result.value).toBeUndefined(); expect(calls).toBe(1) }
+    else { expect(result.error).toBeUndefined(); expect(result.value?.pubkey).toBe(pubkey); expect(calls).toBe(2) }
+  } finally { await signer.close(); vi.useRealTimers() }
 })
