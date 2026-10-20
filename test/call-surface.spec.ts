@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
 import { PANE_COLLAPSE_MS } from '../app/src/call-stance.js'
 import { collectAppDiagnostics } from './app-diagnostics.js'
-import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm, turnOnMedia, leaveToChats, switchToRoom } from './browser.js'
+import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm, turnOnMedia, leaveToChats, switchToRoom, chooseCallLayout, chooseCallMore } from './browser.js'
 
 // Three encoded-media clients and two live popouts produced over 5,000 trace
 // screencast frames (about 200 MB) during this journey on the hosted runner.
@@ -13,10 +13,29 @@ import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoom
 test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
 
 async function chooseView(page: Page, name: 'Gallery' | 'Speaker'): Promise<void> {
-  const extras = page.locator('#callExtras')
-  if (!await extras.evaluate((node: HTMLDetailsElement) => node.open)) await extras.locator(':scope > summary').click()
-  await page.locator('#callView').getByRole('button', { name, exact: true }).click()
-  if (await extras.evaluate((node: HTMLDetailsElement) => node.open)) await extras.locator(':scope > summary').click()
+  await chooseCallLayout(page, name)
+}
+
+/** While a call is docked its controls are out of sight, and the dock carries
+ *  only Mic, Return and Leave. The call's own button is still the one that
+ *  starts a share or a recording on it, so these press it from script. */
+const pressDocked = (page: Page, id: string): Promise<void> => page.locator(id).evaluate(el => (el as HTMLElement).click())
+
+/** The dock has no Record: it starts in the call, from More. So a recording
+ *  that must run while docked is started on the call and the call is docked
+ *  again, in the room it was docked in, which is what the dock then reports. */
+async function startRecordingThenDock(page: Page, layout: string): Promise<string> {
+  const room = (await page.locator('#roomTitle').textContent())!
+  await page.locator('#callDockBack').click()
+  await expect(page.locator('#callDock')).toBeHidden()
+  await chooseCallMore(page, 'Record call…')
+  await expect(page.locator('#actionTitle')).toContainText('Record the call in')
+  await page.locator(`input[name="recording-layout"][value="${layout}"]`).check()
+  await page.locator('#actionConfirm').click()
+  await page.keyboard.press('Control+k')
+  await switchToRoom(page, room)
+  await expect(page.locator('#callDock')).toBeVisible()
+  return room
 }
 
 test('portrait cameras stay whole and another chat defaults to a gallery with working share pop-outs', async ({browser, baseURL}, info) => {
@@ -197,29 +216,22 @@ for (const phone of [false, true]) {
       await expect(ada!.locator('#callStage')).toBeVisible()
       await expect(pager).toHaveAttribute('data-page', '2')
       // Screen capture initiated while C is read still belongs to A's call.
-      await ada!.locator('#callDockScreen').click()
+      await pressDocked(ada!, '#toggleScreen')
       await expect(bo!.getByRole('button', { name: 'Expand screen share from Ada', exact: true })).toBeVisible()
-      await ada!.locator('#callDockScreen').click()
+      await pressDocked(ada!, '#toggleScreen')
       await expect(bo!.getByRole('button', { name: 'Expand screen share from Ada', exact: true })).toHaveCount(0)
       // Recording uses the original call's device key and notice, while C's
       // own banner and the permission to share the resulting file stay separate.
-      await ada!.locator('#callDockRecording').click()
-      await expect(ada!.locator('#actionTitle')).toContainText('Record the call in')
-      await ada!.locator('input[name="recording-layout"][value="gallery"]').check()
-      await ada!.locator('#actionConfirm').click()
+      const dockedIn = await startRecordingThenDock(ada!, 'gallery')
       await expect(bo!.locator('#recordingBanner')).toBeVisible()
       await expect(ada!.locator('#recordingBanner')).toBeHidden()
       await expect(ada!.locator('#chatLog')).not.toContainText('This call is being recorded.')
       await expect(ada!.locator('#callDockRecordingNotice')).toContainText('You are recording')
       await expect(ada!.locator('#callDockRecordingElapsed')).toBeVisible()
-      await ada!.locator('#callDockRecordingPause').click()
-      await expect(ada!.locator('#callDockRecordingPause')).toHaveText('Resume recording')
-      await expect(ada!.locator('#callDockRecordingNotice')).toContainText('paused')
-      await expect(bo!.locator('#recordingBanner')).toBeVisible()
-      await ada!.locator('#callDockRecordingPause').click()
-      await expect(ada!.locator('#callDockRecordingNotice')).toContainText('You are recording')
       await continuous()
-      await ada!.locator('#callDockRecording').click()
+      // Stopping is on the call too: back to it, then the banner's Stop.
+      await ada!.locator('#callDockBack').click()
+      await ada!.locator('#recordingStop').click()
       await expect(ada!.locator('#recordingReady')).toBeVisible()
       const dimensions = await ada!.locator('#recordingSave').evaluate(async (link: HTMLAnchorElement) => {
         const video = document.createElement('video')
@@ -233,21 +245,22 @@ for (const phone of [false, true]) {
         return result
       })
       expect(dimensions).toEqual({ width: 1280, height: 720 })
+      // Docked again in the other room, the finished file is not offered there.
+      await ada!.keyboard.press('Control+k')
+      await switchToRoom(ada!, dockedIn)
+      await expect(ada!.locator('#callDock')).toBeVisible()
       await expect(ada!.locator('#recordingShare')).toBeHidden()
       await expect(bo!.locator('#recordingBanner')).toBeHidden()
       await leaveToChats(bo!)
       await expect(bo!.locator('#home:visible, #rooms:visible').first()).toBeVisible()
-      await expect(bo!.locator('#callDockRecording')).toBeVisible()
-      await expect(bo!.locator('#callDockRecording')).toBeEnabled()
-      await expect(bo!.locator('#callDockRecordingHint')).toBeHidden()
-      await bo!.locator('#callDockRecording').click()
+      await bo!.locator('#callDockBack').click()
+      await expect(bo!.locator('#callDock')).toBeHidden()
+      await chooseCallMore(bo!, 'Record call…')
       await expect(bo!.locator('#actionTitle')).toContainText('Record the call in')
       await bo!.locator('#actionCancel').click()
       const permissionScreenshot = info.outputPath('participant-recording-permission.png')
       await bo!.screenshot({ path: permissionScreenshot })
       await info.attach('participant-recording-permission.png', { path: permissionScreenshot, contentType: 'image/png' })
-      await bo!.locator('#callDockBack').click()
-      await expect(bo!.locator('#callDock')).toBeHidden()
       await continuous()
       await leaveToChats(ada!)
       await expect(ada!.locator('#home:visible, #rooms:visible').first()).toBeVisible()
@@ -276,8 +289,7 @@ for (const phone of [false, true]) {
       await ada!.locator('#recordingDiscard').click()
       await ada!.locator('#actionConfirm').click()
       await expect(ada!.locator('#recordingReady')).toBeHidden()
-      await ada!.locator('#callDockRecording').click()
-      await ada!.locator('#actionConfirm').click()
+      await startRecordingThenDock(ada!, 'audio')
       await expect(bo!.locator('#recordingBanner')).toBeVisible()
       await continuous()
       await ada!.locator('#callDockLeave').click()
@@ -332,7 +344,7 @@ for (const destruct of [false, true]) {
       const roomId = await ada.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.') && JSON.parse(localStorage.getItem(key)!).name === 'Dated call')!.slice('kithmoot.room.'.length))
       await switchToRoom(ada, 'Still open')
       await expect(ada.locator('#roomTitle')).toHaveText('Still open')
-      await ada.locator('#callDockRecording').click(); await ada.locator('#actionConfirm').click()
+      await startRecordingThenDock(ada, 'audio')
       await expect(bo.locator('#recordingBanner')).toBeVisible()
       await expect(ada.locator('#room audio')).not.toHaveCount(0)
       const energy = (await ada.evaluate(inbound)).audioEnergy

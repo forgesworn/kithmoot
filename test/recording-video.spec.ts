@@ -1,6 +1,6 @@
 import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia, chooseCallMore, callMoreState, chooseCallLayout } from './browser.js'
 import { execFileSync } from 'node:child_process'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { arch, hostname, platform, totalmem } from 'node:os'
@@ -119,26 +119,21 @@ for (const { layout, phone } of [
         await expect(a.getByRole('button', { name: 'Expand screen share from Bob', exact: true })).toBeVisible()
       }
       await openCall(a)
-      await expect(a.locator('#callExtras')).not.toHaveAttribute('open', '')
-      await expect(a.locator('#recordToggle')).toBeInViewport()
+      // Recording starts from More, where its consent is: offered, and not in the bar.
+      await expect(a.locator('#callExtras')).toHaveAttribute('aria-expanded', 'false')
       await expect(a.locator('#recordToggle')).toBeEnabled()
-      const recordWord = a.locator('#recordToggle :is(.callWord, .callShort):visible')
-      await expect(recordWord).toHaveText(/Record/)
       await expect(a.locator('#recordToggle')).toHaveAttribute('aria-label', 'Record call')
-      const bounds = await a.locator('#recordToggle').boundingBox()
-      expect(bounds!.width).toBeGreaterThanOrEqual(44)
-      expect(bounds!.height).toBeGreaterThanOrEqual(44)
+      expect(await callMoreState(a, 'Record call…'), 'More offers Record call…').not.toBeNull()
       await info.attach('record-control.png', { body: await a.screenshot(), contentType: 'image/png' })
-      await expect(b.locator('#recordToggle')).toBeVisible()
       await expect(b.locator('#recordToggle')).toBeEnabled()
       await expect(b.locator('#recordingAuthorityHint')).toBeHidden()
       if (layout === 'gallery' && !phone) {
-        await b.locator('#recordToggle').click()
+        await chooseCallMore(b, 'Record call…')
         await expect(b.locator('#actionDialog')).toBeVisible()
         await b.locator('#actionCancel').click()
         await expect(a.locator('#recordingBanner')).toBeHidden()
       }
-      await a.locator('#recordToggle').click()
+      await chooseCallMore(a, 'Record call…')
       if (layout === 'gallery' && !phone) {
         await expect(a.locator('#actionCancel')).toBeFocused()
         await a.keyboard.press('Tab'); await expect(a.locator('#actionConfirm')).toBeFocused()
@@ -148,7 +143,6 @@ for (const { layout, phone } of [
       await a.locator(`input[name="recording-layout"][value="${layout}"]`).check()
       if (layout === 'screen-camera') await expect(a.locator('#recordingShareSource')).toContainText('Bob')
       await a.locator('#actionConfirm').click()
-      if (await a.locator('#mobileCallSettings').isVisible()) await a.locator('#mobileCallSettingsClose').click()
       await expect(b.locator('#recordingBannerText')).toContainText('Ada')
       await expect(b.locator('#recordingBannerText')).toContainText(layout === 'screen-camera' ? 'screen share with camera' : `${layout} video`)
       await expect(a.locator('#recordingElapsed')).toBeVisible()
@@ -183,10 +177,10 @@ for (const { layout, phone } of [
       await a.waitForTimeout(2400)
       // Pausing gallery DOM views must not freeze the independent export.
       if (layout === 'gallery') {
-        await a.locator('#callGalleryCollapse').click()
+        await chooseCallLayout(a, 'Hide the gallery')
         await expect(a.locator('#whoIsHere')).toBeHidden()
         await a.waitForTimeout(1300)
-        await a.locator('#callGalleryCollapse').click()
+        await chooseCallLayout(a, 'Show the gallery')
       }
       await a.locator('#recordingPause').click()
       await expect(a.locator('#recordingPause')).toHaveText('Resume recording')

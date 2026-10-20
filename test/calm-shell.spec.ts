@@ -986,3 +986,349 @@ test('Settings does not scroll sideways at 320 by 640 with Huge text, on any pag
     }
   } finally { await context.close() }
 })
+
+// ---------------------------------------------------------------------------
+// Stage 5: the call. A bar of six with their words, More as a menu, the
+// agents-hear question, no keys in the call.
+// ---------------------------------------------------------------------------
+
+/** In the seeded room, and on its call (nothing of mine switched on). */
+async function startCall(page: Page, index = 0) {
+  await joinRoom(page, index)
+  await page.locator('#callToggle').click()
+  await expect(page.locator('#deviceControls')).toBeVisible()
+}
+
+for (const [label, size, touch, words] of [
+  ['1440 by 900', { width: 1440, height: 900 }, false, ['Unmute', 'Camera', 'Share', 'Chat', 'More', 'Leave', 'Full screen']],
+  ['390 by 844', { width: 390, height: 844 }, true, ['Unmute', 'Camera', 'Chat', 'More', 'Leave']],
+] as const) {
+  test(`at ${label} the call bar is a toolbar of buttons with a word under each, and one red Leave`, async ({ browser, baseURL }) => {
+    const { context, page } = await visitor(browser, baseURL!, size, { touch })
+    try {
+      await startCall(page)
+      const bar = page.getByRole('toolbar', { name: 'Call controls' })
+      await expect(bar).toBeVisible()
+      const shown: string[] = []
+      for (const button of await bar.locator('button:visible, #callExtras:visible').all()) shown.push((await button.innerText()).trim())
+      expect(shown, `${label}: the words under the buttons`).toEqual(words)
+      // The mic's name is Microphone and it says whether it is pressed; its word says what a press does.
+      await expect(bar.locator('#toggleMic')).toHaveAccessibleName('Microphone')
+      await expect(bar.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'false')
+      await expect(bar.locator('#toggleCamera')).toHaveAccessibleName('Camera')
+      await expect(bar.locator('#leaveCall')).toHaveAccessibleName('Leave call')
+      // One Leave on screen, never two (the room bar's own call button steps aside).
+      await expect(page.getByRole('button', { name: 'Leave call', exact: true }).and(page.locator(':visible'))).toHaveCount(1)
+      await expect(page.locator('#callToggle')).toBeHidden()
+      // Leave is the only red one.
+      const reds = await bar.locator('button:visible, #callExtras:visible').evaluateAll(els => els.filter(el => getComputedStyle(el).backgroundColor === 'rgb(179, 38, 30)').map(el => el.id))
+      expect(reds).toEqual(['leaveCall'])
+      // Every target is 44 px or more, whole in the window, no sideways scroll.
+      for (const button of await bar.locator('button:visible, #callExtras:visible').all()) {
+        const b = (await button.boundingBox())!
+        expect(b.width, 'target width').toBeGreaterThanOrEqual(44)
+        expect(b.height, 'target height').toBeGreaterThanOrEqual(44)
+        expect(b.x + b.width).toBeLessThanOrEqual(size.width)
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await page.locator('#toggleMic').click()
+      await expect(bar.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
+      await expect(bar.locator('#toggleMic')).toContainText('Mute')
+    } finally { await context.close() }
+  })
+}
+
+test('More in the call bar is a menu: Enter opens it, arrows move, Escape closes it and returns to More', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await startCall(page)
+    const more = page.locator('#callExtras')
+    await expect(more).toHaveAttribute('aria-haspopup', 'menu')
+    await more.focus()
+    await page.keyboard.press('Enter')
+    const menu = page.locator('#callMoreMenu')
+    await expect(menu).toBeVisible()
+    await expect(menu).toHaveAttribute('role', 'menu')
+    const items = menu.locator('[role="menuitem"]:visible, [role="menuitemcheckbox"]:visible, [role="menuitemradio"]:visible')
+    await expect(items.first()).toBeFocused()
+    await expect(items.first()).toHaveText('Effects…')
+    await page.keyboard.press('ArrowDown')
+    await expect(items.nth(1)).toBeFocused()
+    // The switches say what they are, and the order is the spec's.
+    const names = await items.evaluateAll(els => els.map(el => (el.textContent ?? '').trim()))
+    expect(names.slice(0, 1)).toEqual(['Effects…'])
+    expect(names).toEqual(expect.arrayContaining(['Use beside another device', 'Mirror my view', 'Let agents hear me']))
+    expect(names.indexOf('Use beside another device')).toBeLessThan(names.indexOf('Mirror my view'))
+    expect(names.indexOf('Mirror my view')).toBeLessThan(names.indexOf('Let agents hear me'))
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Let agents hear me' })).toHaveAttribute('aria-checked', 'false')
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(more).toBeFocused()
+    // Effects… opens a panel, with focus on its heading, and Escape gives focus back to More.
+    await page.keyboard.press('Enter')
+    // The menu takes focus once it has opened; a second Enter sooner lands on More.
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('#effects')).toBeVisible()
+    await expect(page.locator('#effectsHeading')).toBeFocused()
+    await expect(page.locator('#effectsHeading')).toHaveText('Effects')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#effects')).toBeHidden()
+    await expect(more).toBeFocused()
+  } finally { await context.close() }
+})
+
+test('the first unmute in a call with an agent asks once whether agents may hear; Not now leaves it off', async ({ browser, baseURL }) => {
+  const tally = await RoomAgent.create({ base: baseURL!, roomName: 'Agent call', name: 'Tally', ...agentRelaysFor(baseURL!) })
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  try {
+    await page.goto(tally.url)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomWho')).toContainText('agent', { timeout: 30_000 })
+    await page.locator('#callToggle').click()
+    const prompt = page.locator('#agentsConsent')
+    await expect(prompt, 'nothing is asked before the microphone is used').toBeHidden()
+    await page.locator('#toggleMic').click()
+    await expect(prompt).toBeVisible()
+    await expect(prompt).toContainText('Tally is an agent on this call.')
+    await expect(prompt).toContainText('Agents cannot hear you unless you say so.')
+    await expect(page.locator('#agentsConsentTitle')).toBeFocused()
+    // Not a modal: the bar is still there, and the switch is off.
+    await expect(page.locator('#toggleMic')).toBeVisible()
+    await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'false')
+    await page.getByRole('button', { name: 'Not now', exact: true }).click()
+    await expect(prompt).toBeHidden()
+    await expect(page.locator('#toggleMic')).toBeFocused()
+    await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'false')
+    await expect(page.locator('#agentsHearChip')).toBeHidden()
+    // Asked once per call: mute and unmute again, and it stays away.
+    await page.locator('#toggleMic').click()
+    await page.locator('#toggleMic').click()
+    await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
+    await expect(prompt).toBeHidden()
+    await page.locator('#callExtras').click()
+    await expect(page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' })).toHaveAttribute('aria-checked', 'false')
+    await page.keyboard.press('Escape')
+    // Closed before More is pressed again, or the press closes it instead.
+    await expect(page.locator('#callMoreMenu')).toBeHidden()
+    // The same switch, from the menu, shows the ear chip and the agent's tile says so.
+    await page.locator('#callExtras').click()
+    await page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' }).click()
+    await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'true')
+    await expect(page.locator('#agentsHearChip')).toBeVisible()
+    await expect(page.locator('#agentsHearChip')).toHaveText('Agents hear you')
+    await expect(page.locator('#agentsRow')).toContainText('can hear you')
+    await expect(page.locator('#callMoreMenu')).toBeHidden()
+    await page.locator('#callExtras').click()
+    await page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' }).click()
+    await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'false')
+    await expect(page.locator('#agentsHearChip')).toBeHidden()
+  } finally { await context.close(); await tally.leave() }
+})
+
+test('no npub or 64-character key appears in the text of the call', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await startCall(page)
+    await page.locator('#toggleMic').click()
+    await expect(page.locator('#callChips, #callWho, #room')).toHaveCount(3)
+    for (const selector of ['#callSurface', '#callDock']) {
+      const text = await page.locator(selector).evaluate(el => el.textContent ?? '')
+      expect(text, selector).not.toMatch(/npub1[0-9a-z]{6,}/)
+      expect(text, selector).not.toMatch(/[0-9a-f]{64}/)
+    }
+  } finally { await context.close() }
+})
+
+for (const scheme of ['dark', 'light'] as const) {
+  test(`axe finds nothing on the call, and on its More menu, at 1440 and at 390 in ${scheme}`, async ({ browser, baseURL }) => {
+    for (const [size, touch] of [[{ width: 1440, height: 900 }, false], [{ width: 390, height: 844 }, true]] as const) {
+      const { context, page } = await visitor(browser, baseURL!, size, { touch, scheme })
+      try {
+        await startCall(page)
+        await page.locator('#toggleMic').click()
+        for (const open of [false, true]) {
+          if (open) { await page.locator('#callExtras').click(); await expect(page.locator('#callMoreMenu')).toBeVisible() }
+          const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+          expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `call ${open ? 'with More open' : ''} ${size.width} ${scheme}`).toEqual([])
+        }
+      } finally { await context.close() }
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Stage 5, slice B: the ring banner, the phone's Chat and Call, the short
+// landscape bar, the banner's words, reduced motion.
+// ---------------------------------------------------------------------------
+
+/** Ada in a fresh room, and Priya Natarajan arriving in it and starting a call. */
+async function ringSetup(browser: Browser, baseURL: string) {
+  const keeper = await RoomAgent.create({ base: baseURL, roomName: 'Ring room', name: 'Rowan', agent: false, ...agentRelaysFor(baseURL) })
+  const ada = await visitor(browser, baseURL, { width: 1440, height: 900 }, { empty: true })
+  await ada.page.goto(keeper.url)
+  await ada.page.locator('#displayName').fill('Ada'); await ada.page.locator('#join').click()
+  await expect(ada.page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  const priya = await visitor(browser, baseURL, { width: 1280, height: 800 }, { empty: true })
+  await priya.page.goto(keeper.url)
+  await priya.page.locator('#displayName').fill('Priya Natarajan'); await priya.page.locator('#join').click()
+  await expect(priya.page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  await expect(ada.page.locator('#callBanner')).toBeHidden()
+  await priya.page.locator('#callToggle').click()
+  return { keeper, ada, priya, close: async () => { await ada.context.close(); await priya.context.close(); await keeper.leave() } }
+}
+
+test('a call started in the open room rings as a banner over everything: focus on Answer, Escape declines and nothing is sent', async ({ browser, baseURL }) => {
+  const { ada, priya, close } = await ringSetup(browser, baseURL!)
+  try {
+    const banner = ada.page.locator('#ringBanner')
+    await expect(banner).toBeVisible({ timeout: 60_000 })
+    await expect(banner).toHaveAttribute('role', 'alertdialog')
+    await expect(banner).toContainText('Priya Natarajan is calling')
+    await expect(banner).toContainText('Call')
+    await expect(ada.page.locator('#ringAnswer')).toBeFocused()
+    await expect(ada.page.getByRole('button', { name: 'Decline', exact: true })).toBeVisible()
+    // Pinned to the top of the window, in the top layer.
+    const b = (await banner.boundingBox())!
+    expect(b.y).toBeLessThan(40)
+    const scan = await new AxeBuilder({ page: ada.page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`)).toEqual([])
+    await ada.page.keyboard.press('Escape')
+    await expect(banner).toBeHidden()
+    // Declining joined nothing and said nothing: the room still offers the call, and Ada is not on it.
+    await expect(ada.page.locator('#deviceControls')).toBeHidden()
+    await expect(ada.page.locator('#callBanner')).toBeVisible()
+    await expect(ada.page.locator('#callBanner')).toContainText('Call on · Priya Natarajan')
+    await expect(ada.page.locator('#joinCall')).toHaveText('Join')
+    // It does not ring again for the same call.
+    await ada.page.waitForTimeout(1500)
+    await expect(banner).toBeHidden()
+  } finally { await close() }
+})
+
+test('Answer joins the call with the microphone on and the camera off', async ({ browser, baseURL }) => {
+  const { ada, close } = await ringSetup(browser, baseURL!)
+  try {
+    await expect(ada.page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
+    await ada.page.locator('#ringAnswer').click()
+    await expect(ada.page.locator('#ringBanner')).toBeHidden()
+    await expect(ada.page.locator('#deviceControls')).toBeVisible({ timeout: 30_000 })
+    await expect(ada.page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 })
+    await expect(ada.page.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
+  } finally { await close() }
+})
+
+test('Decline puts the banner away and is not a hang-up: the call can still be joined', async ({ browser, baseURL }) => {
+  const { ada, close } = await ringSetup(browser, baseURL!)
+  try {
+    await expect(ada.page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
+    await ada.page.getByRole('button', { name: 'Decline', exact: true }).click()
+    await expect(ada.page.locator('#ringBanner')).toBeHidden()
+    await ada.page.locator('#joinCall').click()
+    await expect(ada.page.locator('#deviceControls')).toBeVisible({ timeout: 30_000 })
+  } finally { await close() }
+})
+
+test('on a phone the call bar\'s Chat swaps the stage for the conversation, over which the call is one line: On the call, Mic, Return, Leave', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await startCall(page)
+    await expect(page.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'call')
+    await expect(page.locator('#mobileRoomViews')).toHaveCount(0)
+    await expect(page.locator('#callChatBar')).toBeHidden()
+    await page.locator('#callChatToggle').click()
+    await expect(page.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'chat')
+    await expect(page.locator('#chatForm')).toBeVisible()
+    const line = page.locator('#callChatBar')
+    await expect(line).toBeVisible()
+    await expect(line).toContainText('On the call')
+    await expect(page.locator('#callChatBarElapsed')).toHaveAttribute('aria-live', 'off')
+    await expect(page.locator('#callChatBarElapsed')).toHaveText(/^· \d\d:\d\d$/, { timeout: 5_000 })
+    // Mic, Return and Leave, one Leave on screen.
+    await expect(line.getByRole('button')).toHaveText(['Unmute', 'Return', 'Leave'], { useInnerText: true })
+    await expect(page.getByRole('button', { name: 'Leave call', exact: true }).and(page.locator(':visible'))).toHaveCount(1)
+    await line.locator('#callChatBarMic').click()
+    await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
+    await expect(line.locator('#callChatBarMic')).toHaveAttribute('aria-pressed', 'true')
+    await line.locator('#callChatBarReturn').click()
+    await expect(page.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'call')
+    await expect(line).toBeHidden()
+    await expect(page.locator('#deviceControls')).toBeVisible()
+    // The bar's Chat goes there and back as well, the conversation's one Leave ends the call.
+    await page.locator('#callChatToggle').click()
+    await line.locator('#callChatBarLeave').click()
+    await expect(page.locator('#deviceControls')).toBeHidden()
+    await expect(line).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('at 844 by 390 the call bar is a column on the end edge, and the bars leave the stage most of the height', async ({ browser, baseURL }) => {
+  test.skip(test.info().project.name === 'chromium-desktop', 'The installed window is never narrower than 900 px, so it never has the short landscape phone layout')
+  const { context, page } = await visitor(browser, baseURL!, { width: 844, height: 390 }, { touch: true })
+  try {
+    await startCall(page)
+    await expect(page.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'call')
+    const bar = (await page.locator('#deviceControls').boundingBox())!
+    expect(bar.x + bar.width, 'the bar is on the end edge').toBeGreaterThan(844 - 24)
+    expect(bar.width, 'a column, not a row').toBeLessThan(110)
+    const buttons = await page.locator('#deviceControls').locator('#toggleMic, #toggleCamera, #callChatToggle, #callExtras, #leaveCall').all()
+    const xs = new Set<number>()
+    for (const button of buttons) {
+      const b = (await button.boundingBox())!
+      expect(b.height).toBeGreaterThanOrEqual(44)
+      expect(b.y + b.height).toBeLessThanOrEqual(390)
+      xs.add(Math.round(b.x))
+    }
+    expect(xs.size, 'one column').toBe(1)
+    const header = (await page.locator('#roomArea > .roomBar').boundingBox())!
+    const stage = (await page.locator('#whoIsHere').boundingBox().catch(() => null))
+    expect(header.height / 390, `the bars take ${(header.height / 390 * 100).toFixed(0)}% of the height`).toBeLessThanOrEqual(1 / 3)
+    expect(stage === null || stage.height >= 390 * 0.5).toBe(true)
+    // The conversation, with the one-line call over it: header, line and composer under a third.
+    await page.locator('#callChatToggle').click()
+    const heights = await page.evaluate(() => ['#roomArea > .roomBar', '#chatForm'].map(s => document.querySelector(s)!.getBoundingClientRect().height))
+    const total = heights.reduce((a, b) => a + b, 0)
+    // The call line shares the header's row, so it adds no height of its own.
+    const line = (await page.locator('#callChatBar').boundingBox())!
+    const head = (await page.locator('#roomArea > .roomBar').boundingBox())!
+    expect(line.y + line.height).toBeLessThanOrEqual(head.y + head.height + 1)
+    console.log(`844x390 chat view bars: ${heights.map(h => h.toFixed(0)).join(' + ')} = ${total.toFixed(0)} of 390 (${(total / 390 * 100).toFixed(0)}%)`)
+    expect(total / 390, 'header, call line and composer').toBeLessThanOrEqual(1 / 3)
+    const log = (await page.locator('#chatLog').boundingBox())!
+    expect(log.height).toBeGreaterThan(100)
+  } finally { await context.close() }
+})
+
+test('the speaking ring is static under reduced motion', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await startCall(page)
+    const style = await page.evaluate(() => {
+      const tile = document.createElement('div')
+      tile.className = 'participant speaking'
+      document.getElementById('room')!.append(tile)
+      const css = getComputedStyle(tile)
+      const result = { animation: css.animationName, transition: css.transitionDuration, ring: css.boxShadow }
+      tile.remove()
+      return result
+    })
+    expect(style.animation).toBe('none')
+    expect(style.transition).toBe('0s')
+    expect(style.ring).not.toBe('none')
+  } finally { await context.close() }
+})
+
+test('a refused microphone says so in the call, with what to do', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await page.addInitScript(() => {
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))
+    })
+    await startCall(page)
+    await page.locator('#toggleMic').click()
+    await expect(page.locator('#mediaBlockedNote')).toHaveText('Microphone blocked. Allow it in your browser settings.')
+    await expect(page.locator('#mediaBlockedNote')).toBeVisible()
+  } finally { await context.close() }
+})

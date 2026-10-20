@@ -5,7 +5,7 @@ import { test, expect, type Page, type Request } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
 import { openRoomUrl, pinToTestRelays, TEST_RELAY_HTTP, TEST_RELAY_WS } from './relays.js'
-import { openNewRoomForm } from './browser.js'
+import { openNewRoomForm, openCallEffects } from './browser.js'
 
 /**
  * A camera effect must never phone home.
@@ -56,8 +56,7 @@ async function openCamera(page: Page): Promise<void> {
   await goIn(page)
   await page.getByRole('button', { name: 'Camera' }).click()
   await expect(page.locator(LOCAL_VIDEO)).toBeVisible()
-  await page.locator('#callExtras > summary').click()
-  await page.locator('#cameraEffects > summary').click()
+  await openCallEffects(page, 'Background')
   await page.waitForFunction((selector) => {
     const video = document.querySelector<HTMLVideoElement>(selector)
     return !!video && video.videoWidth > 0

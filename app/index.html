@@ -275,6 +275,22 @@
         <div id="workspaceWorkCards"></div>
       </dialog>
 
+      <!-- Somebody has started a call in the room on screen and this device is
+           not on it. Pinned to the top of the window over everything, in the
+           top layer. Answer joins with the microphone on and the camera off;
+           Decline and Escape only stop the ringing: nothing is sent. Filled
+           and shown by `showRingBanner` in app/src/main.ts. -->
+      <div id="ringBanner" class="ringBanner" popover="manual" role="alertdialog" aria-labelledby="ringBannerTitle" aria-describedby="ringBannerKind">
+        <div class="ringBannerText">
+          <strong id="ringBannerTitle"></strong>
+          <span id="ringBannerKind">Call</span>
+        </div>
+        <div class="ringBannerActions">
+          <button id="ringDecline" type="button">Decline</button>
+          <button id="ringAnswer" type="button" class="primary">Answer</button>
+        </div>
+      </div>
+
       <section id="callSurface" aria-label="Call surface" hidden>
         <div id="callSurfaceHeader" hidden>
           <span id="callSurfaceLogo" class="privateLogo" hidden></span>
@@ -282,18 +298,16 @@
           <button id="callGalleryCollapse" type="button" aria-expanded="true" aria-controls="callStage">Hide gallery</button>
         </div>
         <div id="callDock" class="callDock" role="region" aria-label="Your call" hidden>
-          <span id="callDockText" class="callDockText" aria-live="polite"></span>
+          <span class="callDockLine">
+            <span id="callDockText" class="callDockText"></span>
+            <span id="callDockElapsed" class="callDockElapsed" aria-live="off"></span>
+          </span>
           <span id="callDockRecordingNotice" role="status" hidden></span>
           <span id="callDockRecordingElapsed" aria-live="off" hidden></span>
-          <span id="callDockRecordingHint" class="note" hidden></span>
           <span class="callDockActions">
-            <button id="callDockMic" type="button" aria-pressed="false">Microphone</button>
-            <button id="callDockCamera" type="button" aria-pressed="false">Camera</button>
-            <button id="callDockScreen" type="button" aria-pressed="false">Share screen</button>
-            <button id="callDockRecording" type="button" hidden>Record call</button>
-            <button id="callDockRecordingPause" type="button" hidden>Pause recording</button>
-            <button id="callDockBack" type="button" class="primary">Back to the call</button>
-            <button id="callDockLeave" type="button" class="danger">Leave call</button>
+            <button id="callDockMic" type="button" aria-pressed="false" aria-label="Microphone"><span class="callLabel callLabelOn">Mute</span><span class="callLabel callLabelOff">Unmute</span></button>
+            <button id="callDockBack" type="button" class="primary">Return</button>
+            <button id="callDockLeave" type="button" class="danger" aria-label="Leave call">Leave</button>
           </span>
         </div>
         <div id="callStage">
@@ -306,7 +320,6 @@
              words cannot drift from the room bar's own control. -->
         <div id="callStrip" class="callStrip">
           <span id="callStripText" class="callStripText">Nobody is on a call.</span>
-          <button id="callStripAction" type="button" class="primary">Start call</button>
         </div>
         <div id="cameraPrivacyNotices">
           <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
@@ -327,7 +340,6 @@
                    app/src/desktop.css. Filled by `renderCallChips` in
                    app/src/main.ts. -->
               <div id="callChips" class="callChips" aria-label="On the call"></div>
-              <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15.5c5-4.6 13-4.6 18 0l-2.4 2.4-3.4-1.6v-2.6a12 12 0 0 0-6.4 0v2.6l-3.4 1.6z"/></svg><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
             </div>
             <!-- Who is talking right now, in plain text. Never an aria-live
                  region and never announced - the owner does not want a
@@ -344,8 +356,8 @@
                    are for the call-first bar (app/src/call-focus.css), which
                    draws these as round icon buttons the way a phone call
                    does: a struck-through picture while the thing is off. -->
-              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D" title="Microphone"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 5 2.2M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/></svg><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
-              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E" title="Camera"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h4a2 2 0 0 1 2 2v4m0 4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2M16 10l6-3v10l-6-3M3 3l18 18"/></svg><span class="callWord">Camera</span></button>
+              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D" title="Microphone"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 5 2.2M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/></svg><span class="callLabel callLabelOn">Mute</span><span class="callLabel callLabelOff">Unmute</span></button>
+              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E" title="Camera"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h4a2 2 0 0 1 2 2v4m0 4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2M16 10l6-3v10l-6-3M3 3l18 18"/></svg><span class="callLabel">Camera</span></button>
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share" title="Share screen"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 13V8M9.5 10.5 12 8l2.5 2.5"/></svg><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
               <button id="recordToggle" type="button" class="toggle" data-on="false" aria-pressed="false" aria-label="Record call" title="Record audio or video" hidden><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg><span class="callWord">Record call</span><span class="callShort">Record</span></button>
             </div>
@@ -353,8 +365,25 @@
                  toggle made from the keyboard: a click already carries its
                  own feedback through focus and `aria-pressed`. -->
             <div id="callShortcutAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+            <p id="companionNote" class="indicator" hidden>This device’s microphone and speaker are off. Its camera and screen share still work.</p>
+            <!-- Agents hear nothing unless the person says so. Asked once per
+                 call, at the first unmute with an agent on it, above the bar
+                 and not in the way of it. Filled and shown by
+                 app/src/call-agents-hear.ts. -->
+            <div id="agentsConsent" class="agentsConsent" role="group" aria-labelledby="agentsConsentTitle" hidden>
+              <p id="agentsConsentTitle" class="agentsConsentTitle" tabindex="-1"></p>
+              <p class="agentsConsentNote">Agents cannot hear you unless you say so.</p>
+              <div class="agentsConsentActions">
+                <button id="agentsConsentNo" type="button">Not now</button>
+                <button id="agentsConsentYes" type="button" class="primary">Let agents hear me</button>
+              </div>
+            </div>
             <p id="recordingAuthorityHint" class="note" hidden>Join the call to record it.</p>
             <p id="micIndicator" class="indicator"></p>
+            <!-- The browser or the system has refused the microphone or camera:
+                 said in the call, with what to do. Filled by `noteMediaBlocked`
+                 in app/src/main.ts. -->
+            <p id="mediaBlockedNote" class="indicator broken" role="status" hidden></p>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
@@ -377,8 +406,16 @@
                  the two-device switches. A menu over the call on a wide
                  screen, a sheet on a phone (app/src/mobile-room-view.ts).
                  See app/src/call-folds.ts. -->
-            <details id="callExtras" class="callExtras">
-            <summary aria-label="More call controls" title="More"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span class="callWord">More</span></summary>
+            <!-- While agents may hear this person: said in the bar, not only in a
+                 menu. Shown by app/src/call-agents-hear.ts. -->
+            <span id="agentsHearChip" class="agentsHearChip" hidden><svg class="i" aria-hidden="true" focusable="false"><use href="#i-ear"/></svg>Agents hear you</span>
+            <button id="callExtras" type="button" class="callExtras" aria-label="More call controls" title="More"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span class="callLabel">More</span></button>
+            <div id="callMoreMenu"></div>
+            <!-- What the menu works, and the panels it opens. Nothing here is
+                 drawn until the menu asks: the buttons are clicked by script,
+                 the Effects and meeting panels are shown where they stand.
+                 Nothing in it may be moved - `#voicePreviewAudio` is a media
+                 element. -->
             <div id="callExtrasContent">
             <!-- The desktop window's other ways to share: an area of the
                  screen, and boxes over the parts nobody should see. Filled
@@ -387,10 +424,9 @@
             <div id="shareExtras" class="toggles shareExtras" hidden></div>
             <button id="resumeCallMedia" type="button">Resume call media</button>
             <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
-            <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a
-                 phone it belongs behind More so the warning cannot push the
-                 conversation and composer off screen; desktop keeps this
-                 details section open. -->
+            <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. It is
+                 said at the foot of the More menu, so the warning cannot
+                 push the conversation and composer off screen. -->
             <p id="wakeLockNote" class="indicator" hidden>This device may let its screen sleep during the call.</p>
             <!-- Only for whoever holds the room's authority key: meeting mode,
                  and the stage. Filled in by `renderMeeting` in
@@ -415,7 +451,6 @@
               <!-- This device's own view of you, from its camera or your other
                    device's. Everybody else always sees it the right way round. -->
               <button id="toggleMirror" type="button" class="toggle" data-on="true" aria-pressed="true" title="Show your own camera like a mirror. Others always see it the right way round.">Mirror my view</button>
-              <p id="companionNote" class="indicator" hidden>This device’s microphone and speaker are off. Its camera and screen share still work.</p>
               <div class="toggles agentsHear">
                 <button id="toggleAgentsHear" class="toggle" data-on="false" aria-pressed="false" title="Off: nothing that says it is an agent is sent your camera or microphone">Let agents hear me</button>
                 <span id="agentsHearNote" class="note inline">Off: agents in the room are sent nothing from your camera or microphone.</span>
@@ -457,7 +492,7 @@
                   </label>
                 </div>
                 <div class="effectRow">
-                  <button id="switchCamera" type="button" hidden>Switch camera</button>
+                  <button id="switchCamera" type="button" hidden>Flip camera</button>
                 </div>
                 <p id="effectStatus" class="indicator"></p>
                 <p class="note">
@@ -494,7 +529,8 @@
               </details>
             </div>
             </div>
-            </details>
+
+            <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15.5c5-4.6 13-4.6 18 0l-2.4 2.4-3.4-1.6v-2.6a12 12 0 0 0-6.4 0v2.6l-3.4 1.6z"/></svg><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
 
             <div id="local"></div>
           </section>
@@ -596,10 +632,21 @@
           <span id="meetingNoticeText"></span>
           <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
         </div>
-        <nav id="mobileRoomViews" aria-label="Room views" hidden>
-          <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
-          <button id="mobileCall" type="button" aria-pressed="false">Call</button>
-        </nav>
+        <!-- On a phone, on the call in this room but looking at the conversation:
+             one line in the shape of the docked bar. Return goes back to the
+             stage. Shown by app/src/call-focus.ts; the clock is written by
+             `renderDockElapsed` in app/src/main.ts. -->
+        <div id="callChatBar" class="callDock callChatBar" role="region" aria-label="Your call" hidden>
+          <span class="callDockLine">
+            <span class="callDockText">On the call</span>
+            <span id="callChatBarElapsed" class="callDockElapsed" aria-live="off"></span>
+          </span>
+          <span class="callDockActions">
+            <button id="callChatBarMic" type="button" aria-pressed="false" data-on="false" aria-label="Microphone"><span class="callLabel callLabelOn">Mute</span><span class="callLabel callLabelOff">Unmute</span></button>
+            <button id="callChatBarReturn" type="button" class="primary">Return</button>
+            <button id="callChatBarLeave" type="button" class="danger" aria-label="Leave call">Leave</button>
+          </span>
+        </div>
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
         <div id="workAttention" class="workAttention" hidden>
           <span id="workAttentionText"></span>
@@ -613,7 +660,7 @@
              `renderCallState` in app/src/main.ts. -->
         <div id="callBanner" class="callBanner" role="status" hidden>
           <span id="callBannerText"></span>
-          <button id="joinCall" type="button" class="primary">Join call</button>
+          <button id="joinCall" type="button" class="primary" aria-label="Join call">Join</button>
         </div>
         <!-- Somebody has drawn on this device's own screen share and the
              floating preview, if this browser has one, is not open to show
@@ -1239,10 +1286,6 @@
         <dt>Hold Space</dt><dd>On a call, outside a text field: talk while otherwise muted. Releasing it mutes again.</dd>
       </dl>
       </div>
-    </dialog>
-    <dialog id="mobileCallSettings" aria-labelledby="mobileCallSettingsTitle">
-      <div class="sheetBar"><h2 id="mobileCallSettingsTitle">Call settings</h2><button id="mobileCallSettingsClose" type="button">Done</button></div>
-      <div class="sheetBody"></div>
     </dialog>
     <!-- Stays open while the room is left, so the report can be read. -->
     <dialog id="tidyUpDialog" class="actionDialog tidyUp" aria-labelledby="tidyUpTitle" data-keep-open>

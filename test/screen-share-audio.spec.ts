@@ -1,6 +1,6 @@
 import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUDIO } from './browser.js'
+import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUDIO, chooseCallMore } from './browser.js'
 
 /**
  * A shared tab's own sound, carried alongside its picture.
@@ -30,9 +30,7 @@ async function stopSharingFrom(popup: Page): Promise<void> {
 }
 
 async function clickShareArea(page: Page): Promise<void> {
-  const area = page.locator('#shareArea')
-  if (!await area.isVisible()) await page.locator('#callExtras > summary').click()
-  await area.click()
+  await chooseCallMore(page, 'Share an area')
 }
 
 async function readDiagnostics(page: Page): Promise<{ me: { publishing: string[]; screenAudio: { present: boolean; muted?: boolean; readyState?: string } } }> {

@@ -1,12 +1,11 @@
 const room = document.getElementById('roomArea')!
-const chat = document.getElementById('mobileChat')!
-const call = document.getElementById('mobileCall')!
 const compact = window.matchMedia('(max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px)')
 
+/** A phone shows the call's stage or the conversation, one at a time. On a
+ *  call the call bar's Chat button swaps them (app/src/call-focus.ts); there
+ *  is no row of tabs for it. The bar itself stays in both. */
 export function showMobileRoomView(view: 'chat' | 'call'): void {
   room.dataset.mobileView = view
-  chat.setAttribute('aria-pressed', String(view === 'chat'))
-  call.setAttribute('aria-pressed', String(view === 'call'))
   if (compact.matches) {
     document.querySelector<HTMLTextAreaElement>('#chatInput')?.blur()
     window.scrollTo(0, 0)
@@ -15,24 +14,6 @@ export function showMobileRoomView(view: 'chat' | 'call'): void {
 }
 
 showMobileRoomView('chat')
-chat.addEventListener('click', () => showMobileRoomView('chat'))
-// Navigation only, whether or not a call is on: the tab opens the call view
-// and nothing more. Starting or joining is `#callStripAction`'s own click,
-// in the view it opens, so a tap on Call never itself starts a call.
-call.addEventListener('click', () => showMobileRoomView('call'))
-
-// Extra controls open over the call, never expand the page beneath it.
-const extras = document.getElementById('callExtras') as HTMLDetailsElement
-const dialog = document.getElementById('mobileCallSettings') as HTMLDialogElement
-const contents = document.getElementById('callExtrasContent')!
-extras.querySelector('summary')!.addEventListener('click', event => {
-  if (!compact.matches) return
-  event.preventDefault()
-  dialog.querySelector('.sheetBody')!.append(contents)
-  dialog.showModal()
-})
-document.getElementById('mobileCallSettingsClose')!.addEventListener('click', () => dialog.close())
-dialog.addEventListener('close', () => { extras.append(contents); extras.open = false; extras.querySelector('summary')!.focus() })
 
 // Mobile keyboards resize the visual viewport, not necessarily 100dvh.
 // Keep the composer in that visible area without shrinking pinch-zoomed text.

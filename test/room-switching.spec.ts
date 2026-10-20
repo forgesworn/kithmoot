@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { buildFileEvent } from '../src/attachment.js'
 import { fetchFromTestBlossom } from './blossom.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
-import { allowTestFileStorage, openCall, leaveToChats, showChats, switchToRoom, openRoomSearch, openRoomInfoPage } from './browser.js'
+import { allowTestFileStorage, openCall, leaveToChats, showChats, switchToRoom, openRoomSearch, openRoomInfoPage, chooseCallMore } from './browser.js'
 
 async function setup(browser: Browser, base: string, beforeJoin?: (context: BrowserContext, roomId: string, relay: string) => Promise<void>) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -126,7 +126,7 @@ test('switching rooms docks a live call instead of leaving it, and the dock lead
     await expect(page.locator('#roomTitle')).toHaveText('Project room')
     await expect(page.locator('#actionConfirm')).toBeHidden()
     await expect(page.locator('#callDock')).toBeVisible()
-    await expect(page.locator('#callDockText')).toHaveText('On a call in Town hall. Just you.')
+    await expect(page.locator('#callDockText')).toHaveText('On a call in Town hall')
     await expect(page.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({ path: '/tmp/kithmoot-call-dock.png' })
     // The dock's own microphone control is the call's.
@@ -191,7 +191,9 @@ test('a late media permission result lands on the docked call, and leaving the d
         }
       }, kind)
       await openCall(page)
-      await page.locator(kind === 'audio' ? '#toggleMic' : kind === 'video' ? '#toggleCamera' : '#toggleScreen').click()
+      // On a phone Share is in More, as Share screen.
+      if (kind === 'screen') await chooseCallMore(page, 'Share screen')
+      else await page.locator(kind === 'audio' ? '#toggleMic' : '#toggleCamera').click()
       await expect.poll(() => page.evaluate(() => typeof (window as any).releaseMedia)).toBe('function')
       await page.locator('#backToRooms').click()
       const next = index % 2 === 0 ? 'Project room' : 'Town hall'
@@ -384,9 +386,7 @@ test('the self-view mirror can be turned off on this device, and stays off', asy
     expect(await transform()).toBe('matrix(-1, 0, 0, 1, 0, 0)')
     await expect(page.locator('#toggleMirror')).toHaveAttribute('aria-pressed', 'true')
     // Under Settings, Two devices, where the other-device view is too.
-    await page.locator('#callExtras > summary').click()
-    await page.locator('#callMore > summary').click()
-    await page.locator('#toggleMirror').click()
+    await chooseCallMore(page, 'Mirror my view')
     await expect(page.locator('#toggleMirror')).toHaveAttribute('aria-pressed', 'false')
     expect(await transform()).toBe('none')
     // Remembered for this device, not for the room.
@@ -408,7 +408,7 @@ test('the rooms list keeps a live call docked, and a room from the list brings i
     await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await expect(page.locator('#roomArea')).toBeHidden()
     await expect(page.locator('#callSurface #callDock')).toBeVisible()
-    await expect(page.locator('#callDockText')).toHaveText('On a call in Town hall. Just you.')
+    await expect(page.locator('#callDockText')).toHaveText('On a call in Town hall')
     await expect(page.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'true')
     expect(await page.evaluate(() => (window as any).sameDocument)).toBe(true)
     expect(new URL(page.url()).hash).toBe('')

@@ -1,4 +1,5 @@
 import './call-focus.css'
+import { showMobileRoomView } from './mobile-room-view.js'
 import {
   UnreadCounter, callFirst, chatPanelOpen, clearChatDividerFraction, loadChatDividerFraction, loadChatPanel,
   saveChatDividerFraction, saveChatPanel, toolbarMove, unreadAnnouncement,
@@ -14,17 +15,20 @@ import {
  *
  * Nothing here creates or moves a `<video>` or `<audio>`. The existing call
  * controls keep their ids, listeners and `aria-pressed`, and stay where
- * they are in `#deviceControls`, which becomes the control bar; the bar's
- * own additions (Chat, Full screen) are built once and shown only in this
- * layout. The bar is the five a phone call has - Mic, Camera, Share, More
- * and Leave - with Chat and Full screen at its end; everything else is
- * behind More (`#callExtras`). Three small elements that belong in the bar
- * but live elsewhere - the view switcher, which goes behind More, the
- * "Speaking" line and the microphone line - are moved in while it is on and
- * put back exactly where they were when it goes.
+ * they are in `#deviceControls`, which becomes the control bar at every
+ * width and in every kind of call: Mic, Camera, Share, Chat, More and Leave,
+ * each with its word under it. `html[data-call-bar]` says the bar is on, for
+ * as long as this device is on a call that is on screen. Everything else is
+ * behind More (`#callExtras`, a menu: see `renderCallMoreMenu` in main.ts).
+ * Two small lines that belong in the bar but live elsewhere - the "Speaking"
+ * line and the microphone line - are moved in while it is on and put back
+ * exactly where they were when it goes.
  *
- * `html[data-call-first]` switches the layout, and `html[data-call-chat]`
- * says whether the conversation panel beside the stage is open.
+ * `html[data-call-first]` switches the stage-beside-the-conversation layout
+ * on a wide screen with pictures, and `html[data-call-chat]` says whether the
+ * conversation panel beside the stage is open. On a phone the same Chat
+ * button swaps the stage for the conversation (`showMobileRoomView`) and
+ * back, with the bar staying put.
  */
 
 export interface CallFocus {
@@ -44,7 +48,7 @@ const CHAT_REGION = '#chatDrawer, #roomArea > :is(#conversationNav, .conversatio
 
 /** The bar's buttons, in the bar, in the order arrow keys walk them once
  *  sorted by where they are drawn. */
-const BAR_ITEMS = ':scope > .toggles > button, :scope > .callHead > #leaveCall, #callExtras > summary, .callBarEnd > button'
+const BAR_ITEMS = ':scope > .toggles > button, :scope > #leaveCall, :scope > #callExtras, .callBarEnd > button'
 
 interface Moved { el: HTMLElement; mark: Comment }
 
@@ -52,6 +56,11 @@ const ICON = (path: string): string => `<svg viewBox="0 0 24 24" width="20" heig
 const FULL_SCREEN_ICON = ICON('M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5')
 const EXIT_FULL_SCREEN_ICON = ICON('M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5')
 const CHAT_ICON = ICON('M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-5A8 8 0 1 1 21 12z')
+const CALL_ICON = ICON('M3 15.5c5-4.6 13-4.6 18 0l-2.4 2.4-3.4-1.6v-2.6a12 12 0 0 0-6.4 0v2.6l-3.4 1.6z')
+
+/** The phone layouts, where the stage and the conversation take turns. The
+ *  same query as style.css and mobile-room-view.ts. */
+const COMPACT = '(max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px)'
 
 export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const root = document.documentElement
@@ -60,10 +69,10 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const workspace = document.getElementById('workspaceContent')!
   const controls = document.getElementById('deviceControls')!
   const bar = document.querySelector<HTMLElement>('#roomArea > .roomBar')
-  const extras = document.getElementById('callExtras') as HTMLDetailsElement | null
-  const extrasContent = document.getElementById('callExtrasContent')
+  const compact = window.matchMedia(COMPACT)
 
   let onCall = false
+  let barOn = false
   let active = false
   let remembered = loadChatPanel(storage)
   let chatOpen = chatPanelOpen(remembered, window.innerWidth)
@@ -83,24 +92,22 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const status = document.createElement('div')
   status.className = 'callBarStatus callBarOnly'
 
-  // The view switcher's place behind More: first, above the effects.
-  const viewSection = document.createElement('div')
-  viewSection.id = 'callViewSection'
-  viewSection.className = 'callViewSection callBarOnly'
-
+  // Chat sits before More and Full screen after Leave, so Tab walks the bar
+  // in the order it is drawn: Mic, Camera, Share, Chat, More, Leave, Full screen.
   const end = document.createElement('div')
   end.className = 'callBarEnd callBarOnly'
+  const fullEnd = document.createElement('div')
+  fullEnd.className = 'callBarEnd callBarOnly'
   const chat = document.createElement('button')
   chat.type = 'button'
   chat.id = 'callChatToggle'
   chat.className = 'callBarButton'
   chat.setAttribute('aria-controls', document.getElementById('chatDrawer') ? 'chatDrawer' : 'chatLog')
   chat.title = 'Chat'
-  // A speech bubble, the word hidden like every other word in the bar - see
-  // `.callWord` in call-focus.css. The accessible name is `renderBadge`'s,
-  // with the count.
+  // A speech bubble with the word under it, like every other button in the
+  // bar. The accessible name is `renderBadge`'s, with the count.
   const chatWord = document.createElement('span')
-  chatWord.className = 'callWord'
+  chatWord.className = 'callLabel'
   chatWord.textContent = 'Chat'
   const badge = document.createElement('span')
   badge.className = 'callChatUnread'
@@ -123,9 +130,14 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   full.setAttribute('aria-label', 'Full screen')
   full.title = 'Full screen'
   full.innerHTML = FULL_SCREEN_ICON
+  const fullWord = document.createElement('span')
+  fullWord.className = 'callLabel'
+  fullWord.textContent = 'Full screen'
+  full.append(fullWord)
   full.setAttribute('aria-pressed', 'false')
   full.hidden = !document.fullscreenEnabled
-  end.append(chat, full)
+  end.append(chat)
+  fullEnd.append(full)
 
   const announce = document.createElement('p')
   announce.id = 'callChatAnnounce'
@@ -149,18 +161,25 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   divider.hidden = true
 
   controls.prepend(status)
-  extrasContent?.prepend(viewSection)
-  controls.append(end, announce)
+  document.getElementById('callExtras')!.before(end)
+  controls.append(fullEnd, announce)
   room.append(divider)
 
   // --- The layout -------------------------------------------------------------
 
   function evaluate(): void {
+    const docked = root.hasAttribute('data-call-docked')
+    const wantBar = onCall && !docked
+    if (wantBar !== barOn) {
+      barOn = wantBar
+      if (barOn) enterBar()
+      else leaveBar()
+    }
     const next = callFirst({
       width: window.innerWidth,
       height: window.innerHeight,
       onCall,
-      docked: root.hasAttribute('data-call-docked'),
+      docked,
       pane: root.dataset.callPane,
     })
     if (remembered === undefined) chatOpen = chatPanelOpen(undefined, window.innerWidth)
@@ -170,36 +189,44 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
       else leave()
     }
     if (active) {
-      renderChat()
       measure()
       reflowDivider()
     }
+    renderChat()
   }
 
-  function enter(): void {
+  /** The bar, at every width. */
+  function enterBar(): void {
     const focused = document.activeElement
-    root.setAttribute('data-call-first', '')
+    root.setAttribute('data-call-bar', '')
     controls.setAttribute('role', 'toolbar')
     controls.setAttribute('aria-label', 'Call controls')
     move(document.getElementById('speakingNow'), status)
     move(document.getElementById('micIndicator'), status)
-    move(document.getElementById('callView'), viewSection)
     refocus(focused)
+  }
+
+  function leaveBar(): void {
+    const focused = document.activeElement
+    root.removeAttribute('data-call-bar')
+    controls.removeAttribute('role')
+    controls.removeAttribute('aria-label')
+    for (const { el, mark } of moved.reverse()) if (mark.isConnected) mark.replaceWith(el)
+    moved = []
+    refocus(focused)
+  }
+
+  /** The stage beside the conversation, on a wide screen with pictures. */
+  function enter(): void {
+    root.setAttribute('data-call-first', '')
     // Anything that arrived while the chat was on screen has been seen.
     unread.read()
   }
 
   function leave(): void {
-    const focused = document.activeElement
     root.removeAttribute('data-call-first')
     root.removeAttribute('data-call-chat')
     workspace.style.removeProperty('--call-first-top')
-    controls.removeAttribute('role')
-    controls.removeAttribute('aria-label')
-    if (extras) extras.open = false
-    for (const { el, mark } of moved.reverse()) if (mark.isConnected) mark.replaceWith(el)
-    moved = []
-    refocus(focused)
     if (document.fullscreenElement === workspace) void document.exitFullscreen().catch(() => {})
     cancelDrag()
     divider.hidden = true
@@ -239,10 +266,75 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
 
   // --- The chat panel ---------------------------------------------------------
 
+  /** Which way the Chat button works: for the panel beside the stage, for
+   *  the phone's swap of stage and conversation, or - where a tablet
+   *  portrait or a voice call in the installed window already shows both -
+   *  to take the person to the box to write in. */
+  function chatMode(): 'panel' | 'swap' | 'focus' | 'none' {
+    if (active) return 'panel'
+    if (!barOn) return 'none'
+    return compact.matches ? 'swap' : 'focus'
+  }
+
+  /** The conversation is on screen: the panel is open, or the phone is
+   *  showing it, or nothing hides it. */
+  function chatVisible(): boolean {
+    const mode = chatMode()
+    if (mode === 'panel') return chatOpen
+    if (mode === 'swap') return room.dataset.mobileView === 'chat'
+    return true
+  }
+
+  let chatFace: 'chat' | 'call' | undefined = 'chat'
+  function paintChatFace(face: 'chat' | 'call'): void {
+    if (chatFace === face) return
+    chatFace = face
+    chat.querySelector(':scope > svg')?.remove()
+    chat.insertAdjacentHTML('afterbegin', face === 'chat' ? CHAT_ICON : CALL_ICON)
+    chatWord.textContent = face === 'chat' ? 'Chat' : 'Call'
+  }
+
+  // The one-line bar over the conversation on a phone, while on the call.
+  const chatBar = document.getElementById('callChatBar')!
+  const chatBarMic = document.getElementById('callChatBarMic')!
+  const micButton = document.getElementById('toggleMic')!
+  const syncChatBarMic = (): void => {
+    const on = micButton.dataset.on ?? 'false'
+    chatBarMic.dataset.on = on
+    chatBarMic.setAttribute('aria-pressed', on)
+  }
+  new MutationObserver(syncChatBarMic).observe(micButton, { attributes: true, attributeFilter: ['data-on'] })
+  syncChatBarMic()
+  chatBarMic.addEventListener('click', () => micButton.click())
+  document.getElementById('callChatBarReturn')!.addEventListener('click', () => {
+    showMobileRoomView('call')
+    renderChat()
+    chat.focus({ preventScroll: true })
+  })
+  document.getElementById('callChatBarLeave')!.addEventListener('click', () => document.getElementById('leaveCall')!.click())
+
   function renderChat(): void {
-    const state = chatOpen ? 'open' : 'closed'
-    if (root.dataset.callChat !== state) root.dataset.callChat = state
-    chat.setAttribute('aria-expanded', String(chatOpen))
+    const mode = chatMode()
+    chatBar.hidden = !(mode === 'swap' && room.dataset.mobileView === 'chat')
+    chat.hidden = mode === 'none'
+    if (mode === 'panel') {
+      const state = chatOpen ? 'open' : 'closed'
+      if (root.dataset.callChat !== state) root.dataset.callChat = state
+      chat.setAttribute('aria-expanded', String(chatOpen))
+      chat.removeAttribute('aria-pressed')
+      paintChatFace('chat')
+    } else if (mode === 'swap') {
+      // On the conversation, the button is the way back to the stage.
+      const showing = room.dataset.mobileView === 'chat'
+      chat.removeAttribute('aria-expanded')
+      chat.setAttribute('aria-pressed', String(showing))
+      paintChatFace(showing ? 'call' : 'chat')
+      if (showing) unread.read()
+    } else {
+      chat.removeAttribute('aria-expanded')
+      chat.removeAttribute('aria-pressed')
+      paintChatFace('chat')
+    }
     renderBadge()
   }
 
@@ -254,7 +346,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     agentBadge.hidden = agents === 0
     agentBadge.textContent = agents > 99 ? '99+' : String(agents)
     const parts = [people > 0 ? `${people} unread` : undefined, agents > 0 ? `${agents} from agents` : undefined].filter((p) => p !== undefined)
-    const label = parts.length === 0 ? 'Chat' : `Chat, ${parts.join(', ')}`
+    const label = chatFace === 'call' ? 'Call' : parts.length === 0 ? 'Chat' : `Chat, ${parts.join(', ')}`
     if (chat.getAttribute('aria-label') !== label) chat.setAttribute('aria-label', label)
   }
 
@@ -271,6 +363,18 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   }
 
   chat.addEventListener('click', () => {
+    if (chatMode() === 'focus') {
+      const input = document.getElementById('chatInput') as HTMLTextAreaElement | null
+      if (input && !input.disabled) input.focus()
+      return
+    }
+    if (chatMode() === 'swap') {
+      // The phone shows the stage or the conversation, one at a time.
+      showMobileRoomView(room.dataset.mobileView === 'chat' ? 'call' : 'chat')
+      renderChat()
+      chat.focus({ preventScroll: true })
+      return
+    }
     const focusWasInChat = document.activeElement?.closest(CHAT_REGION)
     setChatOpen(!chatOpen)
     if (chatOpen) {
@@ -428,7 +532,12 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   // Nothing to apply straight away: the room has no size worth measuring
   // until a call actually puts the layout into its row shape, and
   // `reflowDivider` (from `evaluate`, above) does that the moment it does.
-  new ResizeObserver(() => { if (active) reflowDivider() }).observe(room)
+  // The stage too: a banner over the call (a finished recording, a notice)
+  // pushes the stage down without resizing the room, and a divider left
+  // where the stage used to start would sit over that banner's buttons.
+  const dividerObserver = new ResizeObserver(() => { if (active) reflowDivider() })
+  dividerObserver.observe(room)
+  dividerObserver.observe(stage)
 
   // --- Full screen ------------------------------------------------------------
 
@@ -439,7 +548,9 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   document.addEventListener('fullscreenchange', () => {
     const on = document.fullscreenElement === workspace
     full.setAttribute('aria-pressed', String(on))
-    full.innerHTML = on ? EXIT_FULL_SCREEN_ICON : FULL_SCREEN_ICON
+    full.querySelector(':scope > svg')?.remove()
+    full.insertAdjacentHTML('afterbegin', on ? EXIT_FULL_SCREEN_ICON : FULL_SCREEN_ICON)
+    fullWord.textContent = on ? 'Exit' : 'Full screen'
     full.title = on ? 'Leave full screen (Escape)' : 'Full screen'
     root.toggleAttribute('data-call-fullscreen', on)
     evaluate()
@@ -450,43 +561,32 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   function items(): HTMLElement[] {
     return [...controls.querySelectorAll<HTMLElement>(BAR_ITEMS)]
       .filter(item => item.getClientRects().length > 0 && !(item as HTMLButtonElement).disabled)
-      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+      .sort((a, b) => {
+        // A row reads left to right, a column (the end edge of a short
+        // landscape phone) top to bottom.
+        const from = a.getBoundingClientRect(), to = b.getBoundingClientRect()
+        return Math.abs(from.top - to.top) > Math.abs(from.left - to.left) ? from.top - to.top : from.left - to.left
+      })
+  }
+
+  /** The bar is a column: its first two buttons share a left edge. */
+  function vertical(list: HTMLElement[]): boolean {
+    if (list.length < 2) return false
+    const a = list[0].getBoundingClientRect(), b = list[1].getBoundingClientRect()
+    return Math.abs(a.left - b.left) < Math.abs(a.top - b.top)
   }
 
   controls.addEventListener('keydown', event => {
-    if (!active || event.altKey || event.ctrlKey || event.metaKey) return
+    if (!barOn || event.altKey || event.ctrlKey || event.metaKey) return
     const target = event.target as HTMLElement
-    if (event.key === 'Escape') {
-      const menu = target.closest<HTMLDetailsElement>('#callExtras')
-      if (menu?.open) {
-        event.preventDefault()
-        menu.open = false
-        menu.querySelector<HTMLElement>(':scope > summary')?.focus()
-      }
-      return
-    }
     const list = items()
     const index = list.indexOf(target)
     if (index === -1) return
-    const next = toolbarMove(event.key, index, list.length)
+    const next = toolbarMove(event.key, index, list.length, vertical(list))
     if (next === undefined) return
     event.preventDefault()
     list[next].focus()
   })
-
-  // Choosing a view is the whole errand: More goes, and focus goes back to
-  // where it came from. The options below it stay open.
-  viewSection.addEventListener('click', event => {
-    if (!extras || !(event.target as Element).closest('.callViewChoice button')) return
-    extras.open = false
-    extras.querySelector<HTMLElement>(':scope > summary')?.focus({ preventScroll: true })
-  })
-
-  // A click elsewhere puts More away.
-  document.addEventListener('pointerdown', event => {
-    if (!active || !extras?.open) return
-    if (!extras.contains(event.target as Node)) extras.open = false
-  }, true)
 
   // Escape in the conversation goes back to the bar, once nothing in the
   // conversation itself wanted it: the message list and the composer both
@@ -502,7 +602,10 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   // --- What makes it look again ---------------------------------------------
 
   new MutationObserver(evaluate).observe(root, { attributes: true, attributeFilter: ['data-call-docked', 'data-call-pane'] })
+  // The phone's stage and conversation swap, however it was asked for.
+  new MutationObserver(() => { if (barOn) renderChat() }).observe(room, { attributes: true, attributeFilter: ['data-mobile-view'] })
   window.addEventListener('resize', evaluate)
+  compact.addEventListener('change', evaluate)
   if (bar) {
     const observer = new ResizeObserver(() => { if (active) measure() })
     for (const element of [bar, ...roomHeaders]) observer.observe(element)
@@ -518,7 +621,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     },
     noteMessages(scope, ids, agentIds = []) {
       const before = unread.count
-      const count = unread.update(scope, ids, !active || chatOpen, agentIds)
+      const count = unread.update(scope, ids, chatVisible(), agentIds)
       if (count !== before) {
         renderBadge()
         if (count > before) announce.textContent = unreadAnnouncement(count)

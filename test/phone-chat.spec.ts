@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { TEST_RELAY_WS, setTextSize } from './browser.js'
+import { TEST_RELAY_WS, setTextSize, showCallStage, showCallConversation, openCallMore } from './browser.js'
 
 // Somebody on a phone during a live call could not read the chat. These are
 // the measurements that were wrong, taken the way that person met them: a
@@ -194,42 +194,49 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
     await expect.poll(() => remote.locator('#room video').evaluateAll(v => v.every(e => (e as HTMLVideoElement).videoWidth > 0))).toBe(true)
     for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
       await page.setViewportSize(viewport)
-      await page.locator('#mobileCall').click()
+      await showCallStage(page)
       await expect(page.locator('#room video')).toHaveCount(2)
       await expect.poll(() => page.locator('#room video').evaluateAll(videos => videos.every(video => !(video as HTMLVideoElement).paused && (video as HTMLVideoElement).videoWidth > 0))).toBe(true)
       await expect(page.locator('#chatForm')).toBeHidden()
       const stage = (await page.locator('#whoIsHere').boundingBox())!
       expect(stage.height).toBeGreaterThan(viewport.height * .45)
-      for (const name of ['Microphone', 'Camera', 'Screen share', 'Record call', 'Leave call']) {
-        // The header's own call button is also named Leave call while on one.
-        await expect(name === 'Leave call' ? page.locator('#leaveCall') : page.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
+      // The bar: a picture with its word under it on each, Share only where
+      // it fits (a phone's menu has Share screen), and Record in More.
+      for (const id of ['toggleMic', 'toggleCamera', 'callChatToggle', 'callExtras', 'leaveCall', ...(viewport.width >= 600 ? ['toggleScreen'] : [])]) {
+        await expect(page.locator(`#${id}`)).toBeInViewport({ ratio: 1 })
+        expect((await page.locator(`#${id}`).innerText()).trim().length, `#${id} says its word under its picture`).toBeGreaterThan(0)
       }
-      await expect(page.locator('#recordToggle .callShort')).toBeVisible()
-      await expect(page.locator('#recordToggle .callShort')).toHaveText('Record')
       await expect(page.locator('#recordToggle')).toBeEnabled()
       await expect(page.locator('#recordingAuthorityHint')).toBeHidden()
+      // Only one Leave on screen.
+      await expect(page.getByRole('button', { name: 'Leave call', exact: true }).and(page.locator(':visible'))).toHaveCount(1)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.screenshot({ path: info.outputPath(`call-${viewport.width}.png`) })
-      await page.locator('#mobileChat').click()
+      await showCallConversation(page)
       await expect(page.locator('#callStage')).toBeHidden()
+      // On the conversation the call is one line over it: Mic, Return, Leave.
+      await expect(page.locator('#callChatBar')).toBeVisible()
+      await expect(page.locator('#callChatBar')).toContainText('On the call')
+      await expect(page.locator('#callChatBarReturn')).toBeVisible()
+      await expect(page.locator('#leaveCall')).toBeHidden()
       await expect(page.locator('#chatForm')).toBeVisible()
       await page.screenshot({ path: info.outputPath(`chat-${viewport.width}.png`) })
       const log = (await page.locator('#chatLog').boundingBox())!
       expect(log.height).toBeGreaterThan(viewport.height * .45)
       await page.locator('#chatInput').fill('The call stays on while I write this.')
       await page.locator('#chatForm button[type=submit]').click()
-      await remote.locator('#mobileChat').click()
+      await showCallConversation(remote)
       await expect(remote.locator('#chatLog')).toContainText('The call stays on while I write this.')
       await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
       await page.screenshot({ path: info.outputPath(`chat-${viewport.width}.png`) })
     }
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.locator('#mobileCall').click()
+    await showCallStage(page)
     const before = await page.locator('#whoIsHere').boundingBox()
-    await page.locator('#callExtras > summary').click()
-    await expect(page.locator('#mobileCallSettings')).toBeVisible()
-    await expect(page.locator('#callMore > summary')).toBeVisible()
-    await page.locator('#mobileCallSettingsClose').click()
+    await openCallMore(page)
+    await expect(page.locator('#callMoreMenu')).toContainText('Effects…')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#callExtras')).toBeFocused()
     expect(await page.locator('#whoIsHere').boundingBox()).toEqual(before)
     // M13: Leave used to be plain on a phone and red only in the desktop
     // build. Every width gets the same danger fill now.
