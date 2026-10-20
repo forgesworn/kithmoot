@@ -780,6 +780,7 @@
           <button id="signOut" type="button" hidden>Sign out</button>
           <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>Start public message</button>
           <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
+          <button id="nostrAccountInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
           <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
           <button id="legacyMessagesEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="legacyMessagesDialog" hidden>Legacy messages</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
@@ -1658,7 +1659,7 @@
       <div class="sheetBar"><h2 id="nostrInboxTitle">Nostr messages</h2><button id="nostrInboxClose" type="button" autofocus>Close</button></div>
       <div class="sheetBody">
         <p class="nostrMessageWarning">○ public</p>
-        <p id="nostrInboxHelp" class="note">Ordinary Nostr messages use published inbox relays outside your sheltered conversations. Message content stays encrypted. Choose Open message to ask your signer; text and links are displayed literally.</p>
+        <p id="nostrInboxHelp" class="note">Messages and invitations stay encrypted until you choose Open message and ask your signer. Ordinary text and links are displayed literally. Verified invitations can be reviewed in Chats; opening a copy does not join a room. The relay check selected below is outside your sheltered conversations.</p>
         <p class="note">This device keeps up to 128 original encrypted copies, within a 2 MiB limit. Closing clears opened text from this view. Saved copies can be reopened after restart with the same account and signer. They do not prove delivery or read status, and older copies may leave this device’s cache. Forget this browser removes these local copies; relay copies are separate.</p>
         <button id="nostrInboxLoad" type="button">Load messages</button>
         <p id="nostrInboxStatus" class="note" role="status" aria-live="polite"></p>
@@ -1715,6 +1716,8 @@
         <ul id="signetGrantedContacts" class="messageContacts"></ul>
         <p id="contactInboxStatus" class="note" role="status"></p>
         <button id="contactInboxRetry" type="button" hidden>Retry pending invitations</button>
+        <button id="contactInboxCheck" type="button" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
+        <p class="note">To find older invitations on your configured account relays, leave any room or call, then choose Check invitations on account relays. Load and open copies explicitly. Nostr messages in Settings uses your published inbox relays.</p>
         <h3 id="contactInvitesHeading" class="sheetHead" hidden>Private conversation requests</h3>
         <ul id="contactInvites" class="messageContacts"></ul>
       </div>

@@ -5,14 +5,20 @@ import type { DeviceStore } from './device-store.js'
 import type { OrdinaryHistoryLock } from './nostr-message-history.js'
 import { NostrMessageInbox } from './nostr-message-inbox.js'
 import { ordinaryMessageDecrypt } from './nostr-message-receive-signer.js'
+import type { OpenedInvitation } from './nostr-opened-message.js'
+
+export type AccountInboxSource = 'inbox' | 'account'
 
 interface Options {
   account(): SignetSession | undefined; epoch(): number; eligible(): boolean; blocked(peer: string): boolean
   store: DeviceStore; acquire: OrdinaryHistoryLock
-  receive(account: SignetSession, current: () => boolean): Promise<Pick<RelayTransport, 'subscribe' | 'close'>>
+  receive(account: SignetSession, current: () => boolean, source: AccountInboxSource): Promise<Pick<RelayTransport, 'subscribe' | 'close'>>
+  keepInvitation(account: SignetSession, token: OpenedInvitation, current: () => boolean): Promise<boolean>
+  reviewInvitation(account: SignetSession, id: string): void
   reply(peer: string, parent: string): void
 }
-/** Account-only ordinary Nostr view, separate from room invitation handling. */
+/** Explicit account receive view. Verified invitations are retained in the
+ * existing journal; joining and dismissal remain separate Chats actions. */
 export class NostrMessageInboxPanel {
   #dialog: HTMLDialogElement
   #load: HTMLButtonElement
@@ -23,6 +29,7 @@ export class NostrMessageInboxPanel {
   #generation = 0
   #inbox?: NostrMessageInbox
   #return?: HTMLElement
+  #source: AccountInboxSource = 'inbox'
   constructor(private readonly root: Document, private readonly options: Options) {
     this.#dialog = root.getElementById('nostrInboxDialog') as HTMLDialogElement
     this.#load = root.getElementById('nostrInboxLoad') as HTMLButtonElement
@@ -36,19 +43,25 @@ export class NostrMessageInboxPanel {
   }
   get available(): boolean { try { return !!this.options.account() && this.options.eligible() } catch { return false } }
   #current = () => this.#dialog.open && this.available && this.#account === this.options.account() && this.#epoch === this.options.epoch()
-  show(returnFocus: HTMLElement): void {
+  show(returnFocus: HTMLElement, source: AccountInboxSource = 'inbox'): void {
     this.close()
     if (!this.available) return
     this.#account = this.options.account(); this.#epoch = this.options.epoch(); this.#return = returnFocus
-    this.#status.textContent = 'Choose Load messages to reopen saved encrypted copies and read your published Nostr inbox relays.'
+    this.#source = source
+    this.#load.textContent = source === 'account' ? 'Load account messages' : 'Load messages'
+    this.#status.textContent = source === 'account'
+      ? 'Account relay check. Choose Load account messages to read your configured account relays for older messages and invitations. This does not use or replace your published Nostr inbox list.'
+      : 'Choose Load messages to reopen saved encrypted copies and read your published Nostr inbox relays.'
     this.#load.disabled = false; this.#dialog.showModal()
   }
   #start(): void {
     if (!this.#current()) return
     this.#inbox?.close()
     const generation = ++this.#generation, account = this.#account!
+    const source = this.#source
     const inbox = new NostrMessageInbox({ account: account.pubkey, store: this.options.store, acquire: this.options.acquire,
-      receive: current => this.options.receive(account, current), decrypt: ordinaryMessageDecrypt(account, this.options.account),
+      receive: current => this.options.receive(account, current, source), decrypt: ordinaryMessageDecrypt(account, this.options.account),
+      keepInvitation: (token, current) => this.options.keepInvitation(account, token, current),
       current: () => generation === this.#generation && this.#current(), blocked: this.options.blocked,
       changed: () => this.reconcile(), failed: () => this.close() })
     this.#inbox = inbox
@@ -64,8 +77,8 @@ export class NostrMessageInboxPanel {
     const state = this.#inbox?.snapshot()
     if (!state) return
     this.#load.disabled = state.loading || state.busy
-    this.#load.textContent = 'Refresh messages'
-    this.#status.textContent = state.status + (state.limited ? ' This view or saved-copy limit was reached; older encrypted copies may no longer be kept on this device.' : '')
+    this.#load.textContent = this.#source === 'account' ? 'Refresh account messages' : 'Refresh messages'
+    this.#status.textContent = (this.#source === 'account' ? 'Account relay check. ' : 'Published inbox relay check. ') + state.status + (state.limited ? ' This view or saved-copy limit was reached; older encrypted copies may no longer be kept on this device.' : '')
     // Reuse stable rows: provider-status changes must not remove keyboard focus.
     const keep = new Set(state.messages.map(row => row.copy))
     // Remove revoked/expired plaintext before any later row rendering can fail.
@@ -90,15 +103,25 @@ export class NostrMessageInboxPanel {
           const parent = selected!.message!.id
           this.close(); this.options.reply(peer, parent)
         })
-        item.append(author, status, text, open, reply); this.#list.append(item)
+        const review = this.root.createElement('button'); review.type = 'button'; review.className = 'ordinaryInvitationReview'; review.textContent = 'Review invitation in Chats'
+        review.addEventListener('click', event => {
+          if (!event.isTrusted || !this.#current()) return
+          const selected = this.#inbox?.snapshot().messages.find(entry => entry.copy === row.copy)?.invitation
+          const account = this.#account
+          if (!account || !selected?.kept || [selected.sender, selected.recipient].some(peer => peer !== account.pubkey && this.options.blocked(peer))) return
+          this.close(); this.options.reviewInvitation(account, selected.id)
+        })
+        item.append(author, status, text, open, reply, review); this.#list.append(item)
       }
-      const message = row.message
-      item.querySelector('.ordinaryMessageAuthor')!.textContent = message ? `${message.author === this.#account!.pubkey ? 'You' : npubEncode(message.author)} · ${new Date(message.sentAt * 1000).toLocaleString()}` : 'Encrypted message copy'
-      item.querySelector('.ordinaryMessageStatus')!.textContent = row.status === 'opened'
+      const message = row.message, invitation = row.invitation, author = message?.author ?? invitation?.sender, at = message?.sentAt ?? invitation?.sentAt
+      item.querySelector('.ordinaryMessageAuthor')!.textContent = author ? `${author === this.#account!.pubkey ? 'You' : npubEncode(author)} · ${new Date(at! * 1000).toLocaleString()}` : 'Encrypted message or invitation copy'
+      item.querySelector('.ordinaryMessageStatus')!.textContent = invitation
+        ? invitation.kept ? 'Conversation invitation kept. Review it in Chats to open or dismiss it. No room has been joined.' : 'This invitation was already dismissed. It has not been restored.'
+        : row.status === 'opened'
         ? '○ public. Message copy; this history does not record delivery or read receipts.' + (message!.members.length > 2 ? ' Group text; group replies are not available here.' : '')
         : row.status === 'opening' ? 'Waiting for your signer…'
         : row.status === 'unavailable' ? 'Use a compatible browser extension to open ordinary Nostr messages here.'
-        : row.status === 'refused' ? 'This copy could not be opened as available ordinary text. Your signer may have refused, or the message may be blocked, expired, unsupported or an invitation.'
+        : row.status === 'refused' ? 'This copy could not be opened or kept. Your signer or invitation journal may be unavailable, or the copy may be blocked, expired or unsupported.'
         : 'Encrypted. Choose Open message to ask your signer.'
       const text = item.querySelector('.ordinaryMessageText') as HTMLElement
       text.textContent = message?.text ?? ''; text.hidden = !message
@@ -108,12 +131,16 @@ export class NostrMessageInboxPanel {
       open.hidden = row.status === 'opened' || row.status === 'unavailable'; open.disabled = state.busy
       const reply = item.querySelector('.ordinaryMessageReply') as HTMLButtonElement
       reply.hidden = !message?.peer; reply.disabled = state.busy
+      const review = item.querySelector('.ordinaryInvitationReview') as HTMLButtonElement
+      review.hidden = !invitation?.kept; review.disabled = state.busy
       if (focused && message) text.focus({ preventScroll: true })
+      else if (focused && invitation?.kept) review.focus({ preventScroll: true })
+      else if (focused && invitation) this.#load.focus({ preventScroll: true })
     }
   }
   close(restoreFocus = false): void {
     ++this.#generation; this.#inbox?.close(); this.#inbox = undefined
-    this.#account = undefined
+    this.#account = undefined; this.#source = 'inbox'
     for (const text of this.#list.querySelectorAll('.ordinaryMessageText')) text.textContent = ''
     this.#list.replaceChildren(); this.#status.textContent = ''; this.#load.textContent = 'Load messages'
     const focus = this.#return; this.#return = undefined

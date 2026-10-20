@@ -6,13 +6,19 @@ import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 /** A test NIP-07 provider: signing keys stay in Node, never in the app. */
 export async function accountDevice(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {},
   nip04?: { decrypt(peer: string, ciphertext: string): Promise<string>; encrypt(peer: string, text: string): Promise<string> },
-  effects?: { encrypt(peer: string, text: string): Promise<string>; sign(template: EventTemplate): Promise<Event> }): Promise<BrowserContext> {
+  effects?: { encrypt(peer: string, text: string): Promise<string>; sign(template: EventTemplate): Promise<Event> },
+  receiving?: { started?(peer: string, ciphertext: string): void; decrypt?(peer: string, ciphertext: string): Promise<string> }): Promise<BrowserContext> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const pubkey = getPublicKey(secret)
   await context.exposeFunction('testPublicKey', async () => { await beforePublicKey(); return pubkey })
   await context.exposeFunction('testSign', (template: EventTemplate) => effects ? effects.sign(template) : finalizeEvent(template, secret))
   await context.exposeFunction('testEncrypt', (peer: string, plaintext: string) => effects ? effects.encrypt(peer, plaintext) : encrypt(plaintext, getConversationKey(secret, peer)))
-  await context.exposeFunction('testDecrypt', (peer: string, ciphertext: string) => decrypt(ciphertext, getConversationKey(secret, peer)))
+  await context.exposeFunction('testDecrypt', (peer: string, ciphertext: string) => {
+    // Observe invocation before key derivation/decryption, including refusals.
+    // Optional delays substitute only this declared synthetic provider.
+    receiving?.started?.(peer, ciphertext)
+    return receiving?.decrypt ? receiving.decrypt(peer, ciphertext) : decrypt(ciphertext, getConversationKey(secret, peer))
+  })
   if (nip04) {
     await context.exposeFunction('testLegacyDecrypt', (peer: string, ciphertext: string) => nip04.decrypt(peer, ciphertext))
     await context.exposeFunction('testLegacyEncrypt', (peer: string, text: string) => nip04.encrypt(peer, text))

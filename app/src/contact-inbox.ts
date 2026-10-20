@@ -2,10 +2,11 @@ import { base64 } from '@scure/base'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
 import { encryptEnvelope, decryptEnvelope } from '../../src/attachment.js'
-import { contactInvitationRumor, readContactInvitation, isContactInvitationWrap, unwrapContactInvitation, wrapContactInvitation,
+import { contactInvitationRumor, readContactInvitation, isContactInvitationWrap, wrapContactInvitation,
   type ContactInvitation, type ContactInvitationIdentity, type ContactInvitationRumor } from '../../src/contact-invitation.js'
 import { normaliseRelayConfig, type RelayTransport } from '../../src/relay-pool.js'
 import type { DeviceStore } from './device-store.js'
+import { openedInvitationRumor, type OpenedInvitation } from './nostr-opened-message.js'
 
 interface StoredInvitation { rumor: ContactInvitationRumor; dismissed: boolean }
 interface Pending { outer: Event; recipient: string; peer: string; relays: string[]; invitation: string }
@@ -24,15 +25,13 @@ export class ContactInbox {
   #sealedKey?: string
   #ready = false
   #closed = false
-  #off?: () => void
   #release?: () => void
   #tail: Promise<unknown> = Promise.resolve()
   #publishing = false
-  #queued = 0
-  #seen = new Set<string>()
   #error?: string
+  #head: string | null = null
   constructor(readonly options: {
-    identity: ContactInvitationIdentity; store: DeviceStore; transport: RelayTransport
+    identity: ContactInvitationIdentity; store: DeviceStore
     acquire(key: string): Promise<() => void>
     pool(relays: string[]): RelayTransport
     current(): boolean; allowed(peer: string): boolean; blocked(peer: string): boolean
@@ -49,8 +48,10 @@ export class ContactInbox {
       .filter(entry => !this.options.blocked(entry.sender === self ? entry.recipient : entry.sender)),
       pending: this.#journal.pending.map(entry => ({ id: entry.invitation, peer: entry.peer })), ...(this.#error ? { error: this.#error } : {}) }
   }
-  async #save(next: Journal): Promise<void> {
+  async #save(next: Journal, current: () => boolean = () => true): Promise<void> {
     this.#live()
+    if (!current()) throw new ContactInboxError('Invitation opening is no longer current.')
+    if (this.options.store.get(this.key) !== this.#head) throw new ContactInboxError('Your invitation cache changed in another view. Reopen Contacts.')
     if (!this.#key || !this.#sealedKey) throw new ContactInboxError('Wait for your private inbox to open.')
     next = { ...next, dismissed: [...new Set([...next.dismissed, ...next.invitations.filter(entry => entry.dismissed).map(entry => entry.rumor.id)])].slice(-2048),
       invitations: next.invitations.filter(entry => !entry.dismissed) }
@@ -58,7 +59,11 @@ export class ContactInbox {
     if (source.length > MAX_JOURNAL) throw new ContactInboxError('Your invitation inbox is full. Dismiss older invitations first.')
     const sealed = encryptEnvelope(source, { name: 'private-invitations.json', type: 'application/json' }, { key: this.#key, maxSourceBytes: MAX_JOURNAL })
     this.#live()
-    this.options.store.set(this.key, JSON.stringify({ v: 1, account: this.options.identity.pubkey, key: this.#sealedKey, body: base64.encode(sealed.envelope) }))
+    if (!current()) throw new ContactInboxError('Invitation opening is no longer current.')
+    if (this.options.store.get(this.key) !== this.#head) throw new ContactInboxError('Your invitation cache changed in another view. Reopen Contacts.')
+    const saved = JSON.stringify({ v: 1, account: this.options.identity.pubkey, key: this.#sealedKey, body: base64.encode(sealed.envelope) })
+    this.options.store.set(this.key, saved)
+    this.#head = saved
     this.#journal = next
     this.options.changed()
   }
@@ -68,6 +73,7 @@ export class ContactInbox {
       if (!this.#current()) { release(); return }
       this.#release = release
       const raw = this.options.store.get(this.key), self = this.options.identity.pubkey
+      this.#head = raw
       if (raw) {
         if (raw.length > MAX_JOURNAL * 3) throw new ContactInboxError('Your invitation cache exceeds its limit.')
         const saved = JSON.parse(raw)
@@ -94,23 +100,28 @@ export class ContactInbox {
         this.#live()
         await this.#save(this.#journal)
       }
+      // Journal restoration is not permission to decrypt arriving wrappers.
+      // Incoming text/invitations share the separate explicit account receiver.
       this.#live(); this.#ready = true
-      this.#off = this.options.transport.subscribe([{ kinds: [1059], '#p': [self], since: Math.max(0, this.#now() - 32 * 86400), limit: 256 }], event => {
-        if (!this.#current() || this.#seen.has(event.id) || this.#queued >= 64 || !isContactInvitationWrap(event, self, this.#now())) return
-        this.#seen.add(event.id)
-        if (this.#seen.size > 2048) this.#seen.delete(this.#seen.values().next().value!)
-        this.#queued++
-        void this.#serial(async () => {
-          if (!this.#current()) return
-          const rumor = await unwrapContactInvitation(event, this.options.identity, this.#now())
-          if (!this.#current() || !rumor || this.options.blocked(rumor.pubkey === self ? rumor.tags[0]![1]! : rumor.pubkey)
-            || this.#journal.dismissed.includes(rumor.id) || this.#journal.invitations.some(entry => entry.rumor.id === rumor.id)) return
-          if (this.#journal.invitations.length >= 256) throw new ContactInboxError('Your invitation inbox is full. Dismiss older invitations first.')
-          await this.#save({ ...this.#journal, invitations: [...this.#journal.invitations, { rumor, dismissed: false }] })
-        }).catch(error => { this.#seen.delete(event.id); this.#fail(error) }).finally(() => { this.#queued-- })
-      })
       this.options.changed()
     } catch (error) { this.#ready = false; this.#fail(error); this.#release?.(); this.#release = undefined }
+  }
+  async keepOpenedInvitation(token: OpenedInvitation, current: () => boolean): Promise<boolean> {
+    return this.#serial(async () => {
+      const self = this.options.identity.pubkey
+      const bound = () => openedInvitationRumor(token, self, this.#now(), current)
+      const live = () => {
+        const rumor = bound()
+        return this.#current() && this.#ready && !!rumor && !this.options.blocked(rumor.pubkey === self ? rumor.tags[0]![1]! : rumor.pubkey)
+      }
+      if (!live()) throw new ContactInboxError('This invitation is no longer available to keep.')
+      const rumor = bound()!
+      if (this.#journal.dismissed.includes(rumor.id)) return false
+      if (this.#journal.invitations.some(entry => entry.rumor.id === rumor.id)) return true
+      if (this.#journal.invitations.length >= 256) throw new ContactInboxError('Your invitation inbox is full. Dismiss older invitations first.')
+      await this.#save({ ...this.#journal, invitations: [...this.#journal.invitations, { rumor, dismissed: false }] }, live)
+      return true
+    })
   }
   #fail(error: unknown): void {
     if (!this.#current()) return
@@ -173,7 +184,7 @@ export class ContactInbox {
     })
   }
   close(): void {
-    this.#closed = true; this.#ready = false; this.#off?.(); this.#off = undefined; this.options.transport.close()
+    this.#closed = true; this.#ready = false
     // Hold the writer fence until delayed operations observe cancellation.
     void this.#tail.finally(() => { this.#key?.fill(0); this.#key = undefined; this.#release?.(); this.#release = undefined })
   }

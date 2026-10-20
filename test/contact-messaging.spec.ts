@@ -3,7 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { parseRoomLink } from '../src/link.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { TEST_RELAY_WS } from './browser.js'
+import { TEST_RELAY_WS, openSettings } from './browser.js'
 import { shareContacts } from './contacts-grant.js'
 
 
@@ -35,6 +35,15 @@ test('Signet contacts start a private conversation without a shared room, delive
     // Alice is offline too. Bob has never loaded this app or joined a room.
     const bob = await bc.newPage(); await signInAccount(bob, baseURL!)
     const invitations = bob.getByRole('navigation', { name: 'Chats' }).locator('li[data-invitation]')
+    // Account restoration never opens arriving wrappers. Bob chooses to load
+    // and classify the invitation before using the existing room controls.
+    await expect(invitations).toHaveCount(0)
+    await openSettings(bob, 'Account'); await bob.locator('#nostrInboxEntry').click()
+    await bob.locator('#nostrInboxLoad').click()
+    await bob.locator('.ordinaryMessageOpen').click()
+    await expect(bob.locator('.ordinaryInvitationReview')).toBeVisible()
+    await expect(bob.locator('#roomArea')).toBeHidden()
+    await bob.locator('.ordinaryInvitationReview').click()
     await expect(invitations).toHaveCount(1)
     await bob.screenshot({ path: test.info().outputPath('contacts-phone.png') })
     await invitations.locator('button[data-action="accept"]').click()

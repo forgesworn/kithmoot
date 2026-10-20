@@ -123,8 +123,8 @@ wrapper, verifies the signed kind-13 seal, checks the author against block polic
 then explicitly decrypts and validates the unsigned kind-14 text. Each SDK start
 and handoff rechecks account, view, method, expiry and provider boundary. The
 rumor author must match the seal author; its canonical ID and participants must
-be valid for this account. Application invitations remain in their existing
-invitation flow. No invitation marker or room link is required for ordinary text.
+be valid for this account. The same explicit operation classifies valid encrypted application invitations
+and passes them to the existing invitation journal and Chats controls. No invitation marker or room link is required for ordinary text.
 Opened content uses literal text nodes: no links, media, previews or fetching.
 Verified duplicate rumors share one displayed message. Expired or newly blocked
 opened text is removed. Close, navigation, sign-out and account/room transitions
@@ -170,3 +170,67 @@ MLS and protected member UI remain disabled.
 Protocol references: [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md)
 and [NIP-59](https://github.com/nostr-protocol/nips/blob/master/59.md). UI wording
 follows Vennel's existing `docs/brand-voice-states.md` separate-public state.
+
+
+## Shared explicit invitation receive
+
+The account invitation journal no longer creates a relay transport, discovers
+inbox lists or subscribes to arriving wrappers at sign-in. It retains its v1
+encrypted invitations, dismissed IDs and exact pending-send envelopes. Restoring
+an existing journal asks the existing signer to unwrap its self-sealed storage
+key; that is distinct from opening an arriving kind-1059 message. Unknown or
+invalid journals are not reset. A changed saved head refuses a later write.
+
+**Load messages** still uses only the account's signed published inbox list.
+**Check invitations on account relays**, available in Settings → Account and
+the existing Contacts sheet outside rooms/calls, is a separate explicit choice.
+Opening either dialog does no I/O. **Load account messages** reads configured
+account read relays; it neither replaces a missing published inbox list nor
+creates additional relay-authentication grants. The view labels the chosen
+source. Both checks retain original encrypted copies in the same bounded cache.
+
+Neither relay receipt nor saved-copy restoration decrypts a message. An explicit
+**Open message** uses the same guarded two-layer opener for ordinary text and
+invitations. A canonical, authenticated kind-14 with a valid encrypted invitation
+marker is checked by the existing strict contact-invitation decoder. A malformed
+marker is refused, never displayed as ordinary text. An ordinary message needs
+no invitation marker, capability or room link.
+
+Only the opener can mint an invitation token. Its private binding includes the
+exact account, wrapper, canonical rumor and originating view/block/expiry guard.
+Journal adoption resolves that binding when queued work starts and immediately
+before persistence. A fabricated, wrong-account, cancelled or expired token
+cannot create a row. Saving retains existing deduplication and dismissal rules;
+there is no new signing, encryption or room-membership authority in the receiver.
+
+The opened invitation row offers **Review invitation in Chats**. Existing saved
+requests still load in Chats and retain their existing open/join/dismiss controls.
+Opening a received copy does not join a room. The receive pane displays invitation
+metadata only; its room link is retained inside the encrypted invitation journal.
+Pending invitation sends still use their exact saved envelopes and existing
+explicit retry controls. A dismissed invitation is not resurrected by reopening
+another copy.
+
+This new receive/classification implementation currently exposes only the guarded
+NIP-07 path. Other signer methods cannot open newly arriving invitation copies
+through this pane yet. Their existing stored invitations, journal key custody and
+outgoing controls are retained; that does not establish incoming feature parity.
+Additional signer paths remain required work, with their actual provider start
+and handoff checks, before broader support can be claimed.
+
+Written regression source composes the real inbox and journal with real NIP-59
+crypto. It covers no arrival decrypt, two explicit decrypts per type, unopened
+sender copies, malformed markers, opaque-token/account/view/block/expiry refusal,
+pending inner cancellation, serial adoption behind an outbox write, changed
+storage heads and old v1 journal restoration. Existing exact-envelope retry and
+dismiss/restart cases remain. Registered browser source exercises ordinary-layer
+invocation starts, the separate account-relay choice, existing offline invitation
+join/reply controls, pending-inner close and two-tab history writer exclusion.
+The provider and loopback relay remain declared synthetic fixtures.
+
+These changes are source only. No local dependency install, typecheck, unit test,
+build or browser execution has been performed. External-client C05 source still
+pins the older known-conflicting candidate; selecting this fix needs an explicit
+pin reconciliation and review before future qualification. Earlier frozen
+qualification sources, dispatchers and allowances are unchanged. No runtime,
+merge, release, physical or full-profile acceptance is inferred.

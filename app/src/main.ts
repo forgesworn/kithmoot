@@ -1048,6 +1048,7 @@ function reconcileAccountMessageViews(): void {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
   ;($('nostrMessageEntry') as HTMLButtonElement).disabled = !nostrMessagePanel?.available
   ;($('nostrInboxEntry') as HTMLButtonElement).disabled = !nostrInboxPanel?.available
+  ;($('nostrAccountInboxEntry') as HTMLButtonElement).disabled = !nostrInboxPanel?.available
   $('nostrMessageAvailability').hidden = !nostrSession || nostrMessagePanel?.available === true
   nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
 }
@@ -3084,13 +3085,9 @@ async function startContactInbox(account: SignetSession): Promise<void> {
   const generation = contactInboxGeneration, crypt = account.signer.nip44
   if (!crypt) { contactInboxMessage = 'This signer cannot open private invitations. Use a signer with encryption support.'; renderContactInbox(); return }
   try {
-    const defaults = relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)
-    const lists = await lookUpDmRelayLists([account.pubkey], defaults)
-    if (generation !== contactInboxGeneration || nostrSession !== account) return
-    const targets = distinctRelays([...latestDmRelayList(lists, account.pubkey), ...defaults]).slice(0, 12)
     const inbox = new ContactInbox({ identity: { pubkey: account.pubkey,
       signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) },
-      store: deviceStore, transport: relayConnections.pool('contact-inbox', targets),
+      store: deviceStore,
       acquire: async key => {
         if (!navigator.locks) throw new Error('This browser cannot safely coordinate private invitations between tabs.')
         return new Promise<() => void>((resolve, reject) => {
@@ -3134,6 +3131,8 @@ function renderContactInbox(): void {
   $('contactInboxStatus').textContent = contactInboxMessage || state?.error || (!self ? 'Sign in to message your contacts.'
     : !state?.ready ? 'Opening your private invitation inbox…' : state.pending.length ? 'Some invitations are not confirmed. They are kept encrypted on this device; retry when connected.' : '')
   $('contactInboxRetry').hidden = !self || state?.ready === true && !state.pending.length && !state.error
+  $('contactInboxCheck').hidden = !self
+  ;($('contactInboxCheck') as HTMLButtonElement).disabled = !canCheckAccountMessages()
   const list = $('contactInvites')
   const previous = new Map([...list.querySelectorAll<HTMLLIElement>('li')].map(row => [row.dataset.invitation, row]))
   let index = 0
@@ -3235,6 +3234,7 @@ function renderIdentity(): void {
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
   $('nostrMessageEntry').hidden = nostrSession === undefined
   $('nostrInboxEntry').hidden = nostrSession === undefined
+  $('nostrAccountInboxEntry').hidden = nostrSession === undefined
   $('legacyMessagesEntry').hidden = nostrSession === undefined
   reconcileAccountMessageViews()
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
@@ -16412,9 +16412,11 @@ const ONE_PANE_SETTINGS = window.matchMedia('(max-width: 899px)')
 
 /** Public compatibility views belong to the ordinary Account page. A pane
  * or destination change invalidates them just like an account/room transition. */
+function canCheckAccountMessages(): boolean {
+  return !!nostrSession && legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy
+}
 function accountMessageViewEligible(): boolean {
-  return currentDestination() === 'settings' && settingsPage === 'account' &&
-    legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy
+  return currentDestination() === 'settings' && settingsPage === 'account' && canCheckAccountMessages()
 }
 function acquireOrdinaryMessageHistory(key: string): Promise<() => void> {
   if (!navigator.locks) return Promise.reject(Error('This browser cannot coordinate saved message copies.'))
@@ -16474,7 +16476,16 @@ nostrMessagePanel = new NostrMessagePanel(document, {
 nostrInboxPanel = new NostrMessageInboxPanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration, eligible: accountMessageViewEligible,
   store: deviceStore, acquire: acquireOrdinaryMessageHistory, blocked: contactIsBlocked,
-  receive: async (account, current) => {
+  receive: async (account, current, source) => {
+    if (source === 'account') {
+      if (!current() || nostrSession !== account) throw Error('Account view changed.')
+      const relays = relayConnections.configuration('default').filter(relay => relay.read).map(relay => ({ url: relay.url, read: true, write: false }))
+      if (!relays.length) throw Error('No configured account read relays.')
+      // This separately labelled check is explicitly selected in Contacts.
+      // It creates no AUTH grant and is never a fallback for inbox-list reads.
+      const hold = relayConnections.pool('nostr-account-inbox', relays)
+      return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
+    }
     const statements = await lookUpOrdinaryInboxLists([account.pubkey], current)
     if (!current() || nostrSession !== account) throw Error('Account view changed.')
     const relays = ordinaryInboxRelays(statements, account.pubkey, Math.floor(Date.now() / 1000))
@@ -16484,11 +16495,28 @@ nostrInboxPanel = new NostrMessageInboxPanel(document, {
     const hold = relayConnections.pool('nostr-inbox', relays.map(url => ({ url, read: true, write: false })))
     return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
   },
+  keepInvitation: async (account, token, current) => {
+    const journal = contactInbox
+    if (!journal || nostrSession !== account || !current()) throw Error('Invitation journal is unavailable.')
+    return journal.keepOpenedInvitation(token, () => current() && nostrSession === account && contactInbox === journal)
+  },
+  reviewInvitation: (account, id) => {
+    if (nostrSession !== account || !canCheckAccountMessages() || !contactInbox?.snapshot().invitations.some(invitation => invitation.id === id)) return
+    openDestination('chats'); renderRooms()
+    document.querySelector<HTMLElement>(`li[data-invitation="${id}"] button`)?.focus({ preventScroll: true })
+  },
   reply: (peer, parent) => {
     if (accountMessageViewEligible() && nostrMessagePanel?.available && !contactIsBlocked(peer)) {
       nostrMessagePanel.show($('nostrMessageEntry'), { peer, parent })
     }
   },
+})
+for (const id of ['contactInboxCheck', 'nostrAccountInboxEntry']) $(id).addEventListener('click', event => {
+  if (!event.isTrusted || !canCheckAccountMessages()) return
+  ;($('contactsDialog') as HTMLDialogElement).close()
+  openDestination('settings'); showSettingsPage('account')
+  legacyMessagesPanel?.close(); nostrMessagePanel?.close()
+  nostrInboxPanel?.show($('nostrAccountInboxEntry'), 'account')
 })
 $('nostrInboxEntry').addEventListener('click', event => {
   if (!event.isTrusted || !nostrInboxPanel?.available) return

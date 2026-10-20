@@ -89,13 +89,22 @@ export interface OrdinaryText {
   id: string; author: string; sentAt: number; text: string; members: readonly string[]; peer?: string; expiresAt?: number
 }
 
-export function captureOrdinaryText(value: unknown, seal: Event, self: string, now: number): OrdinaryText | undefined {
+/** Canonical unsigned text rumor for the authenticated seal and this account.
+ * Classification of an encrypted invitation marker happens only after opening. */
+export function captureAccountRumor(value: unknown, seal: Event, self: string, now: number): Event | undefined {
   const rumor = capture(value, false)
   if (!rumor || rumor.kind !== 14 || rumor.pubkey !== seal.pubkey || rumor.created_at > now + 60 || ordinaryExpired(rumor, now) ||
-      bytes(rumor.content) > ORDINARY_MAX_TEXT_BYTES || rumor.tags.some(tag => tag[0] === 'kithmoot-invitation')) return
+      bytes(rumor.content) > ORDINARY_MAX_TEXT_BYTES) return
   const recipients = rumor.tags.filter(tag => tag[0] === 'p').map(tag => tag[1])
   if (!recipients.length || recipients.some(key => typeof key !== 'string' || !HEX.test(key)) ||
       rumor.pubkey !== self && !recipients.includes(self)) return
+  return rumor
+}
+
+export function captureOrdinaryText(value: unknown, seal: Event, self: string, now: number): OrdinaryText | undefined {
+  const rumor = captureAccountRumor(value, seal, self, now)
+  if (!rumor || rumor.tags.some(tag => tag[0] === 'kithmoot-invitation')) return
+  const recipients = rumor.tags.filter(tag => tag[0] === 'p').map(tag => tag[1]!)
   const members = [...new Set([rumor.pubkey, ...recipients as string[]])].sort()
   return { id: rumor.id, author: rumor.pubkey, sentAt: rumor.created_at, text: rumor.content, members: Object.freeze(members),
     ...(rumor.tags.some(tag => tag[0] === 'expiration') ? { expiresAt: Number(rumor.tags.find(tag => tag[0] === 'expiration')![1]) } : {}),

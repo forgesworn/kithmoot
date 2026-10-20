@@ -2,22 +2,24 @@ import type { Event } from 'nostr-tools/pure'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import type { DeviceStore } from './device-store.js'
 import { OrdinaryMessageHistory, ordinaryHistoryKey, type OrdinaryHistoryLock } from './nostr-message-history.js'
-import { captureOrdinaryCopy, captureOrdinarySeal, captureOrdinaryText, ordinaryExpired,
-  ORDINARY_MAX_COPIES, ORDINARY_MAX_WIRE_BYTES, type OrdinaryText } from './nostr-message-wire.js'
+import { captureOrdinaryCopy, ordinaryExpired, ORDINARY_MAX_COPIES, type OrdinaryText } from './nostr-message-wire.js'
+import { openAccountMessage, type OpenedInvitation } from './nostr-opened-message.js'
 
 type ReceiveTransport = Pick<RelayTransport, 'subscribe' | 'close'>
 export interface OrdinaryMessageRow {
   copy: string; status: 'sealed' | 'opening' | 'opened' | 'unavailable' | 'refused'; message?: OrdinaryText
+  invitation?: { id: string; sender: string; recipient: string; sentAt: number; kept: boolean }
 }
-interface Entry { event: Event; status: OrdinaryMessageRow['status']; message?: OrdinaryText }
+interface Entry { event: Event; status: OrdinaryMessageRow['status']; message?: OrdinaryText; invitation?: OrdinaryMessageRow['invitation'] }
 interface Options {
   account: string; store: DeviceStore; acquire: OrdinaryHistoryLock
   receive(current: () => boolean): Promise<ReceiveTransport>
   decrypt?: (peer: string, ciphertext: string, current: () => boolean) => Promise<string>
+  keepInvitation?(token: OpenedInvitation, current: () => boolean): Promise<boolean>
   current(): boolean; blocked(peer: string): boolean; changed(): void; failed?(): void; now?(): number
 }
 
-/** An explicit ordinary-text inbox. Original signed ciphertext is retained;
+/** An explicit account-message inbox. Original signed ciphertext is retained;
  * plaintext exists only in this view. This grants no room/member authority. */
 export class NostrMessageInbox {
   #entries = new Map<string, Entry>()
@@ -86,13 +88,15 @@ export class NostrMessageInbox {
     if (!this.#current()) return { ready: false, loading: false, busy: false, limited: false, status: '', messages: [] }
     const messages: OrdinaryMessageRow[] = [], rumors = new Set<string>()
     for (const [copy, entry] of this.#entries) {
-      if (ordinaryExpired(entry.event, this.#now()) || entry.message && (!this.#allowed(entry.message) ||
+      if (ordinaryExpired(entry.event, this.#now()) || entry.invitation && [entry.invitation.sender, entry.invitation.recipient].some(peer => peer !== this.options.account && this.#blocked(peer)) || entry.message && (!this.#allowed(entry.message) ||
           entry.message.expiresAt !== undefined && entry.message.expiresAt <= this.#now())) {
-        entry.message = undefined; this.#entries.delete(copy); continue
+        entry.message = undefined; entry.invitation = undefined; this.#entries.delete(copy); continue
       }
-      if (entry.message && rumors.has(entry.message.id)) continue
-      if (entry.message) rumors.add(entry.message.id)
-      messages.push({ copy, status: entry.status, ...(entry.message ? { message: { ...entry.message } } : {}) })
+      const id = entry.message?.id ?? entry.invitation?.id
+      if (id && rumors.has(id)) continue
+      if (id) rumors.add(id)
+      messages.push({ copy, status: entry.status, ...(entry.message ? { message: { ...entry.message } } : {}),
+        ...(entry.invitation ? { invitation: { ...entry.invitation } } : {}) })
     }
     return { ready: this.#ready, loading: this.#loading, busy: this.#opening, limited: this.#limited, status: this.#status, messages }
   }
@@ -108,7 +112,7 @@ export class NostrMessageInbox {
       this.#history = new OrdinaryMessageHistory(this.options.store, this.options.account, () => this.#now())
       for (const event of this.#history.copies()) this.#entries.set(event.id, { event, status: this.options.decrypt ? 'sealed' : 'unavailable' })
       this.#ready = true
-      this.#status = 'Saved copies are available. Reading your published Nostr inbox relays…'; this.#notify()
+      this.#status = 'Saved copies are available. Reading the selected account-message relays…'; this.#notify()
       if (!this.#current()) return
       const transport = await this.options.receive(this.#current)
       if (!this.#current()) { transport.close(); return }
@@ -132,7 +136,7 @@ export class NostrMessageInbox {
           if (!this.#current()) return
           this.#accepted++; this.#limited ||= saved.limited
           const retained = new Set(saved.retained.map(row => row.id))
-          for (const [id, entry] of this.#entries) if (!retained.has(id)) { entry.message = undefined; this.#entries.delete(id) }
+          for (const [id, entry] of this.#entries) if (!retained.has(id)) { entry.message = undefined; entry.invitation = undefined; this.#entries.delete(id) }
           this.#entries.set(event.id, { event, status: this.options.decrypt ? 'sealed' : 'unavailable' })
           if (this.#accepted >= ORDINARY_MAX_COPIES) this.#limitRead()
         } catch {
@@ -151,7 +155,7 @@ export class NostrMessageInbox {
       else { try { off() } catch { /* A synchronous callback already stopped the read. */ } }
     } catch {
       if (this.#current()) this.#status = this.#history
-        ? 'Your published inbox relays could not be read. Saved copies remain available. Check your account inbox settings before refreshing.'
+        ? 'The selected relays could not be read. Saved copies remain available. Check the selected relay source before refreshing.'
         : 'Saved message copies could not be opened. They were not overwritten. Close other inbox tabs and check this browser’s storage.'
       if (!this.#history) { this.#release?.(); this.#release = undefined }
       this.#stopRead()
@@ -166,20 +170,17 @@ export class NostrMessageInbox {
     try {
       this.#notify()
       if (!current()) return
-      const outerText = await decrypt(entry.event.pubkey, entry.event.content, current)
+      const opened = await openAccountMessage(entry.event, this.options.account, decrypt, current, peer => this.#blocked(peer), () => this.#now())
       if (!current()) return
-      if (typeof outerText !== 'string' || outerText.length > ORDINARY_MAX_WIRE_BYTES || new TextEncoder().encode(outerText).byteLength > ORDINARY_MAX_WIRE_BYTES) throw Error('Invalid seal size.')
-      const seal = captureOrdinarySeal(JSON.parse(outerText), this.#now())
-      if (!seal || seal.pubkey !== this.options.account && this.#blocked(seal.pubkey)) throw Error('Unavailable message author.')
-      const authorCurrent = () => current() && (seal.pubkey === this.options.account || !this.#blocked(seal.pubkey))
-      const text = await decrypt(seal.pubkey, seal.content, authorCurrent)
-      if (!authorCurrent()) return
-      if (typeof text !== 'string' || text.length > ORDINARY_MAX_WIRE_BYTES || new TextEncoder().encode(text).byteLength > ORDINARY_MAX_WIRE_BYTES) throw Error('Invalid message size.')
-      const message = captureOrdinaryText(JSON.parse(text), seal, this.options.account, this.#now())
-      if (!message || !this.#allowed(message)) throw Error('Unavailable ordinary text.')
-      if (!authorCurrent()) return
-      entry.message = message; entry.status = 'opened'
-    } catch { if (current()) { entry.message = undefined; entry.status = 'refused' } }
+      if (opened.kind === 'invitation') {
+        if (!this.options.keepInvitation) throw Error('Invitation journal is unavailable.')
+        const kept = await this.options.keepInvitation(opened.token, current)
+        if (!current()) return
+        const { id, sender, recipient, sentAt } = opened.token.invitation
+        entry.invitation = { id, sender, recipient, sentAt, kept }
+      } else entry.message = opened.message
+      entry.status = 'opened'
+    } catch { if (current()) { entry.message = undefined; entry.invitation = undefined; entry.status = 'refused' } }
     finally {
       if (entry.status === 'opening') entry.status = 'refused'
       this.#opening = false; this.#notify()
@@ -190,7 +191,7 @@ export class NostrMessageInbox {
     this.#closed = true; this.#ready = false
     clearTimeout(this.#expirationTimer)
     this.#stopRead()
-    for (const entry of this.#entries.values()) entry.message = undefined
+    for (const entry of this.#entries.values()) { entry.message = undefined; entry.invitation = undefined }
     this.#entries.clear(); this.#history = undefined
     try { this.#release?.() } catch { /* No cleanup failure may retain displayed plaintext. */ }
     this.#release = undefined; this.#status = ''
