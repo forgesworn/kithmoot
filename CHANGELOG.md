@@ -1,5 +1,16 @@
 # Changelog
 
+## Desktop 0.1.92, 20 October 2026
+
+- One way around the app. A rail on the left holds Chats, People and Boards, with Settings at its foot. In the web app on a phone it becomes a bar along the bottom.
+- One chats list replaces the start page, the rooms sidebar and the room switcher. It has a search box (Cmd or Ctrl+K), chips for All, Unread, Mentions and each project, Pinned at the top, and Older and Ended folded away at the foot. It stays beside an open room, with its previews and counts kept up to date.
+- New room, Open an invite link, Join with a code and New project sit in one New menu at the top of the list.
+- People, when signed in with Nostr: your contacts and the people you follow, each with Message, Voice, Video and Invite. The follow list is your own, read only while public profiles are switched on.
+- Invitations to a private chat wait at the top of Chats with Accept and Decline. Someone you do not follow is shown by a short key and never looked up.
+- A private chat is named after the person, with "Private chat" under the name.
+- Keyboard: skip links come first, Cmd or Ctrl+1, 2 and 3 move between Chats, People and Boards, and the chats list is one stop walked with the arrow keys. Right-click, the Menu key or Shift+F10 open a chat's menu.
+- "Hide chat" no longer wraps onto two lines in the room bar.
+
 ## Desktop 0.1.91, 19 October 2026
 
 - On Windows and Linux the desktop app no longer downloads spelling dictionaries from Google. Electron's built-in spellchecker fetched one from a Google server at start-up; it is now switched off on those systems, so there are no spelling underlines or suggestions there until dictionaries can ship inside the app. The Mac app keeps the macOS spellchecker, which downloads nothing.
