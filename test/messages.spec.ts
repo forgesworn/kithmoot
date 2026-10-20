@@ -190,12 +190,13 @@ test('a private conversation is started from a person and reaches them inside th
     // An invitation is a statement, not a message: no bubble for it anywhere.
     await expect(rowan.locator('#chatLog .msg')).toHaveCount(0)
     await expect(ada.locator('#chatLog .msg')).toHaveCount(0)
-    // The room is on both lists, named for the other person.
+    // The room is on both lists, called by the other person's name alone
+    // (design-calm-shell 6.2).
     await showChats(ada)
-    await expect(ada.locator('#roomList')).toContainText('Private: Rowan', { timeout: 30_000 })
+    await expect(ada.locator('#roomList').getByRole('button', { name: 'Open Rowan', exact: true })).toBeVisible({ timeout: 30_000 })
     await rowan.locator('#roomSheetClose').click()
     await showChats(rowan)
-    await expect(rowan.locator('#roomList')).toContainText('Private: Ada', { timeout: 30_000 })
+    await expect(rowan.locator('#roomList').getByRole('button', { name: 'Open Ada', exact: true })).toBeVisible({ timeout: 30_000 })
     await rowan.locator('#roomList .open[aria-current="true"]').click()
     // Started again from the same person, it is the same room, not a second
     // one - and it opens. Done while Ada is still on Rowan's roster: once
@@ -203,14 +204,15 @@ test('a private conversation is started from a person and reaches them inside th
     // "Message ..." button goes with them.
     await openRoomDetails(rowan)
     await rowan.getByRole('button', { name: /^Message Ada privately/ }).click()
-    await expect(rowan.locator('#roomTitle')).toHaveText('Private: Ada', { timeout: 30_000 })
+    await expect(rowan.locator('#roomTitle')).toHaveText('Ada', { timeout: 30_000 })
+    await expect(rowan.locator('#roomWho')).toHaveText('Private chat')
     await showChats(rowan)
-    await expect(rowan.locator('#roomList .roomRow').filter({ hasText: 'Private: Ada' })).toHaveCount(1)
+    await expect(rowan.locator('#roomList').getByRole('button', { name: 'Open Ada', exact: true })).toHaveCount(1)
     // "It is in your rooms" comes with the way there. Inside, the room is
     // titled for the other person and says who can read it.
     await ada.locator('#roomList .open[aria-current="true"]').click()
-    await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Private: Rowan' }).click()
-    await expect(ada.locator('#roomTitle')).toHaveText('Private: Rowan', { timeout: 30_000 })
+    await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Rowan' }).click()
+    await expect(ada.locator('#roomTitle')).toHaveText('Rowan', { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')
     await expect(ada.locator('#invitePeople')).toHaveJSProperty('hidden', true)
     await expect(rowan.locator('#invitePeople')).toHaveJSProperty('hidden', true)

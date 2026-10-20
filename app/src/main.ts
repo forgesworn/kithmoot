@@ -2554,7 +2554,9 @@ function callOrigin(owner = mediaSession()): ShareSource['origin'] {
   const roomName = dockedCall?.session === owner ? dockedCall.label : owner === session ? currentRoomLabel() : undefined
   if (!roomName) return undefined
   const project = sharedProjects.forRoom(owner.roomId).find(p => `shared:${p.key}` === callProjectContext(owner))
-  return { roomId: owner.roomId, callId: owner.call?.id, roomName, projectName: project?.definition?.name ?? projectOf({ roomId: owner.roomId }) }
+  const known = knownRoom(roomStore(), owner.roomId)
+  const direct = known ? dmPeerOf(known) !== undefined : false
+  return { roomId: owner.roomId, callId: owner.call?.id, roomName, ...(direct ? { direct } : {}), projectName: project?.definition?.name ?? projectOf({ roomId: owner.roomId }) }
 }
 
 /** Bumped only when this device's call media is torn down, so a capture
@@ -6934,6 +6936,12 @@ function renderRoomWho(): void {
   const views = session?.participants() ?? []
   const where = conversationLabel(currentChannel)
   renderAgentActivity()
+  // A private chat says what it is, as the spec draws it (design-calm-shell 6.2).
+  const me = meParticipant || currentParticipant()
+  if (currentChannel === undefined && me && dmPeer(roomPolicy, me)) {
+    line.textContent = isQuietPolicy(roomPolicy) ? 'Quiet chat' : 'Private chat'
+    return
+  }
   if (views.length === 0) {
     line.textContent = where
     return
@@ -13488,10 +13496,12 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   if (state.unreadCount > 0) row.classList.add('hasUnread')
   const avatar = document.createElement('span')
   avatar.className = 'roomAvatar'
-  avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(room.roomId))
-  avatar.setAttribute('aria-hidden', 'true')
-  avatar.textContent = avatarInitial(label)
   const peer = dmPeerOf(room)
+  // A private chat wears the person's avatar: their initial and the colour
+  // People gives them.
+  avatar.dataset.slot = ended ? 'ended' : String(avatarSlot(peer ?? room.roomId))
+  avatar.setAttribute('aria-hidden', 'true')
+  avatar.textContent = avatarInitial(peer ? dmPersonName(room, peer) : label)
   if (!peer && !isQuietRoom(room)) renderLogo(avatar, displayedRoomLogo(room.roomId, project), label)
   const picture = peer ? profiles.get(peer)?.picture : undefined
   if (picture) {
@@ -13683,9 +13693,17 @@ function projectRoomName(roomId: string | undefined): string | undefined {
 function knownRoomLabel(room: KnownRoom): string {
   const peer = dmPeerOf(room)
   if (!peer) return roomLabel({ roomId: room.roomId, name: room.name ?? projectRoomName(room.roomId) })
-  // The name remembered when the conversation was started or received, then
-  // whatever a profile says, then the key. A DM link carries no room name.
-  return `${isQuietRoom(room) ? 'Quiet' : 'Private'}: ${room.name ?? shownAs(peer).name ?? shortKey(peer)}`
+  // A private chat is called by the person, as in any messenger (design-calm-shell
+  // 6.2); a quiet one keeps its word, because it works differently.
+  const name = dmPersonName(room, peer)
+  return isQuietRoom(room) ? `Quiet: ${name}` : name
+}
+
+/** The person on the other end of a known private chat: the name remembered
+ *  when the conversation was started or received, then whatever a profile
+ *  says, then the key. A DM link carries no room name. */
+function dmPersonName(room: KnownRoom, peer: string): string {
+  return room.name ?? shownAs(peer).name ?? shortKey(peer)
 }
 
 /** The room this page is in, named the same way. */
@@ -13701,7 +13719,7 @@ function dmPeerName(peer: string): string {
 function currentRoomLabel(): string {
   const me = meParticipant || currentParticipant()
   const peer = me ? dmPeer(roomPolicy, me) : undefined
-  if (peer) return `${isQuietPolicy(roomPolicy) ? 'Quiet' : 'Private'}: ${dmPeerName(peer)}`
+  if (peer) return isQuietPolicy(roomPolicy) ? `Quiet: ${dmPeerName(peer)}` : dmPeerName(peer)
   return roomLabel({ roomId: currentRoomId() ?? '', name: roomName })
 }
 
@@ -14297,7 +14315,8 @@ function renderDock(): void {
   surface.toggleAttribute('data-gallery-collapsed', live && galleryCollapsed)
   $('callSurfaceHeader').hidden = !live
   const origin = callOrigin(owner)
-  const originText = origin ? `Call in ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
+  // A private chat's call is with the person, not in a room.
+  const originText = origin ? `Call ${origin.direct ? 'with' : 'in'} ${origin.roomName}${origin.projectName ? ` · ${origin.projectName}` : ''}` : ''
   $('callSurfaceLogo').hidden = !live || !owner
   if (live && owner) {
     const project = callProjectContext(owner)

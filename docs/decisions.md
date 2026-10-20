@@ -2257,4 +2257,13 @@ up, so nobody can arrive calling themselves "Mum" and no public relay learns
 who wrote to this account. Decline clears the invitation on this device; the
 sender is not told (D1). Accept opens the private chat straight away, with no
 door. Not built yet: "Decline and block", because web has no block of its
-own, only Signet's.
+own, only Signet's. Somebody you follow is named even before People has been
+opened: a waiting invitation fetches the account's own follow list once,
+which names nobody else.
+
+A private chat is called by the person (spec §6.2): "Rowan" in the list, as
+the room title, in "Back to …" and in "Call with …", with their initial and
+the colour People gives them, and "Private chat" under the title. A quiet
+chat keeps "Quiet: Rowan", because it works differently (padded gift wraps,
+two devices per person) and the word is how anyone tells the two apart. The
+⋯ menu's private-chat items wait for stage 3, which rebuilds that menu.

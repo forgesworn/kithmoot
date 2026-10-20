@@ -56,6 +56,10 @@ test('People lists the people you follow, and Message starts a private chat with
     await alice.locator('#peopleMessage').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
     expect(parseRoomLink(alice.url()).policy?.members?.sort()).toEqual([a, b].sort())
+    // Called by the person, not "Private: …" (design-calm-shell 6.2).
+    await expect(alice.locator('#roomTitle')).toHaveText('Bob on Nostr')
+    await expect(alice.locator('#roomWho')).toHaveText('Private chat')
+    await expect(alice.locator('#roomList').getByRole('button', { name: 'Open Bob on Nostr', exact: true })).toBeVisible()
     await alice.locator('#chatInput').fill('Hello Bob, found you through who I follow')
     await alice.locator('#chatInput').press('Enter')
     await expect(alice.locator('#chatLog')).toContainText('Hello Bob, found you through who I follow')

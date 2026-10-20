@@ -3,7 +3,7 @@
    list below it. */
 
 .chatInvitations {
-  padding: 0 0 var(--s2);
+  padding: 0 var(--s1) var(--s2);
 }
 .chatInvitations h3 {
   margin: var(--s1) 0 var(--s1);

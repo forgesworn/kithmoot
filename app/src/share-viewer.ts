@@ -67,7 +67,8 @@ export interface ShareSource {
   id: string
   track?: MediaStreamTrack
   title: string
-  origin?: { roomId: string; callId?: string; roomName: string; projectName?: string }
+  /** `direct`: a private chat, whose call is with the person rather than in a room. */
+  origin?: { roomId: string; callId?: string; roomName: string; direct?: boolean; projectName?: string }
   owner?: { participant: string; device: string; name: string }
   camera?: MediaStreamTrack
   speaking?: boolean
