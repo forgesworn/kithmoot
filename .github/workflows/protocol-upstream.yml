@@ -1,19 +1,47 @@
-name: Protocol upstream drift
+# Diagnostic branch only. Do not merge this replacement into main.
+name: Legacy receive initial qualification
+run-name: Legacy receive initial qualification ${{ github.sha }}
 on:
-  schedule:
-    - cron: '23 8 * * 1'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: legacy-receive-initial-qualification
+  cancel-in-progress: false
 jobs:
-  compare:
+  qualify:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/legacy-receive-qualification' && github.run_attempt == 1
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 120
+    env:
+      TMPDIR: ${{ github.workspace }}/.legacy-qualification-tmp
+      npm_config_cache: ${{ github.workspace }}/.legacy-qualification-npm-cache
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.legacy-qualification-browsers
+      E2E_RELAYS: local
+      E2E_RELAY_PORT: '7777'
+      E2E_PORT: '4173'
+      E2E_REUSE: '0'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24
-      - run: node scripts/check-protocol-upstream.mjs
+      - name: Qualify exact source and retain every primary stage result
+        run: |
+          mkdir -p "$TMPDIR" "$npm_config_cache" "$PLAYWRIGHT_BROWSERS_PATH"
+          node scripts/legacy-receive-qualification.mjs
+      - name: Preserve evidence even when qualification fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: legacy-receive-initial-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/legacy-qualification/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Remove owned runner scratch
+        if: always()
+        run: rm -rf -- "$TMPDIR" "$npm_config_cache" "$PLAYWRIGHT_BROWSERS_PATH"
