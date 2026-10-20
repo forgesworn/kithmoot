@@ -31,6 +31,7 @@ import { ContactInbox } from './contact-inbox.js'
 import { FollowBook } from './follow-list.js'
 import { PeopleView, type PeopleModel, type Person } from './people.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
+import { LegacyMessagePanel } from './legacy-message-panel.js'
 import type { ContactInvitation } from '../../src/contact-invitation.js'
 import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
 import { showChannelCheckDialog } from './channel-check-dialog.js'
@@ -1030,6 +1031,20 @@ function participantKey(): Uint8Array {
  *  signet-login persists whatever it needs to reconnect (a bunker URI, a
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
+let legacyMessagesPanel: LegacyMessagePanel | undefined
+let legacyViewTransitions = 0
+/** Deny reopening across every await in an account transition. The counter
+ * composes account and room transitions; it grants no account authority. */
+async function withLegacyMessagesClosed<T>(work: () => Promise<T>): Promise<T> {
+  legacyViewTransitions++
+  ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = true
+  legacyMessagesPanel?.close()
+  try { return await work() }
+  finally {
+    legacyViewTransitions--
+    ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
+  }
+}
 let browserRendezvousVault: RendezvousVault | undefined
 let historyRecoveryBusy = false
 type HistoryRecoveryView = { status: string; rows: string[] }
@@ -1216,18 +1231,20 @@ async function provisionRendezvousForThisBrowser(): Promise<void> {
 $('provisionRendezvous').addEventListener('click', () => { void provisionRendezvousForThisBrowser() })
 
 async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
-  const generation=identityGeneration,previous=nostrSession
-  await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
-  if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
-  if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) void pauseBrowserMls().catch(() => undefined)
-  nostrSession = account
-  browserRoomRoutes.resume()
-  rememberAccount(account)
-  startRoomBookmarks(account)
-  profiles.want([account.pubkey])
-  renderIdentity()
-  renderNudgeChoice()
-  return true
+  return withLegacyMessagesClosed(async () => {
+    const generation=identityGeneration,previous=nostrSession
+    await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
+    if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
+    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) void pauseBrowserMls().catch(() => undefined)
+    nostrSession = account
+    browserRoomRoutes.resume()
+    rememberAccount(account)
+    startRoomBookmarks(account)
+    profiles.want([account.pubkey])
+    renderIdentity()
+    renderNudgeChoice()
+    return true
+  })
 }
 
 /** signet-login keeps a bunker's URI and client key when a restore fails,
@@ -1334,111 +1351,115 @@ async function reconnectNostr(): Promise<void> {
 }
 
 async function signInWithNostr(): Promise<void> {
-  contextPanel.close()
-  if (loginBusy) return
-  if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
-  workspaceWork?.reset()
-  loginBusy = true
-  const generation=++identityGeneration,previousSession=nostrSession
-  admissionController?.abort()
-  clearImportedHistorySearch()
-  let account: SignetSession | null
-  try {
-    await boardsPanel?.reset()
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
-    account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS),
-      // 'nsec' is the dangerous route, kept behind Advanced by the picker:
-      // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
-      // memory for this page only. It exists for dogfooding and for people
-      // with no signer yet; the copy in the picker says what it costs.
-      methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect', 'nsec'] })
-  } finally { loginBusy = false; tryPendingJoin() }
-  if (!account) return // cancelled or timed out - leave the page as it was
-  if(generation!==identityGeneration||nostrSession!==previousSession){if(nostrSession!==account)await account.signer.close();return}
+  return withLegacyMessagesClosed(async () => {
+    contextPanel.close()
+    if (loginBusy) return
+    if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
+    workspaceWork?.reset()
+    loginBusy = true
+    const generation=++identityGeneration,previousSession=nostrSession
+    admissionController?.abort()
+    clearImportedHistorySearch()
+    let account: SignetSession | null
+    try {
+      await boardsPanel?.reset()
+      if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+      account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS),
+        // 'nsec' is the dangerous route, kept behind Advanced by the picker:
+        // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
+        // memory for this page only. It exists for dogfooding and for people
+        // with no signer yet; the copy in the picker says what it costs.
+        methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect', 'nsec'] })
+    } finally { loginBusy = false; tryPendingJoin() }
+    if (!account) return // cancelled or timed out - leave the page as it was
+    if(generation!==identityGeneration||nostrSession!==previousSession){if(nostrSession!==account)await account.signer.close();return}
 
-  // An auth-only account proves who somebody is and then cannot sign
-  // anything else. That is fine for a site that just wants a login; it is
-  // useless here, because the one thing this app needs a participant key
-  // for is signing a device credential per room.
-  if (!account.signer.capabilities.canSignEvents) {
-    await logout(account)
-    throw new Error(
-      'Your identity was approved, but a signing connection was not established. ' +
-        'KithMoot needs your signer to approve joining rooms and sending private invitations. ' +
-        'If you used My Signet, turn on Bunker in its security settings and keep Signet open, then try again. ' +
-        'You can also connect using a signer QR code, a bunker URI or a browser extension.',
-    )
-  }
+    // An auth-only account proves who somebody is and then cannot sign
+    // anything else. That is fine for a site that just wants a login; it is
+    // useless here, because the one thing this app needs a participant key
+    // for is signing a device credential per room.
+    if (!account.signer.capabilities.canSignEvents) {
+      await logout(account)
+      throw new Error(
+        'Your identity was approved, but a signing connection was not established. ' +
+          'KithMoot needs your signer to approve joining rooms and sending private invitations. ' +
+          'If you used My Signet, turn on Bunker in its security settings and keep Signet open, then try again. ' +
+          'You can also connect using a signer QR code, a bunker URI or a browser extension.',
+      )
+    }
 
-  // Not the account this app knew. An extension holds several accounts and
-  // signs in with whichever is selected, so "reconnect" can quietly come
-  // back as somebody else, with none of the rooms saved under the first.
-  // Say so, once, rather than leaving a person to work out why their rooms
-  // are gone.
-  browserRoomRoutes.pause()
-  const previous = expectedAccount
-  await closeCataloguesBeforeAccountAdoption(account,async()=>{await browserLinkPanel.stop();await closeRoomBoardCatalogues()},()=>nostrSession)
-  if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
-  relayConnections.clearAuthentication()
-  nostrSession = account
-  browserRoomRoutes.resume()
-  rememberAccount(account)
-  startRoomBookmarks(account)
-  profiles.want([account.pubkey])
-  renderIdentity()
-  if (previous && previous !== account.pubkey) {
-    const now = shownAs(account.pubkey), before = shownAs(previous)
-    setStatus(`Signed in as ${now.name ?? now.npub}. Last time this was ${before.name ?? before.npub}, and the rooms saved under that account are not here. To get them back, select that account in your extension and sign in again.`)
-  } else setStatus('Signed in.', 'done')
+    // Not the account this app knew. An extension holds several accounts and
+    // signs in with whichever is selected, so "reconnect" can quietly come
+    // back as somebody else, with none of the rooms saved under the first.
+    // Say so, once, rather than leaving a person to work out why their rooms
+    // are gone.
+    browserRoomRoutes.pause()
+    const previous = expectedAccount
+    await closeCataloguesBeforeAccountAdoption(account,async()=>{await browserLinkPanel.stop();await closeRoomBoardCatalogues()},()=>nostrSession)
+    if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
+    relayConnections.clearAuthentication()
+    nostrSession = account
+    browserRoomRoutes.resume()
+    rememberAccount(account)
+    startRoomBookmarks(account)
+    profiles.want([account.pubkey])
+    renderIdentity()
+    if (previous && previous !== account.pubkey) {
+      const now = shownAs(account.pubkey), before = shownAs(previous)
+      setStatus(`Signed in as ${now.name ?? now.npub}. Last time this was ${before.name ?? before.npub}, and the rooms saved under that account are not here. To get them back, select that account in your extension and sign in again.`)
+    } else setStatus('Signed in.', 'done')
+  })
 }
 
 async function signOutOfNostr(): Promise<void> {
-  if (boardsPanel?.hasPendingEdits) { setStatus('Save or finish the open board edits before signing out. Check your popped-out board windows too.'); return }
-  if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
-  participantCard.close()
-  packGrant = undefined
-  browserRoomRoutes.pause()
-  await browserLinkPanel.stop()
-  contextPanel.close()
-  if (session || joining) throw new Error('Leave the room before signing out.')
-  workspaceWork?.reset()
-  await boardsPanel?.reset()
-  await closeRoomBoardCatalogues()
-  // A signed-out account must not leave its device-specific rendezvous child
-  // behind. Do this before changing the visible account state: a storage
-  // failure keeps the account connected rather than pretending the clear won.
-  // Only a live bunker can create a rendezvous child. Do not initialise the
-  // encrypted IndexedDB vault for ordinary extension/remote sign-ins merely
-  // because they are signing out.
-  if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
-  identityGeneration++
-  admissionController?.abort()
-  clearImportedHistorySearch()
-  relayConnections.clearAuthentication()
-  const account = nostrSession
-  closeContactInbox()
-  void sharedProjects.detach()
-  bookmarks?.close()
-  bookmarks = undefined
-  readSync?.close()
-  readSync = undefined
-  nostrSession = undefined
-  browserRoomRoutes.resume()
-  // Each one speaks for the account in a room; a session under another
-  // identity would refuse them anyway, but they should not outlive it here.
-  try { forgetOwnCredentials(deviceStore) } catch { /* storage may be unavailable */ }
-  sessionStorage.removeItem(WAY_BACK_KEY)
-  $('roomSyncStatus').textContent = ''
-  refreshAccountRooms()
-  renderIdentity()
-  if (account) {
-    // clearPersistentClientKey: true also forgets the NIP-46 client key a
-    // bunker approved for this browser. Without it, logout only clears the
-    // session - the approved client key survives and anyone with this
-    // browser profile could still sign as it.
-    await logout(account, { clearPersistentClientKey: true })
-    setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
-  }
+  return withLegacyMessagesClosed(async () => {
+    if (boardsPanel?.hasPendingEdits) { setStatus('Save or finish the open board edits before signing out. Check your popped-out board windows too.'); return }
+    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+    participantCard.close()
+    packGrant = undefined
+    browserRoomRoutes.pause()
+    await browserLinkPanel.stop()
+    contextPanel.close()
+    if (session || joining) throw new Error('Leave the room before signing out.')
+    workspaceWork?.reset()
+    await boardsPanel?.reset()
+    await closeRoomBoardCatalogues()
+    // A signed-out account must not leave its device-specific rendezvous child
+    // behind. Do this before changing the visible account state: a storage
+    // failure keeps the account connected rather than pretending the clear won.
+    // Only a live bunker can create a rendezvous child. Do not initialise the
+    // encrypted IndexedDB vault for ordinary extension/remote sign-ins merely
+    // because they are signing out.
+    if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
+    identityGeneration++
+    admissionController?.abort()
+    clearImportedHistorySearch()
+    relayConnections.clearAuthentication()
+    const account = nostrSession
+    closeContactInbox()
+    void sharedProjects.detach()
+    bookmarks?.close()
+    bookmarks = undefined
+    readSync?.close()
+    readSync = undefined
+    nostrSession = undefined
+    browserRoomRoutes.resume()
+    // Each one speaks for the account in a room; a session under another
+    // identity would refuse them anyway, but they should not outlive it here.
+    try { forgetOwnCredentials(deviceStore) } catch { /* storage may be unavailable */ }
+    sessionStorage.removeItem(WAY_BACK_KEY)
+    $('roomSyncStatus').textContent = ''
+    refreshAccountRooms()
+    renderIdentity()
+    if (account) {
+      // clearPersistentClientKey: true also forgets the NIP-46 client key a
+      // bunker approved for this browser. Without it, logout only clears the
+      // session - the approved client key survives and anyone with this
+      // browser profile could still sign as it.
+      await logout(account, { clearPersistentClientKey: true })
+      setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
+    }
+  })
 }
 
 /**
@@ -1457,77 +1478,81 @@ async function signOutOfNostr(): Promise<void> {
  * are removed one room at a time with Forget room, same as today.
  */
 async function forgetThisBrowser(): Promise<void> {
-  if (import.meta.env.DEV && browserMlsRoomPanel) await pauseBrowserMls()
-  const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
-  if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
-    setStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
-  }
+  return withLegacyMessagesClosed(async () => {
+    if (import.meta.env.DEV && browserMlsRoomPanel) await pauseBrowserMls()
+    const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
+    if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
+      setStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
+    }
+  })
 }
 async function forgetThisBrowserContents(): Promise<void> {
-  if (browserMlsPreview) {
-    const { BrowserMlsAccount } = await import('./mls-persona-account.js')
-    if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
-  }
-  if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
-  if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
-  if (!await confirmRoomAction({
-    title: 'Forget this browser?',
-    message: 'This removes, from this browser only:\n'
-      + '- your visitor identity\n'
-      + '- every room kept here, its keys and the history this browser kept of it\n'
-      + '- contacts and verified people\n'
-      + '- text size and volume choices\n'
-      + '- the saved connection to a Nostr signer\n\n'
-      + "It does not remove anything from relays or from other people's devices. "
-      + 'Signed-in room bookmarks on your Nostr account stay unless you Forget each room first.',
-    confirmLabel: 'Forget this browser',
-    danger: true,
-  })) return
-
-  await boardsPanel?.reset()
-  await closeRoomBoardCatalogues()
-  contextPanel.close()
-  await browserLinkPanel.link.forget()
-  // As above, avoid creating a vault on a browser that never held one.
-  if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
-  identityGeneration++
-  admissionController?.abort()
-  clearImportedHistorySearch()
-  const s = session
-  workspaceWork?.reset()
-  session = undefined
-  sessionTransport = undefined
-  resetIncomingCall()
-  s?.leave()
-
-  const account = nostrSession
-  closeContactInbox()
-  relayConnections.clearAuthentication()
-  void sharedProjects.detach()
-  bookmarks?.close()
-  bookmarks = undefined
-  readSync?.close()
-  readSync = undefined
-  nostrSession = undefined
-  browserRoomRoutes.resume()
-  // clearPersistentClientKey: true, same as sign-out - a browser that is
-  // being forgotten entirely must not keep the one thing plain sign-out
-  // by itself leaves behind (see signOutOfNostr and clearPersistentClientKey
-  // in signet-login's LogoutOptions). Safe to call with no account: logout()
-  // only clears storage in that case.
-  await logout(account, { clearPersistentClientKey: true })
-
-  for (const storage of [localStorage, sessionStorage]) {
-    for (const key of Object.keys(storage)) {
-      if (key.startsWith('kithmoot.')) storage.removeItem(key)
+  return withLegacyMessagesClosed(async () => {
+    if (browserMlsPreview) {
+      const { BrowserMlsAccount } = await import('./mls-persona-account.js')
+      if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
+      if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
     }
-  }
-  // The rooms' kept history goes with the rooms.
-  await deleteRoomArchive()
+    if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
+    if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
+    if (!await confirmRoomAction({
+      title: 'Forget this browser?',
+      message: 'This removes, from this browser only:\n'
+        + '- your visitor identity\n'
+        + '- every room kept here, its keys and the history this browser kept of it\n'
+        + '- contacts and verified people\n'
+        + '- text size and volume choices\n'
+        + '- the saved connection to a Nostr signer\n\n'
+        + "It does not remove anything from relays or from other people's devices. "
+        + 'Signed-in room bookmarks on your Nostr account stay unless you Forget each room first.',
+      confirmLabel: 'Forget this browser',
+      danger: true,
+    })) return
 
-  history.replaceState(null, '', joinLinkBase())
-  approvedReload()
+    await boardsPanel?.reset()
+    await closeRoomBoardCatalogues()
+    contextPanel.close()
+    await browserLinkPanel.link.forget()
+    // As above, avoid creating a vault on a browser that never held one.
+    if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
+    identityGeneration++
+    admissionController?.abort()
+    clearImportedHistorySearch()
+    const s = session
+    workspaceWork?.reset()
+    session = undefined
+    sessionTransport = undefined
+    resetIncomingCall()
+    s?.leave()
+
+    const account = nostrSession
+    closeContactInbox()
+    relayConnections.clearAuthentication()
+    void sharedProjects.detach()
+    bookmarks?.close()
+    bookmarks = undefined
+    readSync?.close()
+    readSync = undefined
+    nostrSession = undefined
+    browserRoomRoutes.resume()
+    // clearPersistentClientKey: true, same as sign-out - a browser that is
+    // being forgotten entirely must not keep the one thing plain sign-out
+    // by itself leaves behind (see signOutOfNostr and clearPersistentClientKey
+    // in signet-login's LogoutOptions). Safe to call with no account: logout()
+    // only clears storage in that case.
+    await logout(account, { clearPersistentClientKey: true })
+
+    for (const storage of [localStorage, sessionStorage]) {
+      for (const key of Object.keys(storage)) {
+        if (key.startsWith('kithmoot.')) storage.removeItem(key)
+      }
+    }
+    // The rooms' kept history goes with the rooms.
+    await deleteRoomArchive()
+
+    history.replaceState(null, '', joinLinkBase())
+    approvedReload()
+  })
 }
 
 let bookmarks: RoomBookmarks | undefined
@@ -3093,6 +3118,7 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   await switchRoom(room)
 }
 function renderContactInbox(): void {
+  legacyMessagesPanel?.reconcile()
   const state = contactInbox?.snapshot(), self = nostrSession?.pubkey
   $('contactsSignIn').hidden = !!self
   $('contactInboxStatus').textContent = contactInboxMessage || state?.error || (!self ? 'Sign in to message your contacts.'
@@ -3184,7 +3210,7 @@ function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
-    changed: view => { grantedContactView = view; session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
+    changed: view => { grantedContactView = view; legacyMessagesPanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
     message: messageContact,
   })
   grantedContactsPanel.reconcile()
@@ -3197,6 +3223,9 @@ function renderIdentity(): void {
   // A DM relay list is the account's to publish; a visitor has none.
   $('dmRelaySettingsOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
+  $('legacyMessagesEntry').hidden = nostrSession === undefined
+  ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
+  legacyMessagesPanel?.reconcile()
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
   $('retryRoomSync').hidden = nostrSession === undefined
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
@@ -4441,57 +4470,59 @@ async function toggleAssist(): Promise<void> {
 let startedHere = false
 
 async function startNewRoom(): Promise<void> {
-  // "People ask, and somebody lets them in" is a temporary-style room: the
-  // link makes a person ask, and a device in the room answers - after
-  // asking its owner, see `askToLetIn`. It cannot be self-service from the
-  // relay, which is exactly the point, and it is why such a room needs
-  // somebody online to let people in.
-  const ask = ($('roomAsk') as HTMLInputElement).checked
-  const persistent = !ask
-  // Only a group can be a conference room: a meeting that asks before
-  // anybody joins already ends when its people leave.
-  const endsChoice = ($('roomEnds') as HTMLSelectElement).value
-  if (persistent && endsChoice === 'duration' && roomDurationSeconds() === 0) throw new Error('Choose at least one minute for the room lifetime.')
-  const endsAt = !persistent ? undefined
-    : endsChoice === 'duration' ? nowSeconds() + roomDurationSeconds()
-    : endsChoice === 'test' && TEST_ROOM_END_SECONDS ? nowSeconds() + TEST_ROOM_END_SECONDS
-      : conferenceEndsAt(Number(endsChoice), nowSeconds())
-  // Self-destruct is a property of a group: by its date, or when ended.
-  const destruct = persistent && endsAt !== undefined && ($('roomWhenEnds') as HTMLSelectElement).value === 'destruct'
-  const secret = generateRoomSecret()
-  const created = createRoomInvitation(persistent)
-  setKnock(deriveRoom(secret).roomId, ask)
-  const relayScope = `room:${deriveRoom(secret).roomId}`
-  // Snapshot access modes too: an invitation carries URLs, so reconstructing
-  // this room from its link must not turn a read-only default into a writer.
-  relayConnections.inheritDefaults(relayScope)
-  // The room's own relays: the ones this device reads and writes, fixed
-  // now and named in its signed invitation, so every member uses them.
-  const roomRelays = invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
-  relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: roomRelays, signed: true })
-  // Persist the owner's recovery before publishing. Failure leaves the form
-  // usable and never offers a link whose asynchronous admission was not saved.
-  storeInvitationOwner(created.invitation, secret, created.inviterSk, endsAt, destruct)
-  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS, { endsAt, destruct, roomRelays })
-  startedHere = true
-  admittedRoom = undefined
-  roomEndsAt = endsAt
-  roomDestruct = destruct
-  roomStartsAt = nowSeconds()
-  expectedEpoch = 0
-  roomPolicy = undefined
-  roomSecret = secret
-  roomInvitationCapability = created.invitation
-  invitationAuthoritySk = created.inviterSk
-  invitationDelegation = []
-  roomRelayScope = relayScope
-  useRoomRelays()
-  iceUrls = parseIceInput()
-  roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
-  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
-  serveCurrentInvitation()
-  history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
-  rememberCurrentRoom()
+  return withLegacyMessagesClosed(async () => {
+    // "People ask, and somebody lets them in" is a temporary-style room: the
+    // link makes a person ask, and a device in the room answers - after
+    // asking its owner, see `askToLetIn`. It cannot be self-service from the
+    // relay, which is exactly the point, and it is why such a room needs
+    // somebody online to let people in.
+    const ask = ($('roomAsk') as HTMLInputElement).checked
+    const persistent = !ask
+    // Only a group can be a conference room: a meeting that asks before
+    // anybody joins already ends when its people leave.
+    const endsChoice = ($('roomEnds') as HTMLSelectElement).value
+    if (persistent && endsChoice === 'duration' && roomDurationSeconds() === 0) throw new Error('Choose at least one minute for the room lifetime.')
+    const endsAt = !persistent ? undefined
+      : endsChoice === 'duration' ? nowSeconds() + roomDurationSeconds()
+      : endsChoice === 'test' && TEST_ROOM_END_SECONDS ? nowSeconds() + TEST_ROOM_END_SECONDS
+        : conferenceEndsAt(Number(endsChoice), nowSeconds())
+    // Self-destruct is a property of a group: by its date, or when ended.
+    const destruct = persistent && endsAt !== undefined && ($('roomWhenEnds') as HTMLSelectElement).value === 'destruct'
+    const secret = generateRoomSecret()
+    const created = createRoomInvitation(persistent)
+    setKnock(deriveRoom(secret).roomId, ask)
+    const relayScope = `room:${deriveRoom(secret).roomId}`
+    // Snapshot access modes too: an invitation carries URLs, so reconstructing
+    // this room from its link must not turn a read-only default into a writer.
+    relayConnections.inheritDefaults(relayScope)
+    // The room's own relays: the ones this device reads and writes, fixed
+    // now and named in its signed invitation, so every member uses them.
+    const roomRelays = invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
+    relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: roomRelays, signed: true })
+    // Persist the owner's recovery before publishing. Failure leaves the form
+    // usable and never offers a link whose asynchronous admission was not saved.
+    storeInvitationOwner(created.invitation, secret, created.inviterSk, endsAt, destruct)
+    if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS, { endsAt, destruct, roomRelays })
+    startedHere = true
+    admittedRoom = undefined
+    roomEndsAt = endsAt
+    roomDestruct = destruct
+    roomStartsAt = nowSeconds()
+    expectedEpoch = 0
+    roomPolicy = undefined
+    roomSecret = secret
+    roomInvitationCapability = created.invitation
+    invitationAuthoritySk = created.inviterSk
+    invitationDelegation = []
+    roomRelayScope = relayScope
+    useRoomRelays()
+    iceUrls = parseIceInput()
+    roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
+    profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
+    serveCurrentInvitation()
+    history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
+    rememberCurrentRoom()
+  })
 }
 
 /** The "Open in the KithMoot app" button: browsers on Android and on a
@@ -12217,6 +12248,7 @@ function isUnreachableRelayFailure(error: unknown): boolean {
 async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
   if (!retry && (joining || session || loginBusy)) return
+  legacyMessagesPanel?.close()
   const requestedMedia = entryMediaChoice()
   // Beside a docked call this room is for reading and writing: it never
   // carries this device's microphone, camera or relaying.
@@ -13057,6 +13089,7 @@ function showRoomsList(): void {
 /** A room is on screen, or its door. The list stays: it is a column of the
  *  shell, not a page, and it keeps watching what it lists. */
 function hideRoomsList(): void {
+  legacyMessagesPanel?.close()
   roomsListShown = false
   $('home').hidden = true
   startListWatches()
@@ -13898,6 +13931,7 @@ function showRoomPane(): void {
 
 async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   if (switchingRoom) return
+  legacyMessagesPanel?.close()
   if (session && room.roomId === currentRoomId()) {
     if (project !== undefined) { roomProjectContext = project; renderCurrentRoomLogo(); renderRoomLogoControls() }
     showRoomPane()
@@ -14200,6 +14234,7 @@ function dockableRoom(): KnownRoom | undefined {
  *  caller closes the room on screen next; everything the call needs has
  *  been taken out of the globals that closing clears. */
 function dockCall(room: KnownRoom): void {
+  legacyMessagesPanel?.close()
   dockedCall = {
     session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer, conferenceEndTimer,
     room, label: currentRoomLabel(), me: meParticipant, ui: captureRoomUi(),
@@ -14214,6 +14249,7 @@ function dockCall(room: KnownRoom): void {
 function resumeDockedCall(): void {
   const c = dockedCall
   if (!c) return
+  legacyMessagesPanel?.close()
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
   restoreRoomUi(c.ui)
@@ -15873,6 +15909,24 @@ $('notificationSettings').addEventListener('close', () => {
  *  details' own Settings. `#notify` reuses `notificationHome` above - the
  *  two never overlap, since a person is either at the door of a room or on
  *  the rooms list, never both. */
+legacyMessagesPanel = new LegacyMessagePanel(document, {
+  account: () => nostrSession, epoch: () => identityGeneration,
+  // Default account pools bypass the per-room private router. This first
+  // compatibility view is deliberately available only on the ordinary home.
+  eligible: () => !legacyViewTransitions && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy,
+  blocked: contactIsBlocked,
+  borrowDefault: () => {
+    const hold = relayConnections.pool('default')
+    // Capture only this borrower's receive/cleanup surface, never publish.
+    return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
+  },
+})
+$('legacyMessagesEntry').addEventListener('click', event => {
+  if (!event.isTrusted || !legacyMessagesPanel?.available) return
+  ;($('appSettings') as HTMLDialogElement).close()
+  legacyMessagesPanel.show($('openAppSettings'))
+})
+
 let appSettingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean }[] | undefined
 function moveIntoAppSettings(el: HTMLElement, target: Element): { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean } {
   const home = { el, parent: el.parentNode!, next: el.nextSibling, hidden: el.hidden }
@@ -15914,7 +15968,7 @@ $('appSettings').addEventListener('close', () => {
     for (const home of appSettingsHomes) { home.parent.insertBefore(home.el, home.next); home.el.hidden = home.hidden }
     appSettingsHomes = undefined
   }
-  if (!reopenAppSettings) $('openAppSettings').focus({ preventScroll: true })
+  if (!reopenAppSettings && !($('legacyMessagesDialog') as HTMLDialogElement).open) $('openAppSettings').focus({ preventScroll: true })
 })
 
 $('toggleNotify').addEventListener('click', () => {

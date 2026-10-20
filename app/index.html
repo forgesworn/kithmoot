@@ -636,6 +636,7 @@
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.</p>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
+          <button id="legacyMessagesEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="legacyMessagesDialog" hidden>Legacy messages</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
           <details>
             <summary>Room sync and privacy</summary>
@@ -1501,6 +1502,18 @@
           <button id="tidyUpRoom" type="button" class="danger quiet">Leave and tidy up</button>
           <button id="forgetBrowserRoom" type="button" class="danger">Forget this browser</button>
         </div>
+      </div>
+    </dialog>
+
+    <dialog id="legacyMessagesDialog" class="sharedProjectsSheet" aria-labelledby="legacyMessagesTitle" aria-describedby="legacyMessagesHelp">
+      <div class="sheetBar"><h2 id="legacyMessagesTitle">Legacy messages</h2><button id="legacyMessagesClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p id="legacyMessagesHelp" class="note">Read older NIP-04 messages sent to your Nostr account. Loading uses your configured account relays and their existing read permissions. This account view is available outside rooms and calls; it does not use a room’s private route.</p>
+        <p class="legacyMessageWarning">Legacy NIP-04 encryption exposes the sender and recipient to relays. Use a modern private conversation for sensitive messages.</p>
+        <p class="note">Each message opens only when you ask your signer. Closing this view clears its messages from the page. It does not delete relay copies.</p>
+        <button id="legacyMessagesLoad" type="button">Load legacy messages</button>
+        <p id="legacyMessagesStatus" class="note" role="status"></p>
+        <ul id="legacyMessagesList" aria-label="Received legacy messages"></ul>
       </div>
     </dialog>
 

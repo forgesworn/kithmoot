@@ -3,22 +3,36 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 
 /** A test NIP-07 provider: signing keys stay in Node, never in the app. */
-export async function accountDevice(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {}): Promise<BrowserContext> {
+export async function accountDevice(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {},
+  nip04?: { decrypt(peer: string, ciphertext: string): Promise<string>; encrypt(peer: string, text: string): Promise<string> }): Promise<BrowserContext> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const pubkey = getPublicKey(secret)
   await context.exposeFunction('testPublicKey', async () => { await beforePublicKey(); return pubkey })
   await context.exposeFunction('testSign', (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, secret))
   await context.exposeFunction('testEncrypt', (peer: string, plaintext: string) => encrypt(plaintext, getConversationKey(secret, peer)))
   await context.exposeFunction('testDecrypt', (peer: string, ciphertext: string) => decrypt(ciphertext, getConversationKey(secret, peer)))
+  if (nip04) {
+    await context.exposeFunction('testLegacyDecrypt', (peer: string, ciphertext: string) => nip04.decrypt(peer, ciphertext))
+    await context.exposeFunction('testLegacyEncrypt', (peer: string, text: string) => nip04.encrypt(peer, text))
+  }
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  await context.addInitScript(({ relay, nip44 }) => {
+  await context.addInitScript(({ relay, nip44, nip04 }) => {
     const testWindow = window as typeof window & {
       testPublicKey(): Promise<string>; testSign(template: unknown): Promise<unknown>;
       testEncrypt(peer: string, text: string): Promise<string>; testDecrypt(peer: string, text: string): Promise<string>;
+      testLegacyEncrypt(peer: string, text: string): Promise<string>; testLegacyDecrypt(peer: string, text: string): Promise<string>;
+      testLegacyCompletions?: number;
     }
     Object.defineProperty(window, 'nostr', { configurable: true, value: {
       getPublicKey: () => testWindow.testPublicKey(),
       signEvent: (event: unknown) => testWindow.testSign(event),
+      ...(nip04 ? { nip04: {
+        encrypt: (peer: string, text: string) => testWindow.testLegacyEncrypt(peer, text),
+        decrypt: async (peer: string, text: string) => {
+          try { return await testWindow.testLegacyDecrypt(peer, text) }
+          finally { testWindow.testLegacyCompletions = (testWindow.testLegacyCompletions ?? 0) + 1 }
+        },
+      } } : {}),
       ...(nip44 ? { nip44: {
         encrypt: (peer: string, text: string) => testWindow.testEncrypt(peer, text),
         decrypt: (peer: string, text: string) => testWindow.testDecrypt(peer, text),
@@ -32,7 +46,7 @@ export async function accountDevice(browser: Browser, baseURL: string, secret = 
         super(defaults.includes(String(url).replace(/\/$/, '')) ? relay : url, protocols)
       }
     }
-  }, { relay: relay.href, nip44 })
+  }, { relay: relay.href, nip44, nip04: !!nip04 })
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   return context
 }
