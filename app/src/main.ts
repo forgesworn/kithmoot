@@ -141,7 +141,7 @@ import { AdvertTracker, CallTimeline, PairHealthSampler, type PairSample } from 
 import { readCallProfile } from './call-profile.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { contactCheckView } from './contact-check-view.js'
-import { participantVerification, rememberVerified, scopedVerificationStore } from './verified-store.js'
+import { participantVerification, rememberVerified, scopedVerificationStore, verifiedParticipants } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
@@ -11455,6 +11455,9 @@ function verifyChip(view: ParticipantView, name: string, existing?: HTMLButtonEl
  * focus trap and Escape with it.
  */
 let channelChecks: ChannelChecks | undefined
+/** The session `channelChecks` was made for. A room's session is set before
+ *  its join finishes and its checks after, so for a moment they disagree. */
+let channelChecksSession: typeof session
 function showVerification(view: ParticipantView, name: string, status: string): void {
   const current = session, checks = channelChecks
   if (!current || !checks || contactIsBlocked(view.participant)) return
@@ -12962,6 +12965,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const checks = new ChannelChecks({ local: s.participant, context: s.roomId, store: deviceStore,
       current: () => session === s, allowed: peer => !contactIsBlocked(peer), send: text => checksLog.send(text) })
     channelChecks = checks
+    channelChecksSession = s
     const seenChecks = new Set<string>()
     let checkingMessages = false, checksDirty = false
     const ingestChecks = async () => {
@@ -15618,12 +15622,16 @@ $('contactInboxRetry').addEventListener('click', () => {
 
 function peopleModel(): PeopleModel {
   const self = nostrSession?.pubkey
+  // Keys whose words were compared on this device under this account, read once.
+  const checkedHere = new Set(self ? verifiedParticipants(scopedVerificationStore(deviceStore, self)).map(entry => entry.participant) : [])
   const view = grantedContactView
   const byKey = new Map<string, Person>()
   const add = (pubkey: string, person: Omit<Person, 'pubkey' | 'picture'>): void => {
     if (pubkey === self || contactIsBlocked(pubkey) || byKey.has(pubkey)) return
     const profile = profiles.get(pubkey)
-    byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name, ...(profile?.picture ? { picture: profile.picture } : {}) })
+    // Checked: by Signet, or words compared on this device under this account.
+    byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name, ...(profile?.picture ? { picture: profile.picture } : {}),
+      ...(person.checked || checkedHere.has(pubkey) ? { checked: true } : {}) })
   }
   if (view && (view.status === 'ready' || view.status === 'stale')) {
     for (const contact of view.contacts) add(contact.pubkey, {
@@ -15757,6 +15765,45 @@ function invitationsSentTo(pubkey: string): { room: KnownRoom; at?: number; join
 /** Rooms you share with the person, worked out on this device alone. */
 function roomsSharedWith(pubkey: string): KnownRoom[] {
   return contactPageRooms().filter(room => personSeenIn(room.roomId, pubkey))
+}
+
+/** What a contact's page says under Check words together: a check made on
+ *  this device, one Signet shared, a different key under this name, or none. */
+function personCheck(pubkey: string, name: string | undefined): { status: 'verified' | 'unknown' | 'key-changed'; line: string } {
+  const self = nostrSession?.pubkey
+  const local = self ? participantVerification(scopedVerificationStore(deviceStore, self), pubkey, name ?? '') : { status: 'unknown' as const }
+  const shown = contactCheckView(grantedContactView, pubkey, local)
+  if (shown.status === 'verified' && local.status === 'verified' && local.verifiedAt) {
+    return { status: 'verified', line: `Checked on ${new Date(local.verifiedAt * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}` }
+  }
+  if (shown.status === 'verified') return { status: 'verified', line: 'Checked in Signet' }
+  if (shown.status === 'key-changed') return { status: 'key-changed', line: 'You checked a different key under this name. Compare words again.' }
+  if (shown.label === 'check unavailable') return { status: 'unknown', line: 'This contact cannot be checked just now.' }
+  return { status: 'unknown', line: 'Not checked yet' }
+}
+
+/** Check words together: in the private chat with them, the room the words
+ *  come from, by the same check a member's row in a room offers. The other
+ *  person accepts from your row in that chat. */
+async function checkWordsWith(person: Person): Promise<string | undefined> {
+  const failed = await messagePerson(person)
+  if (failed) return failed
+  const s = session
+  // The chat's checks are made once its join is done, a moment after it opens.
+  for (let waited = 0; s && session === s && channelChecksSession !== s && waited < 15_000; waited += 100) await new Promise(resolve => setTimeout(resolve, 100))
+  const checks = channelChecks
+  if (!s || session !== s || channelChecksSession !== s || !checks) return 'The private chat is still opening. Try Check words together again in a moment.'
+  const name = person.name ?? shortKey(person.pubkey)
+  const store = scopedVerificationStore(deviceStore, s.participant)
+  showChannelCheckDialog({ checks, peer: person.pubkey, name, changed: participantVerification(store, person.pubkey, name).status === 'key-changed',
+    current: () => session === s && channelChecks === checks && !contactIsBlocked(person.pubkey),
+    onCompared: () => {
+      rememberVerified(store, person.pubkey, name, Date.now())
+      render(s.participants(), meParticipant)
+      renderPeople()
+    },
+  })
+  return undefined
 }
 
 function openFromPeople(room: KnownRoom): void {
@@ -15899,6 +15946,8 @@ function linkSignetContacts(opener: HTMLElement): void {
       const room = privateChatWith(peer)
       return room ? { label: knownRoomLabel(room), open: () => openFromPeople(room) } : undefined
     },
+    check: person => personCheck(person.pubkey, person.name),
+    checkWords: checkWordsWith,
     sharedRooms: peer => roomsSharedWith(peer).map(room => ({ roomId: room.roomId, label: knownRoomLabel(room), open: () => openFromPeople(room) })),
     sentInvitations: peer => invitationsSentTo(peer).map(({ room, at, joined }) => ({
       roomId: room.roomId, label: knownRoomLabel(room), joined, ...(at !== undefined ? { at } : {}), open: () => openFromPeople(room),

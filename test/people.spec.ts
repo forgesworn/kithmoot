@@ -4,7 +4,7 @@ import { npubEncode } from 'nostr-tools/nip19'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { parseRoomLink } from '../src/link.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { TEST_RELAY_WS, openNewRoomForm } from './browser.js'
+import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails } from './browser.js'
 
 /** A key as the app shortens it when there is no name. */
 const shortNpub = (pubkey: string): string => { const npub = npubEncode(pubkey); return `${npub.slice(0, 10)}…${npub.slice(-4)}` }
@@ -205,6 +205,56 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await expect(alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' })).toBeVisible()
     await alice.locator('#peopleSharedRooms').getByRole('button', { name: 'Saturday walk' }).click()
     await expect(alice.locator('#roomTitle')).toHaveText('Saturday walk')
+  } finally { publisher.close(); await ac.close(); await bc.close() }
+})
+
+test('Check words together from People compares words in the private chat and marks the person checked', async ({ browser, baseURL }) => {
+  test.setTimeout(180_000)
+  const aKey = generateSecretKey(), bKey = generateSecretKey()
+  const a = getPublicKey(aKey), b = getPublicKey(bKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  try {
+    await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
+    const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
+    await signInAccount(alice, baseURL!)
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    const check = alice.locator('#peopleCheckWords')
+    await expect(check).toHaveAccessibleName('Check words together, Not checked yet')
+
+    // The words come from the private chat, so the check opens there.
+    await check.click()
+    await expect(alice.locator('#roomWho')).toHaveText('Private chat')
+    await expect(alice.locator('#verifyDialog')).toBeVisible({ timeout: 30_000 })
+    await expect(alice.locator('#verifyTitle')).toHaveText('Is this really Bob on Nostr?')
+    await alice.locator('#verifyStart').click()
+
+    // Bob accepts the private chat, then the check from Alice's row in it.
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await expect(bob.locator('#roomWho')).toHaveText('Private chat', { timeout: 30_000 })
+    await openRoomDetails(bob)
+    // Only somebody else's row has a check button.
+    const aliceRow = bob.locator('#sheetRoster .rosterRow', { has: bob.locator('.verifyChip') })
+    await expect(aliceRow).toHaveCount(1, { timeout: 30_000 })
+    if (!(await aliceRow.evaluate(el => (el as HTMLDetailsElement).open))) await aliceRow.locator('summary').click()
+    await expect(aliceRow.locator('.verifyChip')).toHaveText('check requested', { timeout: 30_000 })
+    await aliceRow.locator('.verifyChip').click()
+    await bob.locator('#verifyAccept').click()
+
+    await expect(alice.locator('#verifyConfirm')).toBeEnabled({ timeout: 30_000 })
+    await expect(bob.locator('#verifyConfirm')).toBeEnabled({ timeout: 30_000 })
+    expect((await alice.locator('#verifyMine').textContent())!.trim()).toBe((await bob.locator('#verifyTheirs').textContent())!.trim())
+    await alice.locator('#verifyConfirm').click()
+    await expect(alice.locator('#verifyDialog')).toBeHidden()
+
+    // People says so: the date on his page, and the mark beside his name.
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await expect(check).toHaveAccessibleName(/^Check words together, Checked on /)
+    await expect(alice.locator(`#peopleRows li[data-person="${b}"] .checkedMark`)).toBeVisible()
+    await alice.screenshot({ path: test.info().outputPath('contact-checked.png') })
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 
