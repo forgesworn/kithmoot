@@ -9967,7 +9967,10 @@ function conversationTabs(): Array<[string | undefined, string]> {
 }
 
 function conversationMessages(name: string | undefined): ChatMessage[] {
-  return (name === undefined ? session?.chat : channelLogs.get(name))?.messages() ?? []
+  if (name !== undefined) return channelLogs.get(name)?.messages() ?? []
+  // A room that is still joining has no chat yet, and the chats list beside
+  // it counts unread on a timer, so a count taken then is nothing, not a throw.
+  try { return session?.chat.messages() ?? [] } catch { return [] }
 }
 
 function unreadMessageIds(name: string | undefined): Set<string> {
