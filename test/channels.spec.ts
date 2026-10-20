@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { bytesToHex } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { goToConversation, newDeviceContext, open, openRoomDetails, startRelay } from './browser.js'
+import { goToConversation, newDeviceContext, open, startRelay, openRoomInfoPage } from './browser.js'
 import { RoomAgent } from '../src/agent.js'
 
 /**
@@ -68,7 +68,7 @@ test.describe('channels', () => {
       // them. One that vanishes when quiet can never answer the question it
       // exists for - is something being said out of my sight - so it does
       // not vanish. What is NOT there yet is a channel nobody has opened.
-      await openRoomDetails(adminPage)
+      await openRoomInfoPage(adminPage, 'Conversations')
       await expect(adminPage.locator('#channelBar')).toBeVisible()
       await expect(adminPage.locator('#channelBar button', { hasText: 'shipping' })).toHaveCount(0)
 
@@ -77,8 +77,8 @@ test.describe('channels', () => {
       // sheets are opened first: a control that is merely behind a shut
       // sheet would read as absent, and then Bob's half of this would pass
       // for a reason that has nothing to do with who he is.
-      await openRoomDetails(adminPage)
-      await openRoomDetails(memberPage)
+      await openRoomInfoPage(adminPage, 'Conversations')
+      await openRoomInfoPage(memberPage, 'Conversations')
       await expect(adminPage.locator('#channelNew')).toBeVisible({ timeout: 60_000 })
       await expect(memberPage.locator('#channelNew')).toBeHidden()
 
@@ -88,7 +88,7 @@ test.describe('channels', () => {
       // Both of them, because the list is announced to the room and not
       // just to the person who asked for it.
       for (const page of [adminPage, memberPage]) {
-        await openRoomDetails(page)
+        await openRoomInfoPage(page, 'Conversations')
         await expect(page.locator('#channelBar button', { hasText: 'shipping' })).toBeVisible({ timeout: 60_000 })
         await expect(page.locator('#channelBar button', { hasText: 'Chat' })).toBeVisible()
       }

@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openRoomInfoPage } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 async function askedRoom(browser: Browser, baseURL: string) {
@@ -247,14 +247,14 @@ test('an explicit open-door choice survives reopening a temporary room', async (
     await first.getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(guest.locator('#status')).toContainText('You are on the list')
     await guestContext.close()
-    await host.locator('#roomMenu').click()
+    await openRoomInfoPage(host, 'Invite link')
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'true')
     await host.locator('#toggleKnock').click()
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
     await host.reload()
     await host.locator('#join').click()
     await expect(host.locator('#roomArea')).toBeVisible()
-    await host.locator('#roomMenu').click()
+    await openRoomInfoPage(host, 'Invite link')
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
     const next = await nextContext.newPage()
     await next.goto(link)
@@ -349,7 +349,7 @@ test('people with the link ask, and the person in the room lets them in or decli
     await expect(host.locator('#approvals .approvalCard.knock')).toHaveCount(0)
 
     // The switch is in Room details for the device that answers the link.
-    await host.locator('#roomMenu').click()
+    await openRoomInfoPage(host, 'Invite link')
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'true')
   } finally { await a.close(); await b.close(); await c.close() }
 })

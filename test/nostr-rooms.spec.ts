@@ -15,7 +15,7 @@ import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/
 import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects } from './browser.js'
+import { openNewRoomForm, leaveRoom, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects, openProfileSettings, openMember, openRoomInfoPage, closeProfileSettings, openSettings, closeSettings } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
@@ -67,9 +67,9 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     await expect(page.locator('#whoami')).toContainText(npubEncode(pubkey).slice(0, 12))
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page); await page.locator('#roomProfileSettings').click()
+    await openProfileSettings(page)
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
-    await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
+    await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
     await expect(page.locator('#whoami')).toContainText('alice@profile.example')
     expect(addressRequests).toBeGreaterThan(0)
     await page.locator('#chatInput').fill('Tally, this is my account')
@@ -177,10 +177,10 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
 
     await leaveToChats(returning)
     await expect(returning.locator('#roomList .roomName')).toHaveText('Standing town hall')
-    await returning.locator('#openAppSettings').click()
+    await openSettings(returning, 'Account')
     await returning.locator('#signOut').click()
     await expect(returning.locator('#signIn')).toBeVisible()
-    await returning.locator('#appSettingsClose').click()
+    await closeSettings(returning)
     await expect(returning.locator('#roomList .roomRow')).toHaveCount(0)
     await expect(returning.locator('#backToRoom')).toBeHidden()
     // Sign in is in the header once there is a list, under it before.
@@ -212,9 +212,9 @@ test('forgetting an account bookmark removes it on the other signed-in device', 
     await expect(creator.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     await expect(other.locator('#roomList .roomRow')).toHaveCount(0)
     await other.reload()
-    await other.locator('#openAppSettings').click()
+    await openSettings(other, 'Account')
     await expect(other.locator('#signOut')).toBeVisible()
-    await other.locator('#appSettingsClose').click()
+    await closeSettings(other)
     await expect(other.locator('#roomList .roomRow')).toHaveCount(0)
   } finally { await a.close(); await b.close() }
 })
@@ -255,14 +255,14 @@ test('existing browser rooms are imported only after explicit confirmation', asy
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
     // Add the rooms already here lives in Settings, with the account.
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await expect(page.locator('#importBrowserRooms')).toHaveText('Add the room already here')
     await page.locator('#importBrowserRooms').click()
     await page.locator('#actionCancel').click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
     await page.locator('#importBrowserRooms').click()
     await page.locator('#actionConfirm').click()
-    await page.locator('#appSettingsClose').click()
+    await closeSettings(page)
     await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
     await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     const other = await b.newPage()
@@ -329,7 +329,7 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#roomMenu').click()
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
     await expect(page.locator('#sendingIdentity')).not.toContainText('visitor')
     await page.locator('#roomSheetClose').click()
@@ -359,8 +359,7 @@ test('a room joined as the account opens again as that account while its signer 
     await page.reload()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page)
-    await page.locator('#leave').click()
+    await leaveRoom(page)
     if (await page.locator('#actionConfirm').isVisible()) await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomArea')).toBeHidden()
 
@@ -379,7 +378,7 @@ test('a room joined as the account opens again as that account while its signer 
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#status')).toContainText('signer is not connected')
-    await page.locator('#roomMenu').click()
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
     await page.locator('#roomSheetClose').click()
     await page.locator('#chatInput').fill('Tally, back on the pass')
@@ -403,8 +402,7 @@ test('a private conversation is started on the relays its starter listed for pri
   try {
     const page = await ada.newPage()
     await signIn(page, baseURL!)
-    await page.locator('#openAppSettings').click()
-    await page.locator('#appConnections summary').click()
+    await openSettings(page, 'Connections')
     await page.locator('#dmRelaySettingsOpen').click()
     await expect(page.locator('#dmRelayStatus')).toContainText('no list yet')
     await page.locator('#dmRelayList').fill(`wss://dm.example\n${relay.href}`)
@@ -425,7 +423,7 @@ test('a private conversation is started on the relays its starter listed for pri
     await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
-    await openRoomDetails(page)
+    await openMember(page, 'Rowan')
     await page.getByRole('button', { name: /^Message Rowan privately/ }).click()
     await expect(page.locator('#status')).toContainText(/Private conversation with Rowan/, { timeout: 30_000 })
     // A signed-in account's rooms are kept under its own prefix.
@@ -457,7 +455,7 @@ for (const width of [390, 1440]) {
       await page.reload()
       await page.locator('#join').click()
       await expect(page.locator('#roomArea')).toBeVisible()
-      await openRoomDetails(page)
+      await openMember(page, 'Rowan')
       const button = page.getByRole('button', { name: 'Message Rowan privately', exact: true })
       await expect(button).toBeVisible()
       await button.scrollIntoViewIfNeeded()
@@ -618,8 +616,7 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
     // on relays that forget, so there may be several copies; tidying deletes them all.
     expect((await relayHolds({ authors: [inviterPub], kinds: [1463] })).length).toBeGreaterThanOrEqual(1)
 
-    await openRoomDetails(page)
-    await page.locator('#tidyUpRoom').click()
+    await leaveRoom(page, { tidy: true })
     const dialog = page.locator('#tidyUpDialog')
     await expect(dialog).toBeVisible()
     await expect(page.locator('#tidyUpSteps li')).toHaveCount(9)
@@ -668,7 +665,7 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await page.locator('#signOut').click()
     // Wait until signet-login has cleared its storage. Navigating before then
     // can leave the account to be restored on the next load.
@@ -679,7 +676,7 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
     await page.locator('#joinVisitor').click()
     await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#roomMenu').click()
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as visitor/)
     await expect(page.locator('#sendingIdentity')).toContainText('Same familiar name')
     await page.locator('#sendingIdentity button').click()
@@ -719,9 +716,9 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
   async function loginAccount(page: Page) {
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await expect(page.locator('#signOut')).toBeVisible()
-    await page.locator('#appSettingsClose').click()
+    await closeSettings(page)
     // History restores the home heading and room list. Wait for that state
     // before clicking: its layout can move this button during a pointer tap.
     await expect(page.locator('#sharedProjectNew')).toBeEnabled()

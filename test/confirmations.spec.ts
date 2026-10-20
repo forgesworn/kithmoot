@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
-import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { TEST_RELAY_WS, openRoomInfoPage } from './browser.js'
 
 test('app confirmations keep messages flowing, preserve drafts on cancel and work with keyboard and large text', async ({ browser, baseURL }, testInfo) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -20,7 +20,7 @@ test('app confirmations keep messages flowing, preserve drafts on cancel and wor
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('Keep this draft until I choose to discard it')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#discardDraft').focus()
     await page.locator('#discardDraft').press('Enter')
     const dialog = page.getByRole('alertdialog', { name: 'Discard this draft?', exact: true })
@@ -72,7 +72,7 @@ test('device pairing waits for an in-app approval and cancelling leaves the seco
     await owner!.goto(link)
     await owner!.locator('#displayName').fill('Ada')
     await owner!.locator('#join').click()
-    await openRoomDetails(owner!)
+    await openRoomInfoPage(owner!, 'Use your phone here too')
     await owner!.locator('#addDevice').click()
     await secondary!.goto(await owner!.locator('#pairUrl').inputValue())
     const dialog = owner!.getByRole('alertdialog', { name: 'Add this device?', exact: true })

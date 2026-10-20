@@ -6,6 +6,50 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.97 room bar, Room info and the call, 20 October 2026
+
+Version **0.6.97**, code **120**, brings stages 3 to 5 of the calm shell to
+Android in step with the web and desktop apps: the room bar with Call, Search
+and a ⋮ menu, Chat and Board tabs, a call banner with Join and an on-call bar
+(kithmoot-android #290); Room info as a full page and Settings names as on the
+web (#291); and the call bar, More, Effects, the ring screen and named call
+tiles (#292). Invitation times read like the web's (#289). No wire change.
+
+The production APK is built from Android source
+`e4aa987d` (pull request #292 merged, all checks passed), SHA-256
+`372d691aaafac7844434c2ab2b4c5cd8c27dd90c2a1fba5a35b2d1376736f606`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started a room over public relays; not yet observed on a device.
+
+## Android 0.6.96 Chats, People and Boards, 20 October 2026
+
+Version **0.6.96**, code **119**, brings stage 2 of the calm shell to Android
+in step with the web and desktop apps: Chats, People and Boards in a bottom
+bar (a rail on tablets), Chats with filter chips, a New sheet and received
+invitations at the top, and People listing Signet contacts, contact cards and
+the account's follow list with Message, Voice and Video (kithmoot-android
+#288). Follow-list names are fetched only while public profiles are on.
+
+The production APK is built from Android source
+`3803acc8` (pull request #288 merged, all checks passed), SHA-256
+`59585116260d81e231810f711e424960232e133bad60ae7be3166221a37875d8`, signed with
+the retained production certificate. Launched on the arm64 emulator; not yet
+observed on a device.
+
+## Android 0.6.95 visible sending, 20 October 2026
+
+Version **0.6.95**, code **118**, shows when a message is sending (an
+hourglass on Send, a read-only field, and after a second a line saying there
+is no need to press Send again) and clears the composer once the message is
+kept, even when the keyboard changed the text as Send was pressed, which had
+left sent text in the box (kithmoot-android #283). It also carries the Keeper
+receiver contention fix (#287).
+
+The production APK is built from Android source
+`3f1e42fa` (pull request #283, all checks passed), SHA-256
+`a6283a09aa1b36d3c39f45d51f0aec455f5a0eb4f03eea59186e0e0c4c15fb42`, signed with
+the retained production certificate. Not yet observed on a device.
+
 ## Android 0.6.94 long pastes as documents, 19 October 2026
 
 Version **0.6.94**, code **117**, sends a paste over the 2,000 character chat

@@ -20,7 +20,6 @@ chat.addEventListener('click', () => showMobileRoomView('chat'))
 // and nothing more. Starting or joining is `#callStripAction`'s own click,
 // in the view it opens, so a tap on Call never itself starts a call.
 call.addEventListener('click', () => showMobileRoomView('call'))
-document.getElementById('mobileWork')!.addEventListener('click', () => document.getElementById('openAssignments')!.click())
 
 // Extra controls open over the call, never expand the page beneath it.
 const extras = document.getElementById('callExtras') as HTMLDetailsElement

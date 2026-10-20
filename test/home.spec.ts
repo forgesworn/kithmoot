@@ -3,7 +3,7 @@ import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { RoomAgent } from '../src/agent.js'
 import { KINDS } from '../src/kinds.js'
 import { withRelays, TEST_RELAY_WS } from './relays.js'
-import { requestAdmission, openNewRoomForm } from './browser.js'
+import { requestAdmission, openNewRoomForm, roomMenuItem, openRoomInfoPage } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -107,7 +107,10 @@ test('the home page leads with room actions, fits both themes and starts a named
     await expect.poll(() => page.evaluate(() => {
       const tools = document.querySelector('.conversationTools')!.getBoundingClientRect()
       const chat = document.querySelector('#chatViewport')!.getBoundingClientRect()
-      if (!tools.width || !tools.height || !chat.width || !chat.height) return Infinity
+      if (!chat.width || !chat.height) return Infinity
+      // The row of tools has nothing in it unless there is an unread pill or a
+      // way back to search results, and then it takes no room at all.
+      if (!tools.width || !tools.height) return 0
       return tools.bottom - chat.top
     })).toBeLessThanOrEqual(1)
   } finally { await context.close() }
@@ -322,11 +325,14 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
     await expect(page.locator('#arrivalLead')).toContainText('Invite people')
     await page.locator('#displayName').fill('Ada')
     await page.locator('#join').click()
-    await expect(page.locator('#invitePeople')).toBeVisible()
-    await expect(page.locator('#chatLog')).toContainText('Use Invite people')
+    await expect(page.locator('#roomMenu')).toBeVisible()
+    await expect(page.locator('#chatLog')).toContainText('Write a message below to start the conversation.')
     await page.locator('#chatInput').fill('Keep this unfinished welcome')
-    await page.locator('#invitePeople').focus()
-    await page.locator('#invitePeople').press('Enter')
+    // By keyboard: Enter on the ⋯ opens the menu, the item is chosen with Enter.
+    await page.locator('#roomMenu').focus()
+    await page.locator('#roomMenu').press('Enter')
+    await page.locator('#roomMoreMenu').getByRole('menuitem', { name: 'Invite people…', exact: true }).focus()
+    await page.keyboard.press('Enter')
     const dialog = page.getByRole('dialog', { name: 'Invite people', exact: true })
     await expect(dialog).toBeVisible()
     await expect(page.locator('#roomSheet')).not.toBeVisible()
@@ -379,15 +385,15 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
     await page.keyboard.press('Escape')
     await expect(dialog).not.toBeVisible()
-    await expect(page.locator('#invitePeople')).toBeFocused()
+    await expect(page.locator('#roomMenu')).toBeFocused()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished welcome')
     await page.evaluate(() => { document.documentElement.style.fontSize = '' })
-    await page.locator('#invitePeople').click()
+    await roomMenuItem(page, 'Invite people…')
     await expect(dialog).toBeVisible()
     await expect(page.locator('#copyShare')).toBeFocused()
     await page.mouse.click(1, 1)
     await expect(dialog).not.toBeVisible()
-    await page.locator('#roomMenu').click()
+    await openRoomInfoPage(page, 'Invite link')
     await expect(page.locator('#roomSheet #shareUrl')).toHaveValue(link)
     expect(await page.locator('#shareUrl').count()).toBe(1)
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'false')

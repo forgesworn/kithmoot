@@ -132,7 +132,7 @@
 }
 
 /* The same eight colours as a room's avatar in the list. */
-:is(.peopleList .personAvatar, .peoplePane .contactAvatar) {
+:is(.peopleList .personAvatar, .peoplePane .contactAvatar, .peoplePane .contactRoomAvatar) {
   position: relative;
   overflow: hidden;
   flex: 0 0 40px;
@@ -147,24 +147,24 @@
   color: #fff;
   background: var(--avatar, #0e7fa3);
 }
-:is(.personAvatar, .contactAvatar) img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-:is(.personAvatar, .contactAvatar)[data-slot='0'] { --avatar: #0e7fa3; }
-:is(.personAvatar, .contactAvatar)[data-slot='1'] { --avatar: #7a5fc4; }
-:is(.personAvatar, .contactAvatar)[data-slot='2'] { --avatar: #b54c25; }
-:is(.personAvatar, .contactAvatar)[data-slot='3'] { --avatar: #357d46; }
-:is(.personAvatar, .contactAvatar)[data-slot='4'] { --avatar: #9c4479; }
-:is(.personAvatar, .contactAvatar)[data-slot='5'] { --avatar: #6b7020; }
-:is(.personAvatar, .contactAvatar)[data-slot='6'] { --avatar: #2a6db0; }
-:is(.personAvatar, .contactAvatar)[data-slot='7'] { --avatar: #8c5616; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar) img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='0'] { --avatar: #0e7fa3; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='1'] { --avatar: #7a5fc4; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='2'] { --avatar: #b54c25; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='3'] { --avatar: #357d46; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='4'] { --avatar: #9c4479; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='5'] { --avatar: #6b7020; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='6'] { --avatar: #2a6db0; }
+:is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='7'] { --avatar: #8c5616; }
 @media (prefers-color-scheme: light) {
-  :is(.personAvatar, .contactAvatar)[data-slot='0'] { --avatar: #0b6b8a; }
-  :is(.personAvatar, .contactAvatar)[data-slot='1'] { --avatar: #6a4fb3; }
-  :is(.personAvatar, .contactAvatar)[data-slot='2'] { --avatar: #a2431f; }
-  :is(.personAvatar, .contactAvatar)[data-slot='3'] { --avatar: #2f6f3e; }
-  :is(.personAvatar, .contactAvatar)[data-slot='4'] { --avatar: #8a3a6b; }
-  :is(.personAvatar, .contactAvatar)[data-slot='5'] { --avatar: #5b5f1c; }
-  :is(.personAvatar, .contactAvatar)[data-slot='6'] { --avatar: #1f5f9e; }
-  :is(.personAvatar, .contactAvatar)[data-slot='7'] { --avatar: #7a4a12; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='0'] { --avatar: #0b6b8a; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='1'] { --avatar: #6a4fb3; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='2'] { --avatar: #a2431f; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='3'] { --avatar: #2f6f3e; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='4'] { --avatar: #8a3a6b; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='5'] { --avatar: #5b5f1c; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='6'] { --avatar: #1f5f9e; }
+  :is(.personAvatar, .contactAvatar, .contactRoomAvatar)[data-slot='7'] { --avatar: #7a4a12; }
 }
 
 .peopleList .peopleEmpty {
@@ -309,6 +309,46 @@
   border-radius: var(--r-s);
 }
 .peoplePane .contactLink:hover { background: var(--surface); }
+
+/* Rooms you share and Invitations: one row per room. */
+.peoplePane .contactRooms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.peoplePane :is(.contactRooms .contactLink, #peopleCheckWords) {
+  gap: var(--s3);
+  justify-content: flex-start;
+  min-height: 48px;
+}
+.peoplePane :is(.contactRooms .contactLink, #peopleCheckWords) > svg { flex: 0 0 auto; color: var(--muted); }
+.peoplePane #peopleCheckWords.check-verified > svg:first-child { color: var(--ok); }
+.peoplePane #peopleCheckWords.check-key-changed .contactLinkSub { color: var(--danger); white-space: normal; }
+.peoplePane .contactRoomAvatar {
+  flex-basis: 28px;
+  width: 28px;
+  height: 28px;
+  font-size: var(--fs-1);
+}
+.peoplePane .contactLinkText {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.peoplePane .contactLinkTitle,
+.peoplePane .contactLinkSub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.peoplePane .contactLinkSub,
+.peoplePane .contactLinkMeta {
+  font-size: var(--fs-1);
+  line-height: var(--lh-1);
+  color: var(--muted);
+}
+.peoplePane .contactLinkMeta { flex: 0 0 auto; }
 
 @media (forced-colors: active) {
   .peopleList .personRow button[aria-current='true'] { outline: 2px solid Highlight; }

@@ -6,7 +6,7 @@ import { localIdentity } from '../src/identity.js'
 import { npubEncode } from 'nostr-tools/nip19'
 import { encodeRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
-import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats, openProjects, openBoardsDestination, showChats } from './browser.js'
+import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats, openProjects, openBoardsDestination, showChats, openRoomTasks, openSettings, closeSettings } from './browser.js'
 
 for (const retainCall of [false, true]) {
 test(`cross-project Inbox routes a question, human mention, reply and exact-result review to their origins${retainCall ? ' while a signed-project call stays live' : ''}`, async ({ browser, baseURL }, info) => {
@@ -119,7 +119,7 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
       await page.locator('#sharedProjectSave').click(); await expect(page.locator('#sharedProjectEditor')).not.toBeVisible()
     }
     await enter('Design project', 'Design room')
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await page.getByText('New assignment', { exact: true }).click()
     await expect(page.locator('#assignmentOwner option[value="' + keepers[0]!.participant + '"]')).toHaveCount(1)
     await page.locator('#assignmentOwner').selectOption(keepers[0]!.participant)
@@ -130,7 +130,7 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     const task = logs[0]!.snapshot().assignments[0]!
     await page.locator('#assignmentClose').click()
     await enter('Research project', 'Research room')
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await page.getByText('New assignment', { exact: true }).click()
     await page.locator('#assignmentOwner').selectOption(keepers[2]!.participant)
     await page.locator('#assignmentCreate [name=objective]').fill('Independent research task')
@@ -274,9 +274,9 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     await inbox()
     await expect(page.locator('#workspaceWorkStatus')).not.toContainText('Sign in')
     await showChats(page)
-    await page.locator('#openAppSettings').click()
+    await openSettings(page, 'Account')
     await page.locator('#signOut').click()
-    await page.locator('#appSettingsClose').click()
+    await closeSettings(page)
     await page.locator('#railChats:visible').click()
     await inbox()
     await expect(page.locator('#workspaceWorkStatus')).toContainText('Sign in with Nostr')

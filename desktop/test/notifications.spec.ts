@@ -101,7 +101,7 @@ test('background saved room delivery, private notification clicks and unread bad
     await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(0)
     await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('')
 
-    await page.locator('#roomMenu').click()
+    await page.locator('#roomIdentity').click()
     await expect(page.locator('#roomSheet')).toBeVisible()
     await writer.chat.send('Still unread behind Room details')
     await expect.poll(() => app.evaluate(() => (globalThis as any).badge)).toBe(1)

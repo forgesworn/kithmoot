@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, withRelays } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openRoomDetails, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia } from './browser.js'
 
 /**
  * Can you actually see and hear the other person?
@@ -87,9 +87,11 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
       const video = (await tile.locator('video').first().boundingBox())!
       expect(video.height).toBeGreaterThanOrEqual(160)
     }
-    const tools = (await pageA.locator('.conversationTools').boundingBox())!
+    // The tools row shows only when it has something in it (Next unread,
+    // Back to results); when it shows, it must sit above the chat.
+    const tools = await pageA.locator('.conversationTools').boundingBox()
     const chat = (await pageA.locator('#chatViewport').boundingBox())!
-    expect(tools.y + tools.height, 'conversation tools overlap the chat').toBeLessThanOrEqual(chat.y + 1)
+    if (tools && tools.height > 0) expect(tools.y + tools.height, 'conversation tools overlap the chat').toBeLessThanOrEqual(chat.y + 1)
     await pageA.screenshot({ path: testInfo.outputPath('desktop-readable-call.png') })
 
     // Model capture being ended by the OS, independently of the still-live
@@ -670,8 +672,7 @@ test('somebody who leaves is gone from everybody else at once', async ({ browser
 
     // Leaving is in the room's details, with everything else that is not
     // the conversation.
-    await openRoomDetails(pageA)
-    await pageA.locator('#leave').click({ timeout: 5_000 })
+    await leaveRoom(pageA)
 
     // Well inside the 75 s presence timeout: this is the farewell arriving,
     // not the sweep catching up.

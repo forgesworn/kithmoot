@@ -89,7 +89,7 @@ const setup=async key=>{
   await page.goto(url);await page.reload();await page.locator('#join').click();await page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
   return {context,page}
 }
-const openRoom=async page=>{await page.locator('#roomMenu').click();await page.locator('#roomBothySettings').click();await page.locator('#bothyRoomRoute option').first().waitFor({state:'attached',timeout:15000})}
+const openRoom=async page=>{await page.locator('#roomIdentity').click();await page.locator('#roomBothySettings').click();await page.locator('#bothyRoomRoute option').first().waitFor({state:'attached',timeout:15000})}
 const openRecovery=async page=>{
   await page.getByRole('button',{name:'Recover Bothy room access',exact:true}).click()
   await page.locator('#bothyRoomRoute option').first().waitFor({state:'attached'})

@@ -32,6 +32,10 @@ declare global {
       /** Close every banner this window put up for one room. Absent before desktop 0.1.58. */
       clearRoomNotices?(roomId: string): void
       onOpenRoom(listener: (roomId: string) => void): () => void
+      /** What the room on screen allows, for the Room menu. Absent before desktop 0.1.92. */
+      setRoomMenuState?(state: Record<string, unknown>): void
+      /** A chosen application menu item, by its name. Absent before desktop 0.1.92. */
+      onMenuCommand?(listener: (command: string) => void): () => void
     }
   }
 }

@@ -6,7 +6,7 @@ import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { agentRelaysFor } from './relays.js'
 import { writeFile } from 'node:fs/promises'
-import { openRoomDetails, openProjects, openNewProject } from './browser.js'
+import { openProjects, openNewProject, openRoomInfoPage } from './browser.js'
 
 test('project logos recover privately and follow explicit room and call contexts', async ({ browser, baseURL }, info) => {
   const owner = await signedDevice(browser, baseURL!), member = await signedDevice(browser, baseURL!)
@@ -85,7 +85,7 @@ test('project logos recover privately and follow explicit room and call contexts
     if (await b!.locator('#displayName').isVisible()) { await b!.locator('#displayName').fill('Member'); await b!.locator('#join').click() }
     await expect(b!.locator('#roomArea')).toBeVisible()
     await expect(b!.locator('#roomLogo img')).toHaveAttribute('src', sources.get('Blue project')!)
-    await openRoomDetails(b!); await b!.getByRole('button', { name: 'Change room logo', exact: true }).click(); await choose(b!, '#00ff00')
+    await openRoomInfoPage(b!, 'Name and picture'); await b!.getByRole('button', { name: 'Change room logo', exact: true }).click(); await choose(b!, '#00ff00')
     await b!.locator('.logoEditor [data-action=save]').click(); await expect(b!.locator('.logoEditor')).toHaveCount(0)
     const override = await b!.locator('#roomLogo img').getAttribute('src')
     expect(override).not.toBe(sources.get('Blue project'))

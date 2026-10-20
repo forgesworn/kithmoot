@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
-import { newDeviceContext, open, openCall, openRoomDetails, turnOnMedia, leaveToChats } from './browser.js'
+import { newDeviceContext, open, openCall, turnOnMedia, leaveToChats, openMember } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
@@ -19,7 +19,7 @@ for (const privateChat of [false, true]) {
         await expect(page.locator('#roomArea')).toBeVisible()
       }
       if (privateChat) {
-        await openRoomDetails(b!)
+        await openMember(b!, 'Ada')
         await b!.getByRole('button', { name: /^Message Ada privately/ }).click()
         await expect(a!.locator('#chatLog')).toContainText('started a private conversation with you')
         await b!.getByRole('button', { name: /^Message Ada privately/ }).click()

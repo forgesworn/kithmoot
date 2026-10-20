@@ -382,19 +382,6 @@ section {
   margin: 1rem 0;
 }
 
-details#appConnections {
-  margin-top: 0.75rem;
-  font-size: var(--fs-2);
-  color: var(--muted);
-}
-
-details#appConnections label {
-  display: block;
-  margin: 0.5rem 0 0.35rem;
-}
-
-details#appConnections button { display: block; }
-
 .linkBox {
   border-radius: var(--r-m);
   padding: 0.75rem;
@@ -1342,8 +1329,8 @@ video {
 .messageReactionChoices button { min-width: 44px; min-height: 44px; margin: 0; padding: .2rem; font-size: var(--fs-4); background: transparent; }
 .messageReactionChoices button[aria-pressed=true] { background: var(--accent); color: var(--on-accent); }
 .conversationTools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.4rem; flex: 0 0 auto; }
-.conversationTools button, .agentActivity button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: var(--fs-1); background: transparent; color: var(--link); }
-.conversationTools button:hover, .agentActivity button:hover { background: var(--selected); }
+.conversationTools button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: var(--fs-1); background: transparent; color: var(--link); }
+.conversationTools button:hover { background: var(--selected); }
 
 /* An arrival is visible even when the conversation is scrolled away from
    the locally-rendered system line. It takes its own row and never overlays
@@ -1454,7 +1441,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 
 /* A brief notice that somebody is drawing on this device's own screen
    share - see `notifyDrawingOnMyShare` in app/src/main.ts. Styled like
-   `.agentActivity`: an accent-edged strip rather than a dialog, because the
+   the call banner: an accent-edged strip rather than a dialog, because the
    person reading it is mid-presentation and needs to keep talking. */
 .sharerMarksNotice {
   display: flex;
@@ -2900,7 +2887,6 @@ label.note {
    scrolling, so it cannot bring back the collapsing-address-bar trouble
    that pinning anything to the page itself would. */
 #roomSheet,
-#appSettings,
 #contextPanel,
 #conversationSearch {
   padding: 0;
@@ -2918,7 +2904,6 @@ label.note {
 }
 
 #roomSheet::backdrop,
-#appSettings::backdrop,
 #contextPanel::backdrop,
 #conversationSearch::backdrop {
   background: rgb(0 0 0 / 0.55);
@@ -3027,16 +3012,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
    already has its own "Your account" summary - see the strings removed in
    spec section 9. */
 #accountHeading { display: none; }
-
-/* #notify brings its own "Notifications & sound" <h3> along when it moves
-   into the sheet (reused as-is, unchanged markup); restyled here to match
-   "You" and "Text size" rather than reading heavier than its neighbours. */
-#appSettingsNotify h3 {
-  margin: 1.25rem 0 0.5rem;
-  font-size: var(--fs-1);
-  font-weight: 600;
-  color: var(--muted);
-}
 
 .sheetBody > section {
   margin: 0.75rem 0;
@@ -3210,8 +3185,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .profileChoice { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
 #lookupProfiles { min-height: 0; width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
 
-/* Search uses the room's sheet so opening it never interrupts the call. */
-#searchConversation { margin-bottom: 1rem; }
 .searchFileFilter { display: flex; align-items: center; gap: .6rem; margin-block: .8rem; min-height: 44px; }
 .searchFileFilter input { width: 1.2rem; height: 1.2rem; margin: 0; }
 .messageSearchResults { list-style: none; margin: 0; padding: 0; }
@@ -3505,7 +3478,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   .mentions,
   .chatArtPicker,
   .composerContext,
-  .agentActivity,
   .callBanner,
   .presenceNotice,
   .epochNotice,
@@ -3669,21 +3641,6 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   background: var(--agent-fill);
 }
 .conversationNav .draftBadge { margin: 0; }
-.agentActivity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .35rem .8rem;
-  padding: .6rem .85rem;
-  margin-bottom: .6rem;
-  border-radius: var(--r-m);
-  background: var(--agent-bubble);
-  font-size: var(--fs-1);
-}
-.agentActivity > div { flex: 1 1 14rem; min-width: 0; }
-.agentActivity strong, .agentActivity span { display: block; overflow-wrap: anywhere; }
-.agentActivity span { color: var(--muted); }
-.agentActivity button { margin: 0; min-height: 44px; font-size: var(--fs-1); }
 select {
   font: inherit;
   min-height: 44px;
@@ -3733,9 +3690,6 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   .callLabelWide { display: none; }
   .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
   .conversationNav button { padding-inline: .6rem; font-size: var(--fs-1); }
-  .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }
-  .agentActivity > div { flex-basis: 10rem; }
-  .agentActivity span { font-size: var(--fs-1); }
 }
 @media (max-width: 700px) {
   .roomBar { flex-wrap: wrap; }
@@ -3755,18 +3709,12 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   /* Picture preferences remain in Room details. Give catch-up and search
      one row here so the conversation and composer can both be used. */
   .conversationTools { flex-wrap: nowrap; }
-  #invitePeople { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   #nextUnread { flex: 1 1 0; min-width: 0; }
-  #chatSearch { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   #backToSearch { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* Keep a full line visible when text size changes after the composer was
    measured. The inline pixel height must not clip larger type. */
-@media (max-width: 540px) {
-  .agentActivity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; }
-  .agentActivity button { padding: .4rem .5rem; font-size: var(--fs-1); }
-}
 
 /* The message layer: threads, edits, retractions, mentions on the wire.
    See docs/messages.md. */
@@ -3904,7 +3852,6 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .workDecision { color: var(--accent); font-weight: 600; }
 .workResult { white-space: pre-wrap; line-height: 1.6; }
 .workEmpty { padding: 2rem .5rem; color: var(--muted); text-align: center; line-height: 1.6; }
-#openAssignments[data-attention] { color: var(--link); }
 @media (min-width: 1280px) {
   #assignmentPanel[open] { position: fixed; inset: 0 0 0 auto; margin: 0; width: 28rem; max-height: none; height: 100dvh; border-radius: 0; border-width: 0 0 0 1px; z-index: 20; }
   body:has(#assignmentPanel[open]) > main { box-sizing: border-box; padding-right: 28rem; }
@@ -4534,7 +4481,6 @@ input[type="search"] { font-family: inherit; }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   .callFull { display: none; }
   .callShort { display: inline; }
-  #roomArea:has(#callBay:not([hidden]), #callBanner:not([hidden])) > #agentActivity { display: none; }
   #callStage { display: flex; flex-direction: column; gap: .4rem; flex: 0 0 auto; min-height: 0; }
   #callStage:has(> #callBay:not([hidden]), > #whoIsHere:not([hidden])) { margin-bottom: .5rem; }
   /* Opened on purpose, More may be taller than the screen can spare: then,
@@ -4636,18 +4582,17 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 .attachmentText { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-2); }
 
 /* Phone rooms have one main activity at a time, like the native app. */
-#mobileRoomViews { display: none; }
+#mobileRoomViews, #mobileRoomViews[hidden] { display: none; }
 #mobileCallSettings { width: min(34rem, calc(100vw - 1rem)); max-height: 85dvh; padding: 0; }
 #mobileCallSettings .sheetBody { padding: 1rem; overflow-y: auto; }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   main:has(#roomArea:not([hidden])) { min-height: 0; overflow: hidden; }
   main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { padding: 0; margin: 0; min-height: 0; overflow: hidden; }
   .roomBar { flex-shrink: 0; margin: 0; padding: 0 0 .3rem; }
-  .roomBar #callToggle, .roomBar #openAssignments { display: none; }
-  #mobileRoomViews { display: flex; flex-shrink: 0; gap: .25rem; padding: .25rem 0 .45rem; }
+  #mobileRoomViews:not([hidden]) { display: flex; flex-shrink: 0; gap: .25rem; padding: .25rem 0 .45rem; }
   #mobileRoomViews button { flex: 1 1 0; min-width: 0; min-height: 44px; margin: 0; padding-inline: .25rem; border: 0; background: transparent; border-radius: var(--r-m); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #mobileRoomViews button[aria-pressed="true"] { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px var(--accent); font-weight: 600; }
-  #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#attachStaged,#attachPanel,#agentActivity,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
+  #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#attachStaged,#attachPanel,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #callBay { order: 1; flex: 0 0 auto; padding: .5rem 0 .2rem; border: 0; }
@@ -4702,16 +4647,14 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 }
 @media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { position: relative; }
-  #roomArea > .roomBar { position: absolute; inset: 0 auto auto 0; width: 48%; height: 44px; padding: 0; border: 0; }
-  #mobileRoomViews { padding: 0 0 .2rem 50%; }
+  /* Beside the Chat and Call switch, which is only there on a call; otherwise the bar has its own row. */
+  #roomArea:has(> #mobileRoomViews:not([hidden])) > .roomBar { position: absolute; inset: 0 auto auto 0; width: 48%; height: 44px; padding: 0; border: 0; }
+  #mobileRoomViews:not([hidden]) { padding: 0 0 .2rem 50%; }
   /* B3: bars took 70% of a 390px-tall phone (117px left for the log). A
      row of its own for Search and Invite cost 44px it does not have here;
      both stay reachable in one tap from "…" (Room details already has
      `#searchConversation` beside Invite), so the row is not drawn twice. */
   .conversationTools { display: none; }
-  /* The same 44px for an agent banner with nobody in it. Portrait and every
-     wider layout still show it, with the Invite button for a first agent. */
-  .agentActivity[data-empty] { display: none; }
   /* M1: the dock used to sit in normal flow while the room bar, absolutely
      positioned above, was drawn at the same top-left corner - "Rooms",
      "Book club" and "On a call in Design crit" overprinting each other.

@@ -14,6 +14,12 @@ set -euo pipefail
 # already minted and silently break every call in progress. Rotating the
 # secret is a deliberate act: delete /etc/kithmoot/turn-secret and re-run.
 #
+# Another service on the box may share the relay with a secret of its own:
+# one per line in /etc/kithmoot/turn-extra-secrets (root, 0600). Each becomes
+# another static-auth-secret line, so coturn accepts credentials minted with
+# any of them. KithMoot's credential service never sees them, and each can be
+# rotated or revoked by editing that file and re-running this script.
+#
 # What it touches, and nothing else - this is a shared box with other
 # tenants on it:
 #   /etc/kithmoot/                       config and secrets for this service
@@ -32,6 +38,7 @@ COTURN_DIR="${COTURN_DIR:-/opt/kithmoot-coturn}"
 TURN_SVC_DIR="${TURN_SVC_DIR:-/opt/kithmoot-turn}"
 ETC_DIR=/etc/kithmoot
 SECRET_FILE="$ETC_DIR/turn-secret"
+EXTRA_SECRETS_FILE="$ETC_DIR/turn-extra-secrets"
 TTL_SECONDS="${TTL_SECONDS:-3600}"
 CRED_PORT="${CRED_PORT:-8089}"
 
@@ -99,6 +106,34 @@ else
 fi
 secret="$(cat "$SECRET_FILE")"
 
+echo "==> extra secrets"
+# Read and check every line before anything is written, so a bad file stops
+# the run with the old config still in place. coturn takes the value to the
+# end of the line, so a secret is 32 to 256 printable ASCII characters with no
+# space, quote or #. Values are never printed, and never passed to another
+# process, where `ps` would show them.
+valid_extra_secret() {
+  local LC_ALL=C pattern='^[!-~]+$'
+  (( ${#1} >= 32 && ${#1} <= 256 )) && [[ "$1" =~ $pattern && "$1" != *[\"\'#]* ]]
+}
+extra_secrets=()
+if [[ -e "$EXTRA_SECRETS_FILE" ]]; then
+  [[ -f "$EXTRA_SECRETS_FILE" && ! -L "$EXTRA_SECRETS_FILE" && "$(stat -c '%U %a' "$EXTRA_SECRETS_FILE")" == "root 600" ]] \
+    || { echo "install.sh: $EXTRA_SECRETS_FILE must be a regular file owned by root with mode 0600" >&2; exit 1; }
+  line_number=0
+  while IFS= read -r extra || [[ -n "$extra" ]]; do
+    line_number=$((line_number + 1))
+    [[ -n "$extra" ]] || continue
+    if ! valid_extra_secret "$extra"; then
+      echo "install.sh: $EXTRA_SECRETS_FILE line $line_number is not 32 to 256 printable ASCII characters without spaces, quotes or #" >&2
+      exit 1
+    fi
+    [[ "$extra" != "$secret" ]] || { echo "install.sh: $EXTRA_SECRETS_FILE line $line_number repeats KithMoot's own secret" >&2; exit 1; }
+    extra_secrets+=("$extra")
+  done < "$EXTRA_SECRETS_FILE"
+fi
+echo "    ${#extra_secrets[@]} extra secret(s)"
+
 echo "==> coturn config"
 # The secret goes in with a shell builtin, never as an argument to sed or
 # any other command: an argument is visible in `ps` to every user on the box
@@ -112,6 +147,9 @@ umask 077
       -e "s|^server-name=.*|server-name=${HOSTNAME_TURN}|" \
       "$here/turnserver.conf"
   printf 'static-auth-secret=%s\n' "$secret"
+  for extra in "${extra_secrets[@]}"; do
+    printf 'static-auth-secret=%s\n' "$extra"
+  done
 } > "$ETC_DIR/coturn/turnserver.conf.tmp"
 chown "$SERVICE_USER:$SERVICE_USER" "$ETC_DIR/coturn/turnserver.conf.tmp"
 chmod 0600 "$ETC_DIR/coturn/turnserver.conf.tmp"

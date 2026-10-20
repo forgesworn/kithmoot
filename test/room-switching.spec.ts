@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { buildFileEvent } from '../src/attachment.js'
 import { fetchFromTestBlossom } from './blossom.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
-import { allowTestFileStorage, openCall, leaveToChats, showChats, switchToRoom } from './browser.js'
+import { allowTestFileStorage, openCall, leaveToChats, showChats, switchToRoom, openRoomSearch, openRoomInfoPage } from './browser.js'
 
 async function setup(browser: Browser, base: string, beforeJoin?: (context: BrowserContext, roomId: string, relay: string) => Promise<void>) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -49,7 +49,7 @@ test('the in-room picker preserves the current conversation and switches directl
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await expect(page.locator('#roomArea')).toBeVisible()
     // Minutes has no tab until a call has written to it; Room details lists it.
-    await page.locator('#roomMenu').click()
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#channelBar button[data-channel=minutes]').click()
     await switchToRoom(page, 'Project room')
     await expect(page.locator('#roomTitle')).toHaveText('Project room')
@@ -227,7 +227,7 @@ test('leaving a room removes its roster and messages while its peer can keep tal
     await peer.locator('#chatInput').fill('Only for Town hall')
     await peer.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('Only for Town hall')
-    await page.locator('#chatSearch').click()
+    await openRoomSearch(page)
     await page.locator('#messageSearchQuery').fill('Only for Town hall')
     await page.locator('#messageSearchResults button').first().click()
     await expect(page.locator('#backToSearch')).toBeVisible()

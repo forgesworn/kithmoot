@@ -4,7 +4,7 @@ import { buildFileEvent } from '../src/attachment.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
-import { goToConversation, openRoomDetails, allowTestFileStorage, TEST_RELAY_WS, showChats } from './browser.js'
+import { goToConversation, allowTestFileStorage, TEST_RELAY_WS, showChats, openRoomInfoPage, openSettings } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
@@ -181,7 +181,7 @@ test('an upload finishes in its original draft while another conversation is use
     await goToConversation(page, 'Agents')
     await page.locator('#chatInput').fill('Keep typing in Agents')
     release()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await expect(page.locator('#channelBar button', { hasText: 'Chat' })).toContainText('Draft')
     await page.locator('#roomSheetClose').click()
     await expect(page.locator('#chatInput')).toHaveValue('Keep typing in Agents')
@@ -210,12 +210,12 @@ test('unsent work in another conversation still protects room changes and can be
     await expect(page.locator('#workspaceNote')).toContainText('drafts')
     await page.locator('#roomList .open[aria-current="true"]').click()
     await goToConversation(page, 'Chat')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#discardDraft').click()
     await page.locator('#actionCancel').click()
     await page.locator('#roomSheetClose').click()
     await expect(page.locator('#chatInput')).toHaveValue('Do not lose this hidden draft')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#discardDraft').click()
     await page.locator('#actionConfirm').click()
     await page.locator('#roomSheetClose').click()
@@ -357,12 +357,12 @@ test('closing a conversation keeps its draft reachable and prevents sending it i
     await expect(page.locator('#chatInput')).toHaveValue('Keep the closed conversation draft')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).not.toContainText('Keep the closed conversation draft')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await page.locator('#discardDraft').click()
     await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
     await expect(page.locator('#chatInput')).toHaveValue('Main chat draft')
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Conversations')
     await expect(page.locator('#channelBar button', { hasText: 'workshop' })).toHaveCount(0)
   } finally { await keeper.leave(); await context.close() }
 })
@@ -422,7 +422,7 @@ test('pasted files stay staged until Send and text attachments display as inert 
 test('notification defaults and room overrides remain separate after reload', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
   try {
-    await openRoomDetails(page)
+    await openSettings(page, 'Notifications')
     await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
     const scope = page.locator('#notificationScope')
     await scope.focus()
@@ -438,7 +438,7 @@ test('notification defaults and room overrides remain separate after reload', as
     await page.reload()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page)
+    await openSettings(page, 'Notifications')
     await expect(page.locator('#notificationMode')).toHaveValue('off')
     await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
     await scope.selectOption(roomScope)

@@ -6,7 +6,7 @@ import { localIdentity } from '../src/identity.js'
 import { RoomAgent } from '../src/agent.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { CULT_REGISTRY } from '../app/src/nostr-packs.js'
-import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { TEST_RELAY_WS, openProfileSettings, closeProfileSettings } from './browser.js'
 import { openRoomUrl } from './relays.js'
 import { nostrTestDevice, signInNostrTestDevice } from './nostr-device.js'
 import { FAMILIAR_ART } from '../src/familiar-emoji.js'
@@ -144,9 +144,9 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
     await expect(card.getByRole('button', { name: 'Copy NIP-05', exact: true })).toHaveCount(0)
     expect(addressRequests).toBe(0)
     await card.getByRole('button', { name: 'Close participant details', exact: true }).click()
-    await openRoomDetails(page); await page.locator('#roomProfileSettings').click()
+    await openProfileSettings(page)
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
-    await page.locator('#verifyAddresses').check(); await page.locator('#profileSettingsClose').click()
+    await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
     await expect.poll(() => addressRequests).toBeGreaterThan(0)
     await row.getByRole('button', { name: 'View details for Rowan' }).click()
     await expect(card.getByRole('button', { name: 'Copy NIP-05', exact: true })).toBeVisible()

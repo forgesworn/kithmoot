@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page, type Request } from '@playwright/test'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { openNewRoomForm, openRoomDetails } from './browser.js'
+import { openNewRoomForm, openRoomDetails, openInvite, openRoomInfoPage } from './browser.js'
 
 // Meeting codes (docs/meeting-codes.md) against a mocked /codes service:
 // a code reaches the invitation door and never further, each refusal says
@@ -155,7 +155,7 @@ test('Get a meeting code is offered to the creator of any room, and End room del
     await codeService(open, {})
     const openPage = await open.newPage()
     await startRoom(openPage, baseURL!, async () => {})
-    await openPage.locator('#invitePeople').click()
+    await openInvite(openPage)
     await expect(openPage.locator('#inviteDialog')).toBeVisible()
     await expect(openPage.locator('#copyShare')).toBeVisible()
     await expect(openPage.locator('#getMeetingCode')).toBeVisible()
@@ -167,7 +167,7 @@ test('Get a meeting code is offered to the creator of any room, and End room del
     await codeService(ask, {})
     const askPage = await ask.newPage()
     await startRoom(askPage, baseURL!, page => page.locator('#roomAsk').check())
-    await askPage.locator('#invitePeople').click()
+    await openInvite(askPage)
     await expect(askPage.locator('#getMeetingCode')).toBeVisible()
     // Behind a waiting room, a password is off by default.
     await expect(askPage.locator('#meetingCodePassword')).toHaveAttribute('data-on', 'false')
@@ -189,7 +189,7 @@ test('Get a meeting code is offered to the creator of any room, and End room del
       await page.locator('#roomWhenEnds').selectOption('keep')
     })
     const link = await page.locator('#shareUrl').inputValue()
-    await page.locator('#invitePeople').click()
+    await openInvite(page)
     await expect(page.locator('#getMeetingCode')).toBeVisible()
     // This one without a password: the service is given the link itself.
     await page.locator('#meetingCodePassword').click()
@@ -233,12 +233,12 @@ test('New link deletes the old code', async ({ browser, baseURL }) => {
     const seen = await codeService(context, {})
     const page = await context.newPage()
     await startRoom(page, baseURL!, page => page.locator('#roomAsk').check())
-    await page.locator('#invitePeople').click()
+    await openInvite(page)
     await page.locator('#getMeetingCode').click()
     await expect(page.locator('#meetingCode')).toHaveText('K7M-2Q9-TX')
     const first = await page.locator('#shareUrl').inputValue()
     await page.locator('#inviteClose').click()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'Invite link')
     await page.locator('#rotateShare').click()
     await page.locator('#actionConfirm').click()
     await expect.poll(() => page.locator('#shareUrl').inputValue(), { timeout: 60_000 }).not.toBe(first)
@@ -265,7 +265,7 @@ test('a code with a password: the link carries the words, the guest needs nothin
     const seen = await codeService(host, {}, vault)
     const page = await host.newPage()
     await startRoom(page, baseURL!, async () => {})
-    await page.locator('#invitePeople').click()
+    await openInvite(page)
     await expect(page.locator('#meetingCodePassword')).toHaveAttribute('data-on', 'true')
     // Nothing about sending the words apart is offered before there are words.
     await expect(page.locator('#meetingCodeSeparateRow')).toBeHidden()
@@ -314,7 +314,7 @@ test('a code with a password: the link carries the words, the guest needs nothin
     const stored = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.meeting-code.v1.')).map(k => localStorage.getItem(k)))
     expect(JSON.parse(stored[0]!)).toMatchObject({ code: 'K7M2Q9TX', words })
     await page.locator('#inviteClose').click()
-    await page.locator('#invitePeople').click()
+    await openInvite(page)
     await expect(page.locator('#meetingCodeLink')).toHaveValue(oneLink)
 
     // Copy is that one link and nothing else: no code, no password line.
@@ -337,7 +337,7 @@ test('a code with a password: the link carries the words, the guest needs nothin
       .toEqual(['Meeting code K7M-2Q9-TX: https://kithmoot.app/c/K7M2Q9TX', `Password words: ${words}`])
     // The choice outlasts the sheet, so a host who sends words apart is not caught out by reopening it.
     await page.locator('#inviteClose').click()
-    await page.locator('#invitePeople').click()
+    await openInvite(page)
     await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
     await page.locator('#meetingCodeSeparate').click()
     await expect(page.locator('#meetingCodeLink')).toHaveValue(oneLink)

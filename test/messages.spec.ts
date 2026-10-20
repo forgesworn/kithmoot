@@ -5,7 +5,7 @@ import { RoomAgent } from '../src/agent.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
-import { openRoomDetails, TEST_RELAY_WS, showChats } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS, showChats, openRoomMenu, openMember } from './browser.js'
 
 /**
  * The message layer, as a person meets it: a reply that sits under the
@@ -182,7 +182,7 @@ test('a private conversation is started from a person and reaches them inside th
     await rowan.locator('#displayName').fill('Rowan'); await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada privately/ }).click()
     await expect(rowan.locator('#status')).toContainText(/Private conversation with Ada/, { timeout: 30_000 })
     // Ada is told, in the room, and the room is on her list, named for Rowan.
@@ -202,7 +202,7 @@ test('a private conversation is started from a person and reaches them inside th
     // one - and it opens. Done while Ada is still on Rowan's roster: once
     // either of them leaves the workshop for the private room, the other's
     // "Message ..." button goes with them.
-    await openRoomDetails(rowan)
+    await openMember(rowan, 'Ada')
     await rowan.getByRole('button', { name: /^Message Ada privately/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Ada', { timeout: 30_000 })
     await expect(rowan.locator('#roomWho')).toHaveText('Private chat')
@@ -214,8 +214,13 @@ test('a private conversation is started from a person and reaches them inside th
     await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Rowan' }).click()
     await expect(ada.locator('#roomTitle')).toHaveText('Rowan', { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')
-    await expect(ada.locator('#invitePeople')).toHaveJSProperty('hidden', true)
-    await expect(rowan.locator('#invitePeople')).toHaveJSProperty('hidden', true)
+    // A private chat has no link to hand out, so its menu offers no invitation
+    // and says what leaving it is.
+    await openRoomMenu(ada)
+    const menu = ada.locator('#roomMoreMenu')
+    await expect(menu.getByRole('menuitem', { name: 'Invite people…', exact: true })).toHaveCount(0)
+    await expect(menu.getByRole('menuitem', { name: 'Leave private chat…', exact: true })).toBeVisible()
+    await ada.keyboard.press('Escape')
   } finally {
     for (const context of contexts) await context.close()
   }

@@ -1,5 +1,20 @@
 # Changelog
 
+## Desktop 0.1.94, 20 October 2026
+
+- Room info replaces the long Room details sheet. It opens from the room's name or ⋯, as a panel beside the conversation on a wide window and full screen on a phone, and fits in about one screen: the room and who can join, Call, Invite and Search, the members with agents marked, then Conversations, Invite link, Privacy and connection, Name and picture, your phone, how you appear and your contact cards, each as a page inside the panel.
+- Leave room asks first, naming the room. A tick box, "Also ask relays and the file server to delete what I left", replaces the separate Leave and tidy up button.
+- Settings is its own place, opened from the rail or with Cmd or Ctrl+comma, with pages for Account, Profile, Notifications, Messages, Display, Privacy, Connections, Keyboard shortcuts, and About and help. Text size, notification and profile settings, keyboard shortcuts and Forget this browser no longer appear inside a room.
+
+## Desktop 0.1.93, 20 October 2026
+
+- A room's header is its name, Start call, Search and ⋯, and nothing else sits above the first message. The agents strip and the Search, Invite and Invite by QR buttons are gone.
+- ⋯ opens a short menu: Room info, Invite people, Add an agent, Notifications (Every message, Nothing, or your default), New task, Pin, Add to project and Leave room, with End room for everyone for whoever started the room. Cmd or Ctrl+I opens Room info. A private chat leaves out the invite, agent and project items.
+- Tabs appear only when there is more than the chat: Agents when an agent is here, Board when the room has tasks or a board. A room's first task or board starts from ⋯, New task.
+- A room with nobody else in it shows "Nobody else is here yet." with Copy invite link and Show QR code.
+- A chat's menu in the list adds Mark as read and Notifications.
+- The desktop app's menus carry the app's own items: New room, Open an invite link, Join with a code and Settings under File; Chats, People, Boards, Find a chat or room, Room info and Text size under View; and a Room menu with the same items as ⋯, greyed out when no room is open. Right-clicking a message opens the app's menu of message actions.
+
 ## Desktop 0.1.92, 20 October 2026
 
 - One way around the app. A rail on the left holds Chats, People and Boards, with Settings at its foot. In the web app on a phone it becomes a bar along the bottom.

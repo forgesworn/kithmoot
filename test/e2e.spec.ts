@@ -127,12 +127,14 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
  *  here, the conversations, the admin controls. A sheet one tap off the
  *  message screen, which carries the header, the messages and the box to
  *  type in and nothing else. */
-async function openRoomTools(page: Page): Promise<void> {
+async function openRoomTools(page: Page, row?: string): Promise<void> {
   const sheet = page.locator('#roomSheet')
   if (!(await sheet.evaluate((el) => (el as HTMLDialogElement).open))) {
-    await page.locator('#roomMenu').click()
+    await page.locator('#roomIdentity').click()
   }
   await expect(sheet).toHaveJSProperty('open', true)
+  // Each part of Room info is a row that opens its own page.
+  if (row) await sheet.locator('.infoRow', { has: page.locator('.infoRowTitle', { hasText: row }) }).click()
 }
 
 /** Starts a pairing exchange on the page that will host it. The page must
@@ -140,7 +142,7 @@ async function openRoomTools(page: Page): Promise<void> {
  *  already be IN the room, because the pass for a second device is offered
  *  from the drawer inside it, not from the entry page. */
 async function offerPairing(page: Page, joinUrl: string): Promise<string> {
-  await openRoomTools(page)
+  await openRoomTools(page, 'Use your phone here too')
   await page.locator('#addDevice').click()
   const pairUrl = await page.locator('#pairUrl').inputValue()
   expect(pairUrl, 'add device did not produce a pairing URL').toContain('#')
@@ -261,7 +263,7 @@ test('rotating a share link retires its public capability without moving the roo
   await prepareDevice(page, first, 'Robin')
   // The new link is handed out from inside the room, so replacing it is too.
   await joinRoom(page)
-  await openRoomTools(page)
+  await openRoomTools(page, 'Invite link')
   // A restored creator tab has the same local inviter key and would keep the
   // old link alive unless rotation is coordinated across tabs. It stays at
   // the door: this is about what it would still ANSWER, and its own copy of

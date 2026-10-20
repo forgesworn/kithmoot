@@ -112,8 +112,7 @@ async function expectCallFirst(page: Page, label: string): Promise<void> {
   const room = (await page.locator('#room').boundingBox())!
   expect(room.height, `${label}: the pictures get ${room.height.toFixed(0)}px of a ${viewport.height}px window`).toBeGreaterThanOrEqual(viewport.height * 0.6)
 
-  // Above the stage are only navigation and call attribution, without the agents card.
-  await expect(page.locator('#agentActivity'), `${label}: the agents notice should step aside`).toBeHidden()
+  // Above the stage are only navigation and call attribution.
 
   // Exactly one way off the call, and it is in the bar.
   const toolbar = page.getByRole('toolbar', { name: 'Call controls' })

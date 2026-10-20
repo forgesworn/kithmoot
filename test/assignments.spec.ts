@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { open, TEST_RELAY_WS, openNewRoomForm, showChats } from './browser.js'
+import { open, TEST_RELAY_WS, openNewRoomForm, showChats, openRoomTasks, openInvite, roomMenuItem } from './browser.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 
 test('room cards carry a question and exact-result review through reload at phone width', async ({ browser, baseURL }, testInfo) => {
@@ -15,7 +15,7 @@ test('room cards carry a question and exact-result review through reload at phon
   try {
     const page = await context.newPage()
     await open(page, link, 'Ada'); await page.locator('#join').click()
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await page.getByText('New assignment', { exact: true }).click()
     await page.locator('#assignmentOwner').selectOption(worker.participant)
     await page.locator('#assignmentCreate [name=objective]').fill('Check the release evidence')
@@ -53,7 +53,7 @@ test('room cards carry a question and exact-result review through reload at phon
     const room = page.locator('#roomArea')
     await expect.poll(async () => await join.isVisible() || await room.isVisible()).toBe(true)
     if (await join.isVisible()) await join.click()
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await expect(page.locator('.assignmentCard')).toHaveCount(1)
     await expect(card).toContainText('accepted')
     const local = await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith('kithmoot.assignments.')).map(([, value]) => value).join(''))
@@ -109,7 +109,7 @@ test('two people go from creating and sharing a room to an accepted result witho
     await ada.page.locator('#create').click()
     await ada.page.locator('#displayName').fill('Ada')
     await ada.page.locator('#join').click()
-    await ada.page.locator('#invitePeople').click()
+    await openInvite(ada.page)
     const link = await ada.page.locator('#shareUrl').inputValue()
     await grace.page.goto(link)
     await grace.page.locator('#displayName').fill('Grace')
@@ -119,7 +119,7 @@ test('two people go from creating and sharing a room to an accepted result witho
     await expect(ada.page.locator('#chatLog')).toContainText('Ready to check the release together.')
     await ada.page.keyboard.press('Escape')
     for (const { page } of [ada, grace]) {
-      await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+      await openRoomTasks(page)
       await expect(page.locator('#assignmentRetry')).toBeHidden()
     }
     await ada.page.getByText('New assignment', { exact: true }).click()
@@ -174,11 +174,11 @@ test('two people go from creating and sharing a room to an accepted result witho
     await ada.page.locator('#actionConfirm').click()
     await expect(a.getByRole('button', { name: 'Discard unsent note' })).toHaveCount(0)
     await ada.page.keyboard.press('Escape')
-    await expect(ada.page.locator('#mobileWork:visible, #openAssignments:visible')).toBeFocused()
+    await expect(ada.page.locator('#conversationNav button[data-board]')).toBeFocused()
     expect(native).toEqual([])
     await ada.page.reload()
     await ada.page.locator('#join').click()
-    await ada.page.locator('#mobileWork:visible, #openAssignments:visible').click(); await ada.page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await ada.page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(ada.page)
     await expect(a).toContainText('accepted')
     await expect(ada.page.locator('.assignmentCard')).toHaveCount(2)
   } finally { await ada.context.close(); await grace.context.close() }
@@ -195,7 +195,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.evaluate(rooms => { for (const room of rooms) localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)) }, rooms)
     await page.locator('#displayName').fill('Ada')
     await page.locator('#join').click()
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await page.getByText('New assignment', { exact: true }).click()
     await page.locator('#assignmentCreate [name=objective]').fill('An unfinished workshop assignment')
     await page.locator('#assignmentCreate [name=criteria]').fill('Keep its acceptance criteria here')
@@ -203,7 +203,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.keyboard.press('Escape')
     await showChats(page)
     await page.locator('#roomList').getByRole('button', { name: 'Open Planning', exact: true }).click()
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await page.getByText('New assignment', { exact: true }).click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('')
     await expect(page.locator('#assignmentCreate [name=criteria]')).toHaveValue('')
@@ -212,7 +212,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await showChats(page)
     await expect(page.locator('#appHome')).toHaveAttribute('aria-disabled', 'true')
     await page.locator('#roomList').getByRole('button', { name: 'Open Workshop', exact: true }).click()
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('An unfinished workshop assignment')
     await expect(page.locator('#assignmentCreate [name=criteria]')).toHaveValue('Keep its acceptance criteria here')
     const stored = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]))
@@ -230,7 +230,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.keyboard.press('Escape')
     await showChats(page)
     await page.locator('#roomList').getByRole('button', { name: 'Open Planning', exact: true }).click()
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('A separate planning assignment')
   } finally { await context.close() }
 })
@@ -259,7 +259,7 @@ test('assignment retries clear only the submitted form and keep a newer draft', 
     await page.goto(room.link)
     await page.locator('#displayName').fill('Ada')
     await page.locator('#join').click()
-    await page.locator('#mobileWork:visible, #openAssignments:visible').click(); await page.getByRole('button', {name: 'Room tasks', exact: true}).click(); await page.getByRole('button', {name: 'Current room tasks', exact: true}).click()
+    await openRoomTasks(page)
     await page.getByText('New assignment', { exact: true }).click()
     for (const [index, changeDraft] of [false, true].entries()) {
       if (!await page.locator('#assignmentCreate [name=objective]').isVisible()) await page.getByText('New assignment', { exact: true }).click()
@@ -288,8 +288,7 @@ test('the first external agent can be invited before any host advertises a catal
   try {
     await page.goto(encodeRoomLink(baseURL!, { ...parseRoomLink(room.url), relays: [relay] }))
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
-    await expect(page.locator('#manageAgents')).toBeVisible()
-    await page.locator('#manageAgents').click()
+    await roomMenuItem(page, 'Add an agent…')
     await expect(page.locator('#inviteAgents')).toHaveAttribute('open', '')
     await expect(page.locator('#copyAgentInvite')).toBeVisible()
     await expect(page.locator('#inviteList')).toContainText('Nobody here is offering one')
@@ -316,7 +315,7 @@ test('an advertised agent can be invited and assigned work without replacing an 
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
     await announce()
     await page.locator('#conversationNav [data-channel=agents]').click()
-    await page.locator('#manageAgents').click()
+    await roomMenuItem(page, 'Add an agent…')
     await page.getByRole('button', { name: 'Invite Build checker', exact: true }).click()
     await expect.poll(() => requests).toContain('checker')
     // A real peer joins when the fixture host receives the invitation. Its
@@ -349,7 +348,7 @@ test('an advertised agent can be invited and assigned work without replacing an 
     await page.locator('#assignmentCreate [name=criteria]').fill('Return the build identifier and evidence')
     await page.getByLabel('Build identifier', { exact: true }).fill('234')
     await page.keyboard.press('Escape')
-    await page.locator('#manageAgents').click()
+    await roomMenuItem(page, 'Add an agent…')
     await choose.click()
     await expect(page.locator('#assignmentStatus')).toContainText('unfinished assignment')
     await expect(objective).toHaveValue('Review build 234')
@@ -367,7 +366,7 @@ test('an advertised agent can be invited and assigned work without replacing an 
     await card.getByRole('button', { name: 'Accept this result' }).click()
     await expect.poll(() => log.snapshot().assignments[0]?.status).toBe('accepted')
     await page.keyboard.press('Escape')
-    await page.locator('#manageAgents').click()
+    await roomMenuItem(page, 'Add an agent…')
     actions = []
     await announce()
     await expect(choose).toHaveCount(0)

@@ -46,7 +46,7 @@
       <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
-        <button id="openAppSettings" class="railItem" type="button" aria-haspopup="dialog" aria-controls="appSettings"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
+        <button id="openAppSettings" class="railItem" type="button" data-destination="settings" aria-controls="settingsPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
       </div>
     </nav>
 
@@ -115,6 +115,149 @@
       <div id="workspaceContent">
       <section id="peoplePane" aria-label="Contact" hidden>
         <p class="note">People is coming in this build.</p>
+      </section>
+      <!-- Settings (design-calm-shell 5.5, 11): a destination, shown in the main
+           pane like People and Boards. A list of rows, each opening a page; the
+           controls on the pages are the ones the old Settings sheet held, moved,
+           so their ids and handlers did not change. A few rows open an existing
+           dialog (profile, keyboard shortcuts, and the relay and Bothy panels). -->
+      <section id="settingsPane" aria-labelledby="settingsTitle" hidden>
+        <div class="settingsBar">
+          <button id="settingsBack" type="button" class="barBtn" aria-label="Back" hidden><svg class="i" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
+          <h2 id="settingsTitle" tabindex="-1">Settings</h2>
+        </div>
+        <div class="settingsBody">
+        <div class="settingsPage" data-settings-page="main">
+          <div class="infoRows">
+          <button type="button" class="infoRow" id="settingsRowaccount" data-settings-open="account">
+            <span class="infoRowText"><span class="infoRowTitle">Account</span><span class="infoRowSub" id="settingsSubaccount">Just a name · sign in with Nostr</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button id="appProfileSettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="profileSettings">
+            <span class="infoRowText"><span class="infoRowTitle">Profile</span><span class="infoRowSub">Pictures and names</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRownotifications" data-settings-open="notifications">
+            <span class="infoRowText"><span class="infoRowTitle">Notifications</span><span class="infoRowSub" id="settingsSubnotifications">Alerts and sound</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowmessages" data-settings-open="messages">
+            <span class="infoRowText"><span class="infoRowTitle">Messages</span><span class="infoRowSub" id="settingsSubmessages">Wait before sending</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowdisplay" data-settings-open="display">
+            <span class="infoRowText"><span class="infoRowTitle">Display</span><span class="infoRowSub" id="settingsSubdisplay">Text size</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowprivacy" data-settings-open="privacy">
+            <span class="infoRowText"><span class="infoRowTitle">Privacy</span><span class="infoRowSub" id="settingsSubprivacy">Profile pictures, files</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowconnections" data-settings-open="connections">
+            <span class="infoRowText"><span class="infoRowTitle">Connections</span><span class="infoRowSub" id="settingsSubconnections">Relays, Bothy, call servers</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button id="keyboardHelp" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">
+            <span class="infoRowText"><span class="infoRowTitle">Keyboard shortcuts</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="settingsRowabout" data-settings-open="about">
+            <span class="infoRowText"><span class="infoRowTitle">About and help</span><span class="infoRowSub" id="settingsSubabout">Report abuse</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          </div>
+        </div>
+        <section class="settingsPage" data-settings-page="account" data-settings-title="Account" hidden>
+        <div id="appSettingsYou"></div>
+        </section>
+        <section class="settingsPage" data-settings-page="notifications" data-settings-title="Notifications" hidden>
+              <section id="notify">
+                <h3>Notifications &amp; sound</h3>
+                <div class="toggles switchRow">
+                  <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Tell me when somebody writes</button>
+                  <span id="desktopNotifySound" hidden><button id="toggleNotifyBell" type="button" class="toggle" data-on="true" aria-pressed="true">Zen bell</button> <button id="previewNotifyBell" type="button" class="quiet">Preview sound</button></span>
+                  <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
+                  <span id="notifyNote" class="note inline"></span>
+                </div>
+                <details id="notificationPreferences">
+                  <summary>Notifications by project and room</summary>
+                  <label for="notificationScope">Apply to</label>
+                  <select id="notificationScope"></select>
+                  <label for="notificationMode">Activity alerts</label>
+                  <select id="notificationMode">
+                    <option value="inherit">Use parent setting</option>
+                    <option value="all">On</option>
+                    <option value="off">Off</option>
+                  </select>
+                  <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Off mutes it unless you override the room. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
+                  <p class="note">These settings currently apply while KithMoot is open. Closed-app push uses the keeper’s separate room settings.</p>
+                </details>
+              </section>
+        <p class="note">Alerts depend on this app staying connected. On iPhone and iPad, add KithMoot to your Home Screen to enable system notifications. The Zen bell plays while the app is running; background alerts use the system sound. Delivery after the app is suspended or closed is not connected yet.</p>
+        </section>
+        <section class="settingsPage" data-settings-page="messages" data-settings-title="Messages" hidden>
+                <!-- A moment to take a message back after pressing Send. Off unless
+                     asked for: a delay on every message changes how chat feels. -->
+                <div id="sendDelaySettings">
+                  <h4>Sending</h4>
+                  <label for="sendDelay">Wait before sending</label>
+                  <select id="sendDelay">
+                    <option value="0">Off</option>
+                    <option value="5">5 seconds</option>
+                    <option value="10">10 seconds</option>
+                  </select>
+                  <p class="note">Time to undo or edit a message after you press Send. Until then it stays on this device and nobody can see it. Saved on this device.</p>
+                </div>
+        </section>
+        <section class="settingsPage" data-settings-page="display" data-settings-title="Display" hidden>
+        <fieldset class="textSizeChoice" data-text-size>
+          <legend>Text size</legend>
+          <label><input type="radio" name="appTextSize" value="standard" checked /> Standard</label>
+          <label><input type="radio" name="appTextSize" value="large" /> Large</label>
+          <label><input type="radio" name="appTextSize" value="huge" /> Huge</label>
+        </fieldset>
+        <p class="note">Light, dark and contrast follow your system settings.</p>
+        </section>
+        <section class="settingsPage" data-settings-page="privacy" data-settings-title="Privacy" hidden>
+        <p class="note">Profile pictures and names are looked up from public relays only if you allow it.</p>
+        <div class="infoRows">
+          <button id="privacyProfiles" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="profileSettings">
+            <span class="infoRowText"><span class="infoRowTitle">Show public profile pictures and names</span><span class="infoRowSub" id="privacyProfilesState"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </div>
+        <p class="note">Where files go is chosen the first time you add a file to a message, in the panel beside the message box. Hiding your IP address on a call is chosen as you join it.</p>
+        </section>
+        <section class="settingsPage" data-settings-page="connections" data-settings-title="Connections" hidden>
+        <div class="infoRows">
+                  <button id="defaultRelaySettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="relaySettings">
+                    <span class="infoRowText"><span class="infoRowTitle">Nostr relays</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+                  <button id="dmRelaySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>
+                    <span class="infoRowText"><span class="infoRowTitle">Relays for private chats</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+                  <button id="bothySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="bothySettings">
+                    <span class="infoRowText"><span class="infoRowTitle">Bothy connection</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+                  <button id="mlsWitnessSettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="mlsWitnessSettings" hidden>
+                    <span class="infoRowText"><span class="infoRowTitle">MLS restore protection (preview)</span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
+        </div>
+        <label for="iceServers">Call servers</label>
+        <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
+        <input id="iceServers" />
+        </section>
+        <section class="settingsPage" data-settings-page="about" data-settings-title="About and help" hidden>
+        <p class="note">
+          Something unsafe or illegal?
+          <a href="https://kithmoot.forgesworn.dev/report/" target="_blank" rel="noopener noreferrer">Report abuse</a>
+        </p>
+        </section>
+        </div>
       </section>
       <!-- Boards, a destination of its own: shown in the main pane, not over
            it (`app/src/shell.ts` moves it there and the stylesheet lays it
@@ -406,11 +549,13 @@
                the button shows the phone. `renderCallState` in app/src/main.ts
                writes the word and swaps the picture. -->
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
-                  data-tip="Call: microphone, camera and screen share" aria-label="Call controls"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-phone"/></svg><span class="barWord">Call</span></button>
-          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel"
-                  data-tip="Boards"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span class="barWord">Boards</span></button>
-          <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
-                  aria-label="Room details" data-tip="Room details"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg></button>
+                  data-tip="Start call" aria-label="Start call"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-phone"/></svg><span class="barWord">Start call</span></button>
+          <!-- Below 600 px this is an item in the more menu instead. -->
+          <button id="chatSearch" type="button" class="barBtn" aria-label="Search in room" aria-haspopup="dialog" aria-controls="conversationSearch"
+                  data-tip="Search in room"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-search"/></svg></button>
+          <button id="roomMenu" type="button" class="barBtn"
+                  aria-label="More for this room" data-tip="More for this room"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-more"/></svg></button>
+          <div id="roomMoreMenu" class="menuPopover"></div>
         </div>
 
         <nav id="roomBoards" class="roomBoardLinks" aria-label="Boards in this chat" hidden></nav>
@@ -451,10 +596,9 @@
           <span id="meetingNoticeText"></span>
           <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
         </div>
-        <nav id="mobileRoomViews" aria-label="Room views">
+        <nav id="mobileRoomViews" aria-label="Room views" hidden>
           <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
           <button id="mobileCall" type="button" aria-pressed="false">Call</button>
-          <button id="mobileWork" type="button" aria-haspopup="dialog" aria-controls="assignmentPanel">Boards</button>
         </nav>
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
         <div id="workAttention" class="workAttention" hidden>
@@ -470,11 +614,6 @@
         <div id="callBanner" class="callBanner" role="status" hidden>
           <span id="callBannerText"></span>
           <button id="joinCall" type="button" class="primary">Join call</button>
-        </div>
-        <div id="agentActivity" class="agentActivity" hidden>
-          <div><strong id="agentActivityTitle"></strong><span id="agentActivityNote"></span></div>
-          <button id="watchAgents" type="button">Watch agents</button>
-          <button id="manageAgents" type="button" hidden>Invite an agent</button>
         </div>
         <!-- Somebody has drawn on this device's own screen share and the
              floating preview, if this browser has one, is not open to show
@@ -494,12 +633,7 @@
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
           <button id="nextUnread" type="button" hidden></button>
-          <button id="chatSearch" type="button" aria-label="Search messages" aria-haspopup="dialog" aria-controls="conversationSearch">Search</button>
           <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
-          <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
-          <!-- The same invitation, opened on its QR code, large: for the
-               person across the table to scan from this screen. -->
-          <button id="inviteQr" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite by QR</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <!-- A re-render of the whole log re-announces everything already
@@ -516,6 +650,14 @@
         <div id="chatViewport">
           <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
+          <!-- Nobody else is here and nobody has said anything: the one thing to
+               do is get somebody in. Filled in and shown by `renderEmptyRoom`. -->
+          <div id="emptyRoom" class="emptyRoom" hidden>
+            <p class="emptyRoomTitle">Nobody else is here yet.</p>
+            <button id="emptyCopyLink" type="button" class="primary">Copy invite link</button>
+            <button id="emptyShowQr" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Show QR code</button>
+            <p class="emptyRoomNote">Anyone with the link can join.</p>
+          </div>
         </div>
         <p id="bothyRoomConnection" class="note" role="status" hidden></p>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
@@ -785,40 +927,6 @@
            reaches the operating system is the room and the sender unless
            the second switch says the words may go too. Reached from
            Settings on the rooms list, and from Room details once in a room. -->
-      <section id="notify">
-        <h3>Notifications &amp; sound</h3>
-        <div class="toggles switchRow">
-          <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Tell me when somebody writes</button>
-          <span id="desktopNotifySound" hidden><button id="toggleNotifyBell" type="button" class="toggle" data-on="true" aria-pressed="true">Zen bell</button> <button id="previewNotifyBell" type="button" class="quiet">Preview sound</button></span>
-          <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
-          <span id="notifyNote" class="note inline"></span>
-        </div>
-        <details id="notificationPreferences">
-          <summary>Notifications by project and room</summary>
-          <label for="notificationScope">Apply to</label>
-          <select id="notificationScope"></select>
-          <label for="notificationMode">Activity alerts</label>
-          <select id="notificationMode">
-            <option value="inherit">Use parent setting</option>
-            <option value="all">On</option>
-            <option value="off">Off</option>
-          </select>
-          <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Off mutes it unless you override the room. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
-          <p class="note">These settings currently apply while KithMoot is open. Closed-app push uses the keeper’s separate room settings.</p>
-        </details>
-        <!-- A moment to take a message back after pressing Send. Off unless
-             asked for: a delay on every message changes how chat feels. -->
-        <div id="sendDelaySettings">
-          <h4>Sending</h4>
-          <label for="sendDelay">Wait before sending</label>
-          <select id="sendDelay">
-            <option value="0">Off</option>
-            <option value="5">5 seconds</option>
-            <option value="10">10 seconds</option>
-          </select>
-          <p class="note">Time to undo or edit a message after you press Send. Until then it stays on this device and nobody can see it. Saved on this device.</p>
-        </div>
-      </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's
            layout and out of #room .participant, but still in the document,
@@ -921,42 +1029,6 @@
         </form>
     </dialog>
 
-    <!-- Settings, reached from the rooms list. Everything the home page used
-         to carry on its own face, in one sheet: the same shape as Room
-         details' own Settings, so it reads as the same place rather than a
-         second one. -->
-    <dialog id="appSettings" aria-labelledby="appSettingsTitle">
-      <div class="sheetBar">
-        <h2 id="appSettingsTitle">Settings</h2>
-        <button id="appSettingsClose" type="button" class="primary" autofocus>Done</button>
-      </div>
-      <div class="sheetBody">
-        <h3 class="sheetHead">You</h3>
-        <div id="appSettingsYou"></div>
-
-        <h3 class="sheetHead">Text size</h3>
-        <fieldset class="textSizeChoice" data-text-size>
-          <legend class="sr-only">Text size</legend>
-          <label><input type="radio" name="appTextSize" value="standard" checked /> Standard</label>
-          <label><input type="radio" name="appTextSize" value="large" /> Large</label>
-          <label><input type="radio" name="appTextSize" value="huge" /> Huge</label>
-        </fieldset>
-
-        <div id="appSettingsNotify"></div>
-
-        <details id="appConnections">
-          <summary>Connections</summary>
-          <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
-          <button id="bothySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="bothySettings">Bothy connection</button>
-          <button id="mlsWitnessSettingsOpen" type="button" aria-haspopup="dialog" aria-controls="mlsWitnessSettings" hidden>MLS restore protection (preview)</button>
-          <button id="appProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
-          <button id="dmRelaySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>Relays for private conversations</button>
-          <label for="iceServers">Call servers</label>
-          <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
-          <input id="iceServers" />
-        </details>
-      </div>
-    </dialog>
 
     <dialog id="verifyDialog" aria-labelledby="verifyTitle">
       <form method="dialog" class="verifyForm">
@@ -1194,61 +1266,47 @@
         <button id="tidyUpDone" type="button" class="primary" hidden>Done</button>
       </div>
     </dialog>
-    <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
+    <!-- =====================================================================
+         Room info (design-calm-shell 5.4).
+
+         One panel with a handful of short rows, each of which opens a subpage
+         inside the same panel. Wide windows get it as a side panel on the end
+         edge (a non-modal dialog: the conversation stays usable beside it),
+         a phone gets it as a full screen with a back arrow (a modal one).
+         The controls are the same elements the long sheet held, moved into
+         the subpages, so their ids and their handlers did not change.
+         ===================================================================== -->
+    <dialog id="roomSheet" class="roomInfo" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
-        <h2 id="roomSheetTitle">Room details</h2>
-        <button id="roomSheetClose" type="button" class="primary">Close</button>
+        <button id="roomInfoBack" type="button" class="barBtn" aria-label="Back" hidden><svg class="i" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
+        <h2 id="roomSheetTitle" tabindex="-1">Room info</h2>
+        <button id="roomSheetClose" type="button" class="barBtn" aria-label="Close room info" data-tip="Close"><svg class="i icoClose" aria-hidden="true" focusable="false"><use href="#i-close"/></svg><svg class="i icoBack" aria-hidden="true" focusable="false"><use href="#i-back"/></svg></button>
       </div>
 
       <div class="sheetBody">
-        <h3 class="sheetHead">This room</h3>
-        <!-- The name and the code, together, here. The bar at the top of
-             the room shows the NAME, because that is what every messaging
-             app puts at the head of a conversation - and a room with no
-             name was getting its identifier printed twice, once inside a
-             manufactured title and once beside it, which reads like a
-             database row rather than a place people are talking. -->
-        <p id="sheetRoomId" class="roomIdLine"></p>
-        <!-- Any member may rename the room, and the name changes for
-             everybody in it: there is no private nickname beside it. -->
-        <form id="roomRename" class="channelNew" hidden>
-          <label for="roomRenameInput" class="note">
-            Rename this room for everyone in it.
-          </label>
-          <input id="roomRenameInput" autocomplete="off" maxlength="32" required
-                 aria-label="Room name" />
-          <button type="submit" id="roomRenameSave">Rename for everyone</button>
-        </form>
-        <div id="roomLogoControls" class="roomLogoControls" hidden>
-          <span id="roomLogoPreview" class="privateLogo"></span>
-          <button id="roomLogoEdit" type="button" aria-haspopup="dialog">Change room logo</button>
-          <p class="note">Shared with everyone in this room. Removing the room logo restores its project logo, or initials when no project is selected.</p>
-        </div>
-        <p id="roomLockState" class="note" hidden></p>
-        <!-- A self-destructing room says once what that can and cannot do. -->
-        <p id="roomDestructState" class="note" hidden></p>
-        <p id="quietState" class="note" hidden></p>
+        <div class="infoPage" data-info-page="main">
+          <section class="infoWho" aria-label="This room">
+            <span id="infoAvatar" class="privateLogo infoAvatar" aria-hidden="true"></span>
+            <div class="infoWhoText">
+              <p id="infoName" class="infoName"></p>
+              <p id="infoWho" class="infoSub"></p>
+              <p id="infoEnds" class="infoSub" hidden></p>
+            </div>
+          </section>
+          <div class="infoActions">
+            <button id="infoCall" type="button" class="infoAction"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-phone"/></svg><span>Call</span></button>
+            <button id="infoInvite" type="button" class="infoAction"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-personAdd"/></svg><span>Invite</span></button>
+            <button id="searchConversation" type="button" class="infoAction" aria-haspopup="dialog" aria-controls="conversationSearch"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-search"/></svg><span>Search</span></button>
+          </div>
 
-        <h3 class="sheetHead">Conversations</h3>
-        <p id="archiveStorageNotice" class="note" role="status" hidden>This browser could not save some conversation history. Recent messages stay available while this app is open; after closing it, missing history may need to come from another member or a relay.</p>
-        <button id="searchConversation" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search this conversation</button>
-        <button id="openContext" type="button" aria-haspopup="dialog" aria-controls="contextPanel">Context</button>
-        <div id="channelBar" class="channelBar" aria-label="Conversations"></div>
-        <p id="draftHelp" class="note" hidden>Drafts stay with their conversations in this tab. Leaving or reloading discards them.</p>
-        <button id="discardDraft" type="button" hidden>Discard this draft</button>
-
-        <form id="channelNew" class="channelNew" hidden>
-          <label for="channelName" class="note">
-            Open another conversation in this room, with its own name.
-          </label>
-          <input id="channelName" placeholder="new-channel" autocomplete="off" autocapitalize="off" spellcheck="false"
-                 maxlength="64" pattern="[a-z0-9][a-z0-9-]*" aria-label="Name for a new conversation" />
-          <button type="submit" id="channelAdd">Open it</button>
-          <button type="button" id="channelClose" hidden>Close this one</button>
-        </form>
-
-        <details id="inviteAgents" hidden>
-          <summary>Ask an agent to come in</summary>
+          <h3 class="infoHead">Members</h3>
+          <div id="infoApprovalsHome"></div>
+          <datalist id="volumeNotch"><option value="100"></option></datalist>
+          <div id="sheetRoster" class="sheetRoster"></div>
+          <button id="openContext" type="button" aria-haspopup="dialog" aria-controls="contextPanel">Context for agents…</button>
+          <details id="inviteAgents" hidden>
+          <summary>Add an agent</summary>
+          <p id="agentsExplain" class="agentsExplain" hidden></p>
           <p class="note">
             These are the agents that people here can start on their own
             computers. One click asks for one, and it comes in as a member
@@ -1262,48 +1320,106 @@
           <div id="inviteList"></div>
         </details>
 
-        <h3 class="sheetHead">Who is here</h3>
-        <!-- What the `agent` tag means. It is said again as the first note
-             in every conversation, where a first-time reader actually meets
-             it, and it lives here permanently for anybody who comes looking.
-             Filled in by `render` in app/src/main.ts. -->
-        <p id="agentsExplain" class="agentsExplain" hidden></p>
-        <!-- One tick, at the untouched 100% level, for every volume slider
-             in the roster below - see app/src/main.ts's "Per-person volume"
-             section. -->
-        <datalist id="volumeNotch"><option value="100"></option></datalist>
-        <div id="sheetRoster" class="sheetRoster"></div>
-        <!-- You: how this device is in the room, and the way to change it.
-             Moved here from the message box, where it was the first control
-             on the line and answered a question nobody was asking while
-             they typed. -->
-        <p class="note">You</p>
-        <div id="sendingIdentity" class="sendingIdentity" hidden></div>
-        <p id="sheetHow" class="note"></p>
-
-        <button id="roomContacts" type="button" aria-haspopup="dialog" aria-controls="contactsDialog">Contacts</button>
-        <h3 class="sheetHead">Contact cards</h3>
-        <!-- The contact book. A card is read here, on this device, from
-             nothing but its own bytes; see app/src/contact-store.ts. A box
-             on a card carries transport hints, not ownership of a
-             Nostr message relay. -->
-        <p class="note">A contact card is one link or QR from a person: their key and name, their relays, and the box they run. Reading one needs nothing from the network. A card identifies their box. Mark its message relay in relay settings only when its keeper has confirmed the address to you.</p>
-        <div id="contactList" class="contactList"></div>
-        <form id="contactCardForm" class="contactCardForm">
-          <input id="contactCardIn" type="text" autocomplete="off" placeholder="Paste a contact card or its link" aria-label="Contact card or its link" />
-          <button id="contactCardAdd" type="submit">Add contact</button>
-        </form>
-        <p id="contactCardStatus" class="note" role="status"></p>
-        <div id="myCard" hidden>
-          <div class="toolRow">
-            <button id="myCardShow" type="button" class="quiet">Show my card</button>
+          <h3 class="infoHead">This room</h3>
+          <div class="infoRows">
+          <button type="button" class="infoRow" id="infoRowConversations" data-info-open="conversations">
+            <span class="infoRowText"><span class="infoRowTitle">Conversations</span><span class="infoRowSub" id="infoSubConversations"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="infoRowBoard" hidden>
+            <span class="infoRowText"><span class="infoRowTitle">Board</span><span class="infoRowSub" id="infoSubBoard"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="infoRowInvite" data-info-open="invite">
+            <span class="infoRowText"><span class="infoRowTitle">Invite link</span><span class="infoRowSub" id="infoSubInvite"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="infoRowNotifications" data-info-open="notifications">
+            <span class="infoRowText"><span class="infoRowTitle">Notifications</span><span class="infoRowSub" id="infoSubNotifications"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="infoRowPrivacy" data-info-open="privacy">
+            <span class="infoRowText"><span class="infoRowTitle">Privacy and connection</span><span class="infoRowSub" id="infoSubPrivacy"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="infoRowName" data-info-open="name">
+            <span class="infoRowText"><span class="infoRowTitle">Name and picture</span><span class="infoRowSub" id="infoSubName"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
           </div>
-          <p class="note">Hand it to the person it is for. A card lets its holder reach you and derive keys with you: never post it to a relay, a profile or a website. This card names no box and carries a rendezvous key made on this device. It is signed by whatever holds your identity, as an event it can read.</p>
-          <input id="myCardOut" readonly hidden aria-label="My contact card link" />
-          <canvas id="myCardQr" hidden width="320" height="320" aria-label="My contact card as a QR code"></canvas>
+
+          <h3 class="infoHead">You</h3>
+          <div class="infoRows">
+          <button type="button" class="infoRow" id="infoRowPhone" data-info-open="phone">
+            <span class="infoRowText"><span class="infoRowTitle">Use your phone here too</span><span class="infoRowSub" id="infoSubPhone"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="infoRowAppear" data-info-open="appear">
+            <span class="infoRowText"><span class="infoRowTitle">How you appear</span><span class="infoRowSub" id="infoSubAppear"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button type="button" class="infoRow" id="infoRowCards" data-info-open="cards">
+            <span class="infoRowText"><span class="infoRowTitle">Contact cards</span><span class="infoRowSub" id="infoSubCards"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          </div>
+          <!-- The Contacts dialog is reached from People now. The button stays in the
+               page, out of sight, because the tests and the Signet flow open it. -->
+          <button id="roomContacts" type="button" aria-haspopup="dialog" aria-controls="contactsDialog" hidden>Contacts</button>
+
+          <div class="infoLeave">
+            <button id="leave" type="button" class="infoRow danger">Leave room…</button>
+          </div>
+          <div id="infoDanger" class="infoDanger">
+          <!-- Only in the browser holding a browser room's authority. A room
+               with a keeper is closed through the keeper instead. -->
+          <button id="endRoom" type="button" class="danger" hidden>End room for everyone…</button>
+          <!-- The same authority, ending the room so it self-destructs on
+               every member's device. Any room it holds, dated or not (D5). -->
+          <button id="selfDestructNow" type="button" class="danger" hidden>Self-destruct now…</button>
+          <p id="endRoomNote" class="note" hidden>
+            Ending takes everyone out and stops every invite link working.
+            People keep what they already received.
+          </p>
+          <details id="hostPanel" hidden>
+          <summary>You look after this room</summary>
+          <p class="note">
+            <strong>Remove</strong> moves the room onto a new key that
+            person is not given: from then on they can read nothing, and
+            what they already read stays theirs. <strong>Mute</strong> is a
+            request their own app does as it is asked, by switching off
+            their camera and microphone; nothing in between can force it.
+            <strong>Close</strong> ends the room for everybody.
+          </p>
+          <div id="hostList"></div>
+          <div class="hostRow">
+            <button type="button" id="closeRoom" class="danger">Close the room…</button>
+          </div>
+        </details>
+          </div>
+          <p class="note infoReport">
+            Something unsafe or illegal?
+            <a href="https://kithmoot.forgesworn.dev/report/" target="_blank" rel="noopener noreferrer">Report abuse</a>
+          </p>
         </div>
 
-        <h3 class="sheetHead">Invite people</h3>
+      <section class="infoPage" data-info-page="conversations" data-info-title="Conversations" hidden>
+        <p id="archiveStorageNotice" class="note" role="status" hidden>This browser could not save some conversation history. Recent messages stay available while this app is open; after closing it, missing history may need to come from another member or a relay.</p>
+        <div id="channelBar" class="channelBar" aria-label="Conversations"></div>
+        <p id="draftHelp" class="note" hidden>Drafts stay with their conversations in this tab. Leaving or reloading discards them.</p>
+        <button id="discardDraft" type="button" hidden>Discard this draft</button>
+        <form id="channelNew" class="channelNew" hidden>
+          <label for="channelName" class="note">
+            Open another conversation in this room, with its own name.
+          </label>
+          <input id="channelName" placeholder="new-channel" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 maxlength="64" pattern="[a-z0-9][a-z0-9-]*" aria-label="Name for a new conversation" />
+          <button type="submit" id="channelAdd">Open it</button>
+          <button type="button" id="channelClose" hidden>Close this one</button>
+        </form>
+      </section>
+
+      <section class="infoPage" data-info-page="invite" data-info-title="Invite link" hidden>
         <div id="inviteHome">
         <div id="inviteContent" class="linkBox">
           <p class="note">Anyone with this link can join, including people it is forwarded to. Share it with people you trust.</p>
@@ -1368,16 +1484,7 @@
           </div>
           <button id="rotateShare" type="button" hidden>New link</button>
           <button id="makePersistent" type="button" hidden>Keep this room open</button>
-          <!-- Only in the browser holding a browser room's authority. A room
-               with a keeper is closed through the keeper instead. -->
-          <button id="endRoom" type="button" class="danger" hidden>End room for everyone</button>
-          <!-- The same authority, ending the room so it self-destructs on
-               every member's device. Any room it holds, dated or not (D5). -->
-          <button id="selfDestructNow" type="button" class="danger" hidden>Self-destruct now</button>
-          <p id="endRoomNote" class="note" hidden>
-            Ending takes everyone out and stops every invite link working.
-            People keep what they already received.
-          </p>
+          
           <!-- Hidden with the button it describes. Only the browser that
                opened the room can make a new link, and everybody else was
                reading a sentence about a control that was not on their
@@ -1391,34 +1498,17 @@
             <p class="note">The part after # stays in your browser when you open this website. The app you share it through may still read the complete link unless that chat uses end-to-end encryption.</p>
           </details>
           <details id="shareQrDetails">
-            <summary>Show a QR code</summary>
+            <summary>Show QR code</summary>
             <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>
             <p class="note">Point another phone's camera at this to open the room on it.</p>
           </details>
         </div>
         </div>
 
-        <div class="linkBox pairing">
-          <p>
-            <strong>Use your phone in here too.</strong>
-            The link below is a pass for this room and nothing else, and it
-            stops working after twelve hours. It does not carry who you
-            are, and it is no use anywhere else. This device will ask you
-            to say yes before it hands one out.
-          </p>
-          <button id="addDevice">Add my phone or another device</button>
-          <input id="pairUrl" readonly hidden aria-label="Link for your other device" />
-          <button id="copyPair" type="button" hidden>Copy</button>
-          <button id="stopPairing" type="button" hidden>Stop adding</button>
-          <div id="pairQrWrap" hidden>
-            <canvas id="pairQr" class="qr" role="img" aria-label="QR code for the pairing link"></canvas>
-            <p id="pairStatus" class="note" role="status">Waiting for your other device. Keep this page open.</p>
-            <p class="note">Point the other device's camera at this, or send it the link above. This device will then ask you to allow it, once.</p>
-          </div>
-        </div>
+        
+      </section>
 
-        <h3 class="sheetHead">Being told about this room</h3>
-        <div id="notifySlot"></div>
+      <section class="infoPage" data-info-page="notifications" data-info-title="Notifications" hidden>
         <div id="nudgeRow" class="toggles switchRow" hidden>
           <button id="toggleNudge" class="toggle" data-on="false" aria-pressed="false">Nudge me when I am away</button>
           <span id="nudgeNote" class="note inline">
@@ -1428,7 +1518,14 @@
             all the servers in between learn is that one was sent.
           </span>
         </div>
+      </section>
 
+      <section class="infoPage" data-info-page="privacy" data-info-title="Privacy and connection" hidden>
+        <p id="sheetRoomId" class="roomIdLine"></p>
+        <p id="roomLockState" class="note" hidden></p>
+        <!-- A self-destructing room says once what that can and cannot do. -->
+        <p id="roomDestructState" class="note" hidden></p>
+        <p id="quietState" class="note" hidden></p>
         <section id="assist" hidden>
           <div class="toggles">
             <button id="toggleAssist" class="toggle" data-on="false" aria-pressed="false" hidden>
@@ -1459,49 +1556,78 @@
             </p>
           </details>
         </section>
+        <div class="infoRows">
+          <button id="roomRelaySettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="relaySettings">
+            <span class="infoRowText"><span class="infoRowTitle">Relays for this room</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+          <button id="roomBothySettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="bothyRoomSettings">
+            <span class="infoRowText"><span class="infoRowTitle">Bothy routing</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </div>
+      </section>
 
-        <details id="hostPanel" hidden>
-          <summary>You look after this room</summary>
-          <p class="note">
-            <strong>Remove</strong> moves the room onto a new key that
-            person is not given: from then on they can read nothing, and
-            what they already read stays theirs. <strong>Mute</strong> is a
-            request their own app does as it is asked, by switching off
-            their camera and microphone; nothing in between can force it.
-            <strong>Close</strong> ends the room for everybody.
+      <section class="infoPage" data-info-page="name" data-info-title="Name and picture" hidden>
+        <p class="note">Anyone here can change them.</p>
+        <form id="roomRename" class="channelNew" hidden>
+          <label for="roomRenameInput" class="note">
+            Rename this room for everyone in it.
+          </label>
+          <input id="roomRenameInput" autocomplete="off" maxlength="32" required
+                 aria-label="Room name" />
+          <button type="submit" id="roomRenameSave">Rename for everyone</button>
+        </form>
+        <div id="roomLogoControls" class="roomLogoControls" hidden>
+          <span id="roomLogoPreview" class="privateLogo"></span>
+          <button id="roomLogoEdit" type="button" aria-haspopup="dialog">Change room logo</button>
+          <p class="note">Shared with everyone in this room. Removing the room logo restores its project logo, or initials when no project is selected.</p>
+        </div>
+      </section>
+
+      <section class="infoPage" data-info-page="phone" data-info-title="Use your phone here too" hidden>
+        <div class="linkBox pairing">
+          <p>
+            <strong>Use your phone in here too.</strong>
+            The link below is a pass for this room and nothing else, and it
+            stops working after twelve hours. It does not carry who you
+            are, and it is no use anywhere else. This device will ask you
+            to say yes before it hands one out.
           </p>
-          <div id="hostList"></div>
-          <div class="hostRow">
-            <button type="button" id="closeRoom" class="danger">Close the room</button>
+          <button id="addDevice">Add my phone or another device</button>
+          <input id="pairUrl" readonly hidden aria-label="Link for your other device" />
+          <button id="copyPair" type="button" hidden>Copy</button>
+          <button id="stopPairing" type="button" hidden>Stop adding</button>
+          <div id="pairQrWrap" hidden>
+            <canvas id="pairQr" class="qr" role="img" aria-label="QR code for the pairing link"></canvas>
+            <p id="pairStatus" class="note" role="status">Waiting for your other device. Keep this page open.</p>
+            <p class="note">Point the other device's camera at this, or send it the link above. This device will then ask you to allow it, once.</p>
           </div>
-        </details>
-
-        <h3 class="sheetHead">Settings</h3>
-        <!-- The same three sizes as the Android app, remembered on this
-             device. Applied by app/src/text-size.ts. -->
-        <fieldset class="textSizeChoice" data-text-size>
-          <legend>Text size</legend>
-          <label><input type="radio" name="textSize" value="standard" checked /> Standard</label>
-          <label><input type="radio" name="textSize" value="large" /> Large</label>
-          <label><input type="radio" name="textSize" value="huge" /> Huge</label>
-        </fieldset>
-        <div class="toolRow">
-          <button id="roomNotifications" type="button" aria-haspopup="dialog" aria-controls="notificationSettings">Notifications &amp; sound</button>
-          <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
-          <button id="roomBothySettings" type="button" aria-haspopup="dialog" aria-controls="bothyRoomSettings">Bothy room routing</button>
-          <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
-          <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
         </div>
-        <p class="note">
-          Something unsafe or illegal?
-          <a href="https://kithmoot.forgesworn.dev/report/" target="_blank" rel="noopener noreferrer">Report abuse</a>
-        </p>
+      </section>
 
-        <div class="sheetRow">
-          <button id="leave" type="button" class="danger">Leave this room</button>
-          <button id="tidyUpRoom" type="button" class="danger quiet">Leave and tidy up</button>
-          <button id="forgetBrowserRoom" type="button" class="danger">Forget this browser</button>
+      <section class="infoPage" data-info-page="appear" data-info-title="How you appear" hidden>
+        <div id="sendingIdentity" class="sendingIdentity" hidden></div>
+        <p id="sheetHow" class="note"></p>
+      </section>
+
+      <section class="infoPage" data-info-page="cards" data-info-title="Contact cards" hidden>
+        <p class="note">A contact card is one link or QR from a person: their key and name, their relays, and the box they run. Reading one needs nothing from the network. A card identifies their box. Mark its message relay in relay settings only when its keeper has confirmed the address to you.</p>
+        <div id="contactList" class="contactList"></div>
+        <form id="contactCardForm" class="contactCardForm">
+          <input id="contactCardIn" type="text" autocomplete="off" placeholder="Paste a contact card or its link" aria-label="Contact card or its link" />
+          <button id="contactCardAdd" type="submit">Add contact</button>
+        </form>
+        <p id="contactCardStatus" class="note" role="status"></p>
+        <div id="myCard" hidden>
+          <div class="toolRow">
+            <button id="myCardShow" type="button" class="quiet">Show my card</button>
+          </div>
+          <p class="note">Hand it to the person it is for. A card lets its holder reach you and derive keys with you: never post it to a relay, a profile or a website. This card names no box and carries a rendezvous key made on this device. It is signed by whatever holds your identity, as an event it can read.</p>
+          <input id="myCardOut" readonly hidden aria-label="My contact card link" />
+          <canvas id="myCardQr" hidden width="320" height="320" aria-label="My contact card as a QR code"></canvas>
         </div>
+      </section>
       </div>
     </dialog>
 
@@ -1575,11 +1701,6 @@
       <p id="inviteToRoomLead" class="note"></p>
       <div id="inviteToRoomList" class="inviteToRoomList"></div>
       <p class="note">The invite goes to them sealed, in this conversation. A room that asks first lets people you invited straight in.</p>
-    </dialog>
-    <dialog id="notificationSettings" class="profileSettings" aria-labelledby="notificationSettingsTitle">
-      <div class="profileSettingsHeader"><h2 id="notificationSettingsTitle">Notifications &amp; sound</h2><button id="notificationSettingsClose" type="button">Done</button></div>
-      <div id="notificationSettingsBody"></div>
-      <p class="note">Alerts depend on this app staying connected. On iPhone and iPad, add KithMoot to your Home Screen to enable system notifications. The Zen bell plays while the app is running; background alerts use the system sound. Delivery after the app is suspended or closed is not connected yet.</p>
     </dialog>
     <dialog id="profileSettings" class="profileSettings" aria-labelledby="profileSettingsTitle">
       <div class="profileSettingsHeader">

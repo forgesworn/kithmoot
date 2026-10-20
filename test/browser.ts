@@ -269,7 +269,7 @@ export async function offerPairing(page: Page): Promise<string> {
   // The pass for a second device is offered from inside the room now, out of
   // the sheet that holds everything which is not the conversation. A page
   // still at the door has no `#addDevice` to click.
-  await openRoomDetails(page)
+  await openRoomInfoPage(page, 'Use your phone here too')
   await page.locator('#addDevice').click()
   const pairUrl = await page.locator('#pairUrl').inputValue()
   expect(pairUrl, 'add device did not produce a pairing URL').toContain('#')
@@ -294,15 +294,165 @@ export async function offerPairing(page: Page): Promise<string> {
 export async function openRoomDetails(page: Page): Promise<void> {
   const sheet = page.locator('#roomSheet')
   if (!(await sheet.evaluate((el) => (el as HTMLDialogElement).open))) {
-    await page.locator('#roomMenu').click()
+    // The room's name is the control that opens it (the ⋯ beside it is a menu
+    // of verbs now, and Room info is only the first of them).
+    await page.locator('#roomIdentity').click()
   }
   await expect(sheet).toHaveJSProperty('open', true)
+  // Room info is a panel with subpages. This is its first page, wherever it
+  // was left.
+  if ((await sheet.getAttribute('data-page')) !== 'main') {
+    if (await page.locator('#roomInfoBack').isVisible()) await page.locator('#roomInfoBack').click()
+    await expect(sheet).toHaveAttribute('data-page', 'main')
+  }
+}
+
+/** The pages of Room info that hold what the old long sheet held. */
+export type RoomInfoPage = 'Conversations' | 'Invite link' | 'Notifications' | 'Privacy and connection' | 'Name and picture' | 'Use your phone here too' | 'How you appear' | 'Contact cards'
+
+/** One subpage of Room info, opened from its first page by its row. */
+export async function openRoomInfoPage(page: Page, name: RoomInfoPage): Promise<void> {
+  await openRoomDetails(page)
+  await page.locator('#roomSheet .infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${name}$`) }) }).click()
+  await expect(page.locator('#roomSheetTitle')).toHaveText(name)
+}
+
+/** One member of the room, opened in Room info's list: what can be done with
+ *  them (volume, message, invite, the word check) shows once it is open. */
+export async function openMember(page: Page, name: string | RegExp): Promise<import('@playwright/test').Locator> {
+  await openRoomDetails(page)
+  const row = page.locator('#sheetRoster .rosterRow', { hasText: name }).first()
+  await expect(row).toBeVisible()
+  if (!(await row.evaluate(el => (el as HTMLDetailsElement).open))) await row.locator('summary').click()
+  await expect(row).toHaveJSProperty('open', true)
+  return row
+}
+
+/** Leave the room, through the confirm. With `tidy` the box is ticked, and the
+ *  tidy-up steps are what comes next (the caller runs or closes them). */
+export async function leaveRoom(page: Page, { tidy = false }: { tidy?: boolean } = {}): Promise<void> {
+  await page.evaluate(() => (document.getElementById('leave') as HTMLButtonElement).click())
+  const confirm = page.locator('#actionDialog')
+  await expect(confirm).toBeVisible()
+  if (tidy) await confirm.getByLabel('Also ask relays and the file server to delete what I left').check()
+  await confirm.getByRole('button', { name: 'Leave', exact: true }).click()
+}
+
+/** The pages of Settings. */
+export type SettingsPage = 'Account' | 'Profile' | 'Notifications' | 'Messages' | 'Display' | 'Privacy' | 'Connections' | 'Keyboard shortcuts' | 'Updates' | 'About and help'
+
+/** Settings, on the page named (or its list). It is the main pane, one click
+ *  from the rail; a row that opens a dialog (Profile, Keyboard shortcuts) has no
+ *  page, so those stay on the list. */
+export async function openSettings(page: Page, name?: SettingsPage): Promise<void> {
+  const pane = page.locator('#settingsPane')
+  // The first press can land before the page has wired the rail, so it is repeated until the pane is there.
+  await expect(async () => {
+    if (!(await pane.isVisible())) await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
+    await expect(pane).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 30_000 })
+  if ((await pane.getAttribute('data-page')) !== 'main') {
+    await page.locator('#settingsBack').click()
+    await expect(pane).toHaveAttribute('data-page', 'main')
+  }
+  if (name && !['Profile', 'Keyboard shortcuts', 'Updates'].includes(name)) {
+    await pane.locator('.infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${name}$`) }) }).click()
+    await expect(page.locator('#settingsTitle')).toHaveText(name)
+  }
+}
+
+/** Out of Settings, back to the chats and the room that was open. */
+export async function closeSettings(page: Page): Promise<void> {
+  await page.locator('#railChats').evaluate(button => (button as HTMLButtonElement).click())
+  await expect(page.locator('#settingsPane')).toBeHidden()
+}
+
+/** Profile pictures and names, the dialog Settings opens from its Profile row. */
+export async function openProfileSettings(page: Page): Promise<void> {
+  await openSettings(page)
+  await page.locator('#appProfileSettings').click()
+  await expect(page.locator('#profileSettings')).toBeVisible()
+}
+
+/** Done with that dialog, and out of Settings. */
+export async function closeProfileSettings(page: Page): Promise<void> {
+  await page.locator('#profileSettingsClose').click()
+  await expect(page.locator('#profileSettings')).toBeHidden()
+  await closeSettings(page)
+}
+
+/** Text size, chosen in Settings and left there. */
+export async function setTextSize(page: Page, size: 'Standard' | 'Large' | 'Huge'): Promise<void> {
+  await openSettings(page, 'Display')
+  await page.locator('#settingsPane').getByRole('radio', { name: size }).check()
+  await closeSettings(page)
+}
+
+/** The room's ⋯ menu, open. Idempotent. */
+export async function openRoomMenu(page: Page): Promise<void> {
+  const menu = page.locator('#roomMoreMenu')
+  if (!(await menu.evaluate(el => el.matches(':popover-open')))) await page.locator('#roomMenu').click()
+  await expect(menu).toBeVisible()
+}
+
+/** Choose an item from the room's ⋯ menu by its name, opening the menu first. */
+export async function roomMenuItem(page: Page, name: string | RegExp): Promise<void> {
+  await openRoomMenu(page)
+  await page.locator('#roomMoreMenu').getByRole('menuitem', { name, exact: typeof name === 'string' }).click()
+}
+
+/** The Invite sheet, from the menu or, with `qr`, from the empty room's own
+ *  "Show QR code" where that is on screen, else the sheet's QR summary. */
+export async function openInvite(page: Page, { qr = false }: { qr?: boolean } = {}): Promise<void> {
+  if (qr && await page.locator('#emptyShowQr').isVisible()) await page.locator('#emptyShowQr').click()
+  else {
+    await roomMenuItem(page, 'Invite people…')
+    if (qr) {
+      await expect(page.locator('#inviteDialog')).toHaveJSProperty('open', true)
+      await page.locator('#shareQrDetails > summary').click()
+    }
+  }
+  await expect(page.locator('#inviteDialog')).toHaveJSProperty('open', true)
+}
+
+/** Message search: the header's icon, or the menu where the header has none. */
+export async function openRoomSearch(page: Page): Promise<void> {
+  if (await page.locator('#chatSearch').isVisible()) await page.locator('#chatSearch').click()
+  else await roomMenuItem(page, 'Search in room')
+  await expect(page.locator('#conversationSearch')).toBeVisible()
+}
+
+/** The room's board, from its tab, which is there once the room has tasks or a
+ *  shared board; before that, from the menu's New task…. */
+export async function openRoomBoard(page: Page): Promise<void> {
+  const tab = page.locator('#conversationNav button[data-board]')
+  if (await tab.isVisible()) await tab.click()
+  else await roomMenuItem(page, 'New task…')
+  await expect(page.locator('dialog[open]:is(#boardsPanel, #assignmentPanel)')).toBeVisible()
+}
+
+/** The boards panel for the room on screen: from the room's Board tab where it
+ *  has one, else from the Boards destination, which opens on the room in view. */
+export async function openRoomBoards(page: Page): Promise<void> {
+  await openRoomBoard(page)
+  await expect(page.locator('#boardsPanel')).toBeVisible()
+}
+
+/** The room's tasks panel, the way these specs always reached it: through the
+ *  boards panel's Room tasks, which the room's Board tab opens where the room
+ *  has one and the Boards destination opens where it does not. */
+export async function openRoomTasks(page: Page): Promise<void> {
+  if (await page.locator('#conversationNav button[data-board]').isVisible()) await page.locator('#conversationNav button[data-board]').click()
+  else await openBoardsPanel(page)
+  await page.getByRole('button', { name: 'Room tasks', exact: true }).click()
+  await page.getByRole('button', { name: 'Current room tasks', exact: true }).click()
+  await expect(page.locator('#assignmentPanel')).toBeVisible()
 }
 
 /** Move to one of the room's conversations. Picking one closes the sheet it
  *  was picked in, which is what makes it a switcher rather than a tab row. */
 export async function goToConversation(page: Page, name: string): Promise<void> {
-  await openRoomDetails(page)
+  await openRoomInfoPage(page, 'Conversations')
   await page.locator('#channelBar button', { hasText: name }).click()
   await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
 }
@@ -476,10 +626,14 @@ export async function openCall(page: Page): Promise<void> {
     'the call control only appears once this device is in the room',
   ).toBeVisible()
   if (await page.locator('#deviceControls').isHidden()) {
-    await page.locator('#callToggle:visible, #mobileCall:visible').click()
-    // On a phone the Call tab is navigation only (B1): it opens the call
-    // view, and starting or joining is that view's own strip action.
-    if (await page.locator('#mobileCall').isVisible()) await page.locator('#callStripAction').click()
+    // The header's call button starts (or joins) the call, on a phone too.
+    // Only on a call already is there a Call tab, and it only opens the view.
+    const toggle = page.locator('#callToggle:visible')
+    if (await toggle.count()) await toggle.click()
+    else {
+      await page.locator('#mobileCall:visible').click()
+      if (await page.locator('#callStripAction').isVisible()) await page.locator('#callStripAction').click()
+    }
   }
   await expect(page.locator('#deviceControls')).toBeVisible()
 }
