@@ -6,6 +6,21 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.97 room bar, Room info and the call, 20 October 2026
+
+Version **0.6.97**, code **120**, brings stages 3 to 5 of the calm shell to
+Android in step with the web and desktop apps: the room bar with Call, Search
+and a ⋮ menu, Chat and Board tabs, a call banner with Join and an on-call bar
+(kithmoot-android #290); Room info as a full page and Settings names as on the
+web (#291); and the call bar, More, Effects, the ring screen and named call
+tiles (#292). Invitation times read like the web's (#289). No wire change.
+
+The production APK is built from Android source
+`e4aa987d` (pull request #292 merged, all checks passed), SHA-256
+`372d691aaafac7844434c2ab2b4c5cd8c27dd90c2a1fba5a35b2d1376736f606`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started a room over public relays; not yet observed on a device.
+
 ## Android 0.6.96 Chats, People and Boards, 20 October 2026
 
 Version **0.6.96**, code **119**, brings stage 2 of the calm shell to Android
