@@ -137,7 +137,6 @@ test('the front page lists every room this device has been in, with what is new 
     // Back to the front page: both rooms, by name. From the DOOR of a
     // room, which is where this page is. Once you are inside, the room's
     // own bar carries the way out; this is the way out before that.
-    await page.locator('#doorToRooms').click()
     await leaveToChats(page)
     await expect(page.locator('#rooms')).toBeVisible()
     const rows = page.locator('#roomList .roomRow')
@@ -234,7 +233,6 @@ test('rows do not reorder while focus is inside the list', async ({ browser, bas
       links.set(name, link)
     }
 
-    await page.locator('#doorToRooms').click()
     await leaveToChats(page)
     await expect(page.locator('#rooms')).toBeVisible()
     const startOrder = await page.locator('#roomList .roomName').allTextContents()

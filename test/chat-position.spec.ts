@@ -1,6 +1,7 @@
 import {test, expect} from '@playwright/test'
 import {RoomAgent} from '../src/agent.js'
 import {agentRelaysFor} from './relays.js'
+import { showChats } from './browser.js'
 
 test('room entry and re-entry show the latest chat, and sending follows the new post', async ({browser, baseURL}, info) => {
   const context = await browser.newContext({ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: {width: 1024, height: 700}})
@@ -19,8 +20,8 @@ test('room entry and re-entry show the latest chat, and sending follows the new 
     await expect.poll(gap).toBeLessThan(5)
     await log.evaluate(el => {el.scrollTop = 100})
     await expect.poll(gap).toBeGreaterThan(100)
-    await page.locator('#backToRooms').click()
-    await page.getByRole('button', {name: 'Switch to Chat position', exact: true}).click()
+    await showChats(page)
+    await page.locator('#roomList').getByRole('button', { name: 'Open Chat position', exact: true }).click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(log.locator('.msg')).toHaveCount(24)
     await expect.poll(gap).toBeLessThan(5)

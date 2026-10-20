@@ -259,7 +259,7 @@ async function checkChatIsUsable(page: Page, label: string): Promise<void> {
   expect(chat.x + chat.width, `${label}: the conversation runs past the right of the window`).toBeLessThanOrEqual(viewport.width + 1)
 }
 
-test('an empty call pane costs nothing, the call control says what it does, and the rail folds away', async ({ browser, baseURL }) => {
+test('an empty call pane costs nothing, and the call control says what it does', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
   await mkdir(SHOTS, { recursive: true })
 
@@ -378,41 +378,6 @@ test('an empty call pane costs nothing, the call control says what it does, and 
     // so it comes back rather than being suppressed for ever.
     await toggle.click()
     await expect(toggle).toHaveText('Join call', { timeout: 60_000 })
-
-    // The rail. Collapsed it keeps its control, the room takes the width,
-    // and this device remembers.
-    const railToggle = page.locator('#projectsRailToggle')
-    await expect(railToggle).toBeVisible()
-    await expect(railToggle).toHaveAttribute('aria-expanded', 'true')
-    const roomBefore = (await boxOf(page.locator('#roomArea'))).width
-    const railBefore = (await boxOf(page.locator('#workspaceNav'))).width
-    // Keyboard-reachable, and worked from the keyboard.
-    await railToggle.focus()
-    await expect(railToggle).toBeFocused()
-    await page.keyboard.press('Enter')
-    await expect(page.locator('html')).toHaveAttribute('data-rail', 'collapsed')
-    await expect(railToggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(page.locator('#workspaceRailBody')).toBeHidden()
-    await expect(railToggle).toBeVisible()
-    const railAfter = (await boxOf(page.locator('#workspaceNav'))).width
-    expect(railAfter, `the collapsed rail is ${railAfter.toFixed(0)}px against ${railBefore.toFixed(0)}px open`).toBeLessThan(railBefore - 60)
-    await expect.poll(async () => (await boxOf(page.locator('#roomArea'))).width).toBeGreaterThan(roomBefore + 60)
-    await checkChatIsUsable(page, '1320x880, rail collapsed')
-    await page.screenshot({ path: `${SHOTS}/rail-collapsed-1320x880.png` })
-
-    // Remembered on this device, across a reload, and reversible. A visitor
-    // with no account is asked for their name again on the way back in,
-    // which is the room's business and not the rail's: the rail's own state
-    // is already restored by then.
-    await page.reload()
-    await expect(page.locator('html')).toHaveAttribute('data-rail', 'collapsed', { timeout: 60_000 })
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
-    await expect(page.locator('html')).toHaveAttribute('data-rail', 'collapsed')
-    await page.locator('#projectsRailToggle').click()
-    await expect(page.locator('html')).toHaveAttribute('data-rail', 'open')
-    await expect(page.locator('#workspaceRailBody')).toBeVisible()
   } finally {
     await a.close()
     await b.close()
@@ -712,7 +677,7 @@ test('an update notice in a room leaves the composer in the window', async ({ br
  * and the composer and the rail's own All rooms button went off the bottom
  * where nobody could reach them.
  */
-test('a long list of rooms scrolls in the rail and leaves the composer in the window', async ({ browser, baseURL }) => {
+test('a long list of rooms scrolls in the list column and leaves the composer in the window', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
   const a = await newDeviceContext(browser, baseURL!)
   try {
@@ -725,7 +690,7 @@ test('a long list of rooms scrolls in the rail and leaves the composer in the wi
     // Thirty rows of the rail's own markup: joining thirty real rooms costs
     // minutes and proves nothing more about how the column is sized.
     await page.evaluate(() => {
-      const row = document.querySelector('#workspaceRooms .workspaceRoom')!
+      const row = document.querySelector('#roomList .roomRow')!
       for (let i = 0; i < 30; i++) row.parentElement!.append(row.cloneNode(true))
     })
     for (const size of [{ width: 1440, height: 860 }, { width: 1100, height: 600 }]) {
@@ -733,12 +698,12 @@ test('a long list of rooms scrolls in the rail and leaves the composer in the wi
       await page.waitForTimeout(200)
       const label = `${size.width}x${size.height}, thirty rooms in the rail`
       await expect(page.locator('#chatInput'), `${label}: the composer`).toBeInViewport({ ratio: 1 })
-      const rail = await boxOf(page.locator('#workspaceNav'))
+      const rail = await boxOf(page.locator('#listColumn'))
       expect(rail.y + rail.height, `${label}: the rail must stop at the window's edge`).toBeLessThanOrEqual(size.height)
       expect(await page.evaluate(() => document.documentElement.scrollHeight), `${label}: nothing may run off the bottom of the window`).toBeLessThanOrEqual(size.height)
       // Still reachable, by scrolling the rail rather than the window.
-      await page.locator('#workspaceHome').scrollIntoViewIfNeeded()
-      await expect(page.locator('#workspaceHome'), `${label}: All rooms`).toBeInViewport({ ratio: 1 })
+      await page.locator('#roomList .roomRow').last().scrollIntoViewIfNeeded()
+      await expect(page.locator('#roomList .roomRow').last(), `${label}: the last row`).toBeInViewport({ ratio: 1 })
       await expect(page.locator('#chatInput'), `${label}: the composer, after scrolling the rail`).toBeInViewport({ ratio: 1 })
     }
   } finally {
@@ -746,7 +711,7 @@ test('a long list of rooms scrolls in the rail and leaves the composer in the wi
   }
 })
 
-test('switching from the rail to a room that has to let you in shows the door, not a room that never opens', async ({ browser, baseURL }) => {
+test('switching from the list to a room that has to let you in shows the door, not a room that never opens', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
   test.setTimeout(240_000)
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
@@ -793,7 +758,7 @@ test('switching from the rail to a room that has to let you in shows the door, n
         for (const key of Object.keys(store)) if (key.startsWith('kithmoot.admission-kept.v1.') || key.startsWith('kithmoot.admission.v1.')) store.removeItem(key)
       }
     })
-    await rowan.locator('.workspaceRoomLink', { hasText: 'Asked in' }).click()
+    await rowan.locator('#roomList .open', { hasText: 'Asked in' }).click()
     await expect(rowan.locator('#requestAdmission')).toBeVisible()
     await expect(rowan.locator('#displayName')).toHaveValue('Rowan')
     await expect(rowan.locator('#roomSwitchProgress')).toBeHidden()
@@ -809,7 +774,7 @@ test('switching from the rail to a room that has to let you in shows the door, n
     await expect(again).toContainText('Rowan wants to join', { timeout: 60_000 })
     await again.getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(rowan.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
-    await expect(rowan.locator('.workspaceRoomLink[aria-current="true"]')).toHaveAccessibleName('Asked in')
+    await expect(rowan.locator('#roomList .open[aria-current="true"]')).toHaveAccessibleName('Open Asked in')
   } finally {
     await a.close()
     await b.close()

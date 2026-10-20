@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, open, switchToRoom } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, open, switchToRoom, leaveToChats } from './browser.js'
 
 /**
  * Nothing a person navigates to ends a call.
@@ -68,7 +68,7 @@ test('a call carries on while its member chats in another room, and comes back w
 
     // The brand takes the member home through the same dock, without a reload.
     await pageA.setViewportSize({ width: 1440, height: 1000 })
-    await pageA.locator('#workspaceBrandHome').click()
+    await leaveToChats(pageA)
     await expect(pageA.locator('#home:visible, #rooms:visible').first()).toBeVisible()
     await expect(pageA.locator('#callDock')).toBeVisible()
     await keepsHearing(pageB, 'Bo')
