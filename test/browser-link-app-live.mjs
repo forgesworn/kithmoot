@@ -22,7 +22,7 @@ try {
   await page.getByRole('button',{name:/Browser extension/}).click()
   const open=async()=>{
     await page.locator('#openAppSettings').click()
-    if (!await page.locator('#bothySettingsOpen').isVisible()) await page.locator('#appConnections > summary').click()
+    await page.locator('#settingsRowconnections').click()
     await page.locator('#bothySettingsOpen').click()
   }
   await open()
@@ -32,7 +32,7 @@ try {
   const {uri}=await(await fetch(control+'/pairing',{method:'POST'})).json()
   await page.locator('#bothyCode').fill(uri)
   await page.getByRole('button',{name:'Pair Bothy',exact:true}).click()
-  await page.getByText('Bothy paired and saved on this browser. Room routing is not enabled yet.',{exact:true}).waitFor({timeout:120000})
+  await page.getByText('Bothy paired and saved on this browser. Choose Bothy for a room from that room’s settings to activate routing.',{exact:true}).waitFor({timeout:120000})
   assert.equal(await page.locator('#bothyCode').inputValue(),'')
   await page.getByRole('button',{name:'Close connection',exact:true}).click()
   await page.getByText('Connection closed. The sealed pairing is kept for reconnecting.',{exact:true}).waitFor()
