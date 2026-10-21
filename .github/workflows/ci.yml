@@ -292,7 +292,7 @@ jobs:
   # Each spec drives two or three real browsers, so a runner takes one spec
   # at a time (`workers: 1` in playwright.config.ts) and the suite is spread
   # across runners instead. Chromium runs everything and took over half an
-  # hour on one runner; it is split five ways by measured time, using the
+  # hour on one runner; it is split six ways by measured time, using the
   # groups in playwright.config.ts (`E2E_GROUP`), whose `rest` group takes
   # whatever the others do not name. Firefox and WebKit run small, even
   # specs, so Playwright's own `--shard` halves them well enough.
@@ -314,6 +314,7 @@ jobs:
           - { name: chromium calls, project: chromium, group: calls, browsers: chromium firefox }
           - { name: chromium media, project: chromium, group: media, browsers: chromium firefox }
           - { name: chromium rooms, project: chromium, group: rooms, browsers: chromium firefox }
+          - { name: chromium shell, project: chromium, group: shell, browsers: chromium firefox }
           - { name: chromium rest, project: chromium, group: rest, browsers: chromium firefox }
           - { name: firefox 1 of 2, project: firefox, shard: 1/2, browsers: firefox }
           - { name: firefox 2 of 2, project: firefox, shard: 2/2, browsers: firefox }

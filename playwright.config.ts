@@ -39,6 +39,9 @@ const e2eGroups: Record<string, { grep: RegExp[], grepInvert?: RegExp[] }> = {
     grep: [specFiles('peer-assist.spec.ts', 'agent.spec.ts', 'bad-relays.spec.ts', 'nostr-rooms.spec.ts', 'contact-messaging.spec.ts', 'legacy-messages.spec.ts', 'ordinary-nostr-message.spec.ts', 'ordinary-nostr-inbox.spec.ts', 'home.spec.ts',
       'drafts.spec.ts', 'quiet.spec.ts', 'updates.spec.ts', 'e2e.spec.ts', 'share-viewer.spec.ts', 'workspace-work.spec.ts', 'projects-flow.spec.ts', 'home-controls.spec.ts', 'meeting-codes.spec.ts')],
   },
+  // The longest specs that used to fall to `rest`, which by October 2026 ran
+  // into its 30-minute budget on a busy day: about half of its time.
+  shell: { grep: [specFiles('calm-shell.spec.ts', 'self-destruct.spec.ts', 'boards.spec.ts', 'phone-chat.spec.ts', 'people.spec.ts')] },
 }
 const e2eGroup = process.env.E2E_GROUP || undefined
 if (e2eGroup && e2eGroup !== 'rest' && !(e2eGroup in e2eGroups)) {
