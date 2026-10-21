@@ -2735,16 +2735,18 @@ for (const [name, roomKey, a, b, note] of [
   // The kind 1460 is signed by a key derived for this message alone; the
   // device's BIP-340 signature rides inside the ciphertext. `tamper` builds
   // the cases a reader must refuse from an otherwise honest envelope.
-  function buildEnvelope2({ message, label, signerSk, outerSk, createdAt, plaintext }) {
+  function buildEnvelope2({ message, label, signerSk, outerSk, createdAt, plaintext, root: chatRoot, signedRoomId }) {
     const deviceSk = signerSk ?? (message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK)
+    const d = chatRoot?.id ?? room.roomId
+    const key = chatRoot?.key ?? room.roomKey
     const body = JSON.stringify(message)
-    const outer = outerSk ?? chatOuterSecretKey(message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK, room.roomId, message.id)
+    const outer = outerSk ?? chatOuterSecretKey(message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK, d, message.id)
     const at = createdAt ?? message.sentAt
     const innerAux = seed32(`${label}-inner-auxrand`)
-    const sig = bytesToHex(schnorr.sign(chatEnvelope2Digest(room.roomId, room.roomId, getPublicKey(outer), at, body), deviceSk, innerAux))
+    const sig = bytesToHex(schnorr.sign(chatEnvelope2Digest(signedRoomId ?? room.roomId, d, getPublicKey(outer), at, body), deviceSk, innerAux))
     const wrapped = plaintext ? plaintext({ v: 2, body, sig }) : { v: 2, body, sig }
-    const content = nip44.v2.encrypt(JSON.stringify(wrapped), room.roomKey, seed32(`${label}-nonce`))
-    const event = finalizeDeterministic({ kind: KINDS.CHAT, created_at: at, tags: [['d', room.roomId]], content }, outer, seed32(`${label}-auxrand`))
+    const content = nip44.v2.encrypt(JSON.stringify(wrapped), key, seed32(`${label}-nonce`))
+    const event = finalizeDeterministic({ kind: KINDS.CHAT, created_at: at, tags: [['d', d]], content }, outer, seed32(`${label}-auxrand`))
     return {
       event,
       envelope: 2,
@@ -2794,6 +2796,27 @@ for (const [name, roomKey, a, b, note] of [
   envelopeVector('retract-across-envelopes', 'positive',
     'An envelope-2 retraction of A\'s envelope-1 message hides it, matched by inner participant and id.',
     [{ label: 'env2-edit-original', envelope: 1, message: root }, { label: 'env2-retract', envelope: 2, message: fromA('env2-retract-1', 'Retracted a message', fx.MESSAGE_CREATED_AT + 120, { retracts: 'root-1' }) }])
+
+  {
+    // Epoch 1: the d tag is the epoch's id, never the room id, and the digest
+    // still names the room's epoch-0 id. Every other vector is at epoch 0,
+    // where the two are the same string and would not tell them apart.
+    const epoch1 = deriveEpoch({ epoch: 1, secret: seed32('env2-epoch-1-secret') })
+    const epochDecode = { ...decodeArgs, epochIdHex: epoch1.id, epochKeyHex: bytesToHex(epoch1.key) }
+    const epochOpts = { ...decodeOpts, epoch: { id: epoch1.id, key: epoch1.key } }
+    for (const [name, kind, note, extra] of [
+      ['message-in-epoch-1', 'positive', 'A message in envelope 2 at epoch 1: d is the epoch id and the content is under the epoch key, as in envelope 1, while the signed digest names the room\'s epoch-0 id, not the d tag. Read with the epoch (`decode.epochIdHex`, `decode.epochKeyHex`).', {}],
+      ['epoch-id-signed-as-room', 'negative', 'The same message with the digest\'s room id replaced by the epoch id: refused. An implementation that signs or checks the d tag in the room id\'s place fails here.', { signedRoomId: epoch1.id }],
+    ]) {
+      const built = buildEnvelope2({ message: root, label: `env2-${name}`, root: { id: epoch1.id, key: epoch1.key }, ...extra })
+      const decoded = decodeChatEvent(built.event, epochOpts)
+      vectors.chatEnvelope2.push({
+        name, kind, note,
+        input: { events: [built], decode: epochDecode },
+        output: { results: [decoded], conversation: summarise(decoded ? [decoded] : []), outerIsDevice: [false] },
+      })
+    }
+  }
 
   envelopeVector('lifted-into-another-event', 'negative',
     'A\'s body and signature copied under a fresh outer key by somebody holding the room key: the signature names the original outer key, so it is refused.',

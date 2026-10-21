@@ -1187,7 +1187,9 @@ describe('the message layer', () => {
   for (const v of groups.chatEnvelope2.filter((x) => x.name !== 'outer-key-derivation')) {
     it(`chatEnvelope2/${v.name}: every event decodes as frozen, and the conversation resolves as frozen`, () => {
       const events = v.input.events as Array<{ event: Event; envelope: number; body?: string; outerSkHex?: string }>
-      const results = events.map((e) => decodeChatEvent(e.event, chatArgs(v.input.decode as Record<string, unknown>)))
+      const decode = v.input.decode as Record<string, unknown>
+      const args = decode.epochIdHex ? { ...chatArgs(decode), epoch: { id: decode.epochIdHex as string, key: hexToBytes(decode.epochKeyHex as string) } } : chatArgs(decode)
+      const results = events.map((e) => decodeChatEvent(e.event, args))
       expect(results).toEqual(v.output.results)
       if (v.kind === 'negative') expect(results.some((r) => r === null)).toBe(true)
       const accepted = results.filter((r): r is ChatMessage => r !== null)
