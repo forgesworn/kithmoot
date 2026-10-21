@@ -3520,7 +3520,9 @@ const accountRestoring = (): boolean => !nostrSession && identityRestoring && !!
 
 function doorMode(): DoorMode {
   if (visitorChosen()) return 'name'
-  if (nostrSession || accountRestoring()) return 'signedIn'
+  // A pass this device holds for the room speaks for the account without its
+  // signer: Continue joins on it, as the account, and asks for nothing.
+  if (nostrSession || accountRestoring() || accountPassForRoom()) return 'signedIn'
   if (needsAccountReconnect()) return 'reconnect'
   if (extensionSignerPresent() && !loadCredential()) return 'extension'
   return 'name'
@@ -3568,7 +3570,7 @@ function renderDoorMode(): void {
   const mode = doorMode()
   const join = $('join') as HTMLButtonElement
   const known = joiningName()
-  const account = nostrSession?.pubkey ?? (mode === 'reconnect' || accountRestoring() ? expectedAccount : undefined)
+  const account = nostrSession?.pubkey ?? accountPassForRoom()?.pubkey ?? (mode === 'reconnect' || accountRestoring() ? expectedAccount : undefined)
   const showField = mode === 'name' || (mode === 'signedIn' && known === undefined)
   $('doorName').hidden = !showField
   $('displayNameHint').hidden = !(showField && visitorChosen())

@@ -410,7 +410,10 @@ test('a room joined as the account opens again as that account while its signer 
     // navigation that WebKit can fail on while Playwright waits for a load.
     await page.goto('about:blank')
     await page.goto(link)
-    // A room this device joined as the account opens itself, on the pass.
+    // Left on purpose, so this is a door again: Continue joins on the pass this
+    // device holds for the room, as the account, with no signer asked.
+    await expect(page.locator('#join')).toHaveText(/^Continue (as|with your Nostr account)/)
+    await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#status')).toContainText('signer is not connected')
     await openRoomInfoPage(page, 'How you appear')
