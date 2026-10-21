@@ -4,6 +4,7 @@ import type { Filter } from 'nostr-tools/filter'
 import type { RelayTransport } from './relay-pool.js'
 import { KINDS } from './kinds.js'
 import { ownEnvelope2Events, type ChatStream } from './chat.js'
+import { scanChatHistory } from './chat-history-scan.js'
 
 /**
  * Take back what a device signed in a room that self-destructs, as far as
@@ -33,7 +34,7 @@ export interface DeletionReport {
   requested: number
   /** Requests a relay refused or that could not be sent. */
   failed: number
-  /** False when the time ran out before every question was answered. */
+  /** False when history discovery was partial, capped or timed out. */
   complete: boolean
 }
 
@@ -112,6 +113,7 @@ export async function deleteSignedEvents(opts: {
         }
       }
       if (fresh.length < QUERY_LIMIT) break
+      if (round === MAX_ROUNDS - 1) report.complete = false
     }
   }
   if (opts.chat && opts.chat.streams.length > 0) await deleteOwnEnvelope2(opts.transport, opts.chat, opts.now, deadline, report)
@@ -130,18 +132,20 @@ async function deleteOwnEnvelope2(
   const asked = new Set<string>()
   for (let i = 0; i < chat.streams.length; i += STREAMS_PER_FILTER) {
     const streams = chat.streams.slice(i, i + STREAMS_PER_FILTER)
-    let until: number | undefined
-    for (let round = 0; round < MAX_ROUNDS; round++) {
-      const filter: Filter = { kinds: [KINDS.CHAT], '#d': streams.map((s) => s.d), limit: QUERY_LIMIT, ...(until !== undefined ? { until } : {}) }
-      const read = await readEvents(transport, filter, deadline)
-      if (!read.complete) report.complete = false
-      const own = ownEnvelope2Events(read.events.filter((e) => !asked.has(e.id)), streams, chat.deviceSk)
-      const fresh = [...new Map(own.map((o) => [o.event.id, o])).values()]
-      report.found += fresh.length
-      for (const { event, sk } of fresh) {
+    const complete = await scanChatHistory({ kinds: [KINDS.CHAT], '#d': streams.map(s => s.d) }, filter => {
+      if (Date.now() >= deadline) return Promise.resolve({ events: [], complete: false })
+      return readEvents(transport, filter, deadline)
+    }, async events => {
+      const fresh = new Map<string, { event: Event; sk: Uint8Array }>()
+      for (const own of ownEnvelope2Events(events.filter(e => !asked.has(e.id)), streams, chat.deviceSk)) {
+        if (fresh.has(own.event.id)) own.sk.fill(0)
+        else fresh.set(own.event.id, own)
+      }
+      report.found += fresh.size
+      for (const { event, sk } of fresh.values()) {
         asked.add(event.id)
-        if (Date.now() >= deadline) { report.complete = false; report.failed += 1; continue }
         try {
+          if (Date.now() >= deadline) { report.complete = false; report.failed += 1; continue }
           await Promise.race([
             transport.publish(deletionRequest(sk, [event], now())),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), Math.max(1, deadline - Date.now())).unref?.()),
@@ -153,12 +157,7 @@ async function deleteOwnEnvelope2(
           sk.fill(0)
         }
       }
-      // Other members' messages fill pages too, so page back by time until a
-      // short page, skipping what was already asked for.
-      if (read.events.length < QUERY_LIMIT) break
-      const oldest = Math.min(...read.events.map((e) => e.created_at))
-      if (until !== undefined && oldest >= until) break
-      until = oldest
-    }
+    })
+    if (!complete) report.complete = false
   }
 }

@@ -526,6 +526,7 @@ export function ownEnvelope2Events(events: readonly Event[], streams: readonly C
   const byD = new Map(streams.map((s) => [normaliseHex(s.d), s]))
   const out: Array<{ event: Event; sk: Uint8Array }> = []
   for (const event of events) {
+    let sk: Uint8Array | undefined
     try {
       if (event.kind !== KINDS.CHAT || hexEquals(event.pubkey, device)) continue
       const d = event.tags.find((t) => t[0] === 'd')?.[1]
@@ -535,10 +536,15 @@ export function ownEnvelope2Events(events: readonly Event[], streams: readonly C
       if (!envelope) continue
       const body = JSON.parse(envelope.body) as { id?: unknown; device?: unknown }
       if (typeof body.id !== 'string' || typeof body.device !== 'string' || !hexEquals(body.device, device)) continue
-      const sk = chatOuterSecretKey(deviceSk, stream.d, body.id)
-      if (hexEquals(getPublicKey(sk), event.pubkey)) out.push({ event, sk })
+      sk = chatOuterSecretKey(deviceSk, stream.d, body.id)
+      if (hexEquals(getPublicKey(sk), event.pubkey)) {
+        out.push({ event, sk })
+        sk = undefined // The caller now owns its erasure.
+      }
     } catch {
       // Not ours, or not readable here: nothing to ask for.
+    } finally {
+      sk?.fill(0)
     }
   }
   return out
