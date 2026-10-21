@@ -8,9 +8,10 @@ import { isHostName, type GrantReceiver, type GrantScope, type GroupEvent } from
 
 /**
  * The client side of group storage (phase S5 of KithMoot's group-hosted
- * design). A room that lists its own storage nodes keeps its files on them,
- * and a device that holds a grant from the room's keeper uploads to and reads
- * from them with signed tokens. The contract is `docs/GROUP-GRANTS.md` in
+ * design). The rule for a client is that a room that lists its own storage
+ * nodes keeps its files on them, and a device that holds a grant from the
+ * room's keeper uploads to and reads from them with signed tokens. This module
+ * is that rule's library; the web app does not use it yet. The contract is `docs/GROUP-GRANTS.md` in
  * wildbloom-node, profile `group-grants/1`; section numbers below are its.
  *
  * Pure and injected: no DOM, no storage of its own, no clock but `now`. The

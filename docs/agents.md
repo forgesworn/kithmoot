@@ -178,23 +178,32 @@ The nodes are also listed in the room, in the order given (the first is
 preferred; at most eight, one per host name): the keeper signs the list into
 the group invitation (kind 1463, a `storage` key) and posts it as a signed
 `{"op":"storage","nodes":[…],"version":…,"sig":…}` control op, once at start
-and again after 20 days, so members' apps and agents (`RoomAgent.storageNodes`)
-learn where the group's files live. A keeper restarted with different
-`--group-node` flags changes the list; one restarted with none, while the room
-lists nodes, refuses to start naming the hosts, so a forgotten flag never takes
-a room's files away. `--group-withdraw` (`KITHMOOT_GROUP_WITHDRAW=1`; needs
-`--state`, not with `--group-node`, `--group-bytes` or `--group-reset`) is the
-deliberate way to stop listing them: it signs an empty list into the
+and again after 20 days; members learn it from the invitation or the op
+(`RoomAgent.storageNodes`). It is the rule for clients: one that implements
+group storage keeps the group's files on those nodes. Today that is the
+library's `GroupStorage`; the web app does not yet, and agents do not upload
+files. A keeper restarted with different `--group-node` flags changes the list;
+one restarted with none, while the room lists nodes (or while `<state>.grants`
+names any, which also catches a state an older keeper has rewritten), refuses to
+start naming the hosts, so a forgotten flag never takes a room's files away. Do
+not run an older keeper on a state that has used group nodes. `--group-withdraw`
+(`KITHMOOT_GROUP_WITHDRAW=1`; needs `--state`, not with `--group-node` or
+`--group-bytes`; `--group-reset` with it moves an unreadable ledger aside and the
+room starts with no grant keeper) is the deliberate way to stop listing them: it signs an empty list into the
 invitation and the op, records it in the state, and signs it again on every
 later start (without the flag), so an older copy that listed nodes cannot
 stand again. A withdrawn keeper runs its grant ledger with no configured
 nodes: it mints and renews nothing and signs no resets, but a removal still
-signs revocations at every node the ledger names, with the events already
-waiting for a node subject to the same one-day give-up as for a node dropped
-from the flags. With no ledger file the grant keeper does not run. Existing
+signs revocations at every node the ledger names, and keeps a revocation or
+reset it has yet to deliver until it expires (members no longer contact the
+nodes, so the keeper's journal is the only way left; a node merely dropped
+from the flags is still given up on after a day). With no ledger file the grant
+keeper does not run. Existing
 grants end at their own expiry, 30 days at most. A new room with nodes first
 publishes its invitation without `storage` one second earlier, for readers
-that predate the field. The keeper also keeps the last invitation it signed in
+that predate the field (kept in the state until it has gone out once). A changed
+list is always signed later than the copy it replaces, even if the keeper's
+clock is behind, since members take the newest. The keeper also keeps the last invitation it signed in
 its state and republishes it unchanged on a start when nothing in its body
 changed, whether or not it has group nodes: a fresh copy is signed only when
 the body changes.

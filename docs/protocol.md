@@ -421,9 +421,13 @@ member may repost an op, so it has no `host`; only the signature counts, and a
 list that is not canonical fails verification rather than being corrected. A
 keeper posts it when it opens the control channel and again after 20 days, so a
 newcomer reading the channel's history window finds it. Readers that do not know
-the op ignore it. A room that lists nodes keeps its files on them; a room with
-`[]` keeps them off. A client never falls back to a public file server for
-either.
+the op ignore it.
+
+This is the rule for clients, not a description of today's apps. A client that
+implements group storage keeps a listed room's files on its nodes, keeps them
+off in a room whose list is `[]`, and never falls back to a public file server
+for either. The library implements it (`GroupStorage`); the web app does not
+yet, and still uploads to the member's own file server in such a room.
 
 Rekeys and the encrypted control channel are authority-bound. A room advances
 one verified epoch at a time; a removed device can read the removal notice but

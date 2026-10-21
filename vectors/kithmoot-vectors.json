@@ -10463,7 +10463,7 @@
       {
         "name": "room-storage-withdrawn",
         "kind": "positive",
-        "note": "An empty list: the authority withdraws every node. Valid, unlike an empty `relays` list. A room with a withdrawn list keeps its files off; it never falls back to a public server.",
+        "note": "An empty list: the authority withdraws every node. Valid, unlike an empty `relays` list. For a client that implements group storage, a room with a withdrawn list keeps its files off and never falls back to a public server.",
         "input": {
           "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
           "version": 1800000005,

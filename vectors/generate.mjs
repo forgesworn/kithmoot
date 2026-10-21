@@ -3156,7 +3156,7 @@ for (const [name, roomKey, a, b, note] of [
   vectors.roomStorage.push({
     name: 'room-storage-withdrawn',
     kind: 'positive',
-    note: 'An empty list: the authority withdraws every node. Valid, unlike an empty `relays` list. A room with a withdrawn list keeps its files off; it never falls back to a public server.',
+    note: 'An empty list: the authority withdraws every node. Valid, unlike an empty `relays` list. For a client that implements group storage, a room with a withdrawn list keeps its files off and never falls back to a public server.',
     input: { roomId: room.roomId, version: version + 5, nodes: [], authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: messageFor([], version + 5), auxRandHex: bytesToHex(seed32('room-storage-empty-auxrand')) },
     output: { sig: sigEmpty, text: encodeControl(opEmpty), result: decodeControl(encodeControl(opEmpty)) },
     expected: { verify: verifyInput([], sigEmpty, version + 5), result: verifyRoomStorage(verifyInput([], sigEmpty, version + 5)) },
