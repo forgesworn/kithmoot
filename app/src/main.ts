@@ -20195,14 +20195,15 @@ Promise.all([roomArrival, identityReady]).then(async ([found]) => {
   if (!found || session || joining || join.disabled || guestAdmissionPreview) { undo(); return }
   const raw = pendingRoomSwitch
   if (raw) {
-    provisionalOpening = false
     const intent = JSON.parse(raw) as { hash?: string; account?: string | null; at?: number }
     const age = Date.now() - (intent.at ?? 0)
-    if (intent.hash !== location.hash || age < 0 || age > 120_000) return
+    if (intent.hash !== location.hash || age < 0 || age > 120_000) { undo(); return }
     if (intent.account !== (nostrSession?.pubkey ?? null)) {
+      undo()
       setStatus('Check your sign-in before entering: the previous account is not available.')
       return
     }
+    provisionalOpening = false
     return startSession()
   }
   const room = needsAccountReconnect() ? undefined : joinedRoomHere()
