@@ -40,8 +40,10 @@ already made stays: every current app follows it.
 
 ## 2. Decisions still open
 
-Each has a recommendation. Nothing in 2b starts until decision 7 is taken.
+Each has a recommendation. Nothing in 2b started until decision 7 was taken.
 
+- **Decision 7, taken 2026-10-21: prune at the window.** The owner accepted
+  the recommendation below, and 2b began with step 1's readers.
 - **Decision 7: the room archive against forward secrecy.** It gates 2b.
   The archive keeps chat with no age limit. Erasing keys at 30 days makes
   archived chat older than that unreadable, unless the archive re-seals
@@ -75,7 +77,8 @@ In the audit's order. Every wire change is reader-first: readers ship on
 all three platforms before any writer. Circle-layer changes land in
 `forgesworn/fold-kit` first, then here.
 
-1. **A one-time sender key for 1462 and 20469.** Today rekeys and grants
+1. **A one-time sender key for 1462 and 20469.** Readers in fold-kit
+   0.13.0 (the `from` tag, `sealSender`), writers off. Today rekeys and grants
    are sealed from the authority's long-lived key, so whoever later takes
    that key opens every past rekey. A fresh key per event, discarded after
    sealing, fixes that. Work: fold-kit format, vectors and readers, then
@@ -106,6 +109,10 @@ Its window is the history window.
 - **Phase 3:** chat signed by a one-time outer key, with the device's
   signature inside, so relays stop seeing who wrote what. Independent of
   2b, and the smallest gain of the four. Readers first, Android included.
+  Readers shipped 2026-10-21 in the same release as 2b step 1's (chat
+  envelope 2, `docs/protocol.md`), so both wait out one field cycle
+  together. Writers switch only after that, and after self-destruct and the
+  agent's tidy-up stop finding their own chat by author.
 - **Phase 4 (optional):** hybrid ML-KEM seals. First design how a rekey
   splits for rooms over about 40 devices, since weekly rekeys make the size
   limit routine. Build it once a pure-JS and Kotlin pair of implementations

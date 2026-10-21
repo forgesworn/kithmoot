@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, withRelays } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia, chooseCallMore } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia, chooseCallMore, join } from './browser.js'
 
 /**
  * Can you actually see and hear the other person?
@@ -59,15 +59,11 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     const url = await createRoom(pageA, baseURL!)
     await joinWithMedia(pageA, url, 'Ada')
     await open(pageB, url, 'Bob')
-    await expect(pageB.locator('#joinMic')).not.toBeChecked()
-    await expect(pageB.locator('#joinCamera')).not.toBeChecked()
-    await pageB.locator('#joinMic').check()
-    await pageB.locator('#joinCamera').check()
-    await pageB.locator('#join').click()
+    // A plain link offers no media at the door: in first, then on.
+    await expect(pageB.locator('#joinMediaChoice')).toBeHidden()
+    await join(pageB)
     await expect(pageB.locator('#roomArea')).toBeVisible()
-    await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
-    await expect(pageB.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
-    await expect(pageB.locator('#status')).toHaveText('You joined with your microphone and camera on.')
+    await turnOnMedia(pageB)
 
     // Both directions. A one-way call is a bug that has shipped before in
     // other projects precisely because only one side was ever asserted.
@@ -176,7 +172,7 @@ test('a nearby device can silence feedback without losing its camera', async ({ 
   try {
     const pageLaptop = await laptop.newPage()
     const pagePhone = await phone.newPage()
-    const url = await createRoom(pageLaptop, baseURL!)
+    const url = await createRoom(pageLaptop, baseURL!, undefined, 'Laptop')
 
     await joinWithMedia(pageLaptop, url, 'Laptop')
     // This deliberately uses the ordinary invitation, reproducing the easy
@@ -300,18 +296,18 @@ test('two cameras of one person are two equal angles in their tile, for everyone
     const pageCara = await watcher.newPage()
     const url = await createRoom(pageLaptop, baseURL!)
     await open(pageLaptop, url, 'Ada')
-    await pageLaptop.locator('#join').click()
+    await join(pageLaptop)
     await expect(pageLaptop.locator('#roomArea')).toBeVisible()
     await turnOnMedia(pageLaptop)
     const pairUrl = await offerPairing(pageLaptop)
     await Promise.all([open(pagePhone, pairUrl, 'Ada'), pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click()])
-    await pagePhone.locator('#join').click()
+    await join(pagePhone)
     await expect(pagePhone.locator('#roomArea')).toBeVisible()
     await openCall(pagePhone)
     await pagePhone.locator('#toggleCamera').click()
     await expect(pagePhone.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
     await open(pageCara, url, 'Cara')
-    await pageCara.locator('#join').click()
+    await join(pageCara)
     await expect(pageCara.locator('#roomArea')).toBeVisible()
     await turnOnMedia(pageCara)
 
@@ -357,7 +353,7 @@ test('one person on two devices delivers two live pictures to everybody else', a
     // are inside the room now, and the offer lives only as long as the page
     // that made it, so this page stays put from here on.
     await open(pageLaptop, url, 'Ada')
-    await pageLaptop.locator('#join').click()
+    await join(pageLaptop)
     await expect(pageLaptop.locator('#roomArea')).toBeVisible()
     await openCall(pageLaptop)
     await pageLaptop.locator('#toggleScreen').click()
@@ -368,13 +364,13 @@ test('one person on two devices delivers two live pictures to everybody else', a
     // PAIRING link and becomes a second device of Ada rather than a second
     // Ada. Camera and mic, as a phone would, turned on once it is in.
     await Promise.all([open(pagePhone, pairUrl, 'Ada'), pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click()])
-    await pagePhone.locator('#join').click()
+    await join(pagePhone)
     await expect(pagePhone.locator('#roomArea')).toBeVisible()
     await turnOnMedia(pagePhone)
 
     // Cara: somebody else entirely, and the only screen that matters here.
     await open(pageCara, url, 'Cara')
-    await pageCara.locator('#join').click()
+    await join(pageCara)
     await expect(pageCara.locator('#roomArea')).toBeVisible()
     await turnOnMedia(pageCara)
 
@@ -495,7 +491,7 @@ test('somebody who joins with nothing on still sees and hears the room', async (
 
     // Bob brings nothing at all.
     await open(pageBob, url, 'Bob')
-    await pageBob.locator('#join').click()
+    await join(pageBob)
     await expect(pageBob.locator('#roomArea')).toBeVisible()
 
     await expectToSeeAndHear(pageBob, 'Bob (who brought nothing)')
@@ -717,7 +713,7 @@ test('the laptop takes the microphone back from a paired phone whose clock runs 
 
     const url = await createRoom(pageLaptop, baseURL!)
     await open(pageLaptop, url, 'Ada')
-    await pageLaptop.locator('#join').click()
+    await join(pageLaptop)
     await expect(pageLaptop.locator('#roomArea')).toBeVisible()
     await openCall(pageLaptop)
     await pageLaptop.locator('#toggleMic').click()
@@ -725,7 +721,7 @@ test('the laptop takes the microphone back from a paired phone whose clock runs 
     const pairUrl = await offerPairing(pageLaptop)
 
     await Promise.all([open(pagePhone, pairUrl, 'Ada'), pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click()])
-    await pagePhone.locator('#join').click()
+    await join(pagePhone)
     await expect(pagePhone.locator('#roomArea')).toBeVisible()
     await openCall(pagePhone)
     await pagePhone.locator('#toggleMic').click()

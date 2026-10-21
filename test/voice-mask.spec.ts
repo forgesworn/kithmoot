@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, open, openCall, newDeviceContext, SYNTHETIC_MIC, inbound, openCallEffects, closeCallEffects } from './browser.js'
+import { createRoom, open, openCall, newDeviceContext, SYNTHETIC_MIC, inbound, openCallEffects, closeCallEffects, join } from './browser.js'
 
 /** Real AudioWorklets and WebRTC, with synthetic audio and loopback relays.
  * Faults stop the processor itself or make native module loading receive 404. */
@@ -37,7 +37,7 @@ const missingVoiceModule = () => {
 
 async function joinSilent(page: Page, url: string, name: string) {
   await open(page, url, name)
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await openCall(page)
 }

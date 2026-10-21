@@ -3,7 +3,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { openNewRoomForm, requestAdmission, openRoomDetails, leaveRoom, TEST_RELAY_WS, leaveToChats, openRoomInfoPage } from './browser.js'
+import { openNewRoomForm, requestAdmission, openRoomDetails, leaveRoom, TEST_RELAY_WS, leaveToChats, openRoomInfoPage, nameCreator } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
 import { openRoomUrl } from './relays.js'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
@@ -34,7 +34,7 @@ async function device(browser: Browser, baseURL: string, storageState?: Awaited<
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? relay : String(url)
         if (target !== relay) throw new Error('External relay blocked by group acceptance test')
         super(target, protocols)
@@ -47,7 +47,9 @@ async function device(browser: Browser, baseURL: string, storageState?: Awaited<
 
 async function enter(page: Page, link: string, name: string) {
   await openRoomUrl(page, link)
-  await expect(page.locator('#join')).toBeVisible()
+  // A room this device has joined opens by itself; an invitation gets the door.
+  await expect(page.locator('#join:visible, #roomArea:visible').first()).toBeVisible()
+  if (await page.locator('#roomArea').isVisible()) return
   await page.locator('#displayName').fill(name)
   await page.locator('#join').click()
   await expect(page.locator('#roomArea')).toBeVisible()
@@ -70,8 +72,9 @@ async function create(page: Page, baseURL: string, temporary = false) {
     await expect(page.locator('#join')).toBeVisible()
     return link
   }
+  await nameCreator(page, 'Creator')
   await page.locator('#create').click()
-  await expect(page.locator('#join')).toBeVisible()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   return page.locator('#shareUrl').inputValue()
 }
 
@@ -83,9 +86,6 @@ test('a new member joins two days after everyone leaves, then both members retur
     const link = await create(page, baseURL!)
     expect(parseRoomLink(link).invitation?.persistent).toBe(true)
     expect(parseRoomLink(link).secret).toBeUndefined()
-    await page.locator('#displayName').fill('Creator')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('See you later')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('See you later')
@@ -133,9 +133,6 @@ test('the creator ends a browser room for everyone: members are taken out, the o
     const owner = await device(browser, baseURL!); contexts.push(owner)
     const page = await owner.newPage()
     const link = await create(page, baseURL!)
-    await page.locator('#displayName').fill('Creator')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
 
     const member = await device(browser, baseURL!); contexts.push(member)
     const other = await member.newPage()
@@ -185,9 +182,6 @@ test('the creator ends the room and tidies up in one action: members are taken o
     const owner = await device(browser, baseURL!); contexts.push(owner)
     const page = await owner.newPage()
     const link = await create(page, baseURL!)
-    await page.locator('#displayName').fill('Creator')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
     const member = await device(browser, baseURL!); contexts.push(member)
     const other = await member.newPage()
     await enter(other, link, 'Member')
@@ -228,7 +222,6 @@ test('replacing a group invitation rejects fresh arrivals on the old link while 
     await enter(await member.newPage(), link, 'Member')
     const saved = await member.storageState()
     await member.close()
-    await page.locator('#join').click()
     await openRoomInfoPage(page, 'Invite link')
     await page.locator('#rotateShare').click()
     await page.locator('#actionConfirm').click()
@@ -306,6 +299,7 @@ test('failed relay publication leaves creation retryable and never presents a re
     const page = await context.newPage()
     await page.goto(baseURL!)
     await openNewRoomForm(page)
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
     // M6: every relay rejecting the event collapses to the plain network
     // instruction rather than the relay's own reason ("blocked: test rejection").

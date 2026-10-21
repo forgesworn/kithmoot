@@ -1,6 +1,6 @@
 import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia, chooseCallMore, callMoreState, chooseCallLayout } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, remotePictures, openCall, open, turnOnMedia, chooseCallMore, callMoreState, chooseCallLayout, join } from './browser.js'
 import { execFileSync } from 'node:child_process'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { arch, hostname, platform, totalmem } from 'node:os'
@@ -107,7 +107,7 @@ for (const { layout, phone } of [
       await syntheticMedia(a, '#ed2020'); await syntheticMedia(b, '#2020ed')
       const url = await createRoom(a, baseURL!)
       await joinWithMedia(a, url, 'Ada')
-      await open(b, url, 'Bob'); await b.locator('#join').click()
+      await open(b, url, 'Bob'); await join(b)
       // Wait for the advertised call before pressing Join. Starting two
       // independent call ids is not evidence of recording one shared call.
       await expect(b.locator('#callToggle')).toHaveText('Join call')

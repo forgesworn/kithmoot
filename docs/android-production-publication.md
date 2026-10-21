@@ -6,6 +6,23 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.101 Hide my IP address on calls, Untitled room and Somebody, 21 October 2026
+
+Version **0.6.101**, code **124**, adds Settings › Privacy › Hide my IP
+address on calls (relay-only calls, off unless chosen, no direct fallback),
+renews the TURN credential every 40 minutes, and brings the web's final
+stage 6 wording: "Untitled room" for a room nobody named and "Somebody" for a
+person with no name, never a key (kithmoot-android #301, kithmoot #499). It
+also replaces the default relay relay.nostr.net, which stopped answering, with
+relay.ditto.pub (kithmoot-android #302), and points Signet sign-in at Signet's
+new relay (kithmoot-android #300). No wire change.
+
+The production APK is built from Android source
+`80f99d7d` (the head of pull request #303, merged once all checks passed), SHA-256
+`10db7d088118c46b246c41f5d87349b69bea51256c1dcfb13098f9e8b6101060`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started a room over public relays; not yet observed on a device.
+
 ## Android 0.6.100 invite to a room and new default relays, 21 October 2026
 
 Version **0.6.100**, code **123**, brings the calm shell's stage 6 to

@@ -370,8 +370,7 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
     await checkRestored(1, 'The existing lock is working.')
     for (let i = 0; i < 2; i++) {
       await page.reload()
-      await page.locator('#displayName').fill('Ada')
-      await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
       await checkRestored(1, `Still in the same epoch after refresh ${i + 1}.`)
     }
 
@@ -387,8 +386,7 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
     await expect(changed.locator('time')).toHaveAttribute('datetime', new Date(changedAt * 1000).toISOString())
 
     await page.reload()
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await checkRestored(2, 'The new lock also survives a refresh.')
   } finally {
     stopApproving()

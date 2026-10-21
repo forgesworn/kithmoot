@@ -15,7 +15,7 @@ import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/
 import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm, leaveRoom, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects, openProfileSettings, openMember, openRoomInfoPage, closeProfileSettings, openSettings, closeSettings } from './browser.js'
+import { openNewRoomForm, openRoomDetails, nameCreator, leaveRoom, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects, openProfileSettings, openMember, openRoomInfoPage, closeProfileSettings, openSettings, closeSettings } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
@@ -55,23 +55,25 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     }, visitorSecret)
     const page = await context.newPage()
     await page.goto(link)
-    await expect(page.locator('#joinNostr')).toBeVisible()
-    await expect(page.locator('#join')).toHaveText('Join with saved device identity')
-    await expect(page.locator('#whoami')).toContainText('saved device identity')
-    await page.locator('#joinNostr').click()
-    await page.getByRole('button', { name: /Browser extension/ }).click()
-    await expect(page.locator('#whoami')).toContainText('Account Alice')
-    await expect(page.locator('#whoami')).not.toContainText('alice@profile.example')
-    expect(addressRequests).toBe(0)
-    await expect(page.locator('#whoami img')).toHaveJSProperty('naturalWidth', 16)
-    await expect(page.locator('#whoami')).toContainText(npubEncode(pubkey).slice(0, 12))
+    // A Nostr extension and nobody signed in: the extension is the one way
+    // in, and a name is the other, said as a step down.
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr extension')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toHaveText('Join with just a name instead')
     await page.locator('#join').click()
+    await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    expect(addressRequests).toBe(0)
+    // Who you are in the room is Room info's to say, not the door's.
+    await openRoomDetails(page)
+    await expect(page.locator('#infoSubAppear')).toHaveText('Account Alice · Nostr account')
+    await expect(page.locator('#roomSheet')).not.toContainText('alice@profile.example')
+    await page.locator('#roomSheetClose').click()
     await openProfileSettings(page)
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
     await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
-    await expect(page.locator('#whoami')).toContainText('alice@profile.example')
-    expect(addressRequests).toBeGreaterThan(0)
+    await expect.poll(() => addressRequests).toBeGreaterThan(0)
     await page.locator('#chatInput').fill('Tally, this is my account')
     await page.locator('#chatInput').press('Enter')
     await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, this is my account')?.participant).toBe(pubkey)
@@ -98,7 +100,8 @@ test('a saved paired credential cannot override a different signed-in Nostr acco
     await page.evaluate(entries => { for (const [key, value] of entries) localStorage.setItem(key!, value!) }, store.keys().map(key => [key, store.get(key)]))
     await page.goto(link)
     await page.reload()
-    await expect(page.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
+    // Signed in: the one primary continues as the account, never as a key.
+    await expect(page.locator('#join')).toHaveText(/^Continue with your Nostr account|^Continue as /)
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('Tally, use the selected account')
@@ -147,7 +150,9 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await signIn(owner, baseURL!)
     await openNewRoomForm(owner)
     await owner.locator('#roomName').fill('Standing town hall')
+    await nameCreator(owner, 'Ada')
     await owner.locator('#create').click()
+    await expect(owner.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(owner.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     const link = await owner.locator('#shareUrl').inputValue()
     // Keep the inviter online while the other device opens its bookmark.
@@ -164,16 +169,22 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await returning.locator('#roomList').getByRole('button', { name: 'Open Standing town hall', exact: true }).click()
     await expect(returning.locator('#roomArea')).toBeVisible()
     await expect(returning.locator('#roomTitle')).toHaveText('Standing town hall')
-    await expect(returning.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
+    await openRoomDetails(returning)
+    await expect(returning.locator('#infoSubAppear')).toContainText('Nostr account')
+    await returning.locator('#roomSheetClose').click()
 
     const guest = await visitor.newPage()
     await guest.goto(link)
     await expect(guest.locator('#join')).toBeVisible()
     await expect(guest.locator('#signIn')).toBeHidden() // optional disclosure stays closed
+    // The extension is offered first; a name is the step down under it.
+    await guest.locator('#joinVisitor').click()
     await guest.locator('#displayName').fill('Visiting Ada')
     await guest.locator('#join').click()
     await expect(guest.locator('#roomArea')).toBeVisible()
-    await expect(guest.locator('#whoami')).toContainText('Visiting Ada')
+    await openRoomDetails(guest)
+    await expect(guest.locator('#infoSubAppear')).toHaveText('Visiting Ada · just a name')
+    await guest.locator('#roomSheetClose').click()
 
     await leaveToChats(returning)
     await expect(returning.locator('#roomList .roomName')).toHaveText('Standing town hall')
@@ -197,9 +208,10 @@ test('forgetting an account bookmark removes it on the other signed-in device', 
     await signIn(creator, baseURL!)
     await openNewRoomForm(creator)
     await creator.locator('#roomName').fill('A room to forget')
+    await nameCreator(creator, 'Ada')
     await creator.locator('#create').click()
+    await expect(creator.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(creator.locator('#roomSyncStatus')).toContainText('accepted by a relay')
-    await creator.locator('#doorToRooms').click()
     await leaveToChats(creator)
     const other = await b.newPage()
     await other.goto(baseURL! + '?signin=nostr')
@@ -230,9 +242,10 @@ test('a signer without encryption gets honest local-only rooms, and no private-k
     await expect(page.locator('#roomSyncStatus')).toContainText('browser only')
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Local account room')
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('#roomSyncStatus')).toContainText('browser only')
-    await page.locator('#doorToRooms').click()
     await leaveToChats(page)
     await expect(page.locator('#roomList .roomName')).toHaveText('Local account room')
   } finally { await context.close() }
@@ -248,7 +261,12 @@ test('existing browser rooms are imported only after explicit confirmation', asy
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('A browser shortcut')
     await page.locator('#create').click()
-    await page.locator('#doorToRooms').click()
+    // An extension is here and nobody is signed in: the creator meets the door,
+    // where a name is the step down from the extension.
+    await page.locator('#joinVisitor').click()
+    await page.locator('#displayName').fill('Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await leaveToChats(page)
     await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
     await page.locator('#homeSignIn:visible, #headerSignIn:visible').click()
@@ -280,8 +298,11 @@ test('switching conversations restores the same Nostr identity before entering',
     await signIn(first, baseURL!)
     await openNewRoomForm(first)
     await first.locator('#roomName').fill('First account room')
+    await nameCreator(first, 'Ada')
     await first.locator('#create').click()
+    await expect(first.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(first.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+    await expect(first.locator('#roomArea')).toBeVisible()
     const host = await context.newPage()
     await host.goto(baseURL!)
     // Signed in already, in this new tab of the same account: the quiet
@@ -289,14 +310,17 @@ test('switching conversations restores the same Nostr identity before entering',
     await expect(host.locator('#homeSignIn')).toBeHidden()
     await openNewRoomForm(host)
     await host.locator('#roomName').fill('Second account room')
+    await nameCreator(host, 'Ada')
     await host.locator('#create').click()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(host.locator('#roomSyncStatus')).toContainText('accepted by a relay')
-    await first.locator('#join').click()
     await expect(first.locator('#roomArea')).toBeVisible()
     await switchToRoom(first, 'Second account room')
     await expect(first.locator('#roomTitle')).toHaveText('Second account room')
     await expect(first.locator('#roomArea')).toBeVisible()
-    await expect(first.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
+    await openRoomDetails(first)
+    await expect(first.locator('#infoSubAppear')).toContainText('Nostr account')
+    await first.locator('#roomSheetClose').click()
   } finally { await context.close() }
 })
 
@@ -314,20 +338,32 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
     unavailable = true
     await page.goto(link)
     await page.reload()
-    await expect(page.locator('#previousAccount')).toContainText('disconnected')
+    // One primary, no key in sight, the way down is a quiet line under it.
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr account')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toHaveText('Join with just a name instead')
+    await expect(page.locator('#identity')).not.toContainText('npub1')
     await page.locator('#join').click()
-    // The visitor choice is ignored while the account join is still failing.
-    await expect(page.locator('#status')).toContainText('Your Nostr account is disconnected')
+    // Continue goes to the signer, not into the room: the picker, which is put away.
+    await expect(page.getByRole('button', { name: /Browser extension/ })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: /Browser extension/ })).toBeHidden()
+    // The account is not back, so nothing joins and no visitor key is made.
     await expect(page.locator('#roomArea')).toBeHidden()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
     await page.locator('#joinVisitor').click()
-    await expect(page.getByRole('alertdialog')).toContainText('not your Nostr account')
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText('Join with just a name?')
+    await expect(confirm).toContainText('This is not your Nostr account, even with the same name. Agents that know your account may ignore these messages.')
+    await expect(confirm.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
+    await expect(confirm.getByRole('button', { name: 'Join with just a name', exact: true })).toBeVisible()
     await page.locator('#actionCancel').click()
     await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toBeFocused()
     unavailable = false
-    await page.locator('#joinNostr').click()
-    await page.getByRole('button', { name: /Browser extension/ }).click()
     await page.locator('#join').click()
+    await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
@@ -374,7 +410,9 @@ test('a room joined as the account opens again as that account while its signer 
     // navigation that WebKit can fail on while Playwright waits for a load.
     await page.goto('about:blank')
     await page.goto(link)
-    await expect(page.locator('#previousAccount')).toBeHidden()
+    // Left on purpose, so this is a door again: Continue joins on the pass this
+    // device holds for the room, as the account, with no signer asked.
+    await expect(page.locator('#join')).toHaveText(/^Continue (as|with your Nostr account)/)
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#status')).toContainText('signer is not connected')
@@ -529,7 +567,9 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
     await signIn(page, baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Kept on the account')
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
 
     unavailable = true
@@ -537,9 +577,10 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
     await page.reload()
     const notice = page.locator('#accountReconnect')
     await expect(notice).toBeVisible()
-    await expect(notice).toContainText(npubEncode(getPublicKey(secret)))
-    await expect(notice).toContainText('One room saved to it is not shown')
-    await expect(notice).toContainText('browser extension')
+    // Named, never keyed; one Reconnect whatever the signer.
+    await expect(page.locator('#accountReconnectText')).toHaveText(/^Reconnect (your Nostr account|.+) to see its rooms\.$/)
+    await expect(notice).not.toContainText('npub1')
+    await expect(page.locator('#accountReconnectButton')).toHaveText('Reconnect')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
 
     // The same room in this browser's own list, as a visit in a tab without
@@ -552,7 +593,7 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
     }, getPublicKey(secret))
     await page.reload()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
-    await expect(notice).toContainText('Rooms saved to it are not shown')
+    await expect(notice).toContainText('to see its rooms')
 
     const forgetRow = page.locator('#roomList .roomRow', { has: page.locator('.roomName', { hasText: 'Kept on the account' }) })
     await forgetRow.locator('.rowMenu').click()
@@ -590,10 +631,11 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
     await signIn(page, baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Tidy me')
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     const link = await page.locator('#shareUrl').inputValue()
-    await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('Something to tidy')
     await page.locator('#chatInput').press('Enter')
@@ -601,7 +643,7 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
 
     const second = await context.newPage()
     await second.goto(link)
-    await second.locator('#join').click()
+    // Another tab of the same device and account: the room opens itself.
     await expect(second.locator('#roomArea')).toBeVisible()
 
     const held = await page.evaluate(() => {
@@ -672,9 +714,12 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
     await expect(page.locator('#status')).toContainText('Signed out')
     await page.goto(link)
     await page.reload()
-    await page.locator('#displayName').fill('Same familiar name')
+    // The account was used here, so the way down to a name is confirmed once.
     await page.locator('#joinVisitor').click()
     await page.locator('#actionConfirm').click()
+    await expect(page.locator('#displayNameHint')).toHaveText('Just a name, not your Nostr account.')
+    await page.locator('#displayName').fill('Same familiar name')
+    await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as visitor/)
@@ -821,9 +866,9 @@ test('granted contacts pair with explicit fields and a confirmed code, persist a
     await signIn(page, baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Granted contacts acceptance')
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeEnabled()
-    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
       content: JSON.stringify({ name: 'Granted Ada' }) }, peerSecret))
     const peerPage = await peerContext.newPage()
@@ -877,8 +922,7 @@ test('granted contacts pair with explicit fields and a confirmed code, persist a
     await expect(page.locator('#signetGrantedContacts')).toContainText('kith')
     await expect(peerTile.locator('.verifyChip')).toHaveText('Signet check')
     await page.reload()
-    await expect(page.locator('#join')).toBeEnabled()
-    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await page.locator('#roomContacts').evaluate(button => (button as HTMLButtonElement).click())
     await page.locator('#signetContactsAccess').evaluate(el => { (el as HTMLDetailsElement).open = true })
     await expect(page.locator('#signetGrantedContacts')).toContainText('Granted Ada', { timeout: 30000 })

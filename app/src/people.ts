@@ -671,7 +671,9 @@ export function personAvatar(pubkey: string, name: string | undefined, picture: 
   span.className = className
   span.dataset.slot = String(avatarSlot(pubkey))
   span.setAttribute('aria-hidden', 'true')
-  span.textContent = avatarInitial(name ?? npubEncode(pubkey).slice(5))
+  // A nameless person is Somebody everywhere, so their picture says S, not
+  // the first letter of a key.
+  span.textContent = avatarInitial(name ?? 'Somebody')
   if (picture) {
     const image = document.createElement('img')
     image.alt = ''

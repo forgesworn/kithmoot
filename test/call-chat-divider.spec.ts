@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, join } from './browser.js'
 
 /**
  * The divider between the call and the chat, on a wide screen.
@@ -35,7 +35,7 @@ async function joinCall(browser: Browser, baseURL: string, url: string, name: st
   const page = await context.newPage()
   await page.setViewportSize({ width: 1440, height: 900 })
   await open(page, url, name)
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await expect(page.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
   await page.locator('#callToggle').click()
@@ -219,8 +219,7 @@ test('the divider drags, keys, clamps and is remembered', async ({ browser, base
     expect(storedFraction).not.toBeNull()
 
     await ada.reload()
-    await ada.locator('#displayName').fill('Ada')
-    await ada.locator('#join').click()
+    await join(ada)
     await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(ada.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
     await ada.locator('#callToggle').click()

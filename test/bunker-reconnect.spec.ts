@@ -53,7 +53,7 @@ async function device(browser: Browser, baseURL: string, user: Uint8Array, bunke
     const NativeWebSocket = window.WebSocket
     window.WebSocket = class extends NativeWebSocket {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
         if (!defaults.includes(String(url).replace(/\/$/, '')) && String(url) !== relay) throw new Error('External relay blocked by acceptance test')
         super(defaults.includes(String(url).replace(/\/$/, '')) ? relay : url, protocols)
       }
@@ -87,7 +87,7 @@ test('Reconnect asks the stored bunker again rather than pairing a new signer', 
     expect(bunker.state.requests).toBeGreaterThan(0)
     // Signet serves on its own relay after pairing, so a stored link is
     // also asked there (app/src/signet-relays.ts).
-    expect(new URL(await page.evaluate(() => localStorage.getItem('signet:login.bunkerUri') ?? '')).searchParams.getAll('relay')).toContain('wss://nos.lol')
+    expect(new URL(await page.evaluate(() => localStorage.getItem('signet:login.bunkerUri') ?? '')).searchParams.getAll('relay')).toContain('wss://relay.primal.net')
 
     bunker.state.awake = true
     await page.locator('#accountReconnectButton').click()

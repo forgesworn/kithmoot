@@ -86,6 +86,10 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/call-bell-key',
   'kithmoot/v1/call-bell-tag',
   'kithmoot/v1/call-bell:',
+  'kithmoot/v1/chat-envelope-2',
+  'kithmoot/v1/chat-envelope-2:',
+  'kithmoot/v1/chat-outer',
+  'kithmoot/v1/chat-outer:',
   'kithmoot/v1/forwarder-key',
   'kithmoot/v1/media-key',
   'kithmoot/v1/meeting:',
@@ -182,9 +186,8 @@ describe('kithmoot/ wire-format labels', () => {
 // `room.ts` are NOT in this list: since T2.1 they are pure re-export shims
 // onto @forgesworn/fold-kit and own no label text of their own any more -
 // see the "labels moved to @forgesworn/fold-kit" block below instead.
-// `chat.ts` stays in this list with an empty `CHAT_LABELS`: its own two
-// labels (`CHANNEL_ID_INFO`, `CHANNEL_KEY_INFO`) moved with `deriveChannel`,
-// and nothing replaced them.
+// `chat.ts`'s own two channel labels (`CHANNEL_ID_INFO`, `CHANNEL_KEY_INFO`)
+// moved with `deriveChannel`; `CHAT_LABELS` now holds chat envelope 2's.
 // ===========================================================================
 
 const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = [

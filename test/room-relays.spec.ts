@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
-import { createRoom, expectToSeeAndHear, joinWithMedia, newDeviceContext, open, startRelay, turnOnMedia, openRoomInfoPage } from './browser.js'
+import { createRoom, expectToSeeAndHear, joinWithMedia, newDeviceContext, open, startRelay, turnOnMedia, openRoomInfoPage, join } from './browser.js'
 import { TEST_RELAY_PORT, testRelaysFor, withRelays } from './relays.js'
 
 /**
@@ -44,7 +44,7 @@ test('the maker shares a relay and a member already in the room starts using it'
     // WebKit blocks a plain ws:// relay from an https page, so use the
     // test relay through the page's own origin.
     const url = await createRoom(maker, baseURL!, testRelaysFor(baseURL!))
-    if (await maker.locator('#join').isVisible()) await maker.locator('#join').click()
+    if (await maker.locator('#join').isVisible()) await join(maker)
     await expect(maker.locator('#roomArea')).toBeVisible()
 
     const memberContext = await newDeviceContext(browser, baseURL!)
@@ -53,7 +53,7 @@ test('the maker shares a relay and a member already in the room starts using it'
     await fakeRelay(memberContext, memberFrames)
     const member = await memberContext.newPage()
     await open(member, url, 'Bea')
-    await member.locator('#join').click()
+    await join(member)
     await expect(member.locator('#roomArea')).toBeVisible()
     const before = await member.locator('#shareUrl').inputValue()
 
@@ -117,9 +117,7 @@ test('a joiner whose own relays are all elsewhere still meets the room on the re
     const makerContext = await newDeviceContext(browser, baseURL!)
     contexts.push(makerContext)
     const maker = await makerContext.newPage()
-    const url = await createRoom(maker, baseURL!, [relayA.url])
-    await maker.locator('#displayName').fill('Maker')
-    await maker.locator('#join').click()
+    const url = await createRoom(maker, baseURL!, [relayA.url], 'Maker')
     await expect(maker.locator('#roomArea')).toBeVisible()
     await turnOnMedia(maker)
     // The room's relays are fixed now, signed, and kept apart.
@@ -158,7 +156,7 @@ test('a joiner whose own relays are all elsewhere still meets the room on the re
 
     // Back in from a stale bookmark that names only B: still on A.
     await open(joiner, withRelays(url, [B]), 'Joiner')
-    await joiner.locator('#join').click()
+    await join(joiner)
     await expect(joiner.locator('#roomArea')).toBeVisible()
     await expect(joiner.locator('#room .participant')).toHaveCount(2, { timeout: 60_000 })
     await joiner.locator('#chatInput').fill('Back from the bookmark')

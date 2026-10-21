@@ -1,6 +1,6 @@
 import './invitations.css'
 import { menuItem, wireMenu } from './menu.js'
-import { personAvatar, shortNpub } from './people.js'
+import { personAvatar } from './people.js'
 
 /**
  * Invitations at the top of Chats (spec §6.3): private chats somebody has
@@ -53,7 +53,7 @@ export function inviterIdentity(facts: InviterFacts): { name?: string; picture?:
 }
 
 export function invitationTitle(invitation: Pick<WaitingInvitation, 'pubkey' | 'name'>): string {
-  return `${invitation.name ?? shortNpub(invitation.pubkey)} invited you to a private chat`
+  return `${invitation.name ?? 'Somebody'} invited you to a private chat`
 }
 
 export class InvitationsView {
@@ -147,7 +147,7 @@ export class InvitationsView {
       row.dataset.look = look
       row.firstElementChild!.replaceWith(personAvatar(invitation.pubkey, invitation.name, invitation.picture, 'personAvatar'))
     }
-    const who = invitation.name ?? shortNpub(invitation.pubkey)
+    const who = invitation.name ?? 'Somebody'
     row.querySelector('.invitationTitle')!.textContent = invitationTitle(invitation)
     row.querySelector('.invitationSub')!.textContent = `Sealed for you · ${this.#actions.when(invitation.sentAt)}`
     const busy = this.#busy.has(invitation.id)

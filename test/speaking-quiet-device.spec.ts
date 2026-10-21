@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, join } from './browser.js'
 
 /**
  * A device that is not playing the call's sound - its person listens on
@@ -44,7 +44,7 @@ test('a device with no microphone or camera, only watching, still shows who is s
     await joinWithMedia(pageA, url, 'Ada')
     // Bob only watches: in the call, nothing of his own turned on.
     await open(pageB, url, 'Bob')
-    await pageB.locator('#join').click()
+    await join(pageB)
     await expect(pageB.locator('#roomArea')).toBeVisible()
     await pageB.locator('#callToggle:visible').click()
     await expect(pageB.locator('#leaveCall')).toBeVisible({ timeout: 30_000 })

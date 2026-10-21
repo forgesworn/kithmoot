@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type BrowserContextOptions, type BrowserContext, type Page } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { openRoomUrl, withRelays, testRelays } from './relays.js'
+import { openRoomUrl, sameRoomLink, withRelays, testRelays } from './relays.js'
 
 /** The companion relay's port, and the two addresses built from it. See the
  *  comment above `TEST_RELAY_PORT` in relays.ts for how the port is chosen;
@@ -317,6 +317,16 @@ export async function openRoomInfoPage(page: Page, name: RoomInfoPage): Promise<
   await expect(page.locator('#roomSheetTitle')).toHaveText(name)
 }
 
+/** In the sender picker: choose the room by its name and send the invite. The
+ *  picker closes when the invite has gone. */
+export async function chooseInviteRoom(page: Page, roomName: string): Promise<void> {
+  const picker = page.locator('#inviteToRoom')
+  await expect(picker).toBeVisible()
+  await picker.getByRole('radio', { name: new RegExp(`^${roomName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`) }).check()
+  await picker.getByRole('button', { name: 'Send invite', exact: true }).click()
+  await expect(picker).toBeHidden()
+}
+
 /** One member of the room, opened in Room info's list: what can be done with
  *  them (volume, message, invite, the word check) shows once it is open. */
 export async function openMember(page: Page, name: string | RegExp): Promise<import('@playwright/test').Locator> {
@@ -467,8 +477,25 @@ export async function goToConversation(page: Page, name: string): Promise<void> 
  * conversation until there is a conversation, so they arrive with the room.
  */
 export async function open(page: Page, url: string, name: string): Promise<void> {
+  const remembered = async () => page.evaluate(() => localStorage.getItem('kithmoot.name'))
+  // A signed-in creator whose profile has a name was never asked for one, so
+  // nothing is remembered to compare: only a name that was typed can differ.
+  const sameName = async () => {
+    const typed = await remembered()
+    if (typed !== null) expect(typed, 'createRoom(page, …, name) was called with a different creator name; pass it').toBe(name)
+  }
+  // The page is already in this room (the creator, who goes straight in).
+  // The same room, and the same query too: a link with a query of its own (a call profile) is a reload.
+  if (await page.locator('#roomArea').isVisible() && sameRoomLink(page.url(), url) && new URL(page.url()).search === new URL(url).search) { await sameName(); return }
   await openRoomUrl(page, url)
-  await page.locator('#displayName').fill(name)
+  await expect(page.locator('#roomArea:visible, #displayName:visible, #joinVisitor:visible').first()).toBeVisible({ timeout: 60_000 })
+  // A room this device has joined opens itself.
+  if (await page.locator('#roomArea').isVisible()) { await sameName(); return }
+  // A browser with a Nostr extension offers the extension first; these specs
+  // are about going in under a name, which is the step down under it.
+  const field = page.locator('#displayName')
+  if (!await field.isVisible() && /extension/.test(await page.locator('#join').innerText())) await page.locator('#joinVisitor').click()
+  await field.fill(name)
   await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
 }
@@ -581,23 +608,47 @@ export async function leaveToChats(page: Page): Promise<void> {
   await expect(page.locator('#home:visible, #rooms:visible').first()).toBeVisible()
 }
 
-export async function createRoom(page: Page, baseURL: string, relays = testRelays()): Promise<string> {
+/**
+ * Start a room from the New room form and land in it: the creator goes
+ * straight in under `name`, with no door in between. `#newRoomYourName` is
+ * filled when the form asks for it (a device with no name yet). A creator
+ * who has a real choice to make at the door (an account to reconnect, an
+ * extension to use) sees the door instead; such specs handle it themselves.
+ */
+export async function startRoom(page: Page, { name = 'Ada', roomName, ask = false }: { name?: string; roomName?: string; ask?: boolean } = {}): Promise<void> {
+  await openNewRoomForm(page)
+  if (roomName !== undefined) await page.locator('#roomName').fill(roomName)
+  if (ask) await page.locator('#roomAsk').check()
+  await nameCreator(page, name)
+  await page.locator('#create').click()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+}
+
+/** Give the New room form the creator's name, when it asks for one. */
+export async function nameCreator(page: Page, name: string): Promise<void> {
+  const yourName = page.locator('#newRoomYourName')
+  if (await yourName.isVisible()) await yourName.fill(name)
+}
+
+/** Start a room and return its link. The creator is inside it as `name`. */
+export async function createRoom(page: Page, baseURL: string, relays = testRelays(), name = 'Ada'): Promise<string> {
   if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
   await page.goto(baseURL)
-  await openNewRoomForm(page)
-  await page.locator('#create').click()
-  // Wait for the link itself rather than the box that used to hold it. The
-  // entry page was rebuilt to put the conversation first and `#links` went
-  // with it; this waits for the thing the next line actually reads, which
-  // cannot be removed without this failing honestly.
+  await startRoom(page, { name })
   // The link exists as soon as the room does, but the drawer around it stays
-  // hidden until somebody joins, because the rebuilt page shows nothing that
-  // is not the conversation until there is a conversation. So wait for the
-  // value rather than for it to be on screen: waiting for visibility here
-  // would be asserting a thing the page deliberately does not do yet.
+  // hidden until somebody opens it: wait for the value rather than for it to
+  // be on screen.
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
   return relays ? withRelays(await share.inputValue(), relays) : await share.inputValue()
+}
+
+/** Go in, from the door; a no-op when the page is in the room, or is opening
+ *  one it has joined (a creator, or any page after a reload). */
+export async function join(page: Page): Promise<void> {
+  await expect(page.locator('#roomArea:visible, #join:visible').first()).toBeVisible({ timeout: 60_000 })
+  if (await page.locator('#roomArea').isVisible()) return
+  await page.locator('#join').click()
 }
 
 /**
@@ -618,7 +669,7 @@ export async function createRoom(page: Page, baseURL: string, relays = testRelay
  */
 export async function joinWithMedia(page: Page, url: string, name: string): Promise<void> {
   await open(page, url, name)
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await turnOnMedia(page)
 }

@@ -86,11 +86,11 @@ test('People lists the people you follow, and Message starts a private chat with
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     const waiting = bob.locator('#chatInvitations li[data-invitation]')
     await expect(waiting).toHaveCount(1)
-    await expect(waiting).toContainText(`${shortNpub(a)} invited you to a private chat`)
+    await expect(waiting).toContainText(`Somebody invited you to a private chat`)
     await expect(waiting).toContainText('Sealed for you · ')
     await expect(bob.locator('#railChatsCount')).toHaveText('1')
     await bob.screenshot({ path: test.info().outputPath('invitation.png') })
-    await waiting.getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await waiting.getByRole('button', { name: `Accept private chat with Somebody` }).click()
     await expect(bob.locator('#roomArea')).toBeVisible()
     await expect(bob.locator('#chatLog')).toContainText('Hello Bob, found you through who I follow')
     await expect(bob.locator('#chatInvitations')).toBeHidden()
@@ -174,10 +174,10 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
     const waiting = bob.locator('#chatInvitations li[data-invitation]')
     await expect(waiting).toHaveCount(1)
     await bob.setViewportSize({ width: 390, height: 844 })
-    await waiting.getByRole('button', { name: `More for the invitation from ${shortNpub(a)}` }).click()
-    await expect(bob.getByRole('menuitem', { name: `Decline and block ${shortNpub(a)}` })).toBeVisible()
+    await waiting.getByRole('button', { name: `More for the invitation from Somebody` }).click()
+    await expect(bob.getByRole('menuitem', { name: `Decline and block Somebody` })).toBeVisible()
     await bob.screenshot({ path: test.info().outputPath('decline-block-menu-phone.png') })
-    await bob.getByRole('menuitem', { name: `Decline and block ${shortNpub(a)}` }).click()
+    await bob.getByRole('menuitem', { name: `Decline and block Somebody` }).click()
     await expect(bob.locator('#chatInvitations')).toBeHidden()
     await expect(bob.locator('#roomArea')).toBeHidden()
 
@@ -259,19 +259,17 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openNewRoomForm(alice)
     await alice.locator('#roomName').fill('Saturday walk')
+    if (await alice.locator('#newRoomYourName').isVisible()) await alice.locator('#newRoomYourName').fill('Alice')
     await alice.locator('#create').click()
-    // A new room's creator still meets the door (stage 6 removes it).
-    await expect(alice.locator('#join')).toBeEnabled({ timeout: 30_000 })
-    if (await alice.locator('#displayName').isVisible()) await alice.locator('#displayName').fill('Alice')
-    await alice.locator('#join').click()
-    await expect(alice.locator('#roomArea')).toBeVisible({ timeout: 30_000 })
+    await expect(alice.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleInvite').click()
     await expect(alice.locator('#inviteToRoom')).toBeVisible()
     expect(parseRoomLink(alice.url()).policy?.members).toContain(b)
-    await alice.locator('#inviteToRoomList').getByRole('button', { name: 'Saturday walk' }).click()
+    await alice.locator('#inviteToRoomList').getByRole('radio', { name: /^Saturday walk/ }).check()
+    await alice.locator('#inviteToRoomSend').click()
     await expect(alice.locator('#inviteToRoom')).toBeHidden()
     await expect(alice.locator('#chatLog')).toContainText('You invited Bob on Nostr to Saturday walk.')
 
@@ -290,7 +288,7 @@ test('Invite from People opens the private chat and sends the room there, sealed
 
     // Bob accepts the private chat, which puts the room in his list, and joins it.
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
-    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with Somebody` }).click()
     await expect(bob.locator('#chatLog')).toContainText('invited you to Saturday walk. It is in your rooms.', { timeout: 30_000 })
     await bob.locator('#roomList').getByRole('button', { name: 'Open Saturday walk', exact: true }).click()
     // A room already in the list opens straight in, with no door.
@@ -347,7 +345,7 @@ test('Check words together from People compares words in the private chat and ma
 
     // Bob accepts the private chat, then the check from Alice's row in it.
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
-    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with Somebody` }).click()
     await expect(bob.locator('#roomWho')).toHaveText('Private chat', { timeout: 30_000 })
     await openRoomDetails(bob)
     // Only somebody else's row has a check button.

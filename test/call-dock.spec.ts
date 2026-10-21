@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, open, switchToRoom, leaveToChats } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, open, switchToRoom, leaveToChats, join } from './browser.js'
 
 /**
  * Nothing a person navigates to ends a call.
@@ -34,7 +34,7 @@ test('a call carries on while its member chats in another room, and comes back w
     await joinWithMedia(pageA, url, 'Ada')
     // Bo joins Ada's call, as a person would once the room says one is on.
     await open(pageB, url, 'Bo')
-    await pageB.locator('#join').click()
+    await join(pageB)
     await expect(pageB.locator('#callToggle')).toHaveText('Join call')
     await pageB.locator('#callToggle').click()
     await expect(pageB.locator('#deviceControls')).toBeVisible()
@@ -78,7 +78,7 @@ test('a call carries on while its member chats in another room, and comes back w
 
     // Back, to the room as it was left, with what was said meanwhile.
     await pageA.locator('#callDockBack').click()
-    await expect(pageA.locator('#roomTitle')).toContainText('Room ')
+    await expect(pageA.locator('#roomTitle')).toHaveText('Untitled room')
     await expect(pageA.locator('#callDock')).toBeHidden()
     await expect(pageA.locator('#callBay')).toBeVisible()
     await expect(pageA.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
