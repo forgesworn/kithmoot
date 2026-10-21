@@ -117,9 +117,7 @@ test('a joiner whose own relays are all elsewhere still meets the room on the re
     const makerContext = await newDeviceContext(browser, baseURL!)
     contexts.push(makerContext)
     const maker = await makerContext.newPage()
-    const url = await createRoom(maker, baseURL!, [relayA.url])
-    await maker.locator('#displayName').fill('Maker')
-    await join(maker)
+    const url = await createRoom(maker, baseURL!, [relayA.url], 'Maker')
     await expect(maker.locator('#roomArea')).toBeVisible()
     await turnOnMedia(maker)
     // The room's relays are fixed now, signed, and kept apart.

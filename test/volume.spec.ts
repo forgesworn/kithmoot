@@ -153,13 +153,9 @@ test('a level survives a track handed over on renegotiation, and a reload', asyn
       .toBe(0.5)
 
     // Reload: the level is remembered on this device, not only in memory.
-    // A reload lands back at the door - the room is known, but rejoining is
-    // still a click, same as any other visit.
+    // A reload of a room this device has joined opens the room again.
     await pageA.reload()
-    await expect(pageA.locator('#join')).toBeVisible({ timeout: 60_000 })
-    await expect(pageA.locator('#join')).toBeEnabled({ timeout: 60_000 })
-    await join(pageA)
-    await expect(pageA.locator('#roomArea')).toBeVisible()
+    await expect(pageA.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 
     await openMember(pageA, 'Bob')
     await expect(pageA.getByRole('slider', { name: 'Volume for Bob' })).toHaveValue('50', { timeout: 30_000 })

@@ -172,7 +172,7 @@ test('a nearby device can silence feedback without losing its camera', async ({ 
   try {
     const pageLaptop = await laptop.newPage()
     const pagePhone = await phone.newPage()
-    const url = await createRoom(pageLaptop, baseURL!)
+    const url = await createRoom(pageLaptop, baseURL!, undefined, 'Laptop')
 
     await joinWithMedia(pageLaptop, url, 'Laptop')
     // This deliberately uses the ordinary invitation, reproducing the easy

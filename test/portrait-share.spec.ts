@@ -122,7 +122,7 @@ test('a portrait share is shown whole and nothing sits on it', async ({ browser,
   await a.addInitScript(PORTRAIT_SCREEN)
   try {
     const alex = await a.newPage(), sam = await b.newPage()
-    const link = await createRoom(alex, baseURL!)
+    const link = await createRoom(alex, baseURL!, undefined, 'Alex')
     await enter(alex, link, 'Alex')
     await enter(sam, link, 'Sam', true)
 
@@ -161,7 +161,7 @@ test('a person on two devices, one sharing portrait and one with only a micropho
   try {
     const pageLaptop = await laptop.newPage(), pagePhone = await phone.newPage(), sam = await watcher.newPage()
     await pageLaptop.setViewportSize(VIEWPORT); await pagePhone.setViewportSize(VIEWPORT)
-    const url = await createRoom(pageLaptop, baseURL!)
+    const url = await createRoom(pageLaptop, baseURL!, undefined, 'Alex')
     await open(pageLaptop, url, 'Alex')
     await join(pageLaptop)
     await expect(pageLaptop.locator('#roomArea')).toBeVisible()
@@ -203,7 +203,7 @@ test('a share error goes once a share works, and says what to do', async ({ brow
   await a.addInitScript(PORTRAIT_SCREEN)
   try {
     const alex = await a.newPage()
-    const link = await createRoom(alex, baseURL!)
+    const link = await createRoom(alex, baseURL!, undefined, 'Alex')
     await enter(alex, link, 'Alex')
     const status = alex.locator('#status')
 
@@ -236,7 +236,7 @@ test('in the desktop app, cancelling the share picker is not a permission proble
   await a.addInitScript(PORTRAIT_SCREEN)
   try {
     const alex = await a.newPage()
-    const link = await createRoom(alex, baseURL!)
+    const link = await createRoom(alex, baseURL!, undefined, 'Alex')
     await enter(alex, link, 'Alex')
     const status = alex.locator('#status')
     // The desktop app refuses a cancelled picker with the same error macOS

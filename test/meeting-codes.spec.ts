@@ -144,7 +144,6 @@ async function startRoom(page: Page, baseURL: string, setUp: (page: Page) => Pro
   await setUp(page)
   await nameCreator(page, 'Host')
   await page.locator('#create').click()
-  await expect(page.locator('#join')).toBeVisible()
   await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 }
 

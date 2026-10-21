@@ -42,9 +42,12 @@ function recordPublished(page: Page, sent: Event[] = []): Event[] {
 
 async function enter(page: Page, link: string, name: string) {
   await openRoomUrl(page, link)
-  await expect(page.locator('#join')).toBeVisible()
-  await page.locator('#displayName').fill(name)
-  await page.locator('#join').click()
+  await expect(page.locator('#join:visible, #roomArea:visible').first()).toBeVisible()
+  // A room this device has joined opens by itself; an invitation gets the door.
+  if (!await page.locator('#roomArea').isVisible()) {
+    await page.locator('#displayName').fill(name)
+    await page.locator('#join').click()
+  }
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
@@ -181,10 +184,9 @@ test('a room self-destructs at its end on every device, including one that was a
     await expect(page.locator('#roomWhenEndsHint')).toContainText('Someone could still have kept a copy')
     await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const link = await page.locator('#shareUrl').inputValue()
     const invitationId = deriveInvitationId(parseRoomLink(link).invitation!)
-    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
 
     // The countdown, in words and with a fuse, green while there is time.
@@ -291,9 +293,8 @@ test('the authority makes a room with no end self-destruct now: both devices tid
     await expect(page.locator('#roomWhenEndsRow')).toBeHidden()
     await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeVisible()
-    const link = await page.locator('#shareUrl').inputValue()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    const link = await page.locator('#shareUrl').inputValue()
     await expect(page.locator('#roomEndsLine')).toBeHidden()
     const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
 
@@ -360,9 +361,8 @@ for (const [flagged, path] of [[true, 'rooms list'], [false, 'rooms list'], [fal
       if (flagged) await page.locator('#roomEnds').selectOption('7')
       await nameCreator(page, 'Host')
       await page.locator('#create').click()
-      await expect(page.locator('#join')).toBeVisible()
-      const link = await page.locator('#shareUrl').inputValue()
       await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+      const link = await page.locator('#shareUrl').inputValue()
       const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
 
       const away = await device(browser, baseURL!); contexts.push(away)

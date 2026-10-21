@@ -317,7 +317,6 @@ test('the chat panel opens from the bar, counts what arrived while shut, and is 
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await ada.reload()
-    await ada.locator('#displayName').fill('Ada')
     await join(ada)
     await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(ada.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })

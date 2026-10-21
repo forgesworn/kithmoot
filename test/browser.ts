@@ -478,7 +478,12 @@ export async function goToConversation(page: Page, name: string): Promise<void> 
  */
 export async function open(page: Page, url: string, name: string): Promise<void> {
   const remembered = async () => page.evaluate(() => localStorage.getItem('kithmoot.name'))
-  const sameName = async () => expect(await remembered(), 'createRoom(page, …, name) was called with a different creator name; pass it').toBe(name)
+  // A signed-in creator whose profile has a name was never asked for one, so
+  // nothing is remembered to compare: only a name that was typed can differ.
+  const sameName = async () => {
+    const typed = await remembered()
+    if (typed !== null) expect(typed, 'createRoom(page, …, name) was called with a different creator name; pass it').toBe(name)
+  }
   // The page is already in this room (the creator, who goes straight in).
   if (await page.locator('#roomArea').isVisible() && sameRoomLink(page.url(), url)) { await sameName(); return }
   await openRoomUrl(page, url)
@@ -637,8 +642,10 @@ export async function createRoom(page: Page, baseURL: string, relays = testRelay
   return relays ? withRelays(await share.inputValue(), relays) : await share.inputValue()
 }
 
-/** Go in, from the door; a no-op when the page is already in the room. */
+/** Go in, from the door; a no-op when the page is in the room, or is opening
+ *  one it has joined (a creator, or any page after a reload). */
 export async function join(page: Page): Promise<void> {
+  await expect(page.locator('#roomArea:visible, #join:visible').first()).toBeVisible({ timeout: 60_000 })
   if (await page.locator('#roomArea').isVisible()) return
   await page.locator('#join').click()
 }

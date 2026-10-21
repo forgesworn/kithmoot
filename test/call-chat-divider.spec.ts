@@ -219,7 +219,6 @@ test('the divider drags, keys, clamps and is remembered', async ({ browser, base
     expect(storedFraction).not.toBeNull()
 
     await ada.reload()
-    await ada.locator('#displayName').fill('Ada')
     await join(ada)
     await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(ada.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })

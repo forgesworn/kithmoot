@@ -264,7 +264,7 @@ test('a remote phone camera has a filled portrait tile and follows live rotation
   try {
     const page = await viewer.newPage(), source = await phone.newPage()
     await page.setViewportSize({ width: 1440, height: 900 })
-    const url = await createRoom(page, baseURL!)
+    const url = await createRoom(page, baseURL!, undefined, 'Viewer')
     await joinWithMedia(page, url, 'Viewer')
     await source.setViewportSize({ width: 1440, height: 900 })
     await open(source, url, 'Phone'); await joinDoor(source)

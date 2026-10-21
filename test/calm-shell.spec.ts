@@ -1963,3 +1963,35 @@ test('every control in the New room form is at least 44 px at 390 by 844 on a to
     expect(small).toEqual([])
   } finally { await context.close() }
 })
+
+// ---------------------------------------------------------------------------
+// Stage 6: people without a name, in a room.
+// ---------------------------------------------------------------------------
+
+test('a member with no name is Somebody in the log, the roster, the came-in line and the Chats preview, and no key shows', async ({ browser, baseURL }) => {
+  const { context, page: host } = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await openNewRoomForm(host)
+    await host.locator('#roomName').fill('Nameless check')
+    await host.locator('#create').click()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    const link = await host.locator('#shareUrl').inputValue()
+    const guest = await door(browser, baseURL!, { width: 1280, height: 900 }, { link })
+    try {
+      await guest.page.locator('#join').click()
+      await expect(guest.page.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
+      await guest.page.locator('#chatInput').fill('hello from nobody in particular')
+      await guest.page.locator('#chatInput').press('Enter')
+      await expect(host.locator('#chatLog')).toContainText('hello from nobody in particular', { timeout: 60_000 })
+      await expect(host.locator('#chatLog')).toContainText('Somebody came in.')
+      await expect(host.locator('#chatLog')).toContainText('Somebody')
+      expect(await visibleKeys(host)).toEqual([])
+      await openRoomDetails(host)
+      await expect(host.locator('#sheetRoster')).toContainText('Somebody')
+      expect(await visibleKeys(host)).toEqual([])
+      await host.locator('#roomSheetClose').click()
+      // The list, beside the room on a wide screen: the preview names them the same way.
+      await expect(host.locator('#roomList .roomRow', { hasText: 'Nameless check' }).locator('.roomPreview')).toContainText('Somebody')
+    } finally { await guest.context.close() }
+  } finally { await context.close() }
+})
