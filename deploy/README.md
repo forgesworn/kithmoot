@@ -723,6 +723,23 @@ updates every room; each restart is a few seconds in which that room's link
 is not answered. Without `--room` the old one-liner still keeps the room
 named `default`.
 
+**Run keepers on Node 24 or later.** On Node 22 (seen with 22.23.2), a
+relay that times out sends the relay client in nostr-tools 2.25.2 into
+unbounded recursion ("Maximum call stack size exceeded"), and the keeper
+exits. A room fixed to a relay that has gone away then crash-loops its
+keeper on every start. Node 24 does not do this. The unit runs
+`/usr/bin/node`; if the box's system Node is older, install Node 24 beside
+it and point the keepers at it with a drop-in, for example
+`/etc/systemd/system/kithmoot-keeper@.service.d/node24.conf`:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/opt/node/24/bin/node bin/kithmoot-agent.mjs create --brain none
+```
+
+then `systemctl daemon-reload` and restart each instance.
+
 The room's secret, its inviter key and the keeper's participant key live
 under `/var/lib/kithmoot-keeper/<room>/`, mode 0600, created on first start
 and reused on every restart, so the same link reopens the same room. Back
