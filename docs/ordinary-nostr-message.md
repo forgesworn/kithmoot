@@ -34,11 +34,12 @@ ephemeral wrapper keys are local.
 NIP-04 encryption and sending are never requested.
 
 The first supported signer path is NIP-07 through the existing pinned
-`signet-login@0.19.1` provider-effect boundary. Each actual encrypt/sign start and
+`signet-login@0.21.0` provider-effect boundary. Each actual encrypt/sign start and
 handoff rechecks account, expiry, view and contact permission. The SDK's one
 transient signing retry is separately guarded. Other signer transports need their
 own qualification and remain unavailable here. Reading the SDK tag does not prove
-that its published installed artifact executes equivalently.
+that its published installed artifact executes equivalently. The SDK update does
+not enable NIP-46 messaging in this consumer.
 
 Publishing uses the existing guarded WebSocket carrier and exactly the reviewed
 inbox destinations. A relay acknowledgement is reported as relay acceptance,
