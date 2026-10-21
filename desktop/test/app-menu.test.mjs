@@ -44,19 +44,20 @@ test('the Room items follow what the page allows for the room open', () => {
   assert.ok(find(menu, 'Room', 'Unpin'))
   assert.ok(find(menu, 'Room', 'Leave private chat…'))
   const notifications = find(menu, 'Room', 'Notifications').submenu
-  assert.deepEqual(notifications.map(i => [i.label, i.checked]), [['Every message', false], ['Nothing', true], ['Use my default', false]])
+  assert.deepEqual(notifications.map(i => [i.label, i.checked]), [['Every message', false], ['Only mentions and replies', false], ['Nothing', true], ['Use my default', false]])
 })
 
 test('the Notifications submenu offers four durations, or Unmute while one runs, and nothing under Nothing', () => {
   const submenu = state => find(build('linux', { room: true, ...state }), 'Room', 'Notifications').submenu
   const labels = items => items.map(i => i.type === 'separator' ? '-' : i.label)
-  assert.deepEqual(labels(submenu({ notify: 'all', muted: false })), ['Every message', 'Nothing', 'Use my default', '-', 'Mute for 1 hour', 'Mute for 8 hours', 'Mute for 1 day', 'Mute for 1 week'])
-  assert.deepEqual(labels(submenu({ notify: 'inherit', muted: true })), ['Every message', 'Nothing', 'Use my default', '-', 'Unmute'])
-  assert.deepEqual(labels(submenu({ notify: 'off', muted: false })), ['Every message', 'Nothing', 'Use my default'])
+  assert.deepEqual(labels(submenu({ notify: 'all', muted: false })), ['Every message', 'Only mentions and replies', 'Nothing', 'Use my default', '-', 'Mute for 1 hour', 'Mute for 8 hours', 'Mute for 1 day', 'Mute for 1 week'])
+  assert.deepEqual(labels(submenu({ notify: 'inherit', muted: true })), ['Every message', 'Only mentions and replies', 'Nothing', 'Use my default', '-', 'Unmute'])
+  assert.deepEqual(labels(submenu({ notify: 'off', muted: false })), ['Every message', 'Only mentions and replies', 'Nothing', 'Use my default'])
+  assert.equal(submenu({ notify: 'mentions' }).find(i => i.label === 'Only mentions and replies').checked, true)
   assert.equal(sanitiseRoomMenuState({ room: false, muted: true }).muted, false)
   assert.equal(sanitiseRoomMenuState({ room: true, muted: 'yes' }).muted, false)
   assert.equal(sanitiseRoomMenuState({ room: true, muted: true }).muted, true)
-  for (const command of ['mute-1h', 'mute-8h', 'mute-1d', 'mute-1w', 'unmute']) assert.ok(MENU_COMMANDS.includes(command), command)
+  for (const command of ['notify-mentions', 'mute-1h', 'mute-8h', 'mute-1d', 'mute-1w', 'unmute']) assert.ok(MENU_COMMANDS.includes(command), command)
 })
 
 test('People is only offered to a Nostr sign-in', () => {

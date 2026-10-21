@@ -69,7 +69,7 @@ export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, st
       if (!Array.isArray(rows) || rows.some((id, index) => typeof id !== 'string' || !HEX.test(id) || index > 0 && rows[index - 1] >= id)) hold()
       counts.pinLists++
     } else if (family === 'kithmoot.notification-scopes') {
-      if (!name.startsWith(NOTIFICATION_PREFIX) || !['all', 'off'].includes(raw)) hold()
+      if (!name.startsWith(NOTIFICATION_PREFIX) || !['all', 'off', 'mentions'].includes(raw)) hold()
       const scope = json(name.slice(NOTIFICATION_PREFIX.length))
       if (!Array.isArray(scope) || scope.length !== 3 || !account(scope[0]) || !['default', 'project', 'room'].includes(scope[1]) || typeof scope[2] !== 'string') hold()
       if (scope[1] === 'default' ? scope[2] !== '' : scope[2].length === 0) hold()

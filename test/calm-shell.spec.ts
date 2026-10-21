@@ -566,9 +566,9 @@ test('the ⋯ menu has the keyboard model: Enter opens, arrows move, Right opens
     await menu.getByRole('menuitem', { name: 'Notifications', exact: true }).focus()
     await page.keyboard.press('ArrowRight')
     const choices = menu.getByRole('menu', { name: 'Notifications' }).getByRole('menuitemradio')
-    await expect(choices).toHaveText(['Every message', 'Nothing', 'Use my default'])
+    await expect(choices).toHaveText(['Every message', 'Only mentions and replies', 'Nothing', 'Use my default'])
     await expect(choices.first()).toBeFocused()
-    await expect(choices.nth(2)).toHaveAttribute('aria-checked', 'true')
+    await expect(choices.nth(3)).toHaveAttribute('aria-checked', 'true')
     // Left, and Escape, close only the submenu and give focus back to its item.
     await page.keyboard.press('ArrowLeft')
     await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true })).toBeFocused()
@@ -578,6 +578,7 @@ test('the ⋯ menu has the keyboard model: Enter opens, arrows move, Right opens
     await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true })).toBeFocused()
     // Choosing one writes the room's own mode.
     await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
     await expect(menu).toBeHidden()
@@ -612,7 +613,7 @@ test('the menu of a room lists what a person does and leaves out what the room c
     // Notifications replace the items, with a way back.
     await menu.getByRole('menuitem', { name: 'Notifications', exact: true }).click()
     await expect(menu.getByRole('menuitem', { name: 'Room info' })).toBeHidden()
-    await expect(menu.getByRole('menuitemradio')).toHaveCount(3)
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
     await menu.getByRole('menuitem', { name: /Back/ }).click()
     await expect(menu.getByRole('menuitem', { name: 'Room info' })).toBeVisible()
     await roomMenuItem(page, 'Invite people…')
@@ -1355,7 +1356,7 @@ for (const [label, size, touch, scheme] of [['1440 by 900 dark', { width: 1440, 
       const menu = page.locator('#roomMoreMenu')
       await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true }).locator('use')).toHaveAttribute('href', '#i-bell')
       const parent = await notificationsOf(page, menu)
-      await expect(menu.getByRole('menuitemradio')).toHaveText(['Every message', 'Nothing', 'Use my default'])
+      await expect(menu.getByRole('menuitemradio')).toHaveText(['Every message', 'Only mentions and replies', 'Nothing', 'Use my default'])
       await expect(menu.getByRole('menuitem', { name: /^Mute for/ })).toHaveText(MUTE_LENGTHS)
       await expect(menu.getByRole('menuitem', { name: 'Unmute' })).toHaveCount(0)
       if (!touch) {
@@ -1412,7 +1413,7 @@ test('muting a room for an hour writes the end, says so in the header and the st
     await notificationsOf(page, menu)
     await expect(menu.getByRole('menuitem', { name: 'Unmute' })).toHaveCount(0)
     await expect(menu.getByRole('menuitem', { name: /^Mute for/ })).toHaveCount(0)
-    await expect(menu.getByRole('menuitemradio')).toHaveCount(3)
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
     await expect(menu.getByRole('menu', { name: 'Notifications' }).locator('hr')).toHaveCount(0)
   } finally { await context.close() }
 })
@@ -1503,3 +1504,26 @@ for (const [mode, rings] of [['none', true], ['mute for 1 hour', false], ['Nothi
     } finally { await close() }
   })
 }
+
+test('Settings › Notifications names its choices the way the menus do, and a room can be set to Only mentions and replies from either', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    await openSettings(page, 'Notifications')
+    await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
+    const options = page.locator('#notificationMode option')
+    await expect(options).toHaveText(['Use parent setting', 'Every message', 'Only mentions and replies', 'Nothing'])
+    expect(await options.evaluateAll(all => all.map(option => (option as HTMLOptionElement).value))).toEqual(['inherit', 'all', 'mentions', 'off'])
+    await page.locator('#notificationMode').selectOption('mentions')
+    await expect(page.locator('#notificationMode')).toHaveValue('mentions')
+    await expect(page.locator('#notificationPreferences .note').first()).toContainText('any project set to Nothing silences it unless the room has its own setting')
+    // The room's own menu shows the same choice ticked once the room scope is picked.
+    await page.locator('#notificationScope').selectOption({ label: 'Room: Release workshop' })
+    await page.locator('#notificationMode').selectOption('mentions')
+    await roomMenuItem(page, 'Notifications')
+    const menu = page.locator('#roomMoreMenu')
+    await expect(menu.getByRole('menuitemradio', { name: 'Only mentions and replies' })).toHaveAttribute('aria-checked', 'true')
+    // A mentions-only room is not muted: no glyph, no header line.
+    await expect(page.locator('#roomMuted')).toBeHidden()
+  } finally { await context.close() }
+})

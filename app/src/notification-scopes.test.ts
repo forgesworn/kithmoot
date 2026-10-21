@@ -34,6 +34,41 @@ describe('project and room notifications', () => {
   })
 })
 
+describe('Only mentions and replies', () => {
+  const room = 'a'.repeat(64)
+  it('is a mode a room, a project or the default can hold', () => {
+    const store = memoryDeviceStore()
+    setNotificationMode(store, 'alice', { kind: 'room', id: room }, 'mentions')
+    expect(notificationMode(store, 'alice', { kind: 'room', id: room })).toBe('mentions')
+    expect(roomNotificationLevel(store, 'alice', room, undefined, 0)).toBe('mentions')
+    expect(roomNotificationsEnabled(store, 'alice', room, undefined, 0)).toBe(true)
+    expect(roomMute(store, 'alice', room, 0)).toBeUndefined()
+  })
+  it('ranks Nothing over Every message over Only mentions among projects, and the room beats them all', () => {
+    const store = memoryDeviceStore()
+    setNotificationMode(store, 'alice', { kind: 'project', id: 'a' }, 'mentions')
+    expect(roomNotificationLevel(store, 'alice', room, ['a'], 0)).toBe('mentions')
+    setNotificationMode(store, 'alice', { kind: 'project', id: 'b' }, 'all')
+    expect(roomNotificationLevel(store, 'alice', room, ['a', 'b'], 0)).toBe('all')
+    setNotificationMode(store, 'alice', { kind: 'project', id: 'c' }, 'off')
+    expect(roomNotificationLevel(store, 'alice', room, ['a', 'b', 'c'], 0)).toBe('off')
+    setNotificationMode(store, 'alice', { kind: 'room', id: room }, 'mentions')
+    expect(roomNotificationLevel(store, 'alice', room, ['a', 'b', 'c'], 0)).toBe('mentions')
+  })
+  it('falls back to the account default', () => {
+    const store = memoryDeviceStore()
+    setNotificationMode(store, 'alice', { kind: 'default' }, 'mentions')
+    expect(roomNotificationLevel(store, 'alice', room, undefined, 0)).toBe('mentions')
+  })
+  it('does not stop a timed mute from silencing the room', () => {
+    const store = memoryDeviceStore()
+    setNotificationMode(store, 'alice', { kind: 'room', id: room }, 'mentions')
+    muteRoom(store, 'alice', room, 100)
+    expect(roomNotificationLevel(store, 'alice', room, undefined, 50)).toBe('off')
+    expect(roomNotificationLevel(store, 'alice', room, undefined, 100)).toBe('mentions')
+  })
+})
+
 describe('timed mutes', () => {
   const NOW = 1_800_000_000
   const room = 'a'.repeat(64)

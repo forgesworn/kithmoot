@@ -18,14 +18,14 @@ export const MENU_COMMANDS = Object.freeze([
   'show-chats', 'show-people', 'show-boards', 'find', 'room-info',
   'text-size-standard', 'text-size-large', 'text-size-huge',
   'call', 'search', 'invite', 'agent',
-  'notify-all', 'notify-off', 'notify-inherit',
+  'notify-all', 'notify-mentions', 'notify-off', 'notify-inherit',
   'mute-1h', 'mute-8h', 'mute-1d', 'mute-1w', 'unmute',
   'pin', 'leave',
   'shortcuts',
 ])
 
 const TEXT_SIZES = ['standard', 'large', 'huge']
-const NOTIFY_MODES = ['all', 'off', 'inherit']
+const NOTIFY_MODES = ['all', 'mentions', 'off', 'inherit']
 const CALL_LABELS = ['Start call', 'Join call', 'Leave call']
 
 /** What the menu knows when nothing has been said: no room, nobody signed in. */
@@ -143,7 +143,7 @@ export function buildAppMenuTemplate({ platform, appName, state, run, about, rep
         {
           label: 'Notifications', enabled: state.room,
           submenu: [
-            ...radios([['all', 'Every message'], ['off', 'Nothing'], ['inherit', 'Use my default']], state.notify, 'notify', { enabled: state.room }),
+            ...radios([['all', 'Every message'], ['mentions', 'Only mentions and replies'], ['off', 'Nothing'], ['inherit', 'Use my default']], state.notify, 'notify', { enabled: state.room }),
             // A room set to Nothing has no sound left to take away, so no durations.
             ...(state.notify === 'off' ? [] : [
               { type: 'separator' },

@@ -15,7 +15,7 @@ export function metadataFixture(mode: MetadataMode = 'all') {
     setNotificationMode(store, undefined, { kind: 'default' }, 'off')
     setNotificationMode(store, account, { kind: 'room', id: room }, 'all')
     setNotificationMode(store, account, { kind: 'project', id: 'project:Home 🧭' }, 'off')
-    setNotificationMode(store, account, { kind: 'project', id: `shared:${person}:${room}` }, 'all')
+    setNotificationMode(store, account, { kind: 'project', id: `shared:${person}:${room}` }, 'mentions')
   }
   if (mode === 'all' || mode === 'projects') {
     setRoomProject(store, undefined, room, ' Home 🧭 '); setRoomProject(store, account, room, 'Work')

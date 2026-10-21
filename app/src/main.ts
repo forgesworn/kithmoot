@@ -48,7 +48,7 @@ import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
 import { callElapsed, dockLabel, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
-import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
+import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, retireSuggestedForgeSwornConsent, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
@@ -15274,7 +15274,8 @@ function senderLabel(m: ChatMessage): string {
 const notifier = new Notifier({
   settings: roomId => {
     const settings = notifySettings(deviceStore)
-    return { ...settings, enabled: settings.enabled && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId)) }
+    const level = roomNotificationLevel(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId), nowSeconds())
+    return { ...settings, enabled: settings.enabled && level !== 'off', mentionsOnly: level === 'mentions' }
   },
   hidden: () => document.hidden || Boolean(window.kithmootDesktop && !document.hasFocus()),
   shownRoomId: () => (session ? currentRoomId() : undefined),
@@ -15680,7 +15681,7 @@ function notificationsSubmenu(menu: HTMLElement, roomId: string): void {
   const mute = roomMuteOf(roomId)
   menuSubmenu(menu, 'Notifications', sub => {
     const mode = notificationMode(deviceStore, nostrSession?.pubkey, { kind: 'room', id: roomId })
-    for (const [value, label] of [['all', 'Every message'], ['off', 'Nothing'], ['inherit', 'Use my default']] as const) {
+    for (const [value, label] of [['all', 'Every message'], ['mentions', 'Only mentions and replies'], ['off', 'Nothing'], ['inherit', 'Use my default']] as const) {
       menuItem(sub, label, () => chooseNotificationMode(roomId, value), { checked: mode === value, action: `notify-${value}` })
     }
     if (mute === 'always') return
@@ -17161,7 +17162,7 @@ function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
       search: inRoom(() => conversationSearch.open($('chatSearch'))),
       invite: inRoom(() => { if (roomMenuModel().invite) openInviteDialog(false) }),
       agent: inRoom(() => { if (roomMenuModel().agent) addAnAgent() }),
-      'notify-all': notify('all'), 'notify-off': notify('off'), 'notify-inherit': notify('inherit'),
+      'notify-all': notify('all'), 'notify-mentions': notify('mentions'), 'notify-off': notify('off'), 'notify-inherit': notify('inherit'),
       'mute-1h': muteFor('1h'), 'mute-8h': muteFor('8h'), 'mute-1d': muteFor('1d'), 'mute-1w': muteFor('1w'),
       unmute: inRoom(() => { const roomId = currentRoomId(); if (roomId) unmuteRoomNow(roomId) }),
       pin: inRoom(() => { const room = currentKnownRoom(); if (room) togglePinned(room) }),

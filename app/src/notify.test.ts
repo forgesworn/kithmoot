@@ -136,6 +136,30 @@ describe('the notifier over changing logs', () => {
     expect(counts).toEqual([1, 0])
   })
 
+  it('with Only mentions and replies, tells about a reply, a mention and @everyone, and about everything in a private chat', () => {
+    const store = memoryDeviceStore()
+    setNotifySettings(store, { enabled: true })
+    const delivered: NotificationContent[] = []
+    let direct = false
+    const notifier = new Notifier({
+      settings: () => ({ ...notifySettings(store), mentionsOnly: true }),
+      hidden: () => true, shownRoomId: () => undefined, self: () => ME,
+      deliver: content => void delivered.push(content), now: () => NOW,
+    })
+    const ingest = notifier.follow({ roomId: ROOM_A, channel: 'chat', room: () => 'r', sender: () => 'Ada', roster: () => [{ participant: ME, name: 'Me' }], direct: () => direct })
+    const reply = { ...message('reply', ADA, NOW + 1, 'sure'), reply: { messageId: 'm0', participant: ME } } as ChatMessage
+    const everyone = message('everyone', ADA, NOW + 1, 'hello @everyone')
+    const named = { ...message('named', ADA, NOW + 1, 'over to you'), mentions: [ME] }
+    const aside = { ...message('aside', ADA, NOW + 1, 'over to someone else'), mentions: [ADA] }
+    ingest([message('plain', ADA, NOW + 1, 'hello there'), aside])
+    expect(delivered).toEqual([])
+    ingest([message('plain', ADA, NOW + 1, 'hello there'), aside, reply, everyone, named])
+    expect(delivered).toHaveLength(3)
+    direct = true
+    ingest([message('plain', ADA, NOW + 1, 'hello there'), aside, reply, everyone, named, message('private', ADA, NOW + 2, 'psst')])
+    expect(delivered).toHaveLength(4)
+  })
+
   it('does nothing when the switch is off, and includes the text only when the second one is on', () => {
     const off = harness({ enabled: false })
     off.notifier.follow({ roomId: ROOM_A, channel: 'chat', room: () => 'r', sender: () => 's' })([message('1', ADA, NOW)])

@@ -1,7 +1,7 @@
 import type { DeviceStore } from './device-store.js'
 
 export type NotificationScope = { kind: 'default' } | { kind: 'project' | 'room'; id: string }
-export type NotificationMode = 'inherit' | 'all' | 'off'
+export type NotificationMode = 'inherit' | 'all' | 'mentions' | 'off'
 const PREFIX = 'kithmoot.notification-scopes.v1.'
 
 function key(account: string | undefined, scope: NotificationScope): string {
@@ -10,7 +10,7 @@ function key(account: string | undefined, scope: NotificationScope): string {
 
 export function notificationMode(store: DeviceStore, account: string | undefined, scope: NotificationScope): NotificationMode {
   const value = store.get(key(account, scope))
-  return value === 'all' || value === 'off' ? value : scope.kind === 'default' ? 'all' : 'inherit'
+  return value === 'all' || value === 'mentions' || value === 'off' ? value : scope.kind === 'default' ? 'all' : 'inherit'
 }
 
 export function setNotificationMode(store: DeviceStore, account: string | undefined, scope: NotificationScope, mode: NotificationMode): void {
@@ -74,18 +74,21 @@ export function nextMuteEnd(store: DeviceStore, now: number): number | undefined
  * caller applies the device's master permission switch separately. Project
  * names never need to leave this browser to decide whether an activity alert
  * is wanted. */
-export function roomNotificationLevel(store: DeviceStore, account: string | undefined, roomId: string, project?: string | readonly string[], now: number = Date.now() / 1000): 'all' | 'off' {
+export function roomNotificationLevel(store: DeviceStore, account: string | undefined, roomId: string, project?: string | readonly string[], now: number = Date.now() / 1000): 'all' | 'mentions' | 'off' {
   const mute = roomMute(store, account, roomId, now)
   if (mute !== undefined) return 'off'
   const room = notificationMode(store, account, { kind: 'room', id: roomId })
   if (room !== 'inherit') return room
   const projects = typeof project === 'string' ? [project] : project ?? []
   const modes = projects.map(id => notificationMode(store, account, { kind: 'project', id }))
-  // A room can belong to several shared projects. An explicit project mute
-  // wins over another project's On, unless the room itself overrides it.
+  // A room can belong to several shared projects. An explicit project
+  // Nothing wins over another project's choice, then Every message over
+  // Only mentions, unless the room itself overrides them.
   if (modes.includes('off')) return 'off'
   if (modes.includes('all')) return 'all'
-  return notificationMode(store, account, { kind: 'default' }) === 'off' ? 'off' : 'all'
+  if (modes.includes('mentions')) return 'mentions'
+  const fallback = notificationMode(store, account, { kind: 'default' })
+  return fallback === 'inherit' ? 'all' : fallback
 }
 
 export function roomNotificationsEnabled(store: DeviceStore, account: string | undefined, roomId: string, project?: string | readonly string[], now?: number): boolean {
