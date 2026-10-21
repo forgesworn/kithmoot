@@ -245,3 +245,33 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
     await expect(page.locator('#chatForm')).toBeVisible()
   } finally { await context.close(); await other.close() }
 })
+
+// At 320px the 88% a row may use left 32px beside the bubble for a 44px More
+// button, which overhung the log's edge. The log is overflow-x: hidden but can
+// still be slid by focus or scrollIntoView (Reply does), and every bubble in a
+// run then lost its first letters at the left edge.
+test('at 320px a run of messages keeps its left inset, also after Reply', async ({ browser, baseURL }) => {
+  const { context, link } = await phone(browser, baseURL!)
+  const rowan = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
+  try {
+    const page = await context.newPage(); await page.setViewportSize({ width: 320, height: 640 }); await page.goto(link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    for (const text of ['Shall we ship the new build on Friday, or hold it until the vectors are green?', 'I will look at the relay list tonight.', 'Does anyone have the venue address?', 'The budget sheet is in the shared folder.', 'Reminder: standup moves to nine.']) await rowan.chat.send(text)
+    await expect(page.locator('#chatLog .msg.continuation')).toHaveCount(4)
+    await page.locator('#chatLog .msg').filter({ hasText: 'Shall we ship' }).locator('.messageMore').click()
+    await page.locator('#messageActionPanel').getByRole('button', { name: /^Reply to/ }).click()
+    await expect(page.locator('#composerContext')).toContainText('Replying to Rowan')
+    const m = await page.locator('#chatLog').evaluate((log) => {
+      const box = log.getBoundingClientRect(), pad = box.left + parseFloat(getComputedStyle(log).paddingLeft)
+      return {
+        scrollLeft: log.scrollLeft, overflow: log.scrollWidth - log.clientWidth, page: document.scrollingElement!.scrollWidth - innerWidth,
+        lefts: [...log.querySelectorAll('.msg .bubble')].map(b => b.getBoundingClientRect().left - pad),
+      }
+    })
+    expect(m.lefts.length).toBeGreaterThanOrEqual(5)
+    for (const left of m.lefts) expect(left).toBeGreaterThanOrEqual(-0.5)
+    expect(m.scrollLeft).toBe(0)
+    expect(m.overflow).toBeLessThanOrEqual(0)
+    expect(m.page).toBeLessThanOrEqual(0)
+  } finally { rowan.leave(); await context.close() }
+})
