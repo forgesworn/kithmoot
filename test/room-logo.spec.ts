@@ -196,8 +196,8 @@ test('admitted members crop, share, recover, replace and remove an inline room l
     await row.getByRole('button', { name: 'Open Workshop', exact: true }).click()
     await expect(ada.locator('#roomLogo img')).toHaveAttribute('src', red!)
     await ada.reload()
-    await expect(ada.locator('#join')).toBeVisible(); await ada.locator('#join').click()
-    await expect(ada.locator('#roomArea')).toBeVisible()
+    // A room this device has joined opens by itself.
+    await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(ada.locator('#roomLogo img')).toHaveAttribute('src', red!)
 
     await openRoomInfoPage(bob, 'Name and picture')
@@ -223,8 +223,8 @@ test('admitted members crop, share, recover, replace and remove an inline room l
     await expect(bob.locator('.logoEditor')).toHaveCount(0)
     await expect(ada.locator('#roomLogo img')).toHaveCount(0)
     await expect(bob.locator('#roomLogo')).toHaveText('W')
-    await ada.reload(); await expect(ada.locator('#join')).toBeVisible(); await ada.locator('#join').click()
-    await expect(ada.locator('#roomArea')).toBeVisible()
+    await ada.reload()
+    await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(ada.locator('#roomLogo img')).toHaveCount(0)
   } finally { await a.close(); await b.close() }
 })

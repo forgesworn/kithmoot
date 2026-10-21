@@ -228,6 +228,11 @@ export class RoomBookmarks {
   }
 
   save(room: KnownRoom): void {
+    // Having joined, and as whom, is this device's own: a bookmark is read by
+    // every device that holds the account, and a join on one is not a join on
+    // another.
+    const { joinedAt: _joinedAt, joinedAs: _joinedAs, ...shared } = room
+    room = shared
     const previous = this.#pending.get(room.roomId)?.value ?? this.#records.get(room.roomId)
     // Keep the secret a record already carries when this device has none of
     // its own: a save from a device that lacks it must not drop it.

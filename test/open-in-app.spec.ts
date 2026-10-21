@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { TEST_RELAY_WS, testRelaysFor } from './relays.js'
-import { newDeviceContext, openNewRoomForm } from './browser.js'
+import { newDeviceContext, openNewRoomForm, nameCreator } from './browser.js'
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 const LINUX = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
@@ -54,6 +54,7 @@ test('a shared link from a new room offers the app to the guest, never to the ho
     await host.goto(baseURL!)
     await openNewRoomForm(host)
     await host.locator('#roomName').fill('Open in app')
+    await nameCreator(host, 'Ada')
     await host.locator('#create').click()
     await expect.poll(() => host.locator('#shareUrl').inputValue()).not.toBe('')
     const link = await host.locator('#shareUrl').inputValue()

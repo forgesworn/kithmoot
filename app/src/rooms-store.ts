@@ -63,6 +63,16 @@ export interface KnownRoom {
    *  end. A late joiner's lifetime is shorter than the room's: close enough
    *  for choosing colours. */
   startsAt?: number
+  /** Unix seconds this device last established a session in the room: it was
+   *  joined, not only looked at. A link to a room this device has joined
+   *  opens the room; a link to one it has only seen opens the door. Local to
+   *  the device, never sent in a bookmark and never shown. */
+  joinedAt?: number
+  /** The hex pubkey of the identity that joined at `joinedAt`. The door
+   *  opens the room by itself only for that same identity: a device that
+   *  joined as one account and is now signed in as another is asked first.
+   *  Local to the device, never sent in a bookmark and never shown. */
+  joinedAs?: string
 }
 
 /** What a visit to a room says about it. */
@@ -107,6 +117,8 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
     if (isRoomEnds(parsed.endsAt)) room.endsAt = parsed.endsAt
     if (parsed.destruct === true) room.destruct = true
     if (typeof parsed.startsAt === 'number' && Number.isFinite(parsed.startsAt)) room.startsAt = parsed.startsAt
+    if (typeof parsed.joinedAt === 'number' && Number.isFinite(parsed.joinedAt)) room.joinedAt = parsed.joinedAt
+    if (typeof parsed.joinedAs === 'string' && ROOM_ID.test(parsed.joinedAs)) room.joinedAs = parsed.joinedAs
     // Sanitised on the way out of storage as well as on the way in, because
     // a stored value is only as trustworthy as whatever wrote it.
     const name = sanitiseDisplayName(parsed.name)
@@ -176,8 +188,38 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   const startsAt = existing?.startsAt ?? (typeof visit.startsAt === 'number' && Number.isFinite(visit.startsAt) ? visit.startsAt : undefined)
   if (startsAt !== undefined) room.startsAt = startsAt
   else if (endsAt !== undefined) room.startsAt = visit.openedAt
+  // Having joined belongs to the room on this device, not to one visit.
+  if (existing?.joinedAt !== undefined) room.joinedAt = existing.joinedAt
+  if (existing?.joinedAs !== undefined) room.joinedAs = existing.joinedAs
   writeRoom(store, room)
   return room
+}
+
+/** Note that this device has joined the room as `as` (hex pubkey), set
+ *  together. False when the room is not one this device has written down. */
+export function markRoomJoined(store: DeviceStore, roomId: string, at: number, as: string): boolean {
+  const room = knownRoom(store, roomId)
+  if (!room || !Number.isFinite(at) || !ROOM_ID.test(as)) return false
+  writeRoom(store, { ...room, joinedAt: at, joinedAs: as })
+  return true
+}
+
+/** The room was left on purpose: its link is an invitation again, and opens
+ *  the door rather than the room. False when there was nothing to clear. */
+export function clearRoomJoined(store: DeviceStore, roomId: string): boolean {
+  const room = knownRoom(store, roomId)
+  if (!room || (room.joinedAt === undefined && room.joinedAs === undefined)) return false
+  const { joinedAt: _at, joinedAs: _as, ...rest } = room
+  writeRoom(store, rest)
+  return true
+}
+
+/** Whether a link to this room goes straight in: the device has joined it,
+ *  and as the identity it would join with now. Anything else (never joined,
+ *  joined as somebody else, no identity to compare, a record from before
+ *  this was kept) is an invitation and gets the door. */
+export function autoJoinable(room: KnownRoom | undefined, as: string | undefined): boolean {
+  return room?.joinedAt !== undefined && room.joinedAs !== undefined && as !== undefined && room.joinedAs === as
 }
 
 /** Note that a room self-destructs, learned after it was written down (its

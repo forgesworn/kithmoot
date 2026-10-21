@@ -15,7 +15,12 @@ import {
   MAX_PAST_EPOCHS,
   CHAT_RETENTION_SECONDS,
   deriveChannel,
+  chatEnvelope2Digest,
+  chatOuterSecretKey,
 } from './chat.js'
+import { resolveConversation } from './messages.js'
+import { schnorr } from '@noble/curves/secp256k1.js'
+import { bytesToHex } from '@noble/hashes/utils'
 import { issueKindredProof } from './access.js'
 import type { ChatMessage } from './chat.js'
 import type { Filter } from 'nostr-tools/filter'
@@ -1190,5 +1195,111 @@ describe('bundled artwork on encrypted chat', () => {
     expect(() => log.prepare('Reacted', { reaction: { messageId: 'target', participant: msg.participant, emoji: '👍', active: true, revision: 1 }, artwork: [artwork] })).toThrow()
     expect(() => log.prepare('Retracted', { retracts: 'target', artwork: [artwork] })).toThrow(/carries nothing else/)
     log.close()
+  })
+})
+
+describe('chat envelope 2: a throwaway outer author', () => {
+  const plaintextOf = (event: Event, roomId: string, roomKey: Uint8Array) =>
+    JSON.parse(nip44.v2.decrypt(event.content, deriveChannel(roomId, roomKey).key))
+  /** Rewrap an envelope's plaintext under a fresh outer key: what anybody
+   *  holding the room key, but not the sender's outer key, could publish. */
+  const rewrap = (event: Event, roomId: string, roomKey: Uint8Array, plaintext: unknown, createdAt = event.created_at) =>
+    finalizeEvent({ kind: KINDS.CHAT, created_at: createdAt, tags: event.tags, content: nip44.v2.encrypt(JSON.stringify(plaintext), deriveChannel(roomId, roomKey).key) }, generateSecretKey())
+
+  it('round-trips, and the event is not signed by the device', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk, envelope: 2 })
+    expect(event.pubkey).not.toBe(msg.device)
+    expect(event.created_at).toBe(msg.sentAt)
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toEqual(JSON.parse(JSON.stringify(msg)))
+    const inner = plaintextOf(event, roomId, roomKey)
+    expect(Object.keys(inner).sort()).toEqual(['body', 'sig', 'v'])
+    expect(inner.v).toBe(2)
+    expect(JSON.parse(inner.body).device).toBe(msg.device)
+  })
+
+  it('gives every message its own outer key, derived from the device key and the message', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const a = encodeChatEvent(msg, { roomId, roomKey, deviceSk, envelope: 2 })
+    const b = encodeChatEvent({ ...msg, id: 'msg-2' }, { roomId, roomKey, deviceSk, envelope: 2 })
+    expect(a.pubkey).not.toBe(b.pubkey)
+    const { id } = deriveChannel(roomId, roomKey)
+    expect(a.pubkey).toBe(getPublicKey(chatOuterSecretKey(deviceSk, id, 'msg-1')))
+    // The same message encoded again keeps its outer key, so a resend is the same author.
+    expect(encodeChatEvent(msg, { roomId, roomKey, deviceSk, envelope: 2 }).pubkey).toBe(a.pubkey)
+  })
+
+  it('refuses a body lifted into another event', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk, envelope: 2 })
+    const lifted = rewrap(event, roomId, roomKey, plaintextOf(event, roomId, roomKey))
+    expect(decodeChatEvent(lifted, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('refuses a body restamped to another time', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk, envelope: 2 })
+    const plaintext = plaintextOf(event, roomId, roomKey)
+    const outerSk = chatOuterSecretKey(deviceSk, deriveChannel(roomId, roomKey).id, msg.id)
+    // Even the sender's own outer key cannot move the time: sentAt and the signed time disagree.
+    const restamped = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW - 60, tags: event.tags, content: nip44.v2.encrypt(JSON.stringify(plaintext), deriveChannel(roomId, roomKey).key) }, outerSk)
+    expect(decodeChatEvent(restamped, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('refuses a member signing words in another device\'s name', async () => {
+    const { roomId, roomKey, msg } = await fixture()
+    const mallorySk = generateSecretKey()
+    // Mallory holds the room key and a device of her own, and names the victim's device and credential.
+    expect(() => encodeChatEvent(msg, { roomId, roomKey, deviceSk: mallorySk, envelope: 2 })).toThrow()
+    const honest = encodeChatEvent(msg, { roomId, roomKey, deviceSk: mallorySk })
+    const body = nip44.v2.decrypt(honest.content, deriveChannel(roomId, roomKey).key)
+    const outerSk = generateSecretKey()
+    const outer = getPublicKey(outerSk)
+    const sig = bytesToHex(schnorr.sign(chatEnvelope2Digest(roomId, deriveChannel(roomId, roomKey).id, outer, NOW, body), mallorySk))
+    const forged = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: honest.tags, content: nip44.v2.encrypt(JSON.stringify({ v: 2, body, sig }), deriveChannel(roomId, roomKey).key) }, outerSk)
+    expect(decodeChatEvent(forged, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('refuses a malformed envelope 2', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk, envelope: 2 })
+    const inner = plaintextOf(event, roomId, roomKey)
+    for (const bad of [
+      { ...inner, extra: 1 },
+      { ...inner, v: 3 },
+      { ...inner, sig: inner.sig.toUpperCase() },
+      { ...inner, sig: inner.sig.slice(2) },
+      { v: 2, body: inner.body },
+      { ...inner, body: JSON.parse(inner.body) },
+    ]) {
+      expect(decodeChatEvent(rewrap(event, roomId, roomKey, bad), { roomId, roomKey, now: NOW })).toBeNull()
+    }
+  })
+
+  it('applies an edit and a retraction across envelopes by the inner author only', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const read = (e: Event) => decodeChatEvent(e, { roomId, roomKey, now: NOW + 10 })!
+    const original = read(encodeChatEvent(msg, { roomId, roomKey, deviceSk }))
+    const edit = read(encodeChatEvent({ ...msg, id: 'msg-edit', text: 'hello, room', sentAt: NOW + 5, replaces: 'msg-1' }, { roomId, roomKey, deviceSk, envelope: 2 }))
+    expect(resolveConversation([original, edit]).stream[0]!.shown.text).toBe('hello, room')
+
+    // Another member's envelope-2 edit of the same id is their own message, never this one's edit.
+    const other = await fixture()
+    const theirs = decodeChatEvent(encodeChatEvent({ ...other.msg, id: 'msg-x', text: 'not yours', sentAt: NOW + 6, replaces: 'msg-1' }, { roomId, roomKey, deviceSk: other.deviceSk, envelope: 2 }), { roomId, roomKey, now: NOW + 10 })!
+    expect(theirs).not.toBeNull()
+    const resolved = resolveConversation([original, edit, theirs])
+    expect(resolved.byKey.get(`${msg.participant}:msg-1`)!.shown.text).toBe('hello, room')
+
+    const retraction = read(encodeChatEvent({ ...msg, id: 'msg-retract', text: 'retracted', sentAt: NOW + 7, retracts: 'msg-1' }, { roomId, roomKey, deviceSk, envelope: 2 }))
+    expect(resolveConversation([original, edit, retraction]).byKey.get(`${msg.participant}:msg-1`)!.retracted).toBe(true)
+    const theirRetraction = decodeChatEvent(encodeChatEvent({ ...other.msg, id: 'msg-y', text: 'retracted', sentAt: NOW + 8, retracts: 'msg-1' }, { roomId, roomKey, deviceSk: other.deviceSk, envelope: 2 }), { roomId, roomKey, now: NOW + 10 })!
+    expect(resolveConversation([original, edit, theirRetraction]).byKey.get(`${msg.participant}:msg-1`)!.retracted).toBe(false)
+  })
+
+  it('leaves an envelope-1 event byte-identical when no envelope is asked for', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
+    expect(event.pubkey).toBe(msg.device)
+    expect(plaintextOf(event, roomId, roomKey).v).toBeUndefined()
   })
 })

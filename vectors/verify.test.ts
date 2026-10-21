@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2'
+import { hkdf } from '@noble/hashes/hkdf'
 import { nip44 } from 'nostr-tools'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
 
@@ -47,7 +48,7 @@ import { mintTurnCredential } from '../src/turn.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
 import { HISTORY_WINDOW_SECONDS, MAX_HISTORY_EPOCHS, epochsInWindow, deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins, encodeRekeyEvent, encodeEpochRequest } from '../src/epoch.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
-import { ChatLog, MAX_PAST_EPOCHS, decodeChatEvent } from '../src/chat.js'
+import { ChatLog, MAX_PAST_EPOCHS, decodeChatEvent, chatEnvelope2Digest, chatOuterSecretKey } from '../src/chat.js'
 import type { RelayTransport } from '../src/relay-pool.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
 import { encodeControl, decodeControl } from '../src/control.js'
@@ -104,7 +105,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomName', 'chatHistory']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomName', 'chatHistory', 'chatEnvelope2']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -1182,6 +1183,53 @@ describe('the message layer', () => {
       })
     }
   }
+
+  for (const v of groups.chatEnvelope2.filter((x) => x.name !== 'outer-key-derivation')) {
+    it(`chatEnvelope2/${v.name}: every event decodes as frozen, and the conversation resolves as frozen`, () => {
+      const events = v.input.events as Array<{ event: Event; envelope: number; body?: string; outerSkHex?: string }>
+      const decode = v.input.decode as Record<string, unknown>
+      const args = decode.epochIdHex ? { ...chatArgs(decode), epoch: { id: decode.epochIdHex as string, key: hexToBytes(decode.epochKeyHex as string) } } : chatArgs(decode)
+      const results = events.map((e) => decodeChatEvent(e.event, args))
+      expect(results).toEqual(v.output.results)
+      if (v.kind === 'negative') expect(results.some((r) => r === null)).toBe(true)
+      const accepted = results.filter((r): r is ChatMessage => r !== null)
+      expect(summarise(accepted)).toEqual(v.output.conversation)
+      // Envelope 2 is never signed by the device, so an envelope-1 reader's
+      // rule (outer signer = the body's device) drops every one of them.
+      events.forEach((e, i) => {
+        if (e.envelope === 2) {
+          expect(e.event.pubkey).toBe(getPublicKey(hexToBytes(e.outerSkHex!)))
+          expect(v.output.outerIsDevice[i]).toBe(false)
+          expect(e.event.pubkey).not.toBe(JSON.parse(e.body!).device)
+        } else {
+          expect(v.output.outerIsDevice[i]).toBe(true)
+        }
+      })
+    })
+  }
+
+  it('chatEnvelope2/outer-key-derivation: HKDF of the device key, and the digest, recomputed independently', () => {
+    const v = vec('chatEnvelope2', 'outer-key-derivation')
+    const i = v.input
+    const independent = hkdf(sha256, hexToBytes(i.deviceSkHex), undefined, new TextEncoder().encode(`kithmoot/v1/chat-outer:${i.d}:${i.messageId}`), 32)
+    expect(bytesToHex(independent)).toBe(v.output.outerSkHex)
+    expect(bytesToHex(chatOuterSecretKey(hexToBytes(i.deviceSkHex), i.d, i.messageId))).toBe(v.output.outerSkHex)
+    expect(getPublicKey(independent)).toBe(v.output.outerPubkey)
+    const digest = sha256(new TextEncoder().encode(`kithmoot/v1/chat-envelope-2:${i.roomId}:${i.d}:${v.output.outerPubkey}:${i.createdAt}:${i.body}`))
+    expect(bytesToHex(digest)).toBe(v.output.digestHex)
+    expect(bytesToHex(chatEnvelope2Digest(i.roomId, i.d, v.output.outerPubkey, i.createdAt, i.body))).toBe(v.output.digestHex)
+  })
+
+  it('chatEnvelope2/message: the inner signature verifies with schnorr directly', () => {
+    const v = vec('chatEnvelope2', 'message')
+    const e = v.input.events[0] as { event: Event; body: string }
+    const plain = JSON.parse(nip44.v2.decrypt(e.event.content, hexToBytes(v.input.decode.roomKeyHex)))
+    expect(Object.keys(plain).sort()).toEqual(['body', 'sig', 'v'])
+    expect(plain.body).toBe(e.body)
+    const d = e.event.tags.find((t) => t[0] === 'd')![1]
+    const digest = sha256(new TextEncoder().encode(`kithmoot/v1/chat-envelope-2:${v.input.decode.roomId}:${d}:${e.event.pubkey}:${e.event.created_at}:${e.body}`))
+    expect(schnorr.verify(hexToBytes(plain.sig), digest, hexToBytes(JSON.parse(e.body).device))).toBe(true)
+  })
 
   it('an edit is shown on the original frame: same id, sender and time, new text', () => {
     const v = vec('chatEdit', 'edit')

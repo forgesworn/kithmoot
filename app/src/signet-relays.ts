@@ -1,15 +1,16 @@
 /**
  * Keeping a Signet sign-in reachable.
  *
- * Signet serves its remote signer on one relay of its own, `wss://nos.lol`
- * unless its owner changed it (signet-app `PRODUCTION_RELAY_URL`). A pairing
+ * Signet serves its remote signer on one relay of its own,
+ * `wss://relay.primal.net` (signet-app `PRODUCTION_RELAY_URL`), since nos.lol
+ * stopped answering in October 2026. A pairing
  * made over some other relay is answered there for two minutes only, so a
  * sign-in whose link named just the person's first KithMoot relay worked on
  * the day and then failed at every later launch, which reads as having to
  * sign in again each time. Every sign-in link names Signet's relay, and a
  * stored remote-signer link gains it before it is used.
  */
-export const SIGNET_RELAY = 'wss://nos.lol'
+export const SIGNET_RELAY = 'wss://relay.primal.net'
 
 const relayKey = (url: string) => url.trim().toLowerCase().replace(/\/$/, '')
 

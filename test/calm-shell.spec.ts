@@ -6,7 +6,7 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings, openNewRoomForm, openRoomDetails, openMember } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -486,7 +486,7 @@ test('back to the list from the start page keeps the room list reachable at ever
   } finally { await context.close() }
 })
 
-test('creating a room from the New menu closes the sheet and leaves the door clear', async ({ browser, baseURL }) => {
+test('creating a room from the New menu closes the sheet and goes straight into the room, with no door', async ({ browser, baseURL }) => {
   const { context, page } = await visitor(browser, baseURL!, { width: 1280, height: 900 })
   try {
     const relays = testRelaysFor(baseURL!)!
@@ -495,12 +495,11 @@ test('creating a room from the New menu closes the sheet and leaves the door cle
     await page.locator('#newMenuButton').click()
     await page.getByRole('menuitem', { name: 'New room' }).click()
     await page.locator('#roomName').fill('Door check')
+    await page.locator('#newRoomYourName').fill('Ada')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeVisible({ timeout: 30_000 })
-    await expect(page.locator('dialog[open]')).toHaveCount(0)
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#join').click()
     await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('dialog[open]')).toHaveCount(0)
+    await expect(page.locator('#joinRoomForm')).toBeHidden()
   } finally { await context.close() }
 })
 
@@ -589,6 +588,7 @@ test('the ⋯ menu has the keyboard model: Enter opens, arrows move, Right opens
     // And a last Escape, from the top level, closes the menu onto the ⋯.
     await page.keyboard.press('Enter')
     await expect(menu).toBeVisible()
+    await expect(items.first()).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
     await expect(more).toBeFocused()
@@ -1339,6 +1339,715 @@ test('a refused microphone says so in the call, with what to do', async ({ brows
   } finally { await context.close() }
 })
 
+// ---------------------------------------------------------------------------
+// Stage 6, slice A: the door, and no raw keys.
+// ---------------------------------------------------------------------------
+
+const DOOR_ACCOUNT = 'b3e7a1c2d4f5061728394a5b6c7d8e9f00112233445566778899aabbccddeeff'
+const KEY = /npub1[0-9a-z]+|\b[0-9a-f]{64}\b/
+
+/** A new browser at the first seeded room's link, with whatever the person's
+ *  device already holds put in place before the page loads. */
+async function door(browser: Browser, baseURL: string, viewport: { width: number; height: number }, options: { scheme?: 'dark' | 'light'; touch?: boolean; extension?: boolean; account?: { named: boolean }; name?: string; size?: string; link?: string; forcedColors?: boolean } = {}) {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport, hasTouch: !!options.touch, isMobile: !!options.touch,
+    colorScheme: options.scheme ?? 'dark', ...(options.forcedColors ? { forcedColors: 'active' as const } : {}),
+  })
+  await context.routeWebSocket(url => url.protocol === 'wss:' && url.href !== relay.href, ws => ws.close())
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  await context.addInitScript(({ extension, account, name, account_key, size }) => {
+    if (sessionStorage.getItem('door-seeded')) return
+    sessionStorage.setItem('door-seeded', '1')
+    if (extension) (window as unknown as { nostr: unknown }).nostr = { getPublicKey: async () => account_key }
+    if (account) {
+      localStorage.setItem('kithmoot.last-nostr-account', account_key)
+      localStorage.setItem('kithmoot.last-nostr-method', 'bunker')
+      if (account.named) localStorage.setItem('kithmoot.profiles.lastKnownName.v1', JSON.stringify({ [account_key]: 'TheCryptoDonkey' }))
+    }
+    if (name) localStorage.setItem('kithmoot.name', name)
+    if (size) localStorage.setItem('kithmoot.textSize', size)
+  }, { extension: options.extension, account: options.account, name: options.name, account_key: DOOR_ACCOUNT, size: options.size })
+  const page = await context.newPage()
+  await page.goto(options.link ?? seeds[0]!.link)
+  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+  return { context, page }
+}
+
+/** Text a person can see that carries a raw key, outside the places a key is for. */
+async function visibleKeys(page: Page, except = '.participantCard, #peoplePane'): Promise<string[]> {
+  return page.evaluate(({ except, pattern }) => {
+    const re = new RegExp(pattern, 'g')
+    const found: string[] = []
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const el = node.parentElement
+      if (!el || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) || el.closest(`script, style, template, ${except}`)) continue
+      const text = node.textContent ?? ''
+      if (re.test(text)) found.push(`${el.id || el.className || el.tagName}: ${text.trim().slice(0, 80)}`)
+      re.lastIndex = 0
+    }
+    return found
+  }, { except, pattern: KEY.source })
+}
+
+const primaries = (page: Page) => page.locator('#identity button.primary:visible')
+
+for (const [label, size, touch] of [['1440 by 900', { width: 1440, height: 900 }, false], ['390 by 844', { width: 390, height: 844 }, true]] as const) {
+  for (const scheme of ['dark', 'light'] as const) {
+    test(`the door of a stranger at ${label} in ${scheme} has one primary, Join, and none of the old ceremony`, async ({ browser, baseURL }) => {
+      const { context, page } = await door(browser, baseURL!, size, { scheme, touch })
+      try {
+        await expect(primaries(page)).toHaveCount(1)
+        await expect(primaries(page)).toHaveAttribute('id', 'join')
+        await expect(page.locator('#join')).toHaveText('Join')
+        await expect(page.locator('#arrivalTitle')).toHaveText('Release workshop')
+        await expect(page.locator('#arrivalLead')).toHaveText('You have been invited to this room.')
+        await expect(page.locator('#arrivalAvatar')).toBeVisible()
+        await expect(page.locator('#joinMediaChoice')).toBeHidden()
+        await expect(page.locator('#whoami, #previousAccount, #joinIdentityHelp')).toHaveCount(0)
+        const text = await page.locator('#identity').innerText()
+        for (const gone of ['Pick a name', 'Turn on as you join', 'You are on the list', 'Nothing turns on']) expect(text).not.toContain(gone)
+        await expect(page.locator('#joinNostr')).toHaveText('Already on Nostr? Sign in')
+        await expect(page.locator('#joinPrivacy')).toHaveText('Microphone and camera stay off until you turn them on.')
+        await expect(page.locator('#joinNetworkPrivacy > summary')).toHaveText('Hide my IP address on calls')
+        expect(await visibleKeys(page)).toEqual([])
+      } finally { await context.close() }
+    })
+  }
+}
+
+test('an unnamed room says Untitled room at the door, as Chats does', async ({ browser, baseURL }) => {
+  const secret = generateRoomSecret()
+  const link = encodeRoomLink(baseURL!, { secret, relays: testRelaysFor(baseURL!) ?? [], iceUrls: [] })
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { link })
+  try { await expect(page.locator('#arrivalTitle')).toHaveText('Untitled room') } finally { await context.close() }
+})
+
+test('an account used here before: Continue as its name, one way down to a name, and a confirm that says what it means', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { account: { named: true } })
+  try {
+    await expect(primaries(page)).toHaveCount(1)
+    await expect(page.locator('#join')).toHaveText('Continue as TheCryptoDonkey')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toHaveText('Join with just a name instead')
+    expect(await visibleKeys(page)).toEqual([])
+    await page.locator('#joinVisitor').click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText('Join with just a name?')
+    await expect(confirm).toContainText('This is not your Nostr account, even with the same name. Agents that know your account may ignore these messages.')
+    await expect(confirm.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
+    await confirm.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(page.locator('#joinVisitor')).toBeFocused()
+    // No name remembered: the same choice lands on the name field with its hint.
+    await page.locator('#joinVisitor').click()
+    await page.getByRole('button', { name: 'Join with just a name', exact: true }).click()
+    await expect(page.locator('#displayName')).toBeFocused()
+    await expect(page.locator('#displayNameHint')).toHaveText('Just a name, not your Nostr account.')
+    await expect(page.locator('#join')).toHaveText('Join')
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('an account used here before with no name remembered says Continue with your Nostr account', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { account: { named: false } })
+  try {
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr account')
+    expect(await visibleKeys(page)).toEqual([])
+  } finally { await context.close() }
+})
+
+test('with a name remembered, Join with just a name goes straight in', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { account: { named: true }, name: 'Ada' })
+  try {
+    await page.locator('#joinVisitor').click()
+    await page.getByRole('button', { name: 'Join with just a name', exact: true }).click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  } finally { await context.close() }
+})
+
+test('a Nostr extension and nobody signed in: one primary for the extension, and a name without a confirm', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { extension: true })
+  try {
+    await expect(primaries(page)).toHaveCount(1)
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr extension')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    expect(await visibleKeys(page)).toEqual([])
+    await page.locator('#joinVisitor').click()
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+    await expect(page.locator('#displayName')).toBeFocused()
+    await expect(page.locator('#join')).toHaveText('Join')
+  } finally { await context.close() }
+})
+
+test('a door opened by a device that already holds a key shows no key', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  try {
+    await page.goto(seeds[0]!.link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await page.goto('about:blank')
+    await page.goto(seeds[1]!.link)
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    expect(await visibleKeys(page)).toEqual([])
+  } finally { await context.close() }
+})
+
+for (const [label, size, touch] of [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const) {
+  test(`Chats with the reconnect banner at ${label} names the account and shows no key`, async ({ browser, baseURL }) => {
+    const { context, page } = await door(browser, baseURL!, size, { account: { named: true }, touch })
+    try {
+      await page.goto(baseURL!)
+      const banner = page.locator('#accountReconnect')
+      await expect(banner).toBeVisible()
+      await expect(page.locator('#accountReconnectText')).toHaveText('Reconnect TheCryptoDonkey to see its rooms.')
+      await expect(page.locator('#accountReconnectButton')).toHaveText('Reconnect')
+      expect(await visibleKeys(page)).toEqual([])
+    } finally { await context.close() }
+  })
+}
+
+test('the keyboard at the door of a stranger: the name has focus, then Join, Sign in, the IP fold, each with a 2 px outline', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await expect(page.locator('#displayName')).toBeFocused()
+    const order: string[] = []
+    const outline = async () => page.evaluate(() => { const el = document.activeElement as HTMLElement; const s = getComputedStyle(el); return { id: el.id || el.tagName, inside: !!el.closest('#identity'), width: parseFloat(s.outlineWidth) || 0, style: s.outlineStyle } })
+    for (let i = 0; i < 8; i++) {
+      const now = await outline()
+      if (!now.inside) break
+      order.push(now.id)
+      expect(now.width, `${now.id} outline`).toBeGreaterThanOrEqual(2)
+      expect(now.style, `${now.id} outline`).not.toBe('none')
+      await page.keyboard.press('Tab')
+    }
+    const expected = ['displayName', 'join', 'joinNostr', 'SUMMARY']
+    expect(order.filter(id => id !== 'openInAppLink' && id !== 'getAndroidApp')).toEqual(expected)
+  } finally { await context.close() }
+})
+
+test('a touch screen is not given the keyboard on arrival', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await page.waitForTimeout(500)
+    await expect(page.locator('#displayName')).not.toBeFocused()
+  } finally { await context.close() }
+})
+
+for (const [label, size, touch, scheme, forced] of [
+  ['1440 dark', { width: 1440, height: 900 }, false, 'dark', false], ['1440 light', { width: 1440, height: 900 }, false, 'light', false],
+  ['390 dark', { width: 390, height: 844 }, true, 'dark', false], ['390 light', { width: 390, height: 844 }, true, 'light', false],
+  ['1440 forced colours', { width: 1440, height: 900 }, false, 'light', true],
+] as const) {
+  test(`axe finds nothing on the door in its three faces at ${label}`, async ({ browser, baseURL }) => {
+    for (const options of [{}, { account: { named: true } }, { extension: true }]) {
+      const { context, page } = await door(browser, baseURL!, size, { scheme, touch, forcedColors: forced, ...options })
+      try {
+        const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+        expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), JSON.stringify(options)).toEqual([])
+      } finally { await context.close() }
+    }
+  })
+}
+
+test('the door and the reconnect banner do not scroll sideways at 320 by 640 or at 400% zoom, and Continue wraps a long name', async ({ browser, baseURL }) => {
+  for (const options of [{}, { account: { named: true } }]) {
+    const { context, page } = await door(browser, baseURL!, { width: 320, height: 640 }, { touch: true, size: 'huge', ...options })
+    try {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), JSON.stringify(options)).toBe(true)
+      await page.goto(baseURL!)
+      if (options.account) {
+        expect(await page.evaluate(() => { const el = document.getElementById('accountReconnectText')!; return el.scrollWidth <= el.clientWidth })).toBe(true)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      }
+    } finally { await context.close() }
+  }
+  // 400% zoom at 1280 wide is a 320 px viewport at scale 1.
+  const { context, page } = await door(browser, baseURL!, { width: 320, height: 200 }, { account: { named: true } })
+  try { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true) } finally { await context.close() }
+})
+
+test('at 390 by 844 every control at the door is at least 44 px tall and wide', async ({ browser, baseURL }) => {
+  for (const options of [{}, { account: { named: true } }]) {
+    const { context, page } = await door(browser, baseURL!, { width: 390, height: 844 }, { touch: true, ...options })
+    try {
+      const small = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#identity button, #identity a[href], #identity input:not([type=checkbox]), #identity summary')]
+        .filter(el => el.checkVisibility() && !el.closest('#accountHome'))
+        .map(el => { const r = el.getBoundingClientRect(); return { id: el.id || el.tagName, w: Math.round(r.width), h: Math.round(r.height) } })
+        .filter(r => r.h < 44 || r.w < 44))
+      expect(small, JSON.stringify(options)).toEqual([])
+    } finally { await context.close() }
+  }
+})
+
+test('a short landscape phone keeps the name and Join on screen with the name focused', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 844, height: 390 }, { touch: true })
+  try {
+    await page.locator('#displayName').focus()
+    for (const id of ['displayName', 'join']) {
+      const box = (await page.locator(`#${id}`).boundingBox())!
+      expect(box.y + box.height, id).toBeLessThanOrEqual(390)
+      expect(box.y, id).toBeGreaterThanOrEqual(0)
+    }
+  } finally { await context.close() }
+})
+
+test('Settings › Account still holds the account block after a visit to the door', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await openSettings(page, 'Account')
+    await expect(page.locator('#accountHome')).toBeVisible()
+  } finally { await context.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 6, slice B: the creator skips the door, and a joined room reopens.
+// ---------------------------------------------------------------------------
+
+/** Watches the door of a page from the first paint: true once the name form
+ *  or the Continue button has been on screen at any moment. */
+async function watchDoor(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { doorSeen: boolean }
+    w.doorSeen = false
+    const check = () => {
+      for (const id of ['displayName', 'join']) {
+        const el = document.getElementById(id)
+        if (el && el.checkVisibility()) w.doorSeen = true
+      }
+    }
+    new MutationObserver(check).observe(document, { subtree: true, attributes: true, childList: true })
+    setInterval(check, 20)
+  })
+}
+const doorSeen = (page: Page) => page.evaluate(() => (window as unknown as { doorSeen: boolean }).doorSeen)
+
+/** A device about to start a room on the test relays. */
+async function creatorDevice(browser: Browser, baseURL: string, options: { name?: string; account?: boolean; extension?: boolean; touch?: boolean; scheme?: 'dark' | 'light'; viewport?: { width: number; height: number } } = {}) {
+  const relays = testRelaysFor(baseURL)!
+  const { context, page } = await door(browser, baseURL, options.viewport ?? { width: 1280, height: 900 }, { name: options.name, account: options.account ? { named: true } : undefined, extension: options.extension, touch: options.touch, scheme: options.scheme })
+  await context.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
+  await watchDoor(page)
+  await page.goto('about:blank')
+  await page.goto(baseURL)
+  await expect(page.locator('#newMenuButton:visible, #newRoom:visible').first()).toBeVisible({ timeout: 30_000 })
+  return { context, page }
+}
+
+test('a creator with no name is asked for one in the form, and then goes straight into the room', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!)
+  try {
+    await openNewRoomForm(page)
+    await expect(page.locator('#newRoomYourNameRow')).toBeVisible()
+    await expect(page.getByLabel('Your name', { exact: true })).toBeVisible()
+    await page.locator('#roomName').fill('Release workshop')
+    await page.locator('#create').click()
+    await expect(page.locator('#newRoomYourNameError')).toHaveText('Type the name people here will see.')
+    await expect(page.locator('#newRoomYourName')).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.locator('#newRoomYourName')).toBeFocused()
+    await page.locator('#newRoomYourName').fill('Ada')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(await doorSeen(page), 'the name form or Join was on screen').toBe(false)
+    await expect(page.locator('#joinRoomForm')).toBeHidden()
+    await expect(page.locator('#chatInput')).toBeFocused()
+    await openRoomDetails(page)
+    await expect(page.locator('#sheetRoster')).toContainText('Ada (you)')
+  } finally { await context.close() }
+})
+
+test('a creator with a name remembered is not asked, and goes in as that name', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await openNewRoomForm(page)
+    await expect(page.locator('#newRoomYourNameRow')).toBeHidden()
+    await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(await doorSeen(page)).toBe(false)
+    await openRoomDetails(page)
+    await expect(page.locator('#sheetRoster')).toContainText('Ada (you)')
+  } finally { await context.close() }
+})
+
+test('a creator whose account must be reconnected meets the door, which says the room is ready', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!, { account: true })
+  try {
+    await openNewRoomForm(page)
+    await page.locator('#create').click()
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#arrivalLead')).toHaveText('Your room is ready.')
+    await expect(page.locator('#join')).toHaveText('Continue as TheCryptoDonkey')
+  } finally { await context.close() }
+})
+
+test('a link to a room this device has joined opens the room, for the guest and for the creator, and never shows the name form', async ({ browser, baseURL }) => {
+  const { context: hostContext, page: host } = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await openNewRoomForm(host)
+    await host.locator('#roomName').fill('Reload room')
+    await host.locator('#create').click()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    const link = await host.locator('#shareUrl').inputValue()
+
+    const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 }, { link })
+    try {
+      await watchDoor(page)
+      await page.locator('#displayName').fill('Rowan'); await page.locator('#join').click()
+      await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+      await page.goto('about:blank')
+      await watchDoor(page)
+      await page.goto(link)
+      await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+      await page.reload()
+      await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+      expect(await doorSeen(page), 'the guest saw the door on reload').toBe(false)
+    } finally { await context.close() }
+
+    await host.goto('about:blank')
+    await host.goto(link)
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await host.reload()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(await doorSeen(host), 'the creator saw the door on reload').toBe(false)
+  } finally { await hostContext.close() }
+})
+
+test('a link opened but never joined reloads to the door, not into the room', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.reload()
+    await expect(page.locator('#displayName')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomArea')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('a device that joined as a name and now has an account to reconnect meets the door in reconnect mode, never the room', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await page.evaluate(account => {
+      localStorage.setItem('kithmoot.last-nostr-account', account)
+      localStorage.setItem('kithmoot.last-nostr-method', 'bunker')
+    }, DOOR_ACCOUNT)
+    await page.reload()
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr account', { timeout: 60_000 })
+    await expect(page.locator('#joinVisitor')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('a device that joined as a name and is now signed in as an account is asked, not walked in', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const accountContext = await accountDevice(browser, baseURL!, secret)
+  const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
+  try {
+    const page = await accountContext.newPage()
+    await page.goto(seeds[0]!.link)
+    // Joined here as a name, with the extension left alone.
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await page.locator('#joinVisitor').click()
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    // Now signed in as an account, in the same browser, and the link opened again.
+    await signInAccount(page, baseURL!)
+    await page.goto('about:blank')
+    await page.goto(seeds[0]!.link)
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#join')).toHaveText(/^Continue (as|with your Nostr account)/)
+    void relay
+  } finally { await accountContext.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 6, slice C: the sender picker.
+// ---------------------------------------------------------------------------
+
+/** Ada, who knows Town hall and Book club already, in a room of her own with
+ *  Rowan in it: the page Ada invites from, and Rowan's. */
+async function pickerSetup(browser: Browser, baseURL: string, viewport = { width: 1280, height: 900 }, options: { touch?: boolean; scheme?: 'dark' | 'light'; reducedMotion?: boolean; forcedColors?: boolean } = {}) {
+  const relays = testRelaysFor(baseURL)!
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport, hasTouch: !!options.touch, isMobile: !!options.touch, colorScheme: options.scheme ?? 'dark',
+    ...(options.reducedMotion ? { reducedMotion: 'reduce' as const } : {}), ...(options.forcedColors ? { forcedColors: 'active' as const } : {}),
+  })
+  await context.routeWebSocket(url => url.protocol === 'wss:' && url.href !== relay.href, ws => ws.close())
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  await context.addInitScript(({ urls, rooms }) => {
+    if (sessionStorage.getItem('picker-seeded')) return
+    sessionStorage.setItem('picker-seeded', '1')
+    localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) }))
+    localStorage.setItem('kithmoot.name', 'Ada')
+    for (const room of rooms) localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify({ roomId: room.roomId, name: room.name, link: room.link, openedAt: Math.floor(Date.now() / 1000) - 600, readAt: 0 }))
+  }, { urls: relays, rooms: [seeds[2]!, seeds[3]!] })
+  const ada = await context.newPage()
+  await ada.goto(baseURL)
+  await openNewRoomForm(ada)
+  await ada.locator('#roomName').fill('Release workshop')
+  await ada.locator('#create').click()
+  await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+  const link = await ada.locator('#shareUrl').inputValue()
+  const rowanDoor = await door(browser, baseURL, { width: 1280, height: 900 }, { link })
+  await rowanDoor.page.locator('#displayName').fill('Rowan'); await rowanDoor.page.locator('#join').click()
+  await expect(rowanDoor.page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  await openMember(ada, 'Rowan')
+  return { ada, context, rowan: rowanDoor.page, close: async () => { await context.close(); await rowanDoor.context.close() } }
+}
+
+async function openPicker(ada: Page) {
+  const opener = ada.getByRole('button', { name: 'Invite Rowan to a room', exact: true })
+  await opener.click({ timeout: 60_000 })
+  await expect(ada.locator('#inviteToRoom')).toBeVisible()
+  // A bottom sheet slides in over 150 ms: measure it once it has landed.
+  await ada.locator('#inviteToRoom').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)))
+  return opener
+}
+
+test('the picker names the person, lists every room including this one, and sends only what was chosen', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!)
+  const { ada } = set
+  try {
+    await openPicker(ada)
+    const picker = ada.locator('#inviteToRoom')
+    await expect(picker.getByRole('heading', { name: 'Invite Rowan to a room' })).toBeVisible()
+    await expect(picker.getByRole('radiogroup', { name: 'Invite Rowan to a room' })).toBeVisible()
+    const here = picker.getByRole('radio', { name: 'Release workshop, Rowan is already here' })
+    await expect(here).toBeDisabled()
+    await expect(picker.getByRole('radio', { name: 'Town hall', exact: true })).toBeEnabled()
+    await expect(picker.locator('input:checked')).toHaveCount(0)
+    await expect(ada.locator('#inviteToRoomSend')).toBeDisabled()
+    await expect(ada.locator('#inviteToRoomLead')).toHaveText('The invite goes to Rowan sealed. Only Rowan can open it.')
+    await expect(ada.locator('#inviteToRoomClose')).toHaveText('Cancel')
+    await expect(ada.locator('#inviteToRoomFind')).toBeHidden()
+    await picker.getByRole('radio', { name: 'Town hall', exact: true }).check()
+    await expect(ada.locator('#inviteToRoomSend')).toBeEnabled()
+    await ada.locator('#inviteToRoomSend').click()
+    await expect(picker).toBeHidden()
+    await ada.locator('#roomSheetClose').click()
+    await expect(ada.locator('#chatLog')).toContainText('You invited Rowan to Town hall.')
+    // Asked again, Town hall says it has been, with the day.
+    await openMember(ada, 'Rowan')
+    const opener = await openPicker(ada)
+    await expect(picker.getByRole('radio', { name: 'Town hall, Invited today, not joined yet' })).toBeEnabled()
+    await ada.keyboard.press('Escape')
+    await expect(picker).toBeHidden()
+    await expect(opener).toBeFocused()
+  } finally { await set.close() }
+})
+
+test('with no group room going, the picker says so and offers one Close', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!)
+  const { ada } = set
+  try {
+    await ada.evaluate(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith('kithmoot.room.')) continue
+        const room = JSON.parse(localStorage.getItem(key)!)
+        room.endedAt = Math.floor(Date.now() / 1000) - 60
+        localStorage.setItem(key, JSON.stringify(room))
+      }
+    })
+    await openPicker(ada)
+    await expect(ada.locator('#inviteToRoomLead')).toHaveText('You have no rooms to invite Rowan to yet. Start a room from Chats, then invite Rowan.')
+    await expect(ada.locator('#inviteToRoomClose')).toHaveText('Close')
+    await expect(ada.locator('#inviteToRoomSend')).toBeHidden()
+    await expect(ada.locator('#inviteToRoomList')).toBeHidden()
+  } finally { await set.close() }
+})
+
+test('in the picker the radio group is one Tab stop, the arrows skip the room Rowan is already in, and Enter sends the choice', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!)
+  const { ada } = set
+  try {
+    await openPicker(ada)
+    const picker = ada.locator('#inviteToRoom')
+    const rows = picker.getByRole('radio')
+    await expect(rows).toHaveCount(3)
+    // On open, the first room that can be chosen has the focus.
+    const first = await ada.evaluate(() => (document.activeElement as HTMLInputElement).closest('label')?.textContent ?? '')
+    expect(first).not.toContain('already here')
+    // Arrows move through the choosable rooms and never land on the disabled one.
+    const seen = new Set<string>()
+    for (let i = 0; i < 4; i++) {
+      await ada.keyboard.press('ArrowDown')
+      seen.add(await ada.evaluate(() => (document.activeElement as HTMLInputElement).closest('label')?.textContent ?? ''))
+    }
+    expect([...seen].some(text => text.includes('already here'))).toBe(false)
+    // One stop for the group: Tab goes to Cancel, not to the next radio.
+    await ada.keyboard.press('Tab')
+    await expect(ada.locator('#inviteToRoomClose')).toBeFocused()
+    await ada.keyboard.press('Shift+Tab')
+    await ada.keyboard.press('Enter')
+    await expect(picker).toBeHidden()
+    await expect(ada.locator('#roomSheet').getByText('You invited Rowan to').first().or(ada.locator('#chatLog').getByText('You invited Rowan to').first())).toBeVisible()
+  } finally { await set.close() }
+})
+
+for (const [label, size, touch] of [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const) {
+  for (const scheme of ['dark', 'light'] as const) {
+    test(`axe finds nothing on the picker and on the New room form with its name error at ${label} in ${scheme}`, async ({ browser, baseURL }) => {
+      const set = await pickerSetup(browser, baseURL!, size, { touch, scheme })
+      try {
+        await openPicker(set.ada)
+        const scan = await new AxeBuilder({ page: set.ada }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+        expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), 'picker').toEqual([])
+      } finally { await set.close() }
+      const { context, page } = await creatorDevice(browser, baseURL!, { viewport: size, touch, scheme })
+      try {
+        await openNewRoomForm(page)
+        await page.locator('#create').click()
+        await expect(page.locator('#newRoomYourNameError')).toBeVisible()
+        const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+        expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), 'new room form').toEqual([])
+      } finally { await context.close() }
+    })
+  }
+}
+
+test('axe finds nothing on the picker in forced colours at 1440', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!, { width: 1440, height: 900 }, { forcedColors: true })
+  try {
+    await openPicker(set.ada)
+    const scan = await new AxeBuilder({ page: set.ada }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`)).toEqual([])
+  } finally { await set.close() }
+})
+
+test('at 390 by 844 the picker is a bottom sheet with both buttons on screen, and its targets are at least 44 px', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await openPicker(set.ada)
+    const sheet = (await set.ada.locator('#inviteToRoom').boundingBox())!
+    expect(sheet.width).toBeGreaterThanOrEqual(389)
+    expect(sheet.y + sheet.height).toBeGreaterThanOrEqual(843)
+    for (const id of ['inviteToRoomClose', 'inviteToRoomSend']) {
+      const box = (await set.ada.locator(`#${id}`).boundingBox())!
+      expect(box.y + box.height, id).toBeLessThanOrEqual(844)
+      expect(box.height, id).toBeGreaterThanOrEqual(44)
+    }
+    const small = await set.ada.evaluate(() => [...document.querySelectorAll<HTMLElement>('#inviteToRoom .inviteRoomRow, #inviteToRoom button, #inviteToRoom input[type=search]')]
+      .filter(el => el.checkVisibility()).map(el => { const r = el.getBoundingClientRect(); return { id: el.id || el.className, h: Math.round(r.height) } }).filter(r => r.h < 44))
+    expect(small).toEqual([])
+  } finally { await set.close() }
+})
+
+test('the picker does not scroll sideways at 320 by 640, and at 844 by 390 its buttons are on screen', async ({ browser, baseURL }) => {
+  for (const [size, landscape] of [[{ width: 320, height: 640 }, false], [{ width: 844, height: 390 }, true]] as const) {
+    const set = await pickerSetup(browser, baseURL!, size, { touch: true })
+    try {
+      await openPicker(set.ada)
+      expect(await set.ada.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect(await set.ada.evaluate(() => { const el = document.getElementById('inviteToRoom')!; return el.scrollWidth <= el.clientWidth })).toBe(true)
+      if (landscape) for (const id of ['inviteToRoomClose', 'inviteToRoomSend']) {
+        const box = (await set.ada.locator(`#${id}`).boundingBox())!
+        expect(box.y + box.height, id).toBeLessThanOrEqual(390)
+        expect(box.y, id).toBeGreaterThanOrEqual(0)
+      }
+    } finally { await set.close() }
+  }
+})
+
+test('under reduced motion the picker sheet runs no transform transition', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!, { width: 390, height: 844 }, { touch: true, reducedMotion: true })
+  try {
+    await openPicker(set.ada)
+    const style = await set.ada.locator('#inviteToRoom').evaluate(el => ({ property: getComputedStyle(el).transitionProperty, animation: getComputedStyle(el).animationName }))
+    expect(style.property).not.toContain('transform')
+    expect(style.animation).toBe('none')
+  } finally { await set.close() }
+})
+
+test('every control in the New room form is at least 44 px at 390 by 844 on a touch screen', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!, { viewport: { width: 390, height: 844 }, touch: true })
+  try {
+    await openNewRoomForm(page)
+    const small = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#createRoomForm button, #createRoomForm input:not([type=checkbox]):not([type=radio]), #createRoomForm select, #createRoomForm label.checkboxRow')]
+      .filter(el => el.checkVisibility()).map(el => { const r = el.getBoundingClientRect(); return { id: el.id || el.className || el.tagName, h: Math.round(r.height), w: Math.round(r.width) } }).filter(r => r.h < 44 || r.w < 44))
+    expect(small).toEqual([])
+  } finally { await context.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 6: people without a name, in a room.
+// ---------------------------------------------------------------------------
+
+test('a member with no name is Somebody in the log, the roster, the came-in line and the Chats preview, and no key shows', async ({ browser, baseURL }) => {
+  const { context, page: host } = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await openNewRoomForm(host)
+    await host.locator('#roomName').fill('Nameless check')
+    await host.locator('#create').click()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    const link = await host.locator('#shareUrl').inputValue()
+    const guest = await door(browser, baseURL!, { width: 1280, height: 900 }, { link })
+    try {
+      await guest.page.locator('#join').click()
+      await expect(guest.page.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
+      await guest.page.locator('#chatInput').fill('hello from nobody in particular')
+      await guest.page.locator('#chatInput').press('Enter')
+      await expect(host.locator('#chatLog')).toContainText('hello from nobody in particular', { timeout: 60_000 })
+      await expect(host.locator('#chatLog')).toContainText('Somebody came in.')
+      await expect(host.locator('#chatLog')).toContainText('Somebody')
+      // Even the initial in the little picture is Somebody's, not the key's.
+      await expect(host.locator('#chatLog .avatar.initials').first()).toHaveText('S')
+      expect(await visibleKeys(host)).toEqual([])
+      await openRoomDetails(host)
+      await expect(host.locator('#sheetRoster')).toContainText('Somebody')
+      expect(await visibleKeys(host)).toEqual([])
+      await host.locator('#roomSheetClose').click()
+      // The list, beside the room on a wide screen: the preview names them the same way.
+      await expect(host.locator('#roomList .roomRow', { hasText: 'Nameless check' }).locator('.roomPreview')).toContainText('Somebody')
+    } finally { await guest.context.close() }
+  } finally { await context.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 6 follow-up: Hide my IP address on calls is a Settings › Privacy default.
+// ---------------------------------------------------------------------------
+
+test('Hide my IP address on calls is a switch in Settings › Privacy kept as one device key, above Blocked', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.goto(baseURL!)
+    await openSettings(page, 'Privacy')
+    const toggle = page.getByLabel('Hide my IP address on calls', { exact: true })
+    await expect(toggle).not.toBeChecked()
+    await expect(page.locator('[data-settings-page="privacy"]')).toContainText('other people on the call don’t see your IP address')
+    // Above the Blocked section in the page.
+    expect(await page.evaluate(() => { const a = document.getElementById('privacyHideIp')!, b = document.getElementById('blockedSection')!; return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) })).toBe(true)
+    await toggle.check()
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.hide-ip.v1'))).toBe('1')
+    await toggle.uncheck()
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.hide-ip.v1'))).toBeNull()
+  } finally { await context.close() }
+})
+
+test('with the setting on, the door starts with the IP choice checked, and a creator joins under it', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.evaluate(() => localStorage.setItem('kithmoot.hide-ip.v1', '1'))
+    await page.reload()
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await page.locator('#joinNetworkPrivacy > summary').click()
+    await expect(page.locator('#joinRelayOnly')).toBeChecked()
+  } finally { await context.close() }
+  // A creator never sees the door: the choice is read from the same checkbox, already set.
+  const made = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await made.page.evaluate(() => localStorage.setItem('kithmoot.hide-ip.v1', '1'))
+    await made.page.reload()
+    await openNewRoomForm(made.page)
+    await made.page.locator('#create').click()
+    await expect.poll(() => made.page.locator('#joinRelayOnly').isChecked()).toBe(true)
+  } finally { await made.context.close() }
+})
+
 // Mute with durations (design-calm-stage7, part B).
 const MUTE_KEY = 'kithmoot.mute-until.v1.visitor.'
 const muteKeys = (page: Page) => page.evaluate(prefix => Object.entries(localStorage).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [key, value]), MUTE_KEY)
@@ -1546,3 +2255,25 @@ test('Settings › Notifications names its choices the way the menus do, and a r
     await expect(page.locator('#roomMuted')).toBeHidden()
   } finally { await context.close() }
 })
+
+
+for (const width of [390, 1440]) {
+  test(`a signed-in person can open Bothy routing before selecting a private route at ${width}`, async ({ browser, baseURL }) => {
+    const { context, page } = await account(browser, baseURL!, { width, height: 900 })
+    try {
+      await joinRoom(page)
+      await openRoomInfoPage(page, 'Privacy and connection')
+      await expect(page.locator('#infoSubPrivacy')).toHaveText('Encrypted · public relays')
+      await page.getByRole('button', { name: 'Bothy routing', exact: true }).click()
+      await expect(page.locator('#bothyRoomSettings')).toHaveJSProperty('open', true)
+      await expect(page.locator('#bothyRoomStatus')).toContainText('Activation closes this room’s public connections')
+      await expect(page.locator('#bothyRoomRoute option')).toHaveCount(0)
+      await page.getByRole('button', { name: 'Activate or resume room', exact: true }).click()
+      await expect(page.locator('#bothyRoomStatus')).toHaveText('Connect and pair your Bothy in Settings first.')
+      await page.locator('#bothyRoomClose').click()
+      await openRoomInfoPage(page, 'Privacy and connection')
+      await expect(page.locator('#infoSubPrivacy')).toHaveText('Encrypted · public relays')
+      await page.screenshot({ path: test.info().outputPath('bothy-first-selection.png') })
+    } finally { await context.close() }
+  })
+}

@@ -2353,3 +2353,11 @@ keeps it, and it shows as not answering. Rooms made on exactly the old pair
 person's own use and never written into the room. The keepers still dial
 `nos.lol` for rooms fixed to it, and their crash on a relay that times out
 is a separate fault with its own fix.
+
+**Later the same day.** `relay.nostr.net` stopped answering from the UK and
+from Germany a few hours after it became a default, so `relay.ditto.pub`
+(Ditto Relay) replaced it. It names a contact, needs no sign-in or payment,
+supports NIP-40, connected and reached EOSE in under a second on two tries,
+and held all four room kinds. It also took a kind-1059 gift wrap from a
+throwaway key, served it back by id without AUTH and accepted its deletion,
+so it carries quiet rooms. All three defaults now carry quiet rooms.

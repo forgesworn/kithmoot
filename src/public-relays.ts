@@ -31,6 +31,8 @@ import { isForgeSwornHost } from './forgesworn-hosts.js'
  *
  * Checked on 21 October 2026 from the UK and from Germany. Left out:
  *  - nos.lol and nostr.mom: unreachable on 21 October, and one host.
+ *  - relay.nostr.net: a default for a few hours on 21 October, until it
+ *    stopped answering from the UK and from Germany.
  *  - nostr-pub.wellorder.net: its relay information names no contact.
  *  - nostr.bitcoiner.social: answered in 3.2 and 3.5 s; only gift wraps seen.
  *  - nostr.data.haus and relay.angor.io: only gift wraps seen; angor names no
@@ -64,7 +66,7 @@ export interface PublicRelay {
 const ENTRIES: PublicRelay[] = [
   { url: 'wss://relay.primal.net/', operator: 'Primal Public Relay', default: true, quietRooms: true, keeps: 'under-a-day', test: 'read', checked: '2026-10-21' },
   { url: 'wss://nostr.oxtr.dev/', operator: '0xtr relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-21' },
-  { url: 'wss://relay.nostr.net/', operator: 'relay.nostr.net', default: true, quietRooms: false, test: 'read', checked: '2026-10-21' },
+  { url: 'wss://relay.ditto.pub/', operator: 'Ditto Relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-21' },
   { url: 'wss://offchain.pub/', operator: 'offchain.pub', default: false, quietRooms: false, test: 'read', checked: '2026-10-21' },
   { url: 'wss://relay.damus.io/', operator: 'damus.io', default: false, quietRooms: false, test: 'read', checked: '2026-10-21' },
 ]

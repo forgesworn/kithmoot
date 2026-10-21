@@ -1,5 +1,5 @@
 import { test, expect, type Browser } from '@playwright/test'
-import { openCall, openNewRoomForm, openSettings, closeSettings } from './browser.js'
+import { openCall, openNewRoomForm, openSettings, closeSettings, nameCreator } from './browser.js'
 
 /** A visitor device: no signer, no Nostr account, only what a name-only
  *  join and a kept room leave in this browser. Trimmed from home.spec.ts's
@@ -11,7 +11,7 @@ async function device(browser: Browser, baseURL: string) {
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? relay : String(url)
         if (target !== relay) throw new Error('External relay blocked by test')
         super(target, protocols)
@@ -29,11 +29,10 @@ test('Forget this browser removes the visitor identity, kept rooms and signer co
     await page.goto(baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('A room to forget')
+    await nameCreator(page, 'Ada')
     await page.locator('#roomName').press('Enter')
-    await expect(page.locator('#arrivalTitle')).toHaveText('A room to forget')
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#displayName').press('Enter')
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomTitle')).toHaveText('A room to forget')
 
     // Stand in for a browser that at some point paired with a bunker: the
     // saved connection is a signet-login key, separate from anything this
@@ -79,10 +78,9 @@ test('Forget this browser, offered from Room details too, refuses while on a cal
     await page.goto(baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('A room mid-call')
+    await nameCreator(page, 'Ada')
     await page.locator('#roomName').press('Enter')
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#displayName').press('Enter')
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openCall(page)
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')

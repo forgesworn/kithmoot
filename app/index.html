@@ -227,7 +227,9 @@
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
         </div>
-        <p class="note">Where files go is chosen the first time you add a file to a message, in the panel beside the message box. Hiding your IP address on a call is chosen as you join it.</p>
+        <p class="note">Where files go is chosen the first time you add a file to a message, in the panel beside the message box.</p>
+        <label class="checkboxRow"><input id="privacyHideIp" type="checkbox" /> <span>Hide my IP address on calls</span></label>
+        <p class="note">Calls go through a relay server, so other people on the call don’t see your IP address. It can be slower.</p>
         <section id="blockedSection" class="blockedSection" aria-labelledby="blockedHeading" hidden>
           <h3 id="blockedHeading">Blocked on this device</h3>
           <p class="note">They can’t invite you or ask to join your rooms on this device. They aren’t told, and nothing is published. A private chat already open with them stays until you leave it.</p>
@@ -843,6 +845,10 @@
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.</p>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
+          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>Start public message</button>
+          <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
+          <button id="nostrAccountInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
+          <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
           <button id="legacyMessagesEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="legacyMessagesDialog" hidden>Legacy messages</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
           <details>
@@ -882,6 +888,10 @@
           </details>
         </div>
         <button id="forgetBrowser" type="button" class="danger" hidden>Forget this browser</button>
+        <div id="openInApp" class="openInApp" hidden>
+          <a id="openInAppLink" class="openInAppLink" href="#">Open in the app</a>
+        </div>
+        <span id="arrivalAvatar" class="roomAvatar roomAvatarDoor" aria-hidden="true" hidden></span>
         <div id="arrivalRoomBrand" class="arrivalRoomBrand" hidden>
           <span id="arrivalLogo" class="privateLogo"></span>
           <span id="arrivalRoomBrandName"></span>
@@ -904,19 +914,17 @@
         </div>
         <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
         <form id="joinRoomForm">
-          <div id="openInApp" class="openInApp" hidden>
-            <a id="openInAppLink" class="openInAppLink" href="#">Open in the KithMoot app</a>
-            <p class="note">Don’t have it? <a id="getAndroidApp" href="https://kithmoot.app/#android">Get KithMoot for Android</a></p>
+          <div id="doorName" class="doorName">
+            <label for="displayName">What should we call you?</label>
+            <input
+              id="displayName"
+              placeholder="Your name"
+              maxlength="64"
+              autocomplete="nickname"
+              enterkeyhint="go"
+            />
+            <p id="displayNameHint" class="note" hidden>Just a name, not your Nostr account.</p>
           </div>
-          <p id="previousAccount" class="note visitorIdentity" hidden></p>
-          <label for="displayName">What should we call you?</label>
-          <input
-            id="displayName"
-            placeholder="Your name"
-            maxlength="64"
-            autocomplete="nickname"
-            enterkeyhint="go"
-          />
           <fieldset id="admissionPreview" class="admissionPreview" hidden>
             <legend>Before you request to join</legend>
             <p id="admissionPreviewStatus" class="note" role="status"></p>
@@ -932,23 +940,22 @@
               <button id="cancelAdmission" type="button" class="quiet">Close invitation</button>
             </div>
           </fieldset>
-          <fieldset id="joinMediaChoice" class="joinMediaChoice">
+          <fieldset id="joinMediaChoice" class="joinMediaChoice" hidden>
             <legend>Turn on as you join</legend>
             <label><input id="joinMic" type="checkbox" /> Microphone</label>
             <label><input id="joinCamera" type="checkbox" /> Camera</label>
           </fieldset>
+          <button id="join" type="submit" class="primary" hidden>Join</button>
+          <button id="doorBothyRecovery" type="button" aria-haspopup="dialog" aria-controls="bothyRoomSettings" hidden>Recover Bothy room access</button>
+          <button id="joinNostr" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
+          <button id="joinVisitor" type="button" class="quiet linkish" hidden>Join with just a name instead</button>
+          <p id="joinPrivacy" class="note">Microphone and camera stay off until you turn them on.</p>
+          <p id="getAndroidLine" class="note" hidden>Don’t have it? <a id="getAndroidApp" href="https://kithmoot.app/#android">Get KithMoot for Android</a></p>
           <details id="joinNetworkPrivacy">
-            <summary>Call network privacy</summary>
+            <summary>Hide my IP address on calls</summary>
             <label><input id="joinRelayOnly" type="checkbox" /> Hide my IP address from other people in this call</label>
             <p class="note">Uses a TURN relay, costs more data and will not join without a working relay. The selected TURN provider can still see this device’s IP address.</p>
           </details>
-          <button id="join" type="submit" class="primary" hidden>Join</button>
-          <button id="doorBothyRecovery" type="button" aria-haspopup="dialog" aria-controls="bothyRoomSettings" hidden>Recover Bothy room access</button>
-          <p id="whoami" class="whoami"></p>
-          <p id="joinIdentityHelp" class="note" hidden></p>
-          <button id="joinNostr" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
-          <button id="joinVisitor" type="button" class="quiet" hidden>Go in with just a name instead</button>
-          <p id="joinPrivacy" class="note">Nothing turns on unless you choose it here or switch it on inside the room.</p>
         </form>
       </section>
 
@@ -963,7 +970,7 @@
            has taken its chrome, and is why a check against a bare 375 by
            667 viewport kept passing. Nothing is deleted; it is one line
            lower or one line in. -->
-      <section id="identityMore">
+      <section id="identityMore" hidden>
         <!-- Which of the ways in this device is on. Filled in by
              `renderHowIn` in app/src/main.ts; shown in Room details, not
              at the door. -->
@@ -1016,6 +1023,15 @@
       <label for="roomName">Room name <span class="note">(optional)</span></label>
       <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
              enterkeyhint="go" aria-label="Room name" />
+      <!-- Asked only when this device has no name to go in under: a person
+           starting a room goes straight into it, so this is the one time the
+           name is asked. -->
+      <div id="newRoomYourNameRow" class="newRoomYourName" hidden>
+        <label for="newRoomYourName">Your name</label>
+        <input id="newRoomYourName" maxlength="64" autocomplete="nickname" enterkeyhint="go"
+               aria-describedby="newRoomYourNameError" />
+        <p id="newRoomYourNameError" class="formError" hidden>Type the name people here will see.</p>
+      </div>
       <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> <span>Ask me before anyone joins</span></label>
       <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
       <!-- A conference room: a group room that ends on a date and is
@@ -1692,6 +1708,38 @@
       </div>
     </dialog>
 
+    <dialog id="nostrMessageDialog" class="sharedProjectsSheet" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
+      <div class="sheetBar"><h2 id="nostrMessageTitle">Start public message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p id="nostrMessageLane" class="nostrMessageWarning">○ public</p>
+        <p id="nostrMessageWarning" class="nostrMessageWarning"></p>
+        <p class="note">The message content stays encrypted. This sends an ordinary Nostr message through published inbox relays. It does not send a room invitation or include room history. Use a browser extension that supports modern Nostr encryption to send from here.</p>
+        <form id="nostrMessageForm">
+          <label for="nostrMessageRecipient">Their Nostr public key (npub)</label>
+          <input id="nostrMessageRecipient" name="recipient" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
+          <label for="nostrMessageText">New message</label>
+          <textarea id="nostrMessageText" name="message" rows="5" maxlength="4096" autocomplete="off" required></textarea>
+          <p class="note">Review checks both accounts’ published Nostr inbox lists on your configured account relays. Your message stays on this device until you choose Send public. Closing clears this draft.</p>
+          <button id="nostrMessageReview" type="submit">Review public message</button>
+        </form>
+        <p id="nostrMessageSummary" class="note"></p>
+        <button id="nostrMessageSend" type="button" hidden>Send public</button>
+        <p id="nostrMessageStatus" class="note" role="status" aria-live="polite"></p>
+      </div>
+    </dialog>
+
+    <dialog id="nostrInboxDialog" class="sharedProjectsSheet" aria-labelledby="nostrInboxTitle" aria-describedby="nostrInboxHelp">
+      <div class="sheetBar"><h2 id="nostrInboxTitle">Nostr messages</h2><button id="nostrInboxClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p class="nostrMessageWarning">○ public</p>
+        <p id="nostrInboxHelp" class="note">Messages and invitations stay encrypted until you choose Open message and ask your signer. Ordinary text and links are displayed literally. Verified invitations can be reviewed in Chats; opening a copy does not join a room. The relay check selected below is outside your sheltered conversations.</p>
+        <p class="note">This device keeps up to 128 original encrypted copies, within a 2 MiB limit. Closing clears opened text from this view. Saved copies can be reopened after restart with the same account and signer. They do not prove delivery or read status, and older copies may leave this device’s cache. Forget this browser removes these local copies; relay copies are separate.</p>
+        <button id="nostrInboxLoad" type="button">Load messages</button>
+        <p id="nostrInboxStatus" class="note" role="status" aria-live="polite"></p>
+        <ul id="nostrInboxList" aria-label="Ordinary Nostr message copies"></ul>
+      </div>
+    </dialog>
+
     <dialog id="legacyMessagesDialog" class="sharedProjectsSheet" aria-labelledby="legacyMessagesTitle" aria-describedby="legacyMessagesHelp">
       <div class="sheetBar"><h2 id="legacyMessagesTitle">Legacy messages</h2><button id="legacyMessagesClose" type="button" autofocus>Close</button></div>
       <div class="sheetBody">
@@ -1741,6 +1789,8 @@
         <ul id="signetGrantedContacts" class="messageContacts"></ul>
         <p id="contactInboxStatus" class="note" role="status"></p>
         <button id="contactInboxRetry" type="button" hidden>Retry pending invitations</button>
+        <button id="contactInboxCheck" type="button" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
+        <p class="note">To find older invitations on your configured account relays, leave any room or call, then choose Check invitations on account relays. Load and open copies explicitly. Nostr messages in Settings uses your published inbox relays.</p>
         <h3 id="contactInvitesHeading" class="sheetHead" hidden>Private conversation requests</h3>
         <ul id="contactInvites" class="messageContacts"></ul>
       </div>
@@ -1754,14 +1804,22 @@
       <div id="inviteSlot" class="sheetBody"></div>
     </dialog>
 
-    <dialog id="inviteToRoom" class="profileSettings" aria-labelledby="inviteToRoomTitle">
-      <div class="profileSettingsHeader">
+    <dialog id="inviteToRoom" class="inviteToRoom" aria-labelledby="inviteToRoomTitle">
+      <form id="inviteToRoomForm" method="dialog">
         <h2 id="inviteToRoomTitle">Invite to a room</h2>
-        <button id="inviteToRoomClose" type="button" aria-label="Close">Close</button>
-      </div>
-      <p id="inviteToRoomLead" class="note"></p>
-      <div id="inviteToRoomList" class="inviteToRoomList"></div>
-      <p class="note">The invite goes to them sealed, in this conversation. A room that asks first lets people you invited straight in.</p>
+        <div id="inviteToRoomFind" hidden>
+          <label for="inviteToRoomSearch" class="sr-only">Find a room</label>
+          <input id="inviteToRoomSearch" type="search" placeholder="Find a room" autocomplete="off" />
+        </div>
+        <div id="inviteToRoomList" class="inviteToRoomList" role="radiogroup" aria-labelledby="inviteToRoomTitle"></div>
+        <p id="inviteToRoomNone" class="note" hidden>No rooms match.</p>
+        <p id="inviteToRoomLead" class="note"></p>
+        <p id="inviteToRoomError" class="formError" role="alert" hidden></p>
+        <div class="inviteToRoomButtons">
+          <button id="inviteToRoomClose" type="button" class="tonal">Cancel</button>
+          <button id="inviteToRoomSend" type="submit" class="primary" disabled>Send invite</button>
+        </div>
+      </form>
     </dialog>
     <dialog id="profileSettings" class="profileSettings" aria-labelledby="profileSettingsTitle">
       <div class="profileSettingsHeader">

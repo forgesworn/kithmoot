@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { parseRoomLink } from '../src/link.js'
-import { accountDevice, signInAccount } from './nostr-account.js'
-import { TEST_RELAY_WS } from './browser.js'
+import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
+import { TEST_RELAY_WS, openSettings } from './browser.js'
 import { shareContacts } from './contacts-grant.js'
 
 
@@ -14,7 +14,7 @@ test('Signet contacts start a private conversation without a shared room, delive
   try {
     const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
     for (const key of [aKey, bKey]) await publisher.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), tags: [['relay', relay.href]], content: '' }, key))
-    let alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 }); await signInAccount(alice, baseURL!)
+    let alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await shareContacts(alice, a, [{ pubkey: b, name: 'Bob from Signet' }], publisher)
     await alice.locator('#signetContactsSearch').fill('unmatched person')
     await expect(alice.locator('#signetGrantedContacts li')).toHaveCount(0)
@@ -33,8 +33,17 @@ test('Signet contacts start a private conversation without a shared room, delive
     await expect(alice.locator('#contactInboxStatus')).toHaveText('')
     await alice.close()
     // Alice is offline too. Bob has never loaded this app or joined a room.
-    const bob = await bc.newPage(); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!)
     const invitations = bob.getByRole('navigation', { name: 'Chats' }).locator('li[data-invitation]')
+    // Account restoration never opens arriving wrappers. Bob chooses to load
+    // and classify the invitation before using the existing room controls.
+    await expect(invitations).toHaveCount(0)
+    await openSettings(bob, 'Account'); await bob.locator('#nostrInboxEntry').click()
+    await bob.locator('#nostrInboxLoad').click()
+    await bob.locator('.ordinaryMessageOpen').click()
+    await expect(bob.locator('.ordinaryInvitationReview')).toBeVisible()
+    await expect(bob.locator('#roomArea')).toBeHidden()
+    await bob.locator('.ordinaryInvitationReview').click()
     await expect(invitations).toHaveCount(1)
     await bob.screenshot({ path: test.info().outputPath('contacts-phone.png') })
     await invitations.locator('button[data-action="accept"]').click()
@@ -45,16 +54,13 @@ test('Signet contacts start a private conversation without a shared room, delive
     await bob.locator('#chatInput').press('Enter')
     alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
     await alice.goto(baseURL! + invitation)
-    await expect(alice.locator('#join')).toBeEnabled()
-    await alice.locator('#join').click()
+    // Alice started this chat, so its link opens it.
     await expect(alice.locator('#chatLog')).toContainText('Hello Alice, this is my private reply')
     await alice.locator('#roomContacts').evaluate(button => (button as HTMLButtonElement).click())
     await alice.getByRole('button', { name: 'Message Bob from Signet', exact: true }).click()
     expect(new URL(alice.url()).hash).toBe(invitation)
     await alice.reload()
-    await expect(alice.locator('#join')).toBeEnabled()
-    await alice.locator('#join').click()
-    await expect(alice.locator('#roomArea')).toBeVisible()
+    await expect(alice.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await alice.locator('#roomContacts').evaluate(button => (button as HTMLButtonElement).click())
     await expect(alice.getByRole('button', { name: 'Message Bob from Signet', exact: true })).toBeVisible()
     await alice.getByRole('button', { name: 'Message Bob from Signet', exact: true }).click()

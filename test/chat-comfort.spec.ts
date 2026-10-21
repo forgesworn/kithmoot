@@ -2,7 +2,6 @@ import { test, expect, type Page } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { npubEncode } from 'nostr-tools/nip19'
 import { generateSecretKey, finalizeEvent } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
@@ -74,8 +73,9 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(row.getByRole('tooltip')).toBeVisible()
     await expect(row.getByRole('tooltip')).toContainText('Rowan')
     await expect(row.getByRole('tooltip')).toContainText('Ada')
-    const person = row.locator('.reactionPerson').filter({ hasText: npubEncode(identity.pubkey) })
-    await expect(person.locator('.reactionNpub')).toHaveText(npubEncode(identity.pubkey))
+    // Name and time, never the key: it is one tap away on the member sheet.
+    const person = row.locator('.reactionPerson').filter({ hasText: 'Rowan' })
+    await expect(person).not.toContainText('npub1')
     await expect(person.locator('time')).toHaveAttribute('datetime', new Date(writer.chat.messages().find(m => m.reaction?.emoji === '❤️' && m.participant === identity.pubkey)!.sentAt * 1000).toISOString())
     await expect(person.locator('img')).toHaveCount(0)
     await expect(person.locator('.nip05')).toHaveCount(0)
@@ -91,7 +91,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(row.getByRole('tooltip')).toBeVisible()
     await expect(person.locator('img.avatar')).toHaveAttribute('src', pictureURL)
     await expect.poll(() => person.locator('img.avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
-    await expect(person.locator('.reactionNpub')).toHaveText(npubEncode(identity.pubkey))
+    await expect(person).not.toContainText('npub1')
     await page.setViewportSize({ width: 320, height: 700 })
     await hearts.hover()
     await expect(row.getByRole('tooltip')).toBeInViewport()

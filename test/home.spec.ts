@@ -3,7 +3,7 @@ import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { RoomAgent } from '../src/agent.js'
 import { KINDS } from '../src/kinds.js'
 import { withRelays, TEST_RELAY_WS } from './relays.js'
-import { requestAdmission, openNewRoomForm, roomMenuItem, openRoomInfoPage } from './browser.js'
+import { requestAdmission, openNewRoomForm, roomMenuItem, openRoomInfoPage, nameCreator } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -14,7 +14,7 @@ async function device(browser: Browser, baseURL: string) {
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? relay : String(url)
         if (target !== relay) throw new Error('External relay blocked by test')
         super(target, protocols)
@@ -59,22 +59,19 @@ test('the home page leads with room actions, fits both themes and starts a named
       await openNewRoomForm(page)
       await page.locator('#roomName').fill('Saturday workshop')
     await page.locator('#roomName').press('Enter')
-    await expect(page.locator('#arrivalTitle')).toHaveText('Saturday workshop')
-    await expect(page.locator('#home')).toBeHidden()
-    await expect(page.locator('#displayName')).toBeFocused()
-    await expect(page.locator('#joinMediaChoice')).toBeVisible()
-    await expect(page.locator('#joinMic')).not.toBeChecked()
-    await expect(page.locator('#joinCamera')).not.toBeChecked()
-    await expect(page.locator('#joinPrivacy')).toContainText('Nothing turns on unless you choose it')
+    // The form asks for the one thing it needs, the name people here will see.
+    await expect(page.locator('#newRoomYourNameError')).toHaveText('Type the name people here will see.')
+    await expect(page.locator('#newRoomYourName')).toBeFocused()
     await page.setViewportSize({ width: 320, height: 540 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    const joinAtDoor = (await page.locator('#join').boundingBox())!
-    expect(joinAtDoor.y + joinAtDoor.height).toBeLessThanOrEqual(540)
-    await page.screenshot({ path: testInfo.outputPath('invite-media-choice-320x540.png') })
+    await page.screenshot({ path: testInfo.outputPath('new-room-your-name-320x540.png') })
     await page.setViewportSize({ width: 390, height: 740 })
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#displayName').press('Enter')
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#newRoomYourName').fill('Ada')
+    await page.locator('#newRoomYourName').press('Enter')
+    // And then the room: no door for the person who started it.
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#home')).toBeHidden()
+    await expect(page.locator('#joinRoomForm')).toBeHidden()
     await expect(page.locator('#roomTitle')).toHaveText('Saturday workshop')
     await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'false')
     await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
@@ -118,19 +115,27 @@ test('the home page leads with room actions, fits both themes and starts a named
 
 test('relay-only network privacy refuses to join without a TURN allocation', async ({ browser, baseURL }) => {
   const { context } = await device(browser, baseURL!)
+  const guest = await device(browser, baseURL!)
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
     await openNewRoomForm(page)
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#joinNetworkPrivacy > summary').click()
-    await page.locator('#joinRelayOnly').check()
-    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    const link = await page.locator('#shareUrl').inputValue()
 
-    await expect(page.locator('#status')).toContainText('no usable TURN relay')
-    await expect(page.locator('#roomArea')).toBeHidden()
-  } finally { await context.close() }
+    // The choice is on the door of the person who is invited: a creator goes straight in.
+    const other = await guest.context.newPage()
+    await other.goto(link)
+    await other.locator('#displayName').fill('Rowan')
+    await other.locator('#joinNetworkPrivacy > summary').click()
+    await other.locator('#joinRelayOnly').check()
+    await other.locator('#join').click()
+
+    await expect(other.locator('#status')).toContainText('no usable TURN relay')
+    await expect(other.locator('#roomArea')).toBeHidden()
+  } finally { await context.close(); await guest.context.close() }
 })
 
 test('invalid links stay beside their field and a complete invitation from another host opens in this app', async ({ browser, baseURL }) => {
@@ -321,10 +326,11 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
     await page.goto(baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('The workshop')
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
-    await expect(page.locator('#arrivalLead')).toContainText('Invite people')
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#join').click()
+    // The creator goes straight in: no door, no name form, and a room to start from.
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#joinRoomForm')).toBeHidden()
     await expect(page.locator('#roomMenu')).toBeVisible()
     await expect(page.locator('#chatLog')).toContainText('Write a message below to start the conversation.')
     await page.locator('#chatInput').fill('Keep this unfinished welcome')

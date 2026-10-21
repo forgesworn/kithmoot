@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_MIC, switchToRoom, chooseCallMore } from './browser.js'
+import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_MIC, switchToRoom, chooseCallMore, join } from './browser.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
@@ -19,10 +19,10 @@ test('a focused share control survives remote microphone updates and still opens
   try {
     const [ada, viewer] = await Promise.all(contexts.map(context => context.newPage()))
     const link = await createRoom(ada!, baseURL!)
-    await open(ada!, link, 'Ada'); await ada!.locator('#join').click(); await openCall(ada!)
+    await open(ada!, link, 'Ada'); await join(ada!); await openCall(ada!)
     await ada!.locator('#toggleMic').click()
     await ada!.locator('#toggleScreen').click()
-    await open(viewer!, link, 'Bo'); await viewer!.locator('#join').click(); await openExistingCall(viewer!)
+    await open(viewer!, link, 'Bo'); await join(viewer!); await openExistingCall(viewer!)
     const expand = viewer!.getByRole('button', { name: 'Expand screen share from Ada', exact: true })
     await expect(expand).toBeEnabled()
     await expand.focus()
@@ -50,7 +50,7 @@ test('independent share popouts keep their call owner, camera and annotations wh
     const [ada, bo, viewer] = await Promise.all(contexts.map(context => context.newPage()))
     const link = await createRoom(ada!, baseURL!)
     for (const [page, name] of [[ada!, 'Ada'], [bo!, 'Bo'], [viewer!, 'Rowan']] as const) {
-      await open(page, link, name); await page.locator('#join').click()
+      await open(page, link, name); await join(page)
       await expect(page.locator('#roomArea')).toBeVisible()
       if (name === 'Ada') await openCall(page)
       else await openExistingCall(page)
@@ -141,8 +141,8 @@ test('a phone share viewer keeps the camera inside its picture area and controls
   try {
     const presenter = await presenterContext.newPage(), phone = await phoneContext.newPage()
     const link = await createRoom(presenter, baseURL!)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await openCall(presenter)
-    await open(phone, link, 'Rowan'); await phone.locator('#join').click()
+    await open(presenter, link, 'Ada'); await join(presenter); await openCall(presenter)
+    await open(phone, link, 'Rowan'); await join(phone)
     await openExistingCall(phone)
     await presenter.locator('#toggleCamera').click(); await presenter.locator('#toggleScreen').click()
     await phone.getByRole('button', { name: 'Expand screen share from Ada' }).click()
@@ -178,8 +178,8 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
   try {
     const presenter = await a.newPage(), viewer = await b.newPage()
     const link = await createRoom(presenter, baseURL!)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
-    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await open(presenter, link, 'Ada'); await join(presenter); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await join(viewer); await expect(viewer.locator('#roomArea')).toBeVisible()
     await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
     const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
@@ -297,8 +297,8 @@ test('the sharer is told when somebody draws on their screen, and the notice bri
     // regardless of which Chromium Playwright happens to bundle.
     await presenter.addInitScript(() => { Object.defineProperty(window, 'documentPictureInPicture', { value: undefined, configurable: true }) })
     const link = await createRoom(presenter, baseURL!)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
-    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await open(presenter, link, 'Ada'); await join(presenter); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await join(viewer); await expect(viewer.locator('#roomArea')).toBeVisible()
     await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
     const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
@@ -406,8 +406,8 @@ test('a floating preview window carries the same marks overlay, exercised with a
       })
     })
     const link = await createRoom(presenter, baseURL!)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
-    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await open(presenter, link, 'Ada'); await join(presenter); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await join(viewer); await expect(viewer.locator('#roomArea')).toBeVisible()
     await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
 
@@ -469,9 +469,9 @@ test('a drawer gets the same colour on every screen, two different drawers get t
   try {
     const presenter = await a.newPage(), rowan = await b.newPage(), sam = await c.newPage()
     const link = await createRoom(presenter, baseURL!)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
-    await open(rowan, link, 'Rowan'); await rowan.locator('#join').click(); await expect(rowan.locator('#roomArea')).toBeVisible()
-    await open(sam, link, 'Sam'); await sam.locator('#join').click(); await expect(sam.locator('#roomArea')).toBeVisible()
+    await open(presenter, link, 'Ada'); await join(presenter); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(rowan, link, 'Rowan'); await join(rowan); await expect(rowan.locator('#roomArea')).toBeVisible()
+    await open(sam, link, 'Sam'); await join(sam); await expect(sam.locator('#roomArea')).toBeVisible()
     await openCall(presenter); await openExistingCall(rowan); await openExistingCall(sam)
     await presenter.locator('#toggleScreen').click()
 
@@ -556,8 +556,8 @@ test.describe('drawing on a screen share with a finger', () => {
     const a = await newDeviceContext(browser, baseURL), b = await newDeviceContext(browser, baseURL, phone)
     const presenter = await a.newPage(), viewer = await b.newPage()
     const link = await createRoom(presenter, baseURL)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
-    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await open(presenter, link, 'Ada'); await join(presenter); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await join(viewer); await expect(viewer.locator('#roomArea')).toBeVisible()
     await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
     const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })

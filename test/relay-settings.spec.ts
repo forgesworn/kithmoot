@@ -12,7 +12,7 @@ import { createRumor, createSeal } from 'nostr-tools/nip59'
 import { Relay } from 'nostr-tools/relay'
 import { verifyEventUncached } from '../src/verify.js'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { openNewRoomForm, openRoomInfoPage, openSettings } from './browser.js'
+import { openNewRoomForm, openRoomInfoPage, openSettings, nameCreator, join as joinDoor } from './browser.js'
 import { TEST_RELAY_WS } from './relays.js'
 
 // The same signed kind-21236 response inside a kind-29999 gift wrap that
@@ -75,9 +75,9 @@ for (const liveSigner of [false, true]) test(`Signet approval ${liveSigner ? 'co
       await expect(page.locator('#homeSignIn')).toBeHidden()
       await openNewRoomForm(page)
       await page.locator('#roomName').fill('Signet signing fixture')
+      await nameCreator(page, 'Ada')
       await page.locator('#create').click()
-      await page.locator('#join').click()
-      await expect(page.locator('#roomArea')).toBeVisible()
+      await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
       await expect.poll(() => signedKinds.length).toBeGreaterThan(0)
       expect(await page.evaluate(() => localStorage.getItem('signet:login.pubkey'))).toBe(pubkey)
     }
@@ -124,7 +124,7 @@ test('relay settings show activity outside account sync and keep the chosen orde
     await expect(page.getByRole('button', { name: `Move ${preferred} down`, exact: true })).toBeFocused()
     await page.locator('#relaySave').click()
     await expect(page.locator('#relaySettingsStatus')).toContainText('Saved on this device')
-    await page.reload(); await page.locator('#join').click()
+    await page.reload(); await joinDoor(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await openDefaults()
     await expect(page.locator('#relayList .relayAddress')).toHaveText([preferred, relay.href])
@@ -189,7 +189,7 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await expect(page.locator('#relaySettingsStatus')).toContainText('Marked as a box of your circle')
     await page.locator('#relaySettingsClose').click()
     await expect(page.locator('#laneNote .chip.lane')).toHaveText(/Encrypted · circle relay/)
-    await page.reload(); await page.locator('#join').click()
+    await page.reload(); await joinDoor(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#laneNote .chip.lane')).toHaveText(/Encrypted · circle relay/)
     await open()
@@ -206,7 +206,7 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await expect(page.locator('#relayList .relayRow').filter({ hasText: relay.href }).locator('.relayHealth')).toContainText('Last accepted write')
     await page.locator('#relayReconnect').click()
     await expect(readRow.locator('.relayHealth')).toContainText('Connected')
-    await page.reload(); await page.locator('#join').click()
+    await page.reload(); await joinDoor(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await open()
     await expect(readRow.locator('select')).toHaveValue('read')
@@ -215,7 +215,7 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await page.locator('#relaySave').click()
     await expect(page.locator('#relayList .relayRow')).toHaveCount(1)
     await expect.poll(() => closedReads).toBeGreaterThan(beforeRemove)
-    await page.reload(); await page.locator('#join').click(); await open()
+    await page.reload(); await joinDoor(page); await open()
     await expect(page.locator('#relayList .relayRow')).toHaveCount(1)
     await page.locator('#relayScope').selectOption('default')
     while (await page.locator('#relayList .relayRow').count()) await page.locator('#relayList .relayRow').first().getByRole('button', { name: /^Remove / }).click()
@@ -229,11 +229,11 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await page.goto(baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Default relay fixture')
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
-    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await open(); await expect(readRow.locator('select')).toHaveValue('read')
-    await page.reload(); await page.locator('#join').click(); await open()
+    await page.reload(); await joinDoor(page); await open()
     await expect(readRow.locator('select')).toHaveValue('read')
     expect(readFrames.filter(frame => frame[0] === 'EVENT')).toEqual([])
   } finally { await context.close() }

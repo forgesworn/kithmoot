@@ -1,6 +1,6 @@
 import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUDIO, chooseCallMore } from './browser.js'
+import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUDIO, chooseCallMore, join } from './browser.js'
 
 /**
  * A shared tab's own sound, carried alongside its picture.
@@ -51,9 +51,9 @@ test('a screen share carries its own tab audio, and losing just the sound keeps 
     const presenter = await a.newPage(), viewer = await b.newPage()
 
     const link = await createRoom(presenter, baseURL!)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click()
+    await open(presenter, link, 'Ada'); await join(presenter)
     await expect(presenter.locator('#roomArea')).toBeVisible()
-    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click()
+    await open(viewer, link, 'Rowan'); await join(viewer)
     await expect(viewer.locator('#roomArea')).toBeVisible()
     await openCall(presenter); await openCall(viewer)
 
@@ -139,9 +139,9 @@ test('a screen share with no captured audio still shares video, with a note by t
   try {
     const presenter = await a.newPage(), viewer = await b.newPage()
     const link = await createRoom(presenter, baseURL!)
-    await open(presenter, link, 'Ada'); await presenter.locator('#join').click()
+    await open(presenter, link, 'Ada'); await join(presenter)
     await expect(presenter.locator('#roomArea')).toBeVisible()
-    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click()
+    await open(viewer, link, 'Rowan'); await join(viewer)
     await expect(viewer.locator('#roomArea')).toBeVisible()
     await openCall(presenter); await openCall(viewer)
 
@@ -200,7 +200,7 @@ test('a desktop sharing area sends only its crop and covers invalid bounds', asy
   try {
     const page = await context.newPage()
     const link = await createRoom(page, baseURL!)
-    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await open(page, link, 'Ada'); await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
@@ -256,7 +256,7 @@ test('a window or unlabelled share withholds this device\'s own preview and neve
   try {
     const page = await context.newPage()
     const link = await createRoom(page, baseURL!)
-    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await open(page, link, 'Ada'); await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const preview = page.locator('video.screenPreview')
@@ -307,7 +307,7 @@ test('a full-screen area withholds this device\'s own live preview to avoid a mi
   try {
     const page = await context.newPage()
     const link = await createRoom(page, baseURL!)
-    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await open(page, link, 'Ada'); await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
@@ -361,7 +361,7 @@ test('cancelling an area chooser stops screen and audio returned afterwards', as
   try {
     const page = await context.newPage()
     const link = await createRoom(page, baseURL!)
-    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await open(page, link, 'Ada'); await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')

@@ -8,8 +8,17 @@ test.beforeAll(async () => {
   const result = await build({ entryPoints:[fileURLToPath(new URL('./ordinary-clients.browser-entry.ts',import.meta.url))],bundle:true,format:'iife',globalName:'Ordinary',platform:'browser',write:false })
   const bundle = result.outputFiles[0]!.text
   const worker = await readFile(new URL('../app/public/ordinary-state-sw.js',import.meta.url),'utf8')
+  // Test-only observation of the browser's actual window inventory. Closing a
+  // Playwright Page need not retire its service-worker Client synchronously.
+  const inventory = `self.addEventListener('message', e => {
+    if (e.data?.test !== 'ordinary-client-inventory-v1' || !e.source || e.ports.length !== 1) return;
+    e.waitUntil((async () => {
+      const clients = await self.clients.matchAll({type:'window', includeUncontrolled:true});
+      e.ports[0].postMessage({source:e.source.id, clients:clients.map(client => client.id)});
+    })());
+  });`
   server=createServer((req,res)=>{
-    if(new URL(req.url ?? '/', 'http://fixture.test').pathname.endsWith('/sw.js')) {res.setHeader('content-type','text/javascript');res.end(`self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));${req.url?.includes('unclaimed')?'':"self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));"}\n${worker}`);return}
+    if(new URL(req.url ?? '/', 'http://fixture.test').pathname.endsWith('/sw.js')) {res.setHeader('content-type','text/javascript');res.end(`self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));${req.url?.includes('unclaimed')?'':"self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));"}\n${worker}\n${inventory}`);return}
     res.setHeader('content-type','text/html')
     res.end(`<!doctype html><meta charset="utf-8">${new URL(req.url ?? '/', 'http://fixture.test').pathname.endsWith('/old')?'':`<script>${bundle.replace(/<\/script/gi,'<\\/script')}</script>`}`)
   })
@@ -22,6 +31,27 @@ async function ready(page: Page, path = '/') {
   await page.evaluate(async (script) => { await navigator.serviceWorker.register(script); await navigator.serviceWorker.ready }, path + 'sw.js')
   await page.waitForFunction(()=>!!navigator.serviceWorker.controller)
   await page.evaluate('window.clientFence=new Ordinary.OrdinaryClientFence()')
+}
+async function waitForRetiredClients(page: Page): Promise<void> {
+  const samples: unknown[] = []
+  try {
+    await expect.poll(async () => {
+      const sample = await page.evaluate(async () => {
+        const channel = new MessageChannel()
+        try {
+          return await new Promise<{ source: string; clients: string[] }>((resolve, reject) => {
+            const timer = setTimeout(() => reject(Error('Native client inventory did not answer')), 1000)
+            channel.port1.onmessage = event => { clearTimeout(timer); resolve(event.data) }
+            navigator.serviceWorker.controller!.postMessage({ test: 'ordinary-client-inventory-v1' }, [channel.port2])
+          })
+        } finally { channel.port1.close(); channel.port2.close() }
+      })
+      samples.push(sample)
+      return sample.clients.length === 1 && sample.clients[0] === sample.source
+    }).toBe(true)
+  } finally {
+    await test.info().attach('native-client-retirement', { body: JSON.stringify(samples), contentType: 'application/json' })
+  }
 }
 test('actual active worker verifies every modern window', async({browser})=>{
   const context=await browser.newContext();const a=await context.newPage(),b=await context.newPage();await ready(a);await ready(b)
@@ -70,7 +100,7 @@ test('a window opened during acknowledgements changes the inventory and holds',a
   await b.evaluate('window.releaseProbe()')
   expect(await a.evaluate('window.result')).toBe('OrdinaryStateHold')
   expect(await b.evaluate('window.probeSeen')).toBe(true)
-  await old.close();await b.close();await a.evaluate('clientFence.assertCurrent()');await context.close()
+  await old.close();await b.close();await waitForRetiredClients(a);await a.evaluate('clientFence.assertCurrent()');await context.close()
 })
 
 // Production is normally scoped to /j/, but browser Storage and native
@@ -121,6 +151,7 @@ test('an outside-scope window opened during acknowledgements holds', async ({ br
     expect(await a.evaluate('window.result')).toBe('OrdinaryStateHold')
     await old.close()
     await b.close()
+    await waitForRetiredClients(a)
     await a.evaluate('clientFence.assertCurrent()')
   } finally { await context.close() }
 })
