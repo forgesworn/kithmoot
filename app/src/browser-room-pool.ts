@@ -58,7 +58,12 @@ export class BrowserRoomPool implements ManagedRelayPool {
     ++this.#generation
     for (const cancel of [...this.#queries]) cancel()
     clearTimeout(this.#expiry)
-    for (const r of this.#reads) { r.stop?.(); r.stop = undefined }
+    for (const r of this.#reads) {
+      const stop = r.stop; r.stop = undefined
+      // A lost Link route can reject CLOSE. It must not prevent the other
+      // subscriptions from stopping or the delegate itself from closing.
+      try { stop?.() } catch { /* Delegate closure below still owns teardown. */ }
+    }
     const delegate = this.#delegate, release = this.#release, wasPublic = !!this.#public
     this.#delegate = undefined; this.#public = undefined; this.#release = undefined; this.#opening = undefined
     delegate?.close()
@@ -167,8 +172,21 @@ export class BrowserRoomPool implements ManagedRelayPool {
       consent?.phase === 'active' && consent.account === this.opts.account() && consent.expires > this.#now()
     if (!current() || !delegate) throw new Error('Bothy room permission is unavailable.')
     return new Promise(resolve => {
-      const events: Event[] = [], seen = new Set<string>(); let stop: (() => void) | undefined, finished = false
-      const done = (complete: boolean) => { if (finished) return; finished = true; this.#queries.delete(cancel); clearTimeout(timer); stop?.(); resolve({ events, complete: complete && current() }) }
+      const events: Event[] = [], seen = new Set<string>()
+      let stop: (() => void) | undefined, finished = false, subscribing = true, pendingComplete: boolean | undefined
+      const done = (complete: boolean) => {
+        if (finished) return
+        // A delegate may finish synchronously before returning its cleanup
+        // handle. Wait for that handle; a failed cleanup cannot confirm EOSE.
+        if (subscribing) {
+          pendingComplete = pendingComplete === undefined ? complete : pendingComplete && complete
+          return
+        }
+        finished = true; this.#queries.delete(cancel); clearTimeout(timer)
+        let confirmed = false
+        try { stop?.(); confirmed = complete && current() } catch { /* Keep the known prefix, with completion unknown. */ }
+        resolve({ events, complete: confirmed })
+      }
       const cancel = () => done(false)
       const timer = setTimeout(() => done(false), timeoutMs)
       this.#queries.add(cancel)
@@ -176,14 +194,17 @@ export class BrowserRoomPool implements ManagedRelayPool {
         // A one-shot query stays on this delegate; route changes cancel it
         // rather than rebinding its request onto a different lane.
         stop = delegate.subscribe(filters, e => {
-          if (finished) return
+          if (finished || pendingComplete !== undefined) return
           if (!current()) { done(false); return }
           if (seen.has(e.id)) return
           if (events.length >= Math.min(maxEvents ?? 4096, 4096)) { done(false); return }
           seen.add(e.id); events.push(e)
         }, () => done(true))
-        if (finished) stop()
       } catch { done(false) }
+      finally {
+        subscribing = false
+        if (pendingComplete !== undefined) done(pendingComplete)
+      }
     })
   }
   async publishQuietly(url: string, event: Event): Promise<void> {
