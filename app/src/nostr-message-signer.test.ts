@@ -88,3 +88,20 @@ for (const cancel of [false, true]) it(`actual SDK transient signing retry ${can
     else { expect(result.error).toBeUndefined(); expect(result.value?.pubkey).toBe(pubkey); expect(calls).toBe(2) }
   } finally { await signer.close(); vi.useRealTimers() }
 })
+
+it('event-only file approvals reuse the actual SDK boundary without requiring signer encryption support', async () => {
+  const { nostrEventSigner } = await import('./nostr-message-signer.js')
+  const key = generateSecretKey(), pubkey = getPublicKey(key)
+  let current = true, starts = 0
+  const signer = new Nip07Signer(pubkey, { getPublicKey: async () => pubkey,
+    signEvent: async template => { starts++; return signetFixtureEvent(template,key) } })
+  const account = signetFixtureSession(signer,key), identity = nostrEventSigner(account,() => account)!
+  expect(nostrMessageIdentity(account,() => account)).toBeUndefined()
+  expect(identity).toBeDefined()
+  const event = await identity.signEvent({kind:24242,created_at:1000,tags:[],content:'file approval'},() => current)
+  expect(event.pubkey).toBe(pubkey); expect(starts).toBe(1)
+  current = false
+  await expect(identity.signEvent({kind:24242,created_at:1000,tags:[],content:'held'},() => current)).rejects.toThrow('no longer available')
+  expect(starts).toBe(1)
+  await signer.close()
+})

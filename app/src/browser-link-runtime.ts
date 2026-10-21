@@ -2,7 +2,7 @@ import type { StartLink } from './browser-link-types.js'
 import type * as Binding from '../public/link-web/link_web.js'
 
 let binding: Promise<typeof Binding> | undefined
-const version = '2fa7f232625ef1394bea66c9fd80668573b8310f'
+const version = '5975fee2d149c255c1434cec81f7459be0129acf'
 /** Self-hosted pinned WASM, loaded only after the person opens Bothy. */
 export const startBrowserLink: StartLink = async config => {
   const module = await (binding ??= (async () => {
