@@ -84,7 +84,7 @@ submission to the upstream registry is separate. Existing numbers do not change.
 
 | Kind | Meaning | Visibility and persistence |
 |---|---|---|
-| 1460 | Chat and named-channel messages | Room/channel ciphertext; regular |
+| 1460 | Chat and named-channel messages | Room/channel ciphertext, device-signed, or in envelope 2 signed by a one-time key (see Chat envelope 2); regular |
 | 1461 | Invitation retirement | Creator-signed tombstone; regular |
 | 1462 | Room rekey | Authority-signed, prior-epoch ciphertext; regular |
 | 1463 | Group invitation | Creator-signed, bearer-derived ciphertext; regular |
@@ -440,6 +440,56 @@ epoch's key, so a late message on an epoch it has left is not read there.
 Clients that cannot follow an epoch must say so rather than display a quiet,
 empty room. Android capability gaps are recorded in the compatibility ledger;
 passing M2 codecs does not implement features it did not previously support.
+
+## Chat envelope 2
+
+Readers shipped; writers stay on envelope 1 until every client's reader has
+had a release in the field (`EncodeChatOptions.envelope`, off by default).
+This is phase 3 of `docs/2026-10-04-key-schedule-parity.md`.
+
+An envelope-2 chat event is kind 1460 with the same tags and `created_at` as
+envelope 1, signed by a key made for that message alone. Its NIP-44 v2
+content, under the channel key, is exactly
+`{"v":2,"body":<string>,"sig":<128 lower-case hex>}`:
+
+- `body` is the message JSON an envelope-1 event carries, as a string, so a
+  reader hashes the bytes the sender signed.
+- `sig` is the device's BIP-340 signature over SHA-256 of UTF-8
+  `kithmoot/v1/chat-envelope-2:<room id>:<d tag>:<outer pubkey>:<created_at>:`
+  followed by `body`, every hex lower case, with the room's epoch-0 id.
+
+A reader verifies `sig` against the body's `device`, requires the body's
+`sentAt` to equal `created_at`, and then applies every envelope-1 rule (the
+credential names that device and the participant, the policy admits them)
+unchanged. A fourth key, another `v`, a body that is not a string or a
+signature in any other form refuses the event. Because the signature names the
+outer pubkey, a body cannot be lifted into another event, restamped or
+retagged by anybody but the sender. Edits and retractions were already matched
+on the inner participant and message id, never the event's signer, so they
+work across envelopes.
+
+The outer secret key is HKDF-SHA256(device secret key, empty salt,
+`kithmoot/v1/chat-outer:<d tag>:<message id>`, 32), refused rather than
+reduced outside [1, n). It is derived so the device can sign a NIP-09
+deletion of its own message later; nobody without the device key can link
+two of them. A reader never computes it. The `chatEnvelope2` vectors pin the
+derivation, the digest and the refusals.
+
+**What a relay learns.** Of a stored chat event: the channel's `d` tag, the
+time, the padded size, and a key it never sees again. It no longer learns
+which device wrote it, or how many messages each device sent. The `d` tag
+still groups a channel's history, as a fixed per-channel author would. A
+relay watching live still sees the roster (device-signed, ephemeral), presence
+and the publishing connection, and can match a message to a device by
+connection and timing. Quiet rooms go further.
+
+**Before writers switch on.** Anything that finds or deletes its own chat by
+author must move to the derived outer key or to ids it keeps:
+`src/self-destruct.ts` (queries `authors` and batches NIP-09 deletions by the
+device key) and the agent's tidy-up (`src/agent.ts`, "delete what this agent
+signed"). Relay rate limits keyed on the author no longer apply to chat, so
+the sender limit inside the room (`MAX_CHAT_MESSAGES_PER_MINUTE`) is the one
+that counts.
 
 ## Call bell
 

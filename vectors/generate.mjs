@@ -74,7 +74,7 @@ import { verifyRoomRelays, canonicalRoomRelays } from '../dist/src/room-relays.j
 import { verifyMeetingPolicy, verifyRecordingNotice, canonicalSpeakers } from '../dist/src/meeting.js'
 import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, encodeRekeyEvent, epochsInWindow, HISTORY_WINDOW_SECONDS, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
-import { decodeChatEvent, ChatLog } from '../dist/src/chat.js'
+import { decodeChatEvent, ChatLog, chatEnvelope2Digest, chatOuterSecretKey } from '../dist/src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../dist/src/attachment.js'
 import { encodeControl, decodeControl } from '../dist/src/control.js'
 import { resolveConversation, mentionsOf, mentionedBy } from '../dist/src/messages.js'
@@ -86,7 +86,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [], meeting: [], chatHistory: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -2729,6 +2729,102 @@ for (const [name, roomKey, a, b, note] of [
   conversationVector('chatRetract', 'retract-with-attachments-refused', 'negative',
     'A retraction carries nothing else. One with attachments, mentions, a reference or a kind is refused whole.',
     [['retract-loaded', fromA('retract-3', 'Retracted a message', fx.MESSAGE_CREATED_AT + 220, { retracts: 'root-1', attachments: [] })]])
+
+  // --- Chat envelope 2: a throwaway outer author ----------------------------
+  //
+  // The kind 1460 is signed by a key derived for this message alone; the
+  // device's BIP-340 signature rides inside the ciphertext. `tamper` builds
+  // the cases a reader must refuse from an otherwise honest envelope.
+  function buildEnvelope2({ message, label, signerSk, outerSk, createdAt, plaintext }) {
+    const deviceSk = signerSk ?? (message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK)
+    const body = JSON.stringify(message)
+    const outer = outerSk ?? chatOuterSecretKey(message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK, room.roomId, message.id)
+    const at = createdAt ?? message.sentAt
+    const innerAux = seed32(`${label}-inner-auxrand`)
+    const sig = bytesToHex(schnorr.sign(chatEnvelope2Digest(room.roomId, room.roomId, getPublicKey(outer), at, body), deviceSk, innerAux))
+    const wrapped = plaintext ? plaintext({ v: 2, body, sig }) : { v: 2, body, sig }
+    const content = nip44.v2.encrypt(JSON.stringify(wrapped), room.roomKey, seed32(`${label}-nonce`))
+    const event = finalizeDeterministic({ kind: KINDS.CHAT, created_at: at, tags: [['d', room.roomId]], content }, outer, seed32(`${label}-auxrand`))
+    return {
+      event,
+      envelope: 2,
+      body,
+      outerSkHex: bytesToHex(outer),
+      innerAuxRandHex: bytesToHex(innerAux),
+      nonceHex: bytesToHex(seed32(`${label}-nonce`)),
+      auxRandHex: bytesToHex(seed32(`${label}-auxrand`)),
+    }
+  }
+  function envelopeVector(name, kind, note, entries) {
+    const built = entries.map((e) => (e.envelope === 2 ? buildEnvelope2(e) : { envelope: 1, ...buildMessage(e) }))
+    const decoded = built.map((b) => decodeChatEvent(b.event, decodeOpts))
+    const accepted = decoded.filter((m) => m !== null)
+    vectors.chatEnvelope2.push({
+      name,
+      kind,
+      note,
+      input: { events: built, decode: decodeArgs },
+      output: { results: decoded, conversation: summarise(accepted), outerIsDevice: built.map((b) => b.event.pubkey === JSON.parse(b.body ?? JSON.stringify(entries[built.indexOf(b)].message)).device) },
+    })
+  }
+
+  vectors.chatEnvelope2.push({
+    name: 'outer-key-derivation',
+    kind: 'positive',
+    note: 'The outer key of one envelope-2 message: HKDF-SHA256(ikm = device secret key, empty salt, info = UTF-8 `kithmoot/v1/chat-outer:` + d tag + `:` + message id, 32 bytes), used as a secp256k1 secret key (a value outside [1, n) is refused, never reduced). Derived rather than drawn so the device can later sign a NIP-09 deletion of its own message; a reader never computes it. The digest the device signs is SHA-256 of UTF-8 `kithmoot/v1/chat-envelope-2:` + room id + `:` + d tag + `:` + outer pubkey + `:` + created_at + `:` followed by the body string, every hex lower case.',
+    input: { deviceSkHex: bytesToHex(fx.DEVICE_A_SK), d: room.roomId, messageId: 'root-1', roomId: room.roomId, createdAt: fx.MESSAGE_CREATED_AT, body: JSON.stringify(root) },
+    output: (() => {
+      const sk = chatOuterSecretKey(fx.DEVICE_A_SK, room.roomId, 'root-1')
+      return { outerSkHex: bytesToHex(sk), outerPubkey: getPublicKey(sk), digestHex: bytesToHex(chatEnvelope2Digest(room.roomId, room.roomId, getPublicKey(sk), fx.MESSAGE_CREATED_AT, JSON.stringify(root))) }
+    })(),
+  })
+
+  envelopeVector('message', 'positive',
+    'A message in envelope 2: kind 1460, tags [["d", channel id]], created_at = sentAt, signed by the derived outer key, never the device. Content is NIP-44 v2 under the channel key of `{"v":2,"body":<the envelope-1 message JSON, as a string>,"sig":<128 lower-case hex>}`, exactly those three keys. `sig` is the device\'s BIP-340 signature over the digest in `outer-key-derivation`; the reader verifies it against the body\'s `device`, requires the body\'s sentAt to equal created_at, then applies every envelope-1 rule (credential naming that device, policy) unchanged. A reader that knows only envelope 1 drops it (`outerIsDevice` false).',
+    [{ label: 'env2-root', envelope: 2, message: root }])
+
+  envelopeVector('edit-across-envelopes', 'positive',
+    'An envelope-1 original and an envelope-2 edit from the same participant: an edit is matched to its original by the inner participant and id, so the outer keys differing changes nothing. The conversation shows the edit, exactly as `chatEdit/edit`.',
+    [{ label: 'env2-edit-original', envelope: 1, message: root }, { label: 'env2-edit', envelope: 2, message: edit1 }])
+
+  envelopeVector('edit-by-somebody-else-ignored', 'positive',
+    'B sends an envelope-2 message replacing A\'s root-1. Same-author is checked on the inner participant, never the outer key, so it is B\'s own message marked edited and A\'s stands.',
+    [{ label: 'env2-edit-original', envelope: 1, message: root }, { label: 'env2-not-yours', envelope: 2, message: fromB('env2-steal', 'Not yours', fx.MESSAGE_CREATED_AT + 110, { replaces: 'root-1' }) }])
+
+  envelopeVector('retract-across-envelopes', 'positive',
+    'An envelope-2 retraction of A\'s envelope-1 message hides it, matched by inner participant and id.',
+    [{ label: 'env2-edit-original', envelope: 1, message: root }, { label: 'env2-retract', envelope: 2, message: fromA('env2-retract-1', 'Retracted a message', fx.MESSAGE_CREATED_AT + 120, { retracts: 'root-1' }) }])
+
+  envelopeVector('lifted-into-another-event', 'negative',
+    'A\'s body and signature copied under a fresh outer key by somebody holding the room key: the signature names the original outer key, so it is refused.',
+    [{ label: 'env2-lifted', envelope: 2, message: root, outerSk: deriveSecretKey('env2-lifter') , plaintext: () => {
+      const honest = buildEnvelope2({ message: root, label: 'env2-root' })
+      return JSON.parse(nip44.v2.decrypt(honest.event.content, room.roomKey))
+    } }])
+
+  envelopeVector('restamped', 'negative',
+    'Signed honestly for created_at = sentAt + 60 by the derived key, with the body\'s sentAt unchanged: created_at and sentAt disagree, refused. A sender cannot move a message in time without re-signing the body.',
+    [{ label: 'env2-restamped', envelope: 2, message: root, createdAt: fx.MESSAGE_CREATED_AT + 60 }])
+
+  envelopeVector('signed-by-another-device', 'negative',
+    'B\'s device signs a body that names A\'s device and credential: the inner signature does not verify against the device the body names, refused. This is what stops a member putting words in another\'s mouth once the outer key no longer says who wrote it.',
+    [{ label: 'env2-forged', envelope: 2, message: root, signerSk: fx.DEVICE_B_SK }])
+
+  envelopeVector('extra-key', 'negative',
+    'An envelope with a fourth key: refused whole, never read charitably.',
+    [{ label: 'env2-extra', envelope: 2, message: root, plaintext: (e) => ({ ...e, extra: 1 }) }])
+
+  envelopeVector('upper-case-signature', 'negative',
+    'The same signature in upper-case hex: refused. `sig` is exactly 128 lower-case hex characters.',
+    [{ label: 'env2-upper', envelope: 2, message: root, plaintext: (e) => ({ ...e, sig: e.sig.toUpperCase() }) }])
+
+  envelopeVector('body-not-a-string', 'negative',
+    'The body as a JSON object instead of a string: refused, since the signature covers exact bytes and an object has none.',
+    [{ label: 'env2-object-body', envelope: 2, message: root, plaintext: (e) => ({ ...e, body: JSON.parse(e.body) }) }])
+
+  envelopeVector('unknown-version', 'negative',
+    'An envelope with `v:3`: refused, never guessed at.',
+    [{ label: 'env2-v3', envelope: 2, message: root, plaintext: (e) => ({ ...e, v: 3 }) }])
 
   // --- Mentions ----------------------------------------------------------------
   const roster = [
