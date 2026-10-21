@@ -163,14 +163,14 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleMessage').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
 
     // Alice is a stranger to Bob: named by her key, and blocked from the row's ⋯.
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     const waiting = bob.locator('#chatInvitations li[data-invitation]')
     await expect(waiting).toHaveCount(1)
     await bob.setViewportSize({ width: 390, height: 844 })
@@ -194,6 +194,9 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
     // The declined invitation stays declined.
     await bob.reload()
     await expect(bob.getByRole('navigation', { name: 'Chats' })).toBeVisible()
+    await openPrivateChatCopy(bob)
+    await expect(bob.locator('#nostrInboxList')).toContainText('This invitation was already dismissed. It has not been restored.')
+    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
@@ -210,7 +213,7 @@ test('a person blocked from People leaves it, their invitations are dropped, and
     await publisher.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', b]], content: '' }, aKey))
     await publisher.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Bob on Nostr' }) }, bKey))
 
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!)
     await openPeople(bob)
     await bob.locator('#peopleRows').getByRole('button', { name: /^Alice on Nostr/ }).click()
     await bob.locator('#peopleBlock').scrollIntoViewIfNeeded()
@@ -221,15 +224,19 @@ test('a person blocked from People leaves it, their invitations are dropped, and
     await expect(bob.locator('#peopleList')).toContainText('Alice on Nostr is blocked on this device.')
 
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleMessage').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
 
-    // Her invitation is dropped as it arrives, as for a Signet block.
-    await bob.waitForTimeout(3_000)
+    // Load the actual delivered copy and explicitly request Open. An empty
+    // invitation list before reading would not prove the blocked send refused.
+    await openPrivateChatCopy(bob)
+    await expect(bob.locator('#nostrInboxList')).toContainText('This copy could not be opened or kept.')
+    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
+    await bob.locator('#nostrInboxClose').click()
     await openSettings(bob, 'Privacy')
     await bob.locator('#blockedList').getByRole('button', { name: 'Unblock Alice on Nostr' }).click()
     await expect(bob.locator('#blockedNone')).toBeVisible()

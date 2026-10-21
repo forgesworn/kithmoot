@@ -34,6 +34,7 @@ import { ordinaryInboxRelays } from './nostr-message-wire.js'
 import { FollowBook } from './follow-list.js'
 import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
+import { declineAndBlockInvitation } from './invitation-block-action.js'
 import { NostrMessagePanel } from './nostr-message-panel.js'
 import { LegacyMessagePanel } from './legacy-message-panel.js'
 import { LegacyMessageLifetime } from './legacy-message-lifetime.js'
@@ -15894,9 +15895,12 @@ function renderInvitations(): void {
     decline: async id => { await contactInbox?.dismiss(id) },
     declineAndBlock: async id => {
       const invitation = waitingInvitations().find(entry => entry.id === id)
+      if (!invitation) return
       // Dismissed first, so unblocking later never brings this one back.
-      await contactInbox?.dismiss(id)
-      if (invitation) setBlocked(invitation.sender, true)
+      await declineAndBlockInvitation(id, invitation.sender, {
+        account: () => nostrSession, inbox: () => contactInbox,
+        block: sender => setBlocked(sender, true),
+      })
     },
     when: sentAt => whenWords(sentAt),
   })
