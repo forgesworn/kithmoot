@@ -6,6 +6,25 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.102 room notifications and timed mutes, 21 October 2026
+
+Version **0.6.102**, code **125**, brings the calm shell's stage 7 to
+Android: each room can tell you about every message, only mentions and
+replies, nothing, or follow your default, and can be muted for 1 hour, 8
+hours, 1 day or 1 week. A muted room says until when, shows a crossed-out
+bell and a grey count, leaves the Chats count, and its calls don't ring
+(kithmoot-android #306, kithmoot #496). It also reads chat envelope 2 and
+one-time seal senders (kithmoot-android #304, kithmoot #508), and a
+self-destruct deletes this device's own envelope 2 messages
+(kithmoot-android #305, kithmoot #512). Android still writes envelope 1. No
+wire change.
+
+The production APK is built from Android source
+`5a12aff8` (the head of pull request #308), SHA-256
+`e218188f05bb8f746bcee9bbe1a8654e845d634fc0e9600137b8e74f268526be`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started; not yet observed on a device.
+
 ## Android 0.6.101 Hide my IP address on calls, Untitled room and Somebody, 21 October 2026
 
 Version **0.6.101**, code **124**, adds Settings › Privacy › Hide my IP
