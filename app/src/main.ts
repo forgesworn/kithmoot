@@ -398,7 +398,12 @@ let linkArrivalOver = false
 const pendingSends = new PendingSends({
   store: browserDeviceStore(localStorage),
   onStorageHold: () => setStatus('Your message is held because this browser could not save its state. Check local storage, then retry.'),
-  connected: () => navigator.onLine !== false && (!sessionTransport || sessionTransport.health().some(relay => relay.state === 'connected')),
+  // Browser connectivity is only a heuristic: a local relay can remain
+  // reachable without an internet-facing interface. Use the active route's
+  // actual connection state; this creates no new route or fallback.
+  connected: () => sessionTransport
+    ? sessionTransport.health().some(relay => relay.state === 'connected')
+    : navigator.onLine !== false,
   onChange: () => { outbox.render(); refreshRoomNavigation() },
   active: () => session ? currentRoomId() : undefined,
 })
