@@ -10,6 +10,7 @@ import { RoomAgent } from '../agent.js'
 import type { KeeperState } from '../agent.js'
 import { CONTROL_CHANNEL, decodeControl } from '../control.js'
 import { GrantReceiver, parseGroupEvent, type GroupEvent, type ParsedGrant } from '../group-grants.js'
+import { GroupStorage } from '../group-storage.js'
 import type { GroupGrantsConfig } from '../group-grants-keeper.js'
 import { createRoomInvitation, generateRoomSecret, deriveRoom } from '@forgesworn/fold-kit'
 import { localIdentity } from '../identity.js'
@@ -292,6 +293,78 @@ describe.skipIf(!BIN)('the keeper against a real wildbloomd in group mode', () =
     expect(await status(get(n3, d.deviceSk, hash))).toBe(200)
     expect(keeper.groupGrantLedger!.journal.filter((j) => j.kind === 'revoked').length).toBe(2)
     for (const m of [c, e, d]) await m.agent.leave()
+    await keeper.leave()
+  }, 120_000)
+
+  it('the room lists its nodes; a member uploads to the one that is up, and another reads it from there', async () => {
+    const { authority, state } = freshState()
+    const n1 = await Daemon.create('localhost', authority)
+    const n2 = await Daemon.create('127.0.0.1', authority)
+    // n2 is made, so its port and data directory exist, and then stopped before anything reaches it.
+    await n2.stop()
+    const { keeper, join } = await makeRoom([n1, n2], state)
+    const a = await join('Ada')
+    const b = await join('Bob')
+    const journalOnlyN2 = () => keeper.groupGrantLedger!.journal.length > 0 && keeper.groupGrantLedger!.journal.every((j) => j.server === '127.0.0.1')
+    await waitFor(() => keeper.groupGrantLedger!.grants.filter((g) => g.status === 'active').length === 4 && journalOnlyN2(), 15_000)
+
+    // Both members learnt the list from the room: the invitation at join, in the keeper's order.
+    expect(a.agent.storageNodes).toEqual([n1.url, n2.url])
+    expect(b.agent.storageNodes).toEqual([n1.url, n2.url])
+    expect(keeper.storageNodes).toEqual([n1.url, n2.url])
+
+    // Neither node answers now.
+    await n1.stop()
+    const roomId = deriveRoom(state.secret).roomId
+    const receiverFor = async (m: Member): Promise<GrantReceiver> => {
+      await waitFor(() => storageEvents(m.agent).filter((ev) => { const p = parsedGrant(ev); return p.device === m.device && p.status === 'active' }).length >= 2, 15_000)
+      const r = new GrantReceiver({ authority, roomId, device: m.device })
+      for (const ev of storageEvents(m.agent)) r.offer(ev)
+      return r
+    }
+    const storageFor = (m: Member, receiver: GrantReceiver, fetchFn?: typeof fetch) => new GroupStorage({
+      roomId, nodes: () => m.agent.storageNodes ?? [], deviceSk: m.deviceSk, receiver, usable: () => true, ...(fetchFn ? { fetch: fetchFn } : {}),
+    })
+
+    const blob = new TextEncoder().encode(`A's group file ${Date.now()}`)
+    const hash = sha(blob)
+    const aStorage = storageFor(a, await receiverFor(a))
+    expect(await aStorage.upload(blob, hash)).toMatchObject({ status: 'held', reason: 'unreachable' })
+
+    // n2 comes back on the same port and data directory. Either the keeper's journal or A's own first-contact post
+    // delivers A's grant to it first; the test asserts the outcome, not which came first.
+    await n2.start()
+    let stored: Awaited<ReturnType<GroupStorage['upload']>> | undefined
+    const until = Date.now() + 15_000
+    while (Date.now() < until) {
+      stored = await aStorage.upload(blob, hash)
+      if (stored.status === 'stored') break
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    expect(stored).toMatchObject({ status: 'stored', base: n2.url, url: `${n2.url}/${hash}`, size: blob.length })
+
+    // B reads it: n1 is preferred and down, so it comes from n2.
+    const seen: { method: string; auth: string | null }[] = []
+    const spy = ((input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ method: init?.method ?? 'GET', auth: new Headers(init?.headers).get('authorization') })
+      return fetch(input, init)
+    }) as typeof fetch
+    const bStorage = storageFor(b, await receiverFor(b), spy)
+    const read = await bStorage.get(hash, { prefer: n1.url })
+    expect(new Uint8Array(await read.arrayBuffer())).toEqual(blob)
+
+    // An unauthenticated read of the hash at n2 is refused whether or not it holds the blob; B's range reads of the blob in three slices carry one token.
+    expect(await status(get(n2, undefined, hash))).toBe(401)
+    seen.length = 0
+    const slices = [[0, 5], [6, 11], [12, blob.length - 1]] as const
+    const parts: Uint8Array[] = []
+    for (const [from, to] of slices) parts.push(await bStorage.getRange(hash, from, to, { prefer: n2.url }))
+    expect(new Uint8Array(Buffer.concat(parts))).toEqual(blob)
+    const ranged = seen.filter((r) => r.method === 'GET')
+    expect(ranged.length).toBe(3)
+    expect(ranged.every((r) => r.auth !== null && r.auth === ranged[0]!.auth)).toBe(true)
+
+    for (const m of [a, b]) await m.agent.leave()
     await keeper.leave()
   }, 120_000)
 })
