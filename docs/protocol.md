@@ -483,13 +483,28 @@ relay watching live still sees the roster (device-signed, ephemeral), presence
 and the publishing connection, and can match a message to a device by
 connection and timing. Quiet rooms go further.
 
-**Before writers switch on.** Anything that finds or deletes its own chat by
-author must move to the derived outer key or to ids it keeps:
-`src/self-destruct.ts` (queries `authors` and batches NIP-09 deletions by the
-device key) and the agent's tidy-up (`src/agent.ts`, "delete what this agent
-signed"). Relay rate limits keyed on the author no longer apply to chat, so
-the sender limit inside the room (`MAX_CHAT_MESSAGES_PER_MINUTE`) is the one
-that counts.
+A top-level `v` is reserved: a message JSON that carries `v` is read as an
+envelope and refused unless it is exactly envelope 2, so no envelope-1 field
+may ever be called `v`.
+
+**Before writers switch on.**
+
+- Deletion by author misses every envelope-2 message. `src/self-destruct.ts`
+  queries `authors: [device]` and batches NIP-09 deletions signed by the
+  device key, and its callers do the same: the agent's `deleteOwnEvents`
+  (`src/agent.ts`), the keeper wipe (`src/node/cli.ts`) and the web tidy-up
+  (`app/src/room-tidy-up.ts`). Each must instead read its channels' and
+  epochs' `#d` streams, keep the messages whose inner `device` is its own,
+  and sign one deletion per message with `chatOuterSecretKey(device key, d,
+  message id)`. That keeps every left epoch's channel key until tidy-up runs,
+  costs one request per message instead of 300, and links the deletions by
+  their timing.
+- Quiet rooms: the envelope adds the signature, the wrapper and the escaping
+  of `body`, so a message near `QUIET_BUCKET_BYTES` that fits today may not.
+  Measure before switching quiet rooms over.
+- Relay rate limits and write allowlists keyed on the author no longer apply
+  to chat; the sender limit inside the room (`MAX_CHAT_MESSAGES_PER_MINUTE`)
+  is the one that counts.
 
 ## Call bell
 
