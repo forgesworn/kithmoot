@@ -4,6 +4,8 @@ import { isRoomEnds } from './expiration.js'
 import { canonicalChannels, MAX_HISTORY_EPOCHS } from './epoch.js'
 import type { LeftEpoch } from './epoch.js'
 import type { KeeperState, KeptDevice } from './agent.js'
+import { isInvitationStorage } from '@forgesworn/fold-kit'
+import type { Event } from 'nostr-tools/pure'
 
 /**
  * The keeper's state file, as written and read.
@@ -57,6 +59,12 @@ export interface StoredKeeperState {
   /** The newest credential of each device seen within the history window,
    *  and when it was last seen, unix seconds. */
   devices?: { device: string; credential: unknown; seen: number }[]
+  /** The group storage nodes this keeper last signed into the room, in order
+   *  (phase S5). Written once any have been signed; `[]` is a withdrawal. */
+  storage?: string[]
+  /** The newest group invitation (kind 1463) this keeper signed, republished
+   *  unchanged on a start when nothing in its body has changed. */
+  invitation?: unknown
 }
 
 /** As many devices as a session keeps credentials for. */
@@ -183,6 +191,13 @@ export function parseKeeperState(json: string): KeeperState {
   if (past) state.past = past
   const devices = parseDevices(stored.devices)
   if (devices) state.devices = devices
+  // Not lenient: a damaged list must not let a keeper start as if the room listed no nodes.
+  if (stored.storage !== undefined) {
+    if (!isInvitationStorage(stored.storage)) throw new Error('keeper state: storage is not a list of node URLs')
+    state.storage = [...stored.storage]
+  }
+  // Lenient: an unreadable copy only means the next start signs a fresh one.
+  if (isEventShape(stored.invitation)) state.invitation = stored.invitation as Event
   return state
 }
 
@@ -220,5 +235,10 @@ export function serialiseKeeperState(state: KeeperState): string {
       .slice(0, MAX_KEPT_DEVICES)
       .map((d) => ({ device: normaliseHex(d.device), credential: d.credential, seen: d.seen }))
   }
+  if (state.storage !== undefined) {
+    if (!isInvitationStorage(state.storage)) throw new Error('keeper state: storage is not a list of node URLs')
+    stored.storage = [...state.storage]
+  }
+  if (state.invitation) stored.invitation = state.invitation
   return JSON.stringify(stored, null, 2) + '\n'
 }

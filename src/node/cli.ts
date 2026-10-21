@@ -46,7 +46,7 @@ import type { RoomFiles } from './self-destruct.js'
 import { validateAssignmentActions } from '../assignments.js'
 import { STDIO_PROTOCOL } from './stdio-protocol.js'
 import { acquireStateLock, StateLockHeldError } from './state-lock.js'
-import { groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers } from './group-grants-config.js'
+import { groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers, withdrawnGroupGrants } from './group-grants-config.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -166,8 +166,12 @@ Options
                            keeper signs for every device it admits, sends in the
                            room, renews and revokes. Repeatable (or comma separated
                            in KITHMOOT_GROUP_NODES). Needs --state and --group-bytes.
-                           Experimental: no client uses group nodes yet. Onion nodes
-                           are not supported.
+                           The nodes are also signed into the room, in this order
+                           (at most 8, first is preferred), so members' apps and
+                           agents learn where the group's files live. A restart
+                           without these flags refuses to start while the room
+                           lists nodes: give the same flags again, or --group-withdraw.
+                           Experimental. Onion nodes are not supported.
   --group-bytes <n>        (create) The most one device may upload to a group node,
                            in bytes (KITHMOOT_GROUP_BYTES). No default: whoever
                            runs the nodes chooses it.
@@ -178,6 +182,12 @@ Options
                            A ledger that is missing for a room that already existed
                            needs no flag: the keeper signs that reset on its own. To
                            distrust a ledger that reads, move it aside by hand first.
+  --group-withdraw         (create) Stop listing the room's group storage nodes: sign
+                           an empty list into the room (KITHMOOT_GROUP_WITHDRAW=1).
+                           Needs --state; not with --group-node. Nothing is minted
+                           or renewed afterwards, but a removal still revokes at the
+                           nodes in <state>.grants, and the empty list is signed
+                           again on every start.
   --quiet                  No log lines on stderr
 
 Every option can also come from the environment, for a systemd unit's
@@ -188,7 +198,7 @@ KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
 KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
 KITHMOOT_FORWARDER (JSON, or a file path), KITHMOOT_LINK, KITHMOOT_ROOM_NAME,
 KITHMOOT_NUDGE (1 to turn it on), KITHMOOT_DESTRUCT (1 to turn it on), KITHMOOT_REKEY_EVERY (days),
-KITHMOOT_GROUP_NODES (comma separated), KITHMOOT_GROUP_BYTES, KITHMOOT_GROUP_RESET (1 to turn it on),
+KITHMOOT_GROUP_NODES (comma separated), KITHMOOT_GROUP_BYTES, KITHMOOT_GROUP_RESET (1 to turn it on), KITHMOOT_GROUP_WITHDRAW (1 to turn it on),
 KITHMOOT_TURN_CREDENTIAL (user:pass). A flag wins over the environment. With --state, the room link is also written
 beside the state file as <state>.link, readable by the keeper's user only.
 
@@ -301,6 +311,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       'group-node': { type: 'string', multiple: true },
       'group-bytes': { type: 'string' },
       'group-reset': { type: 'boolean', default: false },
+      'group-withdraw': { type: 'boolean', default: false },
       'owner-proof': { type: 'string' },
       'expect-pubkey': { type: 'string' },
       'forbid-pubkey': { type: 'string', multiple: true },
@@ -367,11 +378,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const log = common.quiet ? () => {} : (line: string) => process.stderr.write(`[kithmoot-agent] ${line}\n`)
   // Group storage nodes, refused here when the flags cannot work, before a lock is taken or a relay dialled.
   let groupGrants: ReturnType<typeof groupGrantsFromFlags>
+  const groupWithdraw = values['group-withdraw'] || envFlag('GROUP_WITHDRAW')
   try {
     groupGrants = groupGrantsFromFlags({
       nodes: [...(values['group-node'] ?? []), ...envList('GROUP_NODES')].flatMap((v) => v.split(',')).map((v) => v.trim()).filter(Boolean),
       bytes: values['group-bytes'] ?? env('GROUP_BYTES'),
       reset: values['group-reset'] || envFlag('GROUP_RESET'),
+      withdraw: groupWithdraw,
       command, statePath, log,
     })
   } catch (err) {
@@ -446,6 +459,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       fail(`${statePath}: this room self-destructed; what this keeper kept for it is gone`)
     }
     if (state?.closed) fail(`${statePath}: this room was closed. Delete the state file to make a new one.`)
+    // A room that already withdrew its storage nodes goes on revoking at the nodes its ledger names, with no flags needed.
+    if (!groupGrants && state?.storage?.length === 0 && statePath) groupGrants = withdrawnGroupGrants(statePath, log)
     const admins = [...(values.admin ?? []), ...envList('ADMINS')].map(adminPubkey)
     const forwarders = await forwarderRefs([...(values.forwarder ?? []), ...(env('FORWARDER') ? [env('FORWARDER')!] : [])])
     const factory = common.listen ? await createWeriftFactory(iceFactoryOptions(common.ice, new URL(base).origin, turn)) : undefined
@@ -470,6 +485,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       forwarders,
       rekeyEverySeconds: Math.round(rekeyEveryDays * 86_400),
       ...(groupGrants ? { groupGrants } : {}),
+      ...(groupWithdraw ? { groupWithdraw: true as const } : {}),
       onState: statePath ? (next) => (keeperWrites ? saveKeeperState(statePath, next) : undefined) : undefined,
     })
     if (statePath) {
@@ -486,7 +502,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     )
     if (admins.length) log(`admins: ${admins.map((a) => a.slice(0, 8)).join(', ')}`)
     else log('no admins: only this process can remove a member or close the room')
-    if (groupGrants) {
+    if (groupGrants?.withdrawn) {
+      log(`group storage: the room lists no storage nodes; no grant is minted or renewed, and a removal still revokes at the nodes in ${groupGrantLedgerPath(statePath!)}`)
+    } else if (groupGrants) {
       log(`group storage: grants signed for ${groupGrants.nodes.length} node${groupGrants.nodes.length === 1 ? '' : 's'} (${groupGrants.nodes.map((n) => new URL(n).hostname).join(', ')}), up to ${groupGrants.bytes} bytes per device; ledger ${groupGrantLedgerPath(statePath!)}`)
     }
     for (const f of forwarders) log(`forwarder: ${f.url}${f.pubkey ? ` (${f.pubkey.slice(0, 8)})` : ''}${f.label ? ` ${f.label}` : ''}, in the room descriptor`)

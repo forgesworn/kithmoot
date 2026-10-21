@@ -1,4 +1,5 @@
 import { randomBytes as nobleRandomBytes } from '@noble/hashes/utils'
+import { MAX_INVITATION_STORAGE_NODES } from '@forgesworn/fold-kit'
 import type { ControlMessage } from './control.js'
 import {
   GRANT_LIFETIME_SECONDS, GRANT_RENEW_WITHIN_SECONDS, KEEPER_SCOPES, buildGrant, buildReset, canonicalBytes, groupNodeFromBase,
@@ -26,6 +27,9 @@ import {
  * revocation or a reset may go earlier: they end grants, never add them), and
  * a removal never depends on the ledger being writable.
  */
+
+/** The most nodes a room's invitation can list. */
+const MAX_GROUP_NODES = MAX_INVITATION_STORAGE_NODES
 
 /** Devices one participant may have with a live grant (decision O5). */
 export const MAX_DEVICES_PER_PARTICIPANT = 5
@@ -65,8 +69,16 @@ export interface GroupGrantStore {
 }
 
 export interface GroupGrantsConfig {
-  /** Base URLs of the group nodes (`http` or `https`; the `server` tag is each one's host name). */
+  /** Base URLs of the group nodes (`http` or `https`; the `server` tag is each one's host name). At most 8: the room's invitation lists at most 8. */
   nodes: readonly string[]
+  /**
+   * The room has withdrawn its storage nodes (`--group-withdraw`, or a later start with none given whose state holds
+   * `storage: []`): `nodes` is empty and needs no byte ceiling. The keeper runs over the existing ledger only. It mints
+   * and renews nothing and signs no resets, but a removal still signs revocations at every node in the ledger, pushed
+   * with the ledger's `bases`, and the journal rules apply unchanged. This is the only mode in which `validate` accepts
+   * an empty node list.
+   */
+  withdrawn?: true
   /** The per-device byte ceiling. No default: whoever configures the nodes chooses it. */
   bytes: bigint | number | string
   store: GroupGrantStore
@@ -254,7 +266,12 @@ export class GroupGrantKeeper {
 
   /** Refuse a configuration that cannot work, before anything is dialled. Returns what it parsed. */
   static validate(config: GroupGrantsConfig): { nodes: GroupNode[]; bytes: string } {
+    if (config.withdrawn) {
+      if (config.nodes.length) throw new Error('group grants: a withdrawn room lists no group nodes')
+      return { nodes: [], bytes: '' }
+    }
     if (!config.nodes.length) throw new Error('group grants need at least one group node')
+    if (config.nodes.length > MAX_GROUP_NODES) throw new Error(`group grants: at most ${MAX_GROUP_NODES} group nodes (the room's invitation lists at most ${MAX_GROUP_NODES})`)
     if (config.bytes === undefined || config.bytes === null || config.bytes === '') {
       throw new Error('group grants need a byte ceiling per device: it is the node owner\'s choice and has no default')
     }

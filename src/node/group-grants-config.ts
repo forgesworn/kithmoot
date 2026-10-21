@@ -58,6 +58,8 @@ export interface GroupGrantFlags {
   /** `--group-bytes`. */
   bytes?: string
   reset: boolean
+  /** `--group-withdraw`: stop listing the room's storage nodes. */
+  withdraw?: boolean
   command: string
   statePath?: string
   log: (line: string) => void
@@ -70,8 +72,15 @@ export interface GroupGrantFlags {
  */
 export function groupGrantsFromFlags(flags: GroupGrantFlags): GroupGrantsConfig | undefined {
   const { nodes, bytes, reset } = flags
+  if (flags.withdraw) {
+    if (flags.command !== 'create') throw new Error('--group-withdraw is for a keeper (create): only a room\'s keeper signs the list of storage nodes')
+    if (nodes.length) throw new Error('--group-withdraw stops the room listing storage nodes, so it cannot be given with --group-node')
+    if (bytes !== undefined || reset) throw new Error('--group-withdraw is not combined with --group-bytes or --group-reset: a withdrawn room mints nothing')
+    if (!flags.statePath) throw new Error('--group-withdraw needs --state <file>: the keeper records that the room lists no nodes beside its state')
+    return withdrawnGroupGrants(flags.statePath, flags.log)
+  }
   if (!nodes.length && bytes === undefined && !reset) return undefined
-  if (flags.command !== 'create') throw new Error('--group-node, --group-bytes and --group-reset are for a keeper (create): only a room\'s keeper signs grants')
+  if (flags.command !== 'create') throw new Error('--group-node, --group-bytes, --group-reset and --group-withdraw are for a keeper (create): only a room\'s keeper signs grants')
   if (!nodes.length) throw new Error('--group-bytes and --group-reset need at least one --group-node <url>')
   if (bytes === undefined || bytes.trim() === '') {
     throw new Error('--group-node needs --group-bytes <n>: the most a device may upload to a node, in bytes. It is the choice of whoever runs the node and has no default.')
@@ -81,6 +90,19 @@ export function groupGrantsFromFlags(flags: GroupGrantFlags): GroupGrantsConfig 
     nodes, bytes: bytes.trim(), store: new FileGroupGrantStore(groupGrantLedgerPath(flags.statePath)),
     ...(reset ? { resetUnreadable: true } : {}), log: flags.log,
   }
+  GroupGrantKeeper.validate(config)
+  return config
+}
+
+/**
+ * The grant keeper's configuration for a room that lists no storage nodes
+ * (`--group-withdraw`, or a later start with no group flags whose state holds
+ * `storage: []`). It runs over the existing ledger only: it mints and renews
+ * nothing and signs no resets, but a removal still revokes at every node the
+ * ledger names. With no ledger file the room agent does not start it.
+ */
+export function withdrawnGroupGrants(statePath: string, log: (line: string) => void): GroupGrantsConfig {
+  const config: GroupGrantsConfig = { nodes: [], bytes: '', withdrawn: true, store: new FileGroupGrantStore(groupGrantLedgerPath(statePath)), log }
   GroupGrantKeeper.validate(config)
   return config
 }

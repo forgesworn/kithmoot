@@ -17,6 +17,7 @@ export {
   GROUP_GRANT_KIND, GRANT_SCOPES, KEEPER_SCOPES, MAX_GRANT_SECONDS, GRANT_LIFETIME_SECONDS, GRANT_RENEW_WITHIN_SECONDS,
   GrantReceiver, buildGrant, buildRevocation, buildReset, newGrantId, nextCreatedAt, parseGroupEvent, groupNodeFromBase, isHostName, canonicalBytes,
 } from './group-grants.js'
+export type { GrantReceiverSnapshot } from './group-grants.js'
 export type { GroupEvent, GrantScope, GrantStatus, ParsedGrant, ParsedReset, ParsedGroupEvent, GroupEventVerdict, GroupEventRefusal, GroupEventContext, GroupNode, GrantSpec } from './group-grants.js'
 export type { GroupGrantsConfig, GroupGrantStore } from './group-grants-keeper.js'
 export type { JoinRoomOptions, JoinLiveRoomOptions, CreateRoomOptions, KeeperState, ApprovalRequestOptions, ApprovalOutcome, IgnoredApproval } from './agent.js'
@@ -77,6 +78,12 @@ export type {
 export { signMeetingPolicy, verifyMeetingPolicy, signRecordingNotice, verifyRecordingNotice, canonicalSpeakers, meetingAllows, withSpeaker, withMeetingMode, recordingView, MAX_MEETING_SPEAKERS, RECORDING_REPOST_SECONDS, RECORDING_STALE_SECONDS, RECORDING_FORGET_SECONDS, HAND_TTL_SECONDS, type MeetingPolicy, type RecordingNotice, type RecordingView, type MeetingMedia } from './meeting.js'
 export { signRecordingCaptureNotice, verifyRecordingCaptureNotice, isRecordingCapture, type RecordingCapture, type RecordingCaptureNotice } from './meeting.js'
 export { readLiveRecordingState, verifyLiveRecordingState, recordingProfile, type LiveRecordingState } from './live-recording.js'
+export { signRoomStorage, verifyRoomStorage, MAX_ROOM_STORAGE_NODES, type SignRoomStorageOptions, type VerifyRoomStorageOptions } from './room-storage.js'
+export {
+  GroupStorage, GroupStorageError, buildGroupToken, deleteGroupBlob, GROUP_STORAGE_WAITING, GROUP_STORAGE_MESSAGES,
+  GROUP_GET_TOKEN_SECONDS, GROUP_UPLOAD_TOKEN_SECONDS, GROUP_DELETE_TOKEN_SECONDS, GROUP_TOKEN_REUSE_MARGIN_SECONDS, GROUP_REQUEST_TIMEOUT_MS,
+  type GroupStorageOptions, type GroupUploadResult, type GroupStorageReason, type HeadOutcome, type GroupBlobDeleteOutcome, type DeleteGroupBlobOptions,
+} from './group-storage.js'
 export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, invitationRelaysFrom, withRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
 export { renameRoomOp, carryRoomNameOp, roomNameFromMessage, compareRoomNames, followRoomName, RoomNameBook, ROOM_NAME_REPOST_SECONDS, ROOM_NAME_REKEY_GRACE_SECONDS, type RoomNameOp, type RoomNameRecord, type RoomNameEpochs, type RoomNameSession, type FollowRoomNameOptions, type RoomNameFollower } from './room-name.js'
 export { createLogoImage, readLogoImage, logoDataUrl, logoFromCanvasEncoding, MAX_LOGO_BYTES, MAX_LOGO_PIXELS, type LogoImage } from './logo-image.js'

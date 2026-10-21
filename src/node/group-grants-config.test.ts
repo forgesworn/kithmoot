@@ -8,6 +8,28 @@ const flags = (over: Partial<Parameters<typeof groupGrantsFromFlags>[0]> = {}) =
   nodes: ['https://files.example.net'], bytes: '1000', reset: false, command: 'create', statePath: '/state/room.json', log: () => {}, ...over,
 })
 
+describe('--group-withdraw', () => {
+  it('makes a withdrawn configuration over the ledger beside the state, with no nodes and no ceiling', () => {
+    const c = groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, withdraw: true }))!
+    expect(c.withdrawn).toBe(true)
+    expect(c.nodes).toEqual([])
+    expect((c.store as FileGroupGrantStore).path).toBe('/state/room.json.grants')
+  })
+
+  it('is refused with a node, a ceiling or a reset, without a state, and outside create', () => {
+    expect(() => groupGrantsFromFlags(flags({ withdraw: true }))).toThrow(/cannot be given with --group-node/)
+    expect(() => groupGrantsFromFlags(flags({ nodes: [], withdraw: true }))).toThrow(/not combined with --group-bytes/)
+    expect(() => groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, reset: true, withdraw: true }))).toThrow(/not combined/)
+    expect(() => groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, withdraw: true, statePath: undefined }))).toThrow(/--state/)
+    expect(() => groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, withdraw: true, command: 'join' }))).toThrow(/keeper/)
+  })
+
+  it('the cap of eight nodes is told to the operator before anything starts', () => {
+    const nodes = Array.from({ length: 9 }, (_, i) => `https://n${i}.example.net`)
+    expect(() => groupGrantsFromFlags(flags({ nodes }))).toThrow(/at most 8 group nodes/)
+  })
+})
+
 describe('group node flags', () => {
   it('nothing given means nothing configured', () => {
     expect(groupGrantsFromFlags(flags({ nodes: [], bytes: undefined }))).toBeUndefined()

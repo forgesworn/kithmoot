@@ -1,6 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha2'
 import { schnorr } from '@noble/curves/secp256k1.js'
+import { storageNodeFromBase } from '@forgesworn/fold-kit'
 
 /**
  * Group grants: kind 27541 events that a room's keeper signs with the room's
@@ -323,30 +324,25 @@ export interface GroupNode {
 /**
  * A node's base URL to what the keeper needs. `http` and `https` only in this
  * phase; an onion host is refused with its own message (Tor transport is a
- * follow-up). Throws an Error whose message is fit to show an operator.
+ * follow-up). Everything else is fold-kit's `storageNodeFromBase`, so the
+ * keeper's `base` and `server` are the exact strings every client derives from
+ * the room's list. Throws an Error whose message is fit to show an operator.
  */
 export function groupNodeFromBase(text: string): GroupNode {
-  let url: URL
-  try { url = new URL(text.trim()) } catch { throw new Error(`group node ${shorten(text)}: not a URL`) }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`group node ${shorten(text)}: only http and https nodes are supported in this version`)
-  if (url.username || url.password) throw new Error('group node: a URL with a user name or password is refused')
-  if (url.search || url.hash) throw new Error('group node: a URL with a query or fragment is refused')
-  const server = url.hostname.toLowerCase()
-  if (server.endsWith('.onion')) throw new Error(`group node ${server}: onion nodes need Tor, which a keeper does not speak yet; use an https base URL`)
-  if (!isHostName(server)) throw new Error(`group node ${shorten(text)}: the host name must be lower-case letters, digits, hyphens and dots (no IPv6 literal, no trailing dot)`)
-  if (url.protocol === 'http:' && !isLoopbackHost(server)) {
-    throw new Error(`group node ${server}: plain http is only for a node on this machine (localhost or 127.x); use https so grants and revocations cannot be read or answered by somebody on the way`)
+  // The onion refusal stays first, ahead of the grammar's own refusals, as it was.
+  try {
+    const url = new URL(text.trim())
+    if ((url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password && !url.search && !url.hash &&
+        url.hostname.toLowerCase().endsWith('.onion')) {
+      throw new Error(`group node ${url.hostname.toLowerCase()}: onion nodes need Tor, which a keeper does not speak yet; use an https base URL`)
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('onion nodes need Tor')) throw error
+    // Not a URL at all: the grammar says so, with its own message.
   }
-  const path = url.pathname.replace(/\/+$/, '')
-  return { base: `${url.protocol}//${url.host}${path}`, server }
+  const node = storageNodeFromBase(text)
+  return { base: node.base, server: node.server }
 }
-
-/** Names that can only reach this machine. (An IPv6 literal such as ::1 is not a usable `server` name at all.) */
-function isLoopbackHost(host: string): boolean {
-  return host === 'localhost' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
-}
-
-const shorten = (s: string): string => (s.length > 60 ? `${s.slice(0, 57)}...` : s)
 
 // ---------------------------------------------------------------------------
 // The receiver rule (7.1)
@@ -429,4 +425,64 @@ export class GrantReceiver {
   acknowledge(server: string, eventId: string): void {
     this.#acknowledged.add(`${server}/${eventId}`)
   }
+
+  /**
+   * This device's own newest active grant event for `server`, unless that
+   * event is already acknowledged there: what a device posts on first contact
+   * with a node in a session (contract 7.2 item 2). A renewal is a new event
+   * id, so it is posted again. `carry` is unchanged: revocations and resets only.
+   */
+  ownToPost(server: string, now: number): GroupEvent | undefined {
+    let newest: ParsedGrant | undefined
+    for (const g of this.grantsFor(server, now)) if (!newest || g.createdAt > newest.createdAt) newest = g
+    return newest && !this.#acknowledged.has(`${server}/${newest.event.id}`) ? newest.event : undefined
+  }
+
+  /**
+   * Whether this device had grants at `server` that have all ended: it holds
+   * at least one of its own there, none is active at `now`, and one was revoked
+   * or covered by a reset. What a client reads as "no longer let in" (contract 11).
+   */
+  lockedOut(server: string, now: number): boolean {
+    const mine = [...this.#own.values()].filter((g) => g.server === server)
+    if (mine.length === 0 || this.grantsFor(server, now).length > 0) return false
+    return mine.some((g) => this.#revoked.has(g.grantId) || this.#resetCovers(g))
+  }
+
+  /**
+   * What the receiver holds, to persist: the kept own grants, revocations and
+   * resets (each once), and the acknowledged keys of events still held. Bounded
+   * by the `MAX_KEPT_*` caps, since nothing else is kept.
+   */
+  snapshot(): GrantReceiverSnapshot {
+    const events = new Map<string, GroupEvent>()
+    for (const p of [...this.#own.values(), ...this.#revoked.values(), ...this.#resets.values()]) events.set(p.event.id, p.event)
+    const acknowledged = [...this.#acknowledged].filter((key) => events.has(key.slice(key.lastIndexOf('/') + 1)))
+    return { events: [...events.values()], acknowledged }
+  }
+
+  /**
+   * A receiver from a snapshot. Every event is offered again, so each is
+   * verified again: a tampered one is dropped, never trusted for having been
+   * stored. An acknowledged key is taken only in the shape `acknowledge` writes.
+   */
+  static restore(opts: { authority: string; roomId: string; device: string }, snapshot: GrantReceiverSnapshot): GrantReceiver {
+    const receiver = new GrantReceiver(opts)
+    for (const event of Array.isArray(snapshot?.events) ? snapshot.events : []) receiver.offer(event)
+    const held = new Set(receiver.snapshot().events.map((e) => e.id))
+    for (const key of Array.isArray(snapshot?.acknowledged) ? snapshot.acknowledged : []) {
+      if (typeof key !== 'string' || key.length > 300) continue
+      const slash = key.lastIndexOf('/')
+      if (slash < 1 || !held.has(key.slice(slash + 1)) || !isHostName(key.slice(0, slash))) continue
+      receiver.#acknowledged.add(key)
+    }
+    return receiver
+  }
+}
+
+/** A receiver's persisted form (`GrantReceiver.snapshot`). Plain JSON. */
+export interface GrantReceiverSnapshot {
+  events: GroupEvent[]
+  /** `<server>/<event id>`, as `acknowledge` keys them. */
+  acknowledged: string[]
 }

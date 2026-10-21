@@ -53,6 +53,7 @@ import type { RelayTransport } from '../src/relay-pool.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
 import { encodeControl, decodeControl } from '../src/control.js'
 import { canonicalRoomRelays, verifyRoomRelays } from '../src/room-relays.js'
+import { signRoomStorage, verifyRoomStorage } from '../src/room-storage.js'
 import { verifyMeetingPolicy, verifyRecordingNotice, type MeetingPolicy, type RecordingNotice } from '../src/meeting.js'
 import type { RoomPolicy } from '../src/types.js'
 import { verificationWords } from '../src/verification.js'
@@ -105,7 +106,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomName', 'chatHistory', 'chatEnvelope2']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomStorage', 'roomName', 'chatHistory', 'chatEnvelope2']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -1059,6 +1060,37 @@ describe('room relays', () => {
   for (const v of groups.roomRelays.filter((x) => x.kind === 'negative')) {
     it(v.name, () => {
       expect(verifyRoomRelays(v.input as { roomId: string; version: number; relays: string[]; sig: string; authority: string })).toBe(false)
+      expect(v.output.result).toBe(false)
+    })
+  }
+})
+
+describe('room storage', () => {
+  const verifyInput = (v: Vector) => v.input as { roomId: string; version: number; nodes: string[]; sig: string; authority: string }
+
+  for (const name of ['room-storage-signature', 'room-storage-another-order', 'room-storage-withdrawn']) {
+    it(name, () => {
+      const v = vec('roomStorage', name)
+      const input = v.input as { roomId: string; version: number; nodes: string[]; authoritySkHex: string; canonicalMessage: string; auxRandHex: string }
+      expect(input.canonicalMessage).toBe(`kithmoot/v1/storage:${input.roomId}:${input.version}:${JSON.stringify(input.nodes)}`)
+      // Signed over the list as given, with the recorded aux-rand.
+      const sig = bytesToHex(schnorr.sign(sha256(new TextEncoder().encode(input.canonicalMessage)), hexToBytes(input.authoritySkHex), hexToBytes(input.auxRandHex)))
+      expect(sig).toBe(v.output.sig)
+      expect(verifyRoomStorage({ ...(v.expected!.verify as { roomId: string; version: number; nodes: string[]; sig: string; authority: string }) })).toBe(true)
+      expect(v.expected!.result).toBe(true)
+      // The library signs the same list the same way (BIP-340 with fresh aux-rand differs, so only validity is compared).
+      const own = signRoomStorage({ roomId: input.roomId, version: input.version, nodes: input.nodes, authoritySk: hexToBytes(input.authoritySkHex) })
+      expect(verifyRoomStorage({ ...(v.expected!.verify as { roomId: string; version: number; nodes: string[]; sig: string; authority: string }), sig: own })).toBe(true)
+      expect(encodeControl(JSON.parse(v.output.text as string))).toBe(v.output.text)
+      expect(decodeControl(v.output.text as string)).toEqual(v.output.result)
+    })
+  }
+  it('the same nodes in another order sign differently', () => {
+    expect(vec('roomStorage', 'room-storage-another-order').expected!.differsFromFirst).toBe(true)
+  })
+  for (const v of groups.roomStorage.filter((x) => x.kind === 'negative')) {
+    it(v.name, () => {
+      expect(verifyRoomStorage(verifyInput(v))).toBe(false)
       expect(v.output.result).toBe(false)
     })
   }

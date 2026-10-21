@@ -72,6 +72,23 @@ describe('configuration', { timeout: 30_000 }, () => {
   })
 })
 
+describe('configuration: the room\'s list', () => {
+  const urls = (n: number) => Array.from({ length: n }, (_, i) => `https://n${i}.example.net`)
+
+  it('allows eight nodes and refuses nine, saying why', () => {
+    const base = { store: new MemoryStore(), bytes: 1 }
+    expect(GroupGrantKeeper.validate({ ...base, nodes: urls(8) }).nodes.length).toBe(8)
+    expect(() => GroupGrantKeeper.validate({ ...base, nodes: urls(9) })).toThrow('group grants: at most 8 group nodes (the room\'s invitation lists at most 8)')
+  })
+
+  it('accepts an empty list only when withdrawn, and then needs no byte ceiling', () => {
+    const store = new MemoryStore()
+    expect(GroupGrantKeeper.validate({ store, nodes: [], bytes: '', withdrawn: true })).toEqual({ nodes: [], bytes: '' })
+    expect(() => GroupGrantKeeper.validate({ store, nodes: [], bytes: 1 })).toThrow(/at least one/)
+    expect(() => GroupGrantKeeper.validate({ store, nodes: [A], bytes: 1, withdrawn: true })).toThrow(/lists no group nodes/)
+  })
+})
+
 describe('admission: minting', { timeout: 30_000 }, () => {
   it('signs one grant per device per node: authority key, fresh 16-byte id, three scopes, the ceiling, thirty days', async () => {
     const t = setup()

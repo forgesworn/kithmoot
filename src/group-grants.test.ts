@@ -286,3 +286,115 @@ describe('the receiver rule', () => {
     expect(r.offer(revocation, 1001 + 500)).toBe(true)
   })
 })
+
+describe('node base URLs and the room\'s list', () => {
+  const accepted: [string, string][] = [
+    ['https://grove.example.net', 'grove.example.net'],
+    ['https://grove.example.net:8443', 'grove.example.net'],
+    ['https://example.net/wb/node-1', 'example.net'],
+    ['http://localhost:3000', 'localhost'],
+    ['http://127.0.0.1:8080', '127.0.0.1'],
+    ['https://192.0.2.10', '192.0.2.10'],
+  ]
+
+  it('delegates to fold-kit: the same base and server a client derives from the room\'s list', async () => {
+    const { storageNodeFromBase, storageNodeServer, isStorageNodeBase } = await import('@forgesworn/fold-kit')
+    for (const [entry, server] of accepted) {
+      expect(groupNodeFromBase(entry)).toEqual({ base: entry, server })
+      expect(groupNodeFromBase(entry)).toEqual(storageNodeFromBase(entry))
+      expect(isStorageNodeBase(entry)).toBe(true)
+      expect(storageNodeServer(entry)).toBe(server)
+    }
+    // An operator's text is made canonical, and what comes out is what a client reads back.
+    for (const text of ['HTTPS://Grove.Example.NET:443/', 'https://grove.example.net//', ' https://grove.example.net ']) {
+      const node = groupNodeFromBase(text)
+      expect(node.base).toBe('https://grove.example.net')
+      expect(storageNodeServer(node.base)).toBe(node.server)
+    }
+  })
+
+  it('keeps the onion refusal first, and newly refuses an odd path and a very long URL', () => {
+    expect(() => groupNodeFromBase('http://' + 'a2'.repeat(28) + '.onion')).toThrow(/onion nodes need Tor/)
+    expect(() => groupNodeFromBase('https://x.example/a%20b')).toThrow(/path may hold only/)
+    expect(() => groupNodeFromBase('https://x.example/' + 'a'.repeat(260))).toThrow(/longer than 256/)
+  })
+})
+
+describe('the receiver, persisted and posted', () => {
+  const authoritySk = hexToBytes(vectors.keys.authorityA!.secret)
+  const authority = vectors.keys.authorityA!.pubkey
+  const roomId = vectors.rooms.a!.roomId
+  const mine = vectors.keys.alicePhone!.pubkey
+  const theirs = vectors.keys.bobLaptop!.pubkey
+  const mk = (device: string, id: string, createdAt: number, status: 'active' | 'revoked' = 'active', server = 'grove.example.net') =>
+    buildGrant({ authoritySk, roomId, device, server, scopes: ['get'], grantId: id, createdAt, expiration: createdAt + 1000, status })
+  const opts = { authority, roomId, device: mine }
+
+  it('snapshot and restore round-trip what is kept and what a node has acknowledged', () => {
+    const r = new GrantReceiver(opts)
+    const own = mk(mine, '11'.repeat(16), 1000)
+    const revocation = mk(theirs, '22'.repeat(16), 1001, 'revoked')
+    const reset = buildReset({ authoritySk, roomId, server: 'heath.example.net', createdAt: 1002 })
+    for (const e of [own, revocation, reset]) r.offer(e)
+    r.acknowledge('grove.example.net', revocation.id)
+    r.acknowledge('grove.example.net', 'ff'.repeat(32)) // an event no longer held: not kept
+    const snap = JSON.parse(JSON.stringify(r.snapshot())) as ReturnType<GrantReceiver['snapshot']>
+    expect(snap.events.map((e) => e.id).sort()).toEqual([own.id, revocation.id, reset.id].sort())
+    expect(snap.acknowledged).toEqual([`grove.example.net/${revocation.id}`])
+    const back = GrantReceiver.restore(opts, snap)
+    expect(back.grantsFor('grove.example.net', 1003).map((g) => g.grantId)).toEqual(['11'.repeat(16)])
+    expect(back.carry('grove.example.net', 1003)).toEqual([])
+    expect(back.carry('heath.example.net', 1003).map((p) => p.event.id)).toEqual([reset.id])
+    expect(back.snapshot()).toEqual(snap)
+  })
+
+  it('restore verifies again: a tampered event, another room\'s event and a malformed key are dropped', () => {
+    const own = mk(mine, '11'.repeat(16), 1000)
+    const forged = { ...mk(mine, '33'.repeat(16), 1000), created_at: 1001 }
+    const snap = {
+      events: [own, forged, 'not an event' as never],
+      acknowledged: [`grove.example.net/${own.id}`, 'not-a-key', `Bad Host/${own.id}`, `grove.example.net/${forged.id}`, 7 as never],
+    }
+    const back = GrantReceiver.restore(opts, snap)
+    expect(back.snapshot().events.map((e) => e.id)).toEqual([own.id])
+    expect(back.snapshot().acknowledged).toEqual([`grove.example.net/${own.id}`])
+    expect(GrantReceiver.restore(opts, undefined as never).snapshot()).toEqual({ events: [], acknowledged: [] })
+  })
+
+  it('ownToPost is the newest active own grant for the server, until a node acknowledges that event', () => {
+    const r = new GrantReceiver(opts)
+    expect(r.ownToPost('grove.example.net', 1000)).toBeUndefined()
+    const first = mk(mine, '11'.repeat(16), 1000)
+    r.offer(first)
+    expect(r.ownToPost('grove.example.net', 1001)).toEqual(first)
+    expect(r.ownToPost('heath.example.net', 1001)).toBeUndefined()
+    r.acknowledge('grove.example.net', first.id)
+    expect(r.ownToPost('grove.example.net', 1001)).toBeUndefined()
+    // A renewal is a new event id, so it is posted again.
+    const renewal = mk(mine, '11'.repeat(16), 1500)
+    r.offer(renewal)
+    expect(r.ownToPost('grove.example.net', 1501)).toEqual(renewal)
+    // Expired: nothing to post. Revoked: nothing either. carry() is unchanged and never offers a grant.
+    expect(r.ownToPost('grove.example.net', 5000)).toBeUndefined()
+    r.offer(mk(mine, '11'.repeat(16), 1600, 'revoked'))
+    expect(r.ownToPost('grove.example.net', 1601)).toBeUndefined()
+    expect(r.carry('grove.example.net', 1601).every((p) => p.type === 'grant' && p.status === 'revoked')).toBe(true)
+  })
+
+  it('lockedOut is true only where this device had grants and all have ended by revocation or reset', () => {
+    const r = new GrantReceiver(opts)
+    expect(r.lockedOut('grove.example.net', 1000)).toBe(false)
+    r.offer(mk(mine, '11'.repeat(16), 1000))
+    expect(r.lockedOut('grove.example.net', 1001)).toBe(false)
+    r.offer(mk(mine, '11'.repeat(16), 1002, 'revoked'))
+    expect(r.lockedOut('grove.example.net', 1003)).toBe(true)
+    expect(r.lockedOut('heath.example.net', 1003)).toBe(false)
+    r.offer(mk(mine, '44'.repeat(16), 1000, 'active', 'heath.example.net'))
+    r.offer(buildReset({ authoritySk, roomId, server: 'heath.example.net', createdAt: 1004 }))
+    expect(r.lockedOut('heath.example.net', 1005)).toBe(true)
+    // A grant that merely ran out is not being locked out.
+    const quiet = new GrantReceiver(opts)
+    quiet.offer(mk(mine, '55'.repeat(16), 1000))
+    expect(quiet.lockedOut('grove.example.net', 5000)).toBe(false)
+  })
+})

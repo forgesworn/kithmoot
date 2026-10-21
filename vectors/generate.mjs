@@ -71,6 +71,7 @@ import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
 import { verifyRoomRelays, canonicalRoomRelays } from '../dist/src/room-relays.js'
+import { verifyRoomStorage } from '../dist/src/room-storage.js'
 import { verifyMeetingPolicy, verifyRecordingNotice, canonicalSpeakers } from '../dist/src/meeting.js'
 import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, encodeRekeyEvent, epochsInWindow, HISTORY_WINDOW_SECONDS, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
@@ -86,7 +87,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomStorage: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -3106,6 +3107,95 @@ for (const [name, roomKey, a, b, note] of [
   })
 }
 
+
+// ===========================================================================
+// Room storage: the authority listing the room's own storage nodes
+// ===========================================================================
+//
+// A `storage` op on the control channel, signed by the authority pinned in the
+// link, as `relays` is, with two differences: the list is a preference order
+// and is signed as given (never sorted), and `[]` is valid and withdraws every
+// node. Each entry is a canonical node base URL (the grammar is fold-kit's,
+// pinned by its `storage-vectors.json`). Members take only the highest
+// version. Signed by hand with a recorded aux-rand, and checked with the real
+// `verifyRoomStorage` before it is written. Synthetic hosts only.
+{
+  const room = ROOM_1
+  const nodes = ['https://grove.example.net', 'https://example.org:8443/wb/node-1', 'http://127.0.0.1:8080']
+  const version = fx.NOW
+  const messageFor = (list, v = version) => `kithmoot/v1/storage:${room.roomId}:${v}:${JSON.stringify(list)}`
+  const signFor = (list, label, v = version) => bytesToHex(schnorr.sign(sha256(utf8Bytes(messageFor(list, v))), fx.AUTHORITY_SK, seed32(label)))
+  const verifyInput = (list, sig, v = version, authority = fx.AUTHORITY) => ({ roomId: room.roomId, version: v, nodes: list, sig, authority })
+  const NOTE_MESSAGE = 'The room\'s storage nodes, in order of preference. The message is `sha256("kithmoot/v1/storage:<roomId>:<version>:<JSON array of the list as given>")`: the list is signed in its given order, not sorted, and every entry must be a canonical node base URL (https, or http only for localhost, 127.x.y.z or an onion v3 host; lower-case host, no default port, no trailing slash, no user info, query or fragment; at most 256 characters; at most 8 entries, one per host name). `[]` withdraws every node. `version` orders lists, newest wins, and a client ignores any version at or below one it has already taken. Carried as JSON in a chat message on the `control` channel; any member may repost it, so it names no host.'
+
+  const sig = signFor(nodes, 'room-storage-auxrand')
+  const op = { op: 'storage', nodes, version, sig }
+  vectors.roomStorage.push({
+    name: 'room-storage-signature',
+    kind: 'positive',
+    note: NOTE_MESSAGE,
+    input: { roomId: room.roomId, version, nodes, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: messageFor(nodes), auxRandHex: bytesToHex(seed32('room-storage-auxrand')) },
+    output: { sig, text: encodeControl(op), result: decodeControl(encodeControl(op)) },
+    expected: { verify: verifyInput(nodes, sig), result: verifyRoomStorage(verifyInput(nodes, sig)) },
+  })
+
+  const reordered = [nodes[2], nodes[0], nodes[1]]
+  const sigReordered = signFor(reordered, 'room-storage-reordered-auxrand')
+  const opReordered = { op: 'storage', nodes: reordered, version, sig: sigReordered }
+  vectors.roomStorage.push({
+    name: 'room-storage-another-order',
+    kind: 'positive',
+    note: 'The same three nodes in another order is a different list with a different signature: order is the preference and is signed.',
+    input: { roomId: room.roomId, version, nodes: reordered, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: messageFor(reordered), auxRandHex: bytesToHex(seed32('room-storage-reordered-auxrand')) },
+    output: { sig: sigReordered, text: encodeControl(opReordered), result: decodeControl(encodeControl(opReordered)) },
+    expected: { verify: verifyInput(reordered, sigReordered), result: verifyRoomStorage(verifyInput(reordered, sigReordered)), differsFromFirst: sigReordered !== sig },
+  })
+
+  const sigEmpty = signFor([], 'room-storage-empty-auxrand', version + 5)
+  const opEmpty = { op: 'storage', nodes: [], version: version + 5, sig: sigEmpty }
+  vectors.roomStorage.push({
+    name: 'room-storage-withdrawn',
+    kind: 'positive',
+    note: 'An empty list: the authority withdraws every node. Valid, unlike an empty `relays` list. A room with a withdrawn list keeps its files off; it never falls back to a public server.',
+    input: { roomId: room.roomId, version: version + 5, nodes: [], authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: messageFor([], version + 5), auxRandHex: bytesToHex(seed32('room-storage-empty-auxrand')) },
+    output: { sig: sigEmpty, text: encodeControl(opEmpty), result: decodeControl(encodeControl(opEmpty)) },
+    expected: { verify: verifyInput([], sigEmpty, version + 5), result: verifyRoomStorage(verifyInput([], sigEmpty, version + 5)) },
+  })
+
+  vectors.roomStorage.push({
+    name: 'room-storage-another-version',
+    kind: 'negative',
+    note: 'The first signature offered with a higher version. Refused: the version is inside the signature, so a member cannot make an old list outrank a newer one.',
+    input: verifyInput(nodes, sig, version + 1),
+    output: { result: verifyRoomStorage(verifyInput(nodes, sig, version + 1)) },
+  })
+  vectors.roomStorage.push({
+    name: 'room-storage-order-is-signed',
+    kind: 'negative',
+    note: 'The first signature offered with the nodes in another order. Refused: the list a client verifies is the list it uses, exactly as sent, so the preference order cannot be rearranged by a member.',
+    input: verifyInput(reordered, sig),
+    output: { result: verifyRoomStorage(verifyInput(reordered, sig)) },
+  })
+  vectors.roomStorage.push({
+    name: 'room-storage-another-authority',
+    kind: 'negative',
+    note: 'The list and signature checked against a different key. Refused: only the inviter pinned in the link may change a room\'s storage nodes.',
+    input: verifyInput(nodes, sig, version, fx.PARTICIPANT_A),
+    output: { result: verifyRoomStorage(verifyInput(nodes, sig, version, fx.PARTICIPANT_A)) },
+  })
+  // A list that is not canonical, signed by the authority over exactly that text: still refused, since canonicality is checked, never mended.
+  const notCanonical = [['https://grove.example.net/'], ['https://Grove.example.net'], ['https://grove.example.net:443'], ['http://grove.example.net'], ['https://a.example.net', 'https://a.example.net:8443'], Array.from({ length: 9 }, (_, i) => `https://n${i}.example.net`)]
+  notCanonical.forEach((list, i) => {
+    const bad = signFor(list, `room-storage-bad-${i}`)
+    vectors.roomStorage.push({
+      name: `room-storage-not-canonical-${['trailing-slash', 'upper-case-host', 'default-port', 'plain-http', 'repeated-host', 'nine-nodes'][i]}`,
+      kind: 'negative',
+      note: 'A list the authority signed over its exact text that is nonetheless not a list the invitation may carry. Refused rather than mended: a client never "fixes" a list and then trusts the signature.',
+      input: verifyInput(list, bad),
+      output: { result: verifyRoomStorage(verifyInput(list, bad)) },
+    })
+  })
+}
 
 // ===========================================================================
 // Meeting mode and recording notices: the authority moderating a call
