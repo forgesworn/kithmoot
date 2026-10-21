@@ -19,11 +19,14 @@ status, and one shared list of public relays run by other people.
 
 ## 2. Assumptions and open questions
 
-Each has the choice this spec makes. The owner can overturn any of them.
+Each has the choice this spec makes. The owner accepted every choice below
+on 21 October 2026, including the write test in Q1 and the three defaults in
+Q2. Because Primal kept kind 1463 for under a day on 1 October, the release
+check re-measures retention for every default at each release.
 
 | # | Question | Choice made |
 |---|---|---|
-| Q1 | May the release check write one test event of each room kind to each candidate relay (throwaway key, NIP-40 expiry of 10 minutes, then a NIP-09 delete)? | Yes, but only once the owner agrees. Until then the list ships on read-only evidence and each entry says so (`test: "read"`). PR W1 can ship on read evidence alone, because two of the three current defaults are down and that is doing harm now. |
+| Q1 | May the release check write one test event of each room kind to each candidate relay (throwaway key, NIP-40 expiry of 10 minutes, then a NIP-09 delete)? | Yes (owner agreed 21 October 2026). Until PR W2 runs the write test, the list ships on read-only evidence and each entry says so (`test: "read"`). PR W1 can ship on read evidence alone, because two of the three current defaults are down and that is doing harm now. |
 | Q2 | Which three relays become the defaults? | `relay.primal.net`, `nostr.oxtr.dev`, `relay.nostr.net` (section 8.3). All three name a contact, are free, held chat, rekey and invitation events on 21 October and answered in under 1.6 s. Two of the three hold gift wraps without sign-in. |
 | Q3 | When someone with their own relay starts a room, is a public relay added next to it by default? | Yes, as a visible ticked box in the new-room form, which they can untick. This follows `docs/run-your-own.md` ("keep one public relay beside your own"), and the box makes sure it never happens silently. |
 | Q4 | What replaces the legacy fallback (`PUBLIC_FALLBACK_RELAY = wss://nostr.mom/` on the web, `RoomRelays.PUBLIC_FALLBACK` on Android), which adds a third relay to rooms made on the old two-relay pair? | Point it at `wss://nostr.oxtr.dev/`. It joins the person's **own** relays for that room (it is added in `#configuration`, never in `c`), so it is listed under **Also used by you in this room** with the tag "Added by the app for rooms made before October 2026", and Remove works on it. Dropping it would leave those rooms with nos.lol, which is down, and primal, which keeps events for less than a day. |
