@@ -1,5 +1,12 @@
 # Changelog
 
+## Desktop 0.1.97, 21 October 2026
+
+- A reply sits at the bottom of the chat in time order, like any other message, with a short quote of the message it answers. Press the quote to jump back to the original, which is briefly highlighted.
+- Signet sign-in uses Signet's new relay, relay.primal.net. A sign-in saved while Signet used nos.lol works again without pairing anew.
+- In a narrow window, messages keep their left margin and the chat no longer slides sideways.
+- Reads a newer message format in which the history kept on relays no longer shows which device wrote each message. Nothing sends it yet: this version is ready for when apps start to.
+
 ## Desktop 0.1.96, 21 October 2026
 
 - Opening an invite link takes one press: the room, "What should we call you?" and Join. Microphone and camera stay off, and Hide my IP address on calls sits folded at the bottom. When this device used a Nostr account before, the button is "Continue as {name}", with "Join with just a name instead" underneath.
