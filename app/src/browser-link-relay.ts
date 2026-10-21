@@ -10,6 +10,7 @@ import type { LinkSocket } from './browser-link-types.js'
 /** The callback WebSocket subset used by our existing NIP-42 gate. Every
  * address is pinned; the browser's native WebSocket is never a fallback. */
 export function linkWebSocket(link: Pick<BrowserLink, 'openSocket'>, box: PairedBox): typeof WebSocket {
+  const { eventUrl, routeId } = box
   class Socket {
     static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3
     readyState = 0
@@ -19,9 +20,9 @@ export function linkWebSocket(link: Pick<BrowserLink, 'openSocket'>, box: Paired
     onclose: ((event: { code: number; reason: string }) => void) | null = null
     #socket?: LinkSocket
     constructor(readonly url: string) {
-      if (url !== box.eventUrl) throw new Error('Unpaired Link event address.')
+      if (url !== eventUrl) throw new Error('Unpaired Link event address.')
       const waiting: string[] = []
-      void link.openSocket(url, box.routeId, {
+      void link.openSocket(url, routeId, {
         onText: text => {
           if (this.readyState === 3) return
           if (text.length > 1_048_576) { this.close(); return }
@@ -70,14 +71,19 @@ export class BrowserLinkRelay implements RelayTransport {
   #failure?: string
   #generation = 0
   readonly #Base: typeof WebSocket
-  constructor(link: Pick<BrowserLink, 'openSocket'>, readonly box: PairedBox, identity: ParticipantIdentity, private scope: LinkRoomScope) {
+  readonly #box: Readonly<PairedBox>
+  get box(): Readonly<PairedBox> { return this.#box }
+  constructor(link: Pick<BrowserLink, 'openSocket'>, box: PairedBox, identity: ParticipantIdentity, private scope: LinkRoomScope) {
     if (!/^[0-9a-f]{64}$/.test(scope.room) || !scope.kinds.length || scope.kinds.length > 16 || scope.kinds.some(k => !Number.isSafeInteger(k) || k < 0)) throw new Error('Invalid Bothy room scope.')
+    // Selection is a lifetime binding, including reconnect and attribution.
+    // A caller changing its saved record must create a new room carrier.
+    this.#box = Object.freeze({ eventUrl: box.eventUrl, routeId: box.routeId })
     this.scope = { room: scope.room, kinds: [...scope.kinds] }
     const grant = { pubkey: identity.pubkey, sign: identity.signEvent.bind(identity) }
-    this.#Base = authenticatedWebSocket(linkWebSocket(link, box), () => grant, () => !this.#closed && !this.#authFailed,
+    this.#Base = authenticatedWebSocket(linkWebSocket(link, this.#box), () => grant, () => !this.#closed && !this.#authFailed,
       (_url, reason) => { this.#failure = reason; this.#authFailed = !reason.includes('timed out') }, 30_000)
   }
-  describe() { return [{ url: this.box.eventUrl, read: true, write: true, circle: true }] }
+  describe() { return [{ url: this.#box.eventUrl, read: true, write: true, circle: true }] }
   health() { return this.describe().map(r => ({ ...r, state: this.#closed ? 'closed' as const : this.#socket?.readyState === 1 ? 'connected' as const : 'disconnected' as const, lastError: this.#failure })) }
   async publish(event: Event): Promise<void> {
     const rooms = event.tags.filter(t => t[0] === 'd')
@@ -110,7 +116,7 @@ export class BrowserLinkRelay implements RelayTransport {
     clearTimeout(this.#retry); this.#retry = undefined
     const generation = ++this.#generation
     const work = new Promise<void>((resolve, reject) => {
-      const socket = new this.#Base(this.box.eventUrl); this.#socket = socket
+      const socket = new this.#Base(this.#box.eventUrl); this.#socket = socket
       const timer = setTimeout(() => socket.close(), 45_000)
       socket.onopen = () => {
         if (generation !== this.#generation || this.#closed) { socket.close(); return }
@@ -144,7 +150,7 @@ export class BrowserLinkRelay implements RelayTransport {
           if (f[0] === 'EVENT' && f.length === 3 && this.#verify(f[2]) && matchFilters(request.filters, f[2]) && !request.seen.has(f[2].id)) {
             if (request.seen.size >= 4096) request.seen.clear()
             this.#backoff = 1000
-            request.seen.add(f[2].id); request.receive(f[2], this.box.eventUrl)
+            request.seen.add(f[2].id); request.receive(f[2], this.#box.eventUrl)
           } else if (f[0] === 'EOSE' && f.length === 2) { this.#backoff = 1000; request.eose?.() }
           else if (f[0] === 'CLOSED') socket.close()
         } catch { /* Malformed frames cannot acknowledge a write or finish history. */ }
