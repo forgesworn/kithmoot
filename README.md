@@ -586,7 +586,7 @@ open; coming back within the twelve hours reuses the last).
 - **Public-profile lookup is on by default.** Room details offers a
   switch remembered on this device. Looking profiles up gives the room's
   relays, and a fixed set of public aggregator relays (purplepag.es,
-  relay.damus.io, nos.lol and relay.primal.net), the participant keys in
+  relay.damus.io and relay.primal.net), the participant keys in
   plaintext queries, and loading pictures contacts their hosts. NIP-05
   addresses are checked with their domains and shown only when the address
   maps to the profile key. Turning it off stops further lookups and removes

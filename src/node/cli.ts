@@ -106,6 +106,7 @@ Options
                            hex or npub. The keeper announces the list, signed.
   --relays <a,b>           Your own relays, comma separated (same as repeated --relay).
                            Used after the room's own, which are always included.
+                           With none, a link naming no relays uses ${DEFAULT_RELAYS.join(', ')}.
   --identity <file>        Participant key, hex, created if missing (kept 0600)
   --nsec <nsec|hex>        Participant key, given directly. Visible to anyone on
                            this machine who can run ps; prefer --identity <file>.
