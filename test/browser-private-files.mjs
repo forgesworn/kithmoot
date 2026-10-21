@@ -2,6 +2,7 @@
 // Uses only visible built-app controls and the declared disposable signers.
 import assert from 'node:assert/strict'
 import { expect } from '@playwright/test'
+import { enterRoom } from './browser-room-entry.mjs'
 
 const caption = 'Private file through the selected Bothy'
 const plaintext = 'This private file survives app, box and relay restart without public storage.'
@@ -37,14 +38,14 @@ export async function privateFileReadAfterRestart(guest, label, proof) {
   // The enclosing journey reloads the guest before the Bothy restart.
   // Reload again for later cuts, so an already-open Blob is never the oracle.
   if (label !== 'bothy') {
-    await guest.page.reload(); await guest.page.locator('#join').click()
-    await expect(guest.page.locator('#roomArea')).toBeVisible({timeout:45000})
+    await guest.page.reload(); await enterRoom(guest.page)
   }
   await show(guest.page); proof.restarts.push(label)
 }
 export async function privateFileOwnerCleanup(owner, app, proof) {
   const page = owner.page
   await page.goto(app)
+  await expect(page.locator('#roomArea')).toBeHidden()
   await page.locator('#openAppSettings').click()
   if (!await page.locator('#bothySettingsOpen').isVisible()) await page.locator('#settingsRowconnections').click()
   await page.locator('#bothySettingsOpen').click()
@@ -53,6 +54,12 @@ export async function privateFileOwnerCleanup(owner, app, proof) {
   await page.locator('#bothyClose').click()
   await page.locator('#settingsBack').click()
   await page.locator('#settingsRowaccount').click()
+  await page.locator('#forgetBrowser').click()
+  const blockedForget = page.getByRole('alertdialog',{name:'Forget this browser?',exact:true})
+  await blockedForget.getByRole('button',{name:'Forget this browser',exact:true}).click()
+  await expect(page.getByText('Private upload records are retained.',{exact:false})).toBeVisible()
+  await expect(page.locator('#homeSignIn')).toBeHidden()
+  proof.unresolvedUploadBlocksForget = true
   await page.locator('#privateFileUploadsOpen').click()
   await expect(page.locator('#privateFileUploads')).toContainText('stored')
   await page.locator('#privateFileUploads').getByRole('button',{name:'Delete this upload',exact:true}).click()

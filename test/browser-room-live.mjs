@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 import {installRoomFaults,armRoomFault,waitRoomFault} from './browser-room-faults.mjs'
 import {expiryBundle,grantRows,shortenGrants} from './browser-room-expiry.mjs'
 import {privateFileStart,privateFileReadAfterRestart,privateFileOwnerCleanup} from './browser-private-files.mjs'
+import {enterRoom} from './browser-room-entry.mjs'
 
 const recovery=process.env.ROOM_RECOVERY_MATRIX==='1', interruptions=[]
 const files=process.env.ROOM_PRIVATE_FILES==='1';let privateFileProof
@@ -92,7 +93,7 @@ const setup=async key=>{
     localStorage.setItem('kithmoot.invitation-owner.v1.'+id,JSON.stringify({roomSecret,inviterSk,createdAt:Math.floor(Date.now()/1000)}))
   },{id:deriveInvitationId(invitation.invitation),roomSecret:Buffer.from(secret).toString('hex'),inviterSk:Buffer.from(invitation.inviterSk).toString('hex')})
   // Navigation stops the endpoint; the room panel explicitly resumes it.
-  await page.goto(url);await page.reload();await page.locator('#join').click();await page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+  await page.goto(url);await page.reload();await enterRoom(page)
   return {context,page}
 }
 const openRoom=async page=>{await page.locator('#roomIdentity').click();await page.locator('#infoRowPrivacy').click();await page.locator('#roomBothySettings').click();await page.locator('#bothyRoomRoute option').first().waitFor({state:'attached',timeout:15000})}
@@ -170,7 +171,7 @@ try{
     await guest.page.close();guest.page=await guest.context.newPage();attach(guest.page);await guest.page.goto(url)
     await owner.other.bringToFront();await owner.other.reload()
   } else await guest.page.reload()
-  await guest.page.locator('#join').click();await guest.page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+  await enterRoom(guest.page)
   assert.equal((await fetch(control+'/restart',{method:'POST'})).ok,true)
   await owner.page.locator('#chatInput').fill('After Bothy restart');await owner.page.locator('#chatInput').press('Enter')
   await guest.page.locator('#chatLog').filter({hasText:'After Bothy restart'}).waitFor({timeout:90000})
@@ -200,8 +201,7 @@ try{
     const shortened=await grantRows(control,scopes,issuer)
     assert.deepEqual(shortened.map(g=>g.id),original.map(g=>g.id))
     assert(shortened.every(g=>g.expires===expires && g.effective))
-    await guest.page.reload();await guest.page.locator('#join').click()
-    await guest.page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+    await guest.page.reload();await enterRoom(guest.page)
     await new Promise(r=>setTimeout(r,Math.max(0,(expires+1)*1000-Date.now())))
     const elapsed=await grantRows(control,scopes,issuer)
     assert(elapsed.every(g=>!g.effective));assert.equal(elapsed.length,original.length)
@@ -215,8 +215,7 @@ try{
     await owner.page.locator('#bothyRoomClose').click()
     const renewed=await grantRows(control,scopes,issuer)
     assert.deepEqual(renewed.map(g=>g.id),original.map(g=>g.id));assert(renewed.every(g=>g.effective&&g.expires>expires))
-    await guest.page.reload();await guest.page.locator('#join').click()
-    await guest.page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+    await guest.page.reload();await enterRoom(guest.page)
     await owner.page.locator('#chatInput').fill('After expired grants renewed');await owner.page.locator('#chatInput').press('Enter')
     await guest.page.locator('#chatLog').filter({hasText:'After expired grants renewed'}).waitFor({timeout:60000})
     assert.equal(counters.after,0)
