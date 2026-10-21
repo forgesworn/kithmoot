@@ -332,10 +332,18 @@ export function groupNodeFromBase(text: string): GroupNode {
   if (url.username || url.password) throw new Error('group node: a URL with a user name or password is refused')
   if (url.search || url.hash) throw new Error('group node: a URL with a query or fragment is refused')
   const server = url.hostname.toLowerCase()
-  if (server.endsWith('.onion')) throw new Error(`group node ${server}: onion nodes need Tor, which a keeper does not speak yet; use an http or https base URL`)
+  if (server.endsWith('.onion')) throw new Error(`group node ${server}: onion nodes need Tor, which a keeper does not speak yet; use an https base URL`)
   if (!isHostName(server)) throw new Error(`group node ${shorten(text)}: the host name must be lower-case letters, digits, hyphens and dots (no IPv6 literal, no trailing dot)`)
+  if (url.protocol === 'http:' && !isLoopbackHost(server)) {
+    throw new Error(`group node ${server}: plain http is only for a node on this machine (localhost or 127.x); use https so grants and revocations cannot be read or answered by somebody on the way`)
+  }
   const path = url.pathname.replace(/\/+$/, '')
   return { base: `${url.protocol}//${url.host}${path}`, server }
+}
+
+/** Names that can only reach this machine. (An IPv6 literal such as ::1 is not a usable `server` name at all.) */
+function isLoopbackHost(host: string): boolean {
+  return host === 'localhost' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
 }
 
 const shorten = (s: string): string => (s.length > 60 ? `${s.slice(0, 57)}...` : s)
@@ -371,9 +379,11 @@ export class GrantReceiver {
 
   /** Offer one event as read off the control channel. True when it was kept. */
   offer(event: unknown, now?: number): boolean {
-    const verdict = parseGroupEvent(event, { keepers: [this.#authority], ...(now !== undefined ? { now } : {}) })
-    // Rule 7 judges a node's clock; a reader keeping a grant for later does not drop an expired one it still has to carry.
-    const parsed = verdict.ok ? verdict.parsed : this.#late(event, verdict, now)
+    // Rule 7 judges a node's clock, not a reader's: a device whose clock lags must still keep the revocation it is to carry.
+    // Expiry is applied when events are handed out (`grantsFor`, `carry`).
+    void now
+    const verdict = parseGroupEvent(event, { keepers: [this.#authority] })
+    const parsed = verdict.ok ? verdict.parsed : undefined
     if (!parsed || parsed.roomId !== this.#roomId) return false
     if (parsed.type === 'reset') {
       const held = this.#resets.get(parsed.server)
@@ -392,12 +402,6 @@ export class GrantReceiver {
       if (!held || parsed.createdAt > held.createdAt) { this.#revoked.set(parsed.grantId, parsed); this.#trim(this.#revoked, MAX_KEPT_REVOKED); kept = true }
     }
     return kept
-  }
-
-  #late(event: unknown, verdict: GroupEventRefusal, now?: number): ParsedGroupEvent | undefined {
-    if (verdict.reason !== 'expired' || now === undefined) return undefined
-    const again = parseGroupEvent(event, { keepers: [this.#authority] })
-    return again.ok ? again.parsed : undefined
   }
 
   #trim<T>(map: Map<string, T>, max: number): void {

@@ -198,6 +198,11 @@ describe('node base URLs', () => {
     expect(() => groupNodeFromBase('http://[::1]:80')).toThrow(/host name/)
     expect(() => groupNodeFromBase('http://localhost./')).toThrow(/host name/)
     expect(() => groupNodeFromBase('not a url')).toThrow(/not a URL/)
+    // Plain http only for a node on this machine.
+    expect(() => groupNodeFromBase('http://files.example.net')).toThrow(/plain http/)
+    expect(() => groupNodeFromBase('http://192.168.1.20:3742')).toThrow(/plain http/)
+    expect(groupNodeFromBase('http://127.5.4.3:1').server).toBe('127.5.4.3')
+    expect(groupNodeFromBase('https://192.168.1.20:3742').server).toBe('192.168.1.20')
     expect(isHostName('a_b.example')).toBe(false)
   })
 
@@ -267,6 +272,12 @@ describe('the receiver rule', () => {
     expect(r.carry('grove.example.net', 1001 + 2000).length).toBe(0)
     r.acknowledge('grove.example.net', revocation.id)
     expect(r.carry('grove.example.net', 1002).length).toBe(0)
+  })
+
+  it('keeps a revocation however far ahead of this clock it was signed: the node judges the clock, not the reader', () => {
+    const r = receiver()
+    expect(r.offer(mk(theirs, '22'.repeat(16), 100_000, 'revoked'), 1_000)).toBe(true)
+    expect(r.carry('grove.example.net', 100_000).length).toBe(1)
   })
 
   it('keeps a revocation read well after it was signed, while its grant could still land', () => {
