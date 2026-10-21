@@ -54,7 +54,7 @@ import { callElapsed, dockLabel, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
-import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
+import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, retireSuggestedForgeSwornConsent, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
 import './style.css'
@@ -19334,11 +19334,26 @@ function blossomServer(): string {
   return sharedFileServer(localStorage)
 }
 
+/** A file server someone who built this copy of the app chose to suggest
+ *  (`VITE_KITHMOOT_FILE_SERVER`, set at build time). ForgeSworn's own build
+ *  sets nothing, so the field is empty unless this device remembers a choice.
+ *  A suggestion is never consent. */
+const deployerFileServer = typeof import.meta.env.VITE_KITHMOOT_FILE_SERVER === 'string'
+  ? import.meta.env.VITE_KITHMOOT_FILE_SERVER as string
+  : undefined
+
+/** Set when start-up removed a consent that only the old pre-filled
+ *  suggestion had given. Shown until a server is chosen, and does not name
+ *  the old host, so it steers nobody back to it. */
+const FILE_SERVER_RETIRED = 'KithMoot no longer suggests a file server. Choose where your files go to send files again.'
+let fileServerRetired = false
+
 function renderFileStorage(): void {
   const server = blossomServer()
+  if (server) fileServerRetired = false
   $('fileStorageStatus').textContent = server
     ? `Uploads go to ${server}. Files are encrypted on this device first.`
-    : 'File uploads are off. Choose where files go to turn them on.'
+    : fileServerRetired ? FILE_SERVER_RETIRED : 'File uploads are off. Choose where files go to turn them on.'
   $('fileStorageSummary').textContent = server ? 'Change where files go' : 'Choose where files go'
   $('stopFileUploads').hidden = !server
 }
@@ -19568,14 +19583,54 @@ async function shareDroppedFiles(files: FileList | File[] | null): Promise<void>
   })
 }
 
-;($('attachServer') as HTMLInputElement).value = suggestedFileServer(localStorage, window.location.origin)
+/** Public servers run by other people, built from the one list in
+ *  `file-storage.ts`. A button only fills the field, through the same input
+ *  event typing raises, so choosing one revokes consent and unticks the box
+ *  exactly as typing does. It never grants consent. */
+function renderPublicFileServers(): void {
+  const input = $('attachServer') as HTMLInputElement
+  $('publicFileServerList').replaceChildren(...PUBLIC_FILE_SERVERS.map(server => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.dataset.origin = server.origin
+    const host = document.createElement('span')
+    host.className = 'publicFileServerHost'
+    host.textContent = new URL(server.origin).host
+    const detail = document.createElement('span')
+    detail.className = 'publicFileServerDetail'
+    detail.textContent = `run by ${server.operator}, files up to ${Math.round(server.maxBytes / (1024 * 1024))} MB`
+    button.append(host, detail)
+    button.addEventListener('click', () => {
+      input.value = server.origin
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    return button
+  }))
+  $('publicFileServers').hidden = PUBLIC_FILE_SERVERS.length === 0
+}
+
+/** Say which public server, if any, is in the field. */
+function markPublicFileServer(): void {
+  const value = ($('attachServer') as HTMLInputElement).value.trim().replace(/\/$/, '')
+  for (const button of $('publicFileServerList').querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.origin === value))
+  }
+}
+
+// Before anything reads the stored choice: a consent made only by the old
+// pre-filled suggestion is removed here, and the person is told once.
+fileServerRetired = retireSuggestedForgeSwornConsent(localStorage)
+;($('attachServer') as HTMLInputElement).value = suggestedFileServer(localStorage, deployerFileServer)
 ;($('allowSharedFiles') as HTMLInputElement).checked = !!blossomServer()
+renderPublicFileServers()
+markPublicFileServer()
 renderFileStorage()
 $('attachServer').addEventListener('input', () => {
   // Editing never retains approval for the old destination, even if the new
   // text is invalid. Typing a URL is not consent to public ciphertext storage.
   stopFileUploads(localStorage)
   ;($('allowSharedFiles') as HTMLInputElement).checked = false
+  markPublicFileServer()
   renderFileStorage()
 })
 $('saveFileStorage').addEventListener('click', () => {

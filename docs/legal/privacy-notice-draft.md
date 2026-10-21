@@ -9,6 +9,11 @@
 > and for the desktop app our site, GitHub and Google), update checks
 > from the desktop app, and the default relay count. Later the same day:
 > desktop 0.1.91 stops the Google dictionary download.
+>
+> Changed 20 October 2026: the web app no longer suggests our file store,
+> and asks people who accepted that suggestion to choose again (4.2). It
+> lists one public file server run by somebody else, which a person may
+> choose (section 8).
 
 ## 1. Who we are
 
@@ -103,6 +108,15 @@ are pruned to make room.
 
 **Its own request logs** are the upstream Blossom server's own, not
 something this project adds; see section 5 for what happens to them.
+
+**No longer suggested.** From the web release after 20 October 2026 the
+app does not suggest this store. A device that accepted the old
+suggestion stops uploading here until its owner chooses a server again,
+and the app does not name this store when it asks. The store still serves
+files already sent, and still accepts an upload from anyone who names it
+by hand, until it closes to new files on a date we will announce in the
+app first.
+<!-- app/src/file-storage.ts suggestedFileServer, retireSuggestedForgeSwornConsent -->
 
 ### 4.3 The default drop tier (`/drops`)
 
@@ -235,6 +249,17 @@ would like the chance to put things right first.
 
 The app also makes your device contact the following. Each learns your
 device's IP address and the time, as any web request does.
+
+- **A file server you choose.** File uploads are off until you choose
+  where files go. The web app lists one public server run by somebody
+  else, blossom.yakihonne.com, run by Yakihonne LLC in the United States,
+  and you can name any other server, your own included. The server you
+  choose receives each encrypted file, its size, the device key that
+  signed the upload, and when it was uploaded and fetched; anyone with a
+  file's link can download its encrypted copy. Its operator, not us,
+  decides what it keeps and for how long. Room members who open the file
+  fetch it from the same server, which learns their addresses too.
+  <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS; docs/run-your-own.md "Files" -->
 
 - **Relays asked for public profiles.** To show people's chosen names
   and pictures, the app asks for the public Nostr profile of each person
