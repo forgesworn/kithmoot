@@ -5,6 +5,10 @@ export {}
 declare global {
   interface Window {
     kithmootDesktop?: {
+      /** 'inset' when the main process hid the title bar (macOS). Absent before desktop 0.1.96. */
+      titleBar?: 'inset' | null
+      /** Full-screen changes of the main window, sent only with an inset title bar. Absent before desktop 0.1.96. */
+      onWindowState?(listener: (state: { fullScreen: boolean }) => void): () => void
       supportsShareArea?: boolean
       shareAreaMode?: 'frame' | 'preview' | null
       armShareArea(): Promise<boolean>

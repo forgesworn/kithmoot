@@ -7,8 +7,10 @@ import { createArchiveUpdater } from './archive-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE } from './app-menu.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
-import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
+import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { restoreBounds, readWindowState } from './window-state.mjs'
 import { dirname, extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
@@ -23,6 +25,12 @@ const here = fileURLToPath(new URL('.', import.meta.url))
 const forcedAreaMode = !app.isPackaged && ['frame', 'preview'].includes(process.env.KITHMOOT_DESKTOP_AREA_MODE) && process.env.KITHMOOT_DESKTOP_AREA_MODE
 const areaMode = forcedAreaMode || platformFeatures.shareAreaMode()
 const preloadArguments = areaMode ? [`${platformFeatures.SHARE_AREA_SWITCH}=${areaMode}`] : []
+// macOS hides the title bar; only the main window is told, so the page can
+// make room for the traffic lights. Child windows keep their own frames.
+const titleBarStyle = platformFeatures.titleBarStyle()
+const mainPreloadArguments = titleBarStyle
+  ? [...preloadArguments, `${platformFeatures.TITLE_BAR_SWITCH}=inset`]
+  : preloadArguments
 // Automation always uses a disposable profile, never the user's account.
 const testProfile = !app.isPackaged && process.env.KITHMOOT_DESKTOP_TEST_PROFILE
 const profileArgument = app.commandLine.getSwitchValue('user-data-dir')
@@ -274,19 +282,34 @@ async function createWindow() {
       item.setSaveDialogOptions({ title: 'Save attachment' })
     })
   }
+  // Size and position come back from the last close (a file in the profile,
+  // not localStorage); anything unreadable or off every screen means defaults.
+  const windowStateFile = join(app.getPath('userData'), 'window-state.json')
+  let savedWindow
+  try { savedWindow = readWindowState(JSON.parse(readFileSync(windowStateFile, 'utf8'))) } catch { savedWindow = undefined }
   win = new BrowserWindow({
-    title: 'KithMoot', width: 1320, height: 880, minWidth: 900, minHeight: 640,
+    title: 'KithMoot', ...restoreBounds(savedWindow, screen.getAllDisplays()), minWidth: 900, minHeight: 640,
+    ...(titleBarStyle ? { titleBarStyle, trafficLightPosition: { x: 11, y: 19 } } : {}),
     icon: join(here, 'web/pwa-512x512.png'),
     // Follows the OS rather than always dark: the two --bg values from
     // app/src/style.css, so a light-mode launch shows no dark flash before
     // the first paint (finding 17).
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1215' : '#ffffff', show: !testProfile,
     webPreferences: {
-      session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
+      session: ses, preload: join(here, 'preload.cjs'), additionalArguments: mainPreloadArguments,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
       backgroundThrottling: false, spellcheck: usesSystemSpellchecker(),
     },
   })
+  if (savedWindow?.maximized === true) win.maximize()
+  // The page drops the title-bar band in full screen, where the lights hide.
+  const sendWindowState = fullScreen => {
+    if (win && !win.isDestroyed()) win.webContents.send('desktop:window-state', { fullScreen })
+  }
+  if (titleBarStyle) {
+    win.on('enter-full-screen', () => sendWindowState(true))
+    win.on('leave-full-screen', () => sendWindowState(false))
+  }
   // A link goes to the person's browser, never to a window of ours. The one
   // exception is the app opening an empty window and writing the share
   // viewer into it itself (app/src/share-viewer.ts's "Pop out"): there is no
@@ -358,11 +381,12 @@ async function createWindow() {
     else if (invitationRevert) void win.webContents.loadURL(invitationRevert).catch(() => {})
     invitationRevert = undefined
   })
-  win.webContents.on('did-finish-load', () => { invitationRevert = undefined })
+  win.webContents.on('did-finish-load', () => { invitationRevert = undefined; if (titleBarStyle) sendWindowState(win.isFullScreen()) })
   win.on('close', event => {
     if (callActive) {
       if (!confirmClose('Leave the call and close KithMoot?', 'The call on this device will end. Your other devices and everyone else stay connected.')) { event.preventDefault(); return }
     }
+    try { writeFileSync(windowStateFile, JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() })) } catch { /* the next launch opens at the default size */ }
   })
   win.on('focus', applyUnreadBadge)
   win.on('show', applyUnreadBadge)

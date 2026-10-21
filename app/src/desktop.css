@@ -217,3 +217,26 @@ html[data-desktop][data-room-switching] #identity,
 html[data-desktop][data-room-switching] #identityMore,
 html[data-desktop][data-room-switching] #roomNav,
 html[data-desktop][data-room-switching] #status { display: none !important; }
+
+/* The macOS hidden title bar (design-calm-stage7, part A). */
+:root[data-title-bar='inset'] { --titlebar-h: 52px; }
+:root[data-title-bar='inset'][data-window-full-screen] { --titlebar-h: 0px; }
+:root[data-title-bar='inset'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--titlebar-h);
+  -webkit-app-region: drag;
+  pointer-events: none; /* never takes a click from what is under it */
+}
+:root[data-title-bar='inset'] :is(button, a, input, select, textarea, summary, label, video,
+  [role='button'], [role='menu'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'],
+  [role='tab'], [role='tablist'], [tabindex='0'], [contenteditable], [popover], dialog) {
+  -webkit-app-region: no-drag;
+}
+/* The lights sit over the rail; its first control starts under them. */
+:root[data-title-bar='inset'] #rail { padding-top: max(var(--s3), var(--titlebar-h)); }
+/* The room's name is a button: shrink it to its text so the rest of the header drags. */
+:root[data-title-bar='inset'] .roomIdentity { flex: 0 1 auto; margin-inline-end: auto; }
+/* A focused skip link appears clear of the lights. */
+:root[data-title-bar='inset'] .skipLinks { left: 80px; }
