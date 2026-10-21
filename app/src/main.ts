@@ -341,8 +341,7 @@ import {
   loadFacePrivacyMode, storeFacePrivacyMode,
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
-import { ProfileBook, type LookupScope, type Profile } from './profiles.js'
-import { createMadeHere, hostList, lookupHosts, routeLookups } from './profile-lookups.js'
+import { ProfileBook, type Profile } from './profiles.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
@@ -1365,7 +1364,7 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
-    wantProfiles([account.pubkey], 'public')
+    profiles.want([account.pubkey])
     renderIdentity()
     renderNudgeChoice()
     return true
@@ -1527,7 +1526,7 @@ async function signInWithNostr(): Promise<void> {
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
-    wantProfiles([account.pubkey], 'public')
+    profiles.want([account.pubkey])
     renderIdentity()
     if (previous && previous !== account.pubkey) {
       const now = shownAs(account.pubkey), before = shownAs(previous)
@@ -2914,16 +2913,11 @@ let myDeviceId = ''
 const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://relay.primal.net']
 
 const profiles = new ProfileBook({
-  // For the people in the room on screen: its relays as well as the public
-  // ones. `wantProfiles` asks here only while a room is open.
   relays: () => [...new Set([...relays, ...PROFILE_RELAYS])],
-  // For everybody else, and for this browser's own account. See `wantProfiles`.
-  publicRelays: () => PROFILE_RELAYS,
-  // Their own scopes. Under the room's scope this pool's wider list counted
+  // Its own scope. Under the room's scope this pool's wider list counted
   // towards the room's relay health, and the door waited on public relays
-  // the room never chose before it would show Join. And one each, so that
-  // what is asked for the room can be closed with the room.
-  transport: (urls, scope) => relayConnections.pool(scope === 'room' ? 'profiles' : 'public-profiles', urls),
+  // the room never chose before it would show Join.
+  transport: (urls) => relayConnections.pool('profiles', urls),
   onChange: () => {
     renderIdentity()
     if (session) {
@@ -2940,52 +2934,6 @@ const profiles = new ProfileBook({
 
 let profilesEnabled = profilePreference(relayStorage)
 profiles.setEnabled(profilesEnabled)
-
-/** A key this browser generated for a name-only visit. It has no public
- *  profile, and asking for one tells relays the participant key that a
- *  room's events keep inside the ciphertext. See `profile-lookups.ts`. */
-const madeHere = createMadeHere(() => localStorage.getItem(PARTICIPANT_STORAGE_KEY))
-
-/** The account signed in on this browser, or the one it last had. */
-function isOwnAccount(pubkey: string): boolean {
-  return pubkey === nostrSession?.pubkey || pubkey === expectedAccount
-}
-
-/**
- * Ask for these people's public profiles - the only way anything here does,
- * so that the two rules in `profile-lookups.ts` cannot be skipped.
- *
- * `room` is for the people in the room on screen (call tiles, the chat log),
- * and goes to that room's relays as well as the public ones. `public` is for
- * everybody else (the chats list, People, who sent an invitation) and goes
- * to the public profile relays alone, so a room's relays do not learn who
- * its members talk to elsewhere.
- *
- * The signed-in account is always asked about as `public`, whatever the
- * caller says. It is who this browser is, and a room's relays do not
- * otherwise learn it from here: the roster is encrypted to the room, the
- * device credential is never published, and the account's bookmarks go to
- * the default relays. A room-scope question would hand it to them from the
- * one browser they are connected to. The account's profile is published to
- * public relays, which is where it is found. The same holds for the account
- * pass a room is entered on while the signer is away: `accountPassForRoom`
- * only returns a pass whose key is `expectedAccount`, so that key is the
- * real account, not one made here, and is asked about like the account.
- */
-function wantProfiles(pubkeys: string[], scope: LookupScope): void {
-  const routed = routeLookups(pubkeys, scope, { madeHere, isAccount: isOwnAccount, roomOpen: !!(roomSecret as Uint8Array | undefined) })
-  if (routed.room.length) profiles.want(routed.room, 'room')
-  if (routed.public.length) profiles.want(routed.public, 'public')
-}
-
-/** Name, in the profile dialog, the servers every lookup asks. Read from the
- *  list in use, so what it says cannot drift from what is done. */
-function renderLookupHosts(): void {
-  const hosts = lookupHosts(PROFILE_RELAYS)
-  $('lookupHosts').textContent = hosts.length ? `The public profile servers asked are ${hostList(hosts)}.` : ''
-  $('lookupHosts').hidden = !hosts.length
-}
-renderLookupHosts()
 let nip05Verify = nip05VerifyPreference(relayStorage)
 profiles.setNip05Automatic(nip05Verify)
 
@@ -3585,7 +3533,7 @@ function renderIdentity(): void {
   accountProfile.replaceChildren()
   accountProfile.hidden = !nostrSession
   if (nostrSession) {
-    wantProfiles([nostrSession.pubkey], 'public')
+    profiles.want([nostrSession.pubkey])
     accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true, true))
   }
   renderHistoryRecovery()
@@ -3628,7 +3576,7 @@ function renderIdentity(): void {
   // the one button it offers.
   renderRooms()
   const participant = session ? meParticipant : loadCredential()?.pubkey ?? currentParticipant()
-  if (participant) wantProfiles([participant], 'public')
+  if (participant) profiles.want([participant])
   renderHowIn()
   renderNudgeChoice()
 }
@@ -3727,7 +3675,7 @@ function renderDoorMode(): void {
   }
   join.classList.add('primary')
   join.classList.remove('quiet')
-  if (account) wantProfiles([account], 'public')
+  if (account) profiles.want([account])
   if (!navigator.onLine && !joining && !session && !$('status').textContent) setStatus(DOOR_OFFLINE, 'progress')
   focusDoor(mode)
 }
@@ -4324,7 +4272,7 @@ async function roomFromLocation(): Promise<boolean> {
     invitationDelegation = []
   }
 
-  profiles.restart()
+  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
   iceUrls = parsedLink.iceUrls.length ? parsedLink.iceUrls : DEFAULT_ICE_URLS
 
   if (parsedLink.pairingCode) {
@@ -4901,7 +4849,7 @@ async function startNewRoom(): Promise<void> {
     useRoomRelays()
     iceUrls = parseIceInput()
     roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
-    profiles.restart()
+    profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
     serveCurrentInvitation()
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     rememberCurrentRoom()
@@ -7333,10 +7281,8 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
 
   // Ask about every key in the room, so anyone with a published Nostr
   // profile is shown as having one. Cheap to repeat - the book only looks
-  // up a key it has not seen. Beside a docked call these are the call's
-  // people, not the room on screen's, and a different room's relays must
-  // not hear about them.
-  wantProfiles(views.map((v) => v.participant), dockedCall ? 'public' : 'room')
+  // up a key it has not seen.
+  profiles.want(views.map((v) => v.participant))
 
   for (const view of views) {
     // An agent with nothing on screen - a keeper, a host, one that only
@@ -11401,7 +11347,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   // puts the thing you should know once at the head of the thread.
   if (session) log.append(introLines())
   pruneOpenedAttachments(logId, messages)
-  wantProfiles(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])), 'room')
+  profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
   const namesOfMine = myNames()
   const roster = session?.participants() ?? []
@@ -14052,7 +13998,7 @@ function renderRooms(): void {
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
   const rooms = navigationRooms()
-  wantProfiles(rooms.flatMap(room => { const peer = dmPeerOf(room); return peer ? [peer] : [] }), 'public')
+  profiles.want(rooms.flatMap(room => { const peer = dmPeerOf(room); return peer ? [peer] : [] }))
   const queryField = $('homeRoomQuery') as HTMLInputElement
   const query = queryField.value.trim().toLocaleLowerCase()
   const projects = projectChoices(rooms)
@@ -14329,7 +14275,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
 
   const present = here ? [] : watched!.watch.present()
   const presence = present.length > 0 ? presenceText(present) : undefined
-  if (present.length) wantProfiles(present.map((p) => p.participant), 'public')
+  if (present.length) profiles.want(present.map((p) => p.participant))
 
   const description = [unreadSpoken, mention ? 'Mentions you' : '', preview, time, presence?.spoken].filter(Boolean).map(part => part!.replace(/([^.])\.$/, '$1')).join('. ')
   return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, mention, description }
@@ -15086,10 +15032,6 @@ function resetRoomState(): void {
   roomRelayConfig = relayConnections.configuration('default')
   roomRelayHints = []
   iceUrls = DEFAULT_ICE_URLS
-  // The lookups made for this room end with it. Going home on a docked call
-  // never reaches `roomFromLocation`, which is where the next room restarts
-  // them, so without this the old room's relays stayed in the pool.
-  profiles.restart()
   // Carrying others, and this device's key, belong to the docked call.
   if (!docked()) {
     myDeviceId = ''
@@ -16280,7 +16222,7 @@ function invitationModel(): WaitingInvitation[] {
     const known = !!contact || !!card || follows.follows(peer)
     // Somebody unknown is never looked up: asking public relays about them
     // would tell those relays who wrote to this account.
-    if (known) wantProfiles([peer], 'public')
+    if (known) profiles.want([peer])
     const profile = known ? profiles.get(peer) : undefined
     return { id: invitation.id, pubkey: peer, sentAt: invitation.sentAt, ...inviterIdentity({
       ...(contact?.name ? { signetName: contact.name } : {}), ...(card?.name ? { cardName: contactLabel(card) } : {}), known,
@@ -16570,7 +16512,7 @@ function linkSignetContacts(opener: HTMLElement): void {
     sentInvitations: peer => invitationsSentTo(peer).map(({ room, at, joined }) => ({
       roomId: room.roomId, label: knownRoomLabel(room), joined, ...(at !== undefined ? { at } : {}), open: () => openFromPeople(room),
     })),
-    want: pubkeys => wantProfiles(pubkeys, 'public'),
+    want: pubkeys => profiles.want(pubkeys),
     pasteCard: pasteContactCard,
     linkSignet: linkSignetContacts,
     showMyCard: showMyCardSheet,
@@ -16759,7 +16701,6 @@ $('chatSearch').addEventListener('click', () => conversationSearch.open($('chatS
 let profileReturnFocus: HTMLElement = $('roomMenu')
 function openProfileSettings(from: HTMLElement): void {
   profileReturnFocus = from
-  renderLookupHosts()
   closeRoomSheet()
   ;($('profileSettings') as HTMLDialogElement).showModal()
   $('lookupProfiles').focus()
@@ -16912,7 +16853,7 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
 function roomRelaysApplied(entries: RelayConfig[]): void {
   roomRelayConfig = entries
   relays = entries.map(relay => relay.url)
-  profiles.restart()
+  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
   if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
   renderIdentity()
   if (currentRoomId()) {
@@ -20744,7 +20685,7 @@ Promise.all([roomArrival, identityReady]).then(async ([found]) => {
 // The pubkey we would join as, so the identity line is right before the
 // first room is ever opened.
 const known = currentParticipant()
-if (known) wantProfiles([known], 'public')
+if (known) profiles.want([known])
 
 // Restore only explicit discovery preferences after all screen state exists.
 boxDiscovery = new BoxDiscovery({
