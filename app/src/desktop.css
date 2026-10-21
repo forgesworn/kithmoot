@@ -218,27 +218,36 @@ html[data-desktop][data-room-switching] #identityMore,
 html[data-desktop][data-room-switching] #roomNav,
 html[data-desktop][data-room-switching] #status { display: none !important; }
 
-/* The macOS hidden title bar (design-calm-stage7, part A). */
-:root[data-title-bar='inset'] { --titlebar-h: 52px; }
+/* The macOS hidden title bar (design-calm-stage7, part A): a strip of its
+   own across the top, a shade apart from the panes, so it reads as the place
+   to drag the window. The traffic lights sit in it; the app starts below. */
+:root[data-title-bar='inset'] {
+  --titlebar-h: 40px;
+  --titlebar-bg: color-mix(in srgb, var(--selected) 70%, var(--surface));
+}
 :root[data-title-bar='inset'][data-window-full-screen] { --titlebar-h: 0px; }
+:root[data-title-bar='inset'] body { padding-top: var(--titlebar-h); }
 :root[data-title-bar='inset'] body::before {
   content: '';
   position: fixed;
   inset: 0 0 auto 0;
   height: var(--titlebar-h);
+  background: var(--titlebar-bg);
+  box-shadow: inset 0 -1px 0 var(--line);
   -webkit-app-region: drag;
   pointer-events: none; /* never takes a click from what is under it */
+}
+@media (forced-colors: active) {
+  :root[data-title-bar='inset'] body::before { background: Canvas; box-shadow: inset 0 -1px 0 CanvasText; }
 }
 :root[data-title-bar='inset'] :is(button, a, input, select, textarea, summary, label, video,
   [role='button'], [role='menu'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'],
   [role='tab'], [role='tablist'], [tabindex='0'], [contenteditable], [popover], dialog) {
   -webkit-app-region: no-drag;
 }
-/* Belt and braces for the band above: the rail and the header bars drag the
+/* Belt and braces for the strip above: the rail and the header bars drag the
    window too, as plain elements, so the window can always be moved. */
 :root[data-title-bar='inset'] :is(#rail, .listHead, .roomBar) { -webkit-app-region: drag; }
-/* The lights sit over the rail; its first control starts under them. */
-:root[data-title-bar='inset'] #rail { padding-top: max(var(--s3), var(--titlebar-h)); }
 /* The room's name is a button: shrink it to its text so the rest of the header drags. */
 :root[data-title-bar='inset'] .roomIdentity { flex: 0 1 auto; margin-inline-end: auto; }
 /* A focused skip link appears clear of the lights. */
