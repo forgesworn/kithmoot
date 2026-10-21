@@ -277,15 +277,18 @@ device's IP address and the time, as any web request does.
   <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS; docs/run-your-own.md "Files" -->
 
 - **Relays asked for public profiles.** To show people's chosen names
-  and pictures, the app asks for the public Nostr profile of each person
-  in the room. It asks the room's own relays and three public relays that
-  are not the room's: purplepag.es (a relay that gathers profiles),
-  relay.damus.io and relay.primal.net. Each learns the public
-  keys asked about, which are the keys of the people in the room, and the
-  address the question came from. The room itself keeps those keys inside
-  its encryption; this lookup is what hands them to relays in the clear,
-  and a relay that also carries the room can link them to it.
-  <!-- app/src/main.ts PROFILE_RELAYS; app/src/profiles.ts header: "That hands all of those relays the participant pubkeys of everybody in the room, in the clear, as a query"; ProfileBook.want subscribes with { kinds: [0], authors } -->
+  and pictures, the app asks for the public Nostr profile of the people
+  it shows you: those in a room, in your private chats list and in People,
+  and, if you already know them, whoever sent you an invitation. It asks
+  three public relays that are not the room's: purplepag.es (a relay that
+  gathers profiles), relay.damus.io and relay.primal.net. For the people
+  in the room you have open it also asks that room's own relays. Each
+  learns the public keys it was asked about and the address the question
+  came from. The room itself keeps those keys inside its encryption; this
+  lookup is what hands them to relays in the clear, and a relay that also
+  carries the room can link them to it. A key your browser made for itself
+  when you joined with only a name is never asked about.
+  <!-- app/src/main.ts PROFILE_RELAYS, wantProfiles (scope 'room' for the chat log and call tiles of the open room, 'public' for everyone else); app/src/profile-lookups.ts routeLookups; app/src/profiles.ts header: "That hands all of those relays the participant pubkeys of everybody in the room, in the clear, as a query"; ProfileBook.want subscribes with { kinds: [0], authors } -->
 - **The domain in a Nostr address, if you turn checking on.** If a
   person's profile names a Nostr address (name@domain) and you have ticked
   "Verify Nostr addresses", the app asks that domain to confirm it. The
@@ -301,13 +304,13 @@ device's IP address and the time, as any web request does.
   <!-- app/src/main.ts pictureOf: img.src = profile picture, referrerPolicy 'no-referrer'; app/src/profiles.ts safePicture allows http: and https: -->
 
 Profile lookups and pictures are **on by default**. Turn them off under
-Settings, Connections, "Profile pictures and names" (also in a room's
-menu), by clearing "Show public profile pictures, names and Nostr
-addresses". The choice is saved on your device. Turning it off stops
-further lookups and removes loaded profiles and pictures; it cannot
-recall a request already sent. Checking Nostr addresses is **off by
-default**, under "Verify Nostr addresses" in the same place.
-<!-- app/src/relay-settings.ts profilePreference: on unless 'kithmoot.profiles.enabled' is 'false'; nip05VerifyPreference: off unless 'kithmoot.nip05.verify' is 'true'; app/index.html #lookupProfiles checked, #verifyAddresses unchecked, buttons #appProfileSettings and #roomProfileSettings; ProfileBook.setEnabled aborts checks and closes subscriptions -->
+Settings, Privacy, "Show public profile pictures and names", by clearing
+"Show public profile pictures, names and Nostr addresses". The choice is
+saved on your device. Turning it off stops further lookups and removes
+loaded profiles and pictures; it cannot recall a request already sent.
+Checking Nostr addresses is **off by default**, under "Verify Nostr
+addresses" in the same place.
+<!-- app/src/relay-settings.ts profilePreference: on unless 'kithmoot.profiles.enabled' is 'false'; nip05VerifyPreference: off unless 'kithmoot.nip05.verify' is 'true'; app/index.html #lookupProfiles checked, #verifyAddresses unchecked, buttons #appProfileSettings and #privacyProfiles; ProfileBook.setEnabled aborts checks and closes subscriptions -->
 
 The desktop app also makes your device contact:
 

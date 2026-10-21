@@ -583,16 +583,20 @@ open; coming back within the twelve hours reuses the last).
   the only signal that exists. Nothing on the wire distinguishes a real
   Nostr key from one this browser generated a moment ago, and nothing
   could.
-- **Public-profile lookup is on by default.** Room details offers a
-  switch remembered on this device. Looking profiles up gives the room's
-  relays, and a fixed set of public aggregator relays (purplepag.es,
-  relay.damus.io and relay.primal.net), the participant keys in
-  plaintext queries, and loading pictures contacts their hosts. NIP-05
-  addresses are checked with their domains and shown only when the address
-  maps to the profile key. Turning it off stops further lookups and removes
-  the loaded profiles; it cannot retract requests already sent. Other
-  members can independently enable lookups, so this is not a room-wide
-  privacy guarantee.
+- **Public-profile lookup is on by default.** Settings, Privacy offers a
+  switch remembered on this device. Looking profiles up gives a fixed set
+  of public aggregator relays (purplepag.es, relay.damus.io and
+  relay.primal.net) the keys of the people in your rooms, your private
+  chats list, People and the invitations you know the sender of, in
+  plaintext queries. The relays of the room you have open are asked as
+  well, but only about the people in that room. A key this browser made
+  for itself is never asked about. Loading pictures contacts their hosts.
+  NIP-05 addresses are checked with their domains only if "Verify Nostr
+  addresses" is switched on, which it is not by default, and are shown
+  only when the address maps to the profile key. Turning lookups off stops
+  further lookups and removes the loaded profiles; it cannot retract
+  requests already sent. Other members can independently enable lookups,
+  so this is not a room-wide privacy guarantee.
 - **A kind-0 name is also self-asserted.** It says "the holder of this key
   calls themselves Robin", which is the same kind of claim as a typed
   name; the difference is that the key is persistent and has a history.
