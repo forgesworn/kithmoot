@@ -25,6 +25,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
       const id = ++socketId, url = new URL(socket.url())
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
       record({ side, type: 'socket', socket: id, origin: url.origin, path: url.pathname, local })
+      socket.on('socketerror', error => record({ side, type: 'socket-error', socket: id, message: error }))
       if (!local) { complete = false; return }
       const frameObserved = (direction: 'framesent' | 'framereceived', frame: { payload: string | Buffer }) => {
         const bytes = Buffer.from(frame.payload)
