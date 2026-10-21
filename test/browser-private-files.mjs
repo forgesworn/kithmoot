@@ -57,7 +57,8 @@ export async function privateFileOwnerCleanup(owner, app, proof) {
   await page.locator('#forgetBrowser').click()
   const blockedForget = page.getByRole('alertdialog',{name:'Forget this browser?',exact:true})
   await blockedForget.getByRole('button',{name:'Forget this browser',exact:true}).click()
-  await expect(page.getByText('Private upload records are retained.',{exact:false})).toBeVisible()
+  await expect(page.locator('#forgetBrowserStatus')).toBeVisible()
+  await expect(page.locator('#forgetBrowserStatus')).toContainText('Private upload records are retained.')
   await expect(page.locator('#homeSignIn')).toBeHidden()
   proof.unresolvedUploadBlocksForget = true
   await page.locator('#privateFileUploadsOpen').click()

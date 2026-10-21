@@ -1597,12 +1597,18 @@ async function signOutOfNostr(): Promise<void> {
  * and it does not touch signed-in room bookmarks kept there either - those
  * are removed one room at a time with Forget room, same as today.
  */
+function setForgetBrowserStatus(message: string): void {
+  // Settings is its own pane; the arrival-page status is hidden behind it.
+  $('forgetBrowserStatus').textContent = message
+  setStatus(message)
+}
 async function forgetThisBrowser(): Promise<void> {
+  $('forgetBrowserStatus').textContent = ''
   return withLegacyMessagesClosed(async () => {
     if (import.meta.env.DEV && browserMlsRoomPanel) await pauseBrowserMls()
     const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
     if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
-      setStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
+      setForgetBrowserStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
     }
   })
 }
@@ -1610,11 +1616,11 @@ async function forgetThisBrowserContents(): Promise<void> {
   return withLegacyMessagesClosed(async () => {
     if (browserMlsPreview) {
       const { BrowserMlsAccount } = await import('./mls-persona-account.js')
-      if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
+      if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setForgetBrowserStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
       if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
     }
-    if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
-    if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
+    if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setForgetBrowserStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
+    if (callIsLive() || onCall()) { setForgetBrowserStatus('Leave the call before forgetting this browser.'); return }
     if (!await confirmRoomAction({
       title: 'Forget this browser?',
       message: 'This removes, from this browser only:\n'
@@ -1676,7 +1682,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     history.replaceState(null, '', joinLinkBase())
     }) } finally { forgettingBrowser = false }
     if (!forgotten) {
-      setStatus('Private upload records are retained. Review and delete the recorded uploads before forgetting this browser; uncertain files may already be stored. Private file access is now held.')
+      setForgetBrowserStatus('Private upload records are retained. Review and delete the recorded uploads before forgetting this browser; uncertain files may already be stored. Private file access is now held.')
       renderFileStorage()
       return
     }
@@ -17152,6 +17158,7 @@ function enterSettings(): void {
     moveIntoSettings($('accountHome'), $('appSettingsYou')),
     moveIntoSettings($('privateFileUploadsOpen'), $('appSettingsYou')),
     moveIntoSettings($('forgetBrowser'), $('appSettingsYou')),
+    moveIntoSettings($('forgetBrowserStatus'), $('appSettingsYou')),
   ]
   settingsRow = undefined
   showSettingsPage('main')
@@ -17264,7 +17271,7 @@ $('importBrowserRooms').addEventListener('click', () => {
 })
 for (const id of ['forgetBrowser']) {
   $(id).addEventListener('click', () => {
-    forgetThisBrowser().catch((err) => setStatus(describeError(err)))
+    forgetThisBrowser().catch((err) => setForgetBrowserStatus(describeError(err)))
   })
 }
 
