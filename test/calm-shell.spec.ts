@@ -1332,3 +1332,25 @@ test('a refused microphone says so in the call, with what to do', async ({ brows
     await expect(page.locator('#mediaBlockedNote')).toBeVisible()
   } finally { await context.close() }
 })
+
+
+for (const width of [390, 1440]) {
+  test(`a signed-in person can open Bothy routing before selecting a private route at ${width}`, async ({ browser, baseURL }) => {
+    const { context, page } = await account(browser, baseURL!, { width, height: 900 })
+    try {
+      await joinRoom(page)
+      await openRoomInfoPage(page, 'Privacy and connection')
+      await expect(page.locator('#infoSubPrivacy')).toHaveText('Encrypted · public relays')
+      await page.getByRole('button', { name: 'Bothy routing', exact: true }).click()
+      await expect(page.locator('#bothyRoomSettings')).toHaveJSProperty('open', true)
+      await expect(page.locator('#bothyRoomStatus')).toContainText('Activation closes this room’s public connections')
+      await expect(page.locator('#bothyRoomRoute option')).toHaveCount(0)
+      await page.getByRole('button', { name: 'Activate or resume room', exact: true }).click()
+      await expect(page.locator('#bothyRoomStatus')).toHaveText('Connect and pair your Bothy in Settings first.')
+      await page.locator('#bothyRoomClose').click()
+      await openRoomInfoPage(page, 'Privacy and connection')
+      await expect(page.locator('#infoSubPrivacy')).toHaveText('Encrypted · public relays')
+      await page.screenshot({ path: test.info().outputPath('bothy-first-selection.png') })
+    } finally { await context.close() }
+  })
+}
