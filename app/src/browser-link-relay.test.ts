@@ -25,6 +25,40 @@ function carrier(challenge = true, acceptEvents = true) {
   return {link, frames, socket, receive: (frame: unknown[]) => listener.onText?.(JSON.stringify(frame))}
 }
 describe('Link relay adapter', () => {
+  it('pins the callback socket factory to its original paired address and route', async () => {
+    const c = carrier(), selected = { ...box }, Socket = linkWebSocket(c.link, selected)
+    selected.eventUrl = `ws://${'b'.repeat(52)}/events`; selected.routeId = 'another-box'
+    let ws: WebSocket | undefined
+    try {
+      expect(() => new Socket(selected.eventUrl)).toThrow('Unpaired')
+      ws = new Socket(box.eventUrl)
+      await Promise.resolve()
+      expect(c.link.openSocket).toHaveBeenCalledExactlyOnceWith(box.eventUrl, box.routeId, expect.any(Object))
+      expect(ws.readyState).toBe(1)
+    } finally { ws?.close() }
+  })
+  it('keeps publication, delivery attribution and reconnect on the originally selected box', async () => {
+    vi.useFakeTimers()
+    const c = carrier(), selected = { ...box }, pool = new BrowserLinkRelay(c.link, selected, identity, { room, kinds: [1460] })
+    try {
+      selected.eventUrl = `ws://${'b'.repeat(52)}/events`; selected.routeId = 'another-box'
+      // A returned description must not become an alternative way to retarget it.
+      const exposed = pool.box
+      try { (exposed as typeof box).routeId = selected.routeId; (exposed as typeof box).eventUrl = selected.eventUrl } catch { /* A read-only view may refuse mutation. */ }
+      const received = vi.fn(), signed = event()
+      pool.subscribe([{ kinds: [1460], '#d': [room] }], received)
+      await pool.publish(signed)
+      c.receive(['EVENT', c.frames.find(f => f[0] === 'REQ')![1], signed])
+      expect(received).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: signed.id, sig: signed.sig }), box.eventUrl)
+      expect(pool.describe()).toEqual([{ url: box.eventUrl, read: true, write: true, circle: true }])
+      c.socket.disconnect()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(c.link.openSocket).toHaveBeenCalledTimes(2)
+      for (const [url, route] of c.link.openSocket.mock.calls) expect([url, route]).toEqual([box.eventUrl, box.routeId])
+      expect(c.frames.map(f => f[0])).toEqual(['AUTH', 'REQ', 'EVENT', 'AUTH', 'REQ'])
+      expect(pool.health()[0].state).toBe('connected')
+    } finally { pool.close(); vi.useRealTimers() }
+  })
   it('authenticates before sending room frames and delivers only verified matching events', async () => {
     const c=carrier(), pool=new BrowserLinkRelay(c.link,box,identity,{room,kinds:[1460]})
     const received=vi.fn(), eose=vi.fn()

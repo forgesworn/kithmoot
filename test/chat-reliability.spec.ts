@@ -26,6 +26,36 @@ async function join(page: Page, url: string, name: string): Promise<void> {
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
+test('a reachable relay sends while the browser reports offline', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!)
+  // Model the browser's heuristic only. The actual relay, socket, queue,
+  // publication and received message remain real acceptance-test paths.
+  await context.addInitScript(() => Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false }))
+  const relay = testRelay(baseURL!), secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const sent: string[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sent.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage()
+    await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    expect(await page.evaluate(() => navigator.onLine)).toBe(false)
+    await page.locator('#chatInput').fill('A local relay is still reachable')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog')).toContainText('A local relay is still reachable')
+    await expect(page.locator('#outbox')).toBeHidden()
+    expect(sent).toHaveLength(1)
+    expect(await page.evaluate(() => navigator.onLine)).toBe(false)
+  } finally { await context.close() }
+})
+
 test('a lost acknowledgement keeps the message until it shows, and never sends it twice', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!)
   const relay = testRelay(baseURL!)
@@ -211,6 +241,58 @@ test('a chosen wait before sending gives a moment to undo, and Send now skips it
     await expect(page.locator('#chatLog')).toContainText('Said with care')
     await expect(page.locator('#chatLog')).not.toContainText('Said in haste')
     expect(new Set(chatEvents).size).toBe(1)
+  } finally { await context.close() }
+})
+
+test('countdown redraw preserves a pressed Undo or Send now button', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.send-delay', '10'))
+  const relay = testRelay(baseURL!)
+  const secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const sent: string[] = []
+  await context.routeWebSocket(relay, socket => {
+    const upstream = socket.connectToServer()
+    socket.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sent.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => socket.send(raw))
+  })
+  try {
+    const page = await context.newPage()
+    await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    const holdAcrossTick = async (name: string) => {
+      const row = page.locator('#outbox .pendingMsg')
+      const status = row.locator('.pendingStatus')
+      await expect(status).toContainText(/Sending in \d+ s/)
+      const before = await status.innerText()
+      const button = await row.getByRole('button', { name, exact: true }).elementHandle()
+      expect(button).not.toBeNull()
+      const bounds = await button!.boundingBox()
+      expect(bounds).not.toBeNull()
+      await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2)
+      await page.mouse.down()
+      try {
+        // Wait for the app's real countdown update, not an injected redraw or
+        // an arbitrarily timed click that can miss the original race.
+        await expect(status).not.toHaveText(before)
+        expect(await button!.evaluate(element => element.isConnected)).toBe(true)
+      } finally { await page.mouse.up() }
+    }
+    await page.locator('#chatInput').fill('Keep this unsent draft')
+    await page.locator('#chatInput').press('Enter')
+    await holdAcrossTick('Undo')
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this unsent draft')
+    await expect(page.locator('#outbox')).toBeHidden()
+    expect(sent).toEqual([])
+    await page.locator('#chatInput').fill('Send this after the tick')
+    await page.locator('#chatInput').press('Enter')
+    await holdAcrossTick('Send now')
+    await expect(page.locator('#chatLog')).toContainText('Send this after the tick')
+    await expect(page.locator('#chatLog')).not.toContainText('Keep this unsent draft')
+    expect(sent).toHaveLength(1)
   } finally { await context.close() }
 })
 

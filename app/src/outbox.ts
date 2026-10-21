@@ -12,6 +12,7 @@ export class Outbox {
   readonly #root: HTMLElement
   #roomId?: string
   #ids = new Set<string>()
+  #modelKey?: string
 
   /** `sending` is what a row says while its publish is in flight: a relay
    *  takes an ordinary message in a moment, a quiet room's at its next slot,
@@ -34,6 +35,26 @@ export class Outbox {
   render(): void {
     const roomId = this.room()
     const items = roomId ? this.queue.items(roomId) : []
+    // A countdown changes the status text, not the message or its controls.
+    // Detaching a pressed button between pointer-down and pointer-up can lose
+    // Undo/Send now entirely, even when focus is restored to its replacement.
+    // Include every presentation field and permission; event bytes are already
+    // identified by their signed id and do not need serialising on each tick.
+    const modelKey = JSON.stringify([roomId, items.map(item => {
+      const { event, ...presentation } = item
+      return [presentation, event.id, this.canEdit(item), this.doomed(item)]
+    })])
+    if (modelKey === this.#modelKey && this.#root.children.length === items.length &&
+      items.every((item, index) => this.#root.children[index]?.getAttribute('data-pending-id') === item.id)) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]!
+        const status = this.#root.children[i]?.querySelector('.pendingStatus')
+        const text = this.doomed(item) ? this.doomedText : this.#status(item)
+        if (status && status.textContent !== text) status.textContent = text
+      }
+      this.#root.hidden = items.length === 0
+      return
+    }
     const added = roomId !== this.#roomId || items.some(item => !this.#ids.has(item.id))
     const scrollTop = this.#root.scrollTop
     const follow = this.#root.scrollHeight - this.#root.clientHeight - scrollTop < 48
@@ -49,6 +70,7 @@ export class Outbox {
     // this scrollbox. Status-only redraws preserve someone reading above it.
     this.#root.scrollTop = added || follow ? this.#root.scrollHeight : scrollTop
     if (focusedId && focusedAction) this.#root.querySelector<HTMLElement>(`[data-pending-id="${focusedId}"] [data-action="${focusedAction}"]`)?.focus()
+    this.#modelKey = modelKey
   }
 
   #row(item: PendingSend): HTMLElement {
