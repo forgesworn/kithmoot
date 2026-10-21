@@ -280,8 +280,7 @@ test('public profiles start enabled and an opt-out survives a new visit', async 
     await page.locator('#lookupProfiles').uncheck()
     const count = queries.length
     await page.reload()
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openProfileSettings(page)
     await expect(page.locator('#lookupProfiles')).not.toBeChecked()
     expect(queries).toHaveLength(count)

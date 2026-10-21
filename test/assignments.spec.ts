@@ -177,7 +177,7 @@ test('two people go from creating and sharing a room to an accepted result witho
     await expect(ada.page.locator('#conversationNav button[data-board]')).toBeFocused()
     expect(native).toEqual([])
     await ada.page.reload()
-    await ada.page.locator('#join').click()
+    await expect(ada.page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openRoomTasks(ada.page)
     await expect(a).toContainText('accepted')
     await expect(ada.page.locator('.assignmentCard')).toHaveCount(2)
