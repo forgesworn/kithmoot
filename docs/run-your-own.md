@@ -132,7 +132,7 @@ A room's keeper can be told of a group's own storage nodes, so that a node
 serves only the devices the keeper has admitted. A node is `wildbloomd`
 started with `--group-mode` and `--group-keeper <authority key>:<ceiling>`,
 and `--server-name` set to its host name; the keeper is started with
-`--group-node <https://that-host>` and `--group-bytes <n>`, and `--state`
+`--group-node <https://that-host>` (`http` only for a node on the same machine) and `--group-bytes <n>`, and `--state`
 (see `agents.md`, "Group storage grants", for what it signs and when). The
 contract both sides follow is wildbloom-node's `docs/GROUP-GRANTS.md`.
 

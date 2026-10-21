@@ -165,11 +165,13 @@ Wildbloom node running in group mode (`wildbloomd --group-mode`; contract:
 wildbloom-node `docs/GROUP-GRANTS.md`). Both are needed, with `--state`: the
 byte ceiling per device is the node owner's choice and has no default, and
 the keeper keeps what it has signed in `<state>.grants` beside the state
-file, under the same lock. Without `--group-node` nothing here runs and the
-keeper behaves as it always did. Only `http` and `https` nodes are supported;
-an onion node is refused. The node's own `--server-name` must be the node's
-host name as written in the URL, lower case and without the port, because
-that is the grant's `server` tag.
+file, under the same lock. Copy it with the state file when a keeper moves to
+another machine or is restored from a backup. Without `--group-node` nothing
+here runs and the keeper behaves as it always did. Nodes are `https`, or
+`http` for a node on the same machine (`localhost`, `127.x`); an onion node is
+refused. The node's own `--server-name` must be the node's host name as
+written in the URL, lower case and without the port, because that is the
+grant's `server` tag.
 
 What the keeper does:
 
@@ -178,11 +180,10 @@ What the keeper does:
   authority key: scopes `upload`, `get` and `delete`, the byte ceiling, a
   fresh 16-byte grant id, valid for 30 days. It sends each as a
   `storage-grant` control op in the room and pushes it to its node with
-  `POST /groups/v1/events`. A device that appears while the keeper is
-  offline is granted when the keeper next hears it. A device heard only
-  before the room's last rekey does not count until it speaks again in the
-  current epoch, so a key that was only ever heard in an old epoch is never
-  granted.
+  `POST /groups/v1/events`, once the ledger has recorded it. A device that
+  appears while the keeper is offline is granted when the keeper next hears
+  it. A device heard only before the room's last rekey does not count until it
+  speaks again in the current epoch.
 - It renews a grant (same id, later times) when 10 days or fewer are left,
   while the device is still being heard in the current epoch under a
   credential that is still valid. A device that is not heard is not renewed
@@ -198,32 +199,52 @@ What the keeper does:
   revocation of every grant id it issued to that participant's devices at
   every node, pushes them (waiting at most five seconds, so a node that is
   down never holds the rekey back), publishes the rekey as ever, and then
-  posts the revocations in the new epoch for the remaining members to carry.
-  A removal begun before a restart is finished on the next start.
+  posts the revocations in the room's new epoch. Removing somebody never
+  depends on the ledger being writable or on a node or relay answering: if
+  the ledger cannot be saved the revocations are pushed from memory, the
+  rekey still happens, and the hosts are told. A removal begun before a
+  restart is finished on the next start.
 - Closing the room signs a `reset` at every node, sends it in the room and
-  pushes it, again waiting at most five seconds. A closed room is never
-  reopened, so a node that was down at that moment gets the reset only from a
-  member who read it in the room, or when the grants expire (30 days at the
-  most, and nothing renews after the close).
+  pushes it, waiting at most five seconds. From the moment the close begins
+  nothing is granted, renewed or re-sent. A closed room is never reopened, so
+  a node that was down for that wait is not retried by the keeper: today
+  nothing else delivers the reset to it (no client carries revocations or
+  resets yet), and what that node holds ends when the grants run out, 30 days
+  at the most, because nothing renews after the close.
 - A push is kept in the ledger's journal until the node answers 200, 201 or
-  409. 429, 502, 503, 504 and network errors are retried with a growing
-  delay, across restarts (502 and 504 are this keeper's own policy beyond the
-  contract). A 409 that means the grant was not recorded (`key-conflict`,
-  `scope-taken`, `floor`, `scope-changed`), and any other answer, stop the
-  retries for that event and are reported with an `error` op.
+  409. 429, 502, 503, 504, `403 future` (the node's clock is behind) and
+  network errors are retried with a growing delay, never sooner than a
+  `Retry-After`, across restarts, until the event runs out (502, 504 and
+  `future` are this keeper's own policy beyond the contract). A 409 that means
+  the grant was not recorded (`key-conflict`, `scope-taken`, `floor`,
+  `scope-changed`), and any other answer, stop the retries for that event and
+  are reported with an `error` op. A first grant the node refused for good is
+  revoked, so it can never land later, and signed afresh after a cooldown that
+  grows each time; a refused renewal is signed again the same way. An event
+  that runs out before a node takes it is dropped with a log line.
+- On a node, a pending reset is pushed before anything else there, and one
+  device's events go in the order they were signed.
 - Grants, revocations and resets are never published on a relay. They travel
   only in the room's encrypted control channel and by HTTP to the node.
 - A node dropped from the flags is still sent the revocations of a removal,
   at the address the keeper remembers, and events already waiting for it are
   retried for a day and then given up.
+- Today the keeper's own journal, and the grants running out, are the only
+  ways a node learns of a revocation. The room carries them for clients to
+  pass on later (phase S5); no client does yet.
 
-`--group-reset` is for a ledger that is missing or unreadable. Without it the
-keeper refuses to start on an unreadable ledger and leaves the file alone. With
-it, the unreadable file is moved to `<state>.grants.unreadable-<unix seconds>`
-(never deleted), a reset is signed at every node so that nothing issued before
-it stands, and fresh grants follow. A ledger that reads is used as it is and
-the flag is ignored. `<state>.grants` is removed with the rest when a room
-self-destructs, but a moved-aside copy is not: delete it by hand.
+If the ledger is missing for a room that already existed (a keeper moved or
+restored without `<state>.grants`, or group nodes only now switched on), the
+keeper signs a reset at every node before it issues anything, so that no grant
+it no longer remembers outlives the next removal, and says why. A brand-new
+room needs none. An unreadable ledger is another matter: the keeper refuses to
+start, before it joins the room or contacts a relay, and leaves the file
+alone. `--group-reset` lets it start: the unreadable file is moved to
+`<state>.grants.unreadable-<unix seconds>` (never deleted), a reset is signed
+at every node so that nothing issued before it stands, and fresh grants
+follow. A ledger that reads is used as it is and the flag is ignored.
+`<state>.grants` and any `<state>.grants.unreadable-*` beside it are removed
+when a room self-destructs.
 
 Group grants are not offered to a keeper started with a live-keeper journal,
 and MLS rooms have no authority key to sign them. Clients do not yet upload to
@@ -612,7 +633,8 @@ At the end, or on starting up and finding the room already over, `kithmoot-agent
   and the link's retirement stay, so a member who was away still learns the
   room ended.
 - closes the room, when it is the keeper.
-- removes the keeper's state file, `<state>.link` and `<state>.lock`, the
+- removes the keeper's state file, `<state>.link`, `<state>.lock`, the group
+  grant ledger `<state>.grants` and any `<state>.grants.unreadable-*`, the
   `private.json` of a joined agent, the `log.jsonl` in `--memory`, the
   assignment files for the room, and the `--context` file and its lock.
 - drops the room's content from memory by exiting.

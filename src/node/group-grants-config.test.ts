@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FileGroupGrantStore, groupGrantLedgerPath, groupGrantsFromFlags } from './group-grants-config.js'
+import { FileGroupGrantStore, groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers } from './group-grants-config.js'
 
 const flags = (over: Partial<Parameters<typeof groupGrantsFromFlags>[0]> = {}) => ({
   nodes: ['https://files.example.net'], bytes: '1000', reset: false, command: 'create', statePath: '/state/room.json', log: () => {}, ...over,
@@ -45,6 +45,11 @@ describe('group node flags', () => {
     expect(() => groupGrantsFromFlags(flags({ nodes: ['not a url'] }))).toThrow(/not a URL/)
   })
 
+  it('plain http only for a node on this machine', () => {
+    expect(() => groupGrantsFromFlags(flags({ nodes: ['http://files.example.net'] }))).toThrow(/plain http/)
+    expect(groupGrantsFromFlags(flags({ nodes: ['http://localhost:3742'] }))).toBeDefined()
+  })
+
   it('--group-reset is carried through', () => {
     expect(groupGrantsFromFlags(flags({ reset: true }))!.resetUnreadable).toBe(true)
     expect(groupGrantsFromFlags(flags())!.resetUnreadable).toBeUndefined()
@@ -71,5 +76,18 @@ describe('the ledger file', () => {
     expect(second).toBe(`${store.path}.unreadable-1800000000-1`)
     expect(await readFile(moved!, 'utf8')).toBe('{"a":2}')
     expect(await store.moveAside(1)).toBeUndefined()
+  })
+
+  it('lists the ledgers moved aside, so a self-destruct can remove them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kithmoot-aside-'))
+    const state = join(dir, 'room.json')
+    const store = new FileGroupGrantStore(groupGrantLedgerPath(state))
+    await writeFile(store.path, 'x')
+    await store.moveAside(5)
+    await writeFile(store.path, 'y')
+    await store.moveAside(5)
+    await writeFile(join(dir, 'other.grants.unreadable-1'), 'z')
+    expect(movedAsideLedgers(state).sort()).toEqual([`${store.path}.unreadable-5`, `${store.path}.unreadable-5-1`])
+    expect(movedAsideLedgers(join(dir, 'missing', 'room.json'))).toEqual([])
   })
 })

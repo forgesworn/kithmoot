@@ -74,6 +74,7 @@ epoch's reading key, but what it does hold re-derives every secret.
 |---|---|---|---|---|
 | Keeper state file (`src/keeper-state.ts`) | Room secret (epoch 0), inviter (authority) secret, current epoch and its secret, the removed | Plain JSON, mode 0600 | One epoch, overwritten at each rekey | Deleting the file |
 | `<state>.link` | The link | Plain, 0600 | One | Deleting the file |
+| `<state>.grants`, `<state>.grants.unreadable-*` | A keeper with group storage nodes: which device holds which grant at which node, and which participant it belongs to; the signed grant events | Plain JSON, 0600 | Records until a day after they end | Deleting the files (a self-destructing room removes them) |
 | `private.json` | Links to private conversations the agent accepted | Plain JSON, 0600 | All | Never pruned |
 | Host identity file (`src/node/host.ts:294`) | A hosted agent's participant key | Plain, 0600 | One | Deleting the file |
 

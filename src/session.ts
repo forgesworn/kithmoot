@@ -1222,12 +1222,9 @@ export class RoomSession {
    * before the room moved on) is not here until it speaks again in this epoch.
    *
    * What a keeper may act on when it hands out anything for a device (group
-   * storage grants): the rekey of a removal is sealed to the roster alone, so
-   * a device heard in an older epoch may belong to somebody who held that
-   * epoch's key and has since been removed, and a roster entry under a fresh
-   * participant key, posted in the old epoch before the rekey, is not a
-   * member. Devices of current members that were offline across the rekey
-   * follow it (they are sealed to it) and are here once they announce.
+   * storage grants). It covers one thing: a device heard only in an earlier
+   * epoch, or only remembered, is left out. A device of a current member that
+   * was offline across a rekey follows it and is here once it announces.
    */
   devicesHeardThisEpoch(now: number = this.#now()): { device: string; participant: string; credential: DeviceCredential; seen: number }[] {
     return this.recentCredentials(now).filter((d) => this.#credentialEpoch.get(d.device) === this.#epoch.epoch)

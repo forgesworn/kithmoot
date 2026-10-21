@@ -46,7 +46,7 @@ import type { RoomFiles } from './self-destruct.js'
 import { validateAssignmentActions } from '../assignments.js'
 import { STDIO_PROTOCOL } from './stdio-protocol.js'
 import { acquireStateLock, StateLockHeldError } from './state-lock.js'
-import { groupGrantLedgerPath, groupGrantsFromFlags } from './group-grants-config.js'
+import { groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers } from './group-grants-config.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -160,8 +160,9 @@ Options
                            has said something since the last turn. 0, the default,
                            is off. Old app releases show each turn as a line in
                            the room, so leave it off until members have updated.
-  --group-node <url>       (create) A group storage node (an http or https base URL,
-                           for example https://files.example.net) whose grants this
+  --group-node <url>       (create) A group storage node (an https base URL, for example
+                           https://files.example.net; http only for a node on this
+                           machine, localhost or 127.x) whose grants this
                            keeper signs for every device it admits, sends in the
                            room, renews and revokes. Repeatable (or comma separated
                            in KITHMOOT_GROUP_NODES). Needs --state and --group-bytes.
@@ -416,7 +417,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   // take it with it. A shared --memory directory loses its log.jsonl whole.
   const keptFiles = (room?: { roomId: string }): RoomFiles => ({
     files: [
-      ...(command === 'create' && statePath ? [statePath, `${statePath}.link`, `${statePath}.lock`, groupGrantLedgerPath(statePath)] : []),
+      ...(command === 'create' && statePath ? [statePath, `${statePath}.link`, `${statePath}.lock`, groupGrantLedgerPath(statePath), ...movedAsideLedgers(statePath)] : []),
       ...(command === 'join' && statePath ? [join(statePath, 'private.json')] : []),
       ...(common.memory ? [join(common.memory, 'log.jsonl')] : []),
       ...(values.context ? [values.context, `${values.context}.lock`] : []),

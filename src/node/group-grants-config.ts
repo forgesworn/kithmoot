@@ -1,9 +1,17 @@
 import { mkdir, readFile, rename, rm, writeFile, stat } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readdirSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { GroupGrantKeeper, type GroupGrantStore, type GroupGrantsConfig } from '../group-grants-keeper.js'
 
 /** Where the keeper's group grant ledger lives: beside its state file, under the same lock. */
 export const groupGrantLedgerPath = (statePath: string): string => `${statePath}.grants`
+
+/** Ledgers moved aside by `--group-reset`: they hold the same participant-to-device map, so a self-destruct removes them too. */
+export function movedAsideLedgers(statePath: string): string[] {
+  const dir = dirname(statePath)
+  const prefix = `${basename(groupGrantLedgerPath(statePath))}.unreadable-`
+  try { return readdirSync(dir).filter((f) => f.startsWith(prefix)).map((f) => join(dir, f)) } catch { return [] }
+}
 
 /**
  * The ledger as a file: private (0600), replaced whole by writing a temporary
