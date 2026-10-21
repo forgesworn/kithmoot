@@ -2282,3 +2282,51 @@ the colour People gives them, and "Private chat" under the title. A quiet
 chat keeps "Quiet: Rowan", because it works differently (padded gift wraps,
 two devices per person) and the word is how anyone tells the two apart. The
 ⋯ menu's private-chat items wait for stage 3, which rebuilds that menu.
+
+## The default relays move to the curated list, 21 October 2026
+
+Two of the three defaults, `nos.lol` and `nostr.mom`, have not answered from
+the UK or from Germany since about 19 October. They are also one host, which
+the 5 October entry above found already. Every room made since started on a
+single working relay, `relay.primal.net`, which on 1 October kept an
+invitation event for under a day. The owner accepted the choices in
+`docs/relay-picker-design.md` the same day, and this change is its first
+step.
+
+**The measurement.** On 21 October each candidate's relay information
+(NIP-11) was fetched, a `REQ` with limit 1 was sent for each room kind (1460,
+1462, 1463) and a separate one for gift wraps (1059), and connect and EOSE
+times were taken on two tries. The write test, which would publish one
+expiring event of each kind and delete it, is not run yet: every entry says
+`test: "read"` until it is.
+
+**The criteria**, kept in the doc comment of `src/public-relays.ts`: run by
+someone other than ForgeSworn or its maintainers; relay information names a
+contact or an operator key; free, with no sign-in to read or write the room
+kinds; NIP-40 expiry; connect and EOSE under two seconds on two tries; a
+general relay, not a profile-only one. Three defaults from three operators
+on three hosts, at least two entries that carry quiet rooms.
+
+**The result.** Defaults: `relay.primal.net`, `nostr.oxtr.dev` and
+`relay.nostr.net`. Listed but not default: `offchain.pub`, which refused a
+stranger's gift wrap on 25 September and so is not marked for quiet rooms
+until the write test decides, and `relay.damus.io`, which is large and
+rate-limited the project's test machine in September. `relay.nostr.net`
+needs sign-in to read gift wraps, so it carries room kinds but not quiet
+rooms.
+
+**Left out.** `nos.lol` and `nostr.mom` (unreachable, one host);
+`nostr-pub.wellorder.net` (no contact); `nostr.bitcoiner.social` (3.2 and
+3.5 seconds, only gift wraps seen); `nostr.data.haus` and `relay.angor.io`
+(only gift wraps seen, and angor names no contact); `nostr.wine`,
+`nostr.land` and `nostr21.com` (paid or sign-in); `relay.snort.social`,
+`relay.0xchat.com` and `relay.nostr.band` (unreachable or errored);
+`purplepag.es` (profiles only, still asked for profiles).
+
+**What stays.** Saved choices are untouched: someone who saved `nos.lol`
+keeps it, and it shows as not answering. Rooms made on exactly the old pair
+(`nos.lol` and `relay.primal.net`) are still recognised, and now get
+`nostr.oxtr.dev` in place of `nostr.mom` as their third route, added for the
+person's own use and never written into the room. The keepers still dial
+`nos.lol` for rooms fixed to it, and their crash on a relay that times out
+is a separate fault with its own fix.

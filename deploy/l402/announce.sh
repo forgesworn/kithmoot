@@ -36,7 +36,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-RELAYS="${ANNOUNCE_RELAYS:-wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net}"
+RELAYS="${ANNOUNCE_RELAYS:-wss://relay.damus.io,wss://relay.primal.net,wss://nostr.oxtr.dev}"
 URLS="${PUBLIC_URLS:-https://turn.forgesworn.dev}"
 
 command -v aperture-announce >/dev/null 2>&1 || {

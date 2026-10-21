@@ -369,7 +369,7 @@ kept, and revisited before shipping a default, adding discovery, search, a
 feed or presence, or starting to run a server.
 
 **Chat relays (D2).** The apps keep three public relays as defaults:
-nos.lol, relay.primal.net and nostr.mom. ForgeSworn chose them and controls
+relay.primal.net, nostr.oxtr.dev and relay.nostr.net. ForgeSworn chose them and controls
 nobody's admission to them. Section 226 turns on control over who can use
 the service `[P]`, and Ofcom says a user who operates a decentralised
 service may be its provider `[P]`. On that footing each relay's operator

@@ -18,7 +18,7 @@ async function device(browser: Browser, baseURL: string): Promise<BrowserContext
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? relay : String(url)
         if (target !== relay) throw new Error('External relay blocked by self-destruct acceptance test')
         super(target, protocols)

@@ -1,4 +1,7 @@
 import { normaliseBlossomServer } from '../../src/attachment.js'
+import { isForgeSwornHost } from '../../src/forgesworn-hosts.js'
+
+export { isForgeSwornHost }
 
 export const FILE_STORAGE_KEY = 'kithmoot.file-storage.v1'
 export const LEGACY_FILE_STORAGE_KEY = 'kithmoot.blossom-server'
@@ -9,17 +12,6 @@ type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
  * app pre-filled its own host, so a version 1 consent to a ForgeSworn host
  * may never have been a choice. Version 2 is always something a person did. */
 const CONSENT_VERSION = 2
-const FORGESWORN_DOMAINS = ['forgesworn.dev', 'kithmoot.app']
-
-/** True for ForgeSworn's own hosts and any name under them. Unparseable input
- * is false: a caller that cares must validate the URL itself. */
-export function isForgeSwornHost(origin: string): boolean {
-  try {
-    // A trailing dot names the same host in DNS, so it must not be a way round.
-    const host = new URL(origin).hostname.toLowerCase().replace(/\.+$/, '')
-    return FORGESWORN_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`))
-  } catch { return false }
-}
 
 export interface PublicFileServer {
   readonly origin: string
