@@ -31,8 +31,11 @@ paired card. Its callback socket feeds the existing NIP-42 signer gate and
 never creates a native WebSocket to that virtual address or a fallback relay.
 Each instance has one room and bounded kinds. Requests require exact `#d` and
 kind filters, including event-ID readback. Writes await the box's `OK`; a
-disconnect refuses pending writes. Subscriptions retry the same route with
-backoff. A declined signer is latched until an explicit new connection.
+disconnect refuses pending writes. The selected event address and route are
+captured when the carrier is created; changing the caller's record cannot
+retarget its authentication, publication, delivery attribution or reconnect.
+Subscriptions retry that same route with backoff. A declined signer is latched
+until an explicit new connection.
 
 `BrowserLink.request` passes the typed request to the Rust route allowlist.
 The engine owns route/method, body, authorization, content-type and response
