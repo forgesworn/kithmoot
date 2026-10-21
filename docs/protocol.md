@@ -355,6 +355,25 @@ the sender is the message's credential-bound participant. See `src/meeting.ts`,
 "A meeting is moderated by the room's authority" in [decisions](decisions.md),
 and the `meeting` vectors.
 
+Group storage grants (experimental, phase S4; no client uses a group node yet).
+When a keeper is configured with group storage nodes, it signs a kind 27541
+event with the room's authority key for each admitted device at each node, and
+sends each as `{"op":"storage-grant","event":{...}}`, one event per op, whole
+and unaltered (about 750 characters, at most 1,070 for the largest legal one,
+inside the 2,000-character control message limit). The event, its tags and the
+rules for accepting it are in wildbloom-node's `docs/GROUP-GRANTS.md`, profile
+`group-grants/1`; `src/group-grants.ts` builds, parses and verifies it. A
+revocation (`status` `revoked`) and a `reset` ride the same op. A reader keeps
+an event only if it verifies, is signed by the authority pinned in its link and
+names its room id (`deriveRoom(secret).roomId`); it keeps the grants whose
+`device` is its own key and every revocation and reset, to carry to nodes, so
+any member may repost one and the op has no `host`. `{"op":"storage-grant?"}`
+asks the keeper to send the asker's grants again; the asker is the message's
+credential-bound device, as for `hand`. A grant is never published bare on a
+relay: it travels only in this encrypted channel and by HTTP `POST
+/groups/v1/events` to the node it names. Readers that do not know the op ignore
+it.
+
 Rekeys and the encrypted control channel are authority-bound. A room advances
 one verified epoch at a time; a removed device can read the removal notice but
 cannot recover a next-epoch secret addressed only to remaining devices. The

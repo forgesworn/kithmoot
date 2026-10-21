@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { decodeControl, encodeControl } from './control.js'
+import { GRANT_SCOPES, buildGrant, buildReset, buildRevocation, parseGroupEvent, type ParsedGrant } from './group-grants.js'
 
 const HOST = 'ab'.repeat(32)
 
@@ -89,5 +90,53 @@ describe('control messages', () => {
   it('refuses to encode something the chat could not carry', () => {
     const agents = Array.from({ length: 12 }, (_, i) => ({ id: `a${i}`, name: 'x'.repeat(64), description: 'y'.repeat(140) }))
     expect(() => encodeControl({ op: 'catalogue', host: HOST, name: 'Box', agents, running: [] })).toThrow(/too long/)
+  })
+
+  describe('storage-grant', () => {
+    const sk = new Uint8Array(32).fill(3)
+    const grant = buildGrant({
+      authoritySk: sk, roomId: 'a'.repeat(64), device: 'b'.repeat(64), server: 'grove.example.net', scopes: ['upload', 'get', 'delete'],
+      bytes: 1073741824, grantId: 'c'.repeat(32), createdAt: 1_800_000_000, expiration: 1_802_592_000,
+    })
+
+    it('round trips an event exactly as sent, and the question', () => {
+      const text = encodeControl({ op: 'storage-grant', event: grant })
+      expect(text.length).toBeLessThan(800)
+      expect(decodeControl(text)).toEqual({ op: 'storage-grant', event: grant })
+      // Nothing mended: what the web app's snapshot custody compares is the JSON as sent.
+      expect(JSON.stringify((decodeControl(text) as { event: unknown }).event)).toBe(JSON.stringify(grant))
+      expect(decodeControl(encodeControl({ op: 'storage-grant?' }))).toEqual({ op: 'storage-grant?' })
+    })
+
+    it('carries revocations and resets, and the largest legal event fits one control message', () => {
+      const parsed = (parseGroupEvent(grant) as { ok: true; parsed: ParsedGrant }).parsed
+      expect(decodeControl(encodeControl({ op: 'storage-grant', event: buildRevocation(parsed, sk, parsed.createdAt + 1) }))).not.toBeNull()
+      expect(decodeControl(encodeControl({ op: 'storage-grant', event: buildReset({ authoritySk: sk, roomId: 'a'.repeat(64), server: 'grove.example.net', createdAt: 1_800_000_000 }) }))).not.toBeNull()
+      const server = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.')
+      const biggest = buildGrant({
+        authoritySk: sk, roomId: 'a'.repeat(64), device: 'b'.repeat(64), server, scopes: GRANT_SCOPES, bytes: (1n << 63n) - 1n,
+        grantId: 'c'.repeat(32), createdAt: 1_800_000_000, expiration: 1_807_776_000, status: 'revoked',
+      })
+      const text = encodeControl({ op: 'storage-grant', event: biggest })
+      expect(text.length).toBeLessThanOrEqual(1_100)
+      expect(decodeControl(text)).toEqual({ op: 'storage-grant', event: biggest })
+    })
+
+    it('is null for anything not shaped like an event, or with anything extra', () => {
+      const wrap = (event: unknown, extra: object = {}) => JSON.stringify({ op: 'storage-grant', event, ...extra })
+      expect(decodeControl(wrap(grant, { extra: 1 }))).toBeNull()
+      expect(decodeControl(wrap({ ...grant, extra: 1 }))).toBeNull()
+      expect(decodeControl(wrap({ ...grant, kind: 1 }))).toBeNull()
+      expect(decodeControl(wrap({ ...grant, tags: [['t', 1]] }))).toBeNull()
+      expect(decodeControl(wrap({ ...grant, created_at: 1.5 }))).toBeNull()
+      expect(decodeControl(wrap(null))).toBeNull()
+      expect(decodeControl(wrap([]))).toBeNull()
+      expect(decodeControl(JSON.stringify({ op: 'storage-grant' }))).toBeNull()
+      expect(decodeControl(JSON.stringify({ op: 'storage-grant?', host: 'x' }))).toBeNull()
+    })
+
+    it('older readers drop what they do not know: an unknown op is still null', () => {
+      expect(decodeControl(JSON.stringify({ op: 'storage-grant-v2', event: grant }))).toBeNull()
+    })
   })
 })
