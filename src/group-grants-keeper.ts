@@ -843,6 +843,8 @@ export class GroupGrantKeeper {
       this.#closing = true
       this.#stopTimers()
       const now = this.#host.now()
+      // Closing a room ends everything it granted, even a withdrawn one: a reset is signed at every node the ledger names
+      // (the "signs no resets" of a withdrawn room is about its running life, not about its close).
       const servers = new Set([...this.#nodes.map((n) => n.server), ...Object.keys(this.#ledger.bases)])
       for (const s of servers) this.#signReset(s, now)
       this.#touch()

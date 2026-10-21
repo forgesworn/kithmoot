@@ -41,8 +41,8 @@ export const GROUP_STORAGE_WAITING = 'Waiting for the group’s storage.'
 /** What the person is told, for each way a node can leave a request unanswered (contract 11). */
 export const GROUP_STORAGE_MESSAGES = {
   'no-grant': 'Group files will be available once the keeper has let this device in.',
-  unreachable: 'Waiting for the group\'s storage.',
-  refused: 'Waiting for the group\'s storage.',
+  unreachable: GROUP_STORAGE_WAITING,
+  refused: GROUP_STORAGE_WAITING,
   clock: 'This device\'s clock is wrong, so the group\'s storage refused it. Check the date and time.',
   'locked-out': 'This device is no longer let in to the group\'s storage.',
   absent: 'This file is on the group\'s computers, and none of them can be reached right now.',
