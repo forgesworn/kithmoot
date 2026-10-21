@@ -6,7 +6,7 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -1342,8 +1342,15 @@ const MUTE_LENGTHS = ['Mute for 1 hour', 'Mute for 8 hours', 'Mute for 1 day', '
 
 async function notificationsOf(page: Page, menu: ReturnType<Page['locator']>) {
   const parent = menu.getByRole('menuitem', { name: 'Notifications', exact: true })
-  await parent.focus()
-  await page.keyboard.press('ArrowRight')
+  // A menu focuses its first item as it opens; try again until the submenu is open.
+  await expect(async () => {
+    const choices = menu.getByRole('menuitemradio').first()
+    if (!(await choices.isVisible())) {
+      await parent.focus()
+      await page.keyboard.press('ArrowRight')
+    }
+    await expect(choices).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
   return parent
 }
 
@@ -1397,6 +1404,13 @@ test('muting a room for an hour writes the end, says so in the header and the st
     await expect(page.locator('#roomMutedText')).toHaveText('Muted until 11:00')
     await expect(page.locator('#roomMuted')).toBeVisible()
     await expect(page.locator('#status')).toHaveText('Muted until 11:00.')
+    // The muted header, row and the open submenu break no accessibility rule.
+    await openRoomMenu(page)
+    await notificationsOf(page, menu)
+    const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`)).toEqual([])
+    await page.keyboard.press('Escape'); await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
     await expect(page.locator('#roomIdentity')).toHaveAccessibleName(/Muted until 11:00/)
     await expect(page.locator('#roomList li.roomRow[data-room]').first().locator('.roomMute').first()).toHaveCount(1)
     // The menu now says Unmute, wears the crossed bell, and offers no lengths.
@@ -1520,6 +1534,7 @@ test('Settings › Notifications names its choices the way the menus do, and a r
     // The room's own menu shows the same choice ticked once the room scope is picked.
     await page.locator('#notificationScope').selectOption({ label: 'Room: Release workshop' })
     await page.locator('#notificationMode').selectOption('mentions')
+    await closeSettings(page)
     await roomMenuItem(page, 'Notifications')
     const menu = page.locator('#roomMoreMenu')
     await expect(menu.getByRole('menuitemradio', { name: 'Only mentions and replies' })).toHaveAttribute('aria-checked', 'true')

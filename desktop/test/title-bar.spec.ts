@@ -52,7 +52,7 @@ test.describe('macOS hidden title bar', () => {
       })
       expect(band).toEqual({ region: 'drag', height: '52px' })
       await page.locator('#roomMenu').click()
-      for (const selector of ['#appHome', '#railChats', '#openAppSettings', '#newMenuButton', '#homeRoomQuery', '#roomIdentity', '#callToggle', '#chatSearch', '#roomMenu', '#roomMoreMenu']) {
+      for (const selector of ['#appHome', '#railChats', '#openAppSettings', '#newMenuButton', '#homeRoomQuery', '#roomIdentity', '#callToggle', '#chatSearch', '#roomMenu', '#roomMoreMenu', '#ringBanner']) {
         const region = await page.locator(selector).first().evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))
         expect(region, selector).toBe('no-drag')
       }
