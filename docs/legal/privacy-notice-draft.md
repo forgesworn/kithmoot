@@ -260,7 +260,7 @@ would like the chance to put things right first.
   operated.
 - **Our hosting provider**, `[hosting provider]`, which hosts the box our
   default TURN server, file store, drop tier and relay run on.
-  <!-- app/src/main.ts DEFAULT_RELAYS (src/public-relays.ts): relay.primal.net, nostr.oxtr.dev, relay.nostr.net, none run by the project -->
+  <!-- app/src/main.ts DEFAULT_RELAYS (src/public-relays.ts): relay.primal.net, nostr.oxtr.dev, relay.ditto.pub, none run by the project -->
 
 The app also makes your device contact the following. Each learns your
 device's IP address and the time, as any web request does.
