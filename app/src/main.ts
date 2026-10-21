@@ -4324,7 +4324,7 @@ async function roomFromLocation(): Promise<boolean> {
     invitationDelegation = []
   }
 
-  profiles.restart()
+  profiles.restartRoom()
   iceUrls = parsedLink.iceUrls.length ? parsedLink.iceUrls : DEFAULT_ICE_URLS
 
   if (parsedLink.pairingCode) {
@@ -4901,7 +4901,7 @@ async function startNewRoom(): Promise<void> {
     useRoomRelays()
     iceUrls = parseIceInput()
     roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
-    profiles.restart()
+    profiles.restartRoom()
     serveCurrentInvitation()
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     rememberCurrentRoom()
@@ -7900,18 +7900,32 @@ function distinctRelays(urls: string[]): string[] {
   return out
 }
 
+/** How long a DM relay list lookup keeps its connections once it has its
+ *  answer, so that the next lookup to the same relays shares them. Saving a
+ *  project looks each new member up in turn, and so does starting one
+ *  conversation after another; each lookup used to open a socket to every
+ *  relay on its list and close them all a moment later. While no room was
+ *  open that went unseen, because these lookups shared the profile book's
+ *  pool, which stays open. Profile lookups for anyone outside the room now
+ *  ask only the public profile relays, on a pool of their own, so nothing
+ *  else holds this one. */
+const DM_RELAY_POOL_LINGER_MS = 30_000
+
 /** Kind 10050 lists for these authors from these relays, as many as arrive
  *  before every relay has finished or the wait is up. */
 async function lookUpDmRelayLists(authors: string[], urls: string[], kinds: number[] = [KIND_DM_RELAYS]): Promise<NostrEvent[]> {
   const pool = relayConnections.pool('profiles', distinctRelays(urls))
   const found: NostrEvent[] = []
+  let stop = (): void => {}
   try {
     await new Promise<void>(resolve => {
       const timer = setTimeout(resolve, DM_RELAY_LOOKUP_MS)
-      pool.subscribe([{ kinds, authors }], event => found.push(event), () => { clearTimeout(timer); resolve() })
+      stop = pool.subscribe([{ kinds, authors }], event => found.push(event), () => { clearTimeout(timer); resolve() })
     })
   } finally {
-    pool.close()
+    // The question ends now; only the idle connections are kept a while.
+    stop()
+    setTimeout(() => pool.close(), DM_RELAY_POOL_LINGER_MS)
   }
   return found
 }
@@ -15089,7 +15103,7 @@ function resetRoomState(): void {
   // The lookups made for this room end with it. Going home on a docked call
   // never reaches `roomFromLocation`, which is where the next room restarts
   // them, so without this the old room's relays stayed in the pool.
-  profiles.restart()
+  profiles.restartRoom()
   // Carrying others, and this device's key, belong to the docked call.
   if (!docked()) {
     myDeviceId = ''
@@ -16912,7 +16926,7 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
 function roomRelaysApplied(entries: RelayConfig[]): void {
   roomRelayConfig = entries
   relays = entries.map(relay => relay.url)
-  profiles.restart()
+  profiles.restartRoom()
   if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
   renderIdentity()
   if (currentRoomId()) {

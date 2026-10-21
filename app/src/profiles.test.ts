@@ -209,27 +209,52 @@ it('switching lookups off closes both pools and forgets, and on again builds bot
   expect(pools[3]!.asked).toEqual([[B]])
 })
 
-it('restarting closes the sockets opened for the room just left, asks afresh, and keeps what it learned', () => {
+it('restarting the room closes the sockets opened for the room just left, asks its people afresh, and keeps what it learned', () => {
   const { book, pools } = scoped()
   const secret = generateSecretKey(), pubkey = getPublicKey(secret)
   book.want([pubkey], 'room')
   book.want([B], 'public')
   pools[0]!.receive(finalizeEvent({ kind: 0, tags: [], created_at: 1, content: JSON.stringify({ name: 'Ada' }) }, secret))
-  book.restart()
-  expect(pools.map(pool => pool.closed)).toEqual([true, true])
+  book.restartRoom()
+  expect(pools.map(pool => pool.closed)).toEqual([true, false])
   expect(book.get(pubkey)?.name).toBe('Ada')
-  // The next room's people are asked on new pools, not the old room's.
+  // The next room's people are asked on a new pool, not the old room's.
   book.want([pubkey], 'room')
-  book.want([B], 'public')
-  expect(pools.map(pool => pool.scope)).toEqual(['room', 'public', 'room', 'public'])
+  expect(pools.map(pool => pool.scope)).toEqual(['room', 'public', 'room'])
   expect(pools[2]!.asked).toEqual([[pubkey]])
-  expect(pools[3]!.asked).toEqual([[B]])
 })
 
-it('a restart with lookups switched off asks nobody', () => {
+it('leaves the public pool, and who it has asked about, alone across room switches', () => {
+  const { book, pools } = scoped()
+  // Signed in at home: the account is asked about publicly.
+  book.want([A], 'public')
+  // A switch restarts the room twice, leaving one and opening the next, and
+  // the screen asks about the account again in between and after.
+  book.restartRoom()
+  book.want([A], 'public')
+  book.restartRoom()
+  book.want([A, B], 'public')
+  // One public pool, never closed, and the account asked about once.
+  expect(pools.map(pool => [pool.scope, pool.closed])).toEqual([['public', false]])
+  expect(pools[0]!.asked).toEqual([[A], [B]])
+})
+
+it('asks the next room about somebody asked about in the room before, even after asking publicly', () => {
+  const { book, pools } = scoped()
+  book.want([A], 'room')
+  book.restartRoom()
+  // Out of a room, A is somebody else: the public relays may be asked.
+  book.want([A], 'public')
+  book.want([A], 'room')
+  expect(pools.map(pool => [pool.scope, pool.closed])).toEqual([['room', true], ['public', false], ['room', false]])
+  expect(pools[1]!.asked).toEqual([[A]])
+  expect(pools[2]!.asked).toEqual([[A]])
+})
+
+it('a room restart with lookups switched off asks nobody', () => {
   const { book, pools } = scoped()
   book.setEnabled(false)
-  book.restart()
+  book.restartRoom()
   book.want([A], 'room')
   book.want([B], 'public')
   expect(pools).toHaveLength(0)

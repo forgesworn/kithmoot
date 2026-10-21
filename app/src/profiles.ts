@@ -134,18 +134,23 @@ export class ProfileBook {
   }
 
   /**
-   * Start again from the relays as they are now, for a different room or
-   * none: every socket is closed, including those opened for the room just
-   * left, and what was asked is forgotten so the next lookups go out afresh.
-   * What has been learned stays on screen. Switching lookups off is what
-   * forgets it.
+   * Start the room's lookups again from its relays as they are now, for a
+   * different room or none: the sockets opened for the room just left are
+   * closed, and who was asked about there is forgotten, so the next room's
+   * people are asked afresh on its own relays. What has been learned stays
+   * on screen. Switching lookups off is what forgets it.
+   *
+   * The public scope is left alone. It asks the same public profile relays
+   * whichever room is open, so closing it here bought nothing and cost a
+   * lot: a room switch restarts the book twice (leaving one room, then
+   * opening the next), and each time the public pool was reopened for the
+   * account and closed again before its sockets had connected, then every
+   * public key was asked about again.
    */
-  restart(): void {
+  restartRoom(): void {
     if (this.#closed) return
-    for (const scope of SCOPES) {
-      this.#closeScope(scope)
-      this.#asked[scope].clear()
-    }
+    this.#closeScope('room')
+    this.#asked.room.clear()
   }
 
   #closeScope(scope: LookupScope): void {

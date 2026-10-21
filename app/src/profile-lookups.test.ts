@@ -124,9 +124,9 @@ describe('the app asks only through the wrapper', () => {
       return main.slice(start, main.indexOf('\nfunction ', start + 1))
     }
     // Going home on a docked call never reaches roomFromLocation.
-    expect(body('resetRoomState')).toContain('profiles.restart()')
-    expect(body('roomRelaysApplied')).toContain('profiles.restart()')
-    expect(main.match(/profiles\.restart\(\)/g)!.length).toBeGreaterThanOrEqual(4)
+    expect(body('resetRoomState')).toContain('profiles.restartRoom()')
+    expect(body('roomRelaysApplied')).toContain('profiles.restartRoom()')
+    expect(main.match(/profiles\.restartRoom\(\)/g)!.length).toBeGreaterThanOrEqual(4)
     expect(main).not.toMatch(/profiles\.setEnabled\(false\); profiles\.setEnabled\(profilesEnabled\)/)
   })
 })
