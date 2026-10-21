@@ -509,7 +509,7 @@ describe('the journal', { timeout: 30_000 }, () => {
     await waitFor(() => keeper.ledger.journal.length === 0)
   })
 
-  for (const [status, reason] of [[200, 'unchanged'], [201, 'accepted'], [409, 'stale'], [409, 'revoked']] as const) {
+  for (const [status, reason] of [[200, 'unchanged'], [201, 'accepted'], [409, 'stale']] as const) {
     it(`is finished, silently, by ${status} ${reason}`, async () => {
       const t = setup({}, new MemoryStore(), [A])
       t.addDevice(P1)

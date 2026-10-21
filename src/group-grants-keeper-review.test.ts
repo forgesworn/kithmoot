@@ -151,10 +151,13 @@ describe('3. a grant is pushed only once the ledger has recorded it', () => {
     expect(t.nodes.posts.filter((p) => p.status === 201)).toEqual([])
     expect(t.logs.some((l) => l.includes('could not save the ledger'))).toBe(true)
     expect(t.errors().length).toBe(1)
+    // Nor is the grant sent in the room: a device that read it could post it to a node on its own.
+    expect(t.grantOps()).toEqual([])
     failing = false
     await keeper.sweep() // the unrecorded state is still dirty: this saves it
     await waitFor(() => t.nodes.posts.filter((p) => p.status === 201).length === 1)
     expect(JSON.parse(store.text!).grants.length).toBe(1)
+    expect(t.grantOps().length).toBe(1) // sent once the ledger has it
   })
 })
 
@@ -222,7 +225,7 @@ describe('5. a reset goes ahead of everything at its node, and a refused grant i
   it('refusals do not loop: each cooldown is longer than the last', async () => {
     const t = setup()
     t.addDevice(P1)
-    t.nodes.script('node-a.test', { status: 403, reason: 'keeper' }, { status: 201 }, { status: 403, reason: 'keeper' })
+    t.nodes.script('node-a.test', { status: 409, reason: 'floor' }, { status: 201 }, { status: 409, reason: 'floor' })
     const keeper = await t.make()
     await keeper.start()
     await waitFor(() => (keeper.ledger.cooldown?.['node-a.test|' + t.world.devices[0]!.device]?.n ?? 0) === 1)
@@ -241,7 +244,7 @@ describe('5. a reset goes ahead of everything at its node, and a refused grant i
     await keeper.start()
     await waitFor(() => keeper.ledger.journal.length === 0)
     t.tick(21 * DAY)
-    t.nodes.script('node-a.test', { status: 409, reason: 'scope-changed' })
+    t.nodes.script('node-a.test', { status: 409, reason: 'floor' })
     await keeper.sweep()
     await waitFor(() => keeper.ledger.journal.some((j) => j.stopped !== undefined))
     const stoppedAt = keeper.ledger.grants[0]!.createdAt
@@ -271,6 +274,8 @@ describe('6. the control channel never holds the ledger queue', () => {
     await keeper.beforeRemoval(P1)
     expect(Date.now() - started).toBeLessThan(1_000)
     t.world.hangSend = false
+    // A look at the roster between the removal's two halves must not post the revocations early: they belong in the new epoch.
+    await keeper.sweep()
     expect(t.grantOps().some((o) => o.event.tags.some((x) => x[1] === 'revoked'))).toBe(false)
     await keeper.afterRemoval(P1)
     expect(t.grantOps().some((o) => o.event.tags.some((x) => x[1] === 'revoked'))).toBe(true)
@@ -372,5 +377,95 @@ describe('10. the fake node is as strict as the real one on rule 8 and the room 
     expect(await post(mk(dev, t.sk, 'cd'.repeat(32)))).toBe(409) // the same key in a second room at this node
     t.nodes.rooms = ['ef'.repeat(32)]
     expect(await post(mk(getPublicKey(generateSecretKey())))).toBe(403)
+  })
+})
+
+describe('round 2', () => {
+  it('R2-1: a node that no longer enrols the keeper costs one error, a bounded ledger and bounded traffic over a month, and harms no other node', async () => {
+    const t = setup({ nodes: [A, B] }, new MemoryStore(), [A, B])
+    for (let i = 0; i < 3; i++) t.addDevice(P1)
+    t.nodes.unenrolled.add('node-a.test')
+    const keeper = await t.make()
+    await keeper.start()
+    for (let step = 0; step < 31 * 4; step++) {
+      t.tick(6 * 3600)
+      await keeper.sweep()
+      await waitFor(() => keeper.ledger.journal.every((j) => j.stopped !== undefined), 3_000).catch(() => {})
+    }
+    const l = keeper.ledger
+    // The healthy node is granted throughout: three devices, renewed in their time.
+    expect(l.grants.filter((g) => g.server === 'node-b.test' && g.status === 'active').length).toBe(3)
+    // The refusing node: at most the first three grants and one probe a day.
+    expect(l.grants.filter((g) => g.server === 'node-a.test').length).toBeLessThanOrEqual(3 + 31 + 1)
+    expect(t.nodes.postsTo('node-a.test').length).toBeLessThanOrEqual(2 * (3 + 31 + 1))
+    expect(t.grantOps().length).toBeLessThanOrEqual(2 * (3 + 31 + 1) + 3 * 3)
+    expect(t.errors().filter((e) => e.message.includes('node-a.test')).length).toBe(1)
+    expect(t.errors().length).toBe(1)
+    expect(l.refusedNodes!['node-a.test']!.reason).toBe('403 keeper')
+    // The refused, revoked ids do not count against the cap.
+    expect(t.logs.filter((l2) => l2.includes('refused') && l2.includes('node-a.test')).length).toBe(1)
+  }, 120_000)
+
+  it('R2-1: the node takes the keeper again: one probe grant is accepted and every device is granted there at the next look', async () => {
+    const t = setup({}, new MemoryStore(), [A, B])
+    for (let i = 0; i < 3; i++) t.addDevice(P1)
+    t.nodes.unenrolled.add('node-a.test')
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.refusedNodes?.['node-a.test'] !== undefined && keeper.ledger.journal.every((j) => j.stopped !== undefined))
+    expect(keeper.ledger.grants.filter((g) => g.server === 'node-a.test' && g.status === 'active')).toEqual([])
+    // Within the day: nothing is signed for it.
+    t.tick(23 * 3600)
+    await keeper.sweep()
+    const before = keeper.ledger.grants.length
+    // The owner enrols the keeper again; a day later one probe is tried, for one device only.
+    t.nodes.unenrolled.delete('node-a.test')
+    t.tick(2 * 3600)
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.refusedNodes?.['node-a.test'] === undefined)
+    expect(keeper.ledger.grants.length).toBeLessThanOrEqual(before + 3 + 1)
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.grants.filter((g) => g.server === 'node-a.test' && g.status === 'active').length === 3)
+    // The revocations the node had refused are sent again, now that it listens.
+    await waitFor(() => keeper.ledger.journal.every((j) => j.stopped !== undefined && j.kind !== 'revoked'))
+  })
+
+  it('R2-1: a refusal that is not about the keeper (400, 404) also stops signing for that node, once', async () => {
+    const t = setup({}, new MemoryStore(), [A])
+    for (let i = 0; i < 3; i++) t.addDevice(P1)
+    t.nodes.script('node-a.test', { status: 404 }, { status: 404 }, { status: 404 })
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.refusedNodes?.['node-a.test'] !== undefined)
+    for (let i = 0; i < 6; i++) { t.tick(3600); await keeper.sweep() }
+    expect(t.errors().length).toBe(1)
+  })
+
+  it('R2-3: a grant the node holds revoked is ended, and a new id is signed after the cooldown', async () => {
+    const t = setup({}, new MemoryStore(), [A])
+    t.addDevice(P1)
+    t.nodes.script('node-a.test', { status: 409, reason: 'revoked' })
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.grants[0]?.status === 'ended')
+    const first = keeper.ledger.grants[0]!
+    expect(first.recorded).not.toBe(true)
+    t.tick(3_601)
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.grants.some((g) => g.status === 'active' && g.id !== first.id))
+    await waitFor(() => keeper.ledger.journal.every((j) => j.stopped !== undefined))
+    expect(keeper.ledger.grants.find((g) => g.status === 'active')!.recorded).toBe(true)
+  })
+
+  it('R2-3: 409 revoked on a revocation is simply done', async () => {
+    const t = setup({}, new MemoryStore(), [A])
+    t.addDevice(P1)
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.journal.length === 0)
+    t.nodes.script('node-a.test', { status: 409, reason: 'revoked' })
+    await keeper.beforeRemoval(P1)
+    await waitFor(() => keeper.ledger.journal.length === 0)
+    expect(t.errors()).toEqual([])
   })
 })

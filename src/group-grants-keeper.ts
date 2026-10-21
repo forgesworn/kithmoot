@@ -42,6 +42,10 @@ const SEND_CONCURRENCY = 6
 const MAX_RETRY_AFTER_MS = 86_400_000
 const COOLDOWN_BASE_SECONDS = 3_600
 const COOLDOWN_MAX_SECONDS = 86_400
+/** How long a node that refuses this keeper for good is left alone before one probe grant is tried there. */
+const PROBE_SECONDS = 86_400
+/** Refusals a fresh signature can cure: another live id the lost ledger left (`scope-taken`), a newer reset (`floor`), an id the node holds revoked. */
+const CURABLE = /^409 (scope-taken|floor|revoked)$/
 
 /** Where the ledger lives. The CLI gives a file beside the keeper's state. */
 export interface GroupGrantStore {
@@ -144,9 +148,15 @@ export interface GroupGrantLedger {
   resets: ResetRecord[]
   /** Per node and device (`server|device`): no new grant is signed before `until` (unix seconds) after a refusal. */
   cooldown?: Record<string, { until: number; n: number }>
+  /**
+   * Nodes that refused this keeper for a reason signing again cannot cure (it is not enrolled there, the host name is
+   * wrong, ...). Nothing is minted for them; after `probeAt` one probe grant is tried, and a node that takes any grant
+   * or reset is trusted again.
+   */
+  refusedNodes?: Record<string, { reason: string; since: number; probeAt: number }>
 }
 
-const emptyLedger = (): GroupGrantLedger => ({ v: 1, bases: {}, floors: {}, grants: [], journal: [], removing: [], refused: [], resets: [], cooldown: {} })
+const emptyLedger = (): GroupGrantLedger => ({ v: 1, bases: {}, floors: {}, grants: [], journal: [], removing: [], refused: [], resets: [], cooldown: {}, refusedNodes: {} })
 
 /** A ledger read (or made) before the room is joined. */
 export interface PreparedLedger {
@@ -211,6 +221,8 @@ export class GroupGrantKeeper {
   readonly #unsaved = new Set<JournalEntry>()
   readonly #inflight = new Map<string, Promise<void>>()
   readonly #posting = new Set<string>()
+  /** Node and reason pairs already told to the room in this run: a refusal is reported once, not once per device or attempt. */
+  readonly #reported = new Set<string>()
   readonly #answered = new Map<string, number>()
   readonly #announced = new Map<string, number>()
 
@@ -221,6 +233,7 @@ export class GroupGrantKeeper {
     this.#bytes = bytes
     this.#ledger = prepared.ledger
     this.#ledger.cooldown ??= {}
+    this.#ledger.refusedNodes ??= {}
     this.#resetting = prepared.resetting
     this.#fetch = config.fetch ?? ((input, init) => fetch(input, init))
     this.#random = config.randomBytes ?? nobleRandomBytes
@@ -374,7 +387,8 @@ export class GroupGrantKeeper {
     const nowMs = this.#clockMs()
     let expired = 0
     l.journal = l.journal.filter((j) => {
-      if (j.stopped) return (j.stoppedAt ?? 0) + KEEP_STOPPED_SECONDS * 1000 > nowMs
+      // A revocation the node refused is kept until it could no longer matter: a node that takes the keeper again is sent it.
+      if (j.stopped) return j.kind === 'revoked' ? this.#expirationOf(j.event) > now : (j.stoppedAt ?? 0) + KEEP_STOPPED_SECONDS * 1000 > nowMs
       if (this.#expirationOf(j.event) <= now) { expired++; this.#unsaved.delete(j); return false }
       if (!this.#nodes.some((n) => n.server === j.server) && j.since + UNCONFIGURED_NODE_SECONDS * 1000 < nowMs) {
         this.#log(`group grants: gave up on an event for ${j.server}, a node that is no longer configured`)
@@ -467,6 +481,34 @@ export class GroupGrantKeeper {
     return event
   }
 
+  #nodeRefused(server: string): boolean { return this.#ledger.refusedNodes?.[server] !== undefined }
+
+  /** Records that count toward the cap: not those no node ever took and that have been revoked or have ended. */
+  #held(): number {
+    return this.#ledger.grants.filter((g) => !(g.recorded === false && g.status !== 'active')).length
+  }
+
+  #refuseNode(server: string, reason: string, now: number): void {
+    const book = this.#ledger.refusedNodes ?? (this.#ledger.refusedNodes = {})
+    const known = book[server]
+    if (known) known.reason = reason
+    else book[server] = { reason, since: now, probeAt: now + PROBE_SECONDS }
+  }
+
+  /** A node took a grant or a reset: it trusts this keeper again. What it refused meanwhile is sent afresh. */
+  #trustNode(server: string, now: number): void {
+    if (this.#ledger.refusedNodes?.[server] === undefined) return
+    delete this.#ledger.refusedNodes[server]
+    for (const key of [...this.#reported]) if (key.startsWith(`${server}/`)) this.#reported.delete(key)
+    for (const j of this.#ledger.journal) {
+      if (j.server !== server || !j.stopped || j.kind !== 'revoked' || this.#expirationOf(j.event) <= now) continue
+      delete j.stopped; delete j.stoppedAt; delete j.reported
+      j.tries = 0
+      j.nextAt = 0
+    }
+    this.#log(`group grants: ${server} takes this keeper's events again`)
+  }
+
   #cooling(server: string, device: string, now: number): boolean {
     const c = this.#ledger.cooldown?.[`${server}|${device}`]
     return c !== undefined && c.until > now
@@ -523,7 +565,7 @@ export class GroupGrantKeeper {
       // A device that now speaks for somebody else: the old grant goes, a new one is issued (rule 11 wants the old revoked first).
       for (const g of this.#ledger.grants) if (g.device === device && live(g, now) && g.participant !== participant) this.#revoke(g, now)
       const mine = this.#ledger.grants.filter((g) => g.device === device && live(g, now))
-      const needs = this.#nodes.filter((n) => !mine.some((g) => g.server === n.server) && !this.#cooling(n.server, device, now))
+      const needs = this.#nodes.filter((n) => !mine.some((g) => g.server === n.server) && !this.#nodeRefused(n.server) && !this.#cooling(n.server, device, now))
       if (needs.length) {
         if (!mine.length && this.#liveDevices(participant, now).size >= MAX_DEVICES_PER_PARTICIPANT) {
           if (!this.#ledger.refused.some((r) => r.device === device)) {
@@ -531,7 +573,7 @@ export class GroupGrantKeeper {
             this.#touch()
             this.#log(`group grants: ${short(participant)} already has ${MAX_DEVICES_PER_PARTICIPANT} devices with grants; device ${short(device)} was not given one`)
           }
-        } else if (this.#ledger.grants.length < MAX_GRANTS) {
+        } else if (this.#held() < MAX_GRANTS) {
           for (const n of needs) this.#mint(device, participant, n.server, now)
           this.#ledger.refused = this.#ledger.refused.filter((r) => r.device !== device)
           this.#touch()
@@ -539,8 +581,19 @@ export class GroupGrantKeeper {
       }
       for (const g of mine) {
         const due = g.needsRenewal === true || g.expiration - now <= GRANT_RENEW_WITHIN_SECONDS
-        if (due && g.participant === participant && this.#nodes.some((n) => n.server === g.server) && !this.#cooling(g.server, g.device, now)) this.#renew(g, now)
+        if (due && g.participant === participant && this.#nodes.some((n) => n.server === g.server) && !this.#nodeRefused(g.server) && !this.#cooling(g.server, g.device, now)) this.#renew(g, now)
       }
+    }
+    // A node that refused this keeper for good gets one probe grant a day, for one device, and nothing else.
+    for (const n of this.#nodes) {
+      const r = this.#ledger.refusedNodes?.[n.server]
+      if (!r || r.probeAt > now || this.#held() >= MAX_GRANTS) continue
+      const candidate = heard.find((d) => !removed.has(d.participant) && !this.#cooling(n.server, d.device, now) &&
+        !this.#ledger.grants.some((g) => g.device === d.device && g.server === n.server && live(g, now)))
+      if (!candidate) continue
+      this.#mint(candidate.device, candidate.participant, n.server, now)
+      r.probeAt = now + PROBE_SECONDS
+      this.#touch()
     }
     // A refused device that has gone, or whose person was removed, is not a problem any more.
     const before = this.#ledger.refused.length
@@ -612,8 +665,12 @@ export class GroupGrantKeeper {
     if (this.#closed) return
     const batch = await this.#run(async () => {
       const out: { id: string; event: GroupEvent; grant?: string; reset?: string }[] = []
+      // A grant (or renewal) the ledger has not recorded is not sent in the room either: a device that read it could post it
+      // to a node on its own, and a restart before the save would leave the node holding an id the keeper cannot revoke.
+      const unsaved = new Set([...this.#unsaved].filter((j) => j.kind === 'grant').map((j) => j.event.id))
       for (const g of this.#ledger.grants) {
         if (g.posted) continue
+        if (unsaved.has(g.event.id)) continue
         if (g.status === 'ended') { g.posted = true; this.#touch(); continue }
         if (g.status === 'revoked' && this.#ledger.removing.includes(g.participant)) continue
         if (this.#posting.has(g.event.id)) continue
@@ -672,6 +729,7 @@ export class GroupGrantKeeper {
     const now = this.#host.now()
     const problems = new Map<string, string>()
     for (const j of this.#ledger.journal) if (j.stopped) problems.set(`${j.server}/${j.stopped}`, this.#stoppedMessage(j.server, j.kind, j.stopped))
+    for (const [server, r] of Object.entries(this.#ledger.refusedNodes ?? {})) problems.set(`${server}/${r.reason}`, this.#stoppedMessage(server, 'grant', r.reason))
     if (this.#ledger.refused.length) problems.set('refused', this.#refusedMessage())
     return (async () => {
       for (const [key, message] of problems) {
@@ -848,6 +906,7 @@ export class GroupGrantKeeper {
         delete record.needsRenewal
         if (this.#ledger.cooldown) delete this.#ledger.cooldown[`${held.server}|${held.device}`]
       }
+      if (held.kind !== 'revoked') this.#trustNode(held.server, now)
     } else if (outcome.kind === 'retry') {
       if (this.#expirationOf(held.event) <= now) {
         this.#log(`group grants: dropped an event for ${held.server} that ran out before the node could take it`)
@@ -863,19 +922,35 @@ export class GroupGrantKeeper {
     } else {
       held.stopped = outcome.reason
       held.stoppedAt = this.#clockMs()
-      // A grant the node refused is not one it holds: the device is not granted. A refused first grant is revoked (so it
-      // can never land later, even if the device posts it) and signed afresh after a cooldown; a refused renewal is signed again.
-      if (held.kind === 'grant' && record) {
-        if (record.recorded === false) this.#revoke(record, now)
-        else record.needsRenewal = true
-        this.#coolDown(held.server, record.device, now)
+      const reason = outcome.reason
+      if (held.kind !== 'revoked') {
+        if (CURABLE.test(reason)) {
+          // Signing again can cure these: the first grant is revoked (so it can never land later, even if the device posts
+          // it) or, if the node holds it revoked, simply ended, and a new id follows after a cooldown that grows each time;
+          // a refused renewal is signed again the same way.
+          if (record) {
+            if (record.recorded === false && reason !== '409 revoked') this.#revoke(record, now)
+            else if (record.recorded === false || reason === '409 revoked') { record.status = 'ended'; record.recorded = false }
+            else record.needsRenewal = true
+            this.#coolDown(held.server, record.device, now)
+          }
+        } else {
+          // Signing again cannot cure these (the keeper is not enrolled, the host name is wrong, ...): stop signing for the
+          // node, and try one probe grant a day. What it refused is made harmless where it can be.
+          if (held.kind === 'grant' && record?.recorded === false) this.#revoke(record, now)
+          this.#refuseNode(held.server, reason, now)
+        }
       }
-      if (!held.reported) {
-        held.reported = true
-        this.#log(`group grants: ${held.server} refused ${held.kind === 'reset' ? 'a reset' : held.kind === 'revoked' ? 'a revocation' : 'a grant'} (${outcome.reason}); not retrying`)
-        this.#announced.set(`${held.server}/${outcome.reason}`, now)
-        void this.#send({ op: 'error', host: this.#host.keeperParticipant, message: this.#stoppedMessage(held.server, held.kind, outcome.reason) })
+      // Once per node and reason, not per device or per attempt.
+      const told = `${held.server}/${reason}`
+      if (!this.#reported.has(told)) {
+        this.#reported.add(told)
+        const what = held.kind === 'reset' ? 'a reset' : held.kind === 'revoked' ? 'a revocation' : 'a grant'
+        this.#log(`group grants: ${held.server} refused ${what} (${reason}); not retrying${held.kind !== 'revoked' && !CURABLE.test(reason) ? ', and signing nothing more for it until a daily probe is taken' : ''}`)
+        this.#announced.set(told, now)
+        void this.#send({ op: 'error', host: this.#host.keeperParticipant, message: this.#stoppedMessage(held.server, held.kind, reason) })
       }
+      held.reported = true
     }
     this.#touch()
     await this.#saveSafe()
@@ -901,6 +976,8 @@ export class GroupGrantKeeper {
       if (status === 409) {
         // 7.2 says stop on 409, and a node answers it both when it already knows this or a newer event (fine) and when it
         // refused the grant for good (key-conflict, scope-taken, floor, scope-changed): the second is reported.
+        // A grant the node holds revoked is dead there, whatever the keeper thought: ended, and a new id follows.
+        if (reason === 'revoked' && entry.kind === 'grant') return { kind: 'stop', reason: '409 revoked' }
         return !reason || BENIGN_409.has(reason) ? { kind: 'done' } : { kind: 'stop', reason: `409 ${reason}` }
       }
       if (status === 403 && reason === 'future') {

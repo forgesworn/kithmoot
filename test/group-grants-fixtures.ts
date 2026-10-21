@@ -54,6 +54,8 @@ export class FakeNodes {
   readonly reserved = new Set<string>()
   /** Rooms the keeper may open here; any when empty. */
   rooms: string[] = []
+  /** Hosts that no longer enrol the keeper: every event from it is refused 403 keeper. */
+  readonly unenrolled = new Set<string>()
   /** The first this many requests to each host answer 503. */
   busyFirst = 0
   readonly #asked = new Map<string, number>()
@@ -100,6 +102,7 @@ export class FakeNodes {
     const verdict = parseGroupEvent(event, { now: this.#at, keepers: [this.keeper], servers: [host] })
     if (!verdict.ok) return [verdict.status, verdict.reason]
     const p = verdict.parsed
+    if (this.unenrolled.has(host)) return [403, 'keeper']
     const s = this.state(host)
     if (this.rooms.length && !this.rooms.includes(p.roomId)) return [403, 'keeper']
     if (p.type === 'grant' && (this.reserved.has(p.device) || p.device === this.keeper)) return [409, 'key-conflict']
