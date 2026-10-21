@@ -96,7 +96,7 @@ async function readEvents(transport: RelayTransport, filter: Filter, deadline: n
         seen.add(event.id); events.push(event)
       }, () => finish(false))
     } catch { finish(false) }
-    if (done) try { unsub() } catch { /* As above. */ }
+    if (done) try { unsub?.() } catch { /* As above. */ }
   })
 }
 
