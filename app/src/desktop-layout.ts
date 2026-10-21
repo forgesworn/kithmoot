@@ -6,6 +6,13 @@ import { installShareFitting } from './desktop-layout-fit.js'
 // tracks and chat state. The web/PWA keeps its existing document structure.
 if (import.meta.env.VITE_DESKTOP === 'true') {
   document.documentElement.dataset.desktop = 'true'
+  // macOS hides the title bar: the CSS reserves a band for the traffic lights
+  // and, in full screen where they hide, takes it away again.
+  const bridge = window.kithmootDesktop
+  if (bridge?.titleBar === 'inset') {
+    document.documentElement.dataset.titleBar = 'inset'
+    bridge.onWindowState?.(state => document.documentElement.toggleAttribute('data-window-full-screen', state.fullScreen))
+  }
   const room = document.getElementById('roomArea')!
   const stage = document.getElementById('callStageSlot')!
   const content = document.createElement('div')

@@ -32,4 +32,11 @@ test('the sandboxed preload requires nothing but electron', async () => {
   const required = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(match => match[1])
   assert.deepEqual(required, ['electron'])
   assert.ok(source.includes(`'${features.SHARE_AREA_SWITCH}='`))
+  assert.ok(source.includes(`'${features.TITLE_BAR_SWITCH}='`))
+})
+
+test('only macOS hides the title bar', () => {
+  assert.equal(features.titleBarStyle('darwin'), 'hiddenInset')
+  assert.equal(features.titleBarStyle('win32'), null)
+  assert.equal(features.titleBarStyle('linux'), null)
 })

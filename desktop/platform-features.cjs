@@ -22,5 +22,11 @@ function supportsShareArea(platform = process.platform, env = process.env) {
 }
 
 const SHARE_AREA_SWITCH = '--kithmoot-share-area'
+const TITLE_BAR_SWITCH = '--kithmoot-title-bar'
 
-module.exports = { SHARE_AREA_SWITCH, linuxDisplayBackend, shareAreaMode, supportsShareArea }
+/** macOS hides the title bar and keeps the traffic lights inset; elsewhere the native frame stays. */
+function titleBarStyle(platform = process.platform) {
+  return platform === 'darwin' ? 'hiddenInset' : null
+}
+
+module.exports = { SHARE_AREA_SWITCH, TITLE_BAR_SWITCH, titleBarStyle, linuxDisplayBackend, shareAreaMode, supportsShareArea }

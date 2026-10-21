@@ -6,7 +6,7 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -289,6 +289,8 @@ test('the New menu opens with Enter, moves with the arrows, closes with Escape a
     // Tab closes it and carries on.
     await page.keyboard.press('Enter')
     await expect(menu).toBeVisible()
+    // Tab before the first item has focus would leave the menu open.
+    await expect(menu.getByRole('menuitem').first()).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(menu).toBeHidden()
     // An item opens the form it names, and Escape closes that too.
@@ -566,9 +568,9 @@ test('the ⋯ menu has the keyboard model: Enter opens, arrows move, Right opens
     await menu.getByRole('menuitem', { name: 'Notifications', exact: true }).focus()
     await page.keyboard.press('ArrowRight')
     const choices = menu.getByRole('menu', { name: 'Notifications' }).getByRole('menuitemradio')
-    await expect(choices).toHaveText(['Every message', 'Nothing', 'Use my default'])
+    await expect(choices).toHaveText(['Every message', 'Only mentions and replies', 'Nothing', 'Use my default'])
     await expect(choices.first()).toBeFocused()
-    await expect(choices.nth(2)).toHaveAttribute('aria-checked', 'true')
+    await expect(choices.nth(3)).toHaveAttribute('aria-checked', 'true')
     // Left, and Escape, close only the submenu and give focus back to its item.
     await page.keyboard.press('ArrowLeft')
     await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true })).toBeFocused()
@@ -578,6 +580,7 @@ test('the ⋯ menu has the keyboard model: Enter opens, arrows move, Right opens
     await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true })).toBeFocused()
     // Choosing one writes the room's own mode.
     await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
     await expect(menu).toBeHidden()
@@ -612,7 +615,7 @@ test('the menu of a room lists what a person does and leaves out what the room c
     // Notifications replace the items, with a way back.
     await menu.getByRole('menuitem', { name: 'Notifications', exact: true }).click()
     await expect(menu.getByRole('menuitem', { name: 'Room info' })).toBeHidden()
-    await expect(menu.getByRole('menuitemradio')).toHaveCount(3)
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
     await menu.getByRole('menuitem', { name: /Back/ }).click()
     await expect(menu.getByRole('menuitem', { name: 'Room info' })).toBeVisible()
     await roomMenuItem(page, 'Invite people…')
@@ -1109,6 +1112,8 @@ test('the first unmute in a call with an agent asks once whether agents may hear
     await expect(prompt).toBeHidden()
     await page.locator('#callExtras').click()
     await expect(page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' })).toHaveAttribute('aria-checked', 'false')
+    // The menu takes focus once it is open; Escape before that goes to the bar.
+    await expect.poll(() => page.evaluate(() => document.getElementById('callMoreMenu')!.contains(document.activeElement))).toBe(true)
     await page.keyboard.press('Escape')
     // Closed before More is pressed again, or the press closes it instead.
     await expect(page.locator('#callMoreMenu')).toBeHidden()
@@ -1164,7 +1169,7 @@ for (const scheme of ['dark', 'light'] as const) {
 // ---------------------------------------------------------------------------
 
 /** Ada in a fresh room, and Priya Natarajan arriving in it and starting a call. */
-async function ringSetup(browser: Browser, baseURL: string) {
+async function ringSetup(browser: Browser, baseURL: string, beforeCall?: (ada: Page) => Promise<void>) {
   const keeper = await RoomAgent.create({ base: baseURL, roomName: 'Ring room', name: 'Rowan', agent: false, ...agentRelaysFor(baseURL) })
   const ada = await visitor(browser, baseURL, { width: 1440, height: 900 }, { empty: true })
   await ada.page.goto(keeper.url)
@@ -1175,6 +1180,7 @@ async function ringSetup(browser: Browser, baseURL: string) {
   await priya.page.locator('#displayName').fill('Priya Natarajan'); await priya.page.locator('#join').click()
   await expect(priya.page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
   await expect(ada.page.locator('#callBanner')).toBeHidden()
+  await beforeCall?.(ada.page)
   await priya.page.locator('#callToggle').click()
   return { keeper, ada, priya, close: async () => { await ada.context.close(); await priya.context.close(); await keeper.leave() } }
 }
@@ -1330,5 +1336,213 @@ test('a refused microphone says so in the call, with what to do', async ({ brows
     await page.locator('#toggleMic').click()
     await expect(page.locator('#mediaBlockedNote')).toHaveText('Microphone blocked. Allow it in your browser settings.')
     await expect(page.locator('#mediaBlockedNote')).toBeVisible()
+  } finally { await context.close() }
+})
+
+// Mute with durations (design-calm-stage7, part B).
+const MUTE_KEY = 'kithmoot.mute-until.v1.visitor.'
+const muteKeys = (page: Page) => page.evaluate(prefix => Object.entries(localStorage).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [key, value]), MUTE_KEY)
+const MUTE_LENGTHS = ['Mute for 1 hour', 'Mute for 8 hours', 'Mute for 1 day', 'Mute for 1 week']
+
+async function notificationsOf(page: Page, menu: ReturnType<Page['locator']>) {
+  const parent = menu.getByRole('menuitem', { name: 'Notifications', exact: true })
+  // A menu focuses its first item as it opens; try again until the submenu is open.
+  await expect(async () => {
+    const choices = menu.getByRole('menuitemradio').first()
+    if (!(await choices.isVisible())) {
+      await parent.focus()
+      await page.keyboard.press('ArrowRight')
+    }
+    await expect(choices).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+  return parent
+}
+
+for (const [label, size, touch, scheme] of [['1440 by 900 dark', { width: 1440, height: 900 }, false, 'dark'], ['390 by 844 light', { width: 390, height: 844 }, true, 'light']] as const) {
+  test(`at ${label} Notifications offers the modes, a separator and four lengths, and the keyboard walks them`, async ({ browser, baseURL }) => {
+    const { context, page } = await visitor(browser, baseURL!, size, { touch, scheme })
+    try {
+      await joinRoom(page)
+      await openRoomMenu(page)
+      const menu = page.locator('#roomMoreMenu')
+      await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true }).locator('use')).toHaveAttribute('href', '#i-bell')
+      const parent = await notificationsOf(page, menu)
+      await expect(menu.getByRole('menuitemradio')).toHaveText(['Every message', 'Only mentions and replies', 'Nothing', 'Use my default'])
+      await expect(menu.getByRole('menuitem', { name: /^Mute for/ })).toHaveText(MUTE_LENGTHS)
+      await expect(menu.getByRole('menuitem', { name: 'Unmute' })).toHaveCount(0)
+      if (!touch) {
+        const sub = menu.getByRole('menu', { name: 'Notifications' })
+        expect(await sub.evaluate(el => [...el.children].map(child => child.tagName === 'HR' ? '-' : 'i').join('').replace(/i+/g, 'i'))).toBe('i-i')
+        // Down from the last mode reaches the first length, and through all four.
+        await sub.getByRole('menuitemradio').last().focus()
+        await page.keyboard.press('ArrowDown')
+        await expect(sub.getByRole('menuitem', { name: 'Mute for 1 hour' })).toBeFocused()
+        for (const name of MUTE_LENGTHS.slice(1)) {
+          await page.keyboard.press('ArrowDown')
+          await expect(sub.getByRole('menuitem', { name })).toBeFocused()
+        }
+        await page.keyboard.press('Escape')
+        await expect(parent).toBeFocused()
+        await page.keyboard.press('Escape')
+        await expect(menu).toBeHidden()
+        await expect(page.locator('#roomMenu')).toBeFocused()
+      }
+    } finally { await context.close() }
+  })
+}
+
+test('muting a room for an hour writes the end, says so in the header and the status, and offers Unmute', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await page.clock.install({ time: new Date(2026, 9, 21, 10, 0) })
+    await joinRoom(page)
+    await expect(page.locator('#roomMuted')).toBeHidden()
+    await openRoomMenu(page)
+    const menu = page.locator('#roomMoreMenu')
+    await notificationsOf(page, menu)
+    await menu.getByRole('menuitem', { name: 'Mute for 1 hour' }).click()
+    const now = await page.evaluate(() => Math.floor(Date.now() / 1000))
+    const keys = await muteKeys(page)
+    expect(keys).toHaveLength(1)
+    expect(Math.abs(Number(keys[0]![1]) - (now + 3600))).toBeLessThanOrEqual(5)
+    await expect(page.locator('#roomMutedText')).toHaveText('Muted until 11:00')
+    await expect(page.locator('#roomMuted')).toBeVisible()
+    await expect(page.locator('#status')).toHaveText('Muted until 11:00.')
+    // The muted header, row and the open submenu break no accessibility rule.
+    await openRoomMenu(page)
+    await notificationsOf(page, menu)
+    const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`)).toEqual([])
+    await page.keyboard.press('Escape'); await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(page.locator('#roomIdentity')).toHaveAccessibleName(/Muted until 11:00/)
+    await expect(page.locator('#roomList li.roomRow[data-room]').first().locator('.roomMute').first()).toHaveCount(1)
+    // The menu now says Unmute, wears the crossed bell, and offers no lengths.
+    await openRoomMenu(page)
+    await expect(menu.getByRole('menuitem', { name: 'Notifications', exact: true }).locator('use')).toHaveAttribute('href', '#i-bellOff')
+    await notificationsOf(page, menu)
+    await expect(menu.getByRole('menuitem', { name: 'Unmute' })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: /^Mute for/ })).toHaveCount(0)
+    // Choosing Nothing clears the timer: a mute with no end has no Unmute.
+    await menu.getByRole('menuitemradio', { name: 'Nothing' }).click()
+    expect(await muteKeys(page)).toEqual([])
+    await expect(page.locator('#roomMutedText')).toHaveText('Muted')
+    await openRoomMenu(page)
+    await notificationsOf(page, menu)
+    await expect(menu.getByRole('menuitem', { name: 'Unmute' })).toHaveCount(0)
+    await expect(menu.getByRole('menuitem', { name: /^Mute for/ })).toHaveCount(0)
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
+    await expect(menu.getByRole('menu', { name: 'Notifications' }).locator('hr')).toHaveCount(0)
+  } finally { await context.close() }
+})
+
+test('a muted room keeps its number but leaves the counts, and comes back on its own when the mute ends', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await page.clock.install()
+    // A room on the list is watched once this device has been in it.
+    await joinRoom(page, 2)
+    await joinRoom(page)
+    await keepers[2]!.chat.send('Doors at seven.')
+    const row = page.locator('#roomList li.roomRow', { hasText: 'Town hall' })
+    await expect(row.locator('.unread')).toHaveCount(1, { timeout: 30_000 })
+    const countText = async () => (await page.locator('#railChatsCount').isVisible()) ? Number(await page.locator('#railChatsCount').innerText()) : 0
+    const before = await countText()
+    const own = Number(await row.locator('.unread').getAttribute('data-count'))
+    expect(own).toBeGreaterThan(0)
+    expect(before).toBeGreaterThanOrEqual(own)
+    await expect.poll(() => page.title()).toBe(`(${before}) KithMoot`)
+    // The row's own menu, as a right-click.
+    await row.click({ button: 'right' })
+    const rowMenu = page.locator(`#roomMenu-${await row.getAttribute('data-room')}`)
+    await notificationsOf(page, rowMenu)
+    await expect(rowMenu.getByRole('menuitem', { name: /^Mute for/ })).toHaveText(MUTE_LENGTHS)
+    await rowMenu.getByRole('menuitem', { name: 'Mute for 1 hour' }).click()
+    await expect.poll(countText).toBe(before - own)
+    await expect.poll(() => page.title()).toBe(before - own > 0 ? `(${before - own}) KithMoot` : 'KithMoot')
+    await expect(row.locator('.unread')).toHaveAttribute('data-muted', 'true')
+    await expect(row.locator('.roomMute')).toHaveCount(1)
+    expect(await row.locator('.sr-only').textContent()).toMatch(/^Muted until \d\d:\d\d\./)
+    // The hour passes with the page open: within two seconds all of it goes.
+    await page.clock.fastForward('01:00:02')
+    await expect(row.locator('.roomMute')).toHaveCount(0, { timeout: 2000 })
+    await expect(row.locator('.unread')).not.toHaveAttribute('data-muted', 'true')
+    await expect.poll(countText).toBe(before)
+    expect(await muteKeys(page)).toEqual([])
+    // An explicit Unmute does the same sooner.
+    await row.click({ button: 'right' })
+    await notificationsOf(page, rowMenu)
+    await rowMenu.getByRole('menuitem', { name: 'Mute for 1 day' }).click()
+    await expect.poll(countText).toBe(before - own)
+    await row.click({ button: 'right' })
+    await notificationsOf(page, rowMenu)
+    await rowMenu.getByRole('menuitem', { name: 'Unmute' }).click()
+    await expect(page.locator('#status')).toHaveText('Unmuted.')
+    await expect.poll(countText).toBe(before)
+  } finally { await context.close() }
+})
+
+
+// Rings follow today's rule (design-calm-stage7, S7 as decided): the banner
+// always opens for the room on screen; the ring's sound and the system alert
+// are silenced by a mute, as they already are by Nothing.
+for (const [mode, rings] of [['none', true], ['mute for 1 hour', false], ['Nothing', false]] as const) {
+  test(`a call in a room with ${mode === 'none' ? 'no mute' : mode === 'Nothing' ? 'Nothing chosen' : 'a one-hour mute'} opens the banner and ${rings ? 'rings and alerts' : 'makes no sound and no system alert'}`, async ({ browser, baseURL }) => {
+    const { ada, close } = await ringSetup(browser, baseURL!, async page => {
+      if (mode !== 'none') {
+        await openRoomMenu(page)
+        const menu = page.locator('#roomMoreMenu')
+        await notificationsOf(page, menu)
+        if (mode === 'Nothing') await menu.getByRole('menuitemradio', { name: 'Nothing' }).click()
+        else await menu.getByRole('menuitem', { name: 'Mute for 1 hour' }).click()
+        await expect(page.locator('#roomMuted')).toBeVisible()
+      }
+      await page.evaluate(() => {
+        localStorage.setItem('kithmoot.notify', 'true')
+        const seen = { sounds: 0, alerts: [] as string[] }
+        ;(window as any).ringSpy = seen
+        const Original = window.AudioContext
+        window.AudioContext = class extends Original { constructor(...args: ConstructorParameters<typeof AudioContext>) { super(...args); seen.sounds++ } }
+        class Spy { static permission = 'granted'; static requestPermission = async () => 'granted'; constructor(title: string, options?: NotificationOptions) { seen.alerts.push(`${title}: ${options?.body}`) } close() {} }
+        Object.defineProperty(window, 'Notification', { value: Spy, configurable: true })
+      })
+    })
+    try {
+      await expect(ada.page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
+      await expect(ada.page.locator('#ringBanner')).toContainText('Priya Natarajan is calling')
+      await ada.page.waitForTimeout(1500)
+      const seen = await ada.page.evaluate(() => (window as any).ringSpy as { sounds: number; alerts: string[] })
+      if (rings) {
+        expect(seen.sounds).toBeGreaterThan(0)
+        expect(seen.alerts).toEqual(['Ring room: Priya Natarajan is calling'])
+      } else {
+        expect(seen.sounds).toBe(0)
+        expect(seen.alerts).toEqual([])
+      }
+    } finally { await close() }
+  })
+}
+
+test('Settings › Notifications names its choices the way the menus do, and a room can be set to Only mentions and replies from either', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await joinRoom(page)
+    await openSettings(page, 'Notifications')
+    await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
+    const options = page.locator('#notificationMode option')
+    await expect(options).toHaveText(['Use parent setting', 'Every message', 'Only mentions and replies', 'Nothing'])
+    expect(await options.evaluateAll(all => all.map(option => (option as HTMLOptionElement).value))).toEqual(['inherit', 'all', 'mentions', 'off'])
+    await page.locator('#notificationMode').selectOption('mentions')
+    await expect(page.locator('#notificationMode')).toHaveValue('mentions')
+    await expect(page.locator('#notificationPreferences .note').first()).toContainText('any project set to Nothing silences it unless the room has its own setting')
+    // The room's own menu shows the same choice ticked once the room scope is picked.
+    await page.locator('#notificationScope').selectOption({ label: 'Room: Release workshop' })
+    await page.locator('#notificationMode').selectOption('mentions')
+    await closeSettings(page)
+    await roomMenuItem(page, 'Notifications')
+    const menu = page.locator('#roomMoreMenu')
+    await expect(menu.getByRole('menuitemradio', { name: 'Only mentions and replies' })).toHaveAttribute('aria-checked', 'true')
+    // A mentions-only room is not muted: no glyph, no header line.
+    await expect(page.locator('#roomMuted')).toBeHidden()
   } finally { await context.close() }
 })
