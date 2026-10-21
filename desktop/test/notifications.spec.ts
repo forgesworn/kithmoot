@@ -168,7 +168,7 @@ test('muting from the Room menu leaves the room out of the dock badge and the ba
     expect(await page.title()).toBe('KithMoot')
     // The menu now offers Unmute and no lengths.
     await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.items.find(item => item.label === 'Room')?.submenu?.items.find(item => item.label === 'Notifications')?.submenu?.items.map(item => item.label).join('|')))
-      .toBe('Every message|Nothing|Use my default||Unmute')
+      .toBe('Every message|Only mentions and replies|Nothing|Use my default||Unmute')
     await expect.poll(() => choose('Unmute')).toBe(true)
     await expect(page.locator('#roomMuted')).toBeHidden()
     await expect.poll(() => app.evaluate(({ app }) => app.getBadgeCount())).toBe(1)
