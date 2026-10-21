@@ -620,7 +620,7 @@ test('keyboard readers navigate messages, reply through actions and retain focus
     await input.fill('This is a keyboard reply.')
     await page.keyboard.press('Enter')
     await expect.poll(() => writer.chat.messages().some(message => message.text === 'This is a keyboard reply.')).toBe(true)
-    await expect(page.locator('#chatLog .thread')).toContainText('This is a keyboard reply.')
+    await expect(page.locator('#chatLog .msg:has(.replyQuote)')).toContainText('This is a keyboard reply.')
     await page.keyboard.press('Control+Shift+F6')
     await page.keyboard.press('End')
     await expect(rows.last()).toBeFocused()

@@ -8,8 +8,8 @@ import { NostrRelayPool } from '../src/relay-pool.js'
 import { openRoomDetails, TEST_RELAY_WS, showChats, openRoomMenu, openMember } from './browser.js'
 
 /**
- * The message layer, as a person meets it: a reply that sits under the
- * message it answers, an edit that changes the words and says so, a
+ * The message layer, as a person meets it: a reply in time order with a
+ * quote of the message it answers, an edit that changes the words and says so, a
  * retraction that leaves a marked gap, a mention that lights up for the
  * one it names, and a private conversation started from a person's row.
  * See docs/messages.md.
@@ -19,7 +19,7 @@ async function device(context: BrowserContext) {
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
 }
 
-test('replies nest, edits show the latest, retractions leave a marked gap, and a mention on the wire lights up', async ({ browser, baseURL }) => {
+test('replies sit in time order with a quote, edits show the latest, retractions leave a marked gap, and a mention on the wire lights up', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
@@ -30,7 +30,7 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
 
-    // Rowan asks; Ada answers in a thread.
+    // Rowan asks; Ada answers it.
     await rowan.chat.send('Shall we ship on Friday?')
     const root = page.locator('#chatLog .msg').filter({ hasText: 'Shall we ship on Friday?' })
     await expect(root).toBeVisible()
@@ -39,9 +39,15 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
     await expect(page.locator('#composerContext')).toContainText('Replying to Rowan')
     await page.locator('#chatInput').fill('Yes, if the vectors are green')
     await page.locator('#chatInput').press('Enter')
-    const thread = page.locator('#chatLog .thread')
-    await expect(thread.locator('.msg')).toHaveCount(1)
-    await expect(thread).toContainText('Yes, if the vectors are green')
+    // The reply is an ordinary message at the bottom, in time order, with a
+    // quote of the message it answers inside its bubble.
+    const answer = page.locator('#chatLog .msg:has(.replyQuote)')
+    await expect(answer).toHaveCount(1)
+    await expect(answer).toContainText('Yes, if the vectors are green')
+    await expect(answer.locator('.replyQuote')).toContainText('Rowan')
+    await expect(answer.locator('.replyQuote')).toContainText('Shall we ship on Friday?')
+    await expect(page.locator('#chatLog .msg').last()).toContainText('Yes, if the vectors are green')
+    await expect(page.locator('#chatLog .thread')).toHaveCount(0)
     // Saying your own name is not being addressed: no row of yours lights.
     await page.locator('#chatInput').fill('Ada here, by the way')
     await page.locator('#chatInput').press('Enter')
@@ -55,25 +61,25 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
       .toBe(rowan.chat.messages().find(m => m.text === 'Shall we ship on Friday?')!.id)
 
     // Ada corrects herself. The bubble changes; the message keeps its place.
-    const reply = thread.locator('.msg').first()
-    await reply.locator('.messageMore').click()
+    await answer.locator('.messageMore').click()
     await page.locator('#messageActionPanel').getByRole('button', { name: 'Edit this message' }).click()
     await expect(page.locator('#composerContext')).toContainText('Editing your message')
     await expect(page.locator('#chatInput')).toHaveValue('Yes, if the vectors are green')
     await page.locator('#chatInput').fill('Yes, once the vectors are green')
     await page.locator('#chatInput').press('Enter')
-    await expect(thread.locator('.msg')).toHaveCount(1)
-    await expect(thread.locator('.msg .bubble')).toContainText('Yes, once the vectors are green')
-    await expect(thread.locator('.msg .chip.edited')).toBeVisible()
+    await expect(answer).toHaveCount(1)
+    await expect(answer.locator('.bubble')).toContainText('Yes, once the vectors are green')
+    await expect(answer.locator('.chip.edited')).toBeVisible()
     await expect.poll(() => rowan.chat.messages().filter(m => m.replaces !== undefined).length).toBe(1)
 
     // And thinks better of it. What is left says so.
-    await reply.locator('.messageMore').click()
+    await answer.locator('.messageMore').click()
     await page.locator('#messageActionPanel').getByRole('button', { name: 'Retract this message' }).click()
     await page.locator('#actionConfirm').click()
-    await expect(thread.locator('.msg.retracted')).toHaveCount(1)
-    await expect(thread.locator('.msg.retracted .bubble')).toContainText('Message retracted')
-    await expect(thread.locator('.msg.retracted .messageMore')).toHaveCount(0)
+    const retracted = page.locator('#chatLog .msg.retracted')
+    await expect(retracted).toHaveCount(1)
+    await expect(retracted.locator('.bubble')).toContainText('Message retracted')
+    await expect(retracted.locator('.messageMore')).toHaveCount(0)
     await expect.poll(() => rowan.chat.messages().filter(m => m.retracts !== undefined).length).toBe(1)
 
     // Rowan names Ada on the wire. Her row lights; the picker offered the name.
@@ -223,5 +229,65 @@ test('a private conversation is started from a person and reaches them inside th
     await ada.keyboard.press('Escape')
   } finally {
     for (const context of contexts) await context.close()
+  }
+})
+
+test('a reply is the last message in the log with a quote that jumps to the original, and a deleted original says so', async ({ browser, baseURL }) => {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  // Short enough that the first message is above the fold once the reply arrives.
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 560 } })
+  await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
+  await device(context)
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+  const join = (name: string) => RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name })
+  const ada = await join('Ada'), bo = await join('Bo')
+  try {
+    const page = await context.newPage(); await page.goto(link)
+    await page.locator('#displayName').fill('Cy'); await page.locator('#join').click()
+    const log = page.locator('#chatLog')
+    // Messages stamped in the same second sort by id, so each waits a second.
+    const say = async (text: string) => { await ada.chat.send(text); await expect(log).toContainText(text); await page.waitForTimeout(1100) }
+    await say('First: the venue is booked.')
+    await say('Second: the budget is agreed.')
+    await say('Third: the poster is printed.')
+    const first = ada.chat.messages().find(m => m.text === 'First: the venue is booked.')!
+    await bo.chat.send('Great news about the venue.', { replyTo: first })
+
+    // The reply is last, in time order, with a quote naming Ada and her words.
+    const reply = log.locator('.msg').last()
+    await expect(reply).toContainText('Great news about the venue.')
+    await expect(log.locator('.thread')).toHaveCount(0)
+    const quote = reply.locator('button.replyQuote')
+    await expect(quote).toContainText('Ada')
+    await expect(quote).toContainText('First: the venue is booked.')
+    await expect(quote).toHaveAttribute('aria-label', "Go to Ada's message: First: the venue is booked.")
+
+    // Pressing the quote goes to the original: focused, marked, and the way back is offered.
+    await quote.focus()
+    await quote.press('Enter')
+    const original = log.locator('.msg').filter({ hasText: 'First: the venue is booked.' }).first()
+    await expect(original).toBeFocused()
+    await expect(original).toHaveClass(/jumpTarget/)
+    // Only the log moved, and only up: nothing on the page scrolled sideways.
+    expect(await page.evaluate(() => [document.scrollingElement!, ...document.querySelectorAll('*')].filter(element => element.scrollLeft !== 0).map(element => element.id || element.className))).toEqual([])
+    await expect(page.locator('#newMessages')).toBeVisible()
+    await expect(page.locator('#newMessages')).toHaveText(/Jump to latest/)
+    await expect(original).not.toHaveClass(/jumpTarget/, { timeout: 5000 })
+    await page.locator('#newMessages').click()
+    await expect(page.locator('#newMessages')).toBeHidden()
+
+    // A reply to a message that is then retracted quotes nothing of it.
+    await page.waitForTimeout(1100)
+    const third = ada.chat.messages().find(m => m.text === 'Third: the poster is printed.')!
+    await bo.chat.send('Nice poster.', { replyTo: third })
+    await expect(log.locator('.msg').last()).toContainText('Nice poster.')
+    await ada.chat.send('Retracted a message', { retracts: third.id })
+    const gone = log.locator('.msg').last().locator('.replyQuote')
+    await expect(gone).toContainText('Message deleted')
+    await expect(gone).not.toContainText('poster is printed')
+    await expect(log.locator('.msg').last().locator('button.replyQuote')).toHaveCount(0)
+  } finally {
+    await ada.leave(); await bo.leave()
+    await context.close()
   }
 })

@@ -2338,3 +2338,23 @@ supports NIP-40, connected and reached EOSE in under a second on two tries,
 and held all four room kinds. It also took a kind-1059 gift wrap from a
 throwaway key, served it back by id without AUTH and accepted its deletion,
 so it carries quiet rooms. All three defaults now carry quiet rooms.
+
+## Replies show in time order with a quote (owner, 21 October 2026)
+
+A reply used to sit indented under its root in a ruled group, so an answer
+to an old message appeared far above the conversation's present, where
+nobody was reading. The owner asked for the pattern every messenger uses:
+a reply is a normal message at the bottom, in time order, with a small quote
+of the message it answers inside its bubble, and pressing the quote takes
+you to the original.
+
+The wire format does not change. `reply` names the parent and `thread` the
+root as before (see `messages.md`); only the display flattens. The quote is
+built from the parent, or the root when only `thread` is sent, and shows the
+original's current text, so an edit is reflected and a retraction reads
+"Message deleted". An original that is not loaded is quoted by name when the
+name is known and cannot be followed. Agents that post with `thread` now
+interleave with everyone else in time order, each reply carrying its quote.
+The "in a thread" and "replying to" chips are gone, because the quote says
+both. The cost is that a long back-and-forth under one message no longer
+reads as a block; the quote on each reply is what ties it back.
