@@ -78,7 +78,7 @@ test('a call carries on while its member chats in another room, and comes back w
 
     // Back, to the room as it was left, with what was said meanwhile.
     await pageA.locator('#callDockBack').click()
-    await expect(pageA.locator('#roomTitle')).toContainText('Room ')
+    await expect(pageA.locator('#roomTitle')).toHaveText('Untitled room')
     await expect(pageA.locator('#callDock')).toBeHidden()
     await expect(pageA.locator('#callBay')).toBeVisible()
     await expect(pageA.locator('#toggleMic')).toHaveAttribute('data-on', 'true')

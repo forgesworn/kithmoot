@@ -587,6 +587,7 @@ test('the ⋯ menu has the keyboard model: Enter opens, arrows move, Right opens
     // And a last Escape, from the top level, closes the menu onto the ⋯.
     await page.keyboard.press('Enter')
     await expect(menu).toBeVisible()
+    await expect(items.first()).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
     await expect(more).toBeFocused()
