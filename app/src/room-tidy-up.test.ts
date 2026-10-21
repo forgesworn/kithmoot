@@ -83,6 +83,34 @@ function setup(refuse?: (relay: string, event: Event) => boolean) {
 const kindsOf = (event: Event) => event.tags.filter(t => t[0] === 'k').map(t => Number(t[1]))
 
 describe('leave and tidy up', () => {
+  it('does not report local cleanup done when archive deletion rejects', async () => {
+    const { deps, order } = setup()
+    const completed: string[] = []
+    deps.progress = step => completed.push(step.id)
+    deps.clearLocal = async () => { throw new Error('archive deletion refused') }
+    await expect(runTidyUp(deps)).rejects.toThrow('archive deletion refused')
+    expect(completed).not.toContain('local')
+    expect(order).not.toContain('local')
+  })
+
+  it('does not report local cleanup complete before archive deletion settles', async () => {
+    const { deps, order } = setup()
+    let release!: () => void
+    let started!: () => void
+    const clearing = new Promise<void>(resolve => { started = resolve })
+    const cleared = new Promise<void>(resolve => { release = resolve })
+    deps.clearLocal = async () => { started(); await cleared; order.push('local') }
+    let finished = false
+    const running = runTidyUp(deps).then(report => { finished = true; return report })
+    await clearing
+    expect(finished).toBe(false)
+    expect(order).not.toContain('local')
+    release()
+    const report = await running
+    expect(report.steps.at(-1)?.id).toBe('local')
+    expect(order).toContain('local')
+  })
+
   it('asks for this device\'s chat envelope 2 messages under their own keys, and counts what is left', async () => {
     const { r, deps, deviceSk, otherSk } = setup()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(3))

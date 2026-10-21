@@ -18514,10 +18514,10 @@ function deleteRoomFiles(context: TidyUpContext): (deviceEvents: readonly NostrE
   }
 }
 
-function clearRoomLocally(context: TidyUpContext, sweep = false): void {
+async function clearRoomLocally(context: TidyUpContext, sweep = false): Promise<void> {
   // The archive's older epochs and the room's channels, named while the
   // epoch records forgetLocally removes are still here.
-  if (sweep) sweepRoomArchive(context.roomId, context.roomKey)
+  if (sweep) await sweepRoomArchive(context)
   forgetLocally(context.roomId)
   bookmarks?.dropLocalRecord(context.roomId)
   if (bookmarks) forgetRoom(bookmarks.rooms, context.roomId)
@@ -18546,18 +18546,24 @@ function clearRoomLocally(context: TidyUpContext, sweep = false): void {
  *  main chat and rekeys, the main chat of every epoch kept, and the known
  *  channels in each of those epochs. A named channel this device never
  *  learned the name of stays as ciphertext nothing here can open. */
-function sweepRoomArchive(roomId: string, roomKey: Uint8Array | undefined): void {
+async function sweepRoomArchive(context: TidyUpContext): Promise<void> {
+  const { roomId, roomKey } = context
   const archive = roomArchive
   if (!archive) return
   const roots: { id: string; key: Uint8Array }[] = []
   if (roomKey) roots.push({ id: roomId, key: roomKey })
   const kept = loadKeptRoomEpoch(deviceStore, roomId)
   if (kept) for (const e of [kept.epoch, ...kept.past]) if (e.epoch > 0) { const keys = deriveEpoch(e); roots.push({ id: keys.id, key: keys.key }) }
-  const names = new Set([AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL, ...(session && currentRoomId() === roomId ? channels : [])])
-  const streams = roots.flatMap(root => [...names].flatMap(name => {
+  const names = new Set([undefined, AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, ...(session && currentRoomId() === roomId ? channels : [])])
+  const streams: { kind: number; d: string }[] = roots.flatMap(root => [...names].flatMap(name => {
     try { return [{ kind: KINDS.CHAT, d: deriveChannel(root.id, root.key, name).id }] } catch { return [] }
   }))
-  void Promise.all(streams.map(stream => archive.forget(stream))).catch(error => console.warn('room archive could not forget a channel', error))
+  // The live session has already left. Capture its actual streams in the
+  // tidy-up context before closing it, including dynamically opened channels.
+  streams.push(...(context.chatStreams ?? []).map(stream => ({ kind: KINDS.CHAT, d: stream.d })),
+    { kind: KINDS.CHAT, d: roomId }, { kind: KINDS.ROOM_REKEY, d: roomId })
+  const unique = new Map(streams.map(stream => [`${stream.kind}:${stream.d}`, stream]))
+  await Promise.all([...unique.values()].map(stream => archive.forget(stream)))
 }
 
 async function runRoomTidyUp(): Promise<void> {
@@ -18977,8 +18983,8 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
           // after the relay check that follows it: a tab closed or reloaded
           // during that check would otherwise lose it, and the room would
           // vanish from the list without a word.
-          clearLocal: () => {
-            clearRoomLocally(context, true)
+          clearLocal: async () => {
+            await clearRoomLocally(context, true)
             addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
           },
         })

@@ -113,7 +113,7 @@ export interface TidyUpDeps {
   /** Is another tab in this room? Asked before anything is deleted. */
   otherTabsAnswer: () => Promise<boolean>
   leaveHere: () => Promise<void>
-  clearLocal: () => void
+  clearLocal: () => void | Promise<void>
   progress?: (report: TidyStepReport) => void
 }
 
@@ -377,7 +377,7 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
   record({ id: 'check', found: remaining.filter(r => r.count > 0).reduce((sum, r) => sum + r.count, 0), answers: [], unread: [] })
   if (!chatChecked) return { steps, remaining,
     localRetained: 'Local room keys and upload records were retained because the final chat history check was incomplete. Cleanup can be resumed.' }
-  deps.clearLocal()
+  await deps.clearLocal()
   record({ id: 'local', found: 0, answers: [], unread: [] })
   return { steps, remaining: remaining.sort((a, b) => a.what < b.what ? -1 : a.what > b.what ? 1 : a.relay < b.relay ? -1 : 1) }
 }
