@@ -6,8 +6,7 @@ import {encodeJoinUrl,generateRoomSecret,deriveRoom,deriveChannel,createRoomInvi
 import WebSocket from 'ws'
 import {createHash} from 'node:crypto'
 import {createServer} from 'node:http'
-import {readFileSync,existsSync,mkdtempSync,cpSync,rmSync} from 'node:fs'
-import {tmpdir} from 'node:os'
+import {readFileSync,existsSync,mkdtempSync,cpSync,rmSync,mkdirSync} from 'node:fs'
 import {resolve,extname} from 'node:path'
 import assert from 'node:assert/strict'
 import {installRoomFaults,armRoomFault,waitRoomFault} from './browser-room-faults.mjs'
@@ -20,7 +19,9 @@ const fixtureBundle=expiry ? await expiryBundle() : undefined
 
 const control=process.env.LINK_BOTHY_CONTROL, linkRelay=process.env.LINK_TEST_RELAY
 if(!control || new URL(control).hostname!=='127.0.0.1' || !linkRelay?.startsWith('wss://')) throw new Error('Set loopback Bothy control and WebPKI Link relay.')
-const root=mkdtempSync(resolve(tmpdir(),'kithmoot-room-'))
+const artifactDir=resolve(process.env.ROOM_ARTIFACT_DIR ?? 'release/browser-room')
+mkdirSync(artifactDir,{recursive:true})
+const root=mkdtempSync(resolve(artifactDir,'build-'))
 cpSync(resolve('app/dist'),root,{recursive:true})
 const server=createServer((req,res)=>{
   const pathname=new URL(req.url,'http://localhost').pathname
@@ -36,7 +37,7 @@ const app=`http://127.0.0.1:${server.address().port}/j/`, publicRelay=process.en
 if(new URL(publicRelay).hostname!=='127.0.0.1' || new URL(publicRelay).protocol!=='ws:')throw new Error('Public fixture relay must be loopback.')
 const launchOptions={args:[`--host-resolver-rules=MAP ${new URL(linkRelay).hostname} 127.0.0.1`]}
 const browser=await chromium.launch(launchOptions)
-const ownerProfile=recovery ? mkdtempSync(resolve(tmpdir(),'kithmoot-room-owner-')) : undefined
+const ownerProfile=recovery ? mkdtempSync(resolve(artifactDir,'owner-profile-')) : undefined
 const ownerKey=new Uint8Array(createHash('sha256').update('kithmoot-g5-fixture-signer-v2:alice').digest()), guestKey=generateSecretKey()
 const secret=generateRoomSecret(), room=deriveRoom(secret), invitation=persistent ? createRoomInvitation(true) : undefined
 const url=invitation ? encodeRoomLink(app,{invitation:invitation.invitation,relays:[publicRelay],iceUrls:[]}) : encodeJoinUrl(app,secret,[publicRelay])
@@ -74,7 +75,7 @@ const setup=async key=>{
   const context=await createContext(key)
   const page=await context.newPage();attach(page)
   await page.goto(app+'?signin=nostr');await page.getByRole('button',{name:/Browser extension/}).click()
-  await page.locator('#openAppSettings').click();if(!await page.locator('#bothySettingsOpen').isVisible())await page.locator('#appConnections > summary').click()
+  await page.locator('#openAppSettings').click();await page.locator('#settingsRowconnections').click()
   await page.locator('#bothySettingsOpen').click();await page.locator('#bothyRelays').fill(linkRelay)
   await page.getByRole('button',{name:'Connect or resume',exact:true}).click()
   await page.getByText('Ready to pair. Paste a current code from your Bothy.',{exact:true}).waitFor()
@@ -231,9 +232,9 @@ try{
   assert(await guest.page.locator('#outbox').getByText('Refused after keeper withdrawal',{exact:true}).isVisible())
   assert.equal(counters.after,0)
   assert.deepEqual(errors,[])
-  await guest.page.screenshot({path:'/tmp/vennel-room-refused.png'})
+  await guest.page.screenshot({path:resolve(artifactDir,'vennel-room-refused.png')})
   console.log(JSON.stringify({browser:browser.version(),platform:process.platform,arch:process.arch,appIndexSha256:createHash('sha256').update(readFileSync(resolve(root,'index.html'))).digest('hex'),visibleActivation:true,secondTab:true,oldTabRefusal:true,privateMessage:true,reloadResume:true,persistentInvitation:persistent,browserProcessRestart:recovery,boxRestart:true,linkRelayRestart:true,renewal:true,keeperWithdrawal:true,guestHeld:true,explicitGuestRefusal:true,realClockExpiry:expiry,serverGrantRowsVerified:expiry,publicRoomFrames:counters.after,heldOwnerFrames,interruptions,pageErrors:errors}))
 }catch(error){
-  for(let i=0;i<pages.length;i++){await pages[i].screenshot({path:`/tmp/vennel-room-failed-${i}.png`}).catch(()=>{});console.error('page',i,await pages[i].locator('#bothyRoomStatus').textContent().catch(()=>''),await pages[i].locator('#status').textContent().catch(()=>''),await pages[i].locator('#bothyRoomConnection').textContent().catch(()=>''))}
+  for(let i=0;i<pages.length;i++){await pages[i].screenshot({path:resolve(artifactDir,`vennel-room-failed-${i}.png`)}).catch(()=>{});console.error('page',i,await pages[i].locator('#bothyRoomStatus').textContent().catch(()=>''),await pages[i].locator('#status').textContent().catch(()=>''),await pages[i].locator('#bothyRoomConnection').textContent().catch(()=>''))}
   console.error('page errors',errors);throw error
 }finally{ownerKey.fill(0);guestKey.fill(0);invitation?.inviterSk.fill(0);for(const c of contexts)await c.close();await browser.close();await new Promise(r=>server.close(r));rmSync(root,{recursive:true,force:true});if(ownerProfile)rmSync(ownerProfile,{recursive:true,force:true})}
