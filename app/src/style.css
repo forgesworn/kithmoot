@@ -3943,6 +3943,13 @@ button.primary:hover:not(:disabled) {
 #fileStorageOptions label { display: block; }
 #attachServer { width: 100%; box-sizing: border-box; }
 #fileStorageStatus { overflow-wrap: anywhere; }
+/* Public servers run by other people: one full-width button each, host over
+   operator, so a long name wraps instead of widening the panel. */
+#publicFileServers > .note { margin-bottom: .25rem; }
+.publicFileServerList { display: flex; flex-direction: column; gap: .25rem; }
+.publicFileServerList button { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; width: 100%; margin: 0; text-align: left; overflow-wrap: anywhere; }
+.publicFileServerList button[aria-pressed=true] { background: var(--accent); color: var(--on-accent); }
+.publicFileServerDetail { font-weight: 400; font-size: var(--fs-2); }
 
 /* "You" in Room details, where the identity chip now lives. */
 #roomSheet #sendingIdentity { max-width: none; font-size: var(--fs-2); margin: .25rem 0; }

@@ -26,7 +26,8 @@ test('file storage defaults off and only remembers explicit shared-host consent'
   try {
     await page.locator('#attachToggle').click()
     await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await expect(page.locator('#attachServer')).toHaveValue(new URL(baseURL!).origin)
+    // Nothing is suggested: not the app's own origin, not any ForgeSworn host.
+    await expect(page.locator('#attachServer')).toHaveValue('')
     await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
     await page.locator('#saveFileStorage').click()
     await expect(page.locator('#attachStatus')).toContainText('Confirm')
@@ -38,6 +39,86 @@ test('file storage defaults off and only remembers explicit shared-host consent'
     // The start page initialises the remembered setting before a room is joined.
     await expect(page.locator('#attachServer')).toHaveValue('https://files.example')
     await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://files.example')
+  } finally { await context.close() }
+})
+
+test('public servers run by other people only fill the field; they never grant consent', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  try {
+    await page.locator('#attachToggle').click()
+    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await expect(page.getByRole('group', { name: 'Public servers run by other people' })).toBeVisible()
+    const yakihonne = page.getByRole('button', { name: /blossom\.yakihonne\.com/ })
+    await expect(yakihonne).toContainText('run by Yakihonne LLC, files up to 200 MB')
+    await expect(page.locator('#publicFileServerList button')).toHaveCount(1)
+    await expect(page.locator('#publicFileServers')).not.toContainText('forgesworn')
+    await expect(page.getByRole('link', { name: 'How to run your own file server' })).toHaveAttribute('href', 'https://github.com/forgesworn/kithmoot/blob/main/docs/run-your-own.md#files')
+    await expect(page.getByRole('link', { name: 'How to run your own file server' })).toHaveAttribute('rel', 'noopener')
+    await expect(page.locator('label[for="attachServer"]')).toHaveText('Or your own server')
+    await expect(yakihonne).toHaveAttribute('aria-pressed', 'false')
+    await yakihonne.click()
+    await expect(page.locator('#attachServer')).toHaveValue('https://blossom.yakihonne.com')
+    await expect(yakihonne).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('#allowSharedFiles')).not.toBeChecked()
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
+    // Choosing one is not consent: without the tick, Use this server refuses.
+    await page.locator('#saveFileStorage').click()
+    await expect(page.locator('#attachStatus')).toContainText('Confirm')
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
+    // It behaves exactly like typing: after consent, choosing again revokes it.
+    await page.locator('#allowSharedFiles').check()
+    await page.locator('#saveFileStorage').click()
+    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://blossom.yakihonne.com')
+    expect(JSON.parse((await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1')))!)).toEqual({ mode: 'shared', disclosure: 2, origin: 'https://blossom.yakihonne.com' })
+    await page.locator('#fileStorageOptions summary').click()
+    await yakihonne.click()
+    await expect(page.locator('#allowSharedFiles')).not.toBeChecked()
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
+    await page.locator('#attachServer').fill('https://files.example')
+    await expect(yakihonne).toHaveAttribute('aria-pressed', 'false')
+    // No phone-width horizontal scroll from the panel.
+    await page.setViewportSize({ width: 320, height: 700 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    // Nothing in the storage choice runs past the panel.
+    expect(await page.locator('#fileStorageOptions').evaluate(el => {
+      const edge = el.closest('#attachPanel')!.getBoundingClientRect().right
+      return [...el.querySelectorAll('*')].filter(c => c.getBoundingClientRect().right > edge + 0.5).map(c => `${c.tagName}#${c.id}`)
+    })).toEqual([])
+  } finally { await context.close() }
+})
+
+test('a consent made by the old pre-filled ForgeSworn suggestion is retired once, with a notice that names no host', async ({ browser, baseURL }) => {
+  const stored = JSON.stringify({ mode: 'shared', disclosure: 1, origin: 'https://kithmoot.forgesworn.dev' })
+  const { page, context } = await setup(browser, baseURL!, async c => {
+    await c.addInitScript(value => {
+      // Only on the first load, so the reload below shows the retirement is permanent.
+      if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('kithmoot.file-storage.v1', value) }
+    }, stored)
+  })
+  let uploads = 0
+  await context.route('**/upload', route => { uploads++; return route.abort() })
+  try {
+    await page.locator('#attachToggle').click()
+    const notice = 'KithMoot no longer suggests a file server. Choose where your files go to send files again.'
+    await expect(page.locator('#fileStorageStatus')).toHaveText(notice)
+    await expect(page.locator('#fileStorageStatus')).not.toContainText('forgesworn')
+    await expect(page.locator('#attachServer')).toHaveValue('')
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
+    await page.locator('#attachFile').setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
+    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    expect(uploads).toBe(0)
+    // Typing the host is still a person's choice and is honoured.
+    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await page.locator('#attachServer').fill('https://kithmoot.forgesworn.dev')
+    await expect(page.locator('#fileStorageStatus')).toHaveText(notice)
+    await page.locator('#allowSharedFiles').check()
+    await page.locator('#saveFileStorage').click()
+    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://kithmoot.forgesworn.dev')
+    await page.reload()
+    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://kithmoot.forgesworn.dev')
+    await expect(page.locator('#attachServer')).toHaveValue('https://kithmoot.forgesworn.dev')
   } finally { await context.close() }
 })
 

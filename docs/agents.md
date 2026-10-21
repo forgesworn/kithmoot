@@ -712,8 +712,10 @@ relay that watches kind-1063 events sees a key it cannot tie to a person.
 
 New browser uploads are off by default. **Add a file → Use shared storage
 instead** shows the destination and asks for explicit acknowledgement that
-encrypted bytes may be publicly downloadable. The app origin is suggested,
-never selected automatically. Legacy URL preferences do not imply consent.
+encrypted bytes may be publicly downloadable. The app suggests no file
+server, least of all its own host: the field starts empty, with a short list
+of public servers run by other people to choose from. Choosing one only fills the field.
+Legacy URL preferences do not imply consent.
 Editing the destination or turning uploads off removes approval; existing
 files are not moved or deleted. Private Bothy storage is the intended
 default, but the browser's paired, authenticated storage adapter is not

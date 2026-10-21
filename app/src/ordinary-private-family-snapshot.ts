@@ -126,7 +126,7 @@ export function validateOrdinaryPrivateFamilySnapshot(records: ReadonlyMap<strin
         counts.uploadJournals++; counts.uploadCandidates += value.length
       } else if (name === 'kithmoot.file-storage.v1') {
         object(value, ['mode', 'disclosure', 'origin'])
-        if (value.mode !== 'shared' || value.disclosure !== 1 || typeof value.origin !== 'string' || normaliseBlossomServer(value.origin) !== value.origin) hold()
+        if (value.mode !== 'shared' || (value.disclosure !== 1 && value.disclosure !== 2) || typeof value.origin !== 'string' || normaliseBlossomServer(value.origin) !== value.origin) hold()
         counts.sharedFileConsent++
       } else if (LOGO.test(name)) {
         object(value, ['epoch', 'record']); object(value.record, ['image', 'id', 'at', 'sentAt'])
