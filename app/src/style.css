@@ -665,6 +665,10 @@ section {
 .roomMuted { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--s1); font-size: var(--fs-1); color: var(--muted); white-space: nowrap; }
 .roomMuted[hidden] { display: none; }
 .roomMuted svg.i { width: 14px; height: 14px; }
+/* On a phone the who line gives way entirely rather than shrinking to a letter. */
+@media (max-width: 599px) {
+  .roomSubline:has(.roomMuted:not([hidden])) .roomWho { display: none; }
+}
 
 /* A conference room's end, under its name: the one fact about the room
    that changes what a reader should do with it. */

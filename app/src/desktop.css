@@ -234,6 +234,9 @@ html[data-desktop][data-room-switching] #status { display: none !important; }
   [role='tab'], [role='tablist'], [tabindex='0'], [contenteditable], [popover], dialog) {
   -webkit-app-region: no-drag;
 }
+/* Belt and braces for the band above: the rail and the header bars drag the
+   window too, as plain elements, so the window can always be moved. */
+:root[data-title-bar='inset'] :is(#rail, .listHead, .roomBar) { -webkit-app-region: drag; }
 /* The lights sit over the rail; its first control starts under them. */
 :root[data-title-bar='inset'] #rail { padding-top: max(var(--s3), var(--titlebar-h)); }
 /* The room's name is a button: shrink it to its text so the rest of the header drags. */
