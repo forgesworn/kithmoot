@@ -9,7 +9,7 @@ import { FakeNodes, MemoryStore, hex32, waitFor } from '../test/group-grants-fix
 
 const T0 = 1_800_000_000
 const DAY = 86_400
-const A = 'http://node-a.test:8080'
+const A = 'https://node-a.test:8080'
 const B = 'https://node-b.test'
 
 const open: GroupGrantKeeper[] = []
@@ -65,9 +65,9 @@ describe('configuration', { timeout: 30_000 }, () => {
     expect(() => GroupGrantKeeper.validate({ ...base, nodes: [A], bytes: 0 })).toThrow(/bytes/)
     expect(() => GroupGrantKeeper.validate({ ...base, nodes: ['http://x.onion'], bytes: 1 })).toThrow(/onion/)
     expect(() => GroupGrantKeeper.validate({ ...base, nodes: ['ftp://x.test'], bytes: 1 })).toThrow(/http/)
-    expect(() => GroupGrantKeeper.validate({ ...base, nodes: [A, 'http://node-a.test:9'], bytes: 1 })).toThrow(/twice/)
+    expect(() => GroupGrantKeeper.validate({ ...base, nodes: [A, 'https://node-a.test:9'], bytes: 1 })).toThrow(/twice/)
     expect(GroupGrantKeeper.validate({ ...base, nodes: [A, B], bytes: '5' })).toEqual({
-      nodes: [{ base: 'http://node-a.test:8080', server: 'node-a.test' }, { base: 'https://node-b.test', server: 'node-b.test' }], bytes: '5',
+      nodes: [{ base: 'https://node-a.test:8080', server: 'node-a.test' }, { base: 'https://node-b.test', server: 'node-b.test' }], bytes: '5',
     })
   })
 })
@@ -531,13 +531,15 @@ describe('the journal', { timeout: 30_000 }, () => {
       await keeper.start()
       await waitFor(() => keeper.ledger.journal[0]?.stopped !== undefined)
       await new Promise((r) => setTimeout(r, 60))
-      expect(t.nodes.posts.length).toBe(1)
+      // The refused grant is not retried; what follows is the keeper's revocation of an id the node never recorded.
+      expect(t.nodes.posts.filter((p) => t.parsed(p.event).status === 'active').length).toBe(1)
       await waitFor(() => t.world.sent.some((o) => o.op === 'error'))
       const errors = t.world.sent.filter((o) => o.op === 'error') as { op: 'error'; host: string; message: string }[]
       expect(errors.length).toBe(1)
       expect(errors[0]!.host).toBe('cc'.repeat(32))
       expect(errors[0]!.message).toContain('node-a.test')
-      expect(errors[0]!.message).toContain(String(status))
+      // Plain advice for the two refusals that have a cure of their own; the status for the rest.
+      expect(errors[0]!.message).toMatch(reason === 'scope-taken' ? /--group-reset/ : reason === 'floor' ? /later one/ : new RegExp(String(status)))
       expect(errors[0]!.message.length).toBeLessThanOrEqual(140)
       expect(t.logs.some((l) => l.includes('node-a.test') && l.includes(String(status)))).toBe(true)
     })

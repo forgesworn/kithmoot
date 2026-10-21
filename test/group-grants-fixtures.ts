@@ -36,9 +36,12 @@ interface NodeState { floor?: number; floorEventId?: string; grants: Map<string,
 
 /**
  * Enough of a `wildbloomd` group node to judge a keeper's order of events:
- * rules 9 to 11 of the contract (`floor`, `stale`, `revoked`, `scope-changed`,
- * `scope-taken`), and the status and `X-Reason` the real node answers.
- * It answers over a `fetch`-shaped function, by host name.
+ * rules 5 to 11 of the contract (`keeper`, the room list, `key-conflict` for an
+ * owner, an enrolled keeper or a key of another group, `floor`, `stale`,
+ * `revoked`, `scope-changed`, `scope-taken`), and the status and `X-Reason` the
+ * real node answers. It answers over a `fetch`-shaped function, by host name.
+ * `busyFirst` makes each host answer its first requests `503`, as a node that
+ * is starting or rate limiting does.
  */
 export class FakeNodes {
   readonly posts: Post[] = []
@@ -47,6 +50,14 @@ export class FakeNodes {
   readonly #hung = new Set<string>()
   readonly #script = new Map<string, { status: number; reason?: string; retryAfter?: number }[]>()
   now = 1_800_000_000
+  /** Keys that may not be a group's device: the node owner, other enrolled keepers. */
+  readonly reserved = new Set<string>()
+  /** Rooms the keeper may open here; any when empty. */
+  rooms: string[] = []
+  /** The first this many requests to each host answer 503. */
+  busyFirst = 0
+  readonly #asked = new Map<string, number>()
+  readonly #groupOf = new Map<string, string>()
   /** When set, the node's clock follows it instead of `now`. */
   clock?: () => number
   constructor(public keeper: string) {}
@@ -70,7 +81,9 @@ export class FakeNodes {
     if (this.#offline.has(host)) throw new TypeError('fetch failed')
     if (url.pathname !== '/groups/v1/events' || init?.method !== 'POST') return new Response(null, { status: 404 })
     const event = JSON.parse(String(init.body)) as GroupEvent
-    const scripted = this.#script.get(host)?.shift()
+    const asked = (this.#asked.get(host) ?? 0) + 1
+    this.#asked.set(host, asked)
+    const scripted = this.#script.get(host)?.shift() ?? (asked <= this.busyFirst ? { status: 503, reason: 'busy' } : undefined)
     let status: number
     let reason: string
     let headers: Record<string, string> = {}
@@ -88,6 +101,13 @@ export class FakeNodes {
     if (!verdict.ok) return [verdict.status, verdict.reason]
     const p = verdict.parsed
     const s = this.state(host)
+    if (this.rooms.length && !this.rooms.includes(p.roomId)) return [403, 'keeper']
+    if (p.type === 'grant' && (this.reserved.has(p.device) || p.device === this.keeper)) return [409, 'key-conflict']
+    if (p.type === 'grant') {
+      const group = `${p.signer}|${p.roomId}`
+      const held = this.#groupOf.get(`${host}|${p.device}`)
+      if (held !== undefined && held !== group) return [409, 'key-conflict']
+    }
     if (p.type === 'reset') {
       if (s.floor !== undefined && p.createdAt <= s.floor) return s.floorEventId === event.id ? [200, 'unchanged'] : [409, 'stale']
       s.floor = p.createdAt
@@ -107,6 +127,7 @@ export class FakeNodes {
         if (g.device === p.device && g.status === 'active' && !g.endedByReset && g.expiration > this.#at) return [409, 'scope-taken']
       }
     }
+    this.#groupOf.set(`${host}|${p.device}`, `${p.signer}|${p.roomId}`)
     s.grants.set(p.grantId, { createdAt: p.createdAt, status: p.status, device: p.device, eventId: event.id, expiration: p.expiration, endedByReset: held?.endedByReset ?? false })
     return [201, 'accepted']
   }

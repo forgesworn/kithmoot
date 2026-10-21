@@ -44,7 +44,7 @@ import { parseForwarderRef } from './descriptor.js'
 import { verifyAgentOwnership } from './ownership.js'
 import { meetingAllows, verifyMeetingPolicy, type MeetingPolicy } from './meeting.js'
 import { verifyDeviceCredential } from './credential.js'
-import { GroupGrantKeeper, type GroupGrantLedger, type GroupGrantsConfig } from './group-grants-keeper.js'
+import { GroupGrantKeeper, type GroupGrantLedger, type GroupGrantsConfig, type PreparedLedger } from './group-grants-keeper.js'
 
 /**
  * The relays an agent uses when its link names none. The same three the app
@@ -678,10 +678,17 @@ export class RoomAgent {
 
   static async #create(opts: CreateRoomOptions): Promise<RoomAgent> {
     const journal = opts.liveKeeper
+    let groupLedger: PreparedLedger | undefined
     if (opts.groupGrants) {
       // Refused before a relay is dialled: a live keeper's journal is strictly validated and exclusive, and takes no grant ledger.
       if (journal) throw new Error('group grants cannot be combined with a live keeper')
       GroupGrantKeeper.validate(opts.groupGrants)
+      // The ledger is read now, before a relay is dialled or the room joined: an unreadable one stops the start here.
+      // A room reopened from a state with no ledger beside it has lost it, and signs a reset first.
+      groupLedger = await GroupGrantKeeper.prepare(opts.groupGrants, {
+        roomExisted: opts.state !== undefined,
+        now: opts.now ?? (() => Math.floor(Date.now() / 1000)),
+      })
     }
     if (opts.liveAdmission && !journal) throw new Error('live admission requires a live keeper journal')
     if (journal) {
@@ -750,6 +757,7 @@ export class RoomAgent {
       admins: canonicalAdmins(opts.admins ?? []),
       forwarders,
       rekeyEverySeconds: opts.rekeyEverySeconds,
+      groupLedger,
     })
   }
 
@@ -779,6 +787,7 @@ export class RoomAgent {
       forwarders?: ForwarderRef[]
       rekeyEverySeconds?: number
       groupGrants?: GroupGrantsConfig
+      groupLedger?: PreparedLedger
     },
   ): Promise<RoomAgent> {
     const identity = opts.identity ?? localIdentity(generateSecretKey())
@@ -959,7 +968,7 @@ export class RoomAgent {
     }
     if (opts.liveKeeper) await agent.#persist()
     if (opts.keeper && opts.groupGrants) {
-      try { await agent.#startGrants(opts.groupGrants, opts.keeper.inviterSk) }
+      try { await agent.#startGrants(opts.groupGrants, opts.keeper.inviterSk, opts.groupLedger) }
       catch (error) { await agent.leave(); throw error }
     }
     agent.#openControl()
@@ -1131,7 +1140,7 @@ export class RoomAgent {
   }
 
   /** Group storage: open the ledger, watch the roster, mint for the devices already here. */
-  async #startGrants(config: GroupGrantsConfig, authoritySk: Uint8Array): Promise<void> {
+  async #startGrants(config: GroupGrantsConfig, authoritySk: Uint8Array, prepared?: PreparedLedger): Promise<void> {
     const grants = await GroupGrantKeeper.open(config, {
       roomId: this.roomId,
       authoritySk,
@@ -1144,7 +1153,7 @@ export class RoomAgent {
       removed: () => this.session.removed,
       send: (op) => this.session.channel(CONTROL_CHANNEL).send(encodeControl(op)),
       removeParticipant: (participant) => this.remove(participant),
-    })
+    }, prepared)
     this.#grants = grants
     this.#grantsRosterUnsub = this.session.onChange(() => grants.noteRoster())
     await grants.start()
@@ -1648,7 +1657,9 @@ export class RoomAgent {
     // 4.8 of the group grant contract, in its order: record the removal, sign
     // and push the revocations (bounded), then the rekey as ever, then post the
     // revocations in the new epoch. A node that is down never holds the rekey back.
-    if (this.#grants) await this.#grants.beforeRemoval(target)
+    // Never in the rekey's way: the grants side does not throw for want of a disk, and a failure of any other kind is not
+    // allowed to stop the removal either.
+    if (this.#grants) await this.#grants.beforeRemoval(target).catch(() => {})
     await this.session.rekey({ authoritySk: keeper.inviterSk, removed: [target], by })
     if (this.#grants) await this.#grants.afterRemoval(target).catch(() => {})
   }
@@ -1668,6 +1679,9 @@ export class RoomAgent {
     if (destruct) this.#destruct = true
     // A reset at every group node, in the room's current epoch, before the room closes. A node that cannot be reached
     // must not keep the room open.
+    // Stop watching the roster first: nothing is granted to a room that is closing.
+    this.#grantsRosterUnsub?.()
+    this.#grantsRosterUnsub = undefined
     if (this.#grants) await this.#grants.beforeClose().catch(() => {})
     if (this.#liveKeeper) {
       await this.session.rekey({ authoritySk: keeper.inviterSk, closed: true, by, ...(destruct ? { destruct: true } : {}) })

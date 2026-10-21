@@ -120,7 +120,7 @@ async function makeRoom(nodes: Daemon[], state: KeeperState, over: Partial<Group
     base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, state,
     groupGrants: {
       nodes: nodes.map((n) => n.url), bytes: DEVICE_BYTES, store: new MemoryStore(),
-      backoff: { baseMs: 50, maxMs: 200 }, pushBudgetMs: 1_500, rosterDelayMs: 20, ...over,
+      backoff: { baseMs: 50, maxMs: 200 }, pushBudgetMs: 15_000, rosterDelayMs: 20, ...over,
     },
   })
   const join = async (name: string, deviceSk = generateSecretKey(), identity = localIdentity(generateSecretKey())): Promise<Member> => {
@@ -220,6 +220,11 @@ describe.skipIf(!BIN)('the keeper against a real wildbloomd in group mode', () =
     await keeper.closeRoom()
     expect(await status(get(n1, a.deviceSk, hash))).toBe(403)
     expect(await status(get(n2, a.deviceSk, sha(second)))).toBe(403)
+    // Nothing is granted once the close has begun, however long the roster keeps talking.
+    await new Promise((r) => setTimeout(r, 1_500))
+    expect(await status(get(n1, a.deviceSk, hash))).toBe(403)
+    expect(await status(get(n2, a.deviceSk, sha(second)))).toBe(403)
+    expect(await status(get(n1, b.deviceSk, hash))).toBe(403)
     const repost = await post(n1, lastGrant)
     expect(repost.status).toBe(409)
     expect(repost.headers.get('x-reason')).toBe('floor')
@@ -261,7 +266,10 @@ describe.skipIf(!BIN)('the keeper against a real wildbloomd in group mode', () =
     const view = new GrantReceiver({ authority, roomId: deriveRoom(state.secret).roomId, device: d.device })
     const now = Math.floor(Date.now() / 1000)
     for (const ev of storageEvents(d.agent)) view.offer(ev, now)
-    const carried = view.carry('localhost', now)
+    // (The room's first reset, signed at start because the state came with no ledger, is carried too; it is not what is asked about.)
+    const all = view.carry('localhost', now)
+    expect(all.filter((p) => p.type === 'reset').length).toBe(1)
+    const carried = all.filter((p) => p.type === 'grant')
     expect(carried.length).toBe(2)
     const byDevice = new Map(carried.map((p) => [p.type === 'grant' ? p.device : '', p.event]))
     // Cat's: grant first (above), then the revocation: refused from then on.

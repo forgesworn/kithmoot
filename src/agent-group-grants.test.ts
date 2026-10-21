@@ -11,7 +11,7 @@ import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { FakeNodes, MemoryStore, oldEpochRosterEntry, waitFor } from '../test/group-grants-fixtures.js'
 
 const BASE = 'https://example.test/j/'
-const A = 'http://node-a.test:8080'
+const A = 'https://node-a.test:8080'
 const B = 'https://node-b.test'
 
 async function settle(): Promise<void> {
@@ -273,5 +273,47 @@ describe('the epoch filter on minting', { timeout: 30_000 }, () => {
     expect(keeper.groupGrantLedger!.grants.filter((g) => g.device === ada.device).length).toBe(2)
     expect(nodes.keeper).toBe(keeper.link.invitation!.inviter)
     for (const a of [ada, bob, keeper]) await a.leave()
+  })
+})
+
+describe('what the review asked for, at the agent', { timeout: 30_000 }, () => {
+  it('an unreadable ledger stops the start before any relay is dialled or anything published', async () => {
+    const relay = new SimRelay({ replay: true })
+    const nodes = new FakeNodes('')
+    let dialled = 0
+    await expect(RoomAgent.create({
+      base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: () => { dialled++; return new SimTransport(relay) }, announceJitterMs: 0,
+      groupGrants: grantsConfig(nodes, { store: new MemoryStore('{ not a ledger') }),
+    })).rejects.toThrow(/--group-reset/)
+    expect(dialled).toBe(0)
+    expect(relay.published).toEqual([])
+  })
+
+  it('a room reopened from its state with no ledger beside it signs a reset at every node before any new grant', async () => {
+    const states: KeeperState[] = []
+    const { relay, nodes, keeper } = await room({}, { onState: (st) => { states.push(st) } })
+    await keeper.leave()
+    nodes.posts.length = 0
+    const again = await RoomAgent.create({
+      base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, state: states.at(-1) ?? keeper.keeperState!,
+      groupGrants: grantsConfig(nodes, { store: new MemoryStore() }),
+    })
+    await waitFor(() => nodes.posts.filter((p) => p.event.tags[0]![1] === 'reset' && p.status === 201).length === 2)
+    await again.leave()
+  })
+
+  it('a removal still happens when the ledger cannot be written, and the hosts are told', async () => {
+    const store = new MemoryStore()
+    const { keeper, join, nodes } = await room({ store })
+    const bob = await join('Bob')
+    await settleUntil(() => nodes.posts.filter((p) => p.status === 201).length === 2)
+    store.onSave = () => { throw new Error('ENOSPC') }
+    await keeper.remove(bob.participant)
+    expect(keeper.session.epoch).toBe(1)
+    expect(keeper.session.removed.has(bob.participant)).toBe(true)
+    expect([...nodes.state('node-a.test').grants.values()].every((g) => g.status === 'revoked')).toBe(true)
+    await settleUntil(() => keeper.channel(CONTROL_CHANNEL).messages().some((m) => decodeControl(m.text)?.op === 'error'))
+    expect(keeper.channel(CONTROL_CHANNEL).messages().some((m) => { const c = decodeControl(m.text); return c?.op === 'error' && c.message.includes('could not be saved') })).toBe(true)
+    for (const a of [bob, keeper]) await a.leave()
   })
 })
