@@ -20,12 +20,15 @@ import { normalizeURL } from 'nostr-tools/utils'
  * verified. The app labels it accordingly and never as "verified".
  *
  * **And be precise about what it costs, because it is not free.** The
- * lookup is a relay subscription filtered by `authors`, sent to the room's
- * own relays plus a fixed set of public aggregator relays - see
- * `ProfileBookOptions.relays`, and `PROFILE_RELAYS` in `app/src/main.ts` for
- * the added ones (purplepag.es and the general public relays). That hands
- * all of those relays the participant pubkeys of everybody in the room, in
- * the clear, as a query.
+ * lookup is a relay subscription filtered by `authors`. For the people in the
+ * room on screen it is sent to that room's own relays plus a fixed set of
+ * public aggregator relays - see `LookupScope`, `ProfileBookOptions.relays`,
+ * and `PROFILE_RELAYS` in `app/src/main.ts` for the added ones (purplepag.es
+ * and the general public relays). That hands all of those relays the
+ * participant pubkeys of everybody in the room, in the clear, as a query.
+ * For anybody else - the people in the chats list, People, who wrote an
+ * invitation - it goes to the public relays alone, so the relays a room runs
+ * do not learn who its members talk to somewhere else.
  *
  * The room's own design goes to some trouble to avoid exactly that: a
  * device credential is never published, precisely so "relays never see the
@@ -35,8 +38,8 @@ import { normalizeURL } from 'nostr-tools/utils'
  * and nothing else - can also learn which participant keys are in it.
  *
  * The app enables lookups by default, with a persistent switch in profile
- * settings. Disabling closes subscriptions and removes cached profiles and
- * external pictures.
+ * settings (Settings, Privacy). Disabling closes subscriptions and removes
+ * cached profiles and external pictures.
  *
  * NIP-05 checks are the exception to every other lookup this book makes:
  * verifying `name@domain` fetches `https://domain/.well-known/nostr.json`,
@@ -67,22 +70,47 @@ const LOOKUP_TIMEOUT_MS = 5_000
 /** Only these schemes are ever put in an `<img src>`. */
 const PICTURE_SCHEMES = ['http://', 'https://']
 
+/**
+ * Whose relays a lookup may be sent to.
+ *
+ * - `room`: the person is in the room on screen. The room's own relays are
+ *   asked as well as the public ones, as the relay best placed to know them.
+ * - `public`: the person is somebody else - in another chat, a contact, an
+ *   account the person follows, the sender of an invitation, or the person
+ *   using this browser. Only the public profile relays are asked, because
+ *   anything else would tell the relays of whichever room happens to be open
+ *   who this browser is interested in.
+ *
+ * There is no default: a caller has to say which it is.
+ */
+export type LookupScope = 'room' | 'public'
+
 export interface ProfileBookOptions {
-  /** Read lazily, because a room carries its own relay hints and a lookup
+  /** The relays a `room` lookup asks: the room's own, then the public ones.
+   *  Read lazily, because a room carries its own relay hints and a lookup
    *  should use the relays the room is actually on rather than whatever
-   *  the app defaulted to before the link was opened. */
+   *  the app defaulted to before the link was opened. It is expected to
+   *  include `publicRelays`: a key already asked here is not asked again
+   *  on the public relays alone. */
   relays: () => string[]
+  /** The relays a `public` lookup asks, and nothing else. */
+  publicRelays: () => string[]
   /** Called when a lookup changed something worth re-rendering. */
   onChange: () => void
-  transport?: (relays: string[]) => RelayPoolClient
+  /** Opens the pool for one scope's relays. Each scope has its own, so
+   *  leaving a room can close its sockets and leave the public ones. */
+  transport?: (relays: string[], scope: LookupScope) => RelayPoolClient
 }
+
+const SCOPES: readonly LookupScope[] = ['room', 'public']
 
 export class ProfileBook {
   readonly #opts: ProfileBookOptions
-  #pool?: RelayPoolClient
-  #unsubs = new Set<() => void>()
-  /** Pubkeys we have asked about, whether or not an answer came back. */
-  readonly #asked = new Set<string>()
+  readonly #pools: Partial<Record<LookupScope, RelayPoolClient>> = {}
+  readonly #unsubs: Record<LookupScope, Set<() => void>> = { room: new Set(), public: new Set() }
+  /** Pubkeys we have asked about, whether or not an answer came back, by
+   *  the scope they were asked in. */
+  readonly #asked: Record<LookupScope, Set<string>> = { room: new Set(), public: new Set() }
   readonly #found = new Map<string, { profile: Profile; createdAt: number; nip05Claim?: string }>()
   #checks = new Set<AbortController>()
   #closed = false
@@ -98,12 +126,33 @@ export class ProfileBook {
     if (enabled) return
     for (const check of this.#checks) check.abort()
     this.#checks.clear()
-    for (const unsub of this.#unsubs) unsub()
-    this.#unsubs.clear()
-    this.#pool?.close()
-    this.#pool = undefined
-    this.#asked.clear()
+    for (const scope of SCOPES) {
+      this.#closeScope(scope)
+      this.#asked[scope].clear()
+    }
     this.#found.clear()
+  }
+
+  /**
+   * Start again from the relays as they are now, for a different room or
+   * none: every socket is closed, including those opened for the room just
+   * left, and what was asked is forgotten so the next lookups go out afresh.
+   * What has been learned stays on screen. Switching lookups off is what
+   * forgets it.
+   */
+  restart(): void {
+    if (this.#closed) return
+    for (const scope of SCOPES) {
+      this.#closeScope(scope)
+      this.#asked[scope].clear()
+    }
+  }
+
+  #closeScope(scope: LookupScope): void {
+    for (const unsub of this.#unsubs[scope]) unsub()
+    this.#unsubs[scope].clear()
+    this.#pools[scope]?.close()
+    delete this.#pools[scope]
   }
 
   /**
@@ -131,13 +180,17 @@ export class ProfileBook {
     }
   }
 
-  /** Look up any of these we have not already asked about. Cheap to call
-   *  on every render; it does nothing for a pubkey it has already seen. */
-  want(pubkeys: string[]): void {
+  /** Look up any of these we have not already asked about, on the relays
+   *  `scope` allows. Cheap to call on every render; it does nothing for a
+   *  pubkey it has already seen. A key asked in `room` scope has been asked
+   *  on the public relays too, so `public` skips it; a key asked only in
+   *  `public` scope is still asked of the room's relays when it turns up
+   *  in the room. */
+  want(pubkeys: string[], scope: LookupScope): void {
     if (this.#closed || !this.#enabled) return
-    const fresh = [...new Set(pubkeys)].filter((p) => !this.#asked.has(p))
+    const fresh = [...new Set(pubkeys)].filter((p) => !this.#asked.room.has(p) && (scope === 'room' || !this.#asked.public.has(p)))
     if (fresh.length === 0) return
-    for (const pubkey of fresh) this.#asked.add(pubkey)
+    for (const pubkey of fresh) this.#asked[scope].add(pubkey)
 
     // Lazily, so a browser that never opens a room never opens a socket.
     // And guarded: a profile is decoration, and a relay that cannot be
@@ -146,20 +199,20 @@ export class ProfileBook {
     // caller is `render()`.
     let unsub: () => void
     try {
-      const urls = uniqueRelays(this.#opts.relays())
-      this.#pool ??= this.#opts.transport?.(urls) ?? new NostrRelayPool(urls)
-      unsub = this.#pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
+      const urls = uniqueRelays(scope === 'room' ? this.#opts.relays() : this.#opts.publicRelays())
+      const pool = this.#pools[scope] ??= this.#opts.transport?.(urls, scope) ?? new NostrRelayPool(urls)
+      unsub = pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
     } catch {
       return
     }
-    this.#unsubs.add(unsub)
+    this.#unsubs[scope].add(unsub)
 
     // A profile that never arrives was not found on these relays. It may
     // exist elsewhere. Close the lookup rather than leaving it open for
     // the life of the room. Nothing re-renders: a tile that never gained a
     // name or a chip already looks exactly right.
     const timer = setTimeout(() => {
-      this.#unsubs.delete(unsub)
+      this.#unsubs[scope].delete(unsub)
       unsub()
     }, LOOKUP_TIMEOUT_MS)
     ;(timer as unknown as { unref?: () => void }).unref?.()
@@ -173,10 +226,7 @@ export class ProfileBook {
     this.#closed = true
     for (const check of this.#checks) check.abort()
     this.#checks.clear()
-    for (const unsub of this.#unsubs) unsub()
-    this.#unsubs.clear()
-    this.#pool?.close()
-    this.#pool = undefined
+    for (const scope of SCOPES) this.#closeScope(scope)
   }
 
   async #checkAddress(pubkey: string, profile: Profile, value: unknown): Promise<void> {
@@ -208,7 +258,7 @@ export class ProfileBook {
     try {
       if (this.#closed || !this.#enabled) return
       if (event.kind !== 0) return
-      if (!this.#asked.has(event.pubkey)) return
+      if (!this.#asked.room.has(event.pubkey) && !this.#asked.public.has(event.pubkey)) return
       // The pool filters by author, but a relay is not obliged to honour a
       // filter and a signature is the only thing that actually binds this
       // profile to that key.
