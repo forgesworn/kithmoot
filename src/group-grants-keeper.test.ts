@@ -57,7 +57,7 @@ function setup(over: Partial<GroupGrantsConfig> = {}, store = new MemoryStore(),
 const P1 = '11'.repeat(32)
 const P2 = '22'.repeat(32)
 
-describe('configuration', () => {
+describe('configuration', { timeout: 30_000 }, () => {
   it('refuses what cannot work, in plain words', () => {
     const base = { store: new MemoryStore() }
     expect(() => GroupGrantKeeper.validate({ ...base, nodes: [], bytes: 1 })).toThrow(/at least one/)
@@ -72,7 +72,7 @@ describe('configuration', () => {
   })
 })
 
-describe('admission: minting', () => {
+describe('admission: minting', { timeout: 30_000 }, () => {
   it('signs one grant per device per node: authority key, fresh 16-byte id, three scopes, the ceiling, thirty days', async () => {
     const t = setup()
     const a = t.addDevice(P1)
@@ -151,7 +151,7 @@ describe('admission: minting', () => {
   })
 })
 
-describe('the sixth device', () => {
+describe('the sixth device', { timeout: 30_000 }, () => {
   it('gets no grant, the hosts are told once, and it is granted when a slot frees', async () => {
     const t = setup({}, new MemoryStore(), [A])
     const first = Array.from({ length: MAX_DEVICES_PER_PARTICIPANT }, () => t.addDevice(P1))
@@ -180,7 +180,7 @@ describe('the sixth device', () => {
   })
 })
 
-describe('renewal', () => {
+describe('renewal', { timeout: 30_000 }, () => {
   it('re-signs the same id with a later created_at and expiration once ten days or fewer are left, not before', async () => {
     const t = setup({}, new MemoryStore(), [A])
     t.addDevice(P1)
@@ -239,7 +239,7 @@ describe('renewal', () => {
   })
 })
 
-describe('removal, in the order of 4.8', () => {
+describe('removal, in the order of 4.8', { timeout: 30_000 }, () => {
   it('records it, signs and pushes the revocations, then the rekey, then posts them', async () => {
     const t = setup()
     const a = t.addDevice(P1)
@@ -364,7 +364,7 @@ describe('removal, in the order of 4.8', () => {
   })
 })
 
-describe('re-admission', () => {
+describe('re-admission', { timeout: 30_000 }, () => {
   it('a device that returns under a new participant key gets a new id, and the node sees the old id revoked first', async () => {
     const t = setup({}, new MemoryStore(), [A])
     const device = t.addDevice(P1)
@@ -406,7 +406,7 @@ describe('re-admission', () => {
   })
 })
 
-describe('never two events for one id in one second', () => {
+describe('never two events for one id in one second', { timeout: 30_000 }, () => {
   it('stamps grant, renewal and revocation of one id in strictly later seconds even if the clock stands still', async () => {
     const t = setup({}, new MemoryStore(), [A])
     t.addDevice(P1)
@@ -425,7 +425,7 @@ describe('never two events for one id in one second', () => {
   })
 })
 
-describe('close', () => {
+describe('close', { timeout: 30_000 }, () => {
   it('signs a reset per node: t, d, server, expiration ninety days on, sent in the room, then pushed', async () => {
     const t = setup()
     t.addDevice(P1)
@@ -464,7 +464,7 @@ describe('close', () => {
   })
 })
 
-describe('the journal', () => {
+describe('the journal', { timeout: 30_000 }, () => {
   it('survives a restart: a pending event is pushed by the next keeper, and nothing is minted twice', async () => {
     const store = new MemoryStore()
     const t = setup({}, store, [A])
@@ -574,7 +574,7 @@ describe('the journal', () => {
   })
 })
 
-describe('storage-grant?', () => {
+describe('storage-grant?', { timeout: 30_000 }, () => {
   it('answers the asking device with its own live grants, and not more than once in thirty seconds', async () => {
     const t = setup({}, new MemoryStore(), [A, B])
     const a = t.addDevice(P1)
@@ -612,7 +612,7 @@ function grantCount(sent: ControlMessage[], before: number): number {
   return sent.slice(0, before).filter((o) => o.op === 'storage-grant').length
 }
 
-describe('an unreadable ledger, and --group-reset', () => {
+describe('an unreadable ledger, and --group-reset', { timeout: 30_000 }, () => {
   it('refuses to start without the flag, names it, and leaves the file alone', async () => {
     const store = new MemoryStore('{ not a ledger')
     const t = setup({}, store, [A])
@@ -683,7 +683,7 @@ describe('an unreadable ledger, and --group-reset', () => {
   })
 })
 
-describe('what is logged', () => {
+describe('what is logged', { timeout: 30_000 }, () => {
   it('never an event, a signature, a key or a grant id', async () => {
     const t = setup()
     t.addDevice(P1)

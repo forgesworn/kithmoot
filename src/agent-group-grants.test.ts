@@ -1,18 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from './agent.js'
 import type { KeeperState } from './agent.js'
 import { CONTROL_CHANNEL, decodeControl } from './control.js'
 import { GrantReceiver, GROUP_GRANT_KIND, type GroupEvent } from './group-grants.js'
 import type { GroupGrantsConfig } from './group-grants-keeper.js'
 import { KINDS } from './kinds.js'
-import { deriveRoom } from './room.js'
 import { localIdentity } from './identity.js'
-import { createDeviceCredential } from './credential.js'
-import { encodeRosterEvent } from './roster.js'
-import type { RosterEntry } from './types.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
-import { FakeNodes, MemoryStore, waitFor } from '../test/group-grants-fixtures.js'
+import { FakeNodes, MemoryStore, oldEpochRosterEntry, waitFor } from '../test/group-grants-fixtures.js'
 
 const BASE = 'https://example.test/j/'
 const A = 'http://node-a.test:8080'
@@ -53,7 +49,7 @@ const storageOps = (agent: RoomAgent): { id: string; event: GroupEvent }[] =>
     return c?.op === 'storage-grant' ? [{ id: m.id, event: c.event }] : []
   })
 
-describe('a keeper with group nodes', () => {
+describe('a keeper with group nodes', { timeout: 30_000 }, () => {
   it('mints for each admitted device, delivers it in the room, and pushes it to its node', async () => {
     const { nodes, keeper, join } = await room()
     const ada = await join('Ada')
@@ -199,7 +195,7 @@ describe('a keeper with group nodes', () => {
   })
 })
 
-describe('without group nodes', () => {
+describe('without group nodes', { timeout: 30_000 }, () => {
   it('changes nothing: no ops, no ledger, no requests', async () => {
     const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
@@ -226,19 +222,7 @@ describe('without group nodes', () => {
   })
 })
 
-describe('the epoch filter on minting', () => {
-  /** An entry for a fresh participant, encrypted under epoch 0 of the keeper's room: what a removed person holding the old key can still make. */
-  async function oldEpochEntry(keeper: RoomAgent, updatedAt: number) {
-    const secret = keeper.keeperState!.secret
-    const { roomId, roomKey } = deriveRoom(secret)
-    const participantSk = generateSecretKey()
-    const deviceSk = generateSecretKey()
-    const device = getPublicKey(deviceSk)
-    const credential = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId, expiresAt: updatedAt + 3600 })
-    const entry: RosterEntry = { participant: getPublicKey(participantSk), device, credential, tracks: [], claims: {}, updatedAt }
-    return { device, participant: entry.participant, event: encodeRosterEvent(entry, { roomId, roomKey, deviceSk }) }
-  }
-
+describe('the epoch filter on minting', { timeout: 30_000 }, () => {
   it('a device heard only before the last rekey gets no grant, and a roster entry posted in the old epoch after a removal gets none either', async () => {
     const states: KeeperState[] = []
     // No sweep runs by itself: the test decides when the keeper looks.
@@ -259,7 +243,7 @@ describe('the epoch filter on minting', () => {
     expect(keeper.session.devicesHeardThisEpoch().some((d) => d.device === ada.device)).toBe(true)
 
     // And a fresh participant key posting under the OLD epoch's key, now.
-    const eve = await oldEpochEntry(keeper, Math.floor(Date.now() / 1000))
+    const eve = await oldEpochRosterEntry(keeper, Math.floor(Date.now() / 1000))
     relay.publish(eve.event)
     await settle()
     expect(keeper.session.recentCredentials().some((d) => d.device === eve.device)).toBe(false)

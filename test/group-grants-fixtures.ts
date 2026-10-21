@@ -1,7 +1,13 @@
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { bytesToHex } from '@noble/hashes/utils'
 import type { GroupGrantStore } from '../src/group-grants-keeper.js'
 import { parseGroupEvent, type GroupEvent } from '../src/group-grants.js'
+import type { RoomAgent } from '../src/agent.js'
+import { deriveRoom } from '../src/room.js'
+import { localIdentity } from '../src/identity.js'
+import { createDeviceCredential } from '../src/credential.js'
+import { encodeRosterEvent } from '../src/roster.js'
+import type { RosterEntry } from '../src/types.js'
 
 /** A ledger store in memory, with a record of what happened to it. */
 export class MemoryStore implements GroupGrantStore {
@@ -119,4 +125,19 @@ export async function waitFor(done: () => boolean, ms = 3_000): Promise<void> {
     if (Date.now() > until) throw new Error('timed out waiting')
     await new Promise((r) => setTimeout(r, 5))
   }
+}
+
+/**
+ * A roster entry for a fresh participant and device, encrypted under epoch 0 of
+ * the keeper's room: what somebody who kept the old epoch's key can still make
+ * after a removal. Not published; the caller puts it on the relay.
+ */
+export async function oldEpochRosterEntry(keeper: RoomAgent, updatedAt: number): Promise<{ device: string; deviceSk: Uint8Array; participant: string; event: Event }> {
+  const { roomId, roomKey } = deriveRoom(keeper.keeperState!.secret)
+  const participantSk = generateSecretKey()
+  const deviceSk = generateSecretKey()
+  const device = getPublicKey(deviceSk)
+  const credential = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId, expiresAt: updatedAt + 3600 })
+  const entry: RosterEntry = { participant: getPublicKey(participantSk), device, credential, tracks: [], claims: {}, updatedAt }
+  return { device, deviceSk, participant: entry.participant, event: encodeRosterEvent(entry, { roomId, roomKey, deviceSk }) }
 }
