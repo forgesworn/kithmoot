@@ -485,7 +485,8 @@ export async function open(page: Page, url: string, name: string): Promise<void>
     if (typed !== null) expect(typed, 'createRoom(page, …, name) was called with a different creator name; pass it').toBe(name)
   }
   // The page is already in this room (the creator, who goes straight in).
-  if (await page.locator('#roomArea').isVisible() && sameRoomLink(page.url(), url)) { await sameName(); return }
+  // The same room, and the same query too: a link with a query of its own (a call profile) is a reload.
+  if (await page.locator('#roomArea').isVisible() && sameRoomLink(page.url(), url) && new URL(page.url()).search === new URL(url).search) { await sameName(); return }
   await openRoomUrl(page, url)
   await expect(page.locator('#roomArea:visible, #displayName:visible, #joinVisitor:visible').first()).toBeVisible({ timeout: 60_000 })
   // A room this device has joined opens itself.
