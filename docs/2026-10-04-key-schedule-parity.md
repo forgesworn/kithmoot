@@ -7,8 +7,9 @@ Status: proposed 2026-10-04. Phase 1 shipped 2026-10-04 (fold-kit 0.7.0,
 0.8.0 and this repository; the plan is `docs/2026-10-05-phase-2a-plan.md`);
 its keeper cadence is built and off by default (`--rekey-every`), and
 KithMoot's own keepers have run it weekly since 2026-10-06. What comes
-next is in `docs/2026-10-06-key-schedule-next-steps.md`. Phases 3 and 4
-are not started. Eight
+next is in `docs/2026-10-06-key-schedule-next-steps.md`. Phase 3's readers
+shipped 2026-10-21 (chat envelope 2, `docs/protocol.md`); its writers wait
+for readers in the field. Phase 4 is not started. Eight
 owner decisions are listed at the end. Each has a recommended answer except
 the seventh, the eighth is decided, and the work so far follows them.
 
@@ -284,8 +285,9 @@ this changes in the plan" takes precedence where they differ.
 - **Forward secrecy:** remains phase 2b work. Erasure must cover retained
   secrets, grants and archives; a history-window limit alone is insufficient.
   Ordinary browser room secrets still use unencrypted localStorage.
-- **Authorship:** ordinary chat retains a room device signature. Phase 3
-  proposes changing the relay-visible author, not a shipped guarantee.
+- **Authorship:** ordinary chat retains a room device signature until
+  writers switch to chat envelope 2. Readers accept both since 2026-10-21;
+  the relay-visible author changes only once writers do.
 - **Recovery and membership:** authority rekeys, conflict reporting,
   catch-up, participant grouping and link admission are implemented. A
   single authority does not prevent conflicting rekeys from its own copies.
@@ -301,7 +303,8 @@ this changes in the plan" takes precedence where they differ.
 4. **Device-key participants.** Recommended: say in the room's security
    notes that healing needs a signer, rather than building a second anchor.
 5. **Phase 3 now or later.** Recommended: after phases 1–2. It is
-   independent but buys the least.
+   independent but buys the least. Taken 2026-10-21: now, readers first, shipped
+   with 2b step 1's readers so both share one field cycle.
 6. **Phase 4.** Recommended: design the rekey split now, since phase 2
    makes rekeys routine, and build ML-KEM when a pure-JS and Kotlin
    implementation pair has passed review.

@@ -101,7 +101,7 @@ test('fresh bunker login provisions its actual browser device and creates a witn
       window.WebSocket = class extends Native {
         constructor(url: string | URL, protocols?: string | string[]) {
           const text = String(url), local = `wss://${location.host}`
-          const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
+          const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
           const target = defaults.includes(text.replace(/\/$/, '')) ? `${local}/__test-relay` : text
           if (!target.startsWith(local + '/') && target !== relayUrl) throw new Error('External relay blocked by lab')
           super(target, protocols)

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, openCall, openCallEffects } from './browser.js'
+import { createRoom, joinWithMedia, openCall, openCallEffects, join } from './browser.js'
 
 /**
  * A remembered call choice survives a reload and is applied the next time
@@ -35,7 +35,7 @@ test('a background effect choice and its blur strength survive a reload and reap
   // A fresh load of the page, same device: no camera running yet, and
   // nothing chosen again.
   await page.reload()
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await openCall(page)
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'false')
@@ -64,7 +64,7 @@ test('a voice preset survives a reload and reapplies the next time the microphon
     .toBe('deep')
 
   await page.reload()
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await openCall(page)
   await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'false')

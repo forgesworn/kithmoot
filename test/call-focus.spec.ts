@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { chooseCallLayout, createRoom, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openCallMore } from './browser.js'
+import { chooseCallLayout, createRoom, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openCallMore, join } from './browser.js'
 
 /**
  * The call first, on a wide screen.
@@ -40,7 +40,7 @@ async function joinCall(browser: Browser, baseURL: string, url: string, name: st
   const page = await context.newPage()
   await page.setViewportSize({ width: 1440, height: 900 })
   await open(page, url, name)
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await expect(page.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
   await page.locator('#callToggle').click()
@@ -317,8 +317,7 @@ test('the chat panel opens from the bar, counts what arrived while shut, and is 
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await ada.reload()
-    await ada.locator('#displayName').fill('Ada')
-    await ada.locator('#join').click()
+    await join(ada)
     await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(ada.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
     await ada.locator('#callToggle').click()
@@ -369,7 +368,7 @@ test('a narrow call column with two of your devices: one row of buttons, nothing
     })
     const phone = await phoneContext.newPage()
     await Promise.all([open(phone, pairUrl, 'Ada'), laptop.getByRole('button', { name: 'Add device', exact: true }).click()])
-    await phone.locator('#join').click()
+    await join(phone)
     await expect(phone.locator('#roomArea')).toBeVisible()
     await openCall(phone)
     await phone.locator('#toggleMic').click()

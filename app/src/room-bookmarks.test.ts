@@ -79,6 +79,17 @@ describe('private Nostr room bookmarks', () => {
     h.library.close()
   })
 
+  it('never carries having joined, or as whom, in a bookmark', async () => {
+    const h = harness()
+    h.library.save({ ...room(), joinedAt: 1_800_000_000, joinedAs: 'a'.repeat(64) })
+    await saved(h)
+    const value = JSON.parse(await h.identity.nip44!.decrypt(h.identity.pubkey, h.events[0].content))
+    expect(value.room).not.toHaveProperty('joinedAt')
+    expect(value.room).not.toHaveProperty('joinedAs')
+    expect(JSON.stringify(value)).not.toContain('a'.repeat(64))
+    h.library.close()
+  })
+
   it('restores on an independent device and keeps visitor and other accounts separate', async () => {
     const a = harness()
     const b = harness(a.identity)

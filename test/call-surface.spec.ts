@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
 import { PANE_COLLAPSE_MS } from '../app/src/call-stance.js'
 import { collectAppDiagnostics } from './app-diagnostics.js'
-import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm, turnOnMedia, leaveToChats, switchToRoom, chooseCallLayout, chooseCallMore } from './browser.js'
+import { createRoom, inbound, joinWithMedia, newDeviceContext, open, openNewRoomForm, turnOnMedia, leaveToChats, switchToRoom, chooseCallLayout, chooseCallMore, join, nameCreator } from './browser.js'
 
 // Three encoded-media clients and two live popouts produced over 5,000 trace
 // screencast frames (about 200 MB) during this journey on the hosted runner.
@@ -62,7 +62,7 @@ test('portrait cameras stay whole and another chat defaults to a gallery with wo
     })
     const url = await createRoom(viewer, baseURL!)
     await joinWithMedia(viewer, url, 'Ada')
-    await open(phone, url, 'Pixel'); await phone.locator('#join').click()
+    await open(phone, url, 'Pixel'); await join(phone)
     await expect(phone.locator('#callToggle')).toHaveText('Join call'); await turnOnMedia(phone)
     const camera = viewer.locator('#room .participant[data-name="Pixel"] video:not(.screenPreview)')
     await expect.poll(() => camera.evaluate((v: HTMLVideoElement) => v.videoHeight > v.videoWidth && v.videoWidth > 0)).toBe(true)
@@ -118,7 +118,7 @@ for (const phone of [false, true]) {
       const url = await createRoom(ada!, baseURL!)
       await joinWithMedia(ada!, url, 'Ada')
       for (const [page, name] of [[bo!, 'Bo'], [cy!, 'Cy']] as const) {
-        await open(page, url, name); await page.locator('#join').click()
+        await open(page, url, name); await join(page)
         await expect(page.locator('#callToggle')).toHaveText('Join call')
         await page.locator('#callToggle').click()
         await page.locator('#toggleCamera').click(); await page.locator('#toggleMic').click()
@@ -328,11 +328,12 @@ for (const destruct of [false, true]) {
       await ada.locator('#roomName').fill('Dated call')
       await ada.locator('#roomEnds').selectOption('test')
       await ada.locator('#roomWhenEnds').selectOption(destruct ? 'destruct' : 'keep')
+      await nameCreator(ada, 'Ada')
       await ada.locator('#create').click()
-      await expect(ada.locator('#join')).toBeVisible()
+      await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
       const url = await ada.locator('#shareUrl').inputValue()
       await joinWithMedia(ada, url, 'Ada')
-      await open(bo, url, 'Bo'); await bo.locator('#join').click()
+      await open(bo, url, 'Bo'); await join(bo)
       await expect(bo.locator('#callToggle')).toHaveText('Join call')
       await bo.locator('#callToggle').click()
       await bo.locator('#toggleCamera').click(); await bo.locator('#toggleMic').click(); await bo.locator('#toggleScreen').click()

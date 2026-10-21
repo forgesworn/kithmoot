@@ -3,7 +3,10 @@ import type { ProtocolExecution } from './protocol-execution.js'
 import { registerNativeChatView } from './session-native-binding.js'
 import { captureProtocolData, protocolTask } from './protocol-execution.js'
 import { nip44 } from 'nostr-tools'
-import { randomBytes } from '@noble/hashes/utils'
+import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
+import { hkdf } from '@noble/hashes/hkdf'
+import { sha256 } from '@noble/hashes/sha2'
+import { schnorr } from '@noble/curves/secp256k1.js'
 import { KINDS } from './kinds.js'
 import { withExpiration } from './expiration.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
@@ -362,6 +365,51 @@ export interface EncodeChatOptions {
   /** A conference room's end, in unix seconds: carried as a NIP-40
    *  expiration (see `withExpiration`). Omit for a room with no end. */
   expiresAt?: number
+  /** `2` signs the event with a key made for this message alone and moves
+   *  the device's signature inside the encryption (`CHAT_ENVELOPE_2`), so a
+   *  relay's history no longer says which device wrote what. A reader older
+   *  than chat envelope 2 drops such a message, so this stays off until
+   *  every client's reader has shipped and had a release in the field.
+   *  Omitted, the event is byte-identical to before. */
+  envelope?: 2
+}
+
+/**
+ * Chat envelope 2: a throwaway outer author for chat (key-schedule parity
+ * doc, phase 3; `docs/protocol.md`, "Chat envelope 2").
+ *
+ * The kind 1460 event is signed by a key made for this one message, and
+ * its NIP-44 content is `{"v":2,"body":<string>,"sig":<hex>}`. `body` is
+ * the message JSON exactly as an envelope-1 event carries it, kept as a
+ * string so a reader hashes the bytes the sender signed. `sig` is the
+ * device's BIP-340 signature over SHA-256 of UTF-8
+ * `kithmoot/v1/chat-envelope-2:<room id>:<d tag>:<outer pubkey>:<created_at>:`
+ * followed by `body`. Binding the outer pubkey means the body cannot be
+ * lifted into another event: anybody but the sender who wanted to restamp,
+ * retag or rewrap it would need a fresh outer key, and the signature
+ * names this one.
+ */
+export const CHAT_ENVELOPE_2 = 'kithmoot/v1/chat-envelope-2'
+const CHAT_OUTER_KEY_INFO = 'kithmoot/v1/chat-outer'
+
+/** What the device signs inside envelope 2. Every hex lower case. */
+export function chatEnvelope2Digest(roomId: string, d: string, outer: string, createdAt: number, body: string): Uint8Array {
+  return sha256(new TextEncoder().encode(`${CHAT_ENVELOPE_2}:${normaliseHex(roomId)}:${normaliseHex(d)}:${normaliseHex(outer)}:${createdAt}:${body}`))
+}
+
+/**
+ * The outer key of one envelope-2 message: HKDF-SHA256 of the device key,
+ * empty salt, info `kithmoot/v1/chat-outer:<d tag>:<message id>`. Derived,
+ * not drawn, so the device can sign a NIP-09 deletion of its own messages
+ * later (self-destruct, an agent tidying up) without keeping a key per
+ * message. Nobody without the device key can link two of them. A reader
+ * never needs this: it checks the signature inside.
+ */
+export function chatOuterSecretKey(deviceSk: Uint8Array, d: string, messageId: string): Uint8Array {
+  const sk = hkdf(sha256, deviceSk, undefined, new TextEncoder().encode(`${CHAT_OUTER_KEY_INFO}:${normaliseHex(d)}:${messageId}`), 32)
+  // Outside [1, n) with negligible probability; refuse rather than reduce.
+  getPublicKey(sk)
+  return sk
 }
 
 /** The root a channel derives from: the epoch's id and key when there is
@@ -425,16 +473,33 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
   })
   const root = rootOf(opts)
   const { id, key } = deriveChannel(root.id, root.key, opts.channel)
-  const content = nip44.v2.encrypt(plaintext, key)
-  return finalizeEvent(
-    {
-      kind: KINDS.CHAT,
-      created_at: msg.sentAt,
-      tags: withExpiration([['d', id]], opts.expiresAt),
-      content,
-    },
-    opts.deviceSk,
-  )
+  const tags = withExpiration([['d', id]], opts.expiresAt)
+  if (opts.envelope !== 2) {
+    return finalizeEvent({ kind: KINDS.CHAT, created_at: msg.sentAt, tags, content: nip44.v2.encrypt(plaintext, key) }, opts.deviceSk)
+  }
+  if (!hexEquals(getPublicKey(opts.deviceSk), msg.device)) throw new Error('a chat message is signed by the device it names')
+  const outerSk = chatOuterSecretKey(opts.deviceSk, id, msg.id)
+  try {
+    const outer = getPublicKey(outerSk)
+    const sig = bytesToHex(schnorr.sign(chatEnvelope2Digest(opts.roomId, id, outer, msg.sentAt, plaintext), opts.deviceSk))
+    const content = nip44.v2.encrypt(JSON.stringify({ v: 2, body: plaintext, sig }), key)
+    return finalizeEvent({ kind: KINDS.CHAT, created_at: msg.sentAt, tags, content }, outerSk)
+  } finally {
+    outerSk.fill(0)
+  }
+}
+
+/** The message inside an envelope-2 plaintext, and the device signature to
+ *  check it against; null for envelope 1. Throws on a malformed envelope 2,
+ *  which the caller refuses. */
+function openEnvelope2(parsed: unknown): { body: string; sig: string } | null {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+  const raw = parsed as Record<string, unknown>
+  if (raw.v === undefined) return null
+  const keys = Object.keys(raw).sort()
+  if (raw.v !== 2 || keys.length !== 3 || keys[0] !== 'body' || keys[1] !== 'sig' || keys[2] !== 'v') throw new Error('malformed chat envelope')
+  if (typeof raw.body !== 'string' || typeof raw.sig !== 'string' || !/^[0-9a-f]{128}$/.test(raw.sig)) throw new Error('malformed chat envelope')
+  return { body: raw.body, sig: raw.sig }
 }
 
 export interface DecodeChatOptions {
@@ -486,7 +551,10 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     if (roomTag === undefined || !hexEquals(roomTag, id)) return null
     if (!verifyEventUncached(event)) return null
 
-    const msg = JSON.parse(nip44.v2.decrypt(event.content, key)) as ChatMessage
+    const outerPlaintext = nip44.v2.decrypt(event.content, key)
+    const envelope2 = openEnvelope2(JSON.parse(outerPlaintext))
+    const msg = JSON.parse(envelope2 ? envelope2.body : outerPlaintext) as ChatMessage
+    if (typeof msg !== 'object' || msg === null || Array.isArray(msg)) return null
 
     if (
       typeof msg.id !== 'string' ||
@@ -653,9 +721,16 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     if (msg.owner === undefined && msg.ownerClaim === undefined && claimed
       && inspectAgentOwnershipSignature(claimed, { agent: msg.participant, now: msg.sentAt }).ok) msg.ownerClaim = claimed
 
-    // The device that signed this event must be the device the message
-    // claims to be from - the same attribution guard the roster uses.
-    if (!hexEquals(msg.device, event.pubkey)) return null
+    // The device that signed this message must be the device the message
+    // claims to be from - the same attribution guard the roster uses. In
+    // envelope 1 that is the event's own signer; in envelope 2 it is the
+    // signature inside, over this event's outer key, room, channel and
+    // time, and the outer key is nobody in particular.
+    if (envelope2) {
+      if (msg.sentAt !== event.created_at) return null
+      const digest = chatEnvelope2Digest(opts.roomId, roomTag, event.pubkey, event.created_at, envelope2.body)
+      if (!schnorr.verify(hexToBytes(envelope2.sig), digest, hexToBytes(msg.device))) return null
+    } else if (!hexEquals(msg.device, event.pubkey)) return null
     if (msg.sentAt > opts.now + MAX_CLOCK_SKEW_SECONDS) return null
 
     // And the credential must bind that device to the participant the
@@ -667,7 +742,7 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
       now: msg.sentAt,
     })
     if (!verdict.ok) return null
-    if (!hexEquals(verdict.device, event.pubkey)) return null
+    if (!hexEquals(verdict.device, msg.device)) return null
     if (!hexEquals(verdict.participant, msg.participant)) return null
 
     if (opts.policy) {
@@ -1403,7 +1478,12 @@ function hex(bytes: Uint8Array): string {
  *  list rather than scanning file text for matching comments. Pure data -
  *  adding this export changes no runtime behaviour.
  *
- *  Empty since the T2.1 codec cutover: this file's only two labels,
- *  `CHANNEL_ID_INFO` and `CHANNEL_KEY_INFO`, moved to @forgesworn/fold-kit's
- *  `channel.ts` along with `deriveChannel`. */
-export const CHAT_LABELS = [] as const
+ *  `CHANNEL_ID_INFO` and `CHANNEL_KEY_INFO` moved to @forgesworn/fold-kit's
+ *  `channel.ts` along with `deriveChannel` at the T2.1 codec cutover; what
+ *  is left is chat envelope 2's. */
+export const CHAT_LABELS = [
+  'kithmoot/v1/chat-envelope-2',
+  'kithmoot/v1/chat-envelope-2:',
+  'kithmoot/v1/chat-outer',
+  'kithmoot/v1/chat-outer:',
+] as const

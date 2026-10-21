@@ -22,7 +22,7 @@ const room = () => {
 test.describe('macOS hidden title bar', () => {
   test.skip(process.platform !== 'darwin', 'the inset title bar is macOS only')
 
-  test('the main window hides its title bar, marks the page and leaves the rest where it was', async () => {
+  test('the main window swaps its title bar for a tinted strip, marks the page and starts the app below it', async () => {
     const profile = await mkdtemp(join(tmpdir(), 'kithmoot-titlebar-'))
     const app = await launch(profile)
     const studio = room()
@@ -30,7 +30,7 @@ test.describe('macOS hidden title bar', () => {
       await app.context().routeWebSocket(url => url.href !== relay + '/', socket => socket.close())
       await app.context().routeWebSocket(relay, socket => { socket.connectToServer() })
       const position = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getWindowButtonPosition())
-      expect(position).toEqual({ x: 11, y: 19 })
+      expect(position).toEqual({ x: 14, y: 13 })
 
       const page = await app.firstWindow()
       await page.addInitScript(({ studio, relay }) => {
@@ -45,12 +45,14 @@ test.describe('macOS hidden title bar', () => {
       expect(await page.evaluate(() => document.documentElement.dataset.titleBar)).toBe('inset')
       expect(await page.evaluate(() => (window as any).kithmootDesktop.titleBar)).toBe('inset')
 
-      // The band is the one drag region; every control that can sit in it is a hole.
+      // The strip is the drag region, a shade apart from the panes so it reads
+      // as one; every control that can sit in a drag region is a hole.
       const band = await page.evaluate(() => {
         const style = getComputedStyle(document.body, '::before')
-        return { region: style.getPropertyValue('-webkit-app-region'), height: style.height }
+        return { region: style.getPropertyValue('-webkit-app-region'), height: style.height, background: style.backgroundColor, rail: getComputedStyle(document.getElementById('rail')!).backgroundColor }
       })
-      expect(band).toEqual({ region: 'drag', height: '52px' })
+      expect({ region: band.region, height: band.height }).toEqual({ region: 'drag', height: '40px' })
+      expect(band.background).not.toBe(band.rail)
       await page.locator('#roomMenu').click()
       for (const selector of ['#appHome', '#railChats', '#openAppSettings', '#newMenuButton', '#homeRoomQuery', '#roomIdentity', '#callToggle', '#chatSearch', '#roomMenu', '#roomMoreMenu', '#ringBanner']) {
         const region = await page.locator(selector).first().evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))
@@ -58,21 +60,24 @@ test.describe('macOS hidden title bar', () => {
       }
       await page.keyboard.press('Escape')
 
-      // Nothing but the rail moved.
-      const tops = await page.evaluate(() => {
+      // The whole app starts below the strip, each part where it was within it.
+      const tops = async () => page.evaluate(() => {
         const top = (selector: string) => Math.round(document.querySelector(selector)!.getBoundingClientRect().top)
         return { logo: top('#appHome'), listHead: top('#rooms .listHead'), roomBar: top('.roomBar'), query: top('#homeRoomQuery') }
       })
-      expect(tops).toEqual({ logo: 52, listHead: 12, roomBar: 8, query: 60 })
+      const inset = await tops()
 
-      // Full screen hides the lights, so the band goes.
-      expect(await page.locator('#rail').evaluate(element => getComputedStyle(element).paddingTop)).toBe('52px')
+      // Full screen hides the lights, so the strip goes and everything moves up by its height.
+      expect(await page.evaluate(() => getComputedStyle(document.body).paddingTop)).toBe('40px')
       await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]!.emit('enter-full-screen') })
       await expect(page.locator('html')).toHaveAttribute('data-window-full-screen', '')
-      expect(await page.locator('#rail').evaluate(element => getComputedStyle(element).paddingTop)).toBe('12px')
+      expect(await page.evaluate(() => getComputedStyle(document.body).paddingTop)).toBe('0px')
+      const full = await tops()
+      expect(inset).toEqual({ logo: full.logo + 40, listHead: full.listHead + 40, roomBar: full.roomBar + 40, query: full.query + 40 })
+      expect(full).toEqual({ logo: 12, listHead: 12, roomBar: 8, query: 60 })
       await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]!.emit('leave-full-screen') })
       await expect(page.locator('html')).not.toHaveAttribute('data-window-full-screen', '')
-      expect(await page.locator('#rail').evaluate(element => getComputedStyle(element).paddingTop)).toBe('52px')
+      expect(await page.evaluate(() => getComputedStyle(document.body).paddingTop)).toBe('40px')
     } finally {
       await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})
       await app.close().catch(() => {})

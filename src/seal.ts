@@ -3,6 +3,8 @@
 export type { SealKey } from '@forgesworn/fold-kit'
 export {
   SEAL_TAG,
+  SENDER_TAG,
+  sealSender,
   isSealPubkey,
   generateSealKey,
   credentialSeal,

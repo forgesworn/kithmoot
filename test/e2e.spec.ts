@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { base64urlnopad } from '@scure/base'
 import { openRoomUrl, pinToTestRelays, testRelays, withRelays } from './relays.js'
-import { openNewRoomForm } from './browser.js'
+import { nameCreator, openNewRoomForm, join } from './browser.js'
 
 /**
  * Automated version of the acceptance test documented in README.md: two
@@ -87,21 +87,20 @@ async function newDeviceContext(browser: Browser, baseURL: string): Promise<Brow
   return context
 }
 
-/** Opens the app fresh and starts a brand new room, without joining it -
- *  `startNewRoom()` in app/src/main.ts only generates the room secret and
- *  updates the address bar; it does not touch the network. Returns the
- *  plain join URL and, after clicking "Add a device", the pairing URL -
- *  both read straight, so this never needs to guess the URL fragment
- *  format the app happens to use today. */
-async function createRoom(page: Page, baseURL: string): Promise<string> {
-  const relays = testRelays()
+/** Opens the app fresh and starts a brand new room, which the creator goes
+ *  straight into under `name`. Returns the plain join URL, read straight, so
+ *  this never needs to guess the URL fragment format the app happens to use
+ *  today. */
+async function createRoom(page: Page, baseURL: string, relays = testRelays(), name = 'Robin'): Promise<string> {
   if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
   await page.goto(baseURL)
   // #iceServers sits inside a collapsed <details> and is left blank, which
   // is the app's own default (app/index.html, app/src/ice-defaults.ts) -
   // nothing to change here.
   await openNewRoomForm(page)
+  await nameCreator(page, name)
   await page.locator('#create').click()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   // The room's own link exists as soon as the room does, but the drawer
   // holding it stays shut until somebody has gone in - the entry page shows
   // nothing that is not the conversation until there is a conversation, and
@@ -172,11 +171,14 @@ async function offerPairing(page: Page, joinUrl: string): Promise<string> {
  */
 async function prepareDevice(page: Page, url: string, name?: string): Promise<void> {
   await openRoomUrl(page, url)
+  await expect(page.locator('#roomArea:visible, #join:visible').first()).toBeVisible({ timeout: 60_000 })
+  // A room this device has joined opens by itself: the creator, coming back.
+  if (await page.locator('#roomArea').isVisible()) return
   if (name !== undefined) {
     // Typed before joining, exactly as a person would: the roster entry
     // this device publishes carries whatever is in the field at join.
     await page.locator('#displayName').fill(name)
-    await expect(page.locator('#whoami .name')).toHaveText(name)
+    await expect(page.locator('#displayName')).toHaveValue(name)
   }
   await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   // A device opening a pairing link holds the join button disabled until the
@@ -186,7 +188,7 @@ async function prepareDevice(page: Page, url: string, name?: string): Promise<vo
 }
 
 async function joinRoom(page: Page): Promise<void> {
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
@@ -298,7 +300,7 @@ test('an admitted member keeps the invitation available after the creator leaves
   // Re-open the creator on the rewritten relay hints so its responder and
   // the two independent browsers rendezvous on the same relay.
   await openRoomUrl(page, joinUrl)
-  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   const memberContext = await newDeviceContext(browser, baseURL!)
   const arrivalContext = await newDeviceContext(browser, baseURL!)
 
@@ -312,8 +314,8 @@ test('an admitted member keeps the invitation available after the creator leaves
     // said it was still working and the button beside it said go. The line
     // says the admission landed and that the next move is the reader's, and
     // the progress styling comes off with it.
-    await expect(member.locator('#status')).toContainText('You are on the list', { timeout: 15_000 })
-    await expect(member.locator('#status')).toHaveClass(/\bdone\b/)
+    await expect(member.locator('#join')).toBeEnabled({ timeout: 15_000 })
+    await expect(member.locator('#status')).toHaveText('')
 
     // The creator was the original responder. Closing it leaves only the
     // newly admitted browser on the invitation rendezvous.
@@ -323,7 +325,8 @@ test('an admitted member keeps the invitation available after the creator leaves
     await openRoomUrl(arrival, joinUrl)
     await expect(arrival.locator('#join')).toBeVisible({ timeout: 60_000 })
     // The same ending, for a browser admitted after the creator has gone.
-    await expect(arrival.locator('#status')).toContainText('You are on the list', { timeout: 15_000 })
+    await expect(arrival.locator('#join')).toBeEnabled({ timeout: 15_000 })
+    await expect(arrival.locator('#status')).toHaveText('')
     // Read off the app's own flag, not off the screen: this browser holds no
     // inviter key so it must not be offering to replace the link, and the
     // drawer being shut would say that for it whether or not it were true.
@@ -407,7 +410,7 @@ test('a person who joins last still sees everyone already in the room', async ({
     // Pin the room to a relay that does not replay ephemeral events, so the
     // only thing that can tell C about A and B is A and B telling it. See
     // the measurements in the file comment above.
-    const defaultUrl = await createRoom(pageA, url)
+    const defaultUrl = await createRoom(pageA, url, [STRICT_RELAY])
     // goto() to a URL that differs only in its fragment is a same-document
     // navigation, so the app's module-level entry point would never re-run
     // and the patched relay list would be silently ignored. reload() forces

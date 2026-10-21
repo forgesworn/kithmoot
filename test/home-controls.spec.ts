@@ -5,7 +5,7 @@ import { NostrRelayPool } from '../src/relay-pool.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { readFile } from 'node:fs/promises'
 import { TEST_RELAY_WS } from './relays.js'
-import { openNewRoomForm, openProfileSettings } from './browser.js'
+import { openNewRoomForm, openProfileSettings, nameCreator } from './browser.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -16,7 +16,7 @@ async function device(browser: Browser, baseURL: string) {
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? relay : String(url)
         if (target !== relay) throw new Error('External relay blocked by test')
         super(target, protocols)
@@ -91,8 +91,9 @@ test('duration sliders set the signed room deadline and the brand returns home',
     await expect(page.locator('#roomDurationSummary')).toContainText('1 days, 0 hours, 5 minutes')
     await expect(page.locator('#roomWhenEnds')).toHaveValue('destruct')
     const before = Math.floor(Date.now()/1000)
+    await nameCreator(page, 'Ada')
     await page.locator('#create').click()
-    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('#roomFuse')).toBeVisible()
     const saved = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.room.')).map(key => JSON.parse(localStorage.getItem(key)!)).find(room => room.name === 'Slider lifetime'))
     expect(saved.destruct).toBe(true)

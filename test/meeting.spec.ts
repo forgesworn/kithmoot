@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, INSTRUMENT, joinWithMedia, newDeviceContext, open, openCall, remotePictures, openCallMeeting, chooseCallMore, callMoreState } from './browser.js'
+import { createRoom, INSTRUMENT, joinWithMedia, newDeviceContext, open, openCall, remotePictures, openCallMeeting, chooseCallMore, callMoreState, join } from './browser.js'
 import { collectAppDiagnostics } from './app-diagnostics.js'
 
 /**
@@ -205,7 +205,7 @@ test('a recording is announced to everybody, before joining as well as during, a
 
     // Somebody arriving is told in the room, and asked before the call.
     await open(c, url, 'Cy')
-    await c.locator('#join').click()
+    await join(c)
     await expect(c.locator('#roomArea')).toBeVisible()
     await expect(c.locator('#recordingBanner')).toBeVisible({ timeout: 30_000 })
     await expect(c.locator('#joinCall')).toBeVisible({ timeout: 60_000 })
