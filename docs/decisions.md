@@ -2330,3 +2330,23 @@ keeps it, and it shows as not answering. Rooms made on exactly the old pair
 person's own use and never written into the room. The keepers still dial
 `nos.lol` for rooms fixed to it, and their crash on a relay that times out
 is a separate fault with its own fix.
+
+## Replies show in time order with a quote (owner, 21 October 2026)
+
+A reply used to sit indented under its root in a ruled group, so an answer
+to an old message appeared far above the conversation's present, where
+nobody was reading. The owner asked for the pattern every messenger uses:
+a reply is a normal message at the bottom, in time order, with a small quote
+of the message it answers inside its bubble, and pressing the quote takes
+you to the original.
+
+The wire format does not change. `reply` names the parent and `thread` the
+root as before (see `messages.md`); only the display flattens. The quote is
+built from the parent, or the root when only `thread` is sent, and shows the
+original's current text, so an edit is reflected and a retraction reads
+"Message deleted". An original that is not loaded is quoted by name when the
+name is known and cannot be followed. Agents that post with `thread` now
+interleave with everyone else in time order, each reply carrying its quote.
+The "in a thread" and "replying to" chips are gone, because the quote says
+both. The cost is that a long back-and-forth under one message no longer
+reads as a block; the quote on each reply is what ties it back.
