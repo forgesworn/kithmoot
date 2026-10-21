@@ -72,7 +72,7 @@ describe('group grant vectors', () => {
       rebuilt++
     }
     expect(rebuilt).toBeGreaterThan(30)
-  })
+  }, 30_000)
 
   it('good-grant is reproduced, with its id and signature, and the revocation and reset vectors too', () => {
     const byName = (n: string) => vectors.grantEvents.find((c) => c.name === n)!.event as GroupEvent

@@ -171,10 +171,13 @@ Options
   --group-bytes <n>        (create) The most one device may upload to a group node,
                            in bytes (KITHMOOT_GROUP_BYTES). No default: whoever
                            runs the nodes chooses it.
-  --group-reset            (create) If the grant ledger (<state>.grants) is missing
-                           or unreadable, move it aside (never deleted), sign a reset
+  --group-reset            (create) Start even though the grant ledger (<state>.grants)
+                           is unreadable: move it aside (never deleted), sign a reset
                            at every group node so nothing issued before it stands,
                            then issue fresh grants. Ignored when the ledger reads.
+                           A ledger that is missing for a room that already existed
+                           needs no flag: the keeper signs that reset on its own. To
+                           distrust a ledger that reads, move it aside by hand first.
   --quiet                  No log lines on stderr
 
 Every option can also come from the environment, for a systemd unit's

@@ -192,6 +192,9 @@ describe.skipIf(!BIN)('the keeper against a real wildbloomd in group mode', () =
     expect(await status(get(n1, eve.deviceSk, hash))).toBe(403)
 
     // Re-admit: the same device key under a new participant key, let in by the keeper's room, gets NEW grant ids.
+    // (A device's newest credential is the one that expires, then was created, later: two credentials in one second tie, and the
+    // older keeps the device. A real return is hours on; the test waits out a second.)
+    await new Promise((r) => setTimeout(r, 1_100))
     const returning = localIdentity(generateSecretKey())
     keeper.session.letIn(returning.pubkey)
     const a2 = await join('Ada again', a.deviceSk, returning)
@@ -224,7 +227,11 @@ describe.skipIf(!BIN)('the keeper against a real wildbloomd in group mode', () =
     await new Promise((r) => setTimeout(r, 1_500))
     expect(await status(get(n1, a.deviceSk, hash))).toBe(403)
     expect(await status(get(n2, a.deviceSk, sha(second)))).toBe(403)
-    expect(await status(get(n1, b.deviceSk, hash))).toBe(403)
+    // And the keeper's own record agrees: nothing is active, and nothing was signed after the reset.
+    const closed = keeper.groupGrantLedger!
+    expect(closed.grants.filter((g) => g.status === 'active')).toEqual([])
+    // (A revocation signed in the reset's own second may be a second later: it only ends what is already ended.)
+    for (const g of closed.grants.filter((x) => x.status !== 'revoked')) expect(g.createdAt).toBeLessThanOrEqual(closed.floors[g.server]!)
     const repost = await post(n1, lastGrant)
     expect(repost.status).toBe(409)
     expect(repost.headers.get('x-reason')).toBe('floor')

@@ -199,10 +199,10 @@ What the keeper does:
   revocation of every grant id it issued to that participant's devices at
   every node, pushes them (waiting at most five seconds, so a node that is
   down never holds the rekey back), publishes the rekey as ever, and then
-  posts the revocations in the room's new epoch. Removing somebody never
-  depends on the ledger being writable or on a node or relay answering: if
-  the ledger cannot be saved the revocations are pushed from memory, the
-  rekey still happens, and the hosts are told. A removal begun before a
+  posts the revocations in the room's new epoch. A removal never waits on a
+  group node (the rekey itself still needs a relay, as it always did), nor on
+  the ledger being writable: if the ledger cannot be saved the revocations are
+  pushed from memory, the rekey still happens, and the hosts are told. A removal begun before a
   restart is finished on the next start.
 - Closing the room signs a `reset` at every node, sends it in the room and
   pushes it, waiting at most five seconds. From the moment the close begins
@@ -222,6 +222,14 @@ What the keeper does:
   revoked, so it can never land later, and signed afresh after a cooldown that
   grows each time; a refused renewal is signed again the same way. An event
   that runs out before a node takes it is dropped with a log line.
+- A node that refuses the keeper for a reason signing again cannot cure (it
+  does not enrol this keeper, the host name is wrong, and so on) is reported
+  once, with its reason, and nothing more is signed for it. Once a day one
+  probe grant is tried there, for one device; if the node takes it (or a reset),
+  it is trusted again, every device is granted at the next look, and the
+  revocations it had refused are sent. Other nodes are not affected. Refusals
+  that signing again can cure (`scope-taken`, `floor`, a grant the node holds
+  revoked) are signed afresh after a cooldown instead.
 - On a node, a pending reset is pushed before anything else there, and one
   device's events go in the order they were signed.
 - Grants, revocations and resets are never published on a relay. They travel
@@ -245,6 +253,14 @@ at every node so that nothing issued before it stands, and fresh grants
 follow. A ledger that reads is used as it is and the flag is ignored.
 `<state>.grants` and any `<state>.grants.unreadable-*` beside it are removed
 when a room self-destructs.
+
+A ledger that reads but is out of date (an old backup of `<state>.grants`
+restored beside a newer state file) is not noticed: grants issued after the
+backup are unknown to the keeper, which cannot revoke them. The cure is to move
+the old ledger aside by hand and start the keeper: with the ledger missing for a
+room that already existed it signs a reset at every node first, as above.
+`--group-reset` does not do this for a ledger that reads, on purpose: a service
+unit that keeps the flag set must not reset every node at each restart.
 
 Group grants are not offered to a keeper started with a live-keeper journal,
 and MLS rooms have no authority key to sign them. Clients do not yet upload to
