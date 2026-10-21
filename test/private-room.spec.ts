@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
+import { createHash } from 'node:crypto'
 import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openMember, nameCreator, chooseInviteRoom } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
@@ -8,6 +9,41 @@ import { testRelaysFor } from './relays.js'
 test('somebody invited from a shared room is let straight into a room that asks first', async ({ browser, baseURL }) => {
   test.setTimeout(240_000)
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  // Passive fixture observations: preserve the original admission assertions.
+  // Sequence numbers describe observer receipt order, not wire linearisation.
+  const observations: Record<string, unknown>[] = []
+  const pages: { side: string; page: Page }[] = []
+  let sequence = 0, socketId = 0, payloadBytes = 0, complete = true
+  const record = (value: Record<string, unknown>) => {
+    if (observations.length >= 10_000) { complete = false; return }
+    observations.push({ sequence: ++sequence, observedAt: Date.now(), ...value })
+  }
+  const observe = (context: BrowserContext, side: string) => context.on('page', page => {
+    pages.push({ side, page })
+    page.on('pageerror', error => record({ side, type: 'page-error', message: error.message }))
+    page.on('websocket', socket => {
+      const id = ++socketId, url = new URL(socket.url())
+      const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      record({ side, type: 'socket', socket: id, origin: url.origin, path: url.pathname, local })
+      socket.on('socketerror', error => record({ side, type: 'socket-error', socket: id, message: error }))
+      if (!local) { complete = false; return }
+      const frameObserved = (direction: 'framesent' | 'framereceived', frame: { payload: string | Buffer }) => {
+        const bytes = Buffer.from(frame.payload)
+        const retained = bytes.length <= 65_536 && payloadBytes + bytes.length <= 8_388_608
+        if (!retained) complete = false
+        else payloadBytes += bytes.length
+        record({ side, type: 'frame', socket: id, direction, bytes: bytes.length,
+          sha256: createHash('sha256').update(bytes).digest('hex'), retained,
+          encoding: typeof frame.payload === 'string' ? 'text' : 'base64',
+          ...(retained ? { payload: typeof frame.payload === 'string' ? frame.payload : bytes.toString('base64') } : {}),
+        })
+      }
+      socket.on('framesent', frame => frameObserved('framesent', frame))
+      socket.on('framereceived', frame => frameObserved('framereceived', frame))
+      socket.on('close', () => record({ side, type: 'socket-close', socket: id }))
+    })
+  })
+  observe(a, 'host'); observe(b, 'guest')
   try {
     const relays = testRelaysFor(baseURL!)
     const ada = await a.newPage()
@@ -68,5 +104,40 @@ test('somebody invited from a shared room is let straight into a room that asks 
     await expect(ada.locator('#chatLog')).toContainText('Invitation sent to Rowan.')
     await expect(rowan.locator('#roomArea')).toBeVisible()
     await expect(rowan.locator('#roomTitle')).toHaveText('Private build')
-  } finally { await a.close(); await b.close() }
+  } finally {
+    // Read only after the original journey has passed or failed, before teardown.
+    for (const { side, page } of pages) {
+      try {
+        const state = await page.evaluate(() => ({
+          ui: Object.fromEntries(['status', 'roomTitle', 'roomArea', 'requestAdmission', 'admissionPreviewStatus', 'approvals', 'outbox'].map(id => {
+            const element = document.getElementById(id)
+            return [id, element ? { text: element.textContent, hidden: element.hidden, visible: element.getClientRects().length > 0 } : null]
+          })),
+          // Only public participant allowlists and boolean room policy; no keys,
+          // bearer links, room secrets, grants or general storage dump.
+          invited: Object.fromEntries(Object.keys(localStorage).flatMap(key => {
+            const room = /kithmoot\.invited\.v1\.([0-9a-f]{64})$/.exec(key)?.[1]
+            if (!room) return []
+            try {
+              const value: unknown = JSON.parse(localStorage.getItem(key) ?? 'null')
+              return [[room, Array.isArray(value) && value.every(p => typeof p === 'string' && /^[0-9a-f]{64}$/.test(p)) ? value : 'invalid']]
+            } catch { return [[room, 'invalid']] }
+          })),
+          knock: Object.fromEntries(Object.keys(localStorage).flatMap(key => {
+            const room = /kithmoot\.knock\.v1\.([0-9a-f]{64})$/.exec(key)?.[1]
+            if (!room) return []
+            const value = localStorage.getItem(key)
+            return [[room, value === 'true' ? true : value === 'false' ? false : 'invalid']]
+          })),
+        }))
+        record({ side, type: 'final-state', state })
+      } catch (error) { complete = false; record({ side, type: 'snapshot-error', message: String(error) }) }
+    }
+    try {
+      await test.info().attach('admission-native-frames-and-state', {
+        body: Buffer.from(JSON.stringify({ schemaVersion: 1, complete, payloadBytes, observations }, null, 2)),
+        contentType: 'application/json',
+      })
+    } finally { await a.close(); await b.close() }
+  }
 })

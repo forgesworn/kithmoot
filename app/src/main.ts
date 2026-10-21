@@ -28,9 +28,14 @@ import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import { ContactInbox } from './contact-inbox.js'
+import { NostrMessageInboxPanel } from './nostr-message-inbox-panel.js'
+import { rememberOrdinaryCopy } from './nostr-message-history.js'
+import { ordinaryInboxRelays } from './nostr-message-wire.js'
 import { FollowBook } from './follow-list.js'
 import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
+import { declineAndBlockInvitation } from './invitation-block-action.js'
+import { NostrMessagePanel } from './nostr-message-panel.js'
 import { LegacyMessagePanel } from './legacy-message-panel.js'
 import { LegacyMessageLifetime } from './legacy-message-lifetime.js'
 import type { ContactInvitation } from '../../src/contact-invitation.js'
@@ -396,7 +401,12 @@ let linkArrivalOver = false
 const pendingSends = new PendingSends({
   store: browserDeviceStore(localStorage),
   onStorageHold: () => setStatus('Your message is held because this browser could not save its state. Check local storage, then retry.'),
-  connected: () => navigator.onLine !== false && (!sessionTransport || sessionTransport.health().some(relay => relay.state === 'connected')),
+  // Browser connectivity is only a heuristic: a local relay can remain
+  // reachable without an internet-facing interface. Use the active route's
+  // actual connection state; this creates no new route or fallback.
+  connected: () => sessionTransport
+    ? sessionTransport.health().some(relay => relay.state === 'connected')
+    : navigator.onLine !== false,
   onChange: () => { outbox.render(); refreshRoomNavigation() },
   active: () => session ? currentRoomId() : undefined,
 })
@@ -1112,10 +1122,19 @@ function participantKey(): Uint8Array {
  *  signet-login persists whatever it needs to reconnect (a bunker URI, a
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
+let nostrMessagePanel: NostrMessagePanel | undefined
+let nostrInboxPanel: NostrMessageInboxPanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
-const legacyMessageLifetime = new LegacyMessageLifetime(() => legacyMessagesPanel?.close(), () => {
+function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close() }
+function reconcileAccountMessageViews(): void {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
-})
+  ;($('nostrMessageEntry') as HTMLButtonElement).disabled = !nostrMessagePanel?.available
+  ;($('nostrInboxEntry') as HTMLButtonElement).disabled = !nostrInboxPanel?.available
+  ;($('nostrAccountInboxEntry') as HTMLButtonElement).disabled = !nostrInboxPanel?.available
+  $('nostrMessageAvailability').hidden = !nostrSession || nostrMessagePanel?.available === true
+  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
+}
+const legacyMessageLifetime = new LegacyMessageLifetime(closeAccountMessageViews, reconcileAccountMessageViews)
 /** Deny reopening across every await in an account transition. The counter
  * composes account and room transitions; it grants no account authority. */
 async function withLegacyMessagesClosed<T>(work: () => Promise<T>): Promise<T> {
@@ -3237,13 +3256,9 @@ async function startContactInbox(account: SignetSession): Promise<void> {
   const generation = contactInboxGeneration, crypt = account.signer.nip44
   if (!crypt) { contactInboxMessage = 'This signer cannot open private invitations. Use a signer with encryption support.'; renderContactInbox(); return }
   try {
-    const defaults = relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)
-    const lists = await lookUpDmRelayLists([account.pubkey], defaults)
-    if (generation !== contactInboxGeneration || nostrSession !== account) return
-    const targets = distinctRelays([...latestDmRelayList(lists, account.pubkey), ...defaults]).slice(0, 12)
     const inbox = new ContactInbox({ identity: { pubkey: account.pubkey,
       signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) },
-      store: deviceStore, transport: relayConnections.pool('contact-inbox', targets),
+      store: deviceStore,
       acquire: async key => {
         if (!navigator.locks) throw new Error('This browser cannot safely coordinate private invitations between tabs.')
         return new Promise<() => void>((resolve, reject) => {
@@ -3281,12 +3296,14 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   await switchRoom(room)
 }
 function renderContactInbox(): void {
-  legacyMessagesPanel?.reconcile()
+  nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
   const state = contactInbox?.snapshot(), self = nostrSession?.pubkey
   $('contactsSignIn').hidden = !!self
   $('contactInboxStatus').textContent = contactInboxMessage || state?.error || (!self ? 'Sign in to message your contacts.'
     : !state?.ready ? 'Opening your private invitation inbox…' : state.pending.length ? 'Some invitations are not confirmed. They are kept encrypted on this device; retry when connected.' : '')
   $('contactInboxRetry').hidden = !self || state?.ready === true && !state.pending.length && !state.error
+  $('contactInboxCheck').hidden = !self
+  ;($('contactInboxCheck') as HTMLButtonElement).disabled = !canCheckAccountMessages()
   const list = $('contactInvites')
   const previous = new Map([...list.querySelectorAll<HTMLLIElement>('li')].map(row => [row.dataset.invitation, row]))
   let index = 0
@@ -3441,7 +3458,7 @@ function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
-    changed: view => { grantedContactView = view; legacyMessagesPanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
+    changed: view => { grantedContactView = view; nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
     message: messageContact,
   })
   grantedContactsPanel.reconcile()
@@ -3454,9 +3471,11 @@ function renderIdentity(): void {
   // A DM relay list is the account's to publish; a visitor has none.
   $('dmRelaySettingsOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
+  $('nostrMessageEntry').hidden = nostrSession === undefined
+  $('nostrInboxEntry').hidden = nostrSession === undefined
+  $('nostrAccountInboxEntry').hidden = nostrSession === undefined
   $('legacyMessagesEntry').hidden = nostrSession === undefined
-  ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
-  legacyMessagesPanel?.reconcile()
+  reconcileAccountMessageViews()
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
   $('retryRoomSync').hidden = nostrSession === undefined
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
@@ -5566,7 +5585,9 @@ function renderRoomInfo(): void {
   setInfoSub('infoSubCards', contacts(deviceStore).length ? `${contacts(deviceStore).length} saved` : '')
   $('leave').textContent = peer ? 'Leave private chat…' : 'Leave room…'
   $('roomRelaySettings').hidden = roomUsesBothy
-  $('roomBothySettings').hidden = !roomUsesBothy
+  // First activation must be reachable before a room has selected Bothy.
+  // The panel still checks account, device, room scope and explicit consent.
+  $('roomBothySettings').hidden = !roomUsesBothy && !nostrSession
 }
 
 /** Show one page of the panel. The heading is the panel's title and takes the
@@ -12880,7 +12901,7 @@ function isUnreachableRelayFailure(error: unknown): boolean {
 async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
   if (!retry && (joining || session || loginBusy)) return
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   if (!retry) applyHideIpDefault()
   const requestedMedia = entryMediaChoice()
   // Beside a docked call this room is for reading and writing: it never
@@ -13736,7 +13757,7 @@ function showRoomsList(): void {
 /** A room is on screen, or its door. The list stays: it is a column of the
  *  shell, not a page, and it keeps watching what it lists. */
 function hideRoomsList(): void {
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   roomsListShown = false
   $('home').hidden = true
   startListWatches()
@@ -14651,7 +14672,7 @@ function showRoomPane(): void {
 
 async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   if (switchingRoom) return
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   if (session && room.roomId === currentRoomId()) {
     if (project !== undefined) { roomProjectContext = project; renderCurrentRoomLogo(); renderRoomLogoControls() }
     showRoomPane()
@@ -14953,7 +14974,7 @@ function dockableRoom(): KnownRoom | undefined {
  *  caller closes the room on screen next; everything the call needs has
  *  been taken out of the globals that closing clears. */
 function dockCall(room: KnownRoom): void {
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   dockedCall = {
     session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer, conferenceEndTimer,
     room, label: currentRoomLabel(), me: meParticipant, ui: captureRoomUi(),
@@ -14968,7 +14989,7 @@ function dockCall(room: KnownRoom): void {
 function resumeDockedCall(): void {
   const c = dockedCall
   if (!c) return
-  legacyMessagesPanel?.close()
+  closeAccountMessageViews()
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
   restoreRoomUi(c.ui)
@@ -16124,9 +16145,12 @@ function renderInvitations(): void {
     decline: async id => { await contactInbox?.dismiss(id) },
     declineAndBlock: async id => {
       const invitation = waitingInvitations().find(entry => entry.id === id)
+      if (!invitation) return
       // Dismissed first, so unblocking later never brings this one back.
-      await contactInbox?.dismiss(id)
-      if (invitation) setBlocked(invitation.sender, true)
+      await declineAndBlockInvitation(id, invitation.sender, {
+        account: () => nostrSession, inbox: () => contactInbox,
+        block: sender => setBlocked(sender, true),
+      })
     },
     when: sentAt => whenWords(sentAt),
   })
@@ -16911,11 +16935,45 @@ let settingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: b
 const settingsPane = $('settingsPane')
 const ONE_PANE_SETTINGS = window.matchMedia('(max-width: 899px)')
 
+/** Public compatibility views belong to the ordinary Account page. A pane
+ * or destination change invalidates them just like an account/room transition. */
+function canCheckAccountMessages(): boolean {
+  return !!nostrSession && legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy
+}
+function accountMessageViewEligible(): boolean {
+  return currentDestination() === 'settings' && settingsPage === 'account' && canCheckAccountMessages()
+}
+function acquireOrdinaryMessageHistory(key: string): Promise<() => void> {
+  if (!navigator.locks) return Promise.reject(Error('This browser cannot coordinate saved message copies.'))
+  return new Promise((resolve, reject) => {
+    void navigator.locks.request(key, { ifAvailable: true }, async lock => {
+      if (!lock) throw Error('Ordinary message history is open in another tab.')
+      await new Promise<void>(release => { resolve(release) })
+    }).catch(reject)
+  })
+}
+async function lookUpOrdinaryInboxLists(authors: string[], current: () => boolean): Promise<NostrEvent[]> {
+    if (!current()) throw Error('Account view changed.')
+    const hold = relayConnections.pool('default')
+    const found: NostrEvent[] = []
+    let stop: (() => void) | undefined, timer: ReturnType<typeof setTimeout> | undefined, cancel: ReturnType<typeof setInterval> | undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        timer = setTimeout(resolve, 8000)
+        cancel = setInterval(() => { if (!current()) reject(Error('Account view changed.')) }, 25)
+        stop = hold.subscribe([{ kinds: [KIND_DM_RELAYS], authors, limit: 8 }], event => {
+          if (current() && found.length < 64) found.push(event)
+        }, resolve)
+      })
+      if (!current()) throw Error('Account view changed.')
+      return found
+    } finally { clearTimeout(timer); clearInterval(cancel); stop?.(); hold.close() }
+}
 legacyMessagesPanel = new LegacyMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
   // Default account pools bypass the per-room private router. This first
   // compatibility view is deliberately available only on the ordinary home.
-  eligible: () => legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy,
+  eligible: accountMessageViewEligible,
   blocked: contactIsBlocked,
   borrowDefault: () => {
     const hold = relayConnections.pool('default')
@@ -16923,8 +16981,81 @@ legacyMessagesPanel = new LegacyMessagePanel(document, {
     return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
   },
 })
+nostrMessagePanel = new NostrMessagePanel(document, {
+  account: () => nostrSession, epoch: () => identityGeneration,
+  eligible: accountMessageViewEligible,
+  blocked: contactIsBlocked,
+  lookup: lookUpOrdinaryInboxLists,
+  rememberCopy: (event, account, current) => rememberOrdinaryCopy(deviceStore, account.pubkey, event, acquireOrdinaryMessageHistory, current),
+  publish: async (event, relays, current) => {
+    if (!current()) throw Error('Account view changed.')
+    // Explicit hints define this pool; no NIP-65/default destination is added.
+    // The caller independently guards every queued socket write/retry.
+    const hold = relayConnections.pool('nostr-message', relays.map(url => ({ url, read: false, write: true })))
+    try {
+      if (!hold.publishGuarded) throw Error('A guarded public carrier is unavailable.')
+      await hold.publishGuarded(event, current)
+    } finally { hold.close() }
+  },
+})
+nostrInboxPanel = new NostrMessageInboxPanel(document, {
+  account: () => nostrSession, epoch: () => identityGeneration, eligible: accountMessageViewEligible,
+  store: deviceStore, acquire: acquireOrdinaryMessageHistory, blocked: contactIsBlocked,
+  receive: async (account, current, source) => {
+    if (source === 'account') {
+      if (!current() || nostrSession !== account) throw Error('Account view changed.')
+      const relays = relayConnections.configuration('default').filter(relay => relay.read).map(relay => ({ url: relay.url, read: true, write: false }))
+      if (!relays.length) throw Error('No configured account read relays.')
+      // This separately labelled check is explicitly selected in Contacts.
+      // It creates no AUTH grant and is never a fallback for inbox-list reads.
+      const hold = relayConnections.pool('nostr-account-inbox', relays)
+      return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
+    }
+    const statements = await lookUpOrdinaryInboxLists([account.pubkey], current)
+    if (!current() || nostrSession !== account) throw Error('Account view changed.')
+    const relays = ordinaryInboxRelays(statements, account.pubkey, Math.floor(Date.now() / 1000))
+    if (!relays.length) throw Error('No usable published inbox list.')
+    // Receive-only explicit inbox hints. No default destinations or new AUTH
+    // grants are inferred; authentication-required relays may refuse this read.
+    const hold = relayConnections.pool('nostr-inbox', relays.map(url => ({ url, read: true, write: false })))
+    return { subscribe: hold.subscribe.bind(hold), close: hold.close.bind(hold) }
+  },
+  keepInvitation: async (account, token, current) => {
+    const journal = contactInbox
+    if (!journal || nostrSession !== account || !current()) throw Error('Invitation journal is unavailable.')
+    return journal.keepOpenedInvitation(token, () => current() && nostrSession === account && contactInbox === journal)
+  },
+  reviewInvitation: (account, id) => {
+    if (nostrSession !== account || !canCheckAccountMessages() || !contactInbox?.snapshot().invitations.some(invitation => invitation.id === id)) return
+    openDestination('chats'); renderRooms()
+    document.querySelector<HTMLElement>(`li[data-invitation="${id}"] button`)?.focus({ preventScroll: true })
+  },
+  reply: (peer, parent) => {
+    if (accountMessageViewEligible() && nostrMessagePanel?.available && !contactIsBlocked(peer)) {
+      nostrMessagePanel.show($('nostrMessageEntry'), { peer, parent })
+    }
+  },
+})
+for (const id of ['contactInboxCheck', 'nostrAccountInboxEntry']) $(id).addEventListener('click', event => {
+  if (!event.isTrusted || !canCheckAccountMessages()) return
+  ;($('contactsDialog') as HTMLDialogElement).close()
+  openDestination('settings'); showSettingsPage('account')
+  legacyMessagesPanel?.close(); nostrMessagePanel?.close()
+  nostrInboxPanel?.show($('nostrAccountInboxEntry'), 'account')
+})
+$('nostrInboxEntry').addEventListener('click', event => {
+  if (!event.isTrusted || !nostrInboxPanel?.available) return
+  legacyMessagesPanel?.close(); nostrMessagePanel?.close()
+  nostrInboxPanel.show($('nostrInboxEntry'))
+})
+$('nostrMessageEntry').addEventListener('click', event => {
+  if (!event.isTrusted || !nostrMessagePanel?.available) return
+  nostrInboxPanel?.close(); legacyMessagesPanel?.close()
+  nostrMessagePanel.show($('nostrMessageEntry'))
+})
 $('legacyMessagesEntry').addEventListener('click', event => {
   if (!event.isTrusted || !legacyMessagesPanel?.available) return
+  nostrInboxPanel?.close(); nostrMessagePanel?.close()
   legacyMessagesPanel.show($('legacyMessagesEntry'))
 })
 
@@ -16939,8 +17070,10 @@ function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; 
  *  screen reader says where it is; the back arrow shows on a page, and on the
  *  list where the list is not beside it. */
 function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
+  if (name !== 'account') closeAccountMessageViews()
   const previous = settingsPage
   settingsPage = name
+  reconcileAccountMessageViews()
   if (name !== 'main' && row) settingsRow = row
   for (const page of settingsPane.querySelectorAll<HTMLElement>('[data-settings-page]')) page.hidden = page.dataset.settingsPage !== name
   $('settingsTitle').textContent = name === 'main' ? 'Settings' : settingsPane.querySelector<HTMLElement>(`[data-settings-page="${name}"]`)?.dataset.settingsTitle ?? 'Settings'
@@ -16984,6 +17117,8 @@ function enterSettings(): void {
 }
 
 function leaveSettings(): void {
+  closeAccountMessageViews()
+  reconcileAccountMessageViews()
   if (!settingsHomes) return
   for (const home of settingsHomes) { home.parent.insertBefore(home.el, home.next); home.el.hidden = home.hidden }
   settingsHomes = undefined

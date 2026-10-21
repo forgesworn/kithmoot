@@ -3,7 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { npubEncode } from 'nostr-tools/nip19'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { parseRoomLink } from '../src/link.js'
-import { accountDevice, signInAccount } from './nostr-account.js'
+import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings } from './browser.js'
 
 /** A key as the app shortens it when there is no name. */
@@ -13,6 +13,23 @@ const shortNpub = (pubkey: string): string => { const npub = npubEncode(pubkey);
 async function openPeople(page: Page): Promise<void> {
   await page.locator('#railPeople').click()
   await expect(page.locator('#peopleList')).toBeVisible()
+}
+
+/** Loading a saved invitation does not decrypt it or join its room. */
+async function openPrivateChatCopy(page: Page): Promise<void> {
+  await expect(page.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
+  await openSettings(page, 'Account')
+  await page.locator('#nostrInboxEntry').click()
+  await page.locator('#nostrInboxLoad').click()
+  await page.locator('.ordinaryMessageOpen').click()
+}
+
+/** Invitations share the ordinary inbox's explicit decryption and review. */
+async function reviewPrivateChatInvitation(page: Page): Promise<void> {
+  await openPrivateChatCopy(page)
+  await expect(page.locator('.ordinaryInvitationReview')).toBeVisible()
+  await expect(page.locator('#roomArea')).toBeHidden()
+  await page.locator('.ordinaryInvitationReview').click()
 }
 
 /** An account's public relay list for private invitations, a follow list
@@ -36,7 +53,7 @@ test('People lists the people you follow, and Message starts a private chat with
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey, cKey] }, [b, c, a], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     const rows = alice.locator('#peopleRows')
     await expect(rows.locator('li[data-section="Following"] h3')).toHaveText('Following')
@@ -66,7 +83,7 @@ test('People lists the people you follow, and Message starts a private chat with
 
     // Bob sees the request at the top of his chats. Alice is nobody he
     // knows, so she is shown by her key, not by any name she gives herself.
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     const waiting = bob.locator('#chatInvitations li[data-invitation]')
     await expect(waiting).toHaveCount(1)
     await expect(waiting).toContainText(`Somebody invited you to a private chat`)
@@ -92,13 +109,13 @@ test('an invitation from somebody you follow carries their name, before People h
     await publisher.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', a]], content: '' }, bKey))
     await publisher.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Alice on Nostr' }) }, aKey))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleMessage').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
 
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     const waiting = bob.locator('#chatInvitations li[data-invitation]')
     await expect(waiting).toContainText('Alice on Nostr invited you to a private chat')
     await expect(waiting.getByRole('button', { name: 'Accept private chat with Alice on Nostr' })).toBeVisible()
@@ -113,13 +130,13 @@ test('Decline clears an invitation on this device and opens nothing', async ({ b
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleMessage').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
 
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     const waiting = bob.locator('#chatInvitations li[data-invitation]')
     await expect(waiting).toHaveCount(1)
     await waiting.locator('button[data-action="decline"]').click()
@@ -128,7 +145,13 @@ test('Decline clears an invitation on this device and opens nothing', async ({ b
     await expect(bob.locator('#roomArea')).toBeHidden()
     await bob.reload()
     await expect(bob.getByRole('navigation', { name: 'Chats' })).toBeVisible()
+    // Explicitly reopening the retained copy cannot resurrect a declined
+    // invitation. An empty list before Load alone would not prove it.
+    await openPrivateChatCopy(bob)
+    await expect(bob.locator('#nostrInboxList')).toContainText('This invitation was already dismissed. It has not been restored.')
+    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
+    await expect(bob.locator('#roomArea')).toBeHidden()
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 
@@ -140,14 +163,14 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleMessage').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
 
     // Alice is a stranger to Bob: named by her key, and blocked from the row's ⋯.
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     const waiting = bob.locator('#chatInvitations li[data-invitation]')
     await expect(waiting).toHaveCount(1)
     await bob.setViewportSize({ width: 390, height: 844 })
@@ -171,6 +194,9 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
     // The declined invitation stays declined.
     await bob.reload()
     await expect(bob.getByRole('navigation', { name: 'Chats' })).toBeVisible()
+    await openPrivateChatCopy(bob)
+    await expect(bob.locator('#nostrInboxList')).toContainText('This invitation was already dismissed. It has not been restored.')
+    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
@@ -187,7 +213,7 @@ test('a person blocked from People leaves it, their invitations are dropped, and
     await publisher.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', b]], content: '' }, aKey))
     await publisher.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Bob on Nostr' }) }, bKey))
 
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!)
     await openPeople(bob)
     await bob.locator('#peopleRows').getByRole('button', { name: /^Alice on Nostr/ }).click()
     await bob.locator('#peopleBlock').scrollIntoViewIfNeeded()
@@ -198,15 +224,19 @@ test('a person blocked from People leaves it, their invitations are dropped, and
     await expect(bob.locator('#peopleList')).toContainText('Alice on Nostr is blocked on this device.')
 
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleMessage').click()
     await expect(alice.locator('#roomArea')).toBeVisible()
 
-    // Her invitation is dropped as it arrives, as for a Signet block.
-    await bob.waitForTimeout(3_000)
+    // Load the actual delivered copy and explicitly request Open. An empty
+    // invitation list before reading would not prove the blocked send refused.
+    await openPrivateChatCopy(bob)
+    await expect(bob.locator('#nostrInboxList')).toContainText('This copy could not be opened or kept.')
+    await expect(bob.locator('.ordinaryInvitationReview')).toBeHidden()
     await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
+    await bob.locator('#nostrInboxClose').click()
     await openSettings(bob, 'Privacy')
     await bob.locator('#blockedList').getByRole('button', { name: 'Unblock Alice on Nostr' }).click()
     await expect(bob.locator('#blockedNone')).toBeVisible()
@@ -226,7 +256,7 @@ test('Invite from People opens the private chat and sends the room there, sealed
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openNewRoomForm(alice)
     await alice.locator('#roomName').fill('Saturday walk')
     if (await alice.locator('#newRoomYourName').isVisible()) await alice.locator('#newRoomYourName').fill('Alice')
@@ -257,7 +287,7 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await expect(alice.locator('#roomArea')).toBeVisible({ timeout: 30_000 })
 
     // Bob accepts the private chat, which puts the room in his list, and joins it.
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with Somebody` }).click()
     await expect(bob.locator('#chatLog')).toContainText('invited you to Saturday walk. It is in your rooms.', { timeout: 30_000 })
     await bob.locator('#roomList').getByRole('button', { name: 'Open Saturday walk', exact: true }).click()
@@ -300,7 +330,7 @@ test('Check words together from People compares words in the private chat and ma
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     const check = alice.locator('#peopleCheckWords')
@@ -314,7 +344,7 @@ test('Check words together from People compares words in the private chat and ma
     await alice.locator('#verifyStart').click()
 
     // Bob accepts the private chat, then the check from Alice's row in it.
-    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(bob, baseURL!); await signInAccount(bob, baseURL!); await reviewPrivateChatInvitation(bob)
     await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with Somebody` }).click()
     await expect(bob.locator('#roomWho')).toHaveText('Private chat', { timeout: 30_000 })
     await openRoomDetails(bob)
@@ -350,7 +380,7 @@ test('Voice from People opens the private chat and starts a call in it', async (
     await ac.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
     await alice.locator('#peopleVoice').click()
@@ -365,7 +395,7 @@ test('with public profiles off, Following says how to see it and asks no relay',
   try {
     await ac.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'false'))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
-    await signInAccount(alice, baseURL!)
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
     await expect(alice.locator('#peopleRows li[data-section="Following"] .note')).toHaveText('Turn on public profiles in Settings to see the people you follow.')
     await expect(alice.locator('#peopleEmpty')).toBeVisible()
