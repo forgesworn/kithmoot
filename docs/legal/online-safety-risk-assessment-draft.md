@@ -472,17 +472,17 @@ privacy notice matter (3.1, 3.2); Caddy discards the site's access log.
 
 ### 8.4 What is live today
 
-Checked by the owner on 20 October 2026, from outside and read-only on the
-box. None of these has been switched off; each needs the owner's explicit
-go.
+Checked on 20 October 2026, from outside and read-only on the box. Each
+switch-off needs the owner's explicit go; the drop tier's route was removed
+on 21 October 2026 with that go (8.5, step 1).
 
 | Surface | State on 20 October 2026 |
 | --- | --- |
 | TURN credentials, `GET /turn` | An anonymous request got working TURN credentials |
-| Drop tier, `wss://kithmoot.forgesworn.dev/drops` | On (`BOTHY_DROPS_ENABLED=true`), and served a stored kind 1059 wrap to an anonymous query. It was switched off on 9 September 2026 pending the agreement of the drop tier software's joint maintainer; who switched it back on is not known. No app default names it |
+| Drop tier, `wss://kithmoot.forgesworn.dev/drops` | On (`BOTHY_DROPS_ENABLED=true`), and served a stored kind 1059 wrap to an anonymous query. It was switched off on 9 September 2026 pending the agreement of the drop tier software's joint maintainer; who switched it back on is not known. No app default names it. **21 October 2026:** no longer fronted. The `/drops` route was removed from the Caddy file and a WebSocket upgrade to it gets 404 from outside. The tier still runs on the box's loopback, reachable only from the box, because the box's cadence work will not start without it, and the box no longer advertises its address |
 | Blossom file store | Uploads accepted from any key with a signed BUD-01 authorisation; reads by hash open to anyone; a read-only onion front serves the same store |
 | Meeting codes, `/codes` | Live, and stores full room links |
-| Keepers on the box | Two keeper instances, both crash-looping. `[INPUT: whose rooms they serve.]` |
+| Keepers on the box | Two keeper instances, both crash-looping since 19 October 2026: with the box's Node 22 and nostr-tools 2.25.2, a relay that times out (two of the default relays were unreachable) sends the relay client into unbounded recursion. They hold no room open while they fail. `[INPUT: whose rooms they serve.]` |
 
 Not checked on 20 October 2026, from the plan (section 1.1): two archive
 nodes on the owner's own machines mirror files from this store (plan D5),
@@ -503,7 +503,7 @@ route goes after.
 | Step | Notice first | Then | Plan's end state | Owner's end state |
 | --- | --- | --- | --- | --- |
 | 0 | None | Verify each surface (done on 20 October 2026 except the keepers' rooms and the Link relay) | | |
-| 1. Drop tier | Release note | Switch the tier off; remove the `/drops` route. Held wraps age out within 30 days | Removed | Removed |
+| 1. Drop tier | Release note | Switch the tier off; remove the `/drops` route. Held wraps age out within 30 days. **Route removed 21 October 2026**; the tier stays on loopback while the box's cadence work needs it | Removed | Removed |
 | 2. New Blossom uploads | On the file picker: ForgeSworn's shared storage has closed to new files; set up the group's own storage or send files directly. Gives the read-window date (step 5) | Web and Android releases with no pre-filled ForgeSworn server; then remove the upload route; stop archive enrolment | Removed | `[DECISION: a closed store for the owner's rooms behind grants (S2 to S4), or none]` |
 | 3. Meeting codes | "Meeting codes are going. Share the room link instead." | Refuse new codes; let live codes run out (at most 7 days); keep the 30-day tombstones; then remove the route and service | Removed (D6) | `[DECISION: retire as D6, or keep for the owner's rooms only behind grants]` |
 | 4. Open `/turn` mint | In a call with no relay: "Some calls need a relay. Your group has none, so this call may not connect on some networks." | Clients take ICE servers from the room or group only; then remove `/turn` and the KithMoot credential service. coturn stays, with its separate secret, for the owner's own Wildbloom direct send | Removed | `[DECISION: TURN for the owner's rooms through a grant-checked issuer the room carries (plan S9), or none]` |
