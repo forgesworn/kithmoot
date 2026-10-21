@@ -83,6 +83,34 @@ function setup(refuse?: (relay: string, event: Event) => boolean) {
 const kindsOf = (event: Event) => event.tags.filter(t => t[0] === 'k').map(t => Number(t[1]))
 
 describe('leave and tidy up', () => {
+  it('does not report local cleanup done when archive deletion rejects', async () => {
+    const { deps, order } = setup()
+    const completed: string[] = []
+    deps.progress = step => completed.push(step.id)
+    deps.clearLocal = async () => { throw new Error('archive deletion refused') }
+    await expect(runTidyUp(deps)).rejects.toThrow('archive deletion refused')
+    expect(completed).not.toContain('local')
+    expect(order).not.toContain('local')
+  })
+
+  it('does not report local cleanup complete before archive deletion settles', async () => {
+    const { deps, order } = setup()
+    let release!: () => void
+    let started!: () => void
+    const clearing = new Promise<void>(resolve => { started = resolve })
+    const cleared = new Promise<void>(resolve => { release = resolve })
+    deps.clearLocal = async () => { started(); await cleared; order.push('local') }
+    let finished = false
+    const running = runTidyUp(deps).then(report => { finished = true; return report })
+    await clearing
+    expect(finished).toBe(false)
+    expect(order).not.toContain('local')
+    release()
+    const report = await running
+    expect(report.steps.at(-1)?.id).toBe('local')
+    expect(order).toContain('local')
+  })
+
   it('asks for this device\'s chat envelope 2 messages under their own keys, and counts what is left', async () => {
     const { r, deps, deviceSk, otherSk } = setup()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(3))
@@ -104,16 +132,72 @@ describe('leave and tidy up', () => {
     expect(report.remaining.filter(x => x.what === 'This device’s chat')).toEqual([])
   })
 
+  it.each([false, true])('checks capped chat history without losing older own messages (same-second page: %s)', async tied => {
+    const { r, deps, deviceSk, otherSk, order } = setup()
+    const relay = ROOM_RELAYS[0]!
+    deps.roomRelays = [relay]
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(4))
+    const msg = (sk: Uint8Array, id: string, sentAt: number): ChatMessage => ({ id, participant: 'cd'.repeat(32), device: getPublicKey(sk), credential: {} as ChatMessage['credential'], text: 'history', sentAt })
+    const mine = encodeChatEvent(msg(deviceSk, 'older-mine', NOW - 2000), { roomId, roomKey, deviceSk, envelope: 2 })
+    r.put(relay, mine)
+    for (let i = 0; i < 1000; i++) r.put(relay, encodeChatEvent(msg(otherSk, `foreign-${i}`, tied ? NOW - 100 : NOW - 1000 + i), { roomId, roomKey, deviceSk: otherSk, envelope: 2 }))
+    deps.chatStreams = chatStreamsOf([{ id: roomId, key: roomKey }], [undefined])
+    const reads: Filter[] = []
+    // A real capped relay returns newest-first, with an inclusive until.
+    deps.read = async (url, filter) => {
+      reads.push(filter)
+      return { terminal: 'complete', events: (r.stores.get(url) ?? []).filter(e => matchFilters([filter], e)).sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id)).slice(0, filter.limit) }
+    }
+    const report = await runTidyUp(deps)
+    if (tied) {
+      expect(report.localRetained).toContain('Local room keys and upload records were retained')
+      expect(order).not.toContain('local')
+      expect(order).not.toContain('bookmark')
+      expect(report.steps.find(s => s.id === 'device')!.unread).toContain(relay)
+      expect(report.remaining.some(r => r.count === -1)).toBe(true)
+      expect(r.stores.get(relay)!.some(e => e.id === mine.id)).toBe(true)
+    } else {
+      expect(r.published.some(p => p.event.pubkey === mine.pubkey && p.event.tags.some(t => t[0] === 'e' && t[1] === mine.id))).toBe(true)
+      expect(r.stores.get(relay)!.some(e => e.id === mine.id)).toBe(false)
+      expect(report.localRetained).toBeUndefined()
+      expect(order).toContain('local')
+      expect(report.remaining).toEqual([])
+    }
+    expect(reads.some(filter => filter.until !== undefined)).toBe(true)
+  }, 30_000)
+
+  it('retains custody when new traffic saturates the final chat check', async () => {
+    const { r, deps, deviceSk, otherSk, order } = setup()
+    const relay = ROOM_RELAYS[0]!
+    deps.roomRelays = [relay]
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(5))
+    deps.chatStreams = chatStreamsOf([{ id: roomId, key: roomKey }], [undefined])
+    deps.read = async (url, filter) => ({ terminal: 'complete', events: (r.stores.get(url) ?? []).filter(e => matchFilters([filter], e)).sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit) })
+    deps.files = async () => {
+      for (let i = 0; i < 1000; i++) {
+        const msg: ChatMessage = { id: `new-${i}`, participant: 'cd'.repeat(32), device: getPublicKey(otherSk), credential: {} as ChatMessage['credential'], text: 'new traffic', sentAt: NOW }
+        r.put(relay, encodeChatEvent(msg, { roomId, roomKey, deviceSk: otherSk, envelope: 2 }))
+      }
+      return { found: 0, deleted: 0, refused: 0, pending: 0, details: [] }
+    }
+    const report = await runTidyUp(deps)
+    expect(report.localRetained).toContain('final chat history check was incomplete')
+    expect(report.remaining.some(r => r.count === -1)).toBe(true)
+    expect(order).not.toContain('local')
+    expect(report.steps.some(s => s.id === 'check')).toBe(true)
+    expect(report.steps.some(s => s.id === 'local')).toBe(false)
+  }, 30_000)
+
   it('lists every step before running, creator and account steps only when they apply', () => {
     expect(tidyUpSteps({ creator: true, account: true, deleteTombstone: true }).map(s => s.id))
-      .toEqual(['invitations', 'retirement', 'tabs', 'device', 'bookmark', 'account', 'local', 'check'])
+      .toEqual(['invitations', 'retirement', 'tabs', 'device', 'bookmark', 'account', 'check', 'local'])
     expect(tidyUpSteps({ creator: false, account: false, deleteTombstone: false }).map(s => s.id))
-      .toEqual(['tabs', 'device', 'local', 'check'])
+      .toEqual(['tabs', 'device', 'check', 'local'])
   })
 
   it('asks the file server after the device’s deletions and before the wipe, with the device’s events', async () => {
     expect(tidyUpSteps({ creator: false, account: true, deleteTombstone: false, files: true }).map(s => s.id))
-      .toEqual(['tabs', 'device', 'files', 'bookmark', 'account', 'local', 'check'])
+      .toEqual(['tabs', 'device', 'files', 'bookmark', 'account', 'check', 'local'])
     const { r, deps, order, deviceSk } = setup()
     const announced = signed(deviceSk, 1063, [['url', `https://files.example/${'ab'.repeat(32)}`], ['x', 'ab'.repeat(32)]])
     for (const relay of ROOM_RELAYS) r.put(relay, announced)
@@ -169,7 +253,7 @@ describe('leave and tidy up', () => {
     expect(r.published[3]!.event.tags.filter(t => t[0] === 'e')).toHaveLength(2)
     expect(order).toEqual(['tabs', 'here', 'bookmark', 'local'])
     expect(report.remaining).toEqual([])
-    expect(report.steps.map(s => s.id)).toEqual(['invitations', 'retirement', 'tabs', 'device', 'bookmark', 'account', 'local', 'check'])
+    expect(report.steps.map(s => s.id)).toEqual(['invitations', 'retirement', 'tabs', 'device', 'bookmark', 'account', 'check', 'local'])
     // Somebody else's message is theirs.
     for (const relay of ROOM_RELAYS) expect(r.stores.get(relay)!.some(e => e.pubkey === getPublicKey(otherSk))).toBe(true)
   })
@@ -239,7 +323,7 @@ describe('leave and tidy up', () => {
     expect(device).toHaveLength(3)
     expect(device.every(p => p.event.tags.filter(t => t[0] === 'e').length <= 300)).toBe(true)
     expect(report.remaining).toEqual([])
-    expect(report.steps.map(s => s.id)).toEqual(['tabs', 'device', 'local', 'check'])
+    expect(report.steps.map(s => s.id)).toEqual(['tabs', 'device', 'check', 'local'])
   })
 
   it('never asks to delete a deletion request', () => {

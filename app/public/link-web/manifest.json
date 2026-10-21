@@ -1,12 +1,14 @@
 {
   "sourceRepository": "https://github.com/forgesworn/forgesworn-link",
-  "sourceCommit": "2fa7f232625ef1394bea66c9fd80668573b8310f",
+  "sourceCommit": "5975fee2d149c255c1434cec81f7459be0129acf",
   "wasiSdk": "34.0",
   "wasmBindgen": "0.2.129",
   "target": "web",
   "files": {
-    "link_web.js": "5b46301a4635063db5ad35f7bcb27f23834c8d73f1cb3cf5740bf8888b5081e5",
-    "link_web.d.ts": "b859db7cc0a99b8edf318ece658d1d519ea6806a0cfc89d7217ee7809bdbb9ec",
-    "link_web_bg.wasm": "2093f60f5c5ba137d7e6bde7a0a672084ce51f0596d54c8affa0343cf867201e"
+    "link_web.d.ts": "19b637ad3aa6e918a2ceac14302e5b2ff8199713ec344417a292fac33f19ce42",
+    "link_web.js": "402ec2b0eb20fb7cd57adf6019b6e2d4cb2aa0f51643968db821b6c8ae8ee81b",
+    "link_web_bg.wasm": "3854585471a6427fbd47af9e51d93afddb969693d3af76d53f7acbb91c090803",
+    "link_web_bg.wasm.d.ts": "586c87b022427f64444aa8529b1ffab8b14ab19ee9c2a4aa6fce59a9226d9259",
+    "snippets/link-web-0c2b9b8960ff03f7/inline0.js": "3cfde494452099c9590ada4bea0342d2b3381dbfaba670b7879477f5fc903e4a"
   }
 }

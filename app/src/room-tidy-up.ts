@@ -26,6 +26,7 @@ import type { HistoryReadResult } from '../../src/history-import.js'
 import type { PublicDeletionRelayOutcome } from './public-deletion-relay-writer.js'
 import { KINDS } from '../../src/kinds.js'
 import { ownEnvelope2Events, type ChatStream } from '../../src/chat.js'
+import { scanChatHistory } from '../../src/chat-history-scan.js'
 import type { FileDeletionReport } from './blob-deletion.js'
 
 export type TidyStepId = 'end' | 'invitations' | 'retirement' | 'tabs' | 'device' | 'files' | 'bookmark' | 'account' | 'local' | 'check'
@@ -39,7 +40,7 @@ export interface TidyStepReport {
   found: number
   /** Each relay's answer to the deletion request, when one was sent. */
   answers: PublicDeletionRelayOutcome[]
-  /** Relays that could not be asked what they hold. */
+  /** Relays whose history could not be checked completely. */
   unread: string[]
   /** Why the step did not run, when it did not. */
   skipped?: string
@@ -112,7 +113,7 @@ export interface TidyUpDeps {
   /** Is another tab in this room? Asked before anything is deleted. */
   otherTabsAnswer: () => Promise<boolean>
   leaveHere: () => Promise<void>
-  clearLocal: () => void
+  clearLocal: () => void | Promise<void>
   progress?: (report: TidyStepReport) => void
 }
 
@@ -135,8 +136,8 @@ export function tidyUpSteps(opts: { creator: boolean; account: boolean; deleteTo
       ? 'Delete your read position for the room, and the tombstone'
       : 'Delete your read position for the room' })
   }
-  steps.push({ id: 'local', label: 'Clear every key and cache for the room in this browser' })
   steps.push({ id: 'check', label: 'Ask the relays again and show what is left' })
+  steps.push({ id: 'local', label: 'Clear every key and cache for the room in this browser' })
   return steps
 }
 
@@ -226,13 +227,19 @@ async function gatherOwnChat(deps: TidyUpDeps, streams: readonly ChatStream[]): 
   const perRelay = new Map<string, number>()
   for (const group of chunks(streams, STREAMS_PER_FILTER)) {
     await Promise.all(deps.roomRelays.map(async relay => {
-      let result: HistoryReadResult
-      try { result = await deps.read(relay, { kinds: [KINDS.CHAT], '#d': group.map(s => s.d), limit: QUERY_LIMIT }) }
-      catch { unread.add(relay); return }
-      if (result.terminal !== 'complete') unread.add(relay)
-      const mine = ownEnvelope2Events(result.events, group, deps.device.sk)
-      perRelay.set(relay, (perRelay.get(relay) ?? 0) + mine.length)
-      for (const m of mine) byId.set(m.event.id, m)
+      const seen = new Set<string>()
+      const complete = await scanChatHistory({ kinds: [KINDS.CHAT], '#d': group.map(s => s.d) }, async filter => {
+        const result = await deps.read(relay, filter)
+        return { events: result.events, complete: result.terminal === 'complete' }
+      }, events => {
+        for (const m of ownEnvelope2Events(events.filter(e => !seen.has(e.id)), group, deps.device.sk)) {
+          seen.add(m.event.id)
+          if (byId.has(m.event.id)) m.sk.fill(0)
+          else byId.set(m.event.id, m)
+        }
+      })
+      if (!complete) unread.add(relay)
+      perRelay.set(relay, (perRelay.get(relay) ?? 0) + seen.size)
     }))
   }
   const own = [...byId.values()].sort((a, b) => a.event.created_at - b.event.created_at || (a.event.id < b.event.id ? -1 : 1))
@@ -303,6 +310,11 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
     unread: [...new Set([...device.unread, ...(chat?.gathered.unread ?? [])])].sort(),
     answers: chatAnswers.length ? worst([deviceAnswers, ...chatAnswers]) : deviceAnswers })
 
+  if (chat?.gathered.unread.length) {
+    return { steps, remaining: chat.gathered.unread.map(relay => ({ what: 'This device’s chat (history could not be checked completely)', relay, count: -1 })),
+      localRetained: 'Local room keys and upload records were retained because chat history could not be checked completely. Cleanup can be resumed.' }
+  }
+
   // After the relays are asked, before the wipe: the record of what this
   // device uploaded goes with the room. A delete that does not go through
   // is kept for another try by `deps.files` itself, not by holding the wipe.
@@ -344,18 +356,17 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
     }
   }
 
-  deps.clearLocal()
-  record({ id: 'local', found: 0, answers: [], unread: [] })
-
   const remaining: TidyRemaining[] = []
+  let chatChecked = true
   const tally = (what: string, found: Gathered) => {
     for (const [relay, count] of found.perRelay) if (count > 0) remaining.push({ what, relay, count })
-    for (const relay of found.unread) remaining.push({ what: `${what} (this relay did not answer)`, relay, count: -1 })
+    for (const relay of found.unread) remaining.push({ what: `${what} (history could not be checked completely)`, relay, count: -1 })
   }
   tally('This device’s events', await gather(deps, deps.roomRelays, { authors: [devicePub] }))
   if (deps.chatStreams?.length) {
     const left = await gatherOwnChat(deps, deps.chatStreams)
     for (const { sk } of left.own) sk.fill(0)
+    chatChecked = left.gathered.unread.length === 0
     tally('This device’s chat', left.gathered)
   }
   if (inviterPub) tally('Link-key records', await gather(deps, deps.roomRelays, { authors: [inviterPub], '#d': [deps.inviter!.invitationId] }))
@@ -364,5 +375,9 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
     if (ds.length) tally('Your account’s records', await gather(deps, deps.accountRelays, { kinds: [30078], authors: [deps.account.pubkey], '#d': ds }))
   }
   record({ id: 'check', found: remaining.filter(r => r.count > 0).reduce((sum, r) => sum + r.count, 0), answers: [], unread: [] })
+  if (!chatChecked) return { steps, remaining,
+    localRetained: 'Local room keys and upload records were retained because the final chat history check was incomplete. Cleanup can be resumed.' }
+  await deps.clearLocal()
+  record({ id: 'local', found: 0, answers: [], unread: [] })
   return { steps, remaining: remaining.sort((a, b) => a.what < b.what ? -1 : a.what > b.what ? 1 : a.relay < b.relay ? -1 : 1) }
 }

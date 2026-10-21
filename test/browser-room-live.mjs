@@ -11,8 +11,12 @@ import {resolve,extname} from 'node:path'
 import assert from 'node:assert/strict'
 import {installRoomFaults,armRoomFault,waitRoomFault} from './browser-room-faults.mjs'
 import {expiryBundle,grantRows,shortenGrants} from './browser-room-expiry.mjs'
+import {privateFileStart,privateFileReadAfterRestart,privateFileOwnerCleanup} from './browser-private-files.mjs'
+import {enterRoom} from './browser-room-entry.mjs'
 
 const recovery=process.env.ROOM_RECOVERY_MATRIX==='1', interruptions=[]
+const files=process.env.ROOM_PRIVATE_FILES==='1';let privateFileProof
+let publicFileAnnouncements=0, publicFileRequests=0
 const persistent=process.env.ROOM_PERSISTENT_INVITATION==='1'
 const expiry=process.env.ROOM_EXPIRY==='1', signedGrants=new Map()
 const fixtureBundle=expiry ? await expiryBundle() : undefined
@@ -47,6 +51,8 @@ const contexts=[], pages=[], errors=[], counters={before:0,after:0};let activate
 const ownerPages=new Set();let ownerHeld=false, heldOwnerFrames=0
 const attach=page=>{
   pages.push(page);page.on('pageerror',e=>errors.push(e.message))
+  page.on('request',request=>{const url=new URL(request.url());if(activated&&/^https?:$/.test(url.protocol)&&/\/(?:upload|[0-9a-f]{64})$/.test(url.pathname))publicFileRequests++})
+  page.on('websocket',socket=>socket.on('framesent',frame=>{try{const f=JSON.parse(String(frame.payload));if(activated&&f[0]==='EVENT'&&f[1]?.kind===1063)publicFileAnnouncements++}catch{}}))
   page.on('websocket',socket=>socket.on('framesent',frame=>{
     if(typeof frame.payload!=='string')return
     try{const f=JSON.parse(frame.payload), scoped=f[0]==='REQ'?f.slice(2).some(x=>x['#d']?.some(d=>wireScopes.has(d))):f[0]==='EVENT'&&f[1]?.tags?.some(t=>t[0]==='d'&&wireScopes.has(t[1]));if(scoped&&(!monitorGuestOnly||page.context()===contexts[1]))counters[activated?'after':'before']++;if(scoped&&ownerHeld&&ownerPages.has(page))heldOwnerFrames++}catch{}
@@ -87,7 +93,7 @@ const setup=async key=>{
     localStorage.setItem('kithmoot.invitation-owner.v1.'+id,JSON.stringify({roomSecret,inviterSk,createdAt:Math.floor(Date.now()/1000)}))
   },{id:deriveInvitationId(invitation.invitation),roomSecret:Buffer.from(secret).toString('hex'),inviterSk:Buffer.from(invitation.inviterSk).toString('hex')})
   // Navigation stops the endpoint; the room panel explicitly resumes it.
-  await page.goto(url);await page.reload();await page.locator('#join').click();await page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+  await page.goto(url);await page.reload();await enterRoom(page)
   return {context,page}
 }
 const openRoom=async page=>{await page.locator('#roomIdentity').click();await page.locator('#infoRowPrivacy').click();await page.locator('#roomBothySettings').click();await page.locator('#bothyRoomRoute option').first().waitFor({state:'attached',timeout:15000})}
@@ -160,21 +166,24 @@ try{
   await owner.page.locator('#chatInput').fill('Bothy private round trip');await owner.page.locator('#chatInput').press('Enter')
   await guest.page.locator('#chatLog').filter({hasText:'Bothy private round trip'}).waitFor({timeout:45000})
   assert.equal(counters.after,0)
+  if(files)privateFileProof=await privateFileStart(owner,guest)
   if(persistent){
     await guest.page.close();guest.page=await guest.context.newPage();attach(guest.page);await guest.page.goto(url)
     await owner.other.bringToFront();await owner.other.reload()
   } else await guest.page.reload()
-  await guest.page.locator('#join').click();await guest.page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+  await enterRoom(guest.page)
   assert.equal((await fetch(control+'/restart',{method:'POST'})).ok,true)
   await owner.page.locator('#chatInput').fill('After Bothy restart');await owner.page.locator('#chatInput').press('Enter')
   await guest.page.locator('#chatLog').filter({hasText:'After Bothy restart'}).waitFor({timeout:90000})
   console.error('reload and box restart round trip')
+  if(files)await privateFileReadAfterRestart(guest,'bothy',privateFileProof)
   const relayControl=process.env.LINK_RELAY_CONTROL
   if(!relayControl || new URL(relayControl).hostname!=='127.0.0.1')throw new Error('Set loopback LINK_RELAY_CONTROL for restart acceptance.')
   assert.equal((await fetch(relayControl+'/restart',{method:'POST'})).ok,true)
   await owner.page.locator('#chatInput').fill('After Link relay restart');await owner.page.locator('#chatInput').press('Enter')
   await guest.page.locator('#chatLog').filter({hasText:'After Link relay restart'}).waitFor({timeout:120000})
   console.error('Link relay restart round trip')
+  if(files)await privateFileReadAfterRestart(guest,'link-relay',privateFileProof)
   await openRoom(owner.page)
   if(recovery)await interrupted(owner,'#bothyRoomRenew','renewing','active')
   await owner.page.locator('#bothyRoomRenew').click()
@@ -192,8 +201,7 @@ try{
     const shortened=await grantRows(control,scopes,issuer)
     assert.deepEqual(shortened.map(g=>g.id),original.map(g=>g.id))
     assert(shortened.every(g=>g.expires===expires && g.effective))
-    await guest.page.reload();await guest.page.locator('#join').click()
-    await guest.page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+    await guest.page.reload();await enterRoom(guest.page)
     await new Promise(r=>setTimeout(r,Math.max(0,(expires+1)*1000-Date.now())))
     const elapsed=await grantRows(control,scopes,issuer)
     assert(elapsed.every(g=>!g.effective));assert.equal(elapsed.length,original.length)
@@ -207,8 +215,7 @@ try{
     await owner.page.locator('#bothyRoomClose').click()
     const renewed=await grantRows(control,scopes,issuer)
     assert.deepEqual(renewed.map(g=>g.id),original.map(g=>g.id));assert(renewed.every(g=>g.effective&&g.expires>expires))
-    await guest.page.reload();await guest.page.locator('#join').click()
-    await guest.page.locator('#roomArea').waitFor({state:'visible',timeout:45000})
+    await guest.page.reload();await enterRoom(guest.page)
     await owner.page.locator('#chatInput').fill('After expired grants renewed');await owner.page.locator('#chatInput').press('Enter')
     await guest.page.locator('#chatLog').filter({hasText:'After expired grants renewed'}).waitFor({timeout:60000})
     assert.equal(counters.after,0)
@@ -232,8 +239,13 @@ try{
   assert(await guest.page.locator('#outbox').getByText('Refused after keeper withdrawal',{exact:true}).isVisible())
   assert.equal(counters.after,0)
   assert.deepEqual(errors,[])
+  if(files){
+    await privateFileOwnerCleanup(owner,app,privateFileProof)
+    assert.equal(publicFileAnnouncements,0);assert.equal(publicFileRequests,0)
+    assert.deepEqual(errors,[])
+  }
   await guest.page.screenshot({path:resolve(artifactDir,'vennel-room-refused.png')})
-  console.log(JSON.stringify({browser:browser.version(),platform:process.platform,arch:process.arch,appIndexSha256:createHash('sha256').update(readFileSync(resolve(root,'index.html'))).digest('hex'),visibleActivation:true,secondTab:true,oldTabRefusal:true,privateMessage:true,reloadResume:true,persistentInvitation:persistent,browserProcessRestart:recovery,boxRestart:true,linkRelayRestart:true,renewal:true,keeperWithdrawal:true,guestHeld:true,explicitGuestRefusal:true,realClockExpiry:expiry,serverGrantRowsVerified:expiry,publicRoomFrames:counters.after,heldOwnerFrames,interruptions,pageErrors:errors}))
+  console.log(JSON.stringify({browser:browser.version(),platform:process.platform,arch:process.arch,appIndexSha256:createHash('sha256').update(readFileSync(resolve(root,'index.html'))).digest('hex'),privateFileProof,publicFileAnnouncements,publicFileRequests,visibleActivation:true,secondTab:true,oldTabRefusal:true,privateMessage:true,reloadResume:true,persistentInvitation:persistent,browserProcessRestart:recovery,boxRestart:true,linkRelayRestart:true,renewal:true,keeperWithdrawal:true,guestHeld:true,explicitGuestRefusal:true,realClockExpiry:expiry,serverGrantRowsVerified:expiry,publicRoomFrames:counters.after,heldOwnerFrames,interruptions,pageErrors:errors}))
 }catch(error){
   for(let i=0;i<pages.length;i++){await pages[i].screenshot({path:resolve(artifactDir,`vennel-room-failed-${i}.png`)}).catch(()=>{});console.error('page',i,await pages[i].locator('#bothyRoomStatus').textContent().catch(()=>''),await pages[i].locator('#status').textContent().catch(()=>''),await pages[i].locator('#bothyRoomConnection').textContent().catch(()=>''))}
   console.error('page errors',errors);throw error

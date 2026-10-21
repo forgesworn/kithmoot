@@ -55,6 +55,9 @@ export interface RendezvousVaultStorage {
   record(): Promise<EncryptedRendezvousRecord | undefined>
   put(record: EncryptedRendezvousRecord): Promise<void>
   remove(): Promise<void>
+  /** Erase this database's key, records and coordination revision. Only
+   * after the owning feature has ruled out retained remote obligations. */
+  erase?(): Promise<void>
 }
 
 export type RendezvousVaultResult =
@@ -250,6 +253,13 @@ export class BrowserRendezvousVaultStorage implements RendezvousVaultStorage {
   async remove(): Promise<void> {
     const transaction = await this.#transaction('records', 'readwrite')
     transaction.objectStore('records').delete(RECORD_KEY); await complete(transaction)
+  }
+  async erase(): Promise<void> {
+    const transaction = (await this.#database()).transaction(['keys', 'records'], 'readwrite')
+    transaction.objectStore('keys').clear()
+    transaction.objectStore('records').clear()
+    await complete(transaction)
+    localStorage.removeItem(this.dbName + ':revision')
   }
   async #transaction(store: 'keys' | 'records', mode: IDBTransactionMode): Promise<IDBTransaction> { return (await this.#database()).transaction(store, mode) }
   #database(): Promise<IDBDatabase> {

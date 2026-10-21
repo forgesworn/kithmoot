@@ -726,16 +726,17 @@ export class NostrRelayPool implements RelayTransport {
    * dropped the socket gives an answer that is unknown, not empty. Nothing
    * is resent and no health is marked.
    */
-  query(url: string, filters: Filter[], timeoutMs = 8_000): Promise<{ events: Event[]; complete: boolean }> {
+  query(url: string, filters: Filter[], timeoutMs = 8_000, maxEvents?: number): Promise<{ events: Event[]; complete: boolean }> {
+    if (maxEvents !== undefined && (!Number.isSafeInteger(maxEvents) || maxEvents < 1)) return Promise.reject(new Error('invalid query event limit'))
     if (this.#closed) return Promise.reject(new Error('pool is closed'))
     if (this.#paused) return Promise.reject(new Error('pool is suspended'))
     const relay = this.#relays.find(r => r.url === normalizeURL(url))
     if (!relay?.read) return Promise.reject(new Error('not a readable relay of this pool'))
     let result: { events: Event[]; complete: boolean }
-    return this.#background(async () => { result = await this.#queryOwned(relay.url, filters, timeoutMs) }).then(() => result!)
+    return this.#background(async () => { result = await this.#queryOwned(relay.url, filters, timeoutMs, maxEvents) }).then(() => result!)
   }
 
-  #queryOwned(url: string, filters: Filter[], timeoutMs: number): Promise<{ events: Event[]; complete: boolean }> {
+  #queryOwned(url: string, filters: Filter[], timeoutMs: number, maxEvents?: number): Promise<{ events: Event[]; complete: boolean }> {
     const generation = this.#generation
     return new Promise(resolve => {
       const events = new Map<string, Event>()
@@ -757,7 +758,11 @@ export class NostrRelayPool implements RelayTransport {
       handle = this.#pool.subscribeMap(filters.map(filter => ({ url, filter: { ...filter } })), {
         abort: this.#abort.signal,
         maxWait: timeoutMs * 2 + 5_000,
-        onevent: event => { if (!this.#paused && !this.#closed && generation === this.#generation) events.set(event.id, event) },
+        onevent: event => {
+          if (settled || this.#paused || this.#closed || generation !== this.#generation || events.has(event.id)) return
+          if (maxEvents !== undefined && events.size >= maxEvents) { finish(false); return }
+          events.set(event.id, event)
+        },
         // nostr-tools reports an end of stored events for a relay it could
         // not reach, just before it says the relay closed. Wait a microtask
         // so the close is heard first.

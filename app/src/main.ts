@@ -16,6 +16,11 @@ import { BrowserLink } from './browser-link.js'
 import { boardAgentRoomCurrent, borrowBoardAgentRoom } from './board-agent-room.js'
 import { startBrowserLink } from './browser-link-runtime.js'
 import { BrowserRoomRoutes } from './browser-room-routes.js'
+import { BrowserBothyFiles } from './browser-bothy-files.js'
+import { PrivateFileVault } from './private-file-vault.js'
+import { privateAttachmentLocation } from '../../src/private-attachment.js'
+import { nostrEventSigner } from './nostr-message-signer.js'
+import { PrivateFileUploadsPanel } from './private-file-uploads-panel.js'
 import { BrowserRoomActivation } from './browser-room-activation.js'
 import { BrowserRoomPanel } from './browser-room-panel.js'
 import { encodeRosterEvent } from '../../src/roster.js'
@@ -696,6 +701,26 @@ const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, brow
     setStatus('This room’s public connections were closed for a Bothy transition. Reopen it after activation finishes.')
   }
 })
+const privateFileVault = new PrivateFileVault()
+let forgettingBrowser = false
+const privateFiles = new BrowserBothyFiles({
+  owner: () => !forgettingBrowser && nostrSession ? { identity: nostrSession.signer, generation: identityGeneration } : undefined,
+  current: () => {
+    const s = session, identity = nostrSession?.signer
+    if (forgettingBrowser || !s || !identity || s.closed || isQuietPolicy(roomPolicy)) return undefined
+    return { room: s.roomId, generation: roomGeneration, device: s.device, participant: s.participant, identity, endsAt: s.endsAt }
+  },
+  selected: room => browserRoomRoutes.selected(room), link: browserLink, vault: privateFileVault,
+  signer: identity => {
+    const account = nostrSession
+    return account?.signer === identity ? nostrEventSigner(account, () => nostrSession) : undefined
+  },
+})
+const privateFileUploadsPanel = new PrivateFileUploadsPanel(privateFileVault, privateFiles, () =>
+  !forgettingBrowser && nostrSession ? { identity: nostrSession.signer, generation: identityGeneration } : undefined)
+let privateFileReady = false
+let privateFileRender = 0
+let fileStorageBooted = false
 relayConnections.routeRooms((room, make) => browserRoomRoutes.pool(room, make))
 
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
@@ -1130,7 +1155,7 @@ let nostrSession: SignetSession | undefined
 let nostrMessagePanel: NostrMessagePanel | undefined
 let nostrInboxPanel: NostrMessageInboxPanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
-function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close() }
+function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close(); privateFileUploadsPanel.close() }
 function reconcileAccountMessageViews(): void {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
   ;($('nostrMessageEntry') as HTMLButtonElement).disabled = !nostrMessagePanel?.available
@@ -1577,12 +1602,18 @@ async function signOutOfNostr(): Promise<void> {
  * and it does not touch signed-in room bookmarks kept there either - those
  * are removed one room at a time with Forget room, same as today.
  */
+function setForgetBrowserStatus(message: string): void {
+  // Settings is its own pane; the arrival-page status is hidden behind it.
+  $('forgetBrowserStatus').textContent = message
+  setStatus(message)
+}
 async function forgetThisBrowser(): Promise<void> {
+  $('forgetBrowserStatus').textContent = ''
   return withLegacyMessagesClosed(async () => {
     if (import.meta.env.DEV && browserMlsRoomPanel) await pauseBrowserMls()
     const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
     if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
-      setStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
+      setForgetBrowserStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
     }
   })
 }
@@ -1590,11 +1621,11 @@ async function forgetThisBrowserContents(): Promise<void> {
   return withLegacyMessagesClosed(async () => {
     if (browserMlsPreview) {
       const { BrowserMlsAccount } = await import('./mls-persona-account.js')
-      if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
+      if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setForgetBrowserStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
       if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
     }
-    if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
-    if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
+    if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setForgetBrowserStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
+    if (callIsLive() || onCall()) { setForgetBrowserStatus('Leave the call before forgetting this browser.'); return }
     if (!await confirmRoomAction({
       title: 'Forget this browser?',
       message: 'This removes, from this browser only:\n'
@@ -1609,6 +1640,9 @@ async function forgetThisBrowserContents(): Promise<void> {
       danger: true,
     })) return
 
+    forgettingBrowser = true
+    let forgotten: boolean
+    try { forgotten = await privateFileVault.forget(async () => {
     await boardsPanel?.reset()
     await closeRoomBoardCatalogues()
     contextPanel.close()
@@ -1651,6 +1685,12 @@ async function forgetThisBrowserContents(): Promise<void> {
     await deleteRoomArchive()
 
     history.replaceState(null, '', joinLinkBase())
+    }) } finally { forgettingBrowser = false }
+    if (!forgotten) {
+      setForgetBrowserStatus('Private upload records are retained. Review and delete the recorded uploads before forgetting this browser; uncertain files may already be stored. Private file access is now held.')
+      renderFileStorage()
+      return
+    }
     approvedReload()
   })
 }
@@ -10194,7 +10234,12 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       button.disabled = true
       button.textContent = 'Fetching\u2026'
       try {
-        const file = await fetchAttachmentBlob(a)
+        if (generation !== roomGeneration) return
+        const location = privateAttachmentLocation(a.url, a.sha256)
+        if (!location && roomUsesBothy) throw new Error('This file uses a public store. Public downloads are held on this Bothy route.')
+        const file = location
+          ? await privateFiles.download(a, new AbortController().signal)
+          : await fetchAttachmentBlob(a)
         if (generation !== roomGeneration) return
         const type = file.type.split(';')[0]!.trim().toLowerCase()
         const isText = type.startsWith('text/') || ['application/json', 'application/xml'].includes(type)
@@ -11017,13 +11062,14 @@ function renderComposer(): void {
   $('pendingFileNames').hidden = !waiting.length
   $('pendingFileNames').textContent = waiting.length ? `On this device, not uploaded: ${waiting.map(file => file.name).join(', ')}` : ''
   $('pendingFileActions').hidden = !waiting.length
-  ;($('uploadPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job) || closed || !blossomServer()
+  ;($('uploadPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job) || closed || !(roomUsesBothy ? privateFileReady : blossomServer())
   ;($('clearPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job)
 
   for (const id of ['attachFile', 'attachAdd', 'attachEvent', 'attachKey']) {
     ;($(id) as HTMLInputElement | HTMLButtonElement).disabled = closed || Boolean(draft.job)
   }
   $('cancelFileWork').hidden = !draft.job
+  if (fileStorageBooted) renderFileStorage()
   const discard = $('discardDraft') as HTMLButtonElement
   discard.hidden = !draftHasWork(draft)
   $('draftHelp').hidden = drafts.pending().length === 0
@@ -16752,7 +16798,7 @@ const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoom
       if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed. Reopen the saved room to resume.')
       if (!session) await startSession()
       roomUsesBothy = !!await browserRoomRoutes.selected(room)
-      setStatus('Bothy text route selected. Calls, media and ungranted channels are unavailable.', 'done')
+      setStatus('Bothy route selected for text and permitted encrypted files. Calls, live media and ungranted channels are unavailable.', 'done')
     },
   }
 })
@@ -16761,7 +16807,7 @@ setInterval(() => {
   line.hidden = !roomUsesBothy || !session
   if (line.hidden) return
   const health = sessionTransport?.health() ?? []
-  line.textContent = health.find(h => h.lastError)?.lastError ?? (health.some(h => h.state === 'connected') ? 'Text over Bothy. Calls and media are unavailable.' : 'Bothy is unavailable. Messages stay held on this route.')
+  line.textContent = health.find(h => h.lastError)?.lastError ?? (health.some(h => h.state === 'connected') ? 'Text over Bothy; encrypted files need separate permission. Calls and live media are unavailable.' : 'Bothy is unavailable. Messages stay held on this route.')
 }, 1000)
 $('doorBothyRecovery').addEventListener('click', () => { void browserRoomPanel.open() })
 browserRoomRoutes.barrier.listen(renderDoorBothyRecovery)
@@ -17220,7 +17266,9 @@ function enterSettings(): void {
   renderSettingsRows()
   settingsHomes ??= [
     moveIntoSettings($('accountHome'), $('appSettingsYou')),
+    moveIntoSettings($('privateFileUploadsOpen'), $('appSettingsYou')),
     moveIntoSettings($('forgetBrowser'), $('appSettingsYou')),
+    moveIntoSettings($('forgetBrowserStatus'), $('appSettingsYou')),
   ]
   settingsRow = undefined
   showSettingsPage('main')
@@ -17333,7 +17381,7 @@ $('importBrowserRooms').addEventListener('click', () => {
 })
 for (const id of ['forgetBrowser']) {
   $(id).addEventListener('click', () => {
-    forgetThisBrowser().catch((err) => setStatus(describeError(err)))
+    forgetThisBrowser().catch((err) => setForgetBrowserStatus(describeError(err)))
   })
 }
 
@@ -18525,10 +18573,10 @@ function deleteRoomFiles(context: TidyUpContext): (deviceEvents: readonly NostrE
   }
 }
 
-function clearRoomLocally(context: TidyUpContext, sweep = false): void {
+async function clearRoomLocally(context: TidyUpContext, sweep = false): Promise<void> {
   // The archive's older epochs and the room's channels, named while the
   // epoch records forgetLocally removes are still here.
-  if (sweep) sweepRoomArchive(context.roomId, context.roomKey)
+  if (sweep) await sweepRoomArchive(context)
   forgetLocally(context.roomId)
   bookmarks?.dropLocalRecord(context.roomId)
   if (bookmarks) forgetRoom(bookmarks.rooms, context.roomId)
@@ -18557,18 +18605,24 @@ function clearRoomLocally(context: TidyUpContext, sweep = false): void {
  *  main chat and rekeys, the main chat of every epoch kept, and the known
  *  channels in each of those epochs. A named channel this device never
  *  learned the name of stays as ciphertext nothing here can open. */
-function sweepRoomArchive(roomId: string, roomKey: Uint8Array | undefined): void {
+async function sweepRoomArchive(context: TidyUpContext): Promise<void> {
+  const { roomId, roomKey } = context
   const archive = roomArchive
   if (!archive) return
   const roots: { id: string; key: Uint8Array }[] = []
   if (roomKey) roots.push({ id: roomId, key: roomKey })
   const kept = loadKeptRoomEpoch(deviceStore, roomId)
   if (kept) for (const e of [kept.epoch, ...kept.past]) if (e.epoch > 0) { const keys = deriveEpoch(e); roots.push({ id: keys.id, key: keys.key }) }
-  const names = new Set([AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL, ...(session && currentRoomId() === roomId ? channels : [])])
-  const streams = roots.flatMap(root => [...names].flatMap(name => {
+  const names = new Set([undefined, AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, ...(session && currentRoomId() === roomId ? channels : [])])
+  const streams: { kind: number; d: string }[] = roots.flatMap(root => [...names].flatMap(name => {
     try { return [{ kind: KINDS.CHAT, d: deriveChannel(root.id, root.key, name).id }] } catch { return [] }
   }))
-  void Promise.all(streams.map(stream => archive.forget(stream))).catch(error => console.warn('room archive could not forget a channel', error))
+  // The live session has already left. Capture its actual streams in the
+  // tidy-up context before closing it, including dynamically opened channels.
+  streams.push(...(context.chatStreams ?? []).map(stream => ({ kind: KINDS.CHAT, d: stream.d })),
+    { kind: KINDS.CHAT, d: roomId }, { kind: KINDS.ROOM_REKEY, d: roomId })
+  const unique = new Map(streams.map(stream => [`${stream.kind}:${stream.d}`, stream]))
+  await Promise.all([...unique.values()].map(stream => archive.forget(stream)))
 }
 
 async function runRoomTidyUp(): Promise<void> {
@@ -18988,8 +19042,8 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
           // after the relay check that follows it: a tab closed or reloaded
           // during that check would otherwise lose it, and the room would
           // vanish from the list without a word.
-          clearLocal: () => {
-            clearRoomLocally(context, true)
+          clearLocal: async () => {
+            await clearRoomLocally(context, true)
             addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
           },
         })
@@ -19901,6 +19955,18 @@ const FILE_SERVER_RETIRED = 'KithMoot no longer suggests a file server. Choose w
 let fileServerRetired = false
 
 function renderFileStorage(): void {
+  const render = ++privateFileRender, generation = roomGeneration
+  privateFileReady = false
+  $('fileStorageOptions').hidden = roomUsesBothy
+  $('attachOptions').hidden = roomUsesBothy
+  $('privateFileStorage').hidden = !roomUsesBothy
+  $('allowPrivateFiles').hidden = !roomUsesBothy
+  $('stopPrivateFiles').hidden = true
+  if (roomUsesBothy) {
+    $('fileStorageStatus').textContent = 'Checking this room’s private file permission…'
+  }
+  void renderPrivateFileStorage(render, generation)
+  if (roomUsesBothy) return
   const server = blossomServer()
   if (server) fileServerRetired = false
   $('fileStorageStatus').textContent = server
@@ -19908,6 +19974,55 @@ function renderFileStorage(): void {
     : fileServerRetired ? FILE_SERVER_RETIRED : 'File uploads are off. Choose where files go to turn them on.'
   $('fileStorageSummary').textContent = server ? 'Change where files go' : 'Choose where files go'
   $('stopFileUploads').hidden = !server
+}
+
+async function renderPrivateFileStorage(render: number, generation: number): Promise<void> {
+  const current = (): boolean => render === privateFileRender && generation === roomGeneration
+  const s = session, identity = nostrSession?.signer
+  if (!s || !identity || s.participant !== identity.pubkey) return
+  let ready = false, reason = 'Allow private file access for this room. Files stay on this device until you allow it.'
+  if (roomUsesBothy) {
+    try { ready = await privateFiles.enabled() } catch (error) { reason = describeError(error) }
+    if (!current()) return
+    privateFileReady = ready
+    $('fileStorageStatus').textContent = ready
+      ? 'Encrypted files use this room’s selected Bothy connection. Recipients need access to the same box.' : reason
+    $('allowPrivateFiles').hidden = ready
+    $('stopPrivateFiles').hidden = !ready
+    const draft = drafts.get(currentChannel)
+    ;($('uploadPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job) || !channelAvailable(currentChannel) || !ready
+  }
+  try {
+    const records = await privateFileVault.uploads(identity.pubkey, s.roomId)
+    if (!current() || nostrSession?.signer !== identity || session !== s) return
+    $('privateFileStorage').hidden = !roomUsesBothy && !records.length
+    $('privateFileRecords').hidden = !records.length
+    $('privateFileRecordList').replaceChildren(...records.map(receipt => {
+      const row = document.createElement('p'), label = document.createElement('span'), remove = document.createElement('button')
+      label.textContent = `${receipt.hash.slice(0, 12)}… · ${formatBytes(receipt.size)} · ${receipt.status} · Bothy ${receipt.node}. `
+      remove.type = 'button'; remove.textContent = 'Delete this upload'
+      remove.onclick = async () => {
+        if (!current() || nostrSession?.signer !== identity || session !== s) return
+        remove.disabled = true
+        try {
+          const outcome = await privateFiles.remove(receipt, new AbortController().signal)
+          if (!current()) return
+          label.textContent = outcome === 'deleted' ? 'The box confirmed deletion of your upload.'
+            : outcome === 'claim-removed' ? 'Your storage claim was removed. Other owners retain the encrypted file.'
+            : 'The recorded box reports this file absent. This does not establish erasure of other copies.'
+          remove.textContent = 'Resolved'
+        } catch (error) {
+          if (current()) label.textContent = `${describeError(error)} The upload record is kept.`
+        }
+      }
+      row.append(label, remove); return row
+    }))
+  } catch (error) {
+    if (current()) {
+      $('privateFileStorage').hidden = false
+      $('privateFileRecordList').textContent = `Upload records could not be opened. ${describeError(error)}`
+    }
+  }
 }
 
 function requireFileStorage(server: string): void {
@@ -19957,6 +20072,16 @@ function dropProgress(draft: ConversationDraft, stage: string, file: File): void
 async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string): Promise<void> {
   signal.throwIfAborted()
   const startGeneration = roomGeneration
+  if (roomUsesBothy) {
+    dropProgress(draft, 'Encrypting and uploading through Bothy:', file)
+    const attachment = await privateFiles.upload(file, signal)
+    signal.throwIfAborted()
+    if (roomGeneration !== startGeneration || !roomUsesBothy) throw new Error('The room changed. Its private upload record was retained; nothing was added to this draft.')
+    draft.attachments.push(attachment)
+    draft.status = ''
+    draftChanged(draft)
+    return
+  }
   const pool = sessionTransport
   if (!session || !pool) throw new Error('Join the room first.')
   // Fixed now, alongside the transport: see the function comment above.
@@ -20042,7 +20167,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
 
 /** A conversation has one file operation at a time, covering its whole
  * batch. Switching conversations does not change that operation's owner. */
-async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) => Promise<void>): Promise<void> {
+async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) => Promise<void>, options: { keepPanelOpen?: boolean } = {}): Promise<void> {
   if (draft.job || !channelAvailable(draft.channel) || (draft.channel !== undefined && WRITTEN_BY_AGENTS.includes(draft.channel))) return
   const job = new AbortController()
   draft.job = job
@@ -20059,7 +20184,7 @@ async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) =>
     await Promise.race([work(job.signal), cancelled])
     if (draft.job !== job) return
     draft.status = ''
-    draft.panelOpen = false
+    draft.panelOpen = options.keepPanelOpen ?? false
   } catch (error) {
     if (draft.job !== job) return
     draft.status = job.signal.aborted
@@ -20102,13 +20227,15 @@ async function sendLongText(draft: ConversationDraft, fullText: string): Promise
 /** Files from a drop or the file input, one after another, stopping at the
  *  first that fails so the reason is the last thing on the line. */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
-  if (roomUsesBothy) throw new Error('File sharing is unavailable on this text-only Bothy route.')
+  const generation = roomGeneration, privateRoute = roomUsesBothy
   const draft = captureDraft()
   if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const list = Array.from(files ?? [])
   if (!list.length) return
   const server = blossomServer()
-  if (!server) {
+  const allowed = privateRoute ? await privateFiles.enabled().catch(() => false) : !!server
+  if (generation !== roomGeneration || privateRoute !== roomUsesBothy) return
+  if (!allowed) {
     draft.panelOpen = true
     const pending = draft.pendingFiles ?? []
     if (draft.attachments.length + pending.length + list.length > MAX_CHAT_ATTACHMENTS) {
@@ -20117,9 +20244,11 @@ async function shareDroppedFiles(files: FileList | File[] | null): Promise<void>
       draft.status = `Choose non-empty files up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)} each.`
     } else {
       draft.pendingFiles = [...pending, ...list]
-      draft.status = 'File uploads are off. Your files are held on this device. Choose and allow a storage destination below, then press Upload selected files.'
+      draft.status = privateRoute
+        ? 'Private file access is off. Your files stay on this device. Allow this room’s Bothy below, then press Upload selected files.'
+        : 'File uploads are off. Your files are held on this device. Choose and allow a storage destination below, then press Upload selected files.'
     }
-    ;($('fileStorageOptions') as HTMLDetailsElement).open = true
+    if (!privateRoute) ($('fileStorageOptions') as HTMLDetailsElement).open = true
     draftChanged(draft)
     return
   }
@@ -20176,7 +20305,25 @@ fileServerRetired = retireSuggestedForgeSwornConsent(localStorage)
 ;($('allowSharedFiles') as HTMLInputElement).checked = !!blossomServer()
 renderPublicFileServers()
 markPublicFileServer()
+fileStorageBooted = true
 renderFileStorage()
+$('allowPrivateFiles').addEventListener('click', () => {
+  const draft = captureDraft()
+  void fileWork(draft, async signal => {
+    await privateFiles.allow(signal); signal.throwIfAborted()
+  }, { keepPanelOpen: true }).finally(renderFileStorage)
+})
+$('stopPrivateFiles').addEventListener('click', () => {
+  const generation = roomGeneration, draft = captureDraft()
+  void privateFiles.revoke().catch(error => {
+    if (generation === roomGeneration) { draft.status = describeError(error); draftChanged(draft) }
+  }).finally(renderFileStorage)
+})
+browserRoomRoutes.barrier.listen(renderFileStorage)
+$('privateFileUploadsOpen').addEventListener('click', () => { void privateFileUploadsPanel.open() })
+window.addEventListener('storage', event => {
+  if (event.key === 'kithmoot-private-file-journal-v1:revision' || event.key === null) renderFileStorage()
+})
 $('attachServer').addEventListener('input', () => {
   // Editing never retains approval for the old destination, even if the new
   // text is invalid. Typing a URL is not consent to public ciphertext storage.
@@ -20286,6 +20433,7 @@ $('attachCancel').addEventListener('click', () => {
   $('attachToggle').focus()
 })
 $('attachAdd').addEventListener('click', async () => {
+  if (roomUsesBothy) return
   const draft = captureDraft()
   const key = draft.key
   const sourceEvent = draft.event

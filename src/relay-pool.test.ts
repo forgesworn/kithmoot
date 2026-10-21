@@ -322,6 +322,21 @@ describe('NostrRelayPool', () => {
     expect(await pool.query(URL_A, [{ kinds: [1460], '#d': ['room'] }], 200)).toEqual({ events: [], complete: false })
   })
 
+  it('enforces an explicit query event cap before appending and closes its own request', async () => {
+    const first = evt(1460), second = evt(1460)
+    a.seed(first); a.seed(second)
+    const result = await pool.query(URL_A, [{ kinds: [1460] }], 2000, 1)
+    expect(result.complete).toBe(false)
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]!.id).toBe(first.id)
+    expect(a.closedSubscriptions()).toHaveLength(1)
+  })
+
+  it.each([0, -1, NaN, Infinity, 1.5])('rejects invalid explicit query cap %s before opening a request', async maxEvents => {
+    await expect(pool.query(URL_A, [{ kinds: [1460] }], 2000, maxEvents)).rejects.toThrow('invalid query event limit')
+    expect(a.frames).toEqual([])
+  })
+
   it('says when every relay has answered, so a caller can close without cutting a slow one off', async () => {
     await pool.publish(evt())
     await pool.settled()
