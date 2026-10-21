@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FileGroupGrantStore, groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers } from './group-grants-config.js'
+import { FileGroupGrantStore, groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers, refuseSilentWithdrawal } from './group-grants-config.js'
+import type { KeeperState } from '../agent.js'
 
 const flags = (over: Partial<Parameters<typeof groupGrantsFromFlags>[0]> = {}) => ({
   nodes: ['https://files.example.net'], bytes: '1000', reset: false, command: 'create', statePath: '/state/room.json', log: () => {}, ...over,
@@ -19,9 +20,15 @@ describe('--group-withdraw', () => {
   it('is refused with a node, a ceiling or a reset, without a state, and outside create', () => {
     expect(() => groupGrantsFromFlags(flags({ withdraw: true }))).toThrow(/cannot be given with --group-node/)
     expect(() => groupGrantsFromFlags(flags({ nodes: [], withdraw: true }))).toThrow(/not combined with --group-bytes/)
-    expect(() => groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, reset: true, withdraw: true }))).toThrow(/not combined/)
+    expect(() => groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, reset: true }))).toThrow(/--group-withdraw/)
     expect(() => groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, withdraw: true, statePath: undefined }))).toThrow(/--state/)
     expect(() => groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, withdraw: true, command: 'join' }))).toThrow(/keeper/)
+  })
+
+  it('--group-reset goes with it: an unreadable ledger is moved aside and the room starts withdrawn', () => {
+    const c = groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, reset: true, withdraw: true }))!
+    expect(c).toMatchObject({ withdrawn: true, resetUnreadable: true, nodes: [] })
+    expect(groupGrantsFromFlags(flags({ nodes: [], bytes: undefined, withdraw: true }))!.resetUnreadable).toBeUndefined()
   })
 
   it('the cap of eight nodes is told to the operator before anything starts', () => {
@@ -111,5 +118,34 @@ describe('the ledger file', () => {
     await writeFile(join(dir, 'other.grants.unreadable-1'), 'z')
     expect(movedAsideLedgers(state).sort()).toEqual([`${store.path}.unreadable-5`, `${store.path}.unreadable-5-1`])
     expect(movedAsideLedgers(join(dir, 'missing', 'room.json'))).toEqual([])
+  })
+})
+
+
+describe('a keeper started without flags over a ledger that names nodes', () => {
+  const keeperState = (over: Partial<KeeperState> = {}): KeeperState => ({ secret: new Uint8Array(32), inviterSk: new Uint8Array(32), bearer: new Uint8Array(32), persistent: true, ...over })
+  const room = async (ledger?: string) => {
+    const dir = await mkdtemp(join(tmpdir(), 'kithmoot-guard-'))
+    const statePath = join(dir, 'room.json')
+    if (ledger !== undefined) await writeFile(groupGrantLedgerPath(statePath), ledger)
+    return statePath
+  }
+  const ledgerNaming = (bases: Record<string, string>) => JSON.stringify({ v: 1, bases, floors: {}, grants: [], journal: [], removing: [], refused: [], resets: [] })
+
+  it('refuses with A1\'s message, naming the hosts the ledger holds, when the state does not say what the room lists', async () => {
+    const statePath = await room(ledgerNaming({ 'node-b.test': 'https://node-b.test', 'node-a.test': 'https://node-a.test:8080' }))
+    await expect(refuseSilentWithdrawal(statePath, keeperState())).rejects.toThrow(
+      'this room lists group storage nodes (node-a.test, node-b.test); start the keeper with the same --group-node and --group-bytes flags, or with --group-withdraw to stop listing them',
+    )
+  })
+
+  it('lets a fresh room, a room with no ledger, an empty ledger and an unreadable one through, and leaves a state that records storage to the room agent', async () => {
+    const named = await room(ledgerNaming({ 'node-a.test': 'https://node-a.test' }))
+    await expect(refuseSilentWithdrawal(named, undefined)).resolves.toBeUndefined()
+    await expect(refuseSilentWithdrawal(named, keeperState({ storage: [] }))).resolves.toBeUndefined()
+    await expect(refuseSilentWithdrawal(named, keeperState({ storage: ['https://node-a.test'] }))).resolves.toBeUndefined()
+    await expect(refuseSilentWithdrawal(await room(), keeperState())).resolves.toBeUndefined()
+    await expect(refuseSilentWithdrawal(await room(ledgerNaming({})), keeperState())).resolves.toBeUndefined()
+    await expect(refuseSilentWithdrawal(await room('not a ledger'), keeperState())).resolves.toBeUndefined()
   })
 })

@@ -32,6 +32,20 @@ describe('keeper state: group storage', () => {
     expect(() => serialiseKeeperState({ ...plain, storage: ['nope'] })).toThrow(/storage/)
   })
 
+  it('keeps the pending plain copy and the list\'s version, and drops damaged ones without touching the rest', () => {
+    const event = { id: 'a'.repeat(64), pubkey: 'b'.repeat(64), sig: 'c'.repeat(128), kind: 1463, created_at: 1_800_000_000, content: 'x', tags: [['d', 'y']] }
+    const back = parseKeeperState(serialiseKeeperState({ ...plain, storage: nodes, compat: event, storageAt: 1_800_000_005 }))
+    expect(back.compat).toEqual(event)
+    expect(back.storageAt).toBe(1_800_000_005)
+    const bare = JSON.parse(serialiseKeeperState({ ...plain, storage: nodes }))
+    expect(bare).not.toHaveProperty('compat')
+    expect(bare).not.toHaveProperty('storageAt')
+    const damaged = parseKeeperState(JSON.stringify({ ...bare, compat: { id: 'short' }, storageAt: -3 }))
+    expect(damaged.compat).toBeUndefined()
+    expect(damaged.storageAt).toBeUndefined()
+    expect(damaged.storage).toEqual(nodes)
+  })
+
   it('keeps the signed invitation, and drops an unreadable one without touching the rest', () => {
     const event = { id: 'a'.repeat(64), pubkey: 'b'.repeat(64), sig: 'c'.repeat(128), kind: 1463, created_at: 1_800_000_000, content: 'x', tags: [['d', 'y']] }
     expect(parseKeeperState(serialiseKeeperState({ ...plain, invitation: event })).invitation).toEqual(event)

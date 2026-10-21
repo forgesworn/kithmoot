@@ -398,3 +398,40 @@ describe('the receiver, persisted and posted', () => {
     expect(quiet.lockedOut('grove.example.net', 5000)).toBe(false)
   })
 })
+
+describe('the receiver\'s own grants are bounded', () => {
+  const authoritySk = hexToBytes(vectors.keys.authorityA!.secret)
+  const authority = vectors.keys.authorityA!.pubkey
+  const roomId = vectors.rooms.a!.roomId
+  const mine = vectors.keys.alicePhone!.pubkey
+  const opts = { authority, roomId, device: mine }
+  const grantAt = (n: number, createdAt: number, life = 1000) =>
+    buildGrant({ authoritySk, roomId, device: mine, server: 'grove.example.net', scopes: ['get'], grantId: n.toString(16).padStart(32, '0'), createdAt, expiration: createdAt + life })
+
+  it('lets go of a grant a week after it ended, when later events show the time', () => {
+    const r = new GrantReceiver(opts)
+    const old = grantAt(1, 1000, 1000)
+    r.offer(old)
+    expect(r.snapshot().events.map((e) => e.id)).toEqual([old.id])
+    // Six days after it ended: still kept.
+    r.offer(grantAt(2, 2000 + 6 * 86_400))
+    expect(r.snapshot().events.length).toBe(2)
+    // A week and a bit after: gone from the snapshot, and the newer grant stays.
+    const later = grantAt(3, 2000 + 8 * 86_400)
+    r.offer(later)
+    const ids = r.snapshot().events.map((e) => e.id)
+    expect(ids).not.toContain(old.id)
+    expect(ids).toContain(later.id)
+    expect(GrantReceiver.restore(opts, r.snapshot()).snapshot()).toEqual(r.snapshot())
+  })
+
+  it('caps the list, keeping the newest', () => {
+    const r = new GrantReceiver(opts)
+    const events = Array.from({ length: 300 }, (_, i) => grantAt(i + 1, 1_000_000 + i, 30 * 86_400))
+    for (const e of events) r.offer(e)
+    const kept = r.snapshot().events
+    expect(kept.length).toBe(256)
+    expect(kept.map((e) => e.id)).toContain(events[299]!.id)
+    expect(kept.map((e) => e.id)).not.toContain(events[0]!.id)
+  })
+})

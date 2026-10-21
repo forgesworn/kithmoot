@@ -46,7 +46,7 @@ import type { RoomFiles } from './self-destruct.js'
 import { validateAssignmentActions } from '../assignments.js'
 import { STDIO_PROTOCOL } from './stdio-protocol.js'
 import { acquireStateLock, StateLockHeldError } from './state-lock.js'
-import { groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers, withdrawnGroupGrants } from './group-grants-config.js'
+import { groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers, refuseSilentWithdrawal, withdrawnGroupGrants } from './group-grants-config.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -167,11 +167,15 @@ Options
                            room, renews and revokes. Repeatable (or comma separated
                            in KITHMOOT_GROUP_NODES). Needs --state and --group-bytes.
                            The nodes are also signed into the room, in this order
-                           (at most 8, first is preferred), so members' apps and
-                           agents learn where the group's files live. A restart
-                           without these flags refuses to start while the room
-                           lists nodes: give the same flags again, or --group-withdraw.
-                           Experimental. Onion nodes are not supported.
+                           (at most 8, first is preferred): a client that
+                           implements group storage keeps the group's files on
+                           them. Today that is the library (GroupStorage); the web
+                           app does not use them yet. A restart without these
+                           flags refuses to start while the room lists nodes (or
+                           while <state>.grants names any): give the same flags
+                           again, or --group-withdraw. Do not run an older keeper
+                           on this state. Experimental. Onion nodes are not
+                           supported.
   --group-bytes <n>        (create) The most one device may upload to a group node,
                            in bytes (KITHMOOT_GROUP_BYTES). No default: whoever
                            runs the nodes chooses it.
@@ -182,9 +186,11 @@ Options
                            A ledger that is missing for a room that already existed
                            needs no flag: the keeper signs that reset on its own. To
                            distrust a ledger that reads, move it aside by hand first.
+                           With --group-withdraw, an unreadable ledger is moved aside
+                           and the room starts with no grant keeper.
   --group-withdraw         (create) Stop listing the room's group storage nodes: sign
                            an empty list into the room (KITHMOOT_GROUP_WITHDRAW=1).
-                           Needs --state; not with --group-node. Nothing is minted
+                           Needs --state; not with --group-node or --group-bytes. Nothing is minted
                            or renewed afterwards, but a removal still revokes at the
                            nodes in <state>.grants, and the empty list is signed
                            again on every start.
@@ -461,6 +467,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (state?.closed) fail(`${statePath}: this room was closed. Delete the state file to make a new one.`)
     // A room that already withdrew its storage nodes goes on revoking at the nodes its ledger names, with no flags needed.
     if (!groupGrants && state?.storage?.length === 0 && statePath) groupGrants = withdrawnGroupGrants(statePath, log)
+    // No flags, and a state that does not say what the room lists (an older keeper dropped it, or the room ran with nodes under S4): its ledger decides.
+    if (!groupGrants && !groupWithdraw && statePath) {
+      try { await refuseSilentWithdrawal(statePath, state) } catch (err) { fail(err instanceof Error ? err.message : String(err)) }
+    }
     const admins = [...(values.admin ?? []), ...envList('ADMINS')].map(adminPubkey)
     const forwarders = await forwarderRefs([...(values.forwarder ?? []), ...(env('FORWARDER') ? [env('FORWARDER')!] : [])])
     const factory = common.listen ? await createWeriftFactory(iceFactoryOptions(common.ice, new URL(base).origin, turn)) : undefined

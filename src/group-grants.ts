@@ -350,6 +350,9 @@ export function groupNodeFromBase(text: string): GroupNode {
 
 const MAX_KEPT_REVOKED = 4_096
 const MAX_KEPT_RESETS = 256
+/** This device's own grants: at most this many are kept, and one is let go this long after it ended (the node's delete grace, contract 6.4). */
+const MAX_KEPT_OWN = 256
+const KEEP_OWN_AFTER_EXPIRY_SECONDS = 7 * 86_400
 
 /**
  * What a device keeps of the `storage-grant` ops it reads (7.1): an event is
@@ -366,6 +369,8 @@ export class GrantReceiver {
   readonly #revoked = new Map<string, ParsedGrant>()
   readonly #resets = new Map<string, ParsedReset>()
   readonly #acknowledged = new Set<string>()
+  /** The newest `created_at` of any event kept: a clock taken from signed data, for letting go of old own grants. */
+  #horizon = 0
 
   constructor(opts: { authority: string; roomId: string; device: string }) {
     this.#authority = opts.authority.toLowerCase()
@@ -381,6 +386,7 @@ export class GrantReceiver {
     const verdict = parseGroupEvent(event, { keepers: [this.#authority] })
     const parsed = verdict.ok ? verdict.parsed : undefined
     if (!parsed || parsed.roomId !== this.#roomId) return false
+    this.#horizon = Math.max(this.#horizon, parsed.createdAt)
     if (parsed.type === 'reset') {
       const held = this.#resets.get(parsed.server)
       if (held && held.createdAt >= parsed.createdAt) return false
@@ -392,12 +398,20 @@ export class GrantReceiver {
     if (parsed.device === this.#device) {
       const held = this.#own.get(parsed.grantId)
       if (!held || parsed.createdAt > held.createdAt) { this.#own.set(parsed.grantId, parsed); kept = true }
+      this.#letGoOfOldOwn(now)
     }
     if (parsed.status === 'revoked') {
       const held = this.#revoked.get(parsed.grantId)
       if (!held || parsed.createdAt > held.createdAt) { this.#revoked.set(parsed.grantId, parsed); this.#trim(this.#revoked, MAX_KEPT_REVOKED); kept = true }
     }
     return kept
+  }
+
+  /** Own grants a week past their end are of no use to anyone, and the list is capped: it is persisted whole. */
+  #letGoOfOldOwn(now?: number): void {
+    const at = Math.max(this.#horizon, now ?? 0)
+    for (const [id, g] of this.#own) if (g.expiration + KEEP_OWN_AFTER_EXPIRY_SECONDS < at) this.#own.delete(id)
+    this.#trim(this.#own, MAX_KEPT_OWN)
   }
 
   #trim<T>(map: Map<string, T>, max: number): void {
@@ -452,7 +466,8 @@ export class GrantReceiver {
   /**
    * What the receiver holds, to persist: the kept own grants, revocations and
    * resets (each once), and the acknowledged keys of events still held. Bounded
-   * by the `MAX_KEPT_*` caps, since nothing else is kept.
+   * by the `MAX_KEPT_*` caps, and the device's own grants are let go a week
+   * after they end, since nothing else is kept.
    */
   snapshot(): GrantReceiverSnapshot {
     const events = new Map<string, GroupEvent>()

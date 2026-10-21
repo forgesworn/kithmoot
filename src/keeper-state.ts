@@ -65,6 +65,10 @@ export interface StoredKeeperState {
   /** The newest group invitation (kind 1463) this keeper signed, republished
    *  unchanged on a start when nothing in its body has changed. */
   invitation?: unknown
+  /** When the listed `storage` was signed, unix seconds: the version of its op. Set for a room with no invitation to carry it (v2). */
+  storageAt?: number
+  /** The plain invitation copy of a new room with storage, kept until it has gone out once. */
+  compat?: unknown
 }
 
 /** As many devices as a session keeps credentials for. */
@@ -198,6 +202,8 @@ export function parseKeeperState(json: string): KeeperState {
   }
   // Lenient: an unreadable copy only means the next start signs a fresh one.
   if (isEventShape(stored.invitation)) state.invitation = stored.invitation as Event
+  if (isEventShape(stored.compat)) state.compat = stored.compat as Event
+  if (isTime(stored.storageAt)) state.storageAt = stored.storageAt
   return state
 }
 
@@ -240,5 +246,7 @@ export function serialiseKeeperState(state: KeeperState): string {
     stored.storage = [...state.storage]
   }
   if (state.invitation) stored.invitation = state.invitation
+  if (state.compat) stored.compat = state.compat
+  if (state.storageAt !== undefined) stored.storageAt = state.storageAt
   return JSON.stringify(stored, null, 2) + '\n'
 }

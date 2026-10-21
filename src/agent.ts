@@ -46,7 +46,7 @@ import { parseForwarderRef } from './descriptor.js'
 import { verifyAgentOwnership } from './ownership.js'
 import { meetingAllows, verifyMeetingPolicy, type MeetingPolicy } from './meeting.js'
 import { verifyDeviceCredential } from './credential.js'
-import { GroupGrantKeeper, type GroupGrantLedger, type GroupGrantsConfig, type PreparedLedger } from './group-grants-keeper.js'
+import { GroupGrantKeeper, roomListsNodesMessage, type GroupGrantLedger, type GroupGrantsConfig, type PreparedLedger } from './group-grants-keeper.js'
 
 /**
  * The relays an agent uses when its link names none. The same three the app
@@ -161,6 +161,10 @@ export interface KeeperState {
    *  body would be unchanged republishes it as it is rather than signing a
    *  fresh copy, so a room's restart count never fills a reader's cap on copies. */
   invitation?: Event
+  /** The plain copy of a new room's invitation (no `storage`), published before the copy with it so a reader that predates the key still has one to admit from. Kept until it has gone out once. */
+  compat?: Event
+  /** When `storage` was signed, unix seconds, for a room with no invitation to carry it: the version of its `storage` op. Never moves back. */
+  storageAt?: number
 }
 
 /** A device a keeper remembers: its newest credential, and when it was
@@ -731,8 +735,7 @@ export class RoomAgent {
       if (withdrawing) storage = []
       else if (opts.state?.storage?.length) {
         // No silent withdrawal: a restart that forgot its flags must not take the room's files away.
-        const hosts = opts.state.storage.map((n) => storageNodeServer(n) ?? n).join(', ')
-        throw new Error(`this room lists group storage nodes (${hosts}); start the keeper with the same --group-node and --group-bytes flags, or with --group-withdraw to stop listing them`)
+        throw new Error(roomListsNodesMessage(opts.state.storage.map((n) => storageNodeServer(n) ?? n)))
       } else if (opts.state?.storage) storage = []
     }
     if (groupGrants) {
@@ -742,6 +745,8 @@ export class RoomAgent {
         roomExisted: opts.state !== undefined,
         now: opts.now ?? (() => Math.floor(Date.now() / 1000)),
       })
+      // A withdrawn room whose unreadable ledger was moved aside (`--group-reset`) has nothing left to revoke by: it starts with no grant keeper.
+      if (groupGrants.withdrawn && groupLedger.resetting) { groupGrants = undefined; groupLedger = undefined }
     }
     if (opts.liveAdmission && !journal) throw new Error('live admission requires a live keeper journal')
     if (journal) {
@@ -772,7 +777,15 @@ export class RoomAgent {
     }
     if (opts.destruct && !state.destruct) state = { ...state, destruct: true }
     const newRoom = opts.state === undefined && journal === undefined
-    if (storage !== undefined) state = { ...state, storage }
+    if (storage !== undefined) {
+      state = { ...state, storage }
+      // A room with no invitation (v2) versions its list in state: the same list keeps its version, a changed one is later than the last, whatever this clock says.
+      if (!state.persistent) {
+        const before = opts.state
+        const same = before?.storage !== undefined && before.storage.length === storage.length && before.storage.every((n, i) => n === storage[i])
+        state = { ...state, storageAt: same && before?.storageAt !== undefined ? before.storageAt : Math.max(now(), (before?.storageAt ?? 0) + 1) }
+      }
+    }
     if (state.endsAt !== undefined && now() >= state.endsAt) {
       throw Object.assign(new Error(CONFERENCE_ENDED_MESSAGE), state.destruct ? { destruct: true as const } : {})
     }
@@ -953,7 +966,7 @@ export class RoomAgent {
         await agent.#publishInvitation(transport, opts.link.invitation, opts.keeper, opts.secret, opts.room, destruct, opts.newRoom === true)
       } else if (opts.keeper && !opts.liveKeeper && opts.keeper.storage !== undefined) {
         // A v2 room has no invitation to carry the list: the op alone, and it is persisted before it is signed.
-        agent.#storage = { nodes: [...opts.keeper.storage], version: opts.now() }
+        agent.#storage = { nodes: [...opts.keeper.storage], version: opts.keeper.storageAt ?? opts.now() }
         await agent.#persist()
       }
       await session.join(opts.tracks ?? [], opts.claims ?? {})
@@ -1077,21 +1090,35 @@ export class RoomAgent {
     const body = { invitation, roomSecret: secret, inviterSk: keeper.inviterSk, endsAt: keeper.endsAt, relays, ...(destruct ? { destruct: true as const } : {}) }
     const kept = keeper.invitation && sameInvitationBody(keeper.invitation, invitation, { secret, endsAt: keeper.endsAt, destruct, relays, storage })
     if (kept) {
+      // Unchanged: the very same event, and, if the plain copy of a new room never went out, that first.
+      if (keeper.compat) await transport.publish(keeper.compat)
       await transport.publish(keeper.invitation!)
       if (storage !== undefined) this.#storage = { nodes: [...storage], version: keeper.invitation!.created_at }
+      if (keeper.compat) await this.#clearCompat()
       return
     }
-    const now = this.#now()
-    const copies: Event[] = []
-    if (newRoom && storage?.length) copies.push(encodePersistentInvitation({ ...body, now: now - 1 }))
+    // A changed body is later than the copy it replaces, whatever this clock says: members take the newest `created_at`, so a
+    // keeper whose clock is behind (a moved host, a step, two restarts in one second) must not sign a list they would never take.
+    const now = Math.max(this.#now(), (keeper.invitation?.created_at ?? 0) + 1)
+    let compat: Event | undefined
+    if ((newRoom || keeper.compat) && storage?.length) compat = encodePersistentInvitation({ ...body, now: now - 1 })
     const signed = encodePersistentInvitation({ ...body, now, ...(storage !== undefined ? { storage } : {}) })
-    copies.push(signed)
     // Recorded before it is published: a crash between the two must not leave a room listing nodes its keeper's state does not know.
-    this.#keeper = { ...keeper, invitation: signed }
+    const { compat: _old, ...rest } = keeper
+    this.#keeper = { ...rest, invitation: signed, ...(compat ? { compat } : {}) }
     if (storage !== undefined) this.#storage = { nodes: [...storage], version: signed.created_at }
     // A brand-new room without storage is saved by whoever made it (the CLI writes the state right after create), so no extra write is added to what such a keeper does today.
     if (storage !== undefined || !newRoom) await this.#persist()
-    for (const copy of copies) await transport.publish(copy)
+    if (compat) await transport.publish(compat)
+    await transport.publish(signed)
+    if (compat) await this.#clearCompat()
+  }
+
+  /** The plain copy has gone out: forget it, so no later start publishes it again. */
+  async #clearCompat(): Promise<void> {
+    const { compat: _gone, ...rest } = this.#keeper!
+    this.#keeper = rest
+    await this.#persist()
   }
 
   /** The keeper posts its signed list once the control channel is open, and again after 20 days, so a newcomer reading the channel's history window still finds it. */
@@ -1751,6 +1778,8 @@ export class RoomAgent {
       ...(devices.length ? { devices } : {}),
       ...(keeper.storage !== undefined ? { storage: keeper.storage } : {}),
       ...(keeper.invitation ? { invitation: keeper.invitation } : {}),
+      ...(keeper.compat ? { compat: keeper.compat } : {}),
+      ...(keeper.storageAt !== undefined ? { storageAt: keeper.storageAt } : {}),
     }
     return next
   }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { createRoomInvitation, generateRoomSecret } from '@forgesworn/fold-kit'
 import type { Event } from 'nostr-tools/pure'
 import { RoomAgent } from './agent.js'
 import type { KeeperState } from './agent.js'
@@ -313,6 +314,162 @@ describe('a withdrawn room and its grant ledger', { timeout: 30_000 }, () => {
     expect(keeper.groupGrantLedger).toBeUndefined()
     expect(keeper.storageNodes).toEqual([])
     expect(decodePersistentInvitation(h.invitations().at(-1)!, keeper.link.invitation!)!.storage).toEqual([])
+    await keeper.leave()
+  })
+})
+
+
+describe('a keeper whose clock is behind', { timeout: 30_000 }, () => {
+  it('a changed list is signed later than the copy it replaces, so members take it', async () => {
+    const h = harness()
+    const first = await h.start({ groupGrants: config(h.fake, [A, B], h.store) })
+    const ada = await h.join(first.url)
+    const stored = h.last().invitation!.created_at
+    await first.leave()
+    h.tick(-120)
+    const again = await h.start({ state: h.last(), groupGrants: config(h.fake, [C], h.store) })
+    const copy = h.invitations().at(-1)!
+    expect(copy.created_at).toBe(stored + 1)
+    expect(h.last().invitation!.created_at).toBe(stored + 1)
+    await waitFor(() => ada.storageNodes?.[0] === C)
+    expect(ada.storageNodes).toEqual([C])
+    // A member joining afterwards reads the new list from the merged invitation.
+    const bob = await h.join(again.url, 'Bob')
+    expect(bob.storageNodes).toEqual([C])
+    for (const a of [again, ada, bob]) await a.leave()
+  })
+
+  it('two lists signed in the same second are still ordered', async () => {
+    const h = harness()
+    const first = await h.start({ groupGrants: config(h.fake, [A], h.store) })
+    await first.leave()
+    const again = await h.start({ state: h.last(), groupGrants: config(h.fake, [B], h.store) })
+    expect(h.invitations().at(-1)!.created_at).toBe(h.clock + 1)
+    await again.leave()
+  })
+
+  it('a room with no invitation (v2) keeps its list\'s version in state: same list, same version; changed list, later than the last', async () => {
+    const h = harness()
+    const host = createRoomInvitation(true)
+    const v2: KeeperState = { secret: generateRoomSecret(), inviterSk: host.inviterSk, bearer: host.invitation.bearer }
+    const first = await h.start({ state: v2, groupGrants: config(h.fake, [A], h.store) })
+    const at = h.clock
+    expect(h.last().storageAt).toBe(at)
+    expect(h.invitations()).toEqual([])
+    await waitFor(() => h.ops(first).length === 1)
+    expect(h.ops(first)[0]!.version).toBe(at)
+    await first.leave()
+
+    h.tick(100)
+    const same = await h.start({ state: h.last(), groupGrants: config(h.fake, [A], h.store) })
+    expect(h.last().storageAt).toBe(at)
+    await waitFor(() => h.ops(same).some((o) => o.version === at))
+    await same.leave()
+
+    h.tick(-500)
+    const changed = await h.start({ state: h.last(), groupGrants: config(h.fake, [B], h.store) })
+    expect(h.last().storageAt).toBe(at + 1)
+    await waitFor(() => h.ops(changed).some((o) => o.version === at + 1 && o.nodes[0] === B))
+    expect(getPublicKey(host.inviterSk)).toBe(changed.link.invitation!.inviter)
+    await changed.leave()
+  })
+})
+
+describe('the plain copy of a new room', { timeout: 30_000 }, () => {
+  it('goes out on a later start if the first publish failed, once, and is then forgotten', async () => {
+    const relay = new SimRelay({ replay: true })
+    const fake = new FakeNodes('')
+    let failing = true
+    const states: KeeperState[] = []
+    let latest: RoomAgent | undefined
+    const flaky = () => {
+      const t = new SimTransport(relay)
+      const publish = t.publish.bind(t)
+      t.publish = async (e: Event) => { if (failing && e.kind === KINDS.GROUP_INVITATION) throw new Error('relay refused'); return publish(e) }
+      return t
+    }
+    const start = async (state?: KeeperState) => {
+      latest = await RoomAgent.create({
+        base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: flaky, announceJitterMs: 0, state,
+        onState: (s) => { states.push(s) }, groupGrants: config(fake, [A, B]),
+      })
+      return latest
+    }
+    await expect(start()).rejects.toThrow()
+    // Before anything was published the state already held both copies.
+    expect(states[0]!.storage).toEqual([A, B])
+    expect(states[0]!.invitation).toBeDefined()
+    expect(states[0]!.compat).toBeDefined()
+    const inv = () => relay.published.filter((e) => e.kind === KINDS.GROUP_INVITATION)
+    expect(inv()).toEqual([])
+
+    failing = false
+    const again = await start(states[0]!)
+    const copies = inv()
+    expect(copies.length).toBe(2)
+    const invitation = again.link.invitation!
+    expect(decodePersistentInvitation(copies[0]!, invitation)!.storage).toBeUndefined()
+    expect(decodePersistentInvitation(copies[1]!, invitation)!.storage).toEqual([A, B])
+    expect(copies[0]!.id).toBe(states[0]!.compat!.id)
+    expect(again.keeperState!.compat).toBeUndefined()
+    await again.leave()
+
+    const third = await start(latest!.keeperState!)
+    expect(inv().length).toBe(3)
+    expect(inv()[2]!.id).toBe(copies[1]!.id)
+    await third.leave()
+  })
+})
+
+describe('republishing only when the body is unchanged', { timeout: 30_000 }, () => {
+  it('new relays sign a new copy', async () => {
+    const h = harness()
+    const first = await h.start({ relays: ['wss://sim'] })
+    await first.leave()
+    h.tick(60)
+    const again = await h.start({ state: h.last(), relays: ['wss://sim', 'wss://sim-two'] })
+    expect(h.invitations().length).toBe(2)
+    const [one, two] = h.invitations().map((e) => decodePersistentInvitation(e, again.link.invitation!)!)
+    expect(one!.relays).toEqual(['wss://sim/'])
+    expect(two!.relays).toEqual(['wss://sim/', 'wss://sim-two/'])
+    await again.leave()
+  })
+
+  it('newly asking for self-destruct signs a new copy', async () => {
+    const h = harness()
+    const first = await h.start()
+    await first.leave()
+    h.tick(60)
+    const again = await h.start({ state: h.last(), destruct: true })
+    expect(h.invitations().length).toBe(2)
+    const [one, two] = h.invitations().map((e) => decodePersistentInvitation(e, again.link.invitation!)!)
+    expect(one!.destruct).toBeUndefined()
+    expect(two!.destruct).toBe(true)
+    await again.leave()
+  })
+})
+
+describe('an unreadable ledger in a withdrawn room', { timeout: 30_000 }, () => {
+  const withdrawn = (h: ReturnType<typeof harness>, store: MemoryStore, reset: boolean): GroupGrantsConfig => ({
+    nodes: [], bytes: '', withdrawn: true, store, fetch: h.fake.fetch, ...(reset ? { resetUnreadable: true } : {}),
+  })
+
+  it('stops the start, naming the flags that work together', async () => {
+    const h = harness()
+    const store = new MemoryStore('not a ledger')
+    await expect(h.start({ groupGrants: withdrawn(h, store, false) })).rejects.toThrow(/--group-withdraw --group-reset/)
+    expect(store.text).toBe('not a ledger')
+    expect(store.moved).toEqual([])
+  })
+
+  it('with the reset it is moved aside, never deleted, and the room starts withdrawn with no grant keeper', async () => {
+    const h = harness()
+    const store = new MemoryStore('not a ledger')
+    const keeper = await h.start({ groupGrants: withdrawn(h, store, true) })
+    expect(store.moved.length).toBe(1)
+    expect(store.moved[0]!.text).toBe('not a ledger')
+    expect(keeper.groupGrantLedger).toBeUndefined()
+    expect(keeper.storageNodes).toEqual([])
     await keeper.leave()
   })
 })

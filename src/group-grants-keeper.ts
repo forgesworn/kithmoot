@@ -60,6 +60,14 @@ const PER_DEVICE = /^409 (key-conflict|scope-changed)$/
 /** A 500 is tried this many times before it counts as the node refusing. */
 const FLAKY_TRIES = 3
 
+/**
+ * A1's refusal: a keeper restarted without the flags that named its nodes. The
+ * hosts are those the room lists (from its state), or, for a state that lost
+ * the list, those its grant ledger names.
+ */
+export const roomListsNodesMessage = (hosts: readonly string[]): string =>
+  `this room lists group storage nodes (${hosts.join(', ')}); start the keeper with the same --group-node and --group-bytes flags, or with --group-withdraw to stop listing them`
+
 /** Where the ledger lives. The CLI gives a file beside the keeper's state. */
 export interface GroupGrantStore {
   load(): Promise<string | undefined>
@@ -302,6 +310,11 @@ export class GroupGrantKeeper {
         return { ledger, resetting: false }
       } catch (error) {
         if (!config.resetUnreadable) {
+          if (config.withdrawn) {
+            throw new Error(`the group grant ledger cannot be read (${error instanceof Error ? error.message : 'damaged'}). ` +
+              'Its file is left as it is. This room lists no group nodes, so it mints nothing; to start anyway, run with --group-withdraw --group-reset: ' +
+              'the unreadable file is moved aside, never deleted, and the room starts with no grant keeper (nothing is left to revoke by).')
+          }
           throw new Error(`the group grant ledger cannot be read (${error instanceof Error ? error.message : 'damaged'}). ` +
             'Its file is left as it is. To start anyway, sign a reset at every group node and issue fresh grants, run with --group-reset: ' +
             'the unreadable file is moved aside, never deleted.')
@@ -418,7 +431,10 @@ export class GroupGrantKeeper {
       // A revocation the node refused is kept until it could no longer matter: a node that takes the keeper again is sent it.
       if (j.stopped) return j.kind === 'revoked' ? this.#expirationOf(j.event) > now : (j.stoppedAt ?? 0) + KEEP_STOPPED_SECONDS * 1000 > nowMs
       if (this.#expirationOf(j.event) <= now) { expired++; this.#unsaved.delete(j); return false }
-      if (!this.#nodes.some((n) => n.server === j.server) && j.since + UNCONFIGURED_NODE_SECONDS * 1000 < nowMs) {
+      // In a withdrawn room no member contacts a node any more (the list is empty), so a revocation or reset the keeper has yet to deliver
+      // is the only thing that will ever reach it: it is kept until it expires, not given up after a day.
+      const withdrawnEnding = this.#config.withdrawn === true && (j.kind === 'revoked' || j.kind === 'reset')
+      if (!withdrawnEnding && !this.#nodes.some((n) => n.server === j.server) && j.since + UNCONFIGURED_NODE_SECONDS * 1000 < nowMs) {
         this.#log(`group grants: gave up on an event for ${j.server}, a node that is no longer configured`)
         this.#unsaved.delete(j)
         return false
