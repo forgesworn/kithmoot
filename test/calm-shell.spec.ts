@@ -289,6 +289,8 @@ test('the New menu opens with Enter, moves with the arrows, closes with Escape a
     // Tab closes it and carries on.
     await page.keyboard.press('Enter')
     await expect(menu).toBeVisible()
+    // Tab before the first item has focus would leave the menu open.
+    await expect(menu.getByRole('menuitem').first()).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(menu).toBeHidden()
     // An item opens the form it names, and Escape closes that too.
@@ -1110,6 +1112,8 @@ test('the first unmute in a call with an agent asks once whether agents may hear
     await expect(prompt).toBeHidden()
     await page.locator('#callExtras').click()
     await expect(page.locator('#callMoreMenu').getByRole('menuitemcheckbox', { name: 'Let agents hear me' })).toHaveAttribute('aria-checked', 'false')
+    // The menu takes focus once it is open; Escape before that goes to the bar.
+    await expect.poll(() => page.evaluate(() => document.getElementById('callMoreMenu')!.contains(document.activeElement))).toBe(true)
     await page.keyboard.press('Escape')
     // Closed before More is pressed again, or the press closes it instead.
     await expect(page.locator('#callMoreMenu')).toBeHidden()
