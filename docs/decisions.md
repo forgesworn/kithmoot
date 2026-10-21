@@ -294,6 +294,29 @@ Profile settings explains this beside the persistent switch. Disabling it closes
 subscriptions and clears loaded profiles. This limits this browser's
 disclosure, not what another member can choose to disclose.
 
+**Who is asked about, and on which relays, since 21 October 2026.** A lookup
+tells the relay it is sent to who this browser is interested in, so where it
+goes matters as much as whether it is made. People in the room on
+screen are asked about on that room's relays as well as the public profile
+relays: those relays already carry the room. Everybody else is asked about
+on the public profile relays alone. That is the people in the chats list, in
+People, the senders of invitations, the people in a docked call, and the
+account signed in on this browser. Otherwise the relays of whichever room
+happens to be open would learn who this browser talks to privately
+elsewhere. The cost is that a contact whose profile exists only on some
+room's relay may show no picture in Chats and People.
+
+A browser also never asks about the name-only participant key it made for
+itself, in any room. That key has no public profile, and the question would
+hand the room's relays the participant key that the room's own events keep
+inside the ciphertext. A signed-in account's key is not a key made here: it
+may have a profile, and is asked about on the public relays whether or not
+its signer is connected, which includes the account pass a room is entered
+on while the signer is away. Going home on a docked call closes the room's
+lookup connections, as leaving the room does. A second switch for private
+chats and quiet rooms was considered and not built, and the chats list keeps
+its private-chat pictures.
+
 It is deliberately never called "verified". A kind-0 `name` is self-asserted
 in exactly the way a typed name is. It says "the holder of this key calls
 themselves Robin", and the only difference is that the key is persistent and
