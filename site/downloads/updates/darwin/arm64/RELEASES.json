@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.96",
+  "currentRelease": "0.1.97",
   "releases": [
     {
-      "version": "0.1.96",
+      "version": "0.1.97",
       "updateTo": {
-        "version": "0.1.96",
-        "pub_date": "2026-10-21T13:01:24Z",
-        "notes": "One press through the door, timed mutes, no raw keys, and a slim title bar on macOS.",
-        "name": "0.1.96",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.96/KithMoot-0.1.96-mac-arm64.zip",
-        "sha256": "27650198b3a7c32008e3c1775cdaabd231492a44f40f0c391cfe82d654dac665",
-        "size": 170861050
+        "version": "0.1.97",
+        "pub_date": "2026-10-21T21:53:23Z",
+        "notes": "Replies sit at the bottom of the chat with a quote of the message they answer; press the quote to jump back to it.",
+        "name": "0.1.97",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.97/KithMoot-0.1.97-mac-arm64.zip",
+        "sha256": "892eed21a339cf5b50e9897757976fb9689a7bcee9ed63cd0b140547b1707d2d",
+        "size": 170878186
       }
     }
   ]
