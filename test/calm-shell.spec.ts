@@ -1987,6 +1987,8 @@ test('a member with no name is Somebody in the log, the roster, the came-in line
       await expect(host.locator('#chatLog')).toContainText('hello from nobody in particular', { timeout: 60_000 })
       await expect(host.locator('#chatLog')).toContainText('Somebody came in.')
       await expect(host.locator('#chatLog')).toContainText('Somebody')
+      // Even the initial in the little picture is Somebody's, not the key's.
+      await expect(host.locator('#chatLog .avatar.initials').first()).toHaveText('S')
       expect(await visibleKeys(host)).toEqual([])
       await openRoomDetails(host)
       await expect(host.locator('#sheetRoster')).toContainText('Somebody')

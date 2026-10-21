@@ -3040,11 +3040,12 @@ const SATS = new Intl.NumberFormat(undefined, { useGrouping: true })
  * key gets no ring and no placeholder either, because it has no identity a
  * payment could be attributed to.
  */
-function pictureOf(shown: Shown, withFallback = false): HTMLElement | undefined {
+function pictureOf(shown: Shown, withFallback = false, nameless = ''): HTMLElement | undefined {
   const fallback = document.createElement('span')
   fallback.className = 'avatar initials'
   fallback.setAttribute('aria-hidden', 'true')
-  fallback.textContent = [...(shown.name?.trim() || shown.short)][0]?.toLocaleUpperCase() ?? '?'
+  // A person with no name is drawn as "Somebody", so that is the initial too, never the key's.
+  fallback.textContent = [...(shown.name?.trim() || nameless || shown.short)][0]?.toLocaleUpperCase() ?? '?'
   if (shown.picture === undefined) return withFallback ? fallback : undefined
   const avatar = document.createElement('img')
   avatar.className = 'avatar'
@@ -3082,7 +3083,7 @@ function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, 
   // The picture, and the donor ring around it, live here rather than in one
   // caller, so that "wherever this person is drawn" is a single decision and
   // the ring reads as part of the same system as the badges below it.
-  const picture = pictureOf(shown, withAvatarFallback)
+  const picture = pictureOf(shown, withAvatarFallback, keyless ? 'Somebody' : '')
   if (picture) run.append(picture)
 
   // `keyless`: the call, where a key is printed only when two people in view
@@ -11554,7 +11555,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const shown = shownAs(entry.participant, entry.name)
         const person = document.createElement('span')
         person.className = 'reactionPerson'
-        person.append(pictureOf(shown, true)!)
+        person.append(pictureOf(shown, true, 'Somebody')!)
         const info = document.createElement('span')
         info.className = 'reactionPersonInfo'
         const name = document.createElement('strong')
