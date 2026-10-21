@@ -258,7 +258,7 @@ test('Invite from People opens the private chat and sends the room there, sealed
 
     // Bob accepts the private chat, which puts the room in his list, and joins it.
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
-    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with Somebody` }).click()
     await expect(bob.locator('#chatLog')).toContainText('invited you to Saturday walk. It is in your rooms.', { timeout: 30_000 })
     await bob.locator('#roomList').getByRole('button', { name: 'Open Saturday walk', exact: true }).click()
     // A room already in the list opens straight in, with no door.
@@ -315,7 +315,7 @@ test('Check words together from People compares words in the private chat and ma
 
     // Bob accepts the private chat, then the check from Alice's row in it.
     const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
-    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with ${shortNpub(a)}` }).click()
+    await bob.locator('#chatInvitations li[data-invitation]').getByRole('button', { name: `Accept private chat with Somebody` }).click()
     await expect(bob.locator('#roomWho')).toHaveText('Private chat', { timeout: 30_000 })
     await openRoomDetails(bob)
     // Only somebody else's row has a check button.
