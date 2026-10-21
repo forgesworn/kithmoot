@@ -17,6 +17,8 @@ import {
   deriveChannel,
   chatEnvelope2Digest,
   chatOuterSecretKey,
+  chatStreamsOf,
+  ownEnvelope2Events,
 } from './chat.js'
 import { resolveConversation } from './messages.js'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -1301,5 +1303,26 @@ describe('chat envelope 2: a throwaway outer author', () => {
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     expect(event.pubkey).toBe(msg.device)
     expect(plaintextOf(event, roomId, roomKey).v).toBeUndefined()
+  })
+})
+
+describe('ownEnvelope2Events: what this device wrote in envelope 2', () => {
+  it('finds its own, never its envelope-1 messages, another member\'s, or a forgery naming it', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const streams = chatStreamsOf([{ id: roomId, key: roomKey }], [undefined, 'side'])
+    const mine = encodeChatEvent(msg, { roomId, roomKey, deviceSk, envelope: 2 })
+    const mineSide = encodeChatEvent({ ...msg, id: 'msg-side' }, { roomId, roomKey, deviceSk, envelope: 2, channel: 'side' })
+    const old = encodeChatEvent({ ...msg, id: 'msg-old' }, { roomId, roomKey, deviceSk })
+    const other = await fixture()
+    const theirs = encodeChatEvent(other.msg, { roomId, roomKey, deviceSk: other.deviceSk, envelope: 2 })
+    // A member who holds the room key writes a body naming this device under
+    // a key of their own: it is not this device's, whatever it says.
+    const plain = JSON.parse(nip44.v2.decrypt(mine.content, deriveChannel(roomId, roomKey).key))
+    const forged = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: mine.tags, content: nip44.v2.encrypt(JSON.stringify(plain), deriveChannel(roomId, roomKey).key) }, generateSecretKey())
+    const found = ownEnvelope2Events([mine, mineSide, old, theirs, forged], streams, deviceSk)
+    expect(found.map((f) => f.event.id).sort()).toEqual([mine.id, mineSide.id].sort())
+    for (const f of found) expect(getPublicKey(f.sk)).toBe(f.event.pubkey)
+    // A stream this device was not given is not read.
+    expect(ownEnvelope2Events([mineSide], chatStreamsOf([{ id: roomId, key: roomKey }], [undefined]), deviceSk)).toEqual([])
   })
 })

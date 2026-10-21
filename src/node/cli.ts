@@ -18,6 +18,10 @@ import { ContextFileStore } from './context-store.js'
 import { checkIdentity, npubOrHex } from './identity-guard.js'
 import { parseRoomLink } from '../link.js'
 import { deriveRoom } from '../room.js'
+import { chatStreamsOf, type ChatStream, type EpochRoot } from '../chat.js'
+import { deriveEpoch } from '../epoch.js'
+import { CONTROL_CHANNEL } from '../control.js'
+import { ASSIGNMENT_CHANNEL } from '../assignments.js'
 import { KINDS } from '../kinds.js'
 import { requireRoomEnds } from '../expiration.js'
 import { AgentRuntime } from './runtime.js'
@@ -711,6 +715,22 @@ function roomEnd(text: string): number {
 /** Wait for every keeper state write asked for so far. */
 const keeperStateFlush = (): Promise<void> => keeperStateWrites.catch(() => {})
 
+/** The chat streams a keeper's state can name: every channel it knew, in
+ *  epoch 0, its current epoch and the left epochs it kept. */
+function keeperChatStreams(state: KeeperState): ChatStream[] {
+  const room = deriveRoom(state.secret)
+  const roots: EpochRoot[] = [{ id: room.roomId, key: room.roomKey }]
+  if (state.epoch && state.epochSecret) {
+    const keys = deriveEpoch({ epoch: state.epoch, secret: state.epochSecret })
+    roots.push({ id: keys.id, key: keys.key })
+  }
+  for (const left of state.past ?? []) {
+    const keys = deriveEpoch(left)
+    roots.push({ id: keys.id, key: keys.key })
+  }
+  return chatStreamsOf(roots, [undefined, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, ...(state.channels ?? [])])
+}
+
 /** A self-destructing room found over at start-up: the keeper's device key
  *  is derived, so what it signed in earlier runs can still be asked for. */
 async function wipeStaleKeeper(
@@ -719,9 +739,11 @@ async function wipeStaleKeeper(
 ): Promise<void> {
   const pool = new NostrRelayPool(opts.relays)
   try {
+    const deviceSk = destructDeviceKey(opts.identitySk, deriveRoom(state.secret).roomId)
     const report = await deleteSignedEvents({
       transport: pool,
-      keys: [{ sk: destructDeviceKey(opts.identitySk, deriveRoom(state.secret).roomId) }, { sk: state.inviterSk, kinds: [KINDS.GROUP_INVITATION] }],
+      keys: [{ sk: deviceSk }, { sk: state.inviterSk, kinds: [KINDS.GROUP_INVITATION] }],
+      chat: { deviceSk, streams: keeperChatStreams(state) },
       now: () => Math.floor(Date.now() / 1000),
       timeoutMs: 15_000,
     })

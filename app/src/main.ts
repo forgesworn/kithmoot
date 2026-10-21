@@ -113,7 +113,8 @@ import {
   type SavedRoomAdmission,
   memoryDeviceStore,
 } from './device-store.js'
-import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, loadKeptRoomEpoch, loadWatchedEpoch, pastRootsOf, storeKeptRoomEpoch } from './room-epoch-store.js'
+import { ASSIGNMENT_CHANNEL } from '../../src/assignments.js'
+import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, keptEpochRoots, loadKeptRoomEpoch, loadWatchedEpoch, pastRootsOf, storeKeptRoomEpoch } from './room-epoch-store.js'
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { storeTabAdmission } from './admission-store.js'
@@ -163,6 +164,7 @@ import {
   requestPersistentRoomAdmission,
   encodePersistentInvitation,
   deriveChannel,
+  chatStreamsOf,
   deriveEpoch,
   readRekeyEvidence,
   type PersistentRoomAdmission,
@@ -18276,6 +18278,9 @@ interface TidyUpContext {
   invitation?: RoomInvitation
   inviterSk?: Uint8Array
   deviceSk: Uint8Array
+  /** Where this device's chat envelope 2 messages can be found
+   *  (`TidyUpDeps.chatStreams`). */
+  chatStreams?: ReturnType<typeof chatStreamsOf>
   account?: SignetSession
   canEnd: boolean
 }
@@ -18306,6 +18311,7 @@ async function openTidyUp(): Promise<void> {
     invitation: owner,
     inviterSk: owner ? invitationAuthoritySk : undefined,
     deviceSk: deviceKey(),
+    chatStreams: s.chatStreams(),
     account: tidyUpAccount(roomId),
     canEnd: canEndRoom(),
   }
@@ -18482,6 +18488,7 @@ async function runRoomTidyUp(): Promise<void> {
       publish: (to, event) => writer.publish(to, event),
       ...(context.invitation && context.inviterSk ? { inviter: { sk: context.inviterSk, invitationId: deriveInvitationId(context.invitation) } } : {}),
       device: { sk: context.deviceSk },
+      ...(context.chatStreams ? { chatStreams: context.chatStreams } : {}),
       files: deleteRoomFiles(context),
       ...(end ? { endRoom: endRoomForEveryone } : {}),
       ...(account ? { account: {
@@ -18776,12 +18783,23 @@ function destructContext(room: KnownRoom): TidyUpContext {
   // A device that never wrote in the room holds no key for it: a fresh one
   // finds nothing to delete, which is the truth.
   const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId) ?? generateSecretKey()
+  // The room on screen knows every channel it opened; one in the background
+  // is read in epoch 0 and the epochs its records keep, in the channels every
+  // client writes in. Named channels of a room not open here are not known.
+  let chatStreams: ReturnType<typeof chatStreamsOf> | undefined
+  if (here && session) chatStreams = session.chatStreams()
+  else if (secret) {
+    const room = deriveRoom(secret)
+    chatStreams = chatStreamsOf([{ id: room.roomId, key: room.roomKey }, ...keptEpochRoots(deviceStore, roomId)],
+      [undefined, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL])
+  }
   return {
     roomId,
     ...(secret ? { roomKey: deriveRoom(secret).roomKey } : {}),
     roomRelays,
     ...(owner && link?.invitation ? { invitation: link.invitation, inviterSk: owner.inviterSk } : {}),
     deviceSk,
+    ...(chatStreams ? { chatStreams } : {}),
     account: tidyUpAccount(roomId),
     canEnd: false,
   }
@@ -18835,6 +18853,7 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
           publish: (to, event) => writer.publish(to, event),
           ...(context.invitation && context.inviterSk ? { inviter: { sk: context.inviterSk, invitationId: deriveInvitationId(context.invitation) } } : {}),
           device: { sk: context.deviceSk },
+          ...(context.chatStreams ? { chatStreams: context.chatStreams } : {}),
           files: deleteRoomFiles(context),
           ...(endRoom ? { endRoom } : {}),
           ...(account ? { account: {

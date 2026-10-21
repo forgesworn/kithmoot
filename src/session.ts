@@ -30,8 +30,10 @@ import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
-import { ChatLog, MAX_PAST_EPOCHS } from './chat.js'
-import type { EpochRoot, PastEpoch } from './chat.js'
+import { ChatLog, MAX_PAST_EPOCHS, chatStreamsOf } from './chat.js'
+import type { ChatStream, EpochRoot, PastEpoch } from './chat.js'
+import { CONTROL_CHANNEL } from './control.js'
+import { ASSIGNMENT_CHANNEL } from './assignments.js'
 import type { EventArchive } from './archive.js'
 import {
   EpochRefusedError,
@@ -1630,6 +1632,24 @@ export class RoomSession {
       if (at !== undefined) left.push({ epoch, secret: secret.slice(), leftAt: at })
     }
     return epochsInWindow(left, this.#now())
+  }
+
+  /**
+   * Every chat stream this device may have written in: the main chat, the
+   * control and assignment channels and each channel this session opened,
+   * in epoch 0, the current epoch and each left epoch it still reads. What a
+   * device reads back to take its own chat envelope 2 messages back (see
+   * `deleteSignedEvents`'s `chat`), since no `authors` query finds them.
+   */
+  chatStreams(): ChatStream[] {
+    this.#opts.protocol?.check('epoch-key-access')
+    const room = deriveRoom(this.#opts.secret)
+    const roots: EpochRoot[] = [{ id: room.roomId, key: room.roomKey }, { id: this.#epoch.id, key: this.#epoch.key }]
+    for (const left of this.pastSecrets()) {
+      const keys = deriveEpoch(left)
+      roots.push({ id: keys.id, key: keys.key })
+    }
+    return chatStreamsOf(roots, [undefined, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, ...this.#channels.keys()])
   }
 
   /** True once the room's authority closed it. */
