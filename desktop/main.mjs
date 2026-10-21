@@ -289,7 +289,7 @@ async function createWindow() {
   try { savedWindow = readWindowState(JSON.parse(readFileSync(windowStateFile, 'utf8'))) } catch { savedWindow = undefined }
   win = new BrowserWindow({
     title: 'KithMoot', ...restoreBounds(savedWindow, screen.getAllDisplays()), minWidth: 900, minHeight: 640,
-    ...(titleBarStyle ? { titleBarStyle, trafficLightPosition: { x: 11, y: 19 } } : {}),
+    ...(titleBarStyle ? { titleBarStyle, trafficLightPosition: { x: 14, y: 13 } } : {}),
     icon: join(here, 'web/pwa-512x512.png'),
     // Follows the OS rather than always dark: the two --bg values from
     // app/src/style.css, so a light-mode launch shows no dark flash before
