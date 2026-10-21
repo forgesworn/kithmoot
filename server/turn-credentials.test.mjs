@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -104,17 +104,22 @@ describe('GET /turn', () => {
   it('gives every request its own username, so one username is one session', async () => {
     const { baseUrl } = await startServer({ ttlSeconds: 120 })
 
-    // Same second, deliberately: the expiry half of the username is
-    // identical for both, so if the label were the old constant these two
-    // would be the same string and coturn would count their allocations
-    // against one quota.
-    const [first, second] = await Promise.all([
-      fetch(`${baseUrl}/turn`).then((r) => r.json()),
-      fetch(`${baseUrl}/turn`).then((r) => r.json()),
-    ])
+    // Freeze Date.now only: concurrent HTTP requests can straddle a real
+    // second, and fake timers would also stop the fetch machinery. Equal
+    // expiry forces the random label to distinguish the two sessions.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+    try {
+      const [first, second] = await Promise.all([
+        fetch(`${baseUrl}/turn`).then((r) => r.json()),
+        fetch(`${baseUrl}/turn`).then((r) => r.json()),
+      ])
 
-    expect(first.username).not.toBe(second.username)
-    expect(first.username.split(':')[0]).toBe(second.username.split(':')[0])
+      expect(first.username).not.toBe(second.username)
+      expect(first.username.split(':')[0]).toBe(second.username.split(':')[0])
+      expect(first.username.split(':')[0]).toBe('1700000120')
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it('mints a credential whose HMAC verifies against the configured secret', async () => {
