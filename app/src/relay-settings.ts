@@ -18,7 +18,7 @@ const CIRCLE_KEY = 'kithmoot.circle.v1'
  *  device made the room) rather than a link's unsigned hints. */
 const ROOM_RELAYS_KEY = 'kithmoot.room-relays-fixed.v1'
 const LEGACY_PUBLIC_RELAYS = new Set(['wss://nos.lol/', 'wss://relay.primal.net/'])
-const PUBLIC_FALLBACK_RELAY = 'wss://nostr.mom/'
+const PUBLIC_FALLBACK_RELAY = 'wss://nostr.oxtr.dev/'
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 type RelayHints = (string | RelayConfig)[]
 

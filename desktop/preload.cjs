@@ -2,7 +2,15 @@ const { contextBridge, ipcRenderer } = require('electron')
 // Sandboxed: nothing but electron can be required here (see main.mjs).
 const areaSwitch = process.argv.find(arg => arg.startsWith('--kithmoot-share-area='))?.split('=')[1]
 const shareAreaMode = ['frame', 'preview'].includes(areaSwitch) ? areaSwitch : null
+// Set only on the main window when the main process applied an inset title bar.
+const titleBarSwitch = process.argv.find(arg => arg.startsWith('--kithmoot-title-bar='))?.split('=')[1]
 contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
+  titleBar: titleBarSwitch === 'inset' ? 'inset' : null,
+  onWindowState(listener) {
+    const handler = (_event, state) => { if (state && typeof state.fullScreen === 'boolean') listener({ fullScreen: state.fullScreen }) }
+    ipcRenderer.on('desktop:window-state', handler)
+    return () => ipcRenderer.removeListener('desktop:window-state', handler)
+  },
   supportsShareArea: shareAreaMode !== null,
   shareAreaMode,
   armShareArea() { return ipcRenderer.invoke('desktop:area-arm') },

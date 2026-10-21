@@ -186,10 +186,11 @@
                   <label for="notificationMode">Activity alerts</label>
                   <select id="notificationMode">
                     <option value="inherit">Use parent setting</option>
-                    <option value="all">On</option>
-                    <option value="off">Off</option>
+                    <option value="all">Every message</option>
+                    <option value="mentions">Only mentions and replies</option>
+                    <option value="off">Nothing</option>
                   </select>
-                  <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Off mutes it unless you override the room. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
+                  <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Nothing silences it unless the room has its own setting. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
                   <p class="note">These settings currently apply while KithMoot is open. Closed-app push uses the keeper’s separate room settings.</p>
                 </details>
               </section>
@@ -586,7 +587,10 @@
             <span class="roomIdentityText">
               <span id="roomTitle" class="roomTitle"></span>
               <span id="roomEndsLine" class="roomEndsLine" hidden></span>
-              <span id="roomWho" class="roomWho"></span>
+              <span class="roomSubline">
+                <span id="roomWho" class="roomWho"></span>
+                <span id="roomMuted" class="roomMuted" hidden><svg class="i" aria-hidden="true" focusable="false"><use href="#i-bellOff"/></svg><span id="roomMutedText"></span></span>
+              </span>
             </span>
           </button>
           <!-- The word is in the page for assistive technology and for the tests;

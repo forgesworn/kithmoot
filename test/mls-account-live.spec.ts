@@ -25,7 +25,7 @@ test('full app creates and manages a witnessed device, survives reload, holds of
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
         const text = String(url), local = `wss://${location.host}`
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
         const target = defaults.includes(text.replace(/\/$/, '')) ? `${local}/__test-relay` : text
         if (!target.startsWith(local + '/') && target !== relayUrl) throw new Error('External relay blocked by lab')
         super(target, protocols)

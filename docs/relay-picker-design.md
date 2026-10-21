@@ -785,7 +785,7 @@ Update the same names in `site/check/index.html` (line 43),
 | `src/agent.ts:51` | `DEFAULT_RELAYS = DEFAULT_PUBLIC_RELAYS.map(r => r.url)`. This is what the keepers use. |
 | `app/src/main.ts:640-652` | Same, and rewrite the comment above it to point at `src/public-relays.ts`. |
 | `app/src/main.ts:2715` `PROFILE_RELAYS` | Drop `wss://nos.lol`. Keep purplepag.es, relay.damus.io and relay.primal.net. |
-| `app/src/main.ts:2412` `widerInvitationRelays(..., DEFAULT_RELAYS, ...)` | Pass every curated relay, not only the defaults. Do this only on the person's **Try the link again**, which is already the case, and show the arrival note (section 9) beside that button in `#arrivalActions`. |
+| `app/src/main.ts:2412` `widerInvitationRelays(..., DEFAULT_RELAYS, ...)` | Correction found in W1: this wider lookup runs on the first attempt, as soon as the link's relays lack the invitation, not only on **Try the link again**. W1 therefore keeps it on the three defaults and ships no arrival note. A later PR may move the wider lookup behind **Try the link again**, then pass every curated relay and show the note (section 9). |
 | `app/src/relay-settings.ts:21` `PUBLIC_FALLBACK_RELAY` | `wss://nostr.oxtr.dev/` (Q4). Keep `LEGACY_PUBLIC_RELAYS` as it is: it identifies old rooms. |
 | `server/forwarder.mjs`, `deploy/keeper-install.sh`, `deploy/forwarder-install.sh`, `deploy/l402/announce.sh` | Replace nos.lol and nostr.mom with the new defaults. |
 | `docs/run-your-own.md`, `site/check/index.html`, `site/privacy/index.html`, `README.md` | Copy (section 9). |

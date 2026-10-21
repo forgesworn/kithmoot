@@ -77,11 +77,32 @@ suggest it. Each person still chooses whether to use it.
 
 ## Relays
 
-Rooms use three public relays run by other people unless you change them:
-nos.lol, relay.primal.net and nostr.mom. To add your own, open
-**Settings**, **Connections**, **Nostr relays**. A room you start keeps the
-relays you had at the time, and every member uses them for that room,
-whatever else they have set.
+Rooms start on three public relays run by other people unless you change
+them: relay.primal.net, nostr.oxtr.dev and relay.nostr.net. To add your
+own, open **Settings**, **Connections**, **Nostr relays**. A room you start
+keeps the relays you had at the time, and every member uses them for that
+room, whatever else they have set.
+
+| Relay | Run by | Quiet rooms | Checked |
+|---|---|---|---|
+| relay.primal.net | Primal Public Relay | Yes | 21 October 2026 |
+| nostr.oxtr.dev | 0xtr relay | Yes | 21 October 2026 |
+| relay.nostr.net | relay.nostr.net | No | 21 October 2026 |
+| offchain.pub | offchain.pub | No | 21 October 2026 |
+| relay.damus.io | damus.io | No | 21 October 2026 |
+
+The first three are the defaults. All are free, name a contact, support
+NIP-40 expiry and held KithMoot's room messages when read on 21 October
+2026. "Quiet rooms" means the relay held and served gift wraps without
+sign-in. On 1 October Primal kept a room invitation for under a day; a room
+writes to all of its relays, and the device that made a link signs its
+invitation again while the room is open. The list and its criteria are in
+`src/public-relays.ts`.
+
+Left out on 21 October 2026: nos.lol and nostr.mom (unreachable, and one
+host), relays that name no contact, relays that ask for payment or sign-in,
+relays that did not answer or errored, and purplepag.es, which holds
+profiles only.
 
 Most relay software keeps events of any kind unless told otherwise, which
 is what KithMoot needs; [strfry](https://github.com/hoytech/strfry) and

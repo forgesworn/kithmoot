@@ -19,7 +19,8 @@
  * room on screen and the delivery, and this decides.
  */
 import type { ChatMessage } from '../../src/chat.js'
-import { isConversation, classifyMessage, type Named } from '../../src/messages.js'
+import { isConversation, classifyMessage, mentionsOf, EVERYONE, type Named } from '../../src/messages.js'
+import { hexEquals } from '../../src/hex.js'
 import type { DeviceStore } from './device-store.js'
 
 export const NOTIFY_STORAGE_KEY = 'kithmoot.notify'
@@ -43,6 +44,17 @@ export interface NotifySettings {
   /** And said the message text may go into the notification. Off by
    *  default: what leaves the app for the OS is the room and the sender. */
   showText: boolean
+  /** Only a reply to this person, a mention of them or of everyone, or a
+   *  message in a private chat is worth telling them about (the room's
+   *  "Only mentions and replies"). Decided per room by the caller. */
+  mentionsOnly?: boolean
+}
+
+/** Whether a message is aimed at `self`: a reply to one of theirs, a mention
+ *  of them by name or key, or one to everyone. */
+export function addressesReader(message: Pick<ChatMessage, 'text' | 'mentions' | 'reply'>, self: string, roster: readonly Named[] = []): boolean {
+  if (message.reply && hexEquals(message.reply.participant, self)) return true
+  return mentionsOf(message, roster).some(entry => entry === EVERYONE || hexEquals(entry, self))
 }
 
 export function notifySettings(store: DeviceStore): NotifySettings {
@@ -240,6 +252,7 @@ export class Notifier {
         const self = this.#opts.self() ?? ''
         const cls = classifyMessage(message, self, follow.roster?.() ?? [], { direct: follow.direct?.() ?? false, minutes: follow.channel === 'minutes' })
         if (cls === null) continue
+        if (settings.mentionsOnly && !(follow.direct?.() ?? false) && !addressesReader(message, self, follow.roster?.() ?? [])) continue
         const content = notificationContent({
           roomId: follow.roomId,
           room: follow.room(),

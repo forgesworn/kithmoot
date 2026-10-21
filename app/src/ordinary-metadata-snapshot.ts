@@ -6,9 +6,11 @@ const HEX = /^[0-9a-f]{64}$/
 const PIN_KEY = 'kithmoot.pinned-rooms.v1'
 const NOTIFICATION_PREFIX = 'kithmoot.notification-scopes.v1.'
 const PROJECT_PREFIX = 'kithmoot.project.v1.'
+const MUTE_PREFIX = 'kithmoot.mute-until.v1.'
+const MUTE_UNTIL = /^[1-9][0-9]{0,15}$/
 const BOARD_PREFIX = 'kithmoot.board-context.v1.'
 const BOARD_ID = /^[A-Za-z0-9_-]{1,160}$/
-const families = ['kithmoot.volume', 'kithmoot.pinned-rooms', 'kithmoot.notification-scopes', 'kithmoot.project', 'kithmoot.board-context']
+const families = ['kithmoot.volume', 'kithmoot.pinned-rooms', 'kithmoot.notification-scopes', 'kithmoot.project', 'kithmoot.mute-until', 'kithmoot.board-context']
 function hold(): never { throw new OrdinaryStateHold() }
 const account = (value: unknown): boolean => value === 'visitor' || typeof value === 'string' && HEX.test(value)
 function json(raw: string): unknown {
@@ -46,9 +48,9 @@ function boardContext(name: string, raw: string): void {
 /** Strict custody of private UI metadata. No room membership, notification
  * permission, signer account or current project authority is returned. */
 export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
-  options: { kind: 'browser' | 'tab' }): Readonly<{ volumes: number; pinLists: number; notificationScopes: number; projects: number; boardContexts: number }> {
+  options: { kind: 'browser' | 'tab' }): Readonly<{ volumes: number; pinLists: number; notificationScopes: number; projects: number; mutes: number; boardContexts: number }> {
   if (!['browser', 'tab'].includes(options.kind)) hold()
-  const counts = { volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, boardContexts: 0 }
+  const counts = { volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, mutes: 0, boardContexts: 0 }
   for (const [name, raw] of records) {
     if (name.startsWith('kithmoot.account.') && families.some(family => name.includes('.' + family))) hold()
     const family = families.find(value => name === value || name.startsWith(value + '.'))
@@ -67,7 +69,7 @@ export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, st
       if (!Array.isArray(rows) || rows.some((id, index) => typeof id !== 'string' || !HEX.test(id) || index > 0 && rows[index - 1] >= id)) hold()
       counts.pinLists++
     } else if (family === 'kithmoot.notification-scopes') {
-      if (!name.startsWith(NOTIFICATION_PREFIX) || !['all', 'off'].includes(raw)) hold()
+      if (!name.startsWith(NOTIFICATION_PREFIX) || !['all', 'off', 'mentions'].includes(raw)) hold()
       const scope = json(name.slice(NOTIFICATION_PREFIX.length))
       if (!Array.isArray(scope) || scope.length !== 3 || !account(scope[0]) || !['default', 'project', 'room'].includes(scope[1]) || typeof scope[2] !== 'string') hold()
       if (scope[1] === 'default' ? scope[2] !== '' : scope[2].length === 0) hold()
@@ -75,6 +77,13 @@ export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, st
       // their exact opaque strings; they are not grants or membership proofs.
       if (scope[1] === 'room' && !HEX.test(scope[2])) hold()
       counts.notificationScopes++
+    } else if (family === 'kithmoot.mute-until') {
+      // The end of a timed mute, in Unix seconds. Never read against a clock
+      // here: an ended mute is a valid record that the app prunes.
+      if (!name.startsWith(MUTE_PREFIX)) hold()
+      const parts = name.slice(MUTE_PREFIX.length).split('.')
+      if (parts.length !== 2 || !account(parts[0]) || !HEX.test(parts[1]!) || !MUTE_UNTIL.test(raw) || !Number.isSafeInteger(Number(raw))) hold()
+      counts.mutes++
     } else if (family === 'kithmoot.board-context') {
       boardContext(name, raw)
       counts.boardContexts++

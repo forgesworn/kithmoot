@@ -22,6 +22,7 @@ import {
 } from './invitation.js'
 import type { InvitationDelegation } from './invitation.js'
 import { localIdentity } from './identity.js'
+import { DEFAULT_PUBLIC_RELAYS } from './public-relays.js'
 import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret, deriveRoom } from './room.js'
 import { canonicalAdmins, canonicalChannels, deriveEpoch, epochsInWindow, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
@@ -46,9 +47,9 @@ import { meetingAllows, verifyMeetingPolicy, type MeetingPolicy } from './meetin
 /**
  * The relays an agent uses when its link names none. The same three the app
  * defaults to, so a link written without hints lands in the same room from
- * any of them: see the app's note on its list.
+ * any of them. The list and its criteria live in `public-relays.ts`.
  */
-export const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom']
+export const DEFAULT_RELAYS = DEFAULT_PUBLIC_RELAYS.map(relay => relay.url)
 
 const liveKeeperOwners = new WeakSet<LiveKeeperJournal>()
 

@@ -20,8 +20,13 @@ describe('device relay preferences', () => {
     expect(currentRoomRelayHints(['wss://relay.primal.net', 'wss://nos.lol'])).toEqual([
       { url: 'wss://relay.primal.net/', read: true, write: true },
       { url: 'wss://nos.lol/', read: true, write: true },
-      { url: 'wss://nostr.mom/', read: true, write: true },
+      { url: 'wss://nostr.oxtr.dev/', read: true, write: true },
     ])
+  })
+
+  it('adds nothing to a room fixed to the three current defaults', () => {
+    const current = ['wss://relay.primal.net/', 'wss://nostr.oxtr.dev/', 'wss://relay.nostr.net/']
+    expect(currentRoomRelayHints(current)).toBe(current)
   })
 
   it('leaves custom, private and permissioned relay hints unchanged', () => {
