@@ -1,6 +1,6 @@
 import { testRelays } from './relays.js'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { fakeMicMakesSound, inbound, openNewRoomForm, remoteAudioCount, remotePictures } from './browser.js'
+import { fakeMicMakesSound, inbound, nameCreator, openNewRoomForm, remoteAudioCount, remotePictures } from './browser.js'
 
 /**
  * The regression test for the failure that made this whole TURN deployment
@@ -251,7 +251,7 @@ async function newDeviceContext(browser: Browser, baseURL: string, credential?: 
   return context
 }
 
-async function createRoom(page: Page, baseURL: string): Promise<string> {
+async function createRoom(page: Page, baseURL: string, name: string): Promise<string> {
   await page.goto(baseURL)
   // This spec has no local relay process: its default target is the live
   // deployment, so the ordinary Playwright helper's loopback default would
@@ -263,7 +263,9 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
     await page.reload()
   }
   await openNewRoomForm(page)
+  await nameCreator(page, name)
   await page.locator('#create').click()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   // The link, not the box it used to sit in. The entry page was rebuilt to
   // put the conversation first and the drawer holding the link stays shut
   // until somebody has gone in, so waiting for it to be on screen would be
@@ -335,12 +337,9 @@ test('a call connects and carries media with host and reflexive candidates exclu
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
 
-    const joinUrl = await createRoom(pageA, base)
-    await prepareDevice(pageA, joinUrl, 'Relay A')
+    const joinUrl = await createRoom(pageA, base, 'Relay A')
     await prepareDevice(pageB, joinUrl, 'Relay B')
 
-    await pageA.locator('#join').click()
-    await expect(pageA.locator('#roomArea')).toBeVisible()
     await turnOnMedia(pageA)
     await pageB.locator('#join').click()
     await expect(pageB.locator('#roomArea')).toBeVisible()

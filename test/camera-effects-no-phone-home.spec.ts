@@ -5,7 +5,7 @@ import { test, expect, type Page, type Request } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
 import { openRoomUrl, pinToTestRelays, TEST_RELAY_HTTP, TEST_RELAY_WS } from './relays.js'
-import { openNewRoomForm, openCallEffects } from './browser.js'
+import { openNewRoomForm, openCallEffects, nameCreator } from './browser.js'
 
 /**
  * A camera effect must never phone home.
@@ -38,13 +38,12 @@ const LOCAL_VIDEO = '.media.mine video'
 async function goIn(page: Page): Promise<void> {
   await page.goto('/')
   await openNewRoomForm(page)
+  await nameCreator(page, 'Robin')
   await page.locator('#create').click()
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
   await openRoomUrl(page, pinToTestRelays(await share.inputValue()))
-  await page.locator('#displayName').fill('Robin')
-  await page.locator('#join').click()
-  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   await expect(page.locator('#callToggle')).toBeVisible()
   if (await page.locator('#deviceControls').isHidden()) {
     await page.locator('#callToggle').click()

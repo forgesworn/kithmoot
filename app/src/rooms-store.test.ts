@@ -3,11 +3,14 @@ import { generateSecretKey } from 'nostr-tools/pure'
 import { loadKeptAdmission, memoryDeviceStore, storeKeptAdmission } from './device-store.js'
 import {
   ROOM_PREFIX,
+  autoJoinable,
+  clearRoomJoined,
   forgetRoom,
   knownRoom,
   knownRooms,
   markEnded,
   markRead,
+  markRoomJoined,
   rememberRoom,
   roomLabel,
   setKeepRoom,
@@ -206,5 +209,59 @@ describe('the rooms this device has been in', () => {
     expect(knownRoom(store, ROOM_A)?.endedAt).toBe(NOW + 10)
     rememberRoom(store, { roomId: ROOM_A, link: invitationLink(), openedAt: NOW + 40 })
     expect(knownRoom(store, ROOM_A)?.endedAt).toBeUndefined()
+  })
+})
+
+describe('having joined a room, kept on this device only', () => {
+  it('records when and as whom, on a room already written down, and survives later visits', () => {
+    const store = memoryDeviceStore()
+    // A room only looked at has no join, and one that is not written down cannot take one.
+    expect(markRoomJoined(store, ROOM_A, NOW, SELF)).toBe(false)
+    rememberRoom(store, { roomId: ROOM_A, link: invitationLink({ name: 'Town hall' }), openedAt: NOW })
+    expect(knownRoom(store, ROOM_A)?.joinedAt).toBeUndefined()
+    expect(markRoomJoined(store, ROOM_A, NOW + 5, SELF)).toBe(true)
+    expect(knownRoom(store, ROOM_A)).toMatchObject({ joinedAt: NOW + 5, joinedAs: SELF })
+    // A later visit, a rotated link, a new name: still joined.
+    rememberRoom(store, { roomId: ROOM_A, link: invitationLink({ name: 'Town hall 2' }), openedAt: NOW + 60 })
+    expect(knownRoom(store, ROOM_A)).toMatchObject({ joinedAt: NOW + 5, joinedAs: SELF })
+  })
+
+  it('forgets having joined when the room is left on purpose, so its link is an invitation again', () => {
+    const store = memoryDeviceStore()
+    rememberRoom(store, { roomId: ROOM_A, link: invitationLink({ name: 'Town hall' }), openedAt: NOW })
+    expect(clearRoomJoined(store, ROOM_A)).toBe(false)
+    markRoomJoined(store, ROOM_A, NOW, SELF)
+    expect(autoJoinable(knownRoom(store, ROOM_A), SELF)).toBe(true)
+    expect(clearRoomJoined(store, ROOM_A)).toBe(true)
+    expect(autoJoinable(knownRoom(store, ROOM_A), SELF)).toBe(false)
+    expect(knownRoom(store, ROOM_A)?.name).toBe('Town hall')
+  })
+
+  it('ignores a malformed joinedAt or joinedAs, even one written straight into storage', () => {
+    const store = memoryDeviceStore()
+    const link = invitationLink()
+    for (const [joinedAt, joinedAs] of [['soon', 'nobody'], [Number.NaN, 42], [null, 'x'.repeat(64)]] as const) {
+      store.set(ROOM_PREFIX + ROOM_A, JSON.stringify({ link, openedAt: NOW, readAt: 0, joinedAt, joinedAs }))
+      expect(knownRoom(store, ROOM_A)?.joinedAt).toBeUndefined()
+      expect(knownRoom(store, ROOM_A)?.joinedAs).toBeUndefined()
+    }
+  })
+
+  it('opens the room by itself only for the identity that joined it', () => {
+    const store = memoryDeviceStore()
+    rememberRoom(store, { roomId: ROOM_A, link: invitationLink(), openedAt: NOW })
+    // Seen, never joined: the door.
+    expect(autoJoinable(knownRoom(store, ROOM_A), SELF)).toBe(false)
+    markRoomJoined(store, ROOM_A, NOW, SELF)
+    const room = knownRoom(store, ROOM_A)
+    expect(autoJoinable(room, SELF)).toBe(true)
+    // Signed in now as somebody else, or as nobody the device can name: the door.
+    expect(autoJoinable(room, SENDER)).toBe(false)
+    expect(autoJoinable(room, undefined)).toBe(false)
+    expect(autoJoinable(undefined, SELF)).toBe(false)
+    // A record from before the identity was kept never walks in.
+    store.set(ROOM_PREFIX + ROOM_A, JSON.stringify({ link: invitationLink(), openedAt: NOW, readAt: 0, joinedAt: NOW }))
+    expect(knownRoom(store, ROOM_A)?.joinedAt).toBe(NOW)
+    expect(autoJoinable(knownRoom(store, ROOM_A), SELF)).toBe(false)
   })
 })

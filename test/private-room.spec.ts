@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openMember } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openMember, nameCreator, chooseInviteRoom } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 // A private room: a room that asks first, whose link is never handed out.
@@ -55,19 +55,16 @@ test('somebody invited from a shared room is let straight into a room that asks 
     await openNewRoomForm(ada)
     await ada.locator('#roomName').fill('Private build')
     await ada.locator('#roomAsk').check()
+    await nameCreator(ada, 'Ada')
     await ada.locator('#create').click()
-    await expect(ada.locator('#join')).toBeVisible({ timeout: 30_000 })
-    await ada.locator('#join').click()
-    await expect(ada.locator('#roomArea')).toBeVisible()
+    await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 
     // The shared room, where Ada and Rowan meet.
     await leaveToChats(ada)
     await openNewRoomForm(ada)
     await ada.locator('#roomName').fill('Shared')
     await ada.locator('#create').click()
-    await expect(ada.locator('#join')).toBeVisible({ timeout: 30_000 })
-    await ada.locator('#join').click()
-    await expect(ada.locator('#roomArea')).toBeVisible()
+    await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const shared = ada.locator('#shareUrl')
     await expect.poll(async () => (await shared.inputValue()).length).toBeGreaterThan(0)
     const sharedLink = await shared.inputValue()
@@ -82,9 +79,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
     // Ada invites Rowan to the private room from Rowan's row.
     await openMember(ada, 'Rowan')
     await ada.getByRole('button', { name: 'Invite Rowan to a room', exact: true }).click({ timeout: 60_000 })
-    const chooser = ada.locator('#inviteToRoom')
-    await expect(chooser).toBeVisible()
-    await chooser.getByRole('button', { name: 'Private build', exact: true }).click()
+    await chooseInviteRoom(ada, 'Private build')
     await ada.locator('#roomSheetClose').click()
     await expect(ada.locator('#chatLog')).toContainText('You invited Rowan to Private build.')
     await expect(rowan.locator('#chatLog')).toContainText('invited you to Private build', { timeout: 60_000 })

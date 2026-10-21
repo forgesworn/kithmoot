@@ -1,7 +1,7 @@
 import { build } from 'esbuild'
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, pinToTestRelays } from './relays.js'
-import { closeCallEffects, openCallEffects } from './browser.js'
+import { closeCallEffects, openCallEffects, nameCreator } from './browser.js'
 
 let fixtureCode = ''
 test.beforeAll(async () => {
@@ -100,13 +100,12 @@ test('the unavailable owned model covers the whole scene without making requests
 async function enter(page: Page): Promise<void> {
   await page.goto('./')
   await page.locator('#newRoom').click()
+  await nameCreator(page, 'Mask test')
   await page.locator('#create').click()
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length).toBeGreaterThan(0)
   await openRoomUrl(page, pinToTestRelays(await share.inputValue()))
-  await page.locator('#displayName').fill('Mask test')
-  await page.locator('#join').click()
-  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   if (await page.locator('#deviceControls').isHidden()) await page.locator('#callToggle').click()
   await expect(page.locator('#deviceControls')).toBeVisible()
 }

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open, openCall } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, openCall, join } from './browser.js'
 
 /**
  * The self-mute badge: a device that turns its own mic off should say so
@@ -29,7 +29,7 @@ test('a self-muted mic shows on the far side within 5s, and clears on unmute, in
     const url = await createRoom(a, baseURL!)
     await joinWithMedia(a, url, 'Ada')
     await open(b, url, 'Bob')
-    await b.locator('#join').click()
+    await join(b)
     await expect(b.locator('#roomArea')).toBeVisible()
     await openCall(b)
     await b.locator('#toggleMic').click()

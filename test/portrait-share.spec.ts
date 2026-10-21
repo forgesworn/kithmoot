@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, offerPairing, open, openCall } from './browser.js'
+import { createRoom, newDeviceContext, offerPairing, open, openCall, join } from './browser.js'
 
 /**
  * A phone sharing its screen in portrait, and nothing on top of it.
@@ -53,7 +53,7 @@ const VIEWPORT = { width: 1320, height: 880 }
 async function enter(page: Page, url: string, name: string, existingCall = false): Promise<void> {
   await page.setViewportSize(VIEWPORT)
   await open(page, url, name)
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   if (existingCall) await expect(page.locator('#callToggle')).toHaveText('Join call')
   await openCall(page)
@@ -122,7 +122,7 @@ test('a portrait share is shown whole and nothing sits on it', async ({ browser,
   await a.addInitScript(PORTRAIT_SCREEN)
   try {
     const alex = await a.newPage(), sam = await b.newPage()
-    const link = await createRoom(alex, baseURL!)
+    const link = await createRoom(alex, baseURL!, undefined, 'Alex')
     await enter(alex, link, 'Alex')
     await enter(sam, link, 'Sam', true)
 
@@ -161,16 +161,16 @@ test('a person on two devices, one sharing portrait and one with only a micropho
   try {
     const pageLaptop = await laptop.newPage(), pagePhone = await phone.newPage(), sam = await watcher.newPage()
     await pageLaptop.setViewportSize(VIEWPORT); await pagePhone.setViewportSize(VIEWPORT)
-    const url = await createRoom(pageLaptop, baseURL!)
+    const url = await createRoom(pageLaptop, baseURL!, undefined, 'Alex')
     await open(pageLaptop, url, 'Alex')
-    await pageLaptop.locator('#join').click()
+    await join(pageLaptop)
     await expect(pageLaptop.locator('#roomArea')).toBeVisible()
     const pairUrl = await offerPairing(pageLaptop)
     await Promise.all([
       open(pagePhone, pairUrl, 'Alex'),
       pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click(),
     ])
-    await pagePhone.locator('#join').click()
+    await join(pagePhone)
     await expect(pagePhone.locator('#roomArea')).toBeVisible()
 
     // The laptop: on the call with a microphone, and no picture at all -
@@ -203,7 +203,7 @@ test('a share error goes once a share works, and says what to do', async ({ brow
   await a.addInitScript(PORTRAIT_SCREEN)
   try {
     const alex = await a.newPage()
-    const link = await createRoom(alex, baseURL!)
+    const link = await createRoom(alex, baseURL!, undefined, 'Alex')
     await enter(alex, link, 'Alex')
     const status = alex.locator('#status')
 
@@ -236,7 +236,7 @@ test('in the desktop app, cancelling the share picker is not a permission proble
   await a.addInitScript(PORTRAIT_SCREEN)
   try {
     const alex = await a.newPage()
-    const link = await createRoom(alex, baseURL!)
+    const link = await createRoom(alex, baseURL!, undefined, 'Alex')
     await enter(alex, link, 'Alex')
     const status = alex.locator('#status')
     // The desktop app refuses a cancelled picker with the same error macOS

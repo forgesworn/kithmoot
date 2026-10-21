@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { createRoom, newDeviceContext, open, openCall, turnOnMedia, SYNTHETIC_MIC } from './browser.js'
+import { createRoom, newDeviceContext, open, openCall, turnOnMedia, SYNTHETIC_MIC, join } from './browser.js'
 import { performanceSample } from './performance-sample.js'
 
 const workloads = (process.env.PERF_WORKLOADS ?? process.env.PERF_WORKLOAD ?? 'video').split(',').map(value => value.trim())
@@ -76,7 +76,7 @@ for (const workload of workloads) {
       for (const [index, page] of pages.entries()) {
         const started = Date.now()
         await open(page, room, `Device ${index + 1}`)
-        await page.locator('#join').click()
+        await join(page)
         await expect(page.locator('#roomArea')).toBeVisible()
         // Join the existing call after its roster entry arrives, rather than
         // starting a second call before another client's presence settles.
