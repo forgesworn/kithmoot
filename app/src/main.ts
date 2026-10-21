@@ -5415,7 +5415,9 @@ function renderRoomInfo(): void {
   setInfoSub('infoSubCards', contacts(deviceStore).length ? `${contacts(deviceStore).length} saved` : '')
   $('leave').textContent = peer ? 'Leave private chat…' : 'Leave room…'
   $('roomRelaySettings').hidden = roomUsesBothy
-  $('roomBothySettings').hidden = !roomUsesBothy
+  // First activation must be reachable before a room has selected Bothy.
+  // The panel still checks account, device, room scope and explicit consent.
+  $('roomBothySettings').hidden = !roomUsesBothy && !nostrSession
 }
 
 /** Show one page of the panel. The heading is the panel's title and takes the
