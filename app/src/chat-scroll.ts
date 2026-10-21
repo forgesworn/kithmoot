@@ -122,7 +122,13 @@ export class ChatScroll {
     this.#painted = undefined
     this.#jumped = true
     row.tabIndex = -1
-    row.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
+    // Only the log moves, and only up or down: scrollIntoView would also
+    // scroll the page's fixed panes sideways when a row is wider than the
+    // screen, which clipped the log on a 320 px phone.
+    const log = this.#log.getBoundingClientRect()
+    const box = row.getBoundingClientRect()
+    const top = this.#log.scrollTop + (box.top - log.top) - Math.max(0, (this.#log.clientHeight - box.height) / 2)
+    this.#log.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' })
     row.focus({ preventScroll: true })
     this.#button.hidden = false
     const settle = () => {

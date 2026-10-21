@@ -268,6 +268,8 @@ test('a reply is the last message in the log with a quote that jumps to the orig
     const original = log.locator('.msg').filter({ hasText: 'First: the venue is booked.' }).first()
     await expect(original).toBeFocused()
     await expect(original).toHaveClass(/jumpTarget/)
+    // Only the log moved, and only up: nothing on the page scrolled sideways.
+    expect(await page.evaluate(() => [document.scrollingElement!, ...document.querySelectorAll('*')].filter(element => element.scrollLeft !== 0).map(element => element.id || element.className))).toEqual([])
     await expect(page.locator('#newMessages')).toBeVisible()
     await expect(page.locator('#newMessages')).toHaveText(/Jump to latest/)
     await expect(original).not.toHaveClass(/jumpTarget/, { timeout: 5000 })
