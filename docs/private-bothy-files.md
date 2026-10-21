@@ -4,6 +4,12 @@ This source connects the existing file controls and Wildbloom encryption to
 paired Bothy storage. It is an opt-in addition to the current text-room route;
 it does not enable MLS, calls, live media, anonymous mode or quiet mode.
 
+The box must include node-bound Blossom authorisation from
+[Bothy Node PR107](https://github.com/forgesworn/bothy-node/pull/107)
+(merged as `76a194f0`) or a later compatible build. This client pins the file
+request support from [Link PR72](https://github.com/forgesworn/forgesworn-link/pull/72).
+Node deployment and the client release are separate operator/release steps.
+
 ## Using it
 
 1. Sign in with a supported NIP-07 browser extension. Event approvals use the
