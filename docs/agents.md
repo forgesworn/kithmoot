@@ -222,14 +222,19 @@ What the keeper does:
   revoked, so it can never land later, and signed afresh after a cooldown that
   grows each time; a refused renewal is signed again the same way. An event
   that runs out before a node takes it is dropped with a log line.
-- A node that refuses the keeper for a reason signing again cannot cure (it
-  does not enrol this keeper, the host name is wrong, and so on) is reported
-  once, with its reason, and nothing more is signed for it. Once a day one
+- A node that refuses the keeper for a reason that is about the node (it does
+  not enrol this keeper, the host name is wrong, the path is wrong, it keeps
+  answering 500 or 501 and upward) is reported once, with its reason, and
+  nothing more is signed for it. A single 500 is tried three times first. Once a day one
   probe grant is tried there, for one device; if the node takes it (or a reset),
   it is trusted again, every device is granted at the next look, and the
-  revocations it had refused are sent. Other nodes are not affected. Refusals
-  that signing again can cure (`scope-taken`, `floor`, a grant the node holds
-  revoked) are signed afresh after a cooldown instead.
+  revocations it had refused are sent. Other nodes are not affected. The probe
+  picks only a device the keeper would grant anyway: within the five-device
+  rule, not removed, and with no refusal of its own at that node. Refusals
+  about one device or one grant (`key-conflict`, `scope-changed`, `scope-taken`,
+  `floor`, a grant the node holds revoked) never mark the node: that device is
+  signed afresh after a cooldown that doubles from an hour to a day, and
+  everybody else keeps their grants.
 - On a node, a pending reset is pushed before anything else there, and one
   device's events go in the order they were signed.
 - Grants, revocations and resets are never published on a relay. They travel

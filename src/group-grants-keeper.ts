@@ -44,8 +44,17 @@ const COOLDOWN_BASE_SECONDS = 3_600
 const COOLDOWN_MAX_SECONDS = 86_400
 /** How long a node that refuses this keeper for good is left alone before one probe grant is tried there. */
 const PROBE_SECONDS = 86_400
-/** Refusals a fresh signature can cure: another live id the lost ledger left (`scope-taken`), a newer reset (`floor`), an id the node holds revoked. */
-const CURABLE = /^409 (scope-taken|floor|revoked)$/
+/**
+ * Refusals that concern one grant or one device, not the node: another live id the lost ledger left (`scope-taken`), a newer
+ * reset (`floor`), an id the node holds revoked, a device key the node already has as something else (`key-conflict`), an id
+ * whose device changed (`scope-changed`). Signing again, after a cooldown that grows each time, is the answer to these; the
+ * node is not given up on. Every other refusal is about the node (not enrolled, wrong host name, wrong path, ...).
+ */
+const CURABLE = /^409 (scope-taken|floor|revoked|key-conflict|scope-changed)$/
+/** Of those, the two reported once per device, since they say something about that device. */
+const PER_DEVICE = /^409 (key-conflict|scope-changed)$/
+/** A 500 is tried this many times before it counts as the node refusing. */
+const FLAKY_TRIES = 3
 
 /** Where the ledger lives. The CLI gives a file beside the keeper's state. */
 export interface GroupGrantStore {
@@ -131,6 +140,8 @@ export interface JournalEntry {
   since: number
   stopped?: string
   stoppedAt?: number
+  /** Answers of 500 so far: a few are retried before the node is taken to refuse. */
+  flaky?: number
   reported?: boolean
 }
 
@@ -190,7 +201,7 @@ export function parseLedger(json: string): GroupGrantLedger {
 const live = (r: GrantRecord, now: number): boolean => r.status === 'active' && r.expiration > now
 const short = (hex: string): string => hex.slice(0, 8)
 
-type PushOutcome = { kind: 'done' } | { kind: 'retry'; after?: number } | { kind: 'stop'; reason: string }
+type PushOutcome = { kind: 'done' } | { kind: 'retry'; after?: number; flaky?: string } | { kind: 'stop'; reason: string }
 
 interface Outgoing { id: string; event: GroupEvent }
 
@@ -567,7 +578,7 @@ export class GroupGrantKeeper {
       const mine = this.#ledger.grants.filter((g) => g.device === device && live(g, now))
       const needs = this.#nodes.filter((n) => !mine.some((g) => g.server === n.server) && !this.#nodeRefused(n.server) && !this.#cooling(n.server, device, now))
       if (needs.length) {
-        if (!mine.length && this.#liveDevices(participant, now).size >= MAX_DEVICES_PER_PARTICIPANT) {
+        if (!mine.length && !this.#withinCap(participant, device, now)) {
           if (!this.#ledger.refused.some((r) => r.device === device)) {
             this.#ledger.refused.push({ participant, device, since: now })
             this.#touch()
@@ -588,7 +599,9 @@ export class GroupGrantKeeper {
     for (const n of this.#nodes) {
       const r = this.#ledger.refusedNodes?.[n.server]
       if (!r || r.probeAt > now || this.#held() >= MAX_GRANTS) continue
-      const candidate = heard.find((d) => !removed.has(d.participant) && !this.#cooling(n.server, d.device, now) &&
+      // Only a device the sweep itself would grant: not removed, within the five-device rule, not in a refusal of its own here.
+      const candidate = heard.find((d) => !removed.has(d.participant) && this.#withinCap(d.participant, d.device, now) &&
+        this.#ledger.cooldown?.[`${n.server}|${d.device}`] === undefined &&
         !this.#ledger.grants.some((g) => g.device === d.device && g.server === n.server && live(g, now)))
       if (!candidate) continue
       this.#mint(candidate.device, candidate.participant, n.server, now)
@@ -612,6 +625,11 @@ export class GroupGrantKeeper {
       this.#log(`group grants: ${MAX_GRANTS} grant records are held; no more are signed until some end`)
       void this.#send({ op: 'error', host: this.#host.keeperParticipant, message: `Group grants: the keeper holds ${MAX_GRANTS} records and will sign no more until some end.`.slice(0, REPORT_MAX) })
     }
+  }
+
+  /** The five-device rule: a device may be granted if it already has a live grant somewhere, or its person has room for another. */
+  #withinCap(participant: string, device: string, now: number): boolean {
+    return this.#ledger.grants.some((g) => g.device === device && live(g, now)) || this.#liveDevices(participant, now).size < MAX_DEVICES_PER_PARTICIPANT
   }
 
   #liveDevices(participant: string, now: number): Set<string> {
@@ -746,7 +764,9 @@ export class GroupGrantKeeper {
     let text: string
     if (reason.includes('scope-taken')) text = `Group storage ${server} already holds another live grant for one of this room's devices. Restart the keeper with --group-reset to clear it.`
     else if (reason.includes('floor')) text = `Group storage ${server} refused ${what} dated before a reset. The keeper will sign a later one.`
-    else if (reason.includes('keeper') || reason.includes('server') || reason.includes('key-conflict')) text = `Group storage ${server} refused ${what} (${reason}). Ask whoever runs it to check it names this room's keeper and host name.`
+    else if (reason.includes('key-conflict')) text = `Group storage ${server} refused one device's grant (${reason}): its key is already used there as an owner, a keeper or another group's key.`
+    else if (reason.includes('scope-changed')) text = `Group storage ${server} refused a grant whose device had changed (${reason}). A new one follows later.`
+    else if (reason.includes('keeper') || reason.includes('server')) text = `Group storage ${server} refused ${what} (${reason}). Ask whoever runs it to check it names this room's keeper and host name.`
     else text = `Group storage ${server} refused ${what} (${reason}).`
     return text.slice(0, REPORT_MAX)
   }
@@ -907,7 +927,11 @@ export class GroupGrantKeeper {
         if (this.#ledger.cooldown) delete this.#ledger.cooldown[`${held.server}|${held.device}`]
       }
       if (held.kind !== 'revoked') this.#trustNode(held.server, now)
+    } else if (outcome.kind === 'retry' && outcome.flaky !== undefined && (held.flaky = (held.flaky ?? 0) + 1) >= FLAKY_TRIES) {
+      // The third 500 in a row is the node refusing.
+      await this.#refused(held, record, `500`, now)
     } else if (outcome.kind === 'retry') {
+      if (outcome.flaky === undefined) delete held.flaky
       if (this.#expirationOf(held.event) <= now) {
         this.#log(`group grants: dropped an event for ${held.server} that ran out before the node could take it`)
         this.#ledger.journal = this.#ledger.journal.filter((j) => j !== held)
@@ -920,40 +944,44 @@ export class GroupGrantKeeper {
         held.nextAt = this.#clockMs() + Math.round(Math.max(backoff, Math.min(outcome.after ?? 0, MAX_RETRY_AFTER_MS)))
       }
     } else {
-      held.stopped = outcome.reason
-      held.stoppedAt = this.#clockMs()
-      const reason = outcome.reason
-      if (held.kind !== 'revoked') {
-        if (CURABLE.test(reason)) {
-          // Signing again can cure these: the first grant is revoked (so it can never land later, even if the device posts
-          // it) or, if the node holds it revoked, simply ended, and a new id follows after a cooldown that grows each time;
-          // a refused renewal is signed again the same way.
-          if (record) {
-            if (record.recorded === false && reason !== '409 revoked') this.#revoke(record, now)
-            else if (record.recorded === false || reason === '409 revoked') { record.status = 'ended'; record.recorded = false }
-            else record.needsRenewal = true
-            this.#coolDown(held.server, record.device, now)
-          }
-        } else {
-          // Signing again cannot cure these (the keeper is not enrolled, the host name is wrong, ...): stop signing for the
-          // node, and try one probe grant a day. What it refused is made harmless where it can be.
-          if (held.kind === 'grant' && record?.recorded === false) this.#revoke(record, now)
-          this.#refuseNode(held.server, reason, now)
-        }
-      }
-      // Once per node and reason, not per device or per attempt.
-      const told = `${held.server}/${reason}`
-      if (!this.#reported.has(told)) {
-        this.#reported.add(told)
-        const what = held.kind === 'reset' ? 'a reset' : held.kind === 'revoked' ? 'a revocation' : 'a grant'
-        this.#log(`group grants: ${held.server} refused ${what} (${reason}); not retrying${held.kind !== 'revoked' && !CURABLE.test(reason) ? ', and signing nothing more for it until a daily probe is taken' : ''}`)
-        this.#announced.set(told, now)
-        void this.#send({ op: 'error', host: this.#host.keeperParticipant, message: this.#stoppedMessage(held.server, held.kind, reason) })
-      }
-      held.reported = true
+      await this.#refused(held, record, outcome.reason, now)
     }
     this.#touch()
     await this.#saveSafe()
+  }
+
+  /** The node answered an event for good: stop pushing it, and decide what that means for the record, the device and the node. */
+  async #refused(held: JournalEntry, record: GrantRecord | undefined, reason: string, now: number): Promise<void> {
+    held.stopped = reason
+    held.stoppedAt = this.#clockMs()
+    if (held.kind !== 'revoked') {
+      if (CURABLE.test(reason)) {
+        // Signing again can cure these: the first grant is revoked (so it can never land later, even if the device posts it)
+        // or, if the node holds it revoked, simply ended, and a new id follows after a cooldown that grows each time (for this
+        // device at this node only); a refused renewal is signed again the same way.
+        if (record) {
+          if (record.recorded === false && reason !== '409 revoked') this.#revoke(record, now)
+          else if (record.recorded === false || reason === '409 revoked') { record.status = 'ended'; record.recorded = false }
+          else record.needsRenewal = true
+          this.#coolDown(held.server, record.device, now)
+        }
+      } else {
+        // Signing again cannot cure these (the keeper is not enrolled, the host name is wrong, ...): stop signing for the
+        // node, and try one probe grant a day. What it refused is made harmless where it can be.
+        if (held.kind === 'grant' && record?.recorded === false) this.#revoke(record, now)
+        this.#refuseNode(held.server, reason, now)
+      }
+    }
+    // Once per node and reason (per device for the two that speak of one device), not per attempt.
+    const told = PER_DEVICE.test(reason) && held.device ? `${held.server}/${reason}/${held.device}` : `${held.server}/${reason}`
+    if (!this.#reported.has(told)) {
+      this.#reported.add(told)
+      const what = held.kind === 'reset' ? 'a reset' : held.kind === 'revoked' ? 'a revocation' : 'a grant'
+      this.#log(`group grants: ${held.server} refused ${what} (${reason}); not retrying${held.kind !== 'revoked' && !CURABLE.test(reason) ? ', and signing nothing more for it until a daily probe is taken' : ''}`)
+      this.#announced.set(`${held.server}/${reason}`, now)
+      void this.#send({ op: 'error', host: this.#host.keeperParticipant, message: this.#stoppedMessage(held.server, held.kind, reason) })
+    }
+    held.reported = true
   }
 
   async #post(entry: JournalEntry): Promise<PushOutcome> {
@@ -980,6 +1008,7 @@ export class GroupGrantKeeper {
         if (reason === 'revoked' && entry.kind === 'grant') return { kind: 'stop', reason: '409 revoked' }
         return !reason || BENIGN_409.has(reason) ? { kind: 'done' } : { kind: 'stop', reason: `409 ${reason}` }
       }
+      if (status === 500) return { kind: 'retry', flaky: '500' } // a few tries before the node is taken to refuse
       if (status === 403 && reason === 'future') {
         // The node's clock is behind ours by more than 30 seconds: a condition that mends itself, so keep trying until the event's own end.
         return { kind: 'retry' }

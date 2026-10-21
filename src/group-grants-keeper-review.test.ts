@@ -469,3 +469,102 @@ describe('round 2', () => {
     expect(t.errors()).toEqual([])
   })
 })
+
+describe('round 3', () => {
+  it('R3-1: one device the node holds as something else costs that device a growing cooldown and one error, not the node for everybody', async () => {
+    const t = setup({ nodes: [A] }, new MemoryStore(), [A])
+    const x = t.addDevice(P1)
+    const y = t.addDevice(P2)
+    t.nodes.reserved.add(x) // at node A this key is already something else: key-conflict
+    const keeper = await t.make()
+    await keeper.start()
+    let lacking = 0
+    for (let step = 0; step < 31 * 4; step++) {
+      t.tick(6 * 3600)
+      await keeper.sweep()
+      await waitFor(() => keeper.ledger.journal.every((j) => j.stopped !== undefined), 3_000).catch(() => {})
+      if (!keeper.ledger.grants.some((g) => g.device === y && g.status === 'active' && g.expiration > t.world.now)) lacking++
+    }
+    const l = keeper.ledger
+    expect(lacking).toBe(0)
+    expect(l.refusedNodes!['node-a.test']).toBeUndefined()
+    // The conflicting device: tried again after 1 h, 2 h, 4 h ... up to a day, not every sweep.
+    expect(l.grants.filter((g) => g.device === x).length).toBeLessThanOrEqual(36) // about one a day once the cooldown reaches its ceiling, not one a sweep (124)
+    expect(t.errors().length).toBe(1)
+    expect(t.errors()[0]!.message).toContain('key-conflict')
+  }, 120_000)
+
+  it('R3-1: the daily probe leaves a device with a refusal of its own at that node alone', async () => {
+    const t = setup({}, new MemoryStore(), [A])
+    const x = t.addDevice(P1)
+    const y = t.addDevice(P2)
+    t.nodes.reserved.add(x) // key-conflict for x at A, from the start
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.cooldown?.['node-a.test|' + x] !== undefined && keeper.ledger.grants.some((g) => g.device === y && g.recorded === true))
+    // A new device arrives just as the node stops enrolling the keeper: the node is refused.
+    const z = t.addDevice(P2)
+    t.nodes.unenrolled.add('node-a.test')
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.refusedNodes?.['node-a.test'] !== undefined)
+    t.world.devices = [t.world.devices.find((d) => d.device === x)!, ...t.world.devices.filter((d) => d.device !== x)] // x first
+    t.nodes.unenrolled.delete('node-a.test')
+    t.tick(86_401)
+    const before = keeper.ledger.grants.filter((g) => g.device === x).length
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.refusedNodes?.['node-a.test'] === undefined)
+    expect(keeper.ledger.grants.filter((g) => g.device === x).length).toBe(before) // x was not the probe
+    expect(keeper.ledger.grants.some((g) => g.device === z && g.recorded === true)).toBe(true)
+  })
+
+  it('R3-2: the probe does not hand a sixth device the grant the five-device rule withheld', async () => {
+    const t = setup({}, new MemoryStore(), [A, B])
+    const five = Array.from({ length: 5 }, () => t.addDevice(P1))
+    t.nodes.unenrolled.add('node-a.test')
+    const sixth = t.addDevice(P1)
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.refusedNodes?.['node-a.test'] !== undefined && keeper.ledger.journal.every((j) => j.stopped !== undefined))
+    expect(keeper.ledger.refused.map((r) => r.device)).toEqual([sixth])
+    // The sixth is heard first from now on, and the node takes the keeper again.
+    t.world.devices = [t.world.devices.find((d) => d.device === sixth)!, ...t.world.devices.filter((d) => d.device !== sixth)]
+    t.nodes.unenrolled.delete('node-a.test')
+    t.tick(86_401)
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.refusedNodes?.['node-a.test'] === undefined)
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.journal.every((j) => j.stopped !== undefined))
+    const live = new Set(keeper.ledger.grants.filter((g) => g.status === 'active').map((g) => g.device))
+    expect(live.has(sixth)).toBe(false)
+    expect([...live].sort()).toEqual([...five].sort())
+  })
+
+  it('a single 500 is retried, not taken as the node refusing; the third in a row is; 501 is at once', async () => {
+    const t = setup({}, new MemoryStore(), [A])
+    t.addDevice(P1)
+    t.nodes.script('node-a.test', { status: 500 }, { status: 500 })
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => t.nodes.posts.some((p) => p.status === 201))
+    expect(keeper.ledger.refusedNodes!['node-a.test']).toBeUndefined()
+    expect(t.errors()).toEqual([])
+    // Three in a row: the node is refusing.
+    const t2 = setup({}, new MemoryStore(), [A])
+    t2.addDevice(P1)
+    t2.nodes.script('node-a.test', { status: 500 }, { status: 500 }, { status: 500 })
+    const k2 = await t2.make()
+    await k2.start()
+    await waitFor(() => k2.ledger.refusedNodes?.['node-a.test'] !== undefined)
+    expect(k2.ledger.refusedNodes!['node-a.test']!.reason).toBe('500')
+    expect(t2.nodes.posts.filter((p) => p.status === 500).length).toBe(3)
+    expect(t2.errors().length).toBe(1)
+    // 501 and upward at once.
+    const t3 = setup({}, new MemoryStore(), [A])
+    t3.addDevice(P1)
+    t3.nodes.script('node-a.test', { status: 501 })
+    const k3 = await t3.make()
+    await k3.start()
+    await waitFor(() => k3.ledger.refusedNodes?.['node-a.test'] !== undefined)
+    expect(t3.nodes.posts.filter((p) => p.status === 501).length).toBe(1)
+  })
+})

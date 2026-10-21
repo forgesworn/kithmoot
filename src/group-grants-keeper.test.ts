@@ -522,7 +522,7 @@ describe('the journal', { timeout: 30_000 }, () => {
     })
   }
 
-  for (const [status, reason] of [[400, 'malformed'], [401, 'signature'], [403, 'keeper'], [403, 'server'], [413, 'too-large'], [404, ''], [500, ''], [409, 'key-conflict'], [409, 'scope-taken'], [409, 'floor']] as const) {
+  for (const [status, reason] of [[400, 'malformed'], [401, 'signature'], [403, 'keeper'], [403, 'server'], [413, 'too-large'], [404, ''], [501, ''], [409, 'key-conflict'], [409, 'scope-taken'], [409, 'floor']] as const) {
     it(`stops after ${status} ${reason}, and tells the hosts, once`, async () => {
       const t = setup({}, new MemoryStore(), [A])
       t.addDevice(P1)
