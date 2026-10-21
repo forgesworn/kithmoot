@@ -11,7 +11,7 @@ function fixture() {
   const pubkey = getPublicKey(secret)
   let receive!: (event: Event) => void
   const onChange = vi.fn()
-  const book = new ProfileBook({ relays: () => [], publicRelays: () => [], onChange, transport: () => ({
+  const book = new ProfileBook({ relays: () => [], onChange, transport: () => ({
     subscribe: (_filters: unknown, handler: typeof receive) => { receive = handler; return () => {} },
     close() {},
   }) as unknown as NostrRelayPool })
@@ -19,7 +19,7 @@ function fixture() {
   // own tests below.
   book.setNip05Automatic(true)
   books.push(book)
-  book.want([pubkey], 'room')
+  book.want([pubkey])
   const publish = (content: unknown, created_at = 1) => receive(finalizeEvent({ kind: 0, tags: [], created_at, content: JSON.stringify(content) }, secret))
   return { book, pubkey, publish, onChange, receive }
 }
@@ -69,12 +69,12 @@ it('does not contact an address’s domain until verification is switched on', a
   const secret = generateSecretKey()
   const pubkey = getPublicKey(secret)
   let receive!: (event: Event) => void
-  const book = new ProfileBook({ relays: () => [], publicRelays: () => [], onChange: vi.fn(), transport: () => ({
+  const book = new ProfileBook({ relays: () => [], onChange: vi.fn(), transport: () => ({
     subscribe: (_filters: unknown, handler: typeof receive) => { receive = handler; return () => {} },
     close() {},
   }) as unknown as NostrRelayPool })
   books.push(book)
-  book.want([pubkey], 'room')
+  book.want([pubkey])
   const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ names: { alice: pubkey } }) })
   vi.stubGlobal('fetch', fetcher)
   receive(finalizeEvent({ kind: 0, tags: [], created_at: 1, content: JSON.stringify({ name: 'Alice', nip05: 'alice@example.com' }) }, secret))
@@ -117,120 +117,8 @@ it('ignores forged profiles and invalid address URLs without contacting their ho
 
 it('hands the pool each relay once when the room and the public list spell it differently', () => {
   const transport = vi.fn(() => ({ subscribe: () => () => {}, close() {} }) as unknown as NostrRelayPool)
-  const book = new ProfileBook({ relays: () => ['wss://nos.lol/', 'wss://relay.primal.net/', 'wss://purplepag.es', 'wss://nos.lol', 'wss://relay.primal.net'], publicRelays: () => [], onChange: vi.fn(), transport })
+  const book = new ProfileBook({ relays: () => ['wss://nos.lol/', 'wss://relay.primal.net/', 'wss://purplepag.es', 'wss://nos.lol', 'wss://relay.primal.net'], onChange: vi.fn(), transport })
   books.push(book)
-  book.want(['a'.repeat(64)], 'room')
-  expect(transport).toHaveBeenCalledWith(['wss://nos.lol/', 'wss://relay.primal.net/', 'wss://purplepag.es'], 'room')
-})
-
-/** A book over a room's relays and the public ones, with a fake transport
- *  that remembers, per scope, where it was pointed and what was asked. */
-function scoped() {
-  const room = ['wss://room.example/', 'wss://purplepag.es', 'wss://relay.damus.io']
-  const publicOnly = ['wss://purplepag.es', 'wss://relay.damus.io']
-  const pools: { scope: string; urls: string[]; closed: boolean; asked: string[][]; receive: (event: Event) => void }[] = []
-  const book = new ProfileBook({
-    relays: () => room, publicRelays: () => publicOnly, onChange: vi.fn(),
-    transport: (urls, scope) => {
-      const pool = { scope, urls, closed: false, asked: [] as string[][], receive: (_event: Event) => {} }
-      pools.push(pool)
-      return {
-        subscribe: (filters: { authors: string[] }[], handler: (event: Event) => void) => { pool.asked.push(filters[0]!.authors); pool.receive = handler; return () => {} },
-        close() { pool.closed = true },
-      } as unknown as NostrRelayPool
-    },
-  })
-  books.push(book)
-  return { book, pools, room, publicOnly }
-}
-const A = 'a'.repeat(64), B = 'b'.repeat(64), C = 'c'.repeat(64)
-
-it('asks the open room’s relays about people in the room, and the public relays alone about anybody else', () => {
-  const { book, pools, room, publicOnly } = scoped()
-  book.want([A], 'room')
-  book.want([B], 'public')
-  expect(pools.map(pool => [pool.scope, pool.urls])).toEqual([['room', room], ['public', publicOnly]])
-  expect(pools[0]!.asked).toEqual([[A]])
-  expect(pools[1]!.asked).toEqual([[B]])
-  // The public pool never saw the room's relay, and the person asked about
-  // there never reached the room's pool.
-  expect(pools[1]!.urls).not.toContain('wss://room.example/')
-  expect(pools[0]!.asked.flat()).not.toContain(B)
-})
-
-it('asks a key again in the room when it was only asked about publicly before, and never twice for the same scope', () => {
-  const { book, pools } = scoped()
-  book.want([A], 'public')
-  book.want([A], 'public')
-  expect(pools).toHaveLength(1)
-  expect(pools[0]!.asked).toEqual([[A]])
-  book.want([A, B], 'room')
-  expect(pools.map(pool => pool.scope)).toEqual(['public', 'room'])
-  expect(pools[1]!.asked).toEqual([[A, B]])
-  // The room pool already covers the public relays, so a public question
-  // about a key it has asked is not asked again.
-  book.want([A, B, C], 'public')
-  expect(pools[0]!.asked).toEqual([[A], [C]])
-  book.want([A], 'room')
-  expect(pools[1]!.asked).toEqual([[A, B]])
-})
-
-it('takes a profile from either scope and shows it to every caller', () => {
-  const { book, pools } = scoped()
-  const secret = generateSecretKey(), pubkey = getPublicKey(secret)
-  book.want([pubkey], 'public')
-  pools[0]!.receive(finalizeEvent({ kind: 0, tags: [], created_at: 1, content: JSON.stringify({ name: 'Ada' }) }, secret))
-  expect(book.get(pubkey)?.name).toBe('Ada')
-  // A key nobody asked about is not accepted from either pool.
-  const stranger = generateSecretKey()
-  pools[0]!.receive(finalizeEvent({ kind: 0, tags: [], created_at: 1, content: JSON.stringify({ name: 'Stranger' }) }, stranger))
-  expect(book.get(getPublicKey(stranger))).toBeUndefined()
-})
-
-it('switching lookups off closes both pools and forgets, and on again builds both afresh', () => {
-  const { book, pools } = scoped()
-  const secret = generateSecretKey(), pubkey = getPublicKey(secret)
-  book.want([pubkey], 'room')
-  book.want([B], 'public')
-  pools[0]!.receive(finalizeEvent({ kind: 0, tags: [], created_at: 1, content: JSON.stringify({ name: 'Ada' }) }, secret))
-  book.setEnabled(false)
-  expect(pools.map(pool => pool.closed)).toEqual([true, true])
-  expect(book.get(pubkey)).toBeUndefined()
-  // Off means nothing is asked of anyone.
-  book.want([pubkey], 'room')
-  book.want([B], 'public')
-  expect(pools).toHaveLength(2)
-  book.setEnabled(true)
-  book.want([pubkey], 'room')
-  book.want([B], 'public')
-  expect(pools.map(pool => pool.scope)).toEqual(['room', 'public', 'room', 'public'])
-  expect(pools.slice(2).map(pool => pool.closed)).toEqual([false, false])
-  expect(pools[2]!.asked).toEqual([[pubkey]])
-  expect(pools[3]!.asked).toEqual([[B]])
-})
-
-it('restarting closes the sockets opened for the room just left, asks afresh, and keeps what it learned', () => {
-  const { book, pools } = scoped()
-  const secret = generateSecretKey(), pubkey = getPublicKey(secret)
-  book.want([pubkey], 'room')
-  book.want([B], 'public')
-  pools[0]!.receive(finalizeEvent({ kind: 0, tags: [], created_at: 1, content: JSON.stringify({ name: 'Ada' }) }, secret))
-  book.restart()
-  expect(pools.map(pool => pool.closed)).toEqual([true, true])
-  expect(book.get(pubkey)?.name).toBe('Ada')
-  // The next room's people are asked on new pools, not the old room's.
-  book.want([pubkey], 'room')
-  book.want([B], 'public')
-  expect(pools.map(pool => pool.scope)).toEqual(['room', 'public', 'room', 'public'])
-  expect(pools[2]!.asked).toEqual([[pubkey]])
-  expect(pools[3]!.asked).toEqual([[B]])
-})
-
-it('a restart with lookups switched off asks nobody', () => {
-  const { book, pools } = scoped()
-  book.setEnabled(false)
-  book.restart()
-  book.want([A], 'room')
-  book.want([B], 'public')
-  expect(pools).toHaveLength(0)
+  book.want(['a'.repeat(64)])
+  expect(transport).toHaveBeenCalledWith(['wss://nos.lol/', 'wss://relay.primal.net/', 'wss://purplepag.es'])
 })
