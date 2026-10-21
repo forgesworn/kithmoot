@@ -6,6 +6,20 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.98 ring window, same-name keys and Effects headings, 20 October 2026
+
+Version **0.6.98**, code **121**, follows the web's calm shell stage 5
+review: a call rings for up to a minute from its start and an older call does
+not ring, two people with the same name on a call show their short key, an
+unnamed caller is "Somebody", and the Effects headings match the web
+(kithmoot-android #293). No wire change.
+
+The production APK is built from Android source
+`ae9f6645` (pull request #293 merged, all checks passed), SHA-256
+`53d801ac51d7574f5da3e5f4f986e223d2bcbb2fd9bfd447bd171d0a7317a85e`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started a room over public relays; not yet observed on a device.
+
 ## Android 0.6.97 room bar, Room info and the call, 20 October 2026
 
 Version **0.6.97**, code **120**, brings stages 3 to 5 of the calm shell to
