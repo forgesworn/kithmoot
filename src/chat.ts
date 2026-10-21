@@ -1,3 +1,4 @@
+import { privateAttachmentLocation } from './private-attachment.js'
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import type { ProtocolExecution } from './protocol-execution.js'
 import { registerNativeChatView } from './session-native-binding.js'
@@ -216,7 +217,7 @@ export interface ChatAttachment {
    *  room, which never publishes that announcement - see `src/quiet.ts` -
    *  because this message already carries everything a reader needs. */
   event?: string
-  /** Where the envelope is served. https only. */
+  /** HTTPS storage, or a canonical paired Link fsl:// node/hash reference. */
   url: string
   /** SHA-256 of the served envelope bytes, the event's `x` tag. Checked
    *  before the key is ever applied to a download. */
@@ -256,7 +257,7 @@ export function normaliseAttachment(raw: unknown): ChatAttachment | null {
   } catch {
     return null
   }
-  if (url.protocol !== 'https:') return null
+  if (url.protocol !== 'https:' && !privateAttachmentLocation(a.url, a.sha256)) return null
   const out: ChatAttachment = {
     url: a.url,
     sha256: normaliseHex(a.sha256),
