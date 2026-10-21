@@ -294,7 +294,9 @@ jobs:
   # across runners instead. Chromium runs everything and took over half an
   # hour on one runner; it is split five ways by measured time, using the
   # groups in playwright.config.ts (`E2E_GROUP`), whose `rest` group takes
-  # whatever the others do not name. Firefox and WebKit run small, even
+  # whatever the others do not name. The rest group exceeded its 30-minute
+  # job budget; run that same complete group in two disjoint shards.
+  # Firefox and WebKit run small, even
   # specs, so Playwright's own `--shard` halves them well enough.
   acceptance:
     name: acceptance (${{ matrix.name }})
@@ -302,7 +304,7 @@ jobs:
     # Retain the reviewed acceptance job budgets after moving regressions
     # into their own complete per-browser gate. Every Playwright test keeps
     # its existing timeout, assertions and zero retries.
-    timeout-minutes: ${{ (matrix.name == 'chromium rest' || startsWith(matrix.name, 'chromium desktop ') || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
+    timeout-minutes: ${{ (startsWith(matrix.name, 'chromium rest ') || startsWith(matrix.name, 'chromium desktop ') || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -314,7 +316,8 @@ jobs:
           - { name: chromium calls, project: chromium, group: calls, browsers: chromium firefox }
           - { name: chromium media, project: chromium, group: media, browsers: chromium firefox }
           - { name: chromium rooms, project: chromium, group: rooms, browsers: chromium firefox }
-          - { name: chromium rest, project: chromium, group: rest, browsers: chromium firefox }
+          - { name: chromium rest 1 of 2, project: chromium, group: rest, shard: 1/2, artifact: rest-1, browsers: chromium firefox }
+          - { name: chromium rest 2 of 2, project: chromium, group: rest, shard: 2/2, artifact: rest-2, browsers: chromium firefox }
           - { name: firefox 1 of 2, project: firefox, shard: 1/2, browsers: firefox }
           - { name: firefox 2 of 2, project: firefox, shard: 2/2, browsers: firefox }
           - { name: webkit 1 of 2, project: webkit, shard: 1/2, browsers: webkit }
@@ -368,7 +371,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: playwright-traces-${{ matrix.project }}-${{ matrix.group || strategy.job-index }}
+          name: playwright-traces-${{ matrix.project }}-${{ matrix.artifact || matrix.group || strategy.job-index }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7

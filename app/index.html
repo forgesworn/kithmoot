@@ -774,6 +774,17 @@
           <div class="attachRow">
             <input id="attachFile" type="file" multiple aria-label="Choose a file to share" />
           </div>
+          <div id="privateFileStorage" hidden>
+            <p class="note">Files are encrypted here and sent through this room’s selected Bothy connection. Recipients need a permitted connection to the same box. Other paired members can fetch encrypted copies; the message contains the key that opens yours. The box operator can see transfer times and sizes and decides retention.</p>
+            <button type="button" id="allowPrivateFiles">Allow encrypted files on this room’s Bothy</button>
+            <button type="button" id="stopPrivateFiles" hidden>Stop new private uploads and downloads</button>
+            <p class="note">Private file approvals currently need a supported browser extension signer. Allowing access enables uploads and opening received files. A file uploads when you choose it, before Send. Stopping access keeps already opened files and uploaded copies.</p>
+            <details id="privateFileRecords">
+              <summary>Review this account’s private uploads for this room</summary>
+              <p class="note">Unconfirmed uploads may already be stored. Delete asks the recorded box to remove your copy; other owners or recipients may retain copies. Records remain until the box confirms your claim was removed or reports the file absent.</p>
+              <div id="privateFileRecordList"></div>
+            </details>
+          </div>
           <!-- Where uploads go. Closed once a server is chosen: the status
                line above already says which, and the choice is made once
                per device, not once per file. Its summary is set by
@@ -887,7 +898,9 @@
             </details>
           </details>
         </div>
+        <button id="privateFileUploadsOpen" type="button" hidden>Review private uploads</button>
         <button id="forgetBrowser" type="button" class="danger" hidden>Forget this browser</button>
+        <p id="forgetBrowserStatus" class="note" role="status"></p>
         <div id="openInApp" class="openInApp" hidden>
           <a id="openInAppLink" class="openInAppLink" href="#">Open in the app</a>
         </div>

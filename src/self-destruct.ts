@@ -4,6 +4,7 @@ import type { Filter } from 'nostr-tools/filter'
 import type { RelayTransport } from './relay-pool.js'
 import { KINDS } from './kinds.js'
 import { ownEnvelope2Events, type ChatStream } from './chat.js'
+import { scanChatHistory } from './chat-history-scan.js'
 
 /**
  * Take back what a device signed in a room that self-destructs, as far as
@@ -33,7 +34,7 @@ export interface DeletionReport {
   requested: number
   /** Requests a relay refused or that could not be sent. */
   failed: number
-  /** False when the time ran out before every question was answered. */
+  /** False when history discovery was partial, capped or timed out. */
   complete: boolean
 }
 
@@ -48,9 +49,36 @@ export function deletionRequest(sk: Uint8Array, events: readonly Event[], now: n
   }, sk)
 }
 
-function readEvents(transport: RelayTransport, filter: Filter, deadline: number): Promise<{ events: Event[]; complete: boolean }> {
+async function readEvents(transport: RelayTransport, filter: Filter, deadline: number): Promise<{ events: Event[]; complete: boolean }> {
+  // Reuse the same configured, route-owned query capability as history
+  // recovery. A generic subscribe callback can also mean a local timeout.
+  const queryable = transport as RelayTransport & {
+    query?: (url: string, filters: Filter[], timeoutMs?: number, maxEvents?: number) => Promise<{ events: Event[]; complete: boolean }>
+  }
+  if (typeof queryable.query === 'function' && typeof queryable.describe === 'function') {
+    const events = new Map<string, Event>()
+    let urls: string[]
+    try { urls = [...new Set(queryable.describe().filter(r => r.read).map(r => r.url))] }
+    catch { return { events: [], complete: false } }
+    let complete = urls.length > 0
+    for (const url of urls) {
+      if (Date.now() >= deadline) return { events: [...events.values()], complete: false }
+      try {
+        const read = await queryable.query(url, [filter], Math.max(1, deadline - Date.now()), QUERY_LIMIT)
+        if (!read.complete) complete = false
+        for (const event of read.events.slice(0, QUERY_LIMIT)) {
+          if (events.has(event.id)) continue
+          if (events.size >= QUERY_LIMIT) return { events: [...events.values()], complete: false }
+          events.set(event.id, event)
+        }
+        if (read.events.length > QUERY_LIMIT) return { events: [...events.values()], complete: false }
+      } catch { complete = false }
+    }
+    return { events: [...events.values()], complete }
+  }
   return new Promise((resolve) => {
     const events: Event[] = []
+    const seen = new Set<string>()
     let done = false
     let unsub: (() => void) | undefined
     const finish = (complete: boolean) => {
@@ -61,8 +89,14 @@ function readEvents(transport: RelayTransport, filter: Filter, deadline: number)
       resolve({ events, complete })
     }
     const timer = setTimeout(() => finish(false), Math.max(0, deadline - Date.now()))
-    unsub = transport.subscribe([filter], (event) => { events.push(event) }, () => finish(true))
-    if (done) try { unsub() } catch { /* As above. */ }
+    try {
+      unsub = transport.subscribe([filter], event => {
+        if (done || seen.has(event.id)) return
+        if (events.length >= QUERY_LIMIT) { finish(false); return }
+        seen.add(event.id); events.push(event)
+      }, () => finish(false))
+    } catch { finish(false) }
+    if (done) try { unsub?.() } catch { /* As above. */ }
   })
 }
 
@@ -112,6 +146,7 @@ export async function deleteSignedEvents(opts: {
         }
       }
       if (fresh.length < QUERY_LIMIT) break
+      if (round === MAX_ROUNDS - 1) report.complete = false
     }
   }
   if (opts.chat && opts.chat.streams.length > 0) await deleteOwnEnvelope2(opts.transport, opts.chat, opts.now, deadline, report)
@@ -130,18 +165,20 @@ async function deleteOwnEnvelope2(
   const asked = new Set<string>()
   for (let i = 0; i < chat.streams.length; i += STREAMS_PER_FILTER) {
     const streams = chat.streams.slice(i, i + STREAMS_PER_FILTER)
-    let until: number | undefined
-    for (let round = 0; round < MAX_ROUNDS; round++) {
-      const filter: Filter = { kinds: [KINDS.CHAT], '#d': streams.map((s) => s.d), limit: QUERY_LIMIT, ...(until !== undefined ? { until } : {}) }
-      const read = await readEvents(transport, filter, deadline)
-      if (!read.complete) report.complete = false
-      const own = ownEnvelope2Events(read.events.filter((e) => !asked.has(e.id)), streams, chat.deviceSk)
-      const fresh = [...new Map(own.map((o) => [o.event.id, o])).values()]
-      report.found += fresh.length
-      for (const { event, sk } of fresh) {
+    const complete = await scanChatHistory({ kinds: [KINDS.CHAT], '#d': streams.map(s => s.d) }, filter => {
+      if (Date.now() >= deadline) return Promise.resolve({ events: [], complete: false })
+      return readEvents(transport, filter, deadline)
+    }, async events => {
+      const fresh = new Map<string, { event: Event; sk: Uint8Array }>()
+      for (const own of ownEnvelope2Events(events.filter(e => !asked.has(e.id)), streams, chat.deviceSk)) {
+        if (fresh.has(own.event.id)) own.sk.fill(0)
+        else fresh.set(own.event.id, own)
+      }
+      report.found += fresh.size
+      for (const { event, sk } of fresh.values()) {
         asked.add(event.id)
-        if (Date.now() >= deadline) { report.complete = false; report.failed += 1; continue }
         try {
+          if (Date.now() >= deadline) { report.complete = false; report.failed += 1; continue }
           await Promise.race([
             transport.publish(deletionRequest(sk, [event], now())),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), Math.max(1, deadline - Date.now())).unref?.()),
@@ -153,12 +190,7 @@ async function deleteOwnEnvelope2(
           sk.fill(0)
         }
       }
-      // Other members' messages fill pages too, so page back by time until a
-      // short page, skipping what was already asked for.
-      if (read.events.length < QUERY_LIMIT) break
-      const oldest = Math.min(...read.events.map((e) => e.created_at))
-      if (until !== undefined && oldest >= until) break
-      until = oldest
-    }
+    })
+    if (!complete) report.complete = false
   }
 }

@@ -5,6 +5,15 @@ import type { NostrMessageIdentity } from './nostr-message.js'
  * start and handoff; a check before an SDK call alone is insufficient. Other
  * signer transports require their own wire/deferred-start qualification. */
 export function nostrMessageIdentity(account: SignetSession, selected: () => SignetSession | undefined): NostrMessageIdentity | undefined {
+  return guardedIdentity(account, selected, true)
+}
+/** The same qualified provider boundary for event-only approvals. File
+ * encryption happens locally and does not require signer NIP-44 support. */
+export function nostrEventSigner(account: SignetSession, selected: () => SignetSession | undefined): Pick<NostrMessageIdentity, 'pubkey' | 'signEvent'> | undefined {
+  const identity = guardedIdentity(account, selected, false)
+  return identity ? { pubkey: identity.pubkey, signEvent: identity.signEvent } : undefined
+}
+function guardedIdentity(account: SignetSession, selected: () => SignetSession | undefined, requireEncryption: boolean): NostrMessageIdentity | undefined {
   const signer = account.signer, crypt = signer.nip44, encrypt = crypt?.encrypt, sign = signer.signEvent
   const pubkey = account.pubkey, expiry = account.expiresAt
   const check = (current: () => boolean): void => {
@@ -14,7 +23,7 @@ export function nostrMessageIdentity(account: SignetSession, selected: () => Sig
         account.expiresAt !== expiry || expiry !== undefined && (!Number.isSafeInteger(expiry) || Date.now() >= expiry) ||
         !current() || selected() !== account) throw Error('Public message signer is no longer available.')
   }
-  try { check(() => true); if (!encrypt || !sign) return }
+  try { check(() => true); if ((!encrypt && requireEncryption) || !sign) return }
   catch { return }
   async function invoke<T>(current: () => boolean, call: (boundary: SignerEffectBoundary) => Promise<T>, maxStarts: number): Promise<T> {
     let starts = 0, finished = false, running = false, completed = false, provided: unknown

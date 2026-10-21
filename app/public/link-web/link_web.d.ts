@@ -79,7 +79,7 @@ export class LinkEngine {
      */
     removeRoute(routeId: string): Promise<void>;
     /**
-     * One bounded, allowlisted request (cadence, VMLS or witness) over the
+     * One bounded, allowlisted request (cadence, VMLS, witness or file) over the
      * route's pinned session.
      */
     request(request: LinkHttpRequest): Promise<LinkHttpResponse>;
