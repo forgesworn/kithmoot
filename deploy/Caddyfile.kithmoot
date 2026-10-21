@@ -163,17 +163,14 @@ kithmoot.forgesworn.dev {
 		reverse_proxy 127.0.0.1:8114
 	}
 
-	# The drop tier of the box this host runs (bothy-node, container
-	# `bothyd-stall`, `BOTHY_DROPS_BIND` published on 127.0.0.1:4848): kind
-	# 1059 gift wraps accepted from anyone into a bounded tier and served by
-	# broadcast, NIP-01 over a WebSocket. Fronted here so a Nostr client can
-	# name `wss://kithmoot.forgesworn.dev/drops` as a relay; Caddy carries
-	# the upgrade through. Unauthenticated by design: the tier's own bounds
-	# (1 GiB oldest-out, 30 days, sixty posts a minute per connection) are
-	# what stand in the way, and it holds one kind only.
-	handle /drops {
-		reverse_proxy 127.0.0.1:4848
-	}
+	# No /drops here. The box's drop tier (bothy-node, container
+	# `bothyd-stall`) took kind 1059 gift wraps from anyone, and was fronted
+	# at wss://kithmoot.forgesworn.dev/drops until 21 October 2026. It is
+	# no longer fronted: nothing on this host takes content from whoever
+	# finds it. The tier itself still listens on 127.0.0.1:4848, because
+	# the box's cadence work will not start without it; it is reachable
+	# only from the box. A request for /drops falls through to the
+	# catch-all below and gets a 404.
 
 	# Blossom (BUD-01), for the files dropped into a room's chat. The app's
 	# BLOSSOM_ENDPOINT is this origin and nothing more, because an upload
