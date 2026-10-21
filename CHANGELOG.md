@@ -1,5 +1,21 @@
 # Changelog
 
+## Desktop 0.1.96, 21 October 2026
+
+- Opening an invite link takes one press: the room, "What should we call you?" and Join. Microphone and camera stay off, and Hide my IP address on calls sits folded at the bottom. When this device used a Nostr account before, the button is "Continue as {name}", with "Join with just a name instead" underneath.
+- Starting a room puts you straight in it. New room asks your name only when the app does not know it yet.
+- A room you have joined opens again from its link, with no name to type, as long as it is the same person on this device. Leaving a room makes its link an invitation again.
+- Nostr keys no longer show in rooms, Room info, Chats or invitations. Somebody with no name is "Somebody"; a short key appears only when two people share a name.
+- Inviting someone to a room shows your rooms with a choice each, says who is already there and who was invited, then Send invite.
+- Hide my IP address on calls is now a switch in Settings › Privacy.
+- A room can be muted for 1 hour, 8 hours, 1 day or 1 week from its Notifications menu. A muted room, or one set to Nothing, shows a bell with a line through it and leaves the Chats count and the dock badge. Calls in it still show the banner when the room is open, without the ring sound.
+- A new notification choice, Only mentions and replies.
+- On macOS the grey title bar gives way to a slim strip in a slightly different shade, with the window buttons in it: drag the window from there. The window remembers its size and position on every system.
+- Decline and block for invitations, Block on a contact's page, and Settings › Privacy › Blocked on this device. Blocks stay on this device and the sender is never told.
+- Settings › Account can send and reply to ordinary encrypted Nostr messages with people on other Nostr apps, signed in with a browser extension. Incoming messages wait until you choose to open them. Older NIP-04 messages can be read, one at a time, and are never sent.
+- The file panel no longer suggests a ForgeSworn file server; it lists servers run by other people and your own.
+- New default relays: relay.primal.net, nostr.oxtr.dev and relay.ditto.pub, replacing nos.lol and nostr.mom, which stopped answering.
+
 ## Desktop 0.1.95, 20 October 2026
 
 - A call has one row of buttons, each with its word under it: Mute, Camera, Share, Chat, More and Leave, with Full screen on a wider window. Leave is the only red one. More is a short menu: Effects, Layout, Record call, Run as a meeting, Use beside another device, Mirror my view, Let agents hear me and Invite people, each only when it applies.

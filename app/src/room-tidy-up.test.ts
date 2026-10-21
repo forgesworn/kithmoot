@@ -3,6 +3,8 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventT
 import { matchFilters, type Filter } from 'nostr-tools/filter'
 import { deletionTemplate, runTidyUp, tidyUpSteps, type TidyUpDeps } from './room-tidy-up.js'
 import type { PublicDeletionRelayOutcome } from './public-deletion-relay-writer.js'
+import { deriveRoom } from '../../src/room.js'
+import { chatStreamsOf, encodeChatEvent, type ChatMessage } from '../../src/chat.js'
 
 const NOW = 1_800_000_000
 const ROOM_RELAYS = ['wss://a.example', 'wss://b.example']
@@ -81,6 +83,27 @@ function setup(refuse?: (relay: string, event: Event) => boolean) {
 const kindsOf = (event: Event) => event.tags.filter(t => t[0] === 'k').map(t => Number(t[1]))
 
 describe('leave and tidy up', () => {
+  it('asks for this device\'s chat envelope 2 messages under their own keys, and counts what is left', async () => {
+    const { r, deps, deviceSk, otherSk } = setup()
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(3))
+    const msg = (sk: Uint8Array, id: string): ChatMessage => ({ id, participant: 'cd'.repeat(32), device: getPublicKey(sk), credential: {} as ChatMessage['credential'], text: 'hi', sentAt: NOW - 50 })
+    const mine = encodeChatEvent(msg(deviceSk, 'mine-1'), { roomId, roomKey, deviceSk, envelope: 2 })
+    const theirs = encodeChatEvent(msg(otherSk, 'theirs-1'), { roomId, roomKey, deviceSk: otherSk, envelope: 2 })
+    for (const relay of ROOM_RELAYS) { r.put(relay, mine); r.put(relay, theirs) }
+    deps.chatStreams = chatStreamsOf([{ id: roomId, key: roomKey }], [undefined])
+    const report = await runTidyUp(deps)
+    const asked = r.published.filter(p => p.event.kind === 5 && p.event.pubkey === mine.pubkey)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.event.tags).toContainEqual(['e', mine.id])
+    expect(r.published.some(p => p.event.kind === 5 && p.event.tags.some(t => t[0] === 'e' && t[1] === theirs.id))).toBe(false)
+    for (const relay of ROOM_RELAYS) {
+      expect(r.stores.get(relay)!.some(e => e.id === mine.id)).toBe(false)
+      expect(r.stores.get(relay)!.some(e => e.id === theirs.id)).toBe(true)
+    }
+    expect(report.steps.find(s => s.id === 'device')!.found).toBe(3)
+    expect(report.remaining.filter(x => x.what === 'This device’s chat')).toEqual([])
+  })
+
   it('lists every step before running, creator and account steps only when they apply', () => {
     expect(tidyUpSteps({ creator: true, account: true, deleteTombstone: true }).map(s => s.id))
       .toEqual(['invitations', 'retirement', 'tabs', 'device', 'bookmark', 'account', 'local', 'check'])

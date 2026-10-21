@@ -59,10 +59,19 @@ when the target arrives. Reactions already name their target this way.
 - A reply to a root carries both, equal. A reply deeper in a thread names
   the root in `thread` and may name the specific message in `reply`.
 - `thread` absent and `reply` present means the parent is the root.
-- A message carrying `thread` is shown under its root, not in the main
-  stream. When the root is not loaded, the message is shown in the main
-  stream marked as part of a thread, and moves under the root when it
-  arrives. The archive milestone makes that rare.
+- A reply is shown in time order in the main stream, like any message,
+  wherever its original is. Inside its bubble sits a quote of the message
+  it answers (the parent named by `reply`, or the root when only `thread`
+  is present): the original's sender ("You" when it was the reader's), and
+  one line of the original's current text, or the kind of attachment it
+  carried. Pressing the quote goes to the original and marks it briefly.
+  When the original is not loaded the quote says so and goes nowhere;
+  when it was retracted the quote says "Message deleted". A reply always
+  starts its own bubble, so the quote stays with the right message.
+- The wire format is unchanged. `reply` and `thread` still say what a
+  message answers and which thread it belongs to, and another client may
+  still show a thread as a group under its root. Only this display
+  changed.
 - A threaded message may carry attachments and mentions. It cannot carry
   a reaction, an edit, a retraction or an invitation, which are not
   messages.

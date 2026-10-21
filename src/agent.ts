@@ -1663,12 +1663,15 @@ export class RoomAgent {
    * run's device key signed can be asked for.
    */
   async deleteOwnEvents(opts: { timeoutMs?: number } = {}): Promise<DeletionReport> {
+    // Named before leaving: chat envelope 2 messages are found by stream,
+    // not by author.
+    const streams = this.session.chatStreams()
     await this.leave()
     const keys: DeletionKey[] = [{ sk: this.#deviceSk }]
     if (this.#keeper) keys.push({ sk: this.#keeper.inviterSk, kinds: [KINDS.GROUP_INVITATION] })
     const transport = this.#makeTransport(this.#pool)
     try {
-      return await deleteSignedEvents({ transport, keys, now: this.#now, timeoutMs: opts.timeoutMs })
+      return await deleteSignedEvents({ transport, keys, now: this.#now, timeoutMs: opts.timeoutMs, chat: { deviceSk: this.#deviceSk, streams } })
     } finally {
       transport.close()
     }

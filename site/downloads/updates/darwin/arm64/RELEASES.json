@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.95",
+  "currentRelease": "0.1.96",
   "releases": [
     {
-      "version": "0.1.95",
+      "version": "0.1.96",
       "updateTo": {
-        "version": "0.1.95",
-        "pub_date": "2026-10-20T20:52:02Z",
-        "notes": "A call has one row of named buttons and a short More menu, a banner says who is calling, and a contact's page in People lists the rooms you share and lets you check words together.",
-        "name": "0.1.95",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.95/KithMoot-0.1.95-mac-arm64.zip",
-        "sha256": "f82a2f95ea14ab526820b10b90babb0b3870510208e76a036ce5a8688d2cba3d",
-        "size": 170833793
+        "version": "0.1.96",
+        "pub_date": "2026-10-21T13:01:24Z",
+        "notes": "One press through the door, timed mutes, no raw keys, and a slim title bar on macOS.",
+        "name": "0.1.96",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.96/KithMoot-0.1.96-mac-arm64.zip",
+        "sha256": "27650198b3a7c32008e3c1775cdaabd231492a44f40f0c391cfe82d654dac665",
+        "size": 170861050
       }
     }
   ]

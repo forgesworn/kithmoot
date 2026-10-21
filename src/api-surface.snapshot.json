@@ -19,6 +19,7 @@
     "ChatLogOptions",
     "ChatMessage",
     "ChatMessageKind",
+    "ChatStream",
     "DecodeChatOptions",
     "EncodeChatOptions",
     "EpochRoot",
@@ -35,10 +36,12 @@
     "SendOptions",
     "chatEnvelope2Digest",
     "chatOuterSecretKey",
+    "chatStreamsOf",
     "decodeChatEvent",
     "deriveChannel",
     "encodeChatEvent",
-    "normaliseAttachment"
+    "normaliseAttachment",
+    "ownEnvelope2Events"
   ],
   "credential": [
     "CreateCredentialOptions",
@@ -205,6 +208,7 @@
     "ChatMessage",
     "ChatMessageKind",
     "ChatReaction",
+    "ChatStream",
     "ContactInvitation",
     "ContactInvitationIdentity",
     "ContactInvitationRumor",
@@ -679,6 +683,7 @@
     "canonicalRoomRelays",
     "canonicalSpeakers",
     "carryRoomNameOp",
+    "chatStreamsOf",
     "clampStrength",
     "clampVoiceSettings",
     "classifyMessage",
