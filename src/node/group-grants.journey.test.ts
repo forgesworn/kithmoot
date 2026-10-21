@@ -102,7 +102,7 @@ const get = (node: Daemon, sk: Uint8Array | undefined, hash: string) =>
 
 const upload = (node: Daemon, sk: Uint8Array, body: Uint8Array) => {
   const hash = sha(body)
-  return fetch(`${node.url}/upload`, { method: 'PUT', body, headers: { 'x-sha-256': hash, authorization: bud11(sk, 'upload', hash, node.serverName) } })
+  return fetch(`${node.url}/upload`, { method: 'PUT', body: body as unknown as BodyInit, headers: { 'x-sha-256': hash, authorization: bud11(sk, 'upload', hash, node.serverName) } })
 }
 
 const post = (node: Daemon, event: GroupEvent) =>

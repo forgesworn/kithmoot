@@ -113,11 +113,7 @@ describe('a keeper with group nodes', { timeout: 30_000 }, () => {
     const ada = await join('Ada')
     const bob = await join('Bob')
     await settleUntil(() => nodes.posts.filter((p) => p.status === 201).length === 4)
-    const rekeys = () => relay.published.filter((e) => e.kind === KINDS.ROOM_REKEY ?? 1462).length
-    const rekeysAtPush: number[] = []
-    const origPublish = nodes.fetch
     const seen = nodes.posts.length
-    void origPublish
     const removal = keeper.remove(bob.participant)
     await removal
     await settleUntil(() => keeper.session.epoch === 1 && storageOps(ada).some((o) => o.event.tags.some((t) => t[0] === 'status' && t[1] === 'revoked')))
@@ -125,7 +121,6 @@ describe('a keeper with group nodes', { timeout: 30_000 }, () => {
     const revokedPosts = nodes.posts.slice(seen).filter((p) => p.event.tags.some((t) => t[0] === 'status' && t[1] === 'revoked'))
     expect(revokedPosts.length).toBe(2)
     expect(revokedPosts.every((p) => p.status === 201)).toBe(true)
-    rekeysAtPush.push(rekeys())
     for (const host of ['node-a.test', 'node-b.test']) {
       const states = [...nodes.state(host).grants.values()]
       expect(states.filter((g) => g.device === bob.device).every((g) => g.status === 'revoked')).toBe(true)
