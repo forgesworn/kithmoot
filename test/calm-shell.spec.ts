@@ -2145,7 +2145,11 @@ test('muting a room for an hour writes the end, says so in the header and the st
   } finally { await context.close() }
 })
 
-test('a muted room keeps its number but leaves the counts, and comes back on its own when the mute ends', async ({ browser, baseURL }) => {
+for (const [suffix, hour, minute, mutedLabel] of [
+  ['', 10, 0, /^Muted until 11:00\./],
+  [' across midnight', 23, 30, /^Muted until tomorrow, 00:30\./],
+] as const) {
+test(`a muted room keeps its number but leaves the counts, and comes back on its own when the mute ends${suffix}`, async ({ browser, baseURL }) => {
   const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
   try {
     await page.clock.install()
@@ -2155,6 +2159,14 @@ test('a muted room keeps its number but leaves the counts, and comes back on its
     await keepers[2]!.chat.send('Doors at seven.')
     const row = page.locator('#roomList li.roomRow', { hasText: 'Town hall' })
     await expect(row.locator('.unread')).toHaveCount(1, { timeout: 30_000 })
+    // Receive the real agent message before moving the browser's wall clock.
+    // Anchor local calendar time while retaining the installed timer clock.
+    const muteStart = await page.evaluate(({ hour, minute }) => {
+      const now = new Date()
+      now.setHours(hour, minute, 0, 0)
+      return now.getTime()
+    }, { hour, minute })
+    await page.clock.setSystemTime(muteStart)
     const countText = async () => (await page.locator('#railChatsCount').isVisible()) ? Number(await page.locator('#railChatsCount').innerText()) : 0
     const before = await countText()
     const own = Number(await row.locator('.unread').getAttribute('data-count'))
@@ -2171,7 +2183,7 @@ test('a muted room keeps its number but leaves the counts, and comes back on its
     await expect.poll(() => page.title()).toBe(before - own > 0 ? `(${before - own}) KithMoot` : 'KithMoot')
     await expect(row.locator('.unread')).toHaveAttribute('data-muted', 'true')
     await expect(row.locator('.roomMute')).toHaveCount(1)
-    expect(await row.locator('.sr-only').textContent()).toMatch(/^Muted until \d\d:\d\d\./)
+    expect(await row.locator('.sr-only').textContent()).toMatch(mutedLabel)
     // The hour passes with the page open: within two seconds all of it goes.
     await page.clock.fastForward('01:00:02')
     await expect(row.locator('.roomMute')).toHaveCount(0, { timeout: 2000 })
@@ -2190,6 +2202,7 @@ test('a muted room keeps its number but leaves the counts, and comes back on its
     await expect.poll(countText).toBe(before)
   } finally { await context.close() }
 })
+}
 
 
 // Rings follow today's rule (design-calm-stage7, S7 as decided): the banner
