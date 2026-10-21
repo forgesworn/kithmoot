@@ -260,7 +260,7 @@ would like the chance to put things right first.
   operated.
 - **Our hosting provider**, `[hosting provider]`, which hosts the box our
   default TURN server, file store, drop tier and relay run on.
-  <!-- app/src/main.ts DEFAULT_RELAYS: nos.lol, relay.primal.net, nostr.mom, none run by the project -->
+  <!-- app/src/main.ts DEFAULT_RELAYS (src/public-relays.ts): relay.primal.net, nostr.oxtr.dev, relay.nostr.net, none run by the project -->
 
 The app also makes your device contact the following. Each learns your
 device's IP address and the time, as any web request does.
@@ -278,9 +278,9 @@ device's IP address and the time, as any web request does.
 
 - **Relays asked for public profiles.** To show people's chosen names
   and pictures, the app asks for the public Nostr profile of each person
-  in the room. It asks the room's own relays and four public relays that
+  in the room. It asks the room's own relays and three public relays that
   are not the room's: purplepag.es (a relay that gathers profiles),
-  relay.damus.io, nos.lol and relay.primal.net. Each learns the public
+  relay.damus.io and relay.primal.net. Each learns the public
   keys asked about, which are the keys of the people in the room, and the
   address the question came from. The room itself keeps those keys inside
   its encryption; this lookup is what hands them to relays in the clear,

@@ -50,6 +50,7 @@ import { callElapsed, dockLabel, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
+import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, retireSuggestedForgeSwornConsent, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
@@ -638,19 +639,14 @@ function hasUnsentWork(): boolean {
   return outbox.pending || assignmentPanel.busy || assignmentPanel.hasDrafts || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
 }
 
-// Relays confirmed live for this room kind: three third-party public relays,
-// none of them run by the project. A publish succeeds when any writable
-// relay in the list acknowledges it (see RelayConnections/publish in
-// relay-pool.ts), so the third relay is the redundancy a joiner needs when
-// both nos.lol and relay.primal.net time out on publish, which happened to a
-// real joiner on an iPhone on 17 September 2026. nostr.mom took that place on
-// 25 September 2026, when the project stopped carrying rooms on a relay of its
-// own; see docs/decisions.md. relay.damus.io returned 503 during the stage 2
-// acceptance run and was dropped for that reason. A person who wants their
-// own or their circle's box in the list still adds it in relay settings, or
-// reads it off a contact card. Change this list, not code elsewhere, if a
-// relay in it goes down again.
-const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom']
+// The relays a new device starts on: three third-party public relays, none run
+// by the project, chosen and dated in src/public-relays.ts, which also records
+// the criteria and the relays left out. A publish succeeds when any writable
+// relay acknowledges it (see RelayConnections/publish in relay-pool.ts), so
+// the third relay is the redundancy a joiner needs when two time out. The list
+// was replaced on 21 October 2026 after two of the previous three stopped
+// answering; see docs/decisions.md. Change that list, not code here.
+const DEFAULT_RELAYS = DEFAULT_PUBLIC_RELAYS.map(relay => relay.url)
 const relayStorage = {
   getItem: (key: string) => localStorage.getItem(key),
   setItem: (key: string, value: string) => localStorage.setItem(key, value),
@@ -2363,8 +2359,8 @@ function renderKeepChoice(): void {
     : 'Off: this device only holds the room\u2019s key while a tab is open on it. Until you switch this on, your rooms list cannot check this room and nothing will tell you about it.'
 }
 
-/** Public relays drop a regular-kind event after hours or days (nos.lol keeps
- *  it under three days, primal.net under one), and a persistent link is only
+/** Public relays drop a regular-kind event after hours or days (one relay may keep
+ *  it under three days, another under one), and a persistent link is only
  *  as durable as its signed invitation. The device that made the link signs it
  *  again while the room is open, so a link shared long after creation still
  *  loads. Best effort: a refused write is tried again next round. A private
@@ -2713,7 +2709,7 @@ let myDeviceId = ''
  * only while the "show public profiles" switch is on: that switch is what
  * decides whether participant keys leave the room's relays at all.
  */
-const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://relay.primal.net']
 
 const profiles = new ProfileBook({
   relays: () => [...new Set([...relays, ...PROFILE_RELAYS])],
@@ -7584,8 +7580,8 @@ function peerCrypt(): PeerCrypt | undefined {
  *  person staring at "Starting…". */
 const DM_RELAY_LOOKUP_MS = 2_500
 
-/** Relay URLs once each, however they were spelt: `wss://nos.lol` and
- *  `wss://nos.lol/` are one relay, and a pool refuses a list naming it twice. */
+/** Relay URLs once each, however they were spelt: `wss://relay.example` and
+ *  `wss://relay.example/` are one relay, and a pool refuses a list naming it twice. */
 function distinctRelays(urls: string[]): string[] {
   const out: string[] = []
   for (const url of urls) {

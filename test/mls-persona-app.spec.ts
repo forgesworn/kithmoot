@@ -15,7 +15,7 @@ test('the app exposes witness preparation only in development preview and retain
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
         const text = String(url), local = `wss://${location.host}`
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
         const target = defaults.includes(text.replace(/\/$/, '')) ? `${local}/__test-relay` : text
         if (!target.startsWith(`${local}/`)) throw new Error('External relay blocked by acceptance test')
         super(target, protocols)

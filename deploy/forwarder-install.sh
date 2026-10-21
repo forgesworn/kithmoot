@@ -39,7 +39,7 @@ UNIT_DIR=/etc/systemd/system
 
 NAME=""
 ROOM_ID=""
-RELAYS="wss://nos.lol,wss://relay.primal.net,wss://nostr.mom"
+RELAYS="wss://relay.primal.net/,wss://nostr.oxtr.dev/,wss://relay.nostr.net/"
 URL=""
 MAX_PEERS=24
 MAX_TRACKS=4

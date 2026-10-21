@@ -93,7 +93,7 @@ for (const cancellation of ['sign out', 'stop opening', 'cancel request', 'deadl
     const NativeWebSocket = window.WebSocket
     window.WebSocket = class extends NativeWebSocket {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? urls[0]! : String(url)
         if (!urls.includes(target)) throw new Error('External relay blocked by acceptance test')
         super(target, protocols)
