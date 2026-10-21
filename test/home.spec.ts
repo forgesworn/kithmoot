@@ -59,13 +59,9 @@ test('the home page leads with room actions, fits both themes and starts a named
       await openNewRoomForm(page)
       await page.locator('#roomName').fill('Saturday workshop')
     await page.locator('#roomName').press('Enter')
-    await expect(page.locator('#arrivalTitle')).toHaveText('Saturday workshop')
-    await expect(page.locator('#home')).toBeHidden()
-    await expect(page.locator('#displayName')).toBeFocused()
-    await expect(page.locator('#joinMediaChoice')).toBeVisible()
-    await expect(page.locator('#joinMic')).not.toBeChecked()
-    await expect(page.locator('#joinCamera')).not.toBeChecked()
-    await expect(page.locator('#joinPrivacy')).toContainText('Nothing turns on unless you choose it')
+    // The form asks for the one thing it needs, the name people here will see.
+    await expect(page.locator('#newRoomYourNameError')).toHaveText('Type the name people here will see.')
+    await expect(page.locator('#newRoomYourName')).toBeFocused()
     await page.setViewportSize({ width: 320, height: 540 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     const joinAtDoor = (await page.locator('#join').boundingBox())!

@@ -59,7 +59,7 @@ test('grant feedback waits for publication, then the guest can join', async ({ b
     releases[0]()
     await expect(host.locator('#chatLog')).toContainText('Invitation sent to Rowan.')
     await expect(card).toHaveCount(0)
-    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await expect(guest.locator('#join')).toBeVisible()
     await guest.locator('#join').click()
     await expect(guest.locator('#roomArea')).toBeVisible()
   } finally { await hostContext.close(); await guestContext.close() }
@@ -129,7 +129,7 @@ test('a rejected refusal stays visible and its retry preserves the signed respon
     await requestAdmission(guest)
     await expect(card).toContainText('Rowan wants to join')
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
-    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await expect(guest.locator('#join')).toBeVisible()
     await expect(guest.locator('#displayName')).toHaveValue('Rowan')
   } finally { await hostContext.close(); await guestContext.close() }
 })
@@ -170,7 +170,7 @@ test('a rejected grant stays failed and a fresh guest request can succeed', asyn
     await expect(card).toContainText('Rowan wants to join')
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(host.locator('#chatLog')).toContainText('Invitation sent to Rowan.')
-    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await expect(guest.locator('#join')).toBeVisible()
     await expect(guest.locator('#displayName')).toHaveValue('Rowan')
     expect(grants).toBe(2)
   } finally { await hostContext.close(); await guestContext.close() }
@@ -232,7 +232,7 @@ test('another same-name request preserves the first request’s focused and pres
     await requestAdmission(third)
     await expect(cards).toHaveCount(2)
     await host.mouse.up()
-    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await expect(guest.locator('#join')).toBeVisible()
     await expect(third.locator('#join')).toBeHidden()
     await expect(other.locator('#join')).toBeHidden()
   } finally { await hostContext.close(); await guestContext.close(); await otherContext.close() }
@@ -245,7 +245,7 @@ test('an explicit open-door choice survives reopening a temporary room', async (
     const first = await startAskedRoom(host, guest, baseURL!)
     const link = guest.url()
     await first.getByRole('button', { name: 'Let in', exact: true }).click()
-    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await expect(guest.locator('#join')).toBeVisible()
     await guestContext.close()
     await openRoomInfoPage(host, 'Invite link')
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'true')
@@ -259,7 +259,7 @@ test('an explicit open-door choice survives reopening a temporary room', async (
     const next = await nextContext.newPage()
     await next.goto(link)
     await requestAdmission(next)
-    await expect(next.locator('#status')).toContainText('You are on the list')
+    await expect(next.locator('#join')).toBeVisible()
     await expect(host.locator('#approvals .approvalCard.knock')).toHaveCount(0)
   } finally { await nextContext.close(); await guestContext.close(); await hostContext.close() }
 })
@@ -271,7 +271,7 @@ test('an admitted member asks before passing a closed-room invitation to another
     const first = await startAskedRoom(host, guest, baseURL!)
     const link = guest.url()
     await first.getByRole('button', { name: 'Let in', exact: true }).click()
-    await expect(guest.locator('#status')).toContainText('You are on the list')
+    await expect(guest.locator('#join')).toBeVisible()
     await guest.locator('#join').click()
     await expect(guest.locator('#roomArea')).toBeVisible()
     const next = await nextContext.newPage()
@@ -285,7 +285,7 @@ test('an admitted member asks before passing a closed-room invitation to another
     // A delegated member can admit deliberately; being admitted does not
     // silently turn their device into an automatic invitation responder.
     await memberQueue.getByRole('button', { name: 'Let in', exact: true }).click()
-    await expect(next.locator('#status')).toContainText('You are on the list')
+    await expect(next.locator('#join')).toBeVisible()
     await next.locator('#join').click()
     await expect(next.locator('#roomArea')).toBeVisible()
   } finally { await nextContext.close(); await guestContext.close(); await hostContext.close() }
@@ -327,7 +327,7 @@ test('people with the link ask, and the person in the room lets them in or decli
     const card = host.locator('#approvals .approvalCard.knock')
     await expect(card).toContainText('Rowan wants to join', { timeout: 60_000 })
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
-    await expect(rowan.locator('#status')).toContainText('You are on the list', { timeout: 60_000 })
+    await expect(rowan.locator('#join')).toBeVisible({ timeout: 60_000 })
     await expect(host.locator('#chatLog')).toContainText('Invitation sent to Rowan.')
     await expect(rowan.locator('#join')).toBeVisible()
     await expect(rowan.locator('#displayName')).toHaveValue('Rowan')

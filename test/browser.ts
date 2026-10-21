@@ -468,7 +468,12 @@ export async function goToConversation(page: Page, name: string): Promise<void> 
  */
 export async function open(page: Page, url: string, name: string): Promise<void> {
   await openRoomUrl(page, url)
-  await page.locator('#displayName').fill(name)
+  // A browser with a Nostr extension offers the extension first; these specs
+  // are about going in under a name, which is the step down under it.
+  const field = page.locator('#displayName')
+  await expect(page.locator('#displayName:visible, #joinVisitor:visible').first()).toBeVisible({ timeout: 60_000 })
+  if (!await field.isVisible() && /extension/.test(await page.locator('#join').innerText())) await page.locator('#joinVisitor').click()
+  await field.fill(name)
   await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
 }

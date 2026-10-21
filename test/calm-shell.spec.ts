@@ -1332,3 +1332,267 @@ test('a refused microphone says so in the call, with what to do', async ({ brows
     await expect(page.locator('#mediaBlockedNote')).toBeVisible()
   } finally { await context.close() }
 })
+
+// ---------------------------------------------------------------------------
+// Stage 6, slice A: the door, and no raw keys.
+// ---------------------------------------------------------------------------
+
+const DOOR_ACCOUNT = 'b3e7a1c2d4f5061728394a5b6c7d8e9f00112233445566778899aabbccddeeff'
+const KEY = /npub1[0-9a-z]+|\b[0-9a-f]{64}\b/
+
+/** A new browser at the first seeded room's link, with whatever the person's
+ *  device already holds put in place before the page loads. */
+async function door(browser: Browser, baseURL: string, viewport: { width: number; height: number }, options: { scheme?: 'dark' | 'light'; touch?: boolean; extension?: boolean; account?: { named: boolean }; name?: string; size?: string; link?: string; forcedColors?: boolean } = {}) {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport, hasTouch: !!options.touch, isMobile: !!options.touch,
+    colorScheme: options.scheme ?? 'dark', ...(options.forcedColors ? { forcedColors: 'active' as const } : {}),
+  })
+  await context.routeWebSocket(url => url.protocol === 'wss:' && url.href !== relay.href, ws => ws.close())
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  await context.addInitScript(({ extension, account, name, account_key, size }) => {
+    if (sessionStorage.getItem('door-seeded')) return
+    sessionStorage.setItem('door-seeded', '1')
+    if (extension) (window as unknown as { nostr: unknown }).nostr = { getPublicKey: async () => account_key }
+    if (account) {
+      localStorage.setItem('kithmoot.last-nostr-account', account_key)
+      localStorage.setItem('kithmoot.last-nostr-method', 'bunker')
+      if (account.named) localStorage.setItem('kithmoot.profiles.lastKnownName.v1', JSON.stringify({ [account_key]: 'TheCryptoDonkey' }))
+    }
+    if (name) localStorage.setItem('kithmoot.name', name)
+    if (size) localStorage.setItem('kithmoot.textSize', size)
+  }, { extension: options.extension, account: options.account, name: options.name, account_key: DOOR_ACCOUNT, size: options.size })
+  const page = await context.newPage()
+  await page.goto(options.link ?? seeds[0]!.link)
+  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+  return { context, page }
+}
+
+/** Text a person can see that carries a raw key, outside the places a key is for. */
+async function visibleKeys(page: Page, except = '.participantCard, #peoplePane'): Promise<string[]> {
+  return page.evaluate(({ except, pattern }) => {
+    const re = new RegExp(pattern, 'g')
+    const found: string[] = []
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const el = node.parentElement
+      if (!el || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) || el.closest(`script, style, template, ${except}`)) continue
+      const text = node.textContent ?? ''
+      if (re.test(text)) found.push(`${el.id || el.className || el.tagName}: ${text.trim().slice(0, 80)}`)
+      re.lastIndex = 0
+    }
+    return found
+  }, { except, pattern: KEY.source })
+}
+
+const primaries = (page: Page) => page.locator('#identity button.primary:visible')
+
+for (const [label, size, touch] of [['1440 by 900', { width: 1440, height: 900 }, false], ['390 by 844', { width: 390, height: 844 }, true]] as const) {
+  for (const scheme of ['dark', 'light'] as const) {
+    test(`the door of a stranger at ${label} in ${scheme} has one primary, Join, and none of the old ceremony`, async ({ browser, baseURL }) => {
+      const { context, page } = await door(browser, baseURL!, size, { scheme, touch })
+      try {
+        await expect(primaries(page)).toHaveCount(1)
+        await expect(primaries(page)).toHaveAttribute('id', 'join')
+        await expect(page.locator('#join')).toHaveText('Join')
+        await expect(page.locator('#arrivalTitle')).toHaveText('Release workshop')
+        await expect(page.locator('#arrivalLead')).toHaveText('You have been invited to this room.')
+        await expect(page.locator('#arrivalAvatar')).toBeVisible()
+        await expect(page.locator('#joinMediaChoice')).toBeHidden()
+        await expect(page.locator('#whoami, #previousAccount, #joinIdentityHelp')).toHaveCount(0)
+        const text = await page.locator('#identity').innerText()
+        for (const gone of ['Pick a name', 'Turn on as you join', 'You are on the list', 'Nothing turns on']) expect(text).not.toContain(gone)
+        await expect(page.locator('#joinNostr')).toHaveText('Already on Nostr? Sign in')
+        await expect(page.locator('#joinPrivacy')).toHaveText('Microphone and camera stay off until you turn them on.')
+        await expect(page.locator('#joinNetworkPrivacy > summary')).toHaveText('Hide my IP address on calls')
+        expect(await visibleKeys(page)).toEqual([])
+      } finally { await context.close() }
+    })
+  }
+}
+
+test('an unnamed room says Untitled room at the door, as Chats does', async ({ browser, baseURL }) => {
+  const secret = generateRoomSecret()
+  const link = encodeRoomLink(baseURL!, { secret, relays: testRelaysFor(baseURL!) ?? [], iceUrls: [] })
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { link })
+  try { await expect(page.locator('#arrivalTitle')).toHaveText('Untitled room') } finally { await context.close() }
+})
+
+test('an account used here before: Continue as its name, one way down to a name, and a confirm that says what it means', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { account: { named: true } })
+  try {
+    await expect(primaries(page)).toHaveCount(1)
+    await expect(page.locator('#join')).toHaveText('Continue as TheCryptoDonkey')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toHaveText('Join with just a name instead')
+    expect(await visibleKeys(page)).toEqual([])
+    await page.locator('#joinVisitor').click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText('Join with just a name?')
+    await expect(confirm).toContainText('This is not your Nostr account, even with the same name. Agents that know your account may ignore these messages.')
+    await expect(confirm.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
+    await confirm.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(page.locator('#joinVisitor')).toBeFocused()
+    // No name remembered: the same choice lands on the name field with its hint.
+    await page.locator('#joinVisitor').click()
+    await page.getByRole('button', { name: 'Join with just a name', exact: true }).click()
+    await expect(page.locator('#displayName')).toBeFocused()
+    await expect(page.locator('#displayNameHint')).toHaveText('Just a name, not your Nostr account.')
+    await expect(page.locator('#join')).toHaveText('Join')
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('an account used here before with no name remembered says Continue with your Nostr account', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { account: { named: false } })
+  try {
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr account')
+    expect(await visibleKeys(page)).toEqual([])
+  } finally { await context.close() }
+})
+
+test('with a name remembered, Join with just a name goes straight in', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { account: { named: true }, name: 'Ada' })
+  try {
+    await page.locator('#joinVisitor').click()
+    await page.getByRole('button', { name: 'Join with just a name', exact: true }).click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  } finally { await context.close() }
+})
+
+test('a Nostr extension and nobody signed in: one primary for the extension, and a name without a confirm', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 }, { extension: true })
+  try {
+    await expect(primaries(page)).toHaveCount(1)
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr extension')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    expect(await visibleKeys(page)).toEqual([])
+    await page.locator('#joinVisitor').click()
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+    await expect(page.locator('#displayName')).toBeFocused()
+    await expect(page.locator('#join')).toHaveText('Join')
+  } finally { await context.close() }
+})
+
+test('a door opened by a device that already holds a key shows no key', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  try {
+    await page.goto(seeds[0]!.link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await page.goto('about:blank')
+    await page.goto(seeds[1]!.link)
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    expect(await visibleKeys(page)).toEqual([])
+  } finally { await context.close() }
+})
+
+for (const [label, size, touch] of [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const) {
+  test(`Chats with the reconnect banner at ${label} names the account and shows no key`, async ({ browser, baseURL }) => {
+    const { context, page } = await door(browser, baseURL!, size, { account: { named: true }, touch })
+    try {
+      await page.goto(baseURL!)
+      const banner = page.locator('#accountReconnect')
+      await expect(banner).toBeVisible()
+      await expect(page.locator('#accountReconnectText')).toHaveText('Reconnect TheCryptoDonkey to see its rooms.')
+      await expect(page.locator('#accountReconnectButton')).toHaveText('Reconnect')
+      expect(await visibleKeys(page)).toEqual([])
+    } finally { await context.close() }
+  })
+}
+
+test('the keyboard at the door of a stranger: the name has focus, then Join, Sign in, the IP fold, each with a 2 px outline', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await expect(page.locator('#displayName')).toBeFocused()
+    const order: string[] = []
+    const outline = async () => page.evaluate(() => { const el = document.activeElement as HTMLElement; const s = getComputedStyle(el); return { id: el.id || el.tagName, inside: !!el.closest('#identity'), width: parseFloat(s.outlineWidth) || 0, style: s.outlineStyle } })
+    for (let i = 0; i < 8; i++) {
+      const now = await outline()
+      if (!now.inside) break
+      order.push(now.id)
+      expect(now.width, `${now.id} outline`).toBeGreaterThanOrEqual(2)
+      expect(now.style, `${now.id} outline`).not.toBe('none')
+      await page.keyboard.press('Tab')
+    }
+    const expected = ['displayName', 'join', 'joinNostr', 'SUMMARY']
+    expect(order.filter(id => id !== 'openInAppLink' && id !== 'getAndroidApp')).toEqual(expected)
+  } finally { await context.close() }
+})
+
+test('a touch screen is not given the keyboard on arrival', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await page.waitForTimeout(500)
+    await expect(page.locator('#displayName')).not.toBeFocused()
+  } finally { await context.close() }
+})
+
+for (const [label, size, touch, scheme, forced] of [
+  ['1440 dark', { width: 1440, height: 900 }, false, 'dark', false], ['1440 light', { width: 1440, height: 900 }, false, 'light', false],
+  ['390 dark', { width: 390, height: 844 }, true, 'dark', false], ['390 light', { width: 390, height: 844 }, true, 'light', false],
+  ['1440 forced colours', { width: 1440, height: 900 }, false, 'light', true],
+] as const) {
+  test(`axe finds nothing on the door in its three faces at ${label}`, async ({ browser, baseURL }) => {
+    for (const options of [{}, { account: { named: true } }, { extension: true }]) {
+      const { context, page } = await door(browser, baseURL!, size, { scheme, touch, forcedColors: forced, ...options })
+      try {
+        const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+        expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), JSON.stringify(options)).toEqual([])
+      } finally { await context.close() }
+    }
+  })
+}
+
+test('the door and the reconnect banner do not scroll sideways at 320 by 640 or at 400% zoom, and Continue wraps a long name', async ({ browser, baseURL }) => {
+  for (const options of [{}, { account: { named: true } }]) {
+    const { context, page } = await door(browser, baseURL!, { width: 320, height: 640 }, { touch: true, size: 'huge', ...options })
+    try {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), JSON.stringify(options)).toBe(true)
+      await page.goto(baseURL!)
+      if (options.account) {
+        expect(await page.evaluate(() => { const el = document.getElementById('accountReconnectText')!; return el.scrollWidth <= el.clientWidth })).toBe(true)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      }
+    } finally { await context.close() }
+  }
+  // 400% zoom at 1280 wide is a 320 px viewport at scale 1.
+  const { context, page } = await door(browser, baseURL!, { width: 320, height: 200 }, { account: { named: true } })
+  try { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true) } finally { await context.close() }
+})
+
+test('at 390 by 844 every control at the door is at least 44 px tall and wide', async ({ browser, baseURL }) => {
+  for (const options of [{}, { account: { named: true } }]) {
+    const { context, page } = await door(browser, baseURL!, { width: 390, height: 844 }, { touch: true, ...options })
+    try {
+      const small = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#identity button, #identity a[href], #identity input:not([type=checkbox]), #identity summary')]
+        .filter(el => el.checkVisibility() && !el.closest('#accountHome'))
+        .map(el => { const r = el.getBoundingClientRect(); return { id: el.id || el.tagName, w: Math.round(r.width), h: Math.round(r.height) } })
+        .filter(r => r.h < 44 || r.w < 44))
+      expect(small, JSON.stringify(options)).toEqual([])
+    } finally { await context.close() }
+  }
+})
+
+test('a short landscape phone keeps the name and Join on screen with the name focused', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 844, height: 390 }, { touch: true })
+  try {
+    await page.locator('#displayName').focus()
+    for (const id of ['displayName', 'join']) {
+      const box = (await page.locator(`#${id}`).boundingBox())!
+      expect(box.y + box.height, id).toBeLessThanOrEqual(390)
+      expect(box.y, id).toBeGreaterThanOrEqual(0)
+    }
+  } finally { await context.close() }
+})
+
+test('Settings › Account still holds the account block after a visit to the door', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await openSettings(page, 'Account')
+    await expect(page.locator('#accountHome')).toBeVisible()
+  } finally { await context.close() }
+})

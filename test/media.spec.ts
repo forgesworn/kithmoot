@@ -59,10 +59,8 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     const url = await createRoom(pageA, baseURL!)
     await joinWithMedia(pageA, url, 'Ada')
     await open(pageB, url, 'Bob')
-    await expect(pageB.locator('#joinMic')).not.toBeChecked()
-    await expect(pageB.locator('#joinCamera')).not.toBeChecked()
-    await pageB.locator('#joinMic').check()
-    await pageB.locator('#joinCamera').check()
+    // A plain link offers no media at the door: in first, then on.
+    await expect(pageB.locator('#joinMediaChoice')).toBeHidden()
     await pageB.locator('#join').click()
     await expect(pageB.locator('#roomArea')).toBeVisible()
     await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'true')

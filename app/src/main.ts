@@ -2126,8 +2126,8 @@ interface Knock extends InvitationRequest {
 const knocks = new Map<string, Knock>()
 
 function knockLabel(knock: InvitationRequest): string {
-  if (knock.participant) return shownAs(knock.participant, knock.name).name ?? shortKey(knock.participant)
-  return knock.name ?? `Somebody (${shortKey(knock.device)})`
+  if (knock.participant) return shownAs(knock.participant, knock.name).name ?? 'Somebody'
+  return knock.name ?? 'Somebody'
 }
 
 function askToLetIn(request: InvitationRequest, kind: Knock['kind'] = 'invitation'): Promise<boolean> {
@@ -3342,42 +3342,7 @@ function renderIdentity(): void {
   renderImportedHistorySearch()
   renderAccountMore()
   renderAdmissionRoomBrand()
-  $('joinNostr').hidden = !!nostrSession || !!loadCredential()
-  // A signer extension in this browser, and no account signed in here: the
-  // door used to show a visitor with the typed name and a small link, and
-  // a person whose extension was connected read that as the app about to
-  // invent an account for them. The extension is the identity they mean,
-  // so it is the filled button, and the visitor path says what it is. An
-  // installed PWA has its own storage, which is how a sign-in done in a
-  // tab is not there in the app; the extension is.
-  const extensionHere = extensionSignerPresent()
-  $('joinNostr').textContent = needsAccountReconnect() ? (extensionHere ? 'Reconnect with your Nostr extension' : 'Reconnect Nostr account')
-    : extensionHere ? 'Join with your Nostr extension' : 'Already on Nostr? Sign in'
-  $('joinNostr').classList.toggle('primary', extensionHere)
-  $('joinNostr').classList.toggle('linkish', !extensionHere)
-  $('joinVisitor').hidden = !needsAccountReconnect()
-  // An old device key can have a public profile, so this is often a very
-  // recognisable-looking identity.  It is still not the Nostr account in
-  // the extension. Calling that route "just a name" made the two choices
-  // look contradictory at the door.
-  const savedDeviceIdentity = loadCredential()?.pubkey ?? currentParticipant()
-  if (!joining) {
-    $('join').textContent = needsAccountReconnect()
-      ? 'Reconnect to join'
-      : extensionHere
-        ? savedDeviceIdentity ? 'Join with saved device identity' : 'Join with a name only'
-        : 'Join'
-  }
-  $('join').classList.toggle('primary', !extensionHere)
-  $('join').classList.toggle('quiet', extensionHere)
-  // The filled button comes first. With the extension the order is: the
-  // name, join with the extension, then the visitor way in and its line.
-  const joinNostr = $('joinNostr'), join = $('join')
-  if (extensionHere && joinNostr.nextElementSibling !== join) join.before(joinNostr)
-  else if (!extensionHere && join.nextElementSibling !== $('whoami')) $('joinIdentityHelp').before(joinNostr)
-  $('previousAccount').hidden = !needsAccountReconnect()
-  $('previousAccount').textContent = needsAccountReconnect()
-    ? `Your previous Nostr account is disconnected (${npubEncode(expectedAccount!)}). Reconnect it to speak as yourself.` : ''
+  renderDoorMode()
   const sending = $('sendingIdentity')
   sending.replaceChildren()
   sending.hidden = !session
@@ -3408,55 +3373,123 @@ function renderIdentity(): void {
     sending.append(choice)
     setInfoSub('infoSubAppear', `${shown.name ?? label} · ${visitor ? 'just a name' : 'Nostr account'}`)
   } else setInfoSub('infoSubAppear', '')
-  // Said once you are in, in Room details, where "how am I in here" is a
-  // question somebody actually asks. At the door it was three lines between
-  // the person and the name field.
-  $('joinIdentityHelp').textContent = ''
-  $('joinIdentityHelp').hidden = true
+  // How you are in is said once you are in, in Room details, where "how am
+  // I in here" is a question somebody actually asks. The door says it in
+  // the one button it offers.
   renderRooms()
-
-  const line = $('whoami')
-  line.textContent = ''
-
-  const name = joiningName()
   const participant = session ? meParticipant : loadCredential()?.pubkey ?? currentParticipant()
   if (participant) profiles.want([participant])
-
-  // Nothing to say until there is a name or a key to say it about. An
-  // identity line that reads "nobody in particular yet" is two lines of the
-  // entry screen spent telling somebody what they already know.
-  line.hidden = name === undefined && participant === undefined
-  if (line.hidden) {
-    renderHowIn()
-    renderNudgeChoice()
-    return
-  }
-
-  line.append(session ? 'In this room as ' : 'Going in as ')
-
-  if (participant) {
-    line.append(identityRun(shownAs(participant, name), false, false, true))
-    if (!session && !nostrSession && extensionSignerPresent() && !needsAccountReconnect()) {
-      const aside = document.createElement('span')
-      aside.className = 'whoamiAside'
-      aside.textContent = ' with a saved device identity. Your Nostr extension is here and not in use yet.'
-      line.append(aside)
-    }
-  } else if (name !== undefined) {
-    // No key yet, and deliberately so: minting one here would write a
-    // secret before the person has done anything, and would be the wrong
-    // thing entirely for somebody about to sign in with Nostr instead. The
-    // name is still shown, because it is what they just typed.
-    const el = document.createElement('span')
-    el.className = 'name'
-    el.textContent = name
-    line.append(el)
-  } else {
-    line.append('nobody in particular yet')
-  }
-
   renderHowIn()
   renderNudgeChoice()
+}
+
+/** The four faces of the door (design-calm stage 6). Decided here and
+ *  nowhere else: `name` is a stranger, `signedIn` an account that is
+ *  connected, `reconnect` an account used here before that is not, and
+ *  `extension` a NIP-07 signer with nobody signed in. */
+type DoorMode = 'name' | 'signedIn' | 'reconnect' | 'extension'
+const DOOR_OFFLINE = 'You are offline. The room opens when you are back.'
+
+/** The person declined the account and chose to go in with a name. Keyed to
+ *  the room and identity it was chosen in, so changing either forgets it. */
+let visitorChosenKey: string | undefined
+const doorKey = (): string => `${roomGeneration}:${identityGeneration}`
+const visitorChosen = (): boolean => visitorChosenKey === doorKey()
+
+/** A saved Nostr sign-in is still being restored: not connected yet, but not
+ *  lost either, so the door waits for it instead of asking to reconnect. */
+const accountRestoring = (): boolean => !nostrSession && identityRestoring && !!expectedAccount
+
+function doorMode(): DoorMode {
+  if (visitorChosen()) return 'name'
+  if (nostrSession || accountRestoring()) return 'signedIn'
+  if (needsAccountReconnect()) return 'reconnect'
+  if (extensionSignerPresent() && !loadCredential()) return 'extension'
+  return 'name'
+}
+
+/** A 24 px picture for the Continue button. The initial is drawn by CSS
+ *  from `data-initial`, so the button's text stays its accessible name. */
+function doorAvatar(pubkey: string): HTMLElement {
+  const shown = shownAs(pubkey)
+  const el = document.createElement('span')
+  el.className = 'joinAvatar'
+  el.setAttribute('aria-hidden', 'true')
+  el.dataset.initial = [...(shown.name?.trim() ?? '')][0]?.toLocaleUpperCase() ?? ''
+  if (shown.picture) {
+    const image = document.createElement('img')
+    image.alt = ''
+    image.referrerPolicy = 'no-referrer'
+    image.src = shown.picture
+    image.addEventListener('error', () => image.remove(), { once: true })
+    el.append(image)
+  }
+  return el
+}
+
+let doorFocusedFor: number | undefined
+
+/** Put the cursor where the next move is: the name, or the Continue button.
+ *  Never on a touch screen (the keyboard would cover the room's name) and
+ *  never after the person has focused something of their own. */
+function focusDoor(mode: DoorMode): void {
+  if (doorFocusedFor === roomGeneration) return
+  const join = $('join') as HTMLButtonElement
+  if ($('identity').hidden || $('joinRoomForm').hidden || join.hidden || join.disabled || joining) return
+  doorFocusedFor = roomGeneration
+  if (!matchMedia('(pointer: fine)').matches) return
+  const active = document.activeElement
+  if (active && active !== document.body && active !== document.documentElement && !(active as HTMLElement).hidden) return
+  const field = $('displayName') as HTMLInputElement
+  ;(mode === 'name' || (mode === 'signedIn' && !$('doorName').hidden) ? field : join).focus({ preventScroll: true })
+}
+
+function renderDoorMode(): void {
+  // The knock door keeps its own controls (Request to join).
+  if (guestAdmissionPreview) return
+  const mode = doorMode()
+  const join = $('join') as HTMLButtonElement
+  const known = joiningName()
+  const account = nostrSession?.pubkey ?? (mode === 'reconnect' || accountRestoring() ? expectedAccount : undefined)
+  const showField = mode === 'name' || (mode === 'signedIn' && known === undefined)
+  $('doorName').hidden = !showField
+  $('displayNameHint').hidden = !(showField && visitorChosen())
+  if (showField && visitorChosen()) $('displayName').setAttribute('aria-describedby', 'displayNameHint')
+  else $('displayName').removeAttribute('aria-describedby')
+  $('joinNostr').hidden = mode !== 'name' || visitorChosen() || !!loadCredential()
+  $('joinVisitor').hidden = mode !== 'reconnect' && mode !== 'extension'
+  if (!joining) {
+    // The account's own name; the name typed on this device is a visitor's
+    // unless the account is connected and has none of its own.
+    const named = account ? ((mode === 'signedIn' && nostrSession ? known : undefined) ?? shownAs(account).name ?? lastKnownProfileNames.get(account)) : undefined
+    const text = mode === 'name' ? 'Join'
+      : mode === 'extension' ? 'Continue with your Nostr extension'
+      : named ? `Continue as ${named}` : 'Continue with your Nostr account'
+    const picture = account && (mode === 'signedIn' || mode === 'reconnect') ? shownAs(account).picture ?? '' : undefined
+    const key = `${text}|${picture ?? ''}|${account ?? ''}`
+    if (join.dataset.doorKey !== key || join.textContent !== text) {
+      join.dataset.doorKey = key
+      join.replaceChildren(...(account && picture !== undefined ? [doorAvatar(account), document.createTextNode(text)] : [document.createTextNode(text)]))
+    }
+  }
+  join.classList.add('primary')
+  join.classList.remove('quiet')
+  if (account) profiles.want([account])
+  if (!navigator.onLine && !joining && !session && !$('status').textContent) setStatus(DOOR_OFFLINE, 'progress')
+  focusDoor(mode)
+}
+
+window.addEventListener('offline', () => { if (!$('identity').hidden) renderDoorMode() })
+window.addEventListener('online', () => { if ($('status').textContent === DOOR_OFFLINE) setStatus('') })
+
+/** What the primary button does, by the door's face. */
+async function joinFromDoor(): Promise<void> {
+  const mode = doorMode()
+  if (mode === 'reconnect') await reconnectNostr()
+  else if (mode === 'extension') await signInWithNostr()
+  if ((mode === 'reconnect' || mode === 'extension') && !nostrSession) return
+  if (session || joining) return
+  await startSession(visitorChosen())
 }
 
 /** The wrapping disclosure for the three "More for your Nostr account"
@@ -4012,7 +4045,7 @@ async function roomFromLocation(): Promise<boolean> {
           // and that the next move is the reader's, which is the thing they
           // could not tell while a line saying "in progress" sat under a
           // button that was ready to be pressed.
-          setStatus('You are on the list. Go in when you are ready.', 'done')
+          setStatus('')
         } catch (error) {
           if (pending.signal.aborted) throw new AdmissionPreviewCancelled(preview?.requested ?? false)
           throw error
@@ -4634,6 +4667,7 @@ function renderOpenInApp(): void {
   const get = $('getAndroidApp') as HTMLAnchorElement
   get.href = platform === 'desktop' ? DESKTOP_DOWNLOAD_URL : ANDROID_DOWNLOAD_URL
   get.textContent = platform === 'desktop' ? 'Get KithMoot for your computer' : 'Get KithMoot for Android'
+  $('getAndroidLine').hidden = appLink === undefined
 }
 
 function renderDoorBothyRecovery(): void {
@@ -4663,13 +4697,9 @@ function showRoomUi(): void {
   renderDoorBothyRecovery()
   $('home').hidden = true
   $('identity').hidden = false
-  $('identityMore').hidden = false
   $('joinRoomForm').hidden = false
   $('arrivalActions').hidden = true
   $('arrivalActions').before($('status'))
-  $('nostrOption').hidden = nostrSession === undefined
-  $('nostrOption').append($('accountHome'))
-  $('accountHome').hidden = false
   $('notify').hidden = true
   hideRoomsList()
   // A room, or its door, is the main pane: below 900 px it sits over the list.
@@ -5649,15 +5679,19 @@ function renderArrival(): void {
   const roomId = currentRoomId()
   if (!roomId) {
     lead.hidden = true
+    $('arrivalAvatar').hidden = true
     return
   }
-  $('arrivalTitle').textContent = roomName ?? (startedHere ? 'Your new room' : 'Join the room')
-  lead.textContent = startedHere
-    ? 'Your room is ready. Pick a name and go in, then use Invite people to bring others in.'
-    : roomInvitationCapability?.persistent
-      ? 'Pick a name to go in. This device will remember the room.'
-      : 'Pick a name to go in.'
+  // Named the way Chats names it, so the door and the list agree.
+  const label = currentRoomLabel()
+  $('arrivalTitle').textContent = label
+  lead.textContent = startedHere ? 'Your room is ready.' : 'You have been invited to this room.'
   lead.hidden = false
+  const avatar = $('arrivalAvatar')
+  avatar.hidden = false
+  avatar.dataset.slot = String(avatarSlot(roomId))
+  avatar.textContent = avatarInitial(label)
+  renderLogo(avatar, displayedRoomLogo(roomId), label)
 }
 
 /**
@@ -7407,7 +7441,7 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     const identity = row.querySelector<HTMLElement>('.rosterIdentity')!
     identity.replaceChildren()
     const shown = shownAs(view.participant, view.name)
-    identity.append(identityRun(shown, view.participant === me))
+    identity.append(identityRun(shown, view.participant === me, false, false, true))
     if (view.agent) {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
@@ -7672,7 +7706,7 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
   const s = session
   const me = meParticipant
   if (!s || !me || startingDm || contactIsBlocked(peer)) return
-  const who = peerName ?? shortKey(peer)
+  const who = peerName ?? 'Somebody'
   // One conversation per pair, and one quiet one: a quiet room and a plain
   // one are different rooms, since the plain one's chat is on the relay in
   // the open. Started twice, or from both ends, it is the room that
@@ -8192,10 +8226,13 @@ let conversationRead = new Map<string, Set<string>>()
  *  admin can remove: removing the keeper is closing the room. */
 let keeperParticipant: string | undefined
 
-/** A name and a short key for one person, for a status line. */
+/** A name for one person, for a status line: "Somebody" when they have none,
+ *  and a short key only when two people in view claim the same name. */
 function personLabel(pubkey: string): string {
   const shown = shownAs(pubkey, session?.participants().find((v) => v.participant === pubkey)?.name)
-  return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+  // A short key only when two people in view claim the same name.
+  if (shown.name === undefined) return 'Somebody'
+  return nameCollides(pubkey, shown.name) ? `${shown.name} (${shown.short})` : shown.name
 }
 
 /**
@@ -8270,7 +8307,7 @@ function announceComings(views: ParticipantView[], me: string): void {
   // window, so people already present are not introduced as newcomers.
   const settled = startedHere || now - rosterJoinedAt > ROSTER_SETTLE_MS
   const label = (participant: string, name: string | undefined, agent: boolean) =>
-    `${shownAs(participant, name).name ?? shortKey(participant)}${agent ? ' (agent)' : ''}`
+    `${shownAs(participant, name).name ?? 'Somebody'}${agent ? ' (agent)' : ''}`
   for (const { person, arrived } of presenceAnnouncements.update(views.filter(v => v.participant !== me), now, settled)) {
     const text = `${label(person.participant, person.name, person.agent === true)} ${arrived ? 'came in.' : 'left.'}`
     addSystemLine(text)
@@ -9320,7 +9357,7 @@ function renderMeeting(): void {
     row.className = 'hostRow'
     const who = document.createElement('span')
     who.className = 'who'
-    who.append(identityRun(shownAs(view.participant, view.name), false))
+    who.append(identityRun(shownAs(view.participant, view.name), false, false, false, true))
     if (view.agent) who.append(' (agent)')
     row.append(who)
     const isSpeaker = !!policy?.speakers.includes(view.participant)
@@ -9420,7 +9457,7 @@ function renderApprovals(): void {
     const who = document.createElement('span')
     who.className = 'who'
     const view = session.participants().find((v) => v.participant === request.from)
-    who.append(identityRun(shownAs(request.from, view?.name), false))
+    who.append(identityRun(shownAs(request.from, view?.name), false, false, false, true))
     if (view?.owner) who.append(ownerRun(view.owner))
     else if (view?.ownerClaim) who.append(ownerClaimRun(view.ownerClaim))
     who.append(' asks:')
@@ -9477,7 +9514,7 @@ function renderApprovals(): void {
     card.setAttribute('aria-label', `${knockLabel(knock)}’s join request`)
     const who = card.querySelector<HTMLElement>('.who')!
     who.replaceChildren()
-    if (knock.participant) who.append(identityRun(shownAs(knock.participant, knock.name), false))
+    if (knock.participant) who.append(identityRun(shownAs(knock.participant, knock.name), false, false, false, true))
     else who.append(knock.name ?? 'Somebody')
     who.append(' wants to join.')
     const status = card.querySelector<HTMLElement>('.knockStatus')!
@@ -9534,7 +9571,7 @@ function renderHost(): void {
     row.className = 'hostRow'
     const who = document.createElement('span')
     who.className = 'who'
-    who.append(identityRun(shownAs(view.participant, view.name), false))
+    who.append(identityRun(shownAs(view.participant, view.name), false, false, false, true))
     if (view.agent) who.append(' (agent)')
     if (view.owner) who.append(ownerRun(view.owner))
     else if (view.ownerClaim) who.append(ownerClaimRun(view.ownerClaim))
@@ -11110,7 +11147,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       who.className = 'who'
       if (m.speaker) {
         const speakerName = session?.participants().find((v) => v.participant === m.speaker)?.name
-        who.append(identityRun(shownAs(m.speaker, speakerName), m.speaker === meParticipant))
+        who.append(identityRun(shownAs(m.speaker, speakerName), m.speaker === meParticipant, false, false, true))
         who.append(' said: ')
       } else {
         who.append('somebody said: ')
@@ -11118,7 +11155,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const by = document.createElement('span')
       by.className = 'who'
       by.append(' · heard by ')
-      by.append(identityRun(shownAs(m.participant, m.name), false))
+      by.append(identityRun(shownAs(m.participant, m.name), false, false, false, true))
       p.append(timeChip(original.sentAt, true), who)
       appendWithMentions(p, m.text, mentionsFor(m), namesOfMine)
       p.append(by)
@@ -11161,7 +11198,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const shown = shownAs(original.participant, original.name)
       const person = document.createElement('button'); person.type = 'button'; person.className = 'messagePerson'
       person.setAttribute('aria-label', `View details for ${shown.name ?? shown.short}`)
-      person.setAttribute('aria-haspopup', 'dialog'); person.append(identityRun(shown, mine, true))
+      person.setAttribute('aria-haspopup', 'dialog'); person.append(identityRun(shown, mine, true, false, true))
       // Your own name is not drawn above your bubble; the button stays in the page
       // for a screen reader and is not a tab stop nobody can see.
       if (mine) person.tabIndex = -1
@@ -11404,7 +11441,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const info = document.createElement('span')
         info.className = 'reactionPersonInfo'
         const name = document.createElement('strong')
-        name.textContent = `${shown.name ?? 'No name'}${entry.participant === meParticipant ? ' (you)' : ''}`
+        name.textContent = `${shown.name ?? 'Somebody'}${entry.participant === meParticipant ? ' (you)' : ''}`
         info.append(name)
         if (shown.nip05) {
           const address = document.createElement('span')
@@ -11413,14 +11450,11 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           address.title = 'This domain maps the Nostr address to this public key.'
           info.append(address)
         }
-        const key = document.createElement('span')
-        key.className = 'reactionNpub'
-        key.textContent = shown.npub
         const timestamp = document.createElement('time')
         timestamp.dateTime = new Date(entry.sentAt * 1000).toISOString()
         const received = entry.reaction?.receipt === 'received'
         timestamp.textContent = `${received ? 'Received' : 'Reacted'} ${new Date(entry.sentAt * 1000).toLocaleString()}`
-        info.append(key, timestamp)
+        info.append(timestamp)
         if (received) {
           const receipt = document.createElement('span')
           receipt.className = 'reactionReceipt'
@@ -11545,7 +11579,7 @@ function screenSource(participant: string, device: string, owner = mediaSession(
     }
   }
   if (track?.readyState !== 'live') track = undefined
-  const name = shownAs(participant, person?.name).name ?? lastName ?? shortKey(participant)
+  const name = shownAs(participant, person?.name).name ?? lastName ?? 'Somebody'
   const cameraAdvert = person?.tracks.some(track => track.device === device && track.role === 'camera')
   const camera = local ? cameraTrack : cameraAdvert ? remoteVideos.get(tileKey(device, 'camera'))?.track : undefined
   const status = !person || (origin.callId && (person.call?.id !== origin.callId || !person.call.devices.includes(device))) ? 'left'
@@ -12731,8 +12765,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       setStatus('Joining the room…', 'progress')
     }
     if (needsAccountReconnect() && !asVisitor) {
-      setStatus('Your Nostr account is disconnected. Reconnect it, or choose to go in with just a name.')
-      ;($('joinNostr') as HTMLButtonElement).focus()
+      setStatus('Your Nostr account is not connected. Continue to reconnect it, or join with just a name.')
+      ;($('join') as HTMLButtonElement).focus()
       return
     }
     const deviceSk = deviceKey()
@@ -13738,12 +13772,10 @@ function renderRooms(): void {
   $('roomsEmpty').textContent = restoring ? 'Loading your chats…' : ''
   $('roomsEmpty').hidden = !restoring
   if (accountDisconnected()) {
-    const signer = signerLabel(expectedMethod)
-    const kept = hidden.filter(room => !knownRoom(roomStore(), room.roomId)).length
-    $('accountReconnectText').textContent = `Your Nostr account (${npubEncode(expectedAccount!)}) is not connected in this tab. `
-      + (kept ? `${kept === 1 ? 'One room' : `${kept} rooms`} saved to it ${kept === 1 ? 'is' : 'are'} not shown until you reconnect ${signer}.`
-        : `Rooms saved to it are not shown until you reconnect ${signer}.`)
-    $('accountReconnectButton').textContent = expectedMethod === 'nip07' ? 'Reconnect extension' : 'Reconnect'
+    // The account by its name, never its key. One button, whatever the signer.
+    const who = expectedAccount ? shownAs(expectedAccount).name ?? lastKnownProfileNames.get(expectedAccount) : undefined
+    $('accountReconnectText').textContent = who ? `Reconnect ${who} to see its rooms.` : 'Reconnect your Nostr account to see its rooms.'
+    $('accountReconnectButton').textContent = 'Reconnect'
   }
   $('clearHomeRoomQuery').hidden = !query
   // Nothing matches: say so, with a way back to everything.
@@ -13938,7 +13970,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
   const messages = here ? conversationMessages(undefined) : watched!.watch.messages()
   const latest = messages.reduce<ChatMessage | undefined>((best, m) => (!best || m.sentAt > best.sentAt ? m : best), undefined)
   const nameOf = (participant: string): string =>
-    shownAs(participant, messages.find((m) => m.participant === participant)?.name).name ?? shortKey(participant)
+    shownAs(participant, messages.find((m) => m.participant === participant)?.name).name ?? 'Somebody'
   const preview = (latest && previewLine(latest, self, nameOf)) ?? NO_MESSAGES
 
   // The room on screen counts what is unread in every one of its
@@ -14240,7 +14272,7 @@ function knownRoomLabel(room: KnownRoom): string {
  *  when the conversation was started or received, then whatever a profile
  *  says, then the key. A DM link carries no room name. */
 function dmPersonName(room: KnownRoom, peer: string): string {
-  return room.name ?? shownAs(peer).name ?? shortKey(peer)
+  return room.name ?? shownAs(peer).name ?? 'Private chat'
 }
 
 /** The room this page is in, named the same way. */
@@ -14250,7 +14282,7 @@ function dmPersonName(room: KnownRoom, peer: string): string {
 function dmPeerName(peer: string): string {
   const onRoster = session?.participants().find((v) => v.participant === peer)?.name
   const remembered = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
-  return shownAs(peer, onRoster ?? remembered).name ?? shortKey(peer)
+  return shownAs(peer, onRoster ?? remembered).name ?? 'Private chat'
 }
 
 function currentRoomLabel(): string {
@@ -14497,7 +14529,6 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     await startSession()
     if (!session) {
       $('joinRoomForm').hidden = false
-      $('identityMore').hidden = false
       renderArrival()
     }
   } catch (error) {
@@ -15207,7 +15238,7 @@ function updateDesktopUnread(): void {
  *  whether or not there was another Wren to tell apart from). */
 function senderLabel(m: ChatMessage): string {
   const shown = shownAs(m.participant, m.name)
-  if (shown.name === undefined) return shown.short
+  if (shown.name === undefined) return 'Somebody'
   return nameCollides(m.participant, shown.name) ? `${shown.name} (${shown.short})` : shown.name
 }
 
@@ -16814,7 +16845,9 @@ $('createRoomForm').addEventListener('submit', async event => {
   $('createError').hidden = true
   try {
     await startNewRoom()
-    // The sheet that asked for the room has done its job: the door is next.
+    // The sheet that asked for the room has done its job. The creator goes
+    // straight in under the name they have, unless they have a real choice to
+    // make at the door: an account to reconnect, or an extension to use.
     newRoomDialog.close()
     linkArrivalOver = true
     setStatus('')
@@ -17740,14 +17773,20 @@ $('voicePreview').addEventListener('click', () => {
 $('joinVisitor').addEventListener('click', async () => {
   const generation = identityGeneration
   const room = roomGeneration
-  if (!await confirmAction({
-    title: 'Join with just a name?',
-    message: 'This is not your Nostr account, even with the same name. Agents that know your account may ignore these messages.',
-    confirmLabel: 'Join with just a name',
-    cancelLabel: 'Back to sign-in',
-    isCurrent: () => generation === identityGeneration && room === roomGeneration && needsAccountReconnect() && !session && !joining,
-  })) return
-  await startSession(true)
+  const mode = doorMode()
+  if (mode === 'reconnect') {
+    if (!await confirmAction({
+      title: 'Join with just a name?',
+      message: 'This is not your Nostr account, even with the same name. Agents that know your account may ignore these messages.',
+      confirmLabel: 'Join with just a name',
+      cancelLabel: 'Back',
+      isCurrent: () => generation === identityGeneration && room === roomGeneration && needsAccountReconnect() && !session && !joining,
+    })) return
+  } else if (mode !== 'extension') return
+  visitorChosenKey = doorKey()
+  if (mode === 'reconnect' && typedName) { await startSession(true); return }
+  renderIdentity()
+  ;($('displayName') as HTMLInputElement).focus()
 })
 
 /** Enter pressed while the door was still being built, or while a sign-in
@@ -17760,7 +17799,7 @@ function tryPendingJoin(): void {
   const join = $('join') as HTMLButtonElement
   if (join.hidden || join.disabled || loginBusy || session || joining) return
   pendingJoin = false
-  startSession().catch((err) => setStatus(describeError(err)))
+  joinFromDoor().catch((err) => setStatus(describeError(err)))
 }
 $('joinRoomForm').addEventListener('submit', event => {
   event.preventDefault()
@@ -17772,7 +17811,7 @@ $('joinRoomForm').addEventListener('submit', event => {
     setStatus('One moment…', 'progress')
     return
   }
-  startSession().catch((err) => setStatus(describeError(err)))
+  joinFromDoor().catch((err) => setStatus(describeError(err)))
 })
 
 /** Leave every local media source before returning to this room's door. */
@@ -19836,7 +19875,7 @@ function showArrivalFailure(err: unknown): void {
   const card = valid ? undefined : cardAtTheDoor()
   if (card) {
     $('arrivalTitle').textContent = 'This is a contact card'
-    $('arrivalLead').textContent = `From ${card.name ?? shortKey(card.p)} (${npubOf(card.p).slice(0, 16)}…): their key, ${card.relays.length} public relay${card.relays.length === 1 ? '' : 's'} and ${card.boxes.length === 0 ? 'no box' : card.boxes.length === 1 ? 'one box' : `${card.boxes.length} boxes`}. Add it to the contacts on this device?`
+    $('arrivalLead').textContent = `From ${card.name ?? 'somebody'}: their key, ${card.relays.length} public relay${card.relays.length === 1 ? '' : 's'} and ${card.boxes.length === 0 ? 'no box' : card.boxes.length === 1 ? 'one box' : `${card.boxes.length} boxes`}. Add it to the contacts on this device?`
     $('arrivalLead').hidden = false
     $('joinRoomForm').hidden = true
     $('identityMore').hidden = true
@@ -19951,7 +19990,6 @@ Promise.all([roomArrival, identityReady]).then(([found]) => {
     setStatus('Check your sign-in before entering: the previous account is not available.')
     return
   }
-  return startSession()
 }).catch(() => { /* Admission/sign-in failures leave the normal door available. */ })
 
 // The pubkey we would join as, so the identity line is right before the

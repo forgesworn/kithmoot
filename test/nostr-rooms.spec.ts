@@ -15,7 +15,7 @@ import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/
 import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm, leaveRoom, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects, openProfileSettings, openMember, openRoomInfoPage, closeProfileSettings, openSettings, closeSettings } from './browser.js'
+import { openNewRoomForm, openRoomDetails, leaveRoom, TEST_RELAY_WS, leaveToChats, switchToRoom, openProjects, openProfileSettings, openMember, openRoomInfoPage, closeProfileSettings, openSettings, closeSettings } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
@@ -55,23 +55,24 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     }, visitorSecret)
     const page = await context.newPage()
     await page.goto(link)
-    await expect(page.locator('#joinNostr')).toBeVisible()
-    await expect(page.locator('#join')).toHaveText('Join with saved device identity')
-    await expect(page.locator('#whoami')).toContainText('saved device identity')
-    await page.locator('#joinNostr').click()
-    await page.getByRole('button', { name: /Browser extension/ }).click()
-    await expect(page.locator('#whoami')).toContainText('Account Alice')
-    await expect(page.locator('#whoami')).not.toContainText('alice@profile.example')
-    expect(addressRequests).toBe(0)
-    await expect(page.locator('#whoami img')).toHaveJSProperty('naturalWidth', 16)
-    await expect(page.locator('#whoami')).toContainText(npubEncode(pubkey).slice(0, 12))
+    // A Nostr extension and nobody signed in: the extension is the one way
+    // in, and a name is the other, said as a step down.
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr extension')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toHaveText('Join with just a name instead')
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    expect(addressRequests).toBe(0)
+    // Who you are in the room is Room info's to say, not the door's.
+    await openRoomDetails(page)
+    await expect(page.locator('#infoSubAppear')).toHaveText('Account Alice · Nostr account')
+    await expect(page.locator('#roomSheet')).not.toContainText('alice@profile.example')
+    await page.locator('#roomSheetClose').click()
     await openProfileSettings(page)
     await expect(page.locator('#verifyAddresses')).not.toBeChecked()
     await page.locator('#verifyAddresses').check(); await closeProfileSettings(page)
-    await expect(page.locator('#whoami')).toContainText('alice@profile.example')
-    expect(addressRequests).toBeGreaterThan(0)
+    await expect.poll(() => addressRequests).toBeGreaterThan(0)
     await page.locator('#chatInput').fill('Tally, this is my account')
     await page.locator('#chatInput').press('Enter')
     await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, this is my account')?.participant).toBe(pubkey)
@@ -98,7 +99,8 @@ test('a saved paired credential cannot override a different signed-in Nostr acco
     await page.evaluate(entries => { for (const [key, value] of entries) localStorage.setItem(key!, value!) }, store.keys().map(key => [key, store.get(key)]))
     await page.goto(link)
     await page.reload()
-    await expect(page.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
+    // Signed in: the one primary continues as the account, never as a key.
+    await expect(page.locator('#join')).toHaveText(/^Continue with your Nostr account|^Continue as /)
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('Tally, use the selected account')
@@ -164,16 +166,22 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await returning.locator('#roomList').getByRole('button', { name: 'Open Standing town hall', exact: true }).click()
     await expect(returning.locator('#roomArea')).toBeVisible()
     await expect(returning.locator('#roomTitle')).toHaveText('Standing town hall')
-    await expect(returning.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
+    await openRoomDetails(returning)
+    await expect(returning.locator('#infoSubAppear')).toContainText('Nostr account')
+    await returning.locator('#roomSheetClose').click()
 
     const guest = await visitor.newPage()
     await guest.goto(link)
     await expect(guest.locator('#join')).toBeVisible()
     await expect(guest.locator('#signIn')).toBeHidden() // optional disclosure stays closed
+    // The extension is offered first; a name is the step down under it.
+    await guest.locator('#joinVisitor').click()
     await guest.locator('#displayName').fill('Visiting Ada')
     await guest.locator('#join').click()
     await expect(guest.locator('#roomArea')).toBeVisible()
-    await expect(guest.locator('#whoami')).toContainText('Visiting Ada')
+    await openRoomDetails(guest)
+    await expect(guest.locator('#infoSubAppear')).toHaveText('Visiting Ada · just a name')
+    await guest.locator('#roomSheetClose').click()
 
     await leaveToChats(returning)
     await expect(returning.locator('#roomList .roomName')).toHaveText('Standing town hall')
@@ -296,7 +304,9 @@ test('switching conversations restores the same Nostr identity before entering',
     await switchToRoom(first, 'Second account room')
     await expect(first.locator('#roomTitle')).toHaveText('Second account room')
     await expect(first.locator('#roomArea')).toBeVisible()
-    await expect(first.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
+    await openRoomDetails(first)
+    await expect(first.locator('#infoSubAppear')).toContainText('Nostr account')
+    await first.locator('#roomSheetClose').click()
   } finally { await context.close() }
 })
 
@@ -314,19 +324,26 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
     unavailable = true
     await page.goto(link)
     await page.reload()
-    await expect(page.locator('#previousAccount')).toContainText('disconnected')
+    // One primary, no key in sight, the way down is a quiet line under it.
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr account')
+    await expect(page.locator('#displayName')).toBeHidden()
+    await expect(page.locator('#joinNostr')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toHaveText('Join with just a name instead')
+    await expect(page.locator('#identity')).not.toContainText('npub1')
     await page.locator('#join').click()
-    // The visitor choice is ignored while the account join is still failing.
-    await expect(page.locator('#status')).toContainText('Your Nostr account is disconnected')
+    // Continue goes to the signer, not into the room: the picker, which is put away.
+    await expect(page.getByRole('button', { name: /Browser extension/ })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: /Browser extension/ })).toBeHidden()
+    // The account is not back, so nothing joins and no visitor key is made.
     await expect(page.locator('#roomArea')).toBeHidden()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
     await page.locator('#joinVisitor').click()
     await expect(page.getByRole('alertdialog')).toContainText('not your Nostr account')
     await page.locator('#actionCancel').click()
     await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#joinVisitor')).toBeFocused()
     unavailable = false
-    await page.locator('#joinNostr').click()
-    await page.getByRole('button', { name: /Browser extension/ }).click()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await openRoomInfoPage(page, 'How you appear')
@@ -374,8 +391,7 @@ test('a room joined as the account opens again as that account while its signer 
     // navigation that WebKit can fail on while Playwright waits for a load.
     await page.goto('about:blank')
     await page.goto(link)
-    await expect(page.locator('#previousAccount')).toBeHidden()
-    await page.locator('#join').click()
+    // A room this device joined as the account opens itself, on the pass.
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#status')).toContainText('signer is not connected')
     await openRoomInfoPage(page, 'How you appear')
@@ -537,9 +553,10 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
     await page.reload()
     const notice = page.locator('#accountReconnect')
     await expect(notice).toBeVisible()
-    await expect(notice).toContainText(npubEncode(getPublicKey(secret)))
-    await expect(notice).toContainText('One room saved to it is not shown')
-    await expect(notice).toContainText('browser extension')
+    // Named, never keyed; one Reconnect whatever the signer.
+    await expect(page.locator('#accountReconnectText')).toHaveText(/^Reconnect (your Nostr account|.+) to see its rooms\.$/)
+    await expect(notice).not.toContainText('npub1')
+    await expect(page.locator('#accountReconnectButton')).toHaveText('Reconnect')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
 
     // The same room in this browser's own list, as a visit in a tab without
@@ -675,6 +692,9 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
     await page.locator('#displayName').fill('Same familiar name')
     await page.locator('#joinVisitor').click()
     await page.locator('#actionConfirm').click()
+    await expect(page.locator('#displayNameHint')).toHaveText('Just a name, not your Nostr account.')
+    await page.locator('#displayName').fill('Same familiar name')
+    await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as visitor/)
