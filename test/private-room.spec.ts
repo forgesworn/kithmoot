@@ -26,7 +26,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
       record({ side, type: 'socket', socket: id, origin: url.origin, path: url.pathname, local })
       if (!local) { complete = false; return }
-      for (const direction of ['framesent', 'framereceived'] as const) socket.on(direction, frame => {
+      const frameObserved = (direction: 'framesent' | 'framereceived', frame: { payload: string | Buffer }) => {
         const bytes = Buffer.from(frame.payload)
         const retained = bytes.length <= 65_536 && payloadBytes + bytes.length <= 8_388_608
         if (!retained) complete = false
@@ -36,7 +36,9 @@ test('somebody invited from a shared room is let straight into a room that asks 
           encoding: typeof frame.payload === 'string' ? 'text' : 'base64',
           ...(retained ? { payload: typeof frame.payload === 'string' ? frame.payload : bytes.toString('base64') } : {}),
         })
-      })
+      }
+      socket.on('framesent', frame => frameObserved('framesent', frame))
+      socket.on('framereceived', frame => frameObserved('framereceived', frame))
       socket.on('close', () => record({ side, type: 'socket-close', socket: id }))
     })
   })
